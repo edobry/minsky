@@ -70,6 +70,15 @@ export interface CalibrationLogEntry {
     | "policy-coverage"
     | "silent-stretch"
     | "wall-of-text";
+  /**
+   * Optional per-entry override (mt#2896) for the never-reviewed-aging review
+   * trigger: the number of days a NEVER-reviewed log may accumulate fires
+   * before `computeReviewDueLogs` flags it review-due (reason "never-reviewed").
+   * Omit to use the registry-wide default `NEVER_REVIEWED_DAYS`. A detector that
+   * declares a tighter graduation contract (e.g. "dispose at <= 30 days") sets
+   * this so the cadence loop can enforce that contract's time leg.
+   */
+  reviewByDays?: number;
 }
 
 /**
@@ -176,6 +185,36 @@ export const FIRES_THRESHOLD = 10;
  * the "keep collecting" state.
  */
 export const DIVERSITY_THRESHOLD = 3;
+
+/**
+ * Time-based staleness bar for a REVIEWED log with new-but-below-count-bar
+ * fires (moved here from `calibration-review-cadence-detector.ts` by mt#2896 so
+ * every cadence constant lives in ONE place alongside FIRES_THRESHOLD /
+ * DIVERSITY_THRESHOLD). Grounded in CLAUDE.md `decision-defaults.mdc
+ * §Thresholds` — "10 days for lynchpin tracking" is the nearest anchor; a
+ * calibration log with unreviewed new fires is a "tracking" concern (watching
+ * detector calibration drift), not active in-flight work (which uses the
+ * tighter 5-day bar).
+ */
+export const STALE_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
+
+/**
+ * Default number of days a NEVER-reviewed log may accumulate fires before it is
+ * flagged review-due (mt#2896's third trigger leg, reason "never-reviewed").
+ * Closes the "under-threshold-forever" blind spot: a low-volume log that has
+ * never been reviewed and accrues fires slowly satisfies NEITHER `pastThreshold`
+ * (needs count + diversity) NOR the time-stale leg (needs an existing
+ * watermark), so absent this leg it stays invisible to the review loop forever
+ * (causal-premise sat at 1 fire for ~6 weeks — mt#2832 audit).
+ *
+ * 30 = 3x the existing 10-day STALE_DAYS bar. Provisional per
+ * `decision-defaults.mdc §Thresholds` (ground in observed cadence, not a round
+ * number) until calibration data grounds it; overridable per-entry via
+ * `CalibrationLogEntry.reviewByDays` so a detector can declare a tighter
+ * graduation contract (the learn-capture detector, mt#2708, will declare 30).
+ */
+export const NEVER_REVIEWED_DAYS = 30;
+export const NEVER_REVIEWED_DAYS_MS = NEVER_REVIEWED_DAYS * 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Watermark store types
@@ -340,6 +379,13 @@ export interface CalibrationLogResult {
    * `openAskId`. Undefined when no ask is on file or it has been cleared.
    */
   openAskId?: string;
+  /**
+   * ISO-8601 timestamp of the EARLIEST record in the log (mt#2896), or undefined
+   * when the log is empty/absent. Threaded through so `computeReviewDueLogs`'s
+   * never-reviewed-aging leg can measure days-since-first-fire for a log that
+   * has no watermark to date from.
+   */
+  firstRecordTimestamp?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -606,6 +652,7 @@ export function computeLogResult(
     newRecords: atCountThreshold ? newRecords : [],
     watermarkCount,
     openAskId: watermark?.openAskId,
+    firstRecordTimestamp: allRecords[0]?.timestamp,
   };
 }
 
@@ -629,6 +676,110 @@ export async function runSweep(
     results.push(computeLogResult(entry, content ?? "", exists, watermark));
   }
   return results;
+}
+
+// ---------------------------------------------------------------------------
+// Review-due determination (mt#2896)
+// ---------------------------------------------------------------------------
+//
+// Moved here from `.minsky/hooks/calibration-review-cadence-detector.ts` so
+// BOTH the cadence hook AND the `observability.calibration-review` command
+// consume ONE source of truth for "which logs are review-due." Previously the
+// command reported only per-log `pastThreshold` while the never-reviewed /
+// time-stale legs lived hook-only, so `observability_calibration-review` could
+// never surface a time-based review-due log (mt#2896 acceptance test #2).
+
+/** A calibration log flagged as review-due, tagged with the leg that flagged it. */
+export interface ReviewDueLog {
+  name: string;
+  path: string;
+  /** Registry kind (mt#2659) — drives the fire-count-vs-time-only re-warn split in the hook's `shouldReWarn`. */
+  kind: CalibrationLogEntry["kind"];
+  firesSinceLastReview: number;
+  totalFires: number;
+  distinctPhrases: number;
+  reason: "past-threshold" | "time-stale" | "never-reviewed";
+  /** Forwarded from the watermark's `openAskId` (mt#2659); undefined for never-reviewed (no watermark). */
+  openAskId?: string;
+}
+
+function toReviewDueLog(
+  r: CalibrationLogResult,
+  reason: ReviewDueLog["reason"],
+  openAskId: string | undefined
+): ReviewDueLog {
+  return {
+    name: r.entry.name,
+    path: r.entry.path,
+    kind: r.entry.kind,
+    firesSinceLastReview: r.firesSinceLastReview,
+    totalFires: r.totalFires,
+    distinctPhrases: r.distinctPhrases,
+    reason,
+    openAskId,
+  };
+}
+
+/**
+ * Determine which logs are review-due, per THREE independent conditions:
+ *   1. past-threshold — fires-since-review >= FIRES_THRESHOLD AND
+ *      distinctPhrases >= DIVERSITY_THRESHOLD (the diversity-aware count bar).
+ *   2. time-stale     — the log HAS a watermark (reviewed before), has >= 1 new
+ *      fire since, AND that review is >= `staleMs` old.
+ *   3. never-reviewed — the log has NO watermark (never reviewed, ever), has
+ *      >= 1 fire, AND its EARLIEST fire is >= the log's review-by window old
+ *      (per-entry `reviewByDays`, else `NEVER_REVIEWED_DAYS`). mt#2896 — closes
+ *      the "under-threshold-forever" blind spot where a slow, low-volume log
+ *      satisfied neither (1) (needs diversity) nor (2) (needs a watermark).
+ *
+ * Pure over already-computed sweep results + the watermark store. `nowMs` and
+ * both windows are injected for deterministic testing.
+ */
+export function computeReviewDueLogs(
+  results: CalibrationLogResult[],
+  watermarks: WatermarkStore,
+  nowMs: number,
+  staleMs: number = STALE_DAYS_MS,
+  neverReviewedMsDefault: number = NEVER_REVIEWED_DAYS_MS
+): ReviewDueLog[] {
+  const due: ReviewDueLog[] = [];
+  for (const r of results) {
+    const wm = watermarks[r.entry.path];
+
+    if (r.pastThreshold) {
+      due.push(toReviewDueLog(r, "past-threshold", wm?.openAskId));
+      continue;
+    }
+
+    // never-reviewed-aging (mt#2896): no watermark at all, but the log has been
+    // accumulating fires since its first record for longer than its review-by
+    // window. Dates from the earliest record's timestamp (there is no watermark
+    // to date from here).
+    if (!wm) {
+      if (r.totalFires <= 0 || !r.firstRecordTimestamp) continue;
+      const firstMs = Date.parse(r.firstRecordTimestamp);
+      if (Number.isNaN(firstMs)) continue;
+      const windowMs =
+        r.entry.reviewByDays !== undefined
+          ? r.entry.reviewByDays * 24 * 60 * 60 * 1000
+          : neverReviewedMsDefault;
+      if (nowMs - firstMs >= windowMs) {
+        due.push(toReviewDueLog(r, "never-reviewed", undefined));
+      }
+      continue;
+    }
+
+    // time-stale: reviewed before, >= 1 new fire, review is >= staleMs old. A
+    // reviewed log that hasn't accrued a new fire is "keep collecting," not
+    // "forgotten."
+    if (r.firesSinceLastReview <= 0) continue;
+    const reviewedMs = Date.parse(wm.lastReviewedAt);
+    if (Number.isNaN(reviewedMs)) continue;
+    if (nowMs - reviewedMs >= staleMs) {
+      due.push(toReviewDueLog(r, "time-stale", wm.openAskId));
+    }
+  }
+  return due;
 }
 
 /**

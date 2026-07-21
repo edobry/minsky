@@ -79,9 +79,12 @@ import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   CALIBRATION_LOG_REGISTRY,
   runSweep,
+  computeReviewDueLogs,
+  STALE_DAYS_MS,
+  NEVER_REVIEWED_DAYS,
   type CalibrationLogEntry,
-  type CalibrationLogResult,
   type WatermarkStore,
+  type ReviewDueLog,
 } from "../../src/domain/calibration/calibration-sweep";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
@@ -93,18 +96,6 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_CALIBRATION_CADENCE";
 
 const WATERMARK_STORE_PATH = ".minsky/calibration-review-watermarks.json";
 const LAST_WARNED_STORE_PATH = ".minsky/calibration-review-cadence-last-warned.json";
-
-/**
- * Time-based staleness bar for a REVIEWED log with new-but-below-count-bar
- * fires. Grounded in CLAUDE.md `decision-defaults.mdc §Thresholds` — "10 days
- * for lynchpin tracking" is the nearest existing anchor; a calibration log
- * with unreviewed new fires is exactly a "tracking" concern (watching
- * detector calibration drift), not active in-flight work (which uses the
- * tighter 5-day bar). The retrospective-trigger incident this hook fixes sat
- * stale for 21+ days — well past this bar — so 10 days catches it with
- * margin while not firing on a log reviewed a few days ago.
- */
-export const STALE_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
 
 /**
  * Re-warning cooldown: once a log is flagged review-due and the operator has
@@ -125,24 +116,6 @@ export interface UserPromptSubmitInput extends ClaudeHookInput {
   prompt: string;
 }
 
-export interface ReviewDueLog {
-  name: string;
-  path: string;
-  /** Registry kind (mt#2659) — drives the fire-count-vs-time-only re-warn split in `shouldReWarn`. */
-  kind: CalibrationLogEntry["kind"];
-  firesSinceLastReview: number;
-  totalFires: number;
-  distinctPhrases: number;
-  reason: "past-threshold" | "time-stale";
-  /**
-   * ID of a still-open disposition Ask on file for this log (mt#2659),
-   * forwarded from the watermark's `openAskId`. When set, `main()` suppresses
-   * the normal per-turn warning for this log in favor of a single
-   * "disposition pending" line, shown at most once per `session_id`.
-   */
-  openAskId?: string;
-}
-
 /** Per-log last-warned record, keyed by log path. */
 export interface LastWarnedRecord {
   lastWarnedAt: string;
@@ -156,73 +129,6 @@ export interface LastWarnedRecord {
   pendingAskWarnedSessionId?: string;
 }
 export type LastWarnedStore = Record<string, LastWarnedRecord>;
-
-// ---------------------------------------------------------------------------
-// Pure logic (exported for testing)
-// ---------------------------------------------------------------------------
-
-/**
- * Determine which logs are review-due per the two independent conditions
- * described in the header comment. Pure function over already-computed sweep
- * results + the watermark store.
- */
-export function computeReviewDueLogs(
-  results: CalibrationLogResult[],
-  watermarks: WatermarkStore,
-  nowMs: number,
-  staleMs: number = STALE_DAYS_MS
-): ReviewDueLog[] {
-  const due: ReviewDueLog[] = [];
-  for (const r of results) {
-    const wm = watermarks[r.entry.path];
-
-    if (r.pastThreshold) {
-      due.push({
-        name: r.entry.name,
-        path: r.entry.path,
-        kind: r.entry.kind,
-        firesSinceLastReview: r.firesSinceLastReview,
-        totalFires: r.totalFires,
-        distinctPhrases: r.distinctPhrases,
-        reason: "past-threshold",
-        openAskId: wm?.openAskId,
-      });
-      continue;
-    }
-
-    // Time-stale: only applies to a log that HAS a watermark (was reviewed
-    // before) and has accrued at least one new fire since then. A log that
-    // has never been reviewed and isn't past-threshold either simply hasn't
-    // accumulated enough signal yet (e.g. causal-premise at 1 fire) — that's
-    // "keep collecting," not "forgotten."
-    //
-    // mt#2896 (filed, not yet implemented): a log with NO watermark at all
-    // (never reviewed, ever) that has nonetheless been accumulating fires for
-    // a long time is currently invisible to BOTH conditions above —
-    // `pastThreshold` requires diversity as well as count, and this
-    // "time-stale" branch requires `wm` to be truthy. mt#2896's third trigger
-    // leg (never-reviewed + days-since-first-fire) slots in HERE, as an
-    // `if (!wm) { ... }` branch using each log's earliest record's
-    // `timestamp` (not yet threaded through `CalibrationLogResult` — that's
-    // part of mt#2896's own scope) instead of `wm.lastReviewedAt`.
-    if (!wm || r.firesSinceLastReview <= 0) continue;
-    const reviewedMs = Date.parse(wm.lastReviewedAt);
-    if (Number.isNaN(reviewedMs)) continue;
-    if (nowMs - reviewedMs >= staleMs) {
-      due.push({
-        name: r.entry.name,
-        path: r.entry.path,
-        kind: r.entry.kind,
-        firesSinceLastReview: r.firesSinceLastReview,
-        totalFires: r.totalFires,
-        distinctPhrases: r.distinctPhrases,
-        reason: "time-stale",
-        openAskId: wm.openAskId,
-      });
-    }
-  }
-  return due;
-}
 
 /**
  * Log kinds whose fire count grows per TOOL CALL rather than per matched
@@ -323,7 +229,9 @@ export function formatCadenceWarning(due: ReviewDueLog[]): string {
     const reasonLabel =
       d.reason === "past-threshold"
         ? "past review threshold (fires + diversity)"
-        : `unreviewed for >= ${Math.floor(STALE_DAYS_MS / (24 * 60 * 60 * 1000))} days`;
+        : d.reason === "never-reviewed"
+          ? `never reviewed; first fire >= ${NEVER_REVIEWED_DAYS} days ago`
+          : `unreviewed for >= ${Math.floor(STALE_DAYS_MS / (24 * 60 * 60 * 1000))} days`;
     lines.push(
       `  - ${d.name}: ${d.firesSinceLastReview} new fire(s) since last review ` +
         `(${d.totalFires} total, ${d.distinctPhrases} distinct) — ${reasonLabel}`
