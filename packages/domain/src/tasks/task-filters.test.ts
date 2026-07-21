@@ -41,4 +41,18 @@ describe("task-filters: filterTasksByStatus", () => {
     const result = filterTasksByStatus(tasks, { status: "NON-EXISTENT" });
     expect(result).toEqual([]);
   });
+
+  // mt#3010 PR #2171 R1: status: "all" is a sentinel meaning "no specific
+  // status filter" (matching the pre-mt#3010 behavior both minskyTaskBackend.ts
+  // and githubIssuesTaskBackend.ts special-cased inline), not a literal status
+  // value to match against — a task never literally has status "all".
+  it('treats status: "all" as no filter (hides terminal by default)', () => {
+    const result = filterTasksByStatus(tasks, { status: "all" });
+    expect(result.map((t) => t.id)).toEqual(["#1", "#2", "#3", "#6"]);
+  });
+
+  it('status: "all" combined with all: true includes everything', () => {
+    const result = filterTasksByStatus(tasks, { status: "all", all: true });
+    expect(result.map((t) => t.id)).toEqual(["#1", "#2", "#3", "#4", "#5", "#6"]);
+  });
 });

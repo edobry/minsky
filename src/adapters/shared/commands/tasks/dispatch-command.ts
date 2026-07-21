@@ -292,6 +292,14 @@ export function createTasksDispatchCommand(
           "@minsky/domain/tasks"
         );
         const { TASK_STATUS } = await import("@minsky/domain/tasks/taskConstants");
+        // mt#3010: the walk's shape (TODO -> PLANNING -> READY) is now derived
+        // from the "implementation" workflow's transition graph in the
+        // registry instead of hand-chained `if (status === TODO) ...` /
+        // `if (status === PLANNING) ...` branches — same registry
+        // BIND_ADVANCE_SEAM_STATUS the spec-read guard keys on.
+        const { computeStatusWalkPath, BIND_ADVANCE_SEAM_STATUS } = await import(
+          "@minsky/domain/tasks/workflows"
+        );
         const persistenceProvider = getPersistenceProvider();
         const taskService = getTaskService();
 
@@ -300,22 +308,16 @@ export function createTasksDispatchCommand(
           { persistenceProvider, taskService }
         );
 
-        if (status === TASK_STATUS.TODO) {
+        const walkPath = status
+          ? (computeStatusWalkPath(status, BIND_ADVANCE_SEAM_STATUS) ?? [])
+          : [];
+        for (const nextStatus of walkPath) {
           await setTaskStatusFromParams(
-            { taskId, status: TASK_STATUS.PLANNING },
+            { taskId, status: nextStatus },
             { persistenceProvider, taskService }
           );
-          statusWalk.push(TASK_STATUS.PLANNING);
-          status = TASK_STATUS.PLANNING;
-        }
-
-        if (status === TASK_STATUS.PLANNING) {
-          await setTaskStatusFromParams(
-            { taskId, status: TASK_STATUS.READY },
-            { persistenceProvider, taskService }
-          );
-          statusWalk.push(TASK_STATUS.READY);
-          status = TASK_STATUS.READY;
+          statusWalk.push(nextStatus);
+          status = nextStatus;
         }
 
         if (status !== TASK_STATUS.READY) {

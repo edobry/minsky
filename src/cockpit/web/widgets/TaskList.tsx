@@ -169,6 +169,15 @@ export function statusPriority(status: string): number {
 // IN-PROGRESS -> IN-REVIEW -> DONE, side states BLOCKED/CLOSED). A
 // tasks_list(all:true) probe confirmed zero live tasks carry it; see
 // status-colors.ts and the PR body for the full probe transcript.
+//
+// Mirrors status-colors.ts's TaskStatus union (and, transitively,
+// packages/domain/src/tasks/taskConstants.ts's TASK_STATUS_VALUES) — NOT
+// imported from @minsky/domain for the same reason documented on that type:
+// a probed vite build either hard-fails (taskConstants.ts's `crypto`
+// dependency) or bloats this page's chunk by tens of KB (workflows.ts's tool-
+// mapping tables) for a status list that only changes with the state machine
+// itself. Update this list alongside status-colors.ts and the domain enum if
+// a status is ever added/removed (mt#3010).
 // ---------------------------------------------------------------------------
 
 export const ALL_STATUSES = [

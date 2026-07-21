@@ -68,12 +68,12 @@ export const taskCreationParams = {
       "Tags/labels for thematic batching (can be repeated, e.g., --tag di-cleanup --tag test-quality)",
     required: false,
   },
-  kind: {
-    schema: z.string().optional(),
-    description:
-      "Workflow kind for the task (e.g., 'implementation', 'umbrella'). Defaults to 'implementation'.",
-    required: false,
-  },
+  // Validated enum (mt#3010 — this was a raw z.string().optional(), the one
+  // create-time gap in kind governance: every OTHER kind param in this file
+  // already used the validated TaskParameters.kind, so an unknown kind here
+  // was accepted by the schema and silently fell back to "implementation" at
+  // getWorkflow() time instead of being rejected at create time).
+  kind: TaskParameters.kind,
 };
 
 /**

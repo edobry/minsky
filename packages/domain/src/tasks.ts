@@ -269,6 +269,14 @@ export async function createTaskFromTitleAndSpec(
 ) {
   // Parse using the existing schema (which may still use "description")
   const validParams = taskCreateParamsSchema.parse(params);
+
+  // Kind governance (mt#3010): reject an unknown kind loudly at create time
+  // rather than letting it write to the (unconstrained-text) kind column and
+  // silently fall back to "implementation" at getWorkflow() time. Defense in
+  // depth alongside the adapter-level TaskParameters.kind enum (a direct
+  // domain caller that bypasses the adapter schema still gets this check).
+  assertKnownKind(validParams.kind);
+
   const workspacePath = process.cwd();
   log.debug("tasks.createTitleSpec params", { backend: validParams.backend });
 

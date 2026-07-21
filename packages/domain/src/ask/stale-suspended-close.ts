@@ -41,6 +41,7 @@ import { log } from "@minsky/shared/logger";
 import type { Ask } from "./types";
 import type { AskRepository } from "./repository";
 import { closeAskAsResolved } from "./close-as-resolved";
+import { isTerminal } from "../tasks/workflows";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -61,15 +62,6 @@ export const RESPONDER_PARENT_TERMINAL = "system:parent-task-terminal";
 
 /** Responder recorded when a later landed commit supersedes a failed attempt. */
 export const RESPONDER_SUPERSEDED = "system:superseded-by-later-commit";
-
-/**
- * Task statuses that mean the ask's triggering work has resolved. Matches
- * scripts/backfill-close-stale-asks.ts (mt#2760). Membership is checked
- * case-insensitively (PR #2146 R1): non-minsky backends report lowercase
- * states (e.g. a GitHub issue's "closed"), and a case miss here silently
- * exempts exactly the gh#-parented asks this sweep exists to cover.
- */
-const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(["DONE", "CLOSED", "COMPLETED"]);
 
 const KIND_AUTH_APPROVE = "authorization.approve";
 const KIND_QUALITY_REVIEW = "quality.review";
@@ -129,10 +121,20 @@ export function isCommitAuthAsk(ask: Ask): boolean {
   return ask.kind === KIND_AUTH_APPROVE && typeof ask.metadata?.["commitMessage"] === "string";
 }
 
+/**
+ * True when the ask's parent task has reached a terminal status. Matches
+ * scripts/backfill-close-stale-asks.ts (mt#2760), and — since mt#3010 —
+ * consumes the registry's `isTerminal` predicate directly rather than a
+ * hand-maintained literal Set (this file's copy also carried a harmless
+ * orphan "COMPLETED" entry no live status ever matches; see mt#3010 spec).
+ * Membership is checked case-insensitively: non-minsky backends report
+ * lowercase states (e.g. a GitHub issue's "closed"), and a case miss here
+ * silently exempts exactly the gh#-parented asks this sweep exists to cover.
+ */
 function isParentTerminal(ask: Ask, taskStatusById: ReadonlyMap<string, string>): boolean {
   if (!ask.parentTaskId) return false;
   const status = taskStatusById.get(ask.parentTaskId);
-  return status !== undefined && TERMINAL_TASK_STATUSES.has(status.toUpperCase());
+  return status !== undefined && isTerminal(status.toUpperCase());
 }
 
 /**

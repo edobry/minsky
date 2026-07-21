@@ -16,10 +16,20 @@
  *     records) that terminate at DONE without a session or a PR (mt#2661; single
  *     success terminal across kinds since mt#2311).
  *
+ * Single-authority consolidation (mt#3010, mt#2310 RFC Phase 1): this module is the
+ * ONE import site for task-status semantics. Every consumer that previously
+ * hand-maintained its own copy of the terminal set, the hidden-by-default set, or a
+ * status vocabulary literal now imports the corresponding predicate/constant from
+ * here instead — `isTerminal`, `isActiveWork`, `isAwaitingReview`,
+ * `DEFAULT_HIDDEN_STATUSES` / `isHiddenByDefaultStatus`, and
+ * `BIND_ADVANCE_SEAM_STATUS` (see each export's doc comment below).
+ *
  * Cross-references:
  *   - mt#1812 — originating task
  *   - mt#1768 — originating incident (Cockpit bundle umbrella)
  *   - mt#2661 — "state-ops" kind (no-code tasks cannot terminate honestly)
+ *   - mt#2310 / mt#3010 — status-machine single-authority consolidation (this module
+ *     absorbed the duplicate-literal sites the RFC's audit found)
  *   - docs/task-kinds.md — narrative documentation
  *   - CLAUDE.md §Task Lifecycle — overview of the current state machine
  */
@@ -104,8 +114,31 @@ export interface Workflow {
   transitions: Record<string, string[]>;
   /** States from which no further workflow progression is expected */
   terminal: string[];
+  /**
+   * Transitions that are structurally reserved for a specific alternate entry
+   * point (e.g. `session_start`) rather than a direct status-set call, plus the
+   * transitions that need a more specific "go via X first" hint than the
+   * generic invalid-transition message. Per-kind DATA (mt#3010): this replaced
+   * `if (kind === "implementation")` branches previously hardcoded in
+   * `status-transitions.ts`'s `validateStatusTransition` — a workflow that
+   * doesn't reserve any transition this way (umbrella, state-ops) simply omits
+   * the field.
+   */
+  restrictedTransitions?: RestrictedTransition[];
   /** External tool mapping tables */
   mappings: WorkflowMappings;
+}
+
+/**
+ * A transition that IS reachable for a kind, but not via a direct status-set
+ * call — attempting it directly throws `message` instead of the generic
+ * "Cannot transition from X to Y" error. See {@link Workflow.restrictedTransitions}.
+ */
+export interface RestrictedTransition {
+  from: string;
+  to: string;
+  /** Shown instead of the generic invalid-transition message. */
+  message: string;
 }
 
 /**
@@ -144,7 +177,9 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
   // Note on READY → IN-PROGRESS and PLANNING → IN-PROGRESS:
   //   These transitions are intentionally absent from this map because they
   //   can only occur via `session_start`, not via direct `tasks_status_set`.
-  //   The gate enforces this as a special case before consulting the workflow.
+  //   `restrictedTransitions` below (mt#3010) is the data-driven encoding of
+  //   that restriction — `validateStatusTransition` consults it before falling
+  //   back to the generic invalid-transition message.
   // -------------------------------------------------------------------------
   implementation: {
     states: ["TODO", "PLANNING", "READY", "IN-PROGRESS", "IN-REVIEW", "DONE", "BLOCKED", "CLOSED"],
@@ -163,6 +198,22 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
       CLOSED: ["TODO"],
     },
     terminal: ["DONE", "CLOSED"],
+    // Reserved for session_start, not a direct tasks_status_set call — the ONLY
+    // kind that reserves either transition this way (mt#3010: previously
+    // `if (kind === "implementation")` branches in status-transitions.ts).
+    restrictedTransitions: [
+      {
+        from: "READY",
+        to: "IN-PROGRESS",
+        message: "Use session_start to transition from READY to IN-PROGRESS",
+      },
+      {
+        from: "PLANNING",
+        to: "IN-PROGRESS",
+        message:
+          "Cannot transition directly from PLANNING to IN-PROGRESS. Set status to READY first, then use session_start.",
+      },
+    ],
     mappings: {
       githubIssue: {
         type: "issue",
@@ -383,15 +434,149 @@ export function assertKnownKind(kind: string | undefined): void {
 export const DEFAULT_KIND: TaskKind = "implementation";
 
 /**
+ * The union of every registered workflow's `terminal` states (currently
+ * {DONE, CLOSED} — single success terminal since mt#2311), as a tuple.
+ * `isTerminal` below is the predicate form; this tuple exists for callers that
+ * need the literal value set (e.g. building their own `Set` for a hot-path
+ * `.has()` lookup — a hook-layer consumer that can't call across the
+ * `.minsky/hooks` <-> domain boundary per-element). Exposed as a tuple, not a
+ * `Set`, for the same `custom/no-domain-singleton` reason as
+ * {@link DEFAULT_HIDDEN_STATUSES}.
+ */
+export const TERMINAL_TASK_STATUS_VALUES = [
+  ...new Set(Object.values(WORKFLOWS).flatMap((workflow) => workflow.terminal)),
+] as readonly string[];
+
+/**
  * True when `status` is a terminal state in ANY registered workflow
  * (currently the union {DONE, CLOSED} — single success terminal since
  * mt#2311). This is the domain-level "no further work expected" predicate —
  * e.g. the parent-DONE closeout guard (mt#1649) uses it to decide whether a
  * child task counts as complete. Distinct from the UI's hidden-by-default
- * listing filter, which may drift for display reasons without changing
- * closeout semantics.
+ * listing filter ({@link isHiddenByDefaultStatus}), which may drift for
+ * display reasons without changing closeout semantics.
+ *
+ * Named `isTerminal` (mt#3010; previously `isTerminalTaskStatus`) to match the
+ * other semantic predicates this module exports (`isActiveWork`,
+ * `isAwaitingReview`) — single-authority consolidation, mt#2310 RFC Phase 1.
  */
-export function isTerminalTaskStatus(status: string | undefined): boolean {
+export function isTerminal(status: string | undefined): boolean {
   if (!status) return false;
   return Object.values(WORKFLOWS).some((workflow) => workflow.terminal.includes(status));
+}
+
+/**
+ * True when `status` denotes active, in-flight work on the task — i.e. the
+ * task has moved past the planning gate and a session is (or should be)
+ * actively driving it. Today this is exactly `IN-PROGRESS` across every
+ * registered kind; kept as a named predicate (rather than a literal
+ * comparison) so a future kind that models "active work" with additional
+ * states doesn't require every consumer to be found and updated by hand.
+ *
+ * @see isAwaitingReview — the adjacent "work is done, waiting on a reviewer" state.
+ */
+export function isActiveWork(status: string | undefined): boolean {
+  return status === "IN-PROGRESS";
+}
+
+/**
+ * True when `status` denotes a task whose PR is up and waiting on review —
+ * i.e. `IN-REVIEW`. Distinct from {@link isActiveWork}: the task is not being
+ * actively coded right now, it's waiting on an external actor (reviewer bot or
+ * human) to act.
+ */
+export function isAwaitingReview(status: string | undefined): boolean {
+  return status === "IN-REVIEW";
+}
+
+/**
+ * Statuses hidden by default in task listings (mt#3010; moved here from
+ * task-filters.ts, which re-exports these two names for its own callers) —
+ * the "settled work" set for LISTING/display purposes.
+ *
+ * Currently identical in VALUE to the terminal-state union ({@link isTerminal}
+ * / union of every workflow's `terminal` array) but kept as an independently
+ * named concept: display-hiding and closeout semantics are allowed to diverge
+ * in the future (e.g. a kind that wants a BLOCKED task hidden by default,
+ * without making BLOCKED a closeout terminal) without one silently drifting
+ * from the other because they happen to share a definition today.
+ *
+ * `BLOCKED` is NOT hidden — blocked tasks need operator attention.
+ *
+ * Exposed as a readonly tuple (not a `Set`) to satisfy the
+ * `custom/no-domain-singleton` lint rule (only applies to exported `new`
+ * expressions in domain code — a plain array export is unaffected). Callers
+ * should use {@link isHiddenByDefaultStatus} instead of building their own Set.
+ */
+export const DEFAULT_HIDDEN_STATUSES = ["DONE", "CLOSED"] as const;
+
+export function isHiddenByDefaultStatus(status: string | undefined): boolean {
+  if (status === undefined) return false;
+  return (DEFAULT_HIDDEN_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * The status value that constitutes the "bind/advance" seam (mt#2515, Seam 1
+ * of mt#2511; consolidated here mt#3010): advancing a task TO this status via
+ * `tasks_status_set`, or binding a session to a task already at it
+ * (`session_start` / `tasks_dispatch` existing-task mode), is the point past
+ * which "I never read this task's spec" becomes an irreversible mistake — see
+ * `.minsky/hooks/check-task-spec-read.ts`, the guard keyed on this constant.
+ */
+export const BIND_ADVANCE_SEAM_STATUS = "READY";
+
+/**
+ * Compute the sequence of statuses to walk through to auto-advance a task from
+ * `from` to `to` (mt#3010 — previously a hand-chained
+ * `if (status === TODO) ... if (status === PLANNING) ...` in
+ * `tasks.dispatch`'s existing-task mode, hardcoded to the "implementation"
+ * workflow's TODO -> PLANNING -> READY shape).
+ *
+ * Deliberately NOT a general graph-reachability search: this is a
+ * "not-yet-started" auto-advance, not a path-finder over the full transition
+ * graph. The per-kind transition graphs have back-edges intended for
+ * OPERATOR-DRIVEN recovery, not silent auto-walk — e.g. the implementation
+ * workflow allows `BLOCKED -> READY` and `IN-REVIEW -> IN-PROGRESS -> PLANNING
+ * -> READY` directly, but a task sitting BLOCKED or mid-review must never be
+ * silently walked to READY by a dispatch call; that decision belongs to a
+ * human. So this only considers `from` walkable when it appears BEFORE `to`
+ * in the workflow's `states` list (the registry's canonical lifecycle
+ * ordering, with side-states like BLOCKED/CLOSED listed after the terminal
+ * states specifically so they never satisfy this prefix check) — i.e. it
+ * derives the intended "pre-work" prefix from registry data instead of
+ * hardcoding the TODO/PLANNING literal list.
+ *
+ * Returns:
+ *   - `[]` when `from === to` (already there, no walk needed).
+ *   - The ordered list of statuses to SET, in order (excluding `from` itself),
+ *     e.g. `computeStatusWalkPath("TODO", "READY", "implementation")` returns
+ *     `["PLANNING", "READY"]`.
+ *   - `null` when `from` is not strictly before `to` in `states` (including
+ *     when either is absent from the workflow's states), or when any
+ *     consecutive pair in that prefix isn't actually a legal transition — the
+ *     caller should treat this the same as "cannot resolve automatically" —
+ *     it does NOT throw, since this is an expected outcome for many
+ *     (from, kind) pairs, not a programming error.
+ */
+export function computeStatusWalkPath(
+  from: string,
+  to: string,
+  kind?: string | null
+): string[] | null {
+  if (from === to) return [];
+  const workflow = getWorkflow(kind);
+  const { states, transitions } = workflow;
+
+  const fromIndex = states.indexOf(from);
+  const toIndex = states.indexOf(to);
+  if (fromIndex === -1 || toIndex === -1 || fromIndex >= toIndex) return null;
+
+  const prefix = states.slice(fromIndex, toIndex + 1);
+  for (let i = 0; i < prefix.length - 1; i++) {
+    const current = prefix[i] as string;
+    const next = prefix[i + 1] as string;
+    if (!(transitions[current] ?? []).includes(next)) return null;
+  }
+
+  return prefix.slice(1);
 }

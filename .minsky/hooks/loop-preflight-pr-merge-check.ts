@@ -23,7 +23,14 @@
 // @see mt#1555 — tracking task
 // @see parallel-work-guard.ts — reference implementation (same shape)
 
-import { readInput, writeOutput, execWithPath, readHostCap, deriveBudgets } from "./types";
+import {
+  readInput,
+  writeOutput,
+  execWithPath,
+  readHostCap,
+  deriveBudgets,
+  TERMINAL_TASK_STATUSES,
+} from "./types";
 import type { ToolHookInput } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -223,9 +230,6 @@ export type TaskCheckOutcome =
   | { kind: "terminal"; result: TaskStateResult }
   | { kind: "active"; result: TaskStateResult }
   | { kind: "error"; taskId: string; warning: string };
-
-/** Terminal task statuses per the task lifecycle. */
-export const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(["DONE", "CLOSED"]);
 
 /**
  * Fetch the status of a single task via the `minsky` CLI.

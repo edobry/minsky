@@ -209,13 +209,20 @@ export function mountTaskRoutes(app: express.Express): void {
       const { sessionStartBlockedReason } = await import(
         "@minsky/domain/session/session-startability"
       );
+      // mt#3010: single-authority consolidation — this route runs server-side
+      // (not part of the Vite-bundled cockpit web client, unlike
+      // status-colors.ts / TaskList.tsx, which stay on self-contained literals
+      // for bundle-size/Node-built-in reasons), so importing the registry's
+      // predicates directly is safe here.
+      const { isTerminal, isActiveWork, isAwaitingReview } = await import(
+        "@minsky/domain/tasks/workflows"
+      );
 
       const status = (task.status ?? "TODO").toUpperCase();
       const kind = task.kind ?? "implementation";
-      const isTerminal = status === "DONE" || status === "CLOSED";
       const actions: TaskAction[] = [];
 
-      if (!isTerminal) {
+      if (!isTerminal(status)) {
         const resumeAction: TaskAction | null = existingWorkspace
           ? { kind: "resume", sessionId: existingWorkspace.sessionId }
           : null;
@@ -230,13 +237,13 @@ export function mountTaskRoutes(app: express.Express): void {
           });
         } else if (status === "READY" || (status === "PLANNING" && kind === "umbrella")) {
           actions.push({ kind: "start" });
-        } else if (status === "IN-PROGRESS") {
+        } else if (isActiveWork(status)) {
           if (resumeAction) {
             actions.push(resumeAction);
           } else {
             actions.push({ kind: "start" });
           }
-        } else if (status === "IN-REVIEW") {
+        } else if (isAwaitingReview(status)) {
           actions.push({
             kind: "view-pr",
             prNumber: existingWorkspace?.prNumber ?? undefined,

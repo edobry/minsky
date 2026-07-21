@@ -61,6 +61,7 @@
 
 import { readInput } from "./types";
 import type { ToolHookInput, HookOutput } from "./types";
+import { BIND_ADVANCE_SEAM_STATUS } from "../../packages/domain/src/tasks/workflows";
 import {
   parseTranscript,
   findToolUseInputs,
@@ -134,7 +135,9 @@ export function normalizeTaskId(raw: unknown): string {
  */
 export function resolveTargetTaskId(toolName: string, toolInput: Record<string, unknown>): string {
   if (toolName === STATUS_SET_TOOL) {
-    if (String(toolInput["status"] ?? "").toUpperCase() !== "READY") return "";
+    // mt#3010: the seam status is now the registry's single-authority
+    // BIND_ADVANCE_SEAM_STATUS constant, not a hardcoded "READY" literal.
+    if (String(toolInput["status"] ?? "").toUpperCase() !== BIND_ADVANCE_SEAM_STATUS) return "";
     return normalizeTaskId(toolInput["taskId"]);
   }
   if (toolName === SESSION_START_TOOL) {

@@ -13,6 +13,7 @@
  * READY state — PLANNING → IN-PROGRESS is the direct transition).
  */
 import { TASK_STATUS } from "../tasks";
+import { isTerminal } from "../tasks/workflows";
 
 /**
  * Who is driving the session being launched (mt#2986).
@@ -87,8 +88,6 @@ export interface SessionStartability {
   startBlockedReason: string | null;
 }
 
-const TERMINAL_STATUSES: ReadonlySet<string> = new Set([TASK_STATUS.DONE, TASK_STATUS.CLOSED]);
-
 /**
  * The whole startability decision for the cockpit surface (mt#2959): combines
  * the fresh-create gate ({@link sessionStartBlockedReason}) with the two facts
@@ -106,7 +105,7 @@ export function computeSessionStartability(
 ): SessionStartability {
   const normalizedStatus = (status || "").toUpperCase();
 
-  if (TERMINAL_STATUSES.has(normalizedStatus)) {
+  if (isTerminal(normalizedStatus)) {
     return { startable: false, startBlockedReason: null };
   }
   if (hasExistingWorkspace) {

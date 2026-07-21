@@ -25,6 +25,7 @@ import type { AskKind } from "@minsky/domain/ask/types";
 import { log } from "@minsky/shared/logger";
 import { autoIndexTaskEmbedding } from "./auto-index-embedding";
 import { applyListCap } from "@minsky/domain/utils/list-pagination";
+import { isTerminal } from "@minsky/domain/tasks/workflows";
 
 /** Shape of the blockingAsk field returned in tasks_list (JSON) and tasks_get. */
 export interface BlockingAskInfo {
@@ -199,7 +200,7 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
             for (const depId of deps) {
               const depTask = taskById.get(depId);
               const status = depTask?.status;
-              if (status !== "DONE" && status !== "CLOSED") {
+              if (!isTerminal(status)) {
                 blockedBy.push(depId);
               }
             }
@@ -443,7 +444,7 @@ export class TasksGetCommand extends BaseTaskCommand<typeof tasksGetParams> {
             for (const childId of childIds) {
               const childTask = childTaskMap.get(childId);
               if (childTask) {
-                if (childTask.status === "DONE" || childTask.status === "CLOSED") {
+                if (isTerminal(childTask.status)) {
                   doneCount++;
                 } else {
                   remaining.push({

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "bun:test";
 import { TASK_STATUS } from "./taskConstants";
 import type { Task, TaskListOptions } from "./types";
 import { first } from "@minsky/shared/array-safety";
+import { filterTasksByStatus } from "./task-filters";
 
 /**
  * Regression test for CLOSED task filtering bug
@@ -47,21 +48,14 @@ describe("Backend CLOSED task filtering regression test", () => {
   });
 
   /**
-   * Test the filtering logic that should be implemented in all backends
+   * The filtering logic every backend's listTasks now shares (mt#3010 —
+   * single-authority consolidation: this used to be a hand-rolled reimplementation
+   * that could silently drift from the real backends; now it calls the same
+   * `filterTasksByStatus` (built on the registry's DEFAULT_HIDDEN_STATUSES) that
+   * minskyTaskBackend.ts and githubIssuesTaskBackend.ts use).
    */
   function simulateBackendFiltering(tasks: Task[], options?: TaskListOptions): Task[] {
-    let filtered = tasks;
-
-    // Apply status filtering (includes default exclusion of terminal statuses).
-    // Mirrors task-filters.ts TASK_STATUSES_HIDDEN_BY_DEFAULT (DONE / CLOSED; mt#2311).
-    if (options?.status && options.status !== "all") {
-      filtered = filtered.filter((task) => task.status === options.status);
-    } else if (!options?.all) {
-      // Default: exclude terminal statuses unless --all is specified
-      filtered = filtered.filter((task) => task.status !== "DONE" && task.status !== "CLOSED");
-    }
-
-    return filtered;
+    return filterTasksByStatus(tasks, options);
   }
 
   it("should filter out DONE and CLOSED tasks by default (reproduces the bug)", () => {
