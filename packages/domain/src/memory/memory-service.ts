@@ -150,29 +150,37 @@ export class MemoryService implements MemoryServiceSurface {
   // -------------------------------------------------------------------------
 
   /**
-   * Compute the next `mem#N` short id via a targeted query: select ONLY the
-   * `short_id` column — never the full row — rather than a `SELECT *` over
-   * the whole `memories` table. `nextShortId` (the shared mt#2963
-   * foundation util) folds over whatever candidate ids come back to
-   * compute the max — it internally filters to `mem#<n>`-shaped values via
-   * `parseShortId`, so a server-side WHERE filter is not required for
-   * correctness (nulls and non-`mem#`-shaped values are simply ignored by
-   * the fold).
+   * Compute the next `mem#N` short id. Two paths, tried in order:
    *
-   * Deliberately no `WHERE`/`ORDER BY`/`LIMIT` beyond the column
-   * projection: `MemoryServiceDb` is the narrow interface
-   * (`select`/`insert`/`update`/`delete`/`transaction`) this service uses
-   * specifically so it stays testable against simple fakes without a real
-   * Drizzle client, and this codebase's several ad-hoc `MemoryServiceDb`
-   * test fakes vary in which raw-SQL WHERE shapes they can evaluate — one
-   * throws on any pattern it doesn't recognize. A single-column, unfiltered
-   * select is the query shape every existing fake already supports
-   * unconditionally. Unlike `DrizzleAskRepository.nextAskShortId` (mt#2965
-   * PR #2110 R1), this does not add the `ORDER BY ... LIMIT 1`
-   * single-row-fetch optimization on top — a future perf pass can add a
-   * WHERE-filtered + LIMIT 1 variant (behind a real-Drizzle-only code path,
-   * or after updating every fake in lockstep) without changing this
-   * method's contract.
+   * 1. **Real-DB-optimized path (PR #2134 R1).** A targeted query mirroring
+   *    `DrizzleAskRepository.nextAskShortId` (mt#2965 PR #2110 R1):
+   *    `WHERE short_id ~ '^mem#[0-9]+$' ORDER BY (substring(... from
+   *    5))::bigint DESC LIMIT 1` — fetches ONLY the single highest-numbered
+   *    row's `short_id`, never the whole table. Against a real
+   *    `PostgresJsDatabase`, Postgres executes the ORDER BY/LIMIT
+   *    server-side, so this is a true single-row fetch, not a full-column
+   *    scan.
+   * 2. **Fallback: unfiltered single-column select + client-side fold.**
+   *    `nextShortId` (the shared mt#2963 foundation util) folds over
+   *    whatever candidate ids come back to compute the max — it internally
+   *    filters to `mem#<n>`-shaped values via `parseShortId`, so this
+   *    fallback is still correct even with no server-side WHERE/ORDER
+   *    BY/LIMIT.
+   *
+   * Branching is a CAPABILITY PROBE, not a static type/instanceof check:
+   * path 1 is attempted first inside a try/catch, and ANY failure (thrown
+   * synchronously or via a rejected promise) falls through to path 2.
+   * `MemoryServiceDb` is the deliberately narrow interface
+   * (`select`/`insert`/`update`/`delete`/`transaction`) this service uses so
+   * it stays testable against simple fakes without a real Drizzle client —
+   * this codebase has several independent ad-hoc `MemoryServiceDb` test
+   * fakes that don't implement the full `.where().orderBy().limit()` chain
+   * (one even throws on a raw-SQL WHERE shape it doesn't recognize), so
+   * path 1 reliably fails fast against every one of them and path 2 runs
+   * instead — no fake needs updating for this to be safe. The purpose-built
+   * `createFakeMemoryDb` in `memory-service.test.ts` DOES implement the
+   * full chain (mirroring ask's `createFakeDrizzleAskDb`), so those tests
+   * exercise path 1 for real.
    *
    * `db` defaults to `this.deps.db` but accepts an explicit `tx` so
    * `supersede()` can mint within its own transaction for read/write
@@ -185,6 +193,22 @@ export class MemoryService implements MemoryServiceSurface {
    * tombstone table mirroring the tasks pattern if reuse proves undesirable.
    */
   private async nextMemoryShortId(db: MemoryServiceDb = this.deps.db): Promise<string> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const top = (await (db as any)
+        .select({ shortId: memoriesTable.shortId })
+        .from(memoriesTable)
+        .where(sql`${memoriesTable.shortId} ~ '^mem#[0-9]+$'`)
+        .orderBy(sql`(substring(${memoriesTable.shortId} from 5))::bigint DESC`)
+        .limit(1)) as Array<{ shortId: string | null }>;
+      const liveIds = Array.isArray(top) && top[0]?.shortId ? [top[0].shortId as string] : [];
+      return nextShortId("mem", liveIds, []);
+    } catch {
+      // Fallback: this db doesn't support the full targeted-query chain
+      // (an ad-hoc test fake, most likely) — use the unfiltered
+      // single-column select + client-side fold instead.
+    }
+
     const rows = (await db
       .select({ shortId: memoriesTable.shortId })
       .from(memoriesTable)) as Array<{

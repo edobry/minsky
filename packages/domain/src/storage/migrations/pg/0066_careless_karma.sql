@@ -1,2 +1,0 @@
-ALTER TABLE "memories" ADD COLUMN "short_id" text;--> statement-breakpoint
-CREATE UNIQUE INDEX "idx_memories_short_id_unique" ON "memories" USING btree ("short_id");

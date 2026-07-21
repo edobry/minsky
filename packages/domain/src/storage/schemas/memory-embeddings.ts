@@ -23,7 +23,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { createEmbeddingsTable } from "./embeddings-schema-factory";
 import { MEMORY_TYPE_VALUES } from "../../memory/types";
-import { shortIdColumn, shortIdUniqueIndex } from "./short-id-column";
+import { shortIdColumn } from "./short-id-column";
 
 // Postgres enums for memory type and scope
 // MEMORY_TYPE_VALUES is the single source of truth — adding a value there
@@ -42,13 +42,27 @@ export const memoriesTable = pgTable(
 
     /**
      * Numeric `mem#N` short id (mt#2966, ADR-029) — added alongside the
-     * canonical uuid PK above, never replacing it. Nullable text with a
-     * unique index (see `shortIdUniqueIndex` below); NULL until minted on
-     * create (new rows) or backfilled
+     * canonical uuid PK above, never replacing it. Nullable text; NULL until
+     * minted on create (new rows) or backfilled
      * (`scripts/backfill-memory-short-ids.ts`, existing rows). See
-     * `../short-id-column.ts` for the full design rationale
-     * (nullable-not-backfilled-here, plain unique index safety with
-     * nullable columns, concurrency contract).
+     * `../short-id-column.ts` for the general design rationale
+     * (nullable-not-backfilled-here, concurrency contract).
+     *
+     * NOTE (PR #2134 R1): the unique index on this column is PARTIAL
+     * (`WHERE short_id IS NOT NULL`) for explicit NULL semantics + planner
+     * clarity, hand-written directly in migration
+     * `0066_last_smasher.sql` (see that file). It is intentionally NOT declared here
+     * via `shortIdUniqueIndex()` — Drizzle ORM cannot express partial index
+     * predicates (mirrors `ask-schema.ts`'s `asks_window_idx` precedent,
+     * mt#1490/mt#1488). Declaring a non-partial Drizzle index with the same
+     * name here would conflict with the migration's partial definition,
+     * causing schema drift; ask's own `idx_asks_short_id_unique` (mt#2965,
+     * migration 0065) is still non-partial via the shared
+     * `shortIdUniqueIndex` helper — changing that SHARED helper to partial
+     * would make drizzle-kit want to re-migrate ask's already-merged index
+     * too, so this PR only makes memory's index partial and leaves the
+     * helper/ask untouched. Aligning ask (and session, mt#2967) to partial
+     * is a cheap follow-up.
      */
     shortId: shortIdColumn(),
 
@@ -79,10 +93,14 @@ export const memoriesTable = pgTable(
     index("idx_memories_superseded_by").on(table.supersededBy),
     // GIN index for JSONB containment queries (@>) on associations
     index("idx_memories_associations").using("gin", table.associations),
-    // Unique index on the mem#N short id (mt#2966/mt#2963, ADR-029). Plain
-    // (non-partial) unique index — safe with NULLs pre-backfill, see
-    // short-id-column.ts's design-decisions doc comment.
-    shortIdUniqueIndex("memories", table.shortId),
+    // NOTE: The unique index on `short_id` (`idx_memories_short_id_unique`,
+    // PARTIAL — WHERE short_id IS NOT NULL) is declared in raw SQL migration
+    // `0066_last_smasher.sql` because Drizzle ORM cannot express partial index
+    // predicates. Do NOT re-declare it here — a non-partial Drizzle index
+    // with the same name would conflict with the migration's partial
+    // definition, causing schema drift. See the `shortId` field's doc
+    // comment above for the full rationale (mirrors ask-schema.ts's
+    // `asks_window_idx` precedent).
   ]
 );
 

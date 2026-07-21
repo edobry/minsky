@@ -55,12 +55,13 @@ const mockEmbeddingService = {
 // ---------------------------------------------------------------------------
 // Fake MemoryServiceDb modeling the real short_id TOCTOU race.
 //
-// Mirrors `MemoryService.nextMemoryShortId()`'s ACTUAL query shape: a plain
-// `.select({shortId}).from(memoriesTable)` with no `.where()` — see that
-// method's doc comment for why (several ad-hoc MemoryServiceDb fakes across
-// this codebase can't evaluate arbitrary raw-SQL WHERE shapes; one throws
-// on anything unrecognized). This fake therefore just needs `.select().from()`
-// to resolve to every currently-VISIBLE row's `{shortId}` projection.
+// Unlike the several ad-hoc `MemoryServiceDb` fakes elsewhere in this
+// codebase (which can't evaluate arbitrary raw-SQL WHERE shapes, or don't
+// implement `.orderBy()`/`.limit()` at all), THIS fake implements the FULL
+// targeted-query chain `.select({shortId}).from().where().orderBy().limit()`
+// — mirroring `ask/repository.test.ts`'s `createFakeDrizzleAskDb` — so these
+// tests exercise `nextMemoryShortId()`'s real-DB-optimized path (PR #2134
+// R1), not just its unfiltered-select fallback.
 // ---------------------------------------------------------------------------
 
 interface FakeMemoryRow {
@@ -77,6 +78,12 @@ function createFakeMemoryDb(opts: { preClaimedShortIds?: string[] } = {}) {
   const claimed = new Set<string>(opts.preClaimedShortIds ?? []);
   let nextRowId = 0;
   let insertAttempts = 0;
+  // Instrumentation (PR #2134 R1): proves nextMemoryShortId's real-DB-optimized
+  // path actually ran, rather than assuming it from the (behaviorally
+  // identical) result — both paths return the same shortId, so an assertion
+  // on the minted value alone can't distinguish "optimized path ran" from
+  // "silently fell back and still got the right answer by luck."
+  let orderByLimitCalls = 0;
   const rowsById = new Map<string, FakeMemoryRow>();
 
   const db: MemoryServiceDb = {
@@ -87,7 +94,30 @@ function createFakeMemoryDb(opts: { preClaimedShortIds?: string[] } = {}) {
           return {
             where(cond: unknown) {
               void cond;
-              return Promise.resolve(allVisibleRows());
+              const rows = allVisibleRows();
+              return {
+                // Mirrors nextMemoryShortId's targeted `ORDER BY ... LIMIT 1`
+                // query (PR #2134 R1): sort descending by the numeric
+                // suffix — the same ordering a real
+                // `(substring(short_id from 5))::bigint DESC` would
+                // produce — so `top[0]` at the call site picks the max.
+                orderBy(_order: unknown) {
+                  const sorted = [...rows].sort((a, b) => {
+                    const na = Number(a.shortId.split("#")[1]);
+                    const nb = Number(b.shortId.split("#")[1]);
+                    return nb - na;
+                  });
+                  return {
+                    limit(n: number) {
+                      orderByLimitCalls += 1;
+                      return Promise.resolve(sorted.slice(0, n));
+                    },
+                  };
+                },
+                then(resolve: (v: unknown[]) => void, reject?: (err: unknown) => void) {
+                  Promise.resolve(rows).then(resolve, reject);
+                },
+              };
             },
             then(resolve: (v: unknown[]) => void, reject?: (err: unknown) => void) {
               Promise.resolve(allVisibleRows()).then(resolve, reject);
@@ -168,6 +198,9 @@ function createFakeMemoryDb(opts: { preClaimedShortIds?: string[] } = {}) {
     get insertAttempts() {
       return insertAttempts;
     },
+    get orderByLimitCalls() {
+      return orderByLimitCalls;
+    },
   };
 }
 
@@ -207,6 +240,23 @@ describe("MemoryService — mem#N short id minting (mt#2966)", () => {
     const c = await service.create(makeInput({ name: "Third" }));
 
     expect(c.shortId).toBe("mem#3");
+  });
+
+  it("REGRESSION (PR #2134 R1): exercises the real-DB-optimized ORDER BY/LIMIT path, not just the fallback", async () => {
+    // This fake implements the full targeted-query chain, so
+    // nextMemoryShortId's optimized path (try block) should succeed on
+    // every call — never falling through to the unfiltered-select
+    // fallback. Asserting on `orderByLimitCalls` (not just the minted
+    // shortId) proves the optimized path actually ran, since both paths
+    // return the same value and a passing shortId assertion alone can't
+    // distinguish "optimized path ran" from "silently fell back".
+    const fake = createFakeMemoryDb();
+    const service = makeService(fake.db);
+
+    await service.create(makeInput({ name: "First" }));
+    await service.create(makeInput({ name: "Second" }));
+
+    expect(fake.orderByLimitCalls).toBe(2);
   });
 
   it("retries past a short_id collision invisible to the SELECT snapshot (TOCTOU race)", async () => {

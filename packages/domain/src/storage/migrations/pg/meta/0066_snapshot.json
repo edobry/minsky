@@ -1,5 +1,5 @@
 {
-  "id": "6a41b8a1-c188-4404-981d-4ef0f55f2e3b",
+  "id": "3a199c68-beec-4bd8-b082-1a4eb368bbaf",
   "prevId": "84be560a-17ab-44b5-b3f1-285c8bba306f",
   "version": "7",
   "dialect": "postgresql",
@@ -2435,21 +2435,6 @@
           "isUnique": false,
           "concurrently": false,
           "method": "gin",
-          "with": {}
-        },
-        "idx_memories_short_id_unique": {
-          "name": "idx_memories_short_id_unique",
-          "columns": [
-            {
-              "expression": "short_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
           "with": {}
         }
       },

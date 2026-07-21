@@ -21,6 +21,17 @@
  * the per-row UPDATE additionally guards `WHERE short_id IS NULL` so a
  * concurrent create() racing this script can never be clobbered.
  *
+ * Concurrency (PR #2134 R1): an `--execute` run acquires a fixed-key Postgres
+ * SESSION advisory lock (`pg_try_advisory_lock`) before touching any row, and
+ * releases it (`pg_advisory_unlock`) when done — success or failure. This
+ * prevents two concurrent `--execute` invocations from racing each other's
+ * plans (both computing "the next N ids are free" from the same stale
+ * snapshot and then double-assigning). A run that finds the lock already
+ * held fails FAST with a clear message rather than proceeding — it does NOT
+ * block waiting for the lock, since a human operator re-running this script
+ * wants to know immediately that another run is in flight, not queue behind
+ * it silently. Dry-run needs no lock (read-only, no mutation to race).
+ *
  * Usage:
  *   bun scripts/backfill-memory-short-ids.ts              # dry-run (default)
  *   bun scripts/backfill-memory-short-ids.ts --execute     # apply
@@ -38,15 +49,43 @@
  *
  * @see mt#2966 — this script's originating task
  * @see mt#2963 — short-id.ts (nextShortId), short-id-column.ts (schema pattern)
- * @see packages/domain/src/storage/migrations/pg/0066_careless_karma.sql — the additive column+index migration
+ * @see packages/domain/src/storage/migrations/pg/0066_last_smasher.sql — the additive column+index migration
  */
 
 import "reflect-metadata";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { nextShortId } from "@minsky/domain/utils/short-id";
 import { memoriesTable } from "@minsky/domain/storage/schemas/memory-embeddings";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+
+// ---------------------------------------------------------------------------
+// Advisory lock — serializes concurrent `--execute` runs (PR #2134 R1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fixed advisory-lock key for this backfill. Arbitrary but stable — derived
+ * from the originating task number (mt#2966) with a distinguishing suffix so
+ * it doesn't collide with any OTHER script that might key an advisory lock
+ * off the same task number. Session-scoped (not xact-scoped): held for the
+ * lifetime of this process, released explicitly in a `finally` block.
+ */
+const BACKFILL_ADVISORY_LOCK_KEY = 2_966_100n;
+
+/**
+ * Attempt to acquire the backfill's session advisory lock without blocking.
+ * Returns `true` if acquired, `false` if another session already holds it.
+ */
+async function tryAcquireBackfillLock(db: PostgresJsDatabase): Promise<boolean> {
+  const result = await db.execute(sql`SELECT pg_try_advisory_lock(${BACKFILL_ADVISORY_LOCK_KEY})`);
+  const row = Array.from(result as Iterable<Record<string, unknown>>)[0];
+  return row?.["pg_try_advisory_lock"] === true;
+}
+
+/** Release the backfill's session advisory lock. Safe to call even if the lock was never held. */
+async function releaseBackfillLock(db: PostgresJsDatabase): Promise<void> {
+  await db.execute(sql`SELECT pg_advisory_unlock(${BACKFILL_ADVISORY_LOCK_KEY})`);
+}
 
 // ---------------------------------------------------------------------------
 // Pure planning logic — unit-testable without a DB (memories-short-id-backfill
@@ -182,72 +221,104 @@ async function main(): Promise<void> {
   const execute = argv.includes("--execute");
 
   const db = await bootstrapDb();
-  const rows = await fetchAllMemoryRows(db);
-  const plan = planBackfillAssignments(rows);
 
-  console.log(`backfill-memory-short-ids ${execute ? "(EXECUTE)" : "(dry-run)"}`);
-  console.log(`  total memories:           ${plan.total}`);
-  console.log(`  already assigned:        ${plan.alreadyAssigned}`);
-  console.log(`  planned assignments:     ${plan.assignments.length}`);
-  const preview = plan.assignments.slice(0, 20);
-  for (const a of preview) {
-    console.log(`      ${a.shortId}  <-  ${a.id}`);
-  }
-  if (plan.assignments.length > preview.length) {
-    console.log(`      ... and ${plan.assignments.length - preview.length} more`);
-  }
-
-  let assigned = 0;
-  let skippedRace = 0;
-  const errors: Array<{ id: string; message: string }> = [];
-
+  // Advisory lock: --execute only (dry-run is read-only, nothing to race).
+  // Fails FAST (does not block/wait) so a human operator sees immediately
+  // that another backfill run is in flight, rather than silently queuing.
+  let lockHeld = false;
   if (execute) {
-    for (const a of plan.assignments) {
-      try {
-        const updated = await db
-          .update(memoriesTable)
-          .set({ shortId: a.shortId })
-          .where(and(eq(memoriesTable.id, a.id), isNull(memoriesTable.shortId)))
-          .returning({ id: memoriesTable.id });
-        if (updated.length > 0) {
-          assigned += 1;
-        } else {
-          // Row already had a short_id by the time we got here (a
-          // concurrent create() or a re-run mid-flight) — idempotent skip.
-          skippedRace += 1;
-        }
-      } catch (err) {
-        errors.push({ id: a.id, message: err instanceof Error ? err.message : String(err) });
-      }
+    lockHeld = await tryAcquireBackfillLock(db);
+    if (!lockHeld) {
+      console.error(
+        "backfill-memory-short-ids: another backfill run already holds the advisory lock " +
+          `(key=${BACKFILL_ADVISORY_LOCK_KEY}). Refusing to proceed — wait for it to finish, ` +
+          "or investigate if it's stuck, then retry."
+      );
+      process.exit(1);
     }
-    console.log(
-      `  assigned=${assigned} skippedRace=${skippedRace} errors=${errors.length} of ${plan.assignments.length}`
-    );
-    for (const e of errors.slice(0, 10)) console.log(`    error ${e.id}: ${e.message}`);
-
-    // Verification (per mt#2966 acceptance: "count matches"): recount rows
-    // still missing a short_id after the run.
-    const postRows = await fetchAllMemoryRows(db);
-    const stillMissing = postRows.filter((r) => !r.shortId).length;
-    console.log(`  post-run: ${postRows.length - stillMissing}/${postRows.length} have a short_id`);
-  } else {
-    console.log(
-      `  (dry-run — re-run with --execute to assign ${plan.assignments.length} short ids)`
-    );
   }
 
-  const result = {
-    mode: execute ? "execute" : "dry-run",
-    total: plan.total,
-    alreadyAssigned: plan.alreadyAssigned,
-    plannedAssignments: plan.assignments.length,
-    assigned,
-    skippedRace,
-    errorCount: errors.length,
-  };
-  console.log(JSON.stringify(result));
+  try {
+    const rows = await fetchAllMemoryRows(db);
+    const plan = planBackfillAssignments(rows);
 
-  process.exit(errors.length > 0 ? 1 : 0);
+    console.log(`backfill-memory-short-ids ${execute ? "(EXECUTE)" : "(dry-run)"}`);
+    console.log(`  total memories:           ${plan.total}`);
+    console.log(`  already assigned:        ${plan.alreadyAssigned}`);
+    console.log(`  planned assignments:     ${plan.assignments.length}`);
+    const preview = plan.assignments.slice(0, 20);
+    for (const a of preview) {
+      console.log(`      ${a.shortId}  <-  ${a.id}`);
+    }
+    if (plan.assignments.length > preview.length) {
+      console.log(`      ... and ${plan.assignments.length - preview.length} more`);
+    }
+
+    let assigned = 0;
+    let skippedRace = 0;
+    const errors: Array<{ id: string; message: string }> = [];
+
+    if (execute) {
+      for (const a of plan.assignments) {
+        try {
+          const updated = await db
+            .update(memoriesTable)
+            .set({ shortId: a.shortId })
+            .where(and(eq(memoriesTable.id, a.id), isNull(memoriesTable.shortId)))
+            .returning({ id: memoriesTable.id });
+          if (updated.length > 0) {
+            assigned += 1;
+          } else {
+            // Row already had a short_id by the time we got here (a
+            // concurrent create() or a re-run mid-flight) — idempotent skip.
+            skippedRace += 1;
+          }
+        } catch (err) {
+          errors.push({ id: a.id, message: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      console.log(
+        `  assigned=${assigned} skippedRace=${skippedRace} errors=${errors.length} of ${plan.assignments.length}`
+      );
+      for (const e of errors.slice(0, 10)) console.log(`    error ${e.id}: ${e.message}`);
+
+      // Verification (per mt#2966 acceptance: "count matches"): recount rows
+      // still missing a short_id after the run.
+      const postRows = await fetchAllMemoryRows(db);
+      const stillMissing = postRows.filter((r) => !r.shortId).length;
+      console.log(
+        `  post-run: ${postRows.length - stillMissing}/${postRows.length} have a short_id`
+      );
+    } else {
+      console.log(
+        `  (dry-run — re-run with --execute to assign ${plan.assignments.length} short ids)`
+      );
+    }
+
+    const result = {
+      mode: execute ? "execute" : "dry-run",
+      total: plan.total,
+      alreadyAssigned: plan.alreadyAssigned,
+      plannedAssignments: plan.assignments.length,
+      assigned,
+      skippedRace,
+      errorCount: errors.length,
+    };
+    console.log(JSON.stringify(result));
+
+    // Release the advisory lock BEFORE exiting — process.exit() terminates
+    // synchronously and does not reliably run pending `finally` blocks, so
+    // the release must happen on every path through this try block rather
+    // than relying on unwind-on-exit. (A session advisory lock is also
+    // auto-released by Postgres when the connection closes, but explicit
+    // release here means a long-lived connection pool doesn't carry a
+    // stale hold forward.)
+    if (lockHeld) await releaseBackfillLock(db);
+    process.exit(errors.length > 0 ? 1 : 0);
+  } catch (err) {
+    if (lockHeld) await releaseBackfillLock(db);
+    throw err;
+  }
 }
 
 if (import.meta.main) {
