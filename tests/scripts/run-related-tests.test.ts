@@ -1,6 +1,10 @@
 import { describe, test, expect } from "bun:test";
 import { createMockFilesystem } from "../../src/utils/test-utils/filesystem/mock-filesystem";
-import { runFastRelatedTestGate, RELATED_TEST_CAP } from "../../scripts/run-related-tests";
+import {
+  runFastRelatedTestGate,
+  RELATED_TEST_CAP,
+  toBunTestPath,
+} from "../../scripts/run-related-tests";
 import type { FsLike } from "../../scripts/find-related-tests";
 
 // mt#2932: these tests exercise the ORCHESTRATION logic (related-test lookup
@@ -25,6 +29,9 @@ function buildFixtureFs() {
     [`${repoRoot}/src/mcp/server.ts`]: "export const server = 1;\n",
     [`${repoRoot}/src/mcp/server.test.ts`]:
       'import { server } from "./server";\ntest("server", () => server);\n',
+    [`${repoRoot}/.minsky/hooks/guard.ts`]: "export const guard = 1;\n",
+    [`${repoRoot}/.minsky/hooks/guard.test.ts`]:
+      'import { guard } from "./guard";\ntest("guard", () => guard);\n',
   });
 }
 
@@ -93,7 +100,9 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
       },
     });
     expect(result.ok).toBe(true);
-    expect(calls).toEqual([["src/mcp/server.test.ts"]]);
+    // Updated expectation: paths handed to bun test now carry the "./" prefix
+    // (toBunTestPath) so bun treats them as paths, not name filters.
+    expect(calls).toEqual([["./src/mcp/server.test.ts"]]);
   });
 
   test("exceeding RELATED_TEST_CAP skips the local run instead of running everything", () => {
@@ -117,5 +126,46 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
     expect(result.ok).toBe(true);
     expect(result.relatedCount).toBeGreaterThan(RELATED_TEST_CAP);
     expect(result.reason).toContain("exceeds the fast-gate cap");
+  });
+
+  // Bun path-vs-filter quirk: a bare dot-directory path (".minsky/...") is a
+  // NAME filter to bun test, matching nothing -> no completion summary ->
+  // fail-closed failure on a fully passing change. First live hit: the
+  // mt#2446 commit (related tests under .minsky/hooks/).
+  test("dot-directory related tests are passed as ./-prefixed paths to the runner", () => {
+    const fs = buildFixtureFs() as unknown as FsLike;
+    const calls: string[][] = [];
+    const result = runFastRelatedTestGate([".minsky/hooks/guard.ts"], repoRoot, {
+      fs,
+      runBunTest: (files) => {
+        calls.push(files);
+        return {
+          exitCode: 0,
+          combined: [" 1 pass", " 0 fail", ranLine(1, files.length)].join("\n"),
+        };
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual([["./.minsky/hooks/guard.test.ts"]]);
+  });
+});
+
+describe("toBunTestPath (mt#2446 dot-directory fix)", () => {
+  const ANCHORED_FOO = "./src/foo.test.ts";
+  const ANCHORED_GUARD = "./.minsky/hooks/guard.test.ts";
+
+  test("prefixes bare repo-relative paths", () => {
+    expect(toBunTestPath("src/foo.test.ts")).toBe(ANCHORED_FOO);
+    expect(toBunTestPath(".minsky/hooks/guard.test.ts")).toBe(ANCHORED_GUARD);
+  });
+
+  test("leaves already-anchored paths unchanged", () => {
+    expect(toBunTestPath(ANCHORED_FOO)).toBe(ANCHORED_FOO);
+    expect(toBunTestPath("/abs/path/foo.test.ts")).toBe("/abs/path/foo.test.ts");
+  });
+
+  test("leaves parent-relative ../ paths unchanged (PR #2135 R1) — but a bare dot-directory still gets prefixed", () => {
+    expect(toBunTestPath("../outside/foo.test.ts")).toBe("../outside/foo.test.ts");
+    expect(toBunTestPath(".minsky/hooks/guard.test.ts")).toBe(ANCHORED_GUARD);
   });
 });
