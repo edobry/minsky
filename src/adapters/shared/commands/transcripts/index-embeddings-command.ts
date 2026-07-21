@@ -57,6 +57,8 @@ export interface TranscriptIndexEmbeddingsResult {
     transcriptsSkipped: number;
     transcriptsErrored: number;
     turnsWritten: number;
+    /** mt#2457 SC3: non-empty transcripts that yielded zero turns (extraction failure signal). */
+    nonEmptyYieldedZero: number;
   } | null;
   /** Per-turn embedding (vector-only) backfill result (null if it failed). */
   perTurn: {
@@ -269,7 +271,7 @@ export function registerTranscriptIndexEmbeddingsCommand(
           .from(agentTranscriptsTable)
           .where(eq(agentTranscriptsTable.agentSessionId, sessionId as AgentSessionId))
           .limit(1);
-        const turnsWritten = await writeTurnsForTranscript(
+        const { written: turnsWritten, nonEmptyYieldedZero } = await writeTurnsForTranscript(
           pgDb,
           sessionId as string,
           trows[0]?.transcript ?? null
@@ -280,6 +282,7 @@ export function registerTranscriptIndexEmbeddingsCommand(
           transcriptsSkipped: turnsWritten > 0 ? 0 : 1,
           transcriptsErrored: 0,
           turnsWritten,
+          nonEmptyYieldedZero: nonEmptyYieldedZero ? 1 : 0,
         };
       } catch (err) {
         log.error(`transcripts.index-embeddings --session=${sessionId}: extraction failed`, {

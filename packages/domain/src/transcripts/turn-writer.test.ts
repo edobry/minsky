@@ -10,15 +10,25 @@
  *  - idempotent upsert (no duplicate rows)
  *  - empty / null transcript → 0 rows
  *  - extractTurnsForAllTranscripts aggregates across transcripts
+ *  - mt#2457 SC3: a non-empty transcript yielding zero turns WARNs + counts
+ *    (nonEmptyYieldedZero) instead of silently skipping
+ *  - mt#2457 perf constraint: extractTurnsForAllTranscripts pages through
+ *    fetchPage in bounded batches and supports afterId resumability
  *
  * @see ./turn-writer.ts
  * @see mt#2381
+ * @see mt#2457
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, spyOn } from "bun:test";
 
 import type { RawTurnLine } from "./transcript-source";
-import { writeTurnsForTranscript, extractTurnsForAllTranscripts } from "./turn-writer";
+import {
+  writeTurnsForTranscript,
+  extractTurnsForAllTranscripts,
+  type TranscriptPageRow,
+} from "./turn-writer";
+import { log } from "@minsky/shared/logger";
 
 const SESSION_A = "aaaaaaaa-0000-0000-0000-000000000001";
 const SESSION_B = "bbbbbbbb-0000-0000-0000-000000000002";
@@ -110,6 +120,31 @@ function asPg(db: FakeDb) {
   return db as unknown as import("drizzle-orm/postgres-js").PostgresJsDatabase;
 }
 
+/**
+ * In-memory keyset-pagination fake for `ExtractAllTurnsOptions.fetchPage`
+ * (mt#2457 perf constraint). Mirrors the production `fetchTranscriptPage`
+ * contract — rows sorted by `agentSessionId` ascending, `afterId` strictly
+ * exclusive, `batchSize`-bounded pages — without mocking the drizzle
+ * query-builder chain.
+ */
+function makeFetchPage(rows: FakeTranscriptRow[]) {
+  const sorted = [...rows].sort((a, b) => a.agentSessionId.localeCompare(b.agentSessionId));
+  let callCount = 0;
+  const fetchPage = async (
+    _db: unknown,
+    afterId: string | null,
+    batchSize: number
+  ): Promise<TranscriptPageRow[]> => {
+    callCount++;
+    const startIdx = afterId ? sorted.findIndex((r) => r.agentSessionId > afterId) : 0;
+    if (startIdx === -1) return [];
+    return sorted
+      .slice(startIdx, startIdx + batchSize)
+      .map((r) => ({ agentSessionId: r.agentSessionId, transcript: r.transcript }));
+  };
+  return { fetchPage, getCallCount: () => callCount };
+}
+
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
 function userLine(text: string, ts = TS1): RawTurnLine {
@@ -158,9 +193,10 @@ describe("writeTurnsForTranscript", () => {
     const store = new Map<string, FakeTurnRow>();
     const db = makeDb([], store);
 
-    const written = await writeTurnsForTranscript(asPg(db), SESSION_A, transcript);
+    const result = await writeTurnsForTranscript(asPg(db), SESSION_A, transcript);
 
-    expect(written).toBe(2);
+    expect(result.written).toBe(2);
+    expect(result.nonEmptyYieldedZero).toBe(false);
     expect(store.size).toBe(2);
   });
 
@@ -259,15 +295,46 @@ describe("writeTurnsForTranscript", () => {
     expect(store.size).toBe(after1);
   });
 
-  test("empty transcript → 0 rows", async () => {
+  test("empty transcript → 0 rows, not flagged as a failure", async () => {
     const store = new Map<string, FakeTurnRow>();
-    expect(await writeTurnsForTranscript(asPg(makeDb([], store)), SESSION_A, [])).toBe(0);
+    const result = await writeTurnsForTranscript(asPg(makeDb([], store)), SESSION_A, []);
+    expect(result.written).toBe(0);
+    expect(result.nonEmptyYieldedZero).toBe(false);
     expect(store.size).toBe(0);
   });
 
-  test("null transcript → 0 rows", async () => {
+  test("null transcript → 0 rows, not flagged as a failure", async () => {
     const store = new Map<string, FakeTurnRow>();
-    expect(await writeTurnsForTranscript(asPg(makeDb([], store)), SESSION_A, null)).toBe(0);
+    const result = await writeTurnsForTranscript(asPg(makeDb([], store)), SESSION_A, null);
+    expect(result.written).toBe(0);
+    expect(result.nonEmptyYieldedZero).toBe(false);
+  });
+
+  test("mt#2457 SC3: non-empty transcript yielding zero turns is flagged loudly, not silently skipped", async () => {
+    // A transcript that is a real, non-empty array but contains no recognizable
+    // user/assistant lines (e.g. an unrecognized line `type`) — extractTurns
+    // returns [] even though the input clearly wasn't empty. Before mt#2457 this
+    // was indistinguishable from a genuinely-empty session; now it must WARN and
+    // set nonEmptyYieldedZero so the caller can count it as a real failure.
+    const unrecognizedTranscript = [
+      { type: "system", timestamp: TS1, message: { role: "system", content: "boot" } },
+      { type: "system", timestamp: TS2, message: { role: "system", content: "config" } },
+    ] as unknown as RawTurnLine[];
+    const store = new Map<string, FakeTurnRow>();
+
+    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
+    const result = await writeTurnsForTranscript(
+      asPg(makeDb([], store)),
+      SESSION_A,
+      unrecognizedTranscript
+    );
+
+    expect(result.written).toBe(0);
+    expect(result.nonEmptyYieldedZero).toBe(true);
+    expect(store.size).toBe(0);
+    expect(warnSpy).toHaveBeenCalled();
+    expect(String(warnSpy.mock.calls[0]?.[0])).toContain("yielded");
+    warnSpy.mockRestore();
   });
 });
 
@@ -287,12 +354,108 @@ describe("extractTurnsForAllTranscripts", () => {
     ];
     const store = new Map<string, FakeTurnRow>();
 
-    const result = await extractTurnsForAllTranscripts(asPg(makeDb(transcriptRows, store)));
+    const result = await extractTurnsForAllTranscripts(asPg(makeDb(transcriptRows, store)), {
+      fetchPage: makeFetchPage(transcriptRows).fetchPage,
+    });
 
     expect(result.transcriptsScanned).toBe(3);
     expect(result.transcriptsProcessed).toBe(2);
     expect(result.transcriptsSkipped).toBe(1);
+    expect(result.nonEmptyYieldedZero).toBe(0);
     expect(result.turnsWritten).toBe(3); // 2 from A, 1 from B
     expect(store.size).toBe(3);
+  });
+
+  test("mt#2457 SC3: counts nonEmptyYieldedZero separately from a genuinely-empty skip", async () => {
+    const goodTranscript: RawTurnLine[] = [userLine("hi", TS1), assistantLine("yo", [], TS2)];
+    const unrecognizedTranscript = [
+      { type: "system", timestamp: TS1, message: { role: "system", content: "boot" } },
+    ] as unknown as RawTurnLine[];
+    const rows: FakeTranscriptRow[] = [
+      { agentSessionId: SESSION_A, transcript: goodTranscript },
+      { agentSessionId: SESSION_B, transcript: unrecognizedTranscript },
+      { agentSessionId: "cccccccc-0000-0000-0000-000000000003", transcript: [] },
+    ];
+    const store = new Map<string, FakeTurnRow>();
+
+    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
+    const result = await extractTurnsForAllTranscripts(asPg(makeDb(rows, store)), {
+      fetchPage: makeFetchPage(rows).fetchPage,
+    });
+    warnSpy.mockRestore();
+
+    expect(result.transcriptsScanned).toBe(3);
+    expect(result.transcriptsProcessed).toBe(1);
+    // Both the unrecognized-shape transcript AND the genuinely-empty one count
+    // as "skipped" (written === 0), but only the former is a real failure.
+    expect(result.transcriptsSkipped).toBe(2);
+    expect(result.nonEmptyYieldedZero).toBe(1);
+  });
+
+  test("mt#2457 perf: pages through fetchPage in bounded batches instead of one unbounded load", async () => {
+    const rows: FakeTranscriptRow[] = Array.from({ length: 5 }, (_, i) => ({
+      agentSessionId: `session-${String(i).padStart(2, "0")}`,
+      transcript: [userLine(`u${i}`, TS1), assistantLine(`a${i}`, [], TS2)],
+    }));
+    const store = new Map<string, FakeTurnRow>();
+    const { fetchPage, getCallCount } = makeFetchPage(rows);
+
+    const result = await extractTurnsForAllTranscripts(asPg(makeDb(rows, store)), {
+      fetchPage,
+      batchSize: 2,
+    });
+
+    expect(result.transcriptsScanned).toBe(5);
+    expect(result.transcriptsProcessed).toBe(5);
+    // 5 rows at batchSize=2 → pages of 2, 2, 1. The final page is short
+    // (1 < batchSize), so the loop stops right there without an extra
+    // empty-page round-trip — bounded regardless of corpus size, never one
+    // big unbatched load.
+    expect(getCallCount()).toBe(3);
+  });
+
+  test("mt#2457 perf: resumes from afterId, skipping already-processed rows", async () => {
+    const rows: FakeTranscriptRow[] = Array.from({ length: 4 }, (_, i) => ({
+      agentSessionId: `session-${String(i).padStart(2, "0")}`,
+      transcript: [userLine(`u${i}`, TS1), assistantLine(`a${i}`, [], TS2)],
+    }));
+    const store = new Map<string, FakeTurnRow>();
+    const { fetchPage } = makeFetchPage(rows);
+
+    const result = await extractTurnsForAllTranscripts(asPg(makeDb(rows, store)), {
+      fetchPage,
+      afterId: "session-01",
+    });
+
+    // Only session-02 and session-03 should have been scanned/written.
+    expect(result.transcriptsScanned).toBe(2);
+    expect(result.transcriptsProcessed).toBe(2);
+    expect(store.size).toBe(2);
+    expect(store.has(turnKey("session-00", 0))).toBe(false);
+    expect(store.has(turnKey("session-02", 0))).toBe(true);
+  });
+
+  test("mt#2457 perf: invokes onBatchComplete with running totals + last id, once per batch", async () => {
+    const rows: FakeTranscriptRow[] = Array.from({ length: 3 }, (_, i) => ({
+      agentSessionId: `session-${String(i).padStart(2, "0")}`,
+      transcript: [userLine(`u${i}`, TS1), assistantLine(`a${i}`, [], TS2)],
+    }));
+    const store = new Map<string, FakeTurnRow>();
+    const { fetchPage } = makeFetchPage(rows);
+    const checkpoints: Array<{ scanned: number; lastId: string }> = [];
+
+    await extractTurnsForAllTranscripts(asPg(makeDb(rows, store)), {
+      fetchPage,
+      batchSize: 1,
+      onBatchComplete: (partial, lastId) => {
+        checkpoints.push({ scanned: partial.transcriptsScanned, lastId });
+      },
+    });
+
+    expect(checkpoints).toEqual([
+      { scanned: 1, lastId: "session-00" },
+      { scanned: 2, lastId: "session-01" },
+      { scanned: 3, lastId: "session-02" },
+    ]);
   });
 });

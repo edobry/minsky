@@ -24,7 +24,7 @@
  * @see mt#2381 — this file
  */
 
-import { sql } from "drizzle-orm";
+import { gt, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
@@ -33,6 +33,24 @@ import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
 import { extractTurns } from "./turn-extractor";
 import type { RawTurnLine } from "./transcript-source";
+import type { ConversationId } from "../ids";
+
+/** Result of a single-transcript extraction attempt (mt#2457 SC3). */
+export interface WriteTurnsResult {
+  /** Number of turn rows written (upserted). */
+  written: number;
+  /**
+   * True when `transcript` was a non-empty array (real content) but
+   * extraction yielded zero turns — an extractor-shape mismatch or upstream
+   * parsing bug, NOT the "genuinely empty/absent transcript" case (which
+   * returns `written: 0, nonEmptyYieldedZero: false`). Before mt#2457 this
+   * distinction was invisible: both cases silently produced `written: 0` and
+   * the caller (`extractTurnsForAllTranscripts`'s `transcriptsSkipped++`, or
+   * the forward ingest path's discarded return value) had no way to tell a
+   * real failure from "nothing to do."
+   */
+  nonEmptyYieldedZero: boolean;
+}
 
 /**
  * Extract per-turn rows from a session's transcript and upsert them into
@@ -47,20 +65,29 @@ import type { RawTurnLine } from "./transcript-source";
  *   (array of raw turn lines). Turn ordering / `turn_index` is assigned over the
  *   WHOLE transcript, so callers must pass the complete merged transcript, not
  *   an incremental slice.
- * @returns the number of turn rows written (upserted).
+ * @returns `{ written, nonEmptyYieldedZero }` — see `WriteTurnsResult`.
  */
 export async function writeTurnsForTranscript(
   db: PostgresJsDatabase,
   agentSessionId: string,
   transcript: unknown
-): Promise<number> {
+): Promise<WriteTurnsResult> {
   if (!Array.isArray(transcript) || transcript.length === 0) {
-    return 0;
+    return { written: 0, nonEmptyYieldedZero: false };
   }
 
   const turns = extractTurns(transcript as RawTurnLine[]);
   if (turns.length === 0) {
-    return 0;
+    // mt#2457 SC3: a non-empty transcript that extracts to zero turns is a
+    // loud failure signal — the extractor didn't recognize this era's/shape's
+    // JSONB, which is indistinguishable from a genuinely-empty session unless
+    // we say so explicitly. Never silently swallow this.
+    log.warn(
+      `writeTurnsForTranscript: non-empty transcript (${transcript.length} raw lines) yielded ` +
+        `zero turns for session ${agentSessionId} — possible extractor-shape mismatch`,
+      { agentSessionId, transcriptLines: transcript.length }
+    );
+    return { written: 0, nonEmptyYieldedZero: true };
   }
 
   let written = 0;
@@ -112,7 +139,7 @@ export async function writeTurnsForTranscript(
     }
   }
 
-  return written;
+  return { written, nonEmptyYieldedZero: false };
 }
 
 /** Aggregate result of an extraction reconciliation sweep. */
@@ -122,6 +149,81 @@ export interface ExtractAllTurnsResult {
   transcriptsSkipped: number;
   transcriptsErrored: number;
   turnsWritten: number;
+  /**
+   * mt#2457 SC3: count of non-empty transcripts that yielded zero turns — a
+   * subset of `transcriptsSkipped` that signals an extraction failure (not a
+   * genuinely-empty-session skip). Non-zero here means something needs
+   * investigating; it should not happen in steady state.
+   */
+  nonEmptyYieldedZero: number;
+}
+
+/** One page of `(agentSessionId, transcript)` rows for the reconciliation sweep. */
+export type TranscriptPageRow = { agentSessionId: string; transcript: unknown };
+
+/**
+ * Fetches one keyset-paginated page of `agent_transcripts` rows, ordered by
+ * `agent_session_id` (the table's primary key — no new index required).
+ * Exposed as an injectable seam (`ExtractAllTurnsOptions.fetchPage`) so
+ * `extractTurnsForAllTranscripts`'s batching/resumability logic is testable
+ * without mocking the drizzle query-builder chain.
+ */
+export async function fetchTranscriptPage(
+  db: PostgresJsDatabase,
+  afterId: string | null,
+  batchSize: number
+): Promise<TranscriptPageRow[]> {
+  const query = db
+    .select({
+      agentSessionId: agentTranscriptsTable.agentSessionId,
+      transcript: agentTranscriptsTable.transcript,
+    })
+    .from(agentTranscriptsTable)
+    .orderBy(agentTranscriptsTable.agentSessionId)
+    .limit(batchSize);
+
+  return afterId
+    ? query.where(gt(agentTranscriptsTable.agentSessionId, afterId as ConversationId))
+    : query;
+}
+
+/** Default page size for the batched reconciliation sweep (mt#2457 perf constraint). */
+export const DEFAULT_EXTRACT_ALL_BATCH_SIZE = 100;
+
+export interface ExtractAllTurnsOptions {
+  /**
+   * Rows fetched per batch, keyset-paginated by `agent_session_id` ascending.
+   * The unbatched full-corpus load this replaces did not complete in 280s
+   * locally against ~1,584 large-JSONB rows (mt#2457 perf constraint) — a
+   * bounded page size keeps memory and per-query latency flat regardless of
+   * corpus size. Defaults to `DEFAULT_EXTRACT_ALL_BATCH_SIZE`.
+   */
+  batchSize?: number;
+  /**
+   * Resume a previous run: skip all rows with `agent_session_id <=` this
+   * value. Combine with `onBatchComplete` to make a long backfill resumable
+   * after an interruption.
+   */
+  afterId?: string;
+  /**
+   * Injectable page fetcher. Production default is `fetchTranscriptPage`
+   * (real Postgres keyset pagination); tests can supply an in-memory fake.
+   */
+  fetchPage?: (
+    db: PostgresJsDatabase,
+    afterId: string | null,
+    batchSize: number
+  ) => Promise<TranscriptPageRow[]>;
+  /**
+   * Called after each batch is processed with the running aggregate result
+   * and the last `agentSessionId` seen in that batch — a checkpoint a caller
+   * (e.g. a backfill script) can persist so the sweep is resumable via
+   * `afterId` if interrupted.
+   */
+  onBatchComplete?: (
+    partial: Readonly<ExtractAllTurnsResult>,
+    lastId: string
+  ) => void | Promise<void>;
 }
 
 /**
@@ -130,54 +232,84 @@ export interface ExtractAllTurnsResult {
  * that were ingested before extraction-on-capture existed (or whose turn rows
  * were otherwise lost). Idempotent (text-only upsert, embedding-preserving).
  *
+ * Batched/bounded/resumable (mt#2457): rows are fetched in keyset-paginated
+ * pages instead of one unbounded full-corpus `SELECT *`, so the sweep's memory
+ * and per-query latency stay flat as the corpus grows, and a long run can be
+ * checkpointed (`onBatchComplete`) and resumed (`afterId`).
+ *
  * The forward path (new captures) extracts via `writeTurnsForTranscript` inside
  * the ingest service; this sweep covers historical/already-ingested data. The
  * embedding backfill (PerTurnEmbeddingPipeline) stays vector-only and relies on
  * these rows existing — it does not re-extract (ADR-019).
  */
 export async function extractTurnsForAllTranscripts(
-  db: PostgresJsDatabase
+  db: PostgresJsDatabase,
+  options: ExtractAllTurnsOptions = {}
 ): Promise<ExtractAllTurnsResult> {
+  const batchSize = options.batchSize ?? DEFAULT_EXTRACT_ALL_BATCH_SIZE;
+  const fetchPage = options.fetchPage ?? fetchTranscriptPage;
+
   const result: ExtractAllTurnsResult = {
     transcriptsScanned: 0,
     transcriptsProcessed: 0,
     transcriptsSkipped: 0,
     transcriptsErrored: 0,
     turnsWritten: 0,
+    nonEmptyYieldedZero: 0,
   };
 
-  let rows: Array<{ agentSessionId: string; transcript: unknown }>;
-  try {
-    rows = await db
-      .select({
-        agentSessionId: agentTranscriptsTable.agentSessionId,
-        transcript: agentTranscriptsTable.transcript,
-      })
-      .from(agentTranscriptsTable);
-  } catch (err) {
-    log.error("extractTurnsForAllTranscripts: failed to load transcripts", {
-      error: getErrorMessage(err),
-    });
-    return result;
-  }
+  let cursor: string | null = options.afterId ?? null;
 
-  result.transcriptsScanned = rows.length;
-
-  for (const row of rows) {
+  for (;;) {
+    let rows: TranscriptPageRow[];
     try {
-      const written = await writeTurnsForTranscript(db, row.agentSessionId, row.transcript);
-      if (written === 0) {
-        result.transcriptsSkipped++;
-      } else {
-        result.transcriptsProcessed++;
-        result.turnsWritten += written;
-      }
+      rows = await fetchPage(db, cursor, batchSize);
     } catch (err) {
-      result.transcriptsErrored++;
-      log.warn(`extractTurnsForAllTranscripts: failed for ${row.agentSessionId}`, {
+      log.error("extractTurnsForAllTranscripts: failed to load a transcript batch", {
         error: getErrorMessage(err),
+        cursor,
       });
+      break;
     }
+
+    if (rows.length === 0) break;
+
+    result.transcriptsScanned += rows.length;
+    let lastId: string | undefined;
+
+    for (const row of rows) {
+      lastId = row.agentSessionId;
+      try {
+        const { written, nonEmptyYieldedZero } = await writeTurnsForTranscript(
+          db,
+          row.agentSessionId,
+          row.transcript
+        );
+        if (written === 0) {
+          result.transcriptsSkipped++;
+          if (nonEmptyYieldedZero) {
+            result.nonEmptyYieldedZero++;
+          }
+        } else {
+          result.transcriptsProcessed++;
+          result.turnsWritten += written;
+        }
+      } catch (err) {
+        result.transcriptsErrored++;
+        log.warn(`extractTurnsForAllTranscripts: failed for ${row.agentSessionId}`, {
+          error: getErrorMessage(err),
+        });
+      }
+    }
+
+    if (lastId !== undefined) {
+      cursor = lastId;
+      if (options.onBatchComplete) {
+        await options.onBatchComplete({ ...result }, cursor);
+      }
+    }
+
+    if (rows.length < batchSize) break; // last page
   }
 
   log.info("extractTurnsForAllTranscripts: complete", { ...result });
