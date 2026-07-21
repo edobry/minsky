@@ -256,6 +256,15 @@ hard failure, since the threshold above is calibrated for embeddings distances o
 misapply to a different scoring scale; any unexpected exception is caught, logged to stderr,
 recorded to the hook-health tracker (`recordGuardError`), and fails OPEN (permit).
 
+**Fail-fast Postgres connect (mt#2982).** The CLI's default postgres-js `connect_timeout` is
+10s — longer than every CLI-shelling guard budget (8s here, 4s for the sibling matcher's pure-DB
+calls) — so during a slow/reconnecting-DB window a fresh CLI connect used to hang until the
+spawn-kill, surfacing as the vague empty-output "unparseable" skip. `execWithPath` (and the
+direct-spawn hook sites) now inject `MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT=2` (seconds;
+mapped to `persistence.postgres.connectTimeout`, an operator-set parent-env value wins) so the
+CLI fails in ~2.5s with a clearly attributed `CONNECT_TIMEOUT` error that the GUARD DEGRADED
+stderr line reports verbatim. Same fail-open outcome, minus the hang and the vague signature.
+
 **No override mechanism.** This check is advisory-only and never blocks, so there is nothing to
 bypass — unlike the duplicate-child matcher's `MINSKY_FORCE_DUPLICATE_OK`/grant-file channel.
 

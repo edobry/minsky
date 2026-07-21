@@ -20,6 +20,7 @@ minsky session start --sessiondb-backend=sqlite
 ```bash
 export MINSKY_PERSISTENCE_BACKEND=postgres
 export MINSKY_PERSISTENCE_POSTGRES_URL="postgresql://user:pass@localhost/minsky"
+export MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT=2  # postgres-js connect_timeout, SECONDS (1-300; default 10). Hook-shelled minsky CLI calls inject 2 for fail-fast during slow-DB windows (mt#2982)
 export MINSKY_AI_DEFAULT_PROVIDER=openai
 export MINSKY_WORKSPACE_MAIN_PATH="/absolute/path/to/main/workspace"  # NEW
 export MINSKY_SUPABASE_ACCESS_TOKEN="sbp_..."  # Supabase Management API PAT (see docs/supabase-alerts.md)

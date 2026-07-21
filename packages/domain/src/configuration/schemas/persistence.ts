@@ -59,6 +59,9 @@ const postgresConfigSchema = z.object({
   maxConnections: z.number().min(1).max(100).optional(),
   // connectTimeout: seconds (1–300). Passed directly to postgres-js connect_timeout
   // which is a seconds value. Using seconds avoids a conversion at the provider boundary.
+  // Env: MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT (explicit environmentMappings entry +
+  // fieldTypes number conversion). Hook-shelled minsky CLI calls inject 2 for fail-fast
+  // during slow-DB windows (mt#2982); the provider default when unset is 10.
   connectTimeout: secondsTimeoutSchema("connectTimeout", 300).optional(), // 1s - 5min
   // idleTimeout: seconds (1–600). Passed directly to postgres-js idle_timeout
   // which is a seconds value. Using seconds avoids a conversion at the provider boundary.
