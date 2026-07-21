@@ -105,8 +105,13 @@ export interface IsolatedRunVerification {
 // NOTE: bun prints singular "1 file" (no trailing "s") for a single-file run
 // -- which every invocation of this script is, by construction. The "s?"
 // here is load-bearing; without it every file would false-positive as "no
-// completion summary" (discovered empirically running this script).
-const SUMMARY_PATTERN = /Ran \d+ tests across \d+ files?/;
+// completion summary" (discovered empirically running this script). "tests?"
+// (mt#3014 finding) is equally load-bearing: bun independently pluralizes the
+// test count too -- a single-test file (common in per-file isolation runs)
+// prints "Ran 1 test across 1 file." (singular, no trailing s), confirmed
+// empirically against the pinned bun 1.2.21; without the "?" every file with
+// exactly one test would ALSO false-positive as "no completion summary".
+const SUMMARY_PATTERN = /Ran \d+ tests? across \d+ files?/;
 
 /**
  * Verifies ONE isolated single-file run using the mt#2665 CI-hardening

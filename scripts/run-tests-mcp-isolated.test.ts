@@ -154,6 +154,6 @@ describe("cross-file substring-collision (synthetic fixture, mt#3014 acceptance 
       }
     );
     const [stderr] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
-    expect(/Ran \d+ tests across 1 files?/.test(stderr)).toBe(true);
+    expect(/Ran \d+ tests? across 1 files?/.test(stderr)).toBe(true);
   }, 30000);
 });

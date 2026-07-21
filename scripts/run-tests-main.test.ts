@@ -130,7 +130,7 @@ describe(
       });
       const [stderr] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
       // Both files ran -- 2 files, not 1 -- demonstrating the un-prefixed collision.
-      expect(/Ran \d+ tests across 2 files?/.test(stderr)).toBe(true);
+      expect(/Ran \d+ tests? across 2 files?/.test(stderr)).toBe(true);
     }, 30000);
 
     it("the ./-prefixed positional arg (this fix's toBunTestArgs) runs ONLY the intended file", async () => {
@@ -140,7 +140,7 @@ describe(
         stderr: "pipe",
       });
       const [stderr] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
-      expect(/Ran \d+ tests across 1 files?/.test(stderr)).toBe(true);
+      expect(/Ran \d+ tests? across 1 files?/.test(stderr)).toBe(true);
     }, 30000);
   }
 );
