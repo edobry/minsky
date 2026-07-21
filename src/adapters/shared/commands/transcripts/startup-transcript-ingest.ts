@@ -31,6 +31,14 @@ const INIT_RETRY_DELAY_MS = 5_000;
  *   the single init-coordination retry in `resolveDb`. Defaults to the real
  *   5s production delay; tests inject a near-zero value to exercise the
  *   retry-once behavior without a real 5s sleep.
+ *
+ *   Not exposed via any config key, CLI flag, or environment variable — the
+ *   only way to supply a non-default value is a literal call-site change in
+ *   TypeScript source, which goes through the same PR review as any other
+ *   change. The sole production caller (`src/commands/mcp/start-command.ts`)
+ *   never passes `options`, so it always gets the real 5s delay. `resolveDb`
+ *   additionally clamps the value to a non-negative number as basic input
+ *   validation.
  */
 export async function triggerStartupTranscriptIngest(
   persistenceProvider: BasePersistenceProvider,
@@ -93,6 +101,9 @@ async function resolveDb(
   const first = await getDb.call(provider);
   if (first) return first;
 
-  await new Promise((r) => setTimeout(r, retryDelayMs));
+  // mt#2980 R1: clamp to non-negative — a negative override (malformed input,
+  // not a real usage today) must not be passed to setTimeout as a signal that
+  // something is misconfigured; treat it as an immediate retry instead.
+  await new Promise((r) => setTimeout(r, Math.max(0, retryDelayMs)));
   return getDb.call(provider);
 }

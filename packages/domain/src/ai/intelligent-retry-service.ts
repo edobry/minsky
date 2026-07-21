@@ -26,6 +26,13 @@ export class IntelligentRetryService {
   // up to 1000ms of jitter per retry. Injectable so fast-retry test configs
   // (e.g. `{ baseDelay: 1, maxDelay: 5, jitterMaxMs: 0 }`) can eliminate it;
   // defaults to the original hardcoded 1000ms for production callers.
+  //
+  // Production tuning guidance: the default 1000ms exists to prevent a
+  // thundering-herd retry storm across concurrent callers hitting the same
+  // rate-limited provider at once. Do not set `jitterMaxMs: 0` in a
+  // production caller — that removes the thundering-herd protection this
+  // value provides. `jitterMaxMs: 0` is safe ONLY in tests, where retries are
+  // deterministic single-caller scenarios with no concurrent-herd risk.
   private readonly jitterMaxMs: number = 1000;
 
   private circuitBreaker = new Map<string, CircuitBreakerState>();

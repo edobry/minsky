@@ -71,6 +71,23 @@ export class OpenAIEmbeddingService implements EmbeddingService {
    * `OpenAIEmbeddingService` instance created via `fromConfig()`). Tests can
    * inject a fast `IntelligentRetryService` (tiny `baseDelay`/`maxDelay` and
    * `jitterMaxMs: 0`) to exercise the real retry loop without real delays.
+   *
+   * Circuit-breaker isolation: passing a custom `retryService` gives this
+   * instance its OWN circuit-breaker state, isolated from the shared
+   * singleton's — the right behavior for tests (each test wants a fresh
+   * breaker) but a future production caller that wants the shared
+   * cross-instance breaker must NOT pass this param.
+   *
+   * `@injectable()` note: this class is never resolved via the tsyringe
+   * container in production — `apiKey`/`baseURL`/`model` are unannotated
+   * primitive params tsyringe cannot auto-inject by type, and the sole
+   * production construction site is the static `fromConfig()` factory below,
+   * which calls `new OpenAIEmbeddingService(apiKey, baseURL, model)` (3 args;
+   * `retryService` defaults to `sharedRetryService`). Verified empirically:
+   * grepping the whole repo for `OpenAIEmbeddingService` turns up only this
+   * file, this file's test, and `embedding-service-factory.ts`'s
+   * `fromConfig()` call — no `container.resolve(OpenAIEmbeddingService)` or
+   * DI registration exists anywhere.
    */
   constructor(
     apiKey: string,
