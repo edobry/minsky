@@ -164,6 +164,18 @@ describe("decideStandaloneDuplicateGuard (mt#2813)", () => {
     }
   });
 
+  it("threads the probe's ACTUAL error message into the skip reason (mt#2958 SC2)", async () => {
+    const decision = await decideStandaloneDuplicateGuard(
+      { title: "Some new task" },
+      { fetchSimilar: () => ({ failed: "write CONNECT_TIMEOUT 192.0.2.1:5432" }) }
+    );
+    expect(decision.action).toBe("skip");
+    if (decision.action === "skip") {
+      expect(decision.degraded).toBe(true);
+      expect(decision.reason).toContain("write CONNECT_TIMEOUT 192.0.2.1:5432");
+    }
+  });
+
   it("accepts an ASYNC fetchSimilar (the in-process probe's shape)", async () => {
     const decision = await decideStandaloneDuplicateGuard(
       { title: "Some new task" },

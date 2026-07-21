@@ -71,14 +71,24 @@ export const STANDALONE_DUP_PROBE_TIMEOUT_MS = 8_000;
 const TIMED_OUT = Symbol("standalone-dup-probe-timeout");
 
 /**
- * Run the duplicate-candidate search in-process. Returns `null` on ANY
- * failure or on deadline expiry (loud stderr line written here; the caller
- * treats null as "search unavailable, skip the probe for this create").
+ * Structured probe failure — carries the ACTUAL error message so the caller
+ * can put it in the guard-health check-skip event (mt#2958 SC2; PR #2152 R1),
+ * not just on stderr.
+ */
+export interface ProbeFailure {
+  failed: string;
+}
+
+/**
+ * Run the duplicate-candidate search in-process. On ANY failure or deadline
+ * expiry returns a `ProbeFailure` carrying the actual error message (also
+ * written to stderr here); the caller treats it as "search unavailable, skip
+ * the probe for this create" and records the message to guard-health.
  */
 export async function fetchSimilarActiveTasksInProcess(
   query: string,
   limit = 10
-): Promise<{ results: TaskSearchResult[]; degraded: boolean } | null> {
+): Promise<{ results: TaskSearchResult[]; degraded: boolean } | ProbeFailure> {
   // mt#2982 fail-fast connect — must be set BEFORE the first configuration /
   // persistence-provider resolution below caches its view of the env. An
   // operator-set value in the hook's own env wins.
@@ -88,14 +98,21 @@ export async function fetchSimilarActiveTasksInProcess(
   const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
     timer = setTimeout(() => resolve(TIMED_OUT), STANDALONE_DUP_PROBE_TIMEOUT_MS);
   });
+  // Rejection sink (PR #2152 R1): runProbe converts every failure to a value
+  // by construction, but if it ever DID reject after the deadline won the
+  // race, the orphaned promise would surface as an unhandledrejection —
+  // the .catch guarantees the abandoned branch is always observed.
+  const probe = runProbe(query, limit).catch(
+    (err): ProbeFailure => ({
+      failed: `probe rejected: ${err instanceof Error ? err.message : String(err)}`,
+    })
+  );
   try {
-    const outcome = await Promise.race([runProbe(query, limit), deadline]);
+    const outcome = await Promise.race([probe, deadline]);
     if (outcome === TIMED_OUT) {
-      process.stderr.write(
-        `[parallel-work-guard] GUARD DEGRADED: in-process standalone-duplicate probe exceeded ` +
-          `${STANDALONE_DUP_PROBE_TIMEOUT_MS}ms deadline\n`
-      );
-      return null;
+      const failed = `in-process probe exceeded the ${STANDALONE_DUP_PROBE_TIMEOUT_MS}ms deadline`;
+      process.stderr.write(`[parallel-work-guard] GUARD DEGRADED: ${failed}\n`);
+      return { failed };
     }
     return outcome;
   } finally {
@@ -103,11 +120,11 @@ export async function fetchSimilarActiveTasksInProcess(
   }
 }
 
-/** The un-raced probe body. Never throws — converts every failure to null. */
+/** The un-raced probe body. Never rejects — converts every failure to a value. */
 async function runProbe(
   query: string,
   limit: number
-): Promise<{ results: TaskSearchResult[]; degraded: boolean } | null> {
+): Promise<{ results: TaskSearchResult[]; degraded: boolean } | ProbeFailure> {
   try {
     // Config bootstrap — a hook is its own entry point: the domain config
     // system is process-global and uninitialized here (the CLI's boot does
@@ -127,8 +144,7 @@ async function runProbe(
     );
     const provider = await resolvePersistenceProvider();
     if (!provider) {
-      degraded("persistence provider unavailable");
-      return null;
+      return degraded("persistence provider unavailable (see mt#3019 for the config-init class)");
     }
 
     const { createConfiguredTaskService } = await import(
@@ -160,8 +176,7 @@ async function runProbe(
       !("getVectorStorageForDomain" in provider) ||
       typeof (provider as Record<string, unknown>).getVectorStorageForDomain !== "function"
     ) {
-      degraded(`persistence provider ${provider.constructor.name} lacks vector storage`);
-      return null;
+      return degraded(`persistence provider ${provider.constructor.name} lacks vector storage`);
     }
     const vectorStorage = (
       provider as import("../../packages/domain/src/persistence/types").VectorCapablePersistenceProvider
@@ -203,8 +218,7 @@ async function runProbe(
     );
     return { results, degraded: false };
   } catch (err) {
-    degraded(err instanceof Error ? err.message : String(err));
-    return null;
+    return degraded(err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -236,8 +250,10 @@ async function resolveProbeProjectScope(provider: BasePersistenceProvider): Prom
   }
 }
 
-function degraded(reason: string): void {
+/** Write the GUARD DEGRADED stderr line and build the structured failure. */
+function degraded(reason: string): ProbeFailure {
   process.stderr.write(
     `[parallel-work-guard] GUARD DEGRADED: in-process standalone-duplicate probe failed: ${reason}\n`
   );
+  return { failed: reason };
 }

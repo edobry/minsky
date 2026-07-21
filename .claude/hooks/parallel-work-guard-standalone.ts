@@ -66,7 +66,7 @@ import { writeOutput, TERMINAL_TASK_STATUSES } from "./types";
 import type { ToolHookInput } from "./types";
 import { recordGuardError, recordGuardCheckSkip } from "./guard-health";
 import { safeTruncate } from "../../src/utils/safe-truncate";
-import { fetchSimilarActiveTasksInProcess } from "./standalone-dup-probe";
+import { fetchSimilarActiveTasksInProcess, type ProbeFailure } from "./standalone-dup-probe";
 
 // TERMINAL_TASK_STATUSES (mt#2683 discipline — a DONE/CLOSED/COMPLETED task
 // cannot represent live duplicate work) is imported from ./types, shared
@@ -207,8 +207,9 @@ export async function decideStandaloneDuplicateGuard(
     fetchSimilar: (
       query: string
     ) =>
-      | Promise<{ results: TaskSearchResult[]; degraded: boolean } | null>
+      | Promise<{ results: TaskSearchResult[]; degraded: boolean } | ProbeFailure | null>
       | { results: TaskSearchResult[]; degraded: boolean }
+      | ProbeFailure
       | null;
   }
 ): Promise<StandaloneDuplicateGuardDecision> {
@@ -227,6 +228,15 @@ export async function decideStandaloneDuplicateGuard(
       reason:
         "in-process tasks search failed or timed out — the standalone-duplicate probe is " +
         "SKIPPED for this create (see stderr for the probe failure detail)",
+      degraded: true,
+    };
+  }
+  if ("failed" in searchResult) {
+    // Carry the ACTUAL error message into the guard-health event (mt#2958
+    // SC2) — not just a generic pointer at stderr.
+    return {
+      action: "skip",
+      reason: `in-process tasks search failed — probe SKIPPED for this create: ${searchResult.failed}`,
       degraded: true,
     };
   }
