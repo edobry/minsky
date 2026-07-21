@@ -213,12 +213,11 @@ Rationale: in a guard-dense repo, mid-pipeline interruption is the norm. A batch
 
 # Hook Files
 
-All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`; the `Write` tool creates
-`644` by default — pre-commit enforces this).
+All `.claude/hooks/*.ts` files must have execute permission (`chmod +x` — the `Write` tool
+creates `644` by default; pre-commit enforces).
 
-**Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620).** Each `Doc:` pointer
-below is a file there. Entries are a terse index (trigger, hook, override, fail posture, doc);
-narration lives in the linked doc.
+**Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620)** — each `Doc:` pointer
+below is a file there. Entries are a terse index; narration lives in the linked doc.
 
 ## Guard-Dispatcher Framework (ADR-028)
 
@@ -285,20 +284,17 @@ Merge-gate extension: denies `session_pr_merge` unless `bundle-boot-smoke` CI co
 on HEAD. Override: `MINSKY_SKIP_BUNDLE_SMOKE=1` (only after verifying local boot). Fail:
 deny-by-default. Doc: `bundle-boot-smoke-gate.md`.
 
-## Single Shared PR-Data Fetch Layer
-
-Not a guard: `.claude/hooks/pr-context.ts` (mt#2617) — the ONE place the 4 `session_pr_merge`
-gates fetch PR data from `gh`. mt#2888: check-run fetches retry via `minsky forge
-check_runs_list` on `gh` transport-class failures only. Doc: `pr-data-fetch-layer.md`.
-
 ## Required-Checks Bypass-Merge D8 Escape Valve
 
 PreToolUse on `Bash`/`session_exec` (layer 2 of mt#1951; layer 1: `require-review-before-merge.ts`):
 denies a `gh api PUT .../merge` bypass unless every required check concluded `success` on HEAD.
-mt#2888: only "cannot read" (fetch failed — status UNKNOWN) consults the mt#2658 D8 grant store;
-"read and failed" never does.
+mt#2888: only "cannot read" (status UNKNOWN) consults the mt#2658 D8 grant store; "read and
+failed" never does.
 Hook: `require-checks-on-bypass-merge.ts`. Overrides: `MINSKY_SKIP_REQUIRED_CHECKS=1`
 (launch-time) or a D8 grant (`scripts/grant-guard-override.ts`). Fail: deny-on-failure.
+PR data for the 4 `session_pr_merge` gates comes from the single fetch layer `pr-context.ts`
+(mt#2617; mt#2888 retries check-run fetches via `minsky forge check_runs_list` on `gh`
+transport failures; doc: `pr-data-fetch-layer.md`).
 Doc: `required-checks-bypass-merge-gate.md`.
 
 ## Execution-Evidence Merge Gate
@@ -315,11 +311,11 @@ follow-up task. Fail: open on unresolvable repo/PR or `gh` failure. Siblings: `/
 PreToolUse on `session_pr_merge`: blocks a deploy-surface PR (`infra/**`, `services/*/Dockerfile`,
 `services/*/railway.json`, `.github/workflows/deploy-*.yml`)
 lacking a `Deploy verification:` commitment; paired PostToolUse injects a
-`deployment_wait-for-latest` reminder (+tray `src-tauri/**` local-app surface, mt#2976). Hooks: `deploy-surface-detector.ts` +
+`deployment_wait-for-latest` reminder (+tray `src-tauri/**` surface, mt#2976). Hooks: `deploy-surface-detector.ts` +
 `require-deploy-verification-before-merge.ts` + `deploy-verification-after-merge.ts`. Escapes:
 `[no-deploy-impact]` title; a `Deploy verification:` section; `MINSKY_SKIP_DEPLOY_VERIFY=1`.
-Marker forms (mt#2648, shared by all `session_pr_merge` gates): label+colon, or any-level heading
-(colon optional), case-insensitive. Fail: open (unresolvable repo/PR/non-surface); PostToolUse
+Marker forms (mt#2648, all `session_pr_merge` gates): label+colon or any-level heading (colon
+optional), case-insensitive. Fail: open (unresolvable repo/PR/non-surface); PostToolUse
 always exits 0. Doc: `deploy-verification-merge-gate.md`.
 
 ## Growth-Justification Merge Gate
@@ -359,7 +355,7 @@ Fail: always exits 0. Doc: `drive-pr-to-convergence-reminder.md`.
 UserPromptSubmit: detects verbal commitments with no same-turn encoding, inline-retrospective
 prose without `/retrospective`, DB-substrate-bypass phrasing, and (log-only, mt#2263 ladder)
 `operator-instruction-after-merge` — telling the user to reinstall/rebuild/edit-config to
-ACTIVATE a merged change (in-band `§Turnkey, not portal`, mt#2303). Hook:
+activate a merged change (`§Turnkey, not portal`, mt#2303). Hook:
 `substrate-bypass-detector.ts`. Overrides: `MINSKY_ACK_SUBSTRATE_BYPASS=1`,
 `MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER=1`. Fail: open on transcript error; silent on first
 turn. Doc: `substrate-bypass-detector.md`.
@@ -372,7 +368,7 @@ signals; reminds to invoke `/retrospective` (suppressed if already invoked). Hoo
 Override: `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1`. Fail: open on transcript error.
 Doc: `retrospective-trigger-scanner.md`.
 
-## Injection Hooks (UserPromptSubmit, per-turn context)
+## Injection Hooks (UserPromptSubmit)
 
 - **Current time** — date/day/local/UTC every turn. `inject-current-time.ts`; override
   `MINSKY_SKIP_TIME_INJECTION=1`. Doc: `current-time-injection-hook.md`.
@@ -411,7 +407,7 @@ Doc: `bind-advance-spec-read-guard.md`.
 Fail: always exits 0.
 Doc: `session-end-transcript-ingest-hook.md`.
 
-## Calibration Detectors (UserPromptSubmit, log-only + cadence)
+## Calibration Detectors (UserPromptSubmit, log-only)
 
 - **Causal-premise** — logs volunteered causal claims lacking same-turn verification.
   `causal-premise-detector.ts`; log `.minsky/causal-premise-calibration.jsonl`; companion

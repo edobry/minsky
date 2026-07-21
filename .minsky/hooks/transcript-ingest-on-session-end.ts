@@ -227,7 +227,14 @@ function realRunCommand(cmd: string[], opts: { timeoutMs: number }): CommandResu
     stdout: "pipe",
     stderr: "pipe",
     timeout: opts.timeoutMs,
-    env: { ...process.env, PATH: pathPrefix },
+    // Fail-fast Postgres connect (mt#2982) — same injection as execWithPath in
+    // types.ts; a hanging DB must fail the ingest fast instead of burning the
+    // whole timeout budget on a connect that will never complete.
+    env: {
+      MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT: "2",
+      ...process.env,
+      PATH: pathPrefix,
+    },
   });
   const timedOut = result.exitCode === null && result.signalCode === "SIGTERM";
   return {
