@@ -21,6 +21,11 @@
 -- shell history, or transcript. Generate with e.g.: openssl rand -hex 24
 -- (hex = URL-safe, no percent-encoding needed in the connection string).
 --
+-- Re-running is a no-op for an existing role (CREATE ROLE is skipped — the
+-- password is NOT updated). To rotate the password:
+--   psql "$ADMIN_URL" -v app_password="$NEW_PW" \
+--     -c "ALTER ROLE minsky_app WITH PASSWORD :'app_password'"
+--
 -- Connection string (Supavisor shared pooler; same host/port/db as the postgres
 -- URL): postgres protocol, user = minsky_app.<project-ref> (role-qualified),
 -- password from above, host/port/db identical to the postgres-role URL.
@@ -58,10 +63,18 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO mi
 
 -- Drizzle migration ledger: the runtime READS it (boot-time pending-check,
 -- `persistence check`, fail-loud persistence health mt#2949) but never writes
--- it — only the migrator (postgres) does.
-GRANT USAGE ON SCHEMA drizzle TO minsky_app;
-GRANT SELECT ON ALL TABLES IN SCHEMA drizzle TO minsky_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA drizzle GRANT SELECT ON TABLES TO minsky_app;
+-- it — only the migrator (postgres) does. Guarded so the script stays
+-- re-runnable on a DB where migrations have not created the schema yet
+-- (fresh DB, non-prod replica) — same pattern as supabase-preview-role.sql.
+DO $$
+BEGIN
+  IF EXISTS (SELECT FROM pg_namespace WHERE nspname = 'drizzle') THEN
+    GRANT USAGE ON SCHEMA drizzle TO minsky_app;
+    GRANT SELECT ON ALL TABLES IN SCHEMA drizzle TO minsky_app;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA drizzle GRANT SELECT ON TABLES TO minsky_app;
+  END IF;
+END
+$$;
 
 COMMIT;
 
