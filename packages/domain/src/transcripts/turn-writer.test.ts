@@ -80,9 +80,17 @@ function turnKey(sid: string, idx: number): string {
 function makeDb(
   transcriptRows: FakeTranscriptRow[],
   store: Map<string, FakeTurnRow>,
-  onInsertBatch?: (batchSize: number) => void
+  onInsertBatch?: (batchSize: number) => void,
+  /**
+   * Predicate invoked once per bulk-insert call (call index starting at 0,
+   * plus the batch size) — returning true makes that call's
+   * `onConflictDoUpdate()` reject instead of resolving. Lets tests simulate
+   * a chunk-level write failure (mt#2457 R1 review: erroredChunks).
+   */
+  failInsertCall?: (callIndex: number, batchSize: number) => boolean
 ) {
   type TurnValues = Partial<FakeTurnRow> & { agentSessionId: string; turnIndex: number };
+  let insertCallIndex = -1;
 
   function upsertOne(v: TurnValues): void {
     const key = turnKey(v.agentSessionId, v.turnIndex);
@@ -120,9 +128,14 @@ function makeDb(
       return {
         values(v: TurnValues | TurnValues[]) {
           const rows = Array.isArray(v) ? v : [v];
+          insertCallIndex++;
+          const callIndex = insertCallIndex;
           onInsertBatch?.(rows.length);
           return {
             onConflictDoUpdate(_opts: unknown): Promise<void> {
+              if (failInsertCall?.(callIndex, rows.length)) {
+                return Promise.reject(new Error(`simulated insert failure (call ${callIndex})`));
+              }
               for (const row of rows) upsertOne(row);
               return Promise.resolve();
             },
@@ -237,9 +250,35 @@ describe("writeTurnsForTranscript", () => {
     const result = await writeTurnsForTranscript(asPg(db), SESSION_A, lines);
 
     expect(result.written).toBe(TURN_COUNT);
+    expect(result.erroredChunks).toBe(0);
     expect(store.size).toBe(TURN_COUNT);
     // 3 bulk-insert calls (500 + 500 + 200), not 1,200 single-row calls.
     expect(batchSizes).toEqual([500, 500, 200]);
+  });
+
+  test("mt#2457 R1 review: a failed chunk upsert is counted via erroredChunks, not silently swallowed", async () => {
+    // 1,200 turns → 3 chunks (500 + 500 + 200). Fail only the SECOND chunk
+    // (call index 1) so this also verifies a PARTIAL failure: chunk 1 and 3
+    // succeed (written should reflect only the successful chunks), but the
+    // transcript as a whole must be flagged as having an error.
+    const TURN_COUNT = 1200;
+    const lines: RawTurnLine[] = [];
+    for (let i = 0; i < TURN_COUNT; i++) {
+      lines.push(userLine(`u${i}`, TS1), assistantLine(`a${i}`, [], TS2));
+    }
+    const store = new Map<string, FakeTurnRow>();
+    const db = makeDb([], store, undefined, (callIndex) => callIndex === 1);
+
+    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
+    const result = await writeTurnsForTranscript(asPg(db), SESSION_A, lines);
+
+    expect(result.erroredChunks).toBe(1);
+    // Only the two successful chunks (500 + 200) landed; the failed middle
+    // chunk (500) did not silently count as written.
+    expect(result.written).toBe(700);
+    expect(store.size).toBe(700);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   test("fts_text auto-populates from user + assistant text", async () => {
@@ -405,6 +444,7 @@ describe("extractTurnsForAllTranscripts", () => {
     expect(result.transcriptsSkipped).toBe(1);
     expect(result.nonEmptyYieldedZero).toBe(0);
     expect(result.turnsWritten).toBe(3); // 2 from A, 1 from B
+    expect(result.aborted).toBe(false);
     expect(store.size).toBe(3);
   });
 
@@ -499,5 +539,67 @@ describe("extractTurnsForAllTranscripts", () => {
       { scanned: 2, lastId: "session-01" },
       { scanned: 3, lastId: "session-02" },
     ]);
+  });
+
+  test("mt#2457 R1 review: sets aborted=true and stops the sweep when a batch fetch fails", async () => {
+    // Page 1 succeeds (2 rows); page 2's fetch throws. The sweep must stop
+    // (not retry indefinitely) AND the returned result must say so via
+    // `aborted` — before this fix, only a log line recorded the failure, so a
+    // caller reading just the returned counts could not distinguish this from
+    // a clean end-of-corpus completion.
+    const rows: FakeTranscriptRow[] = Array.from({ length: 2 }, (_, i) => ({
+      agentSessionId: `session-${String(i).padStart(2, "0")}`,
+      transcript: [userLine(`u${i}`, TS1), assistantLine(`a${i}`, [], TS2)],
+    }));
+    const store = new Map<string, FakeTurnRow>();
+    let fetchCallCount = 0;
+    const flakyFetchPage = async (): Promise<TranscriptPageRow[]> => {
+      fetchCallCount++;
+      if (fetchCallCount === 1) {
+        return rows.map((r) => ({ agentSessionId: r.agentSessionId, transcript: r.transcript }));
+      }
+      throw new Error("simulated fetch failure");
+    };
+
+    const errorSpy = spyOn(log, "error").mockImplementation(() => {});
+    const result = await extractTurnsForAllTranscripts(asPg(makeDb(rows, store)), {
+      fetchPage: flakyFetchPage,
+      batchSize: 2,
+    });
+    errorSpy.mockRestore();
+
+    expect(result.aborted).toBe(true);
+    // The first page's rows were still processed before the abort.
+    expect(result.transcriptsScanned).toBe(2);
+    expect(result.transcriptsProcessed).toBe(2);
+    expect(fetchCallCount).toBe(2);
+  });
+
+  test("mt#2457 R1 review: a chunk write failure counts as errored (not skipped), even with a partial write", async () => {
+    // A 1,200-turn transcript spans 3 bulk-insert chunks (500 + 500 + 200).
+    // Fail only the middle chunk so `written` (700) is > 0 — this must still
+    // be classified as `transcriptsErrored`, not folded into
+    // `transcriptsProcessed` just because SOME turns landed.
+    const TURN_COUNT = 1200;
+    const lines: RawTurnLine[] = [];
+    for (let i = 0; i < TURN_COUNT; i++) {
+      lines.push(userLine(`u${i}`, TS1), assistantLine(`a${i}`, [], TS2));
+    }
+    const rows: FakeTranscriptRow[] = [{ agentSessionId: SESSION_A, transcript: lines }];
+    const store = new Map<string, FakeTurnRow>();
+    const db = makeDb(rows, store, undefined, (callIndex) => callIndex === 1);
+
+    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
+    const result = await extractTurnsForAllTranscripts(asPg(db), {
+      fetchPage: makeFetchPage(rows).fetchPage,
+    });
+    warnSpy.mockRestore();
+
+    expect(result.transcriptsScanned).toBe(1);
+    expect(result.transcriptsErrored).toBe(1);
+    expect(result.transcriptsProcessed).toBe(0);
+    expect(result.transcriptsSkipped).toBe(0);
+    // The two successful chunks (500 + 200) still count toward turnsWritten.
+    expect(result.turnsWritten).toBe(700);
   });
 });

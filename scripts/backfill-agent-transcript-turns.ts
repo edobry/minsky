@@ -77,7 +77,6 @@ async function bootstrapDb(): Promise<PostgresJsDatabase> {
     "@minsky/domain/configuration"
   );
   const { createCliContainer } = await import("../src/composition/cli");
-  const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
 
   await initializeConfiguration(new CustomConfigFactory(), {
     workingDirectory: process.cwd(),
@@ -87,17 +86,31 @@ async function bootstrapDb(): Promise<PostgresJsDatabase> {
   await container.initialize();
 
   const persistence = container.has("persistence") ? container.get("persistence") : undefined;
-  if (!persistence || !(persistence instanceof PersistenceProvider)) {
+
+  // Duck-typed guard (mt#2457 R1 review; mirrors scripts/backfill-session-short-ids.ts /
+  // scripts/backfill-memory-short-ids.ts / scripts/backfill-ask-short-ids.ts's PR #2110 R1
+  // fix), not `instanceof PersistenceProvider`: an `instanceof` check against a class
+  // pulled in via a dynamic `import()` can false-negative when the resolved object was
+  // constructed from a DIFFERENT instance of the same module (dual-package hazard) — the
+  // check then silently rejects a perfectly valid provider. Check for the actual
+  // capability/method this script needs instead.
+  const hasSqlCapability =
+    !!persistence && !!(persistence as { capabilities?: { sql?: boolean } }).capabilities?.sql;
+  const hasGetDatabaseConnection =
+    !!persistence &&
+    typeof (persistence as { getDatabaseConnection?: unknown }).getDatabaseConnection ===
+      "function";
+  if (!hasSqlCapability || !hasGetDatabaseConnection) {
     throw new Error("Backfill requires a SQL-capable persistence provider (Postgres).");
   }
-  if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
-    throw new Error("Backfill requires a SQL-capable persistence provider (Postgres).");
-  }
-  const connection = await persistence.getDatabaseConnection();
+
+  const connection = await (
+    persistence as { getDatabaseConnection: () => Promise<PostgresJsDatabase | null> }
+  ).getDatabaseConnection();
   if (!connection) {
     throw new Error("Backfill requires an initialized Postgres database connection.");
   }
-  return connection as PostgresJsDatabase;
+  return connection;
 }
 
 /** Acceptance Test 1's exact query: non-null-transcript rows with zero extracted turns. */

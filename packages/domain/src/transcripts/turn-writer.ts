@@ -50,6 +50,15 @@ export interface WriteTurnsResult {
    * real failure from "nothing to do."
    */
   nonEmptyYieldedZero: boolean;
+  /**
+   * Number of bulk-insert chunks that failed to upsert (0 = every chunk
+   * succeeded). Non-zero means `written` UNDER-counts `turns.length` — a
+   * partial or total write failure that callers must count as an error, not
+   * fold into a "skipped" bucket (mt#2457 R1 review: chunk failures were
+   * previously swallowed, so a transcript with a failed write was
+   * indistinguishable from one with nothing to write).
+   */
+  erroredChunks: number;
 }
 
 /**
@@ -65,7 +74,7 @@ export interface WriteTurnsResult {
  *   (array of raw turn lines). Turn ordering / `turn_index` is assigned over the
  *   WHOLE transcript, so callers must pass the complete merged transcript, not
  *   an incremental slice.
- * @returns `{ written, nonEmptyYieldedZero }` — see `WriteTurnsResult`.
+ * @returns `{ written, nonEmptyYieldedZero, erroredChunks }` — see `WriteTurnsResult`.
  */
 export async function writeTurnsForTranscript(
   db: PostgresJsDatabase,
@@ -73,7 +82,7 @@ export async function writeTurnsForTranscript(
   transcript: unknown
 ): Promise<WriteTurnsResult> {
   if (!Array.isArray(transcript) || transcript.length === 0) {
-    return { written: 0, nonEmptyYieldedZero: false };
+    return { written: 0, nonEmptyYieldedZero: false, erroredChunks: 0 };
   }
 
   const turns = extractTurns(transcript as RawTurnLine[]);
@@ -87,7 +96,7 @@ export async function writeTurnsForTranscript(
         `zero turns for session ${agentSessionId} — possible extractor-shape mismatch`,
       { agentSessionId, transcriptLines: transcript.length }
     );
-    return { written: 0, nonEmptyYieldedZero: true };
+    return { written: 0, nonEmptyYieldedZero: true, erroredChunks: 0 };
   }
 
   // mt#2457 perf: upsert in bulk, chunked, rather than one round-trip per
@@ -101,6 +110,7 @@ export async function writeTurnsForTranscript(
   // session size, while collapsing thousands of round-trips into a handful.
   const CHUNK_SIZE = 500;
   let written = 0;
+  let erroredChunks = 0;
   for (let i = 0; i < turns.length; i += CHUNK_SIZE) {
     const chunk = turns.slice(i, i + CHUNK_SIZE);
     // NOTE: `embedding` is deliberately omitted — capture writes text only.
@@ -141,6 +151,11 @@ export async function writeTurnsForTranscript(
         });
       written += chunk.length;
     } catch (err) {
+      // mt#2457 R1 review: a failed chunk must be counted as an error, not
+      // silently swallowed — otherwise a transcript whose writes all failed
+      // (written stays 0) is classified downstream as "skipped" (nothing to
+      // do) rather than "errored" (something went wrong).
+      erroredChunks++;
       log.warn(
         `writeTurnsForTranscript: failed to upsert a chunk of ${chunk.length} turns for ` +
           `${agentSessionId} (turns ${chunk[0]?.turnIndex}-${chunk[chunk.length - 1]?.turnIndex})`,
@@ -151,7 +166,7 @@ export async function writeTurnsForTranscript(
     }
   }
 
-  return { written, nonEmptyYieldedZero: false };
+  return { written, nonEmptyYieldedZero: false, erroredChunks };
 }
 
 /** Aggregate result of an extraction reconciliation sweep. */
@@ -159,15 +174,34 @@ export interface ExtractAllTurnsResult {
   transcriptsScanned: number;
   transcriptsProcessed: number;
   transcriptsSkipped: number;
+  /**
+   * Transcripts whose write hit an error: either a chunk upsert failed
+   * (`WriteTurnsResult.erroredChunks > 0`) or the row-level try/catch below
+   * caught an unexpected throw. Distinct from `transcriptsSkipped`, which
+   * means "nothing to write" (empty/absent transcript), not "tried and
+   * failed."
+   */
   transcriptsErrored: number;
   turnsWritten: number;
   /**
-   * mt#2457 SC3: count of non-empty transcripts that yielded zero turns — a
-   * subset of `transcriptsSkipped` that signals an extraction failure (not a
-   * genuinely-empty-session skip). Non-zero here means something needs
-   * investigating; it should not happen in steady state.
+   * mt#2457 SC3: count of non-empty transcripts that yielded zero turns with
+   * NO chunk errors — an extraction/extractor-shape-mismatch signal, distinct
+   * from both a genuinely-empty-session skip and a write-error (which counts
+   * under `transcriptsErrored` instead, even if `nonEmptyYieldedZero` would
+   * also otherwise apply). Non-zero here means something needs investigating;
+   * it should not happen in steady state.
    */
   nonEmptyYieldedZero: number;
+  /**
+   * True when the sweep stopped early because a batch fetch (`fetchPage`)
+   * failed, rather than reaching a clean end-of-corpus completion (an empty
+   * page). Callers must treat an aborted sweep as INCOMPLETE — the corpus is
+   * not fully reconciled — and should retry/resume via `afterId` once the
+   * underlying fetch issue is diagnosed. Before mt#2457 R1 review this was
+   * only logged, with no signal in the returned result to distinguish
+   * "finished cleanly" from "gave up partway through."
+   */
+  aborted: boolean;
 }
 
 /** One page of `(agentSessionId, transcript)` rows for the reconciliation sweep. */
@@ -179,6 +213,14 @@ export type TranscriptPageRow = { agentSessionId: string; transcript: unknown };
  * Exposed as an injectable seam (`ExtractAllTurnsOptions.fetchPage`) so
  * `extractTurnsForAllTranscripts`'s batching/resumability logic is testable
  * without mocking the drizzle query-builder chain.
+ *
+ * Executes the query explicitly (awaits it to a concrete array) rather than
+ * returning the drizzle query builder itself — the builder IS thenable, so
+ * returning it directly would have worked, but only by relying on the
+ * caller's `await` implicitly unwrapping it (mt#2457 R1 review: "brittle
+ * thenable behavior"). Awaiting here makes the function's own return type
+ * (`Promise<TranscriptPageRow[]>`) match what actually comes back, with no
+ * implicit unwrapping left to the caller.
  */
 export async function fetchTranscriptPage(
   db: PostgresJsDatabase,
@@ -194,9 +236,10 @@ export async function fetchTranscriptPage(
     .orderBy(agentTranscriptsTable.agentSessionId)
     .limit(batchSize);
 
-  return afterId
-    ? query.where(gt(agentTranscriptsTable.agentSessionId, afterId as ConversationId))
-    : query;
+  const rows = afterId
+    ? await query.where(gt(agentTranscriptsTable.agentSessionId, afterId as ConversationId))
+    : await query;
+  return rows;
 }
 
 /** Default page size for the batched reconciliation sweep (mt#2457 perf constraint). */
@@ -268,6 +311,7 @@ export async function extractTurnsForAllTranscripts(
     transcriptsErrored: 0,
     turnsWritten: 0,
     nonEmptyYieldedZero: 0,
+    aborted: false,
   };
 
   let cursor: string | null = options.afterId ?? null;
@@ -277,6 +321,11 @@ export async function extractTurnsForAllTranscripts(
     try {
       rows = await fetchPage(db, cursor, batchSize);
     } catch (err) {
+      // mt#2457 R1 review: a fetch failure must be visible in the RESULT, not
+      // just the log — a caller reading only the returned counts previously
+      // had no way to tell "clean end of corpus" from "gave up on a fetch
+      // error partway through" (both looked like a normal loop exit).
+      result.aborted = true;
       log.error("extractTurnsForAllTranscripts: failed to load a transcript batch", {
         error: getErrorMessage(err),
         cursor,
@@ -292,12 +341,21 @@ export async function extractTurnsForAllTranscripts(
     for (const row of rows) {
       lastId = row.agentSessionId;
       try {
-        const { written, nonEmptyYieldedZero } = await writeTurnsForTranscript(
+        const { written, nonEmptyYieldedZero, erroredChunks } = await writeTurnsForTranscript(
           db,
           row.agentSessionId,
           row.transcript
         );
-        if (written === 0) {
+        if (erroredChunks > 0) {
+          // mt#2457 R1 review: any chunk write failure is an error, even when
+          // some OTHER chunk of the same transcript succeeded (written > 0) —
+          // a partial write is not "processed", it's a degraded result that
+          // needs investigating, same as a total write failure.
+          result.transcriptsErrored++;
+          if (written > 0) {
+            result.turnsWritten += written;
+          }
+        } else if (written === 0) {
           result.transcriptsSkipped++;
           if (nonEmptyYieldedZero) {
             result.nonEmptyYieldedZero++;
