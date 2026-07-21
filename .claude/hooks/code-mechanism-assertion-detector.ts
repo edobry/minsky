@@ -18,9 +18,13 @@
 // without unacceptable false positives, this fires ONLY on code-symbol-behavior
 // claims, where high precision is achievable.
 //
-// CALIBRATION-FIRST: in v1, INJECTION_ENABLED = false — logs matches to a
-// calibration JSONL and injects NOTHING. Flip to injection only after the FP
-// rate is reviewed (mt#2483 calibration-review sweep).
+// CALIBRATION-FIRST: v1 shipped with INJECTION_ENABLED = false — logging
+// matches to a calibration JSONL and injecting NOTHING — until the FP rate
+// was reviewed (mt#2483 calibration-review sweep). The 2026-07-21 review
+// (ask 089320f7, operator-confirmed) disposed the residual FP as concentrated
+// in two nameable symbol classes (rule/doc-file names; bare hex-id tokens);
+// mt#3002 excludes both classes and flips INJECTION_ENABLED to true in the
+// same PR — this is the graduation from calibration-only to live reminders.
 //
 // Detector contract:
 //   FIRES when the prior assistant turn asserts a named code symbol's BEHAVIOR
@@ -67,11 +71,14 @@ import type { DispatchContext, GuardOutcome } from "./registry";
 // ---------------------------------------------------------------------------
 
 /**
- * When false (v1/calibration mode), the hook logs matches to JSONL and injects
- * NO additionalContext. Flip to true only after reviewing the FP rate from the
- * calibration log via the mt#2483 calibration-review sweep.
+ * When false (calibration mode), the hook logs matches to JSONL and injects
+ * NO additionalContext. Flipped to true by mt#3002 (2026-07-21) after the
+ * mt#2483 calibration-review sweep disposed the residual FP rate as
+ * TUNE+FLIP — see the FILE_EXTENSION_RE / HEX_ID_RE exclusions below, added
+ * in the same change, which close the two nameable FP classes the review
+ * found.
  */
-export const INJECTION_ENABLED = false;
+export const INJECTION_ENABLED = true;
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -146,11 +153,43 @@ const SYMBOL_STOPLIST: ReadonlySet<string> = new Set([
   "stderr",
 ]);
 
+/**
+ * File-name-shaped exclusion (mt#3002). A token ending in a known doc/config
+ * extension — `hook-files.mdc`, `src/cockpit/CLAUDE.md` — cited next to a
+ * mechanism verb ("override", "trim", "Guard") is a rule/doc-file reference:
+ * the mt#2619 echo-of-injected-rule-text class, not an unverified
+ * code-mechanism claim (2026-07-20T20:31 and 2026-07-21T08:13 calibration
+ * records — the 2026-07-21 calibration review's FP class #1).
+ *
+ * Deliberately does NOT extend to code-file extensions (`.ts`, `.js`, `.py`,
+ * ...): no calibration record shows a code-extension FP, and every genuine
+ * symbol in the regression set (`session_pr_merge`, `execWithPath`,
+ * `MINSKY_SKIP_SIZE_BUDGET`-style env vars, camel/snake identifiers) carries
+ * no file extension at all — so restricting the exclusion to doc/config
+ * extensions closes the observed FP class with zero risk of losing a real
+ * claim. Revisit only if a future calibration record shows a code-extension
+ * FP.
+ */
+const FILE_EXTENSION_RE = /\.(?:md|mdc|json|ya?ml|txt)$/i;
+
+/**
+ * Bare hex-id token exclusion (mt#3002). A commit-hash-like token (e.g.
+ * `a30378971` — the 2026-07-21T00:26 calibration record, FP class #2) reads
+ * as a "symbol" only because it starts with a hex letter (a-f) and is
+ * backticked; it is not a code identifier. Genuine identifiers do not
+ * consist ENTIRELY of hex digits with no case-mixing or separators — the
+ * regression set (`MINSKY_SKIP_SIZE_BUDGET`, `session_pr_merge`,
+ * `execWithPath`) all fail this test, so the exclusion is safe.
+ */
+const HEX_ID_RE = /^[0-9a-f]{8,40}$/i;
+
 function isPlausibleSymbol(tok: string): boolean {
   const t = tok.trim();
   if (t.length < 3) return false;
   if (SYMBOL_STOPLIST.has(t.toLowerCase())) return false;
   if (!/[A-Za-z]/.test(t)) return false;
+  if (FILE_EXTENSION_RE.test(t)) return false;
+  if (HEX_ID_RE.test(t)) return false;
   return true;
 }
 

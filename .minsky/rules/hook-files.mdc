@@ -166,6 +166,14 @@ Stop-event sibling (mt#2357): `turn-end-retro-scan.ts` — advisory turn-end sca
 via `dispatch-stop.ts`); dedup caps phrases at one beat; same override/log (`channel:"stop"`).
 Doc: `turn-end-retro-scan.md`.
 
+## Code-Mechanism-Assertion Detector
+
+UserPromptSubmit: flags an asserted-but-unread code-symbol behavior claim.
+mt#3002 excludes file-name/hex-id symbol FPs and flips
+`INJECTION_ENABLED=true` (calibration-only since mt#2486). Hook:
+`code-mechanism-assertion-detector.ts`. Override:
+`MINSKY_ACK_CODE_MECHANISM_ASSERTION=1`. Fail: open. Doc: same-name `.md`.
+
 ## Injection Hooks (UserPromptSubmit)
 
 - **Current time** — date/day/local/UTC every turn. `inject-current-time.ts`; override
