@@ -152,14 +152,20 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
 
 describe("toBunTestPath (mt#2446 dot-directory fix)", () => {
   const ANCHORED_FOO = "./src/foo.test.ts";
+  const ANCHORED_GUARD = "./.minsky/hooks/guard.test.ts";
 
   test("prefixes bare repo-relative paths", () => {
     expect(toBunTestPath("src/foo.test.ts")).toBe(ANCHORED_FOO);
-    expect(toBunTestPath(".minsky/hooks/guard.test.ts")).toBe("./.minsky/hooks/guard.test.ts");
+    expect(toBunTestPath(".minsky/hooks/guard.test.ts")).toBe(ANCHORED_GUARD);
   });
 
   test("leaves already-anchored paths unchanged", () => {
     expect(toBunTestPath(ANCHORED_FOO)).toBe(ANCHORED_FOO);
     expect(toBunTestPath("/abs/path/foo.test.ts")).toBe("/abs/path/foo.test.ts");
+  });
+
+  test("leaves parent-relative ../ paths unchanged (PR #2135 R1) — but a bare dot-directory still gets prefixed", () => {
+    expect(toBunTestPath("../outside/foo.test.ts")).toBe("../outside/foo.test.ts");
+    expect(toBunTestPath(".minsky/hooks/guard.test.ts")).toBe(ANCHORED_GUARD);
   });
 });

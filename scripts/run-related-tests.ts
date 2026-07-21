@@ -51,7 +51,11 @@ export const RELATED_TEST_CAP = 40;
  * passed as a path.
  */
 export function toBunTestPath(file: string): string {
-  return file.startsWith("/") || file.startsWith("./") ? file : `./${file}`;
+  // NOTE: a bare leading dot (".minsky/hooks/foo.test.ts") is NOT anchored —
+  // that is the original bug — so only "/", "./", and "../" pass through.
+  return file.startsWith("/") || file.startsWith("./") || file.startsWith("../")
+    ? file
+    : `./${file}`;
 }
 
 function getStagedFiles(): string[] {

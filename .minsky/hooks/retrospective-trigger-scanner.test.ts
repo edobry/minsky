@@ -714,6 +714,9 @@ describe("method-redirect patterns (mt#2446)", () => {
     "look at how the community handles this",
     "look at how others do this",
     "look at how pulumi handles this",
+    "how does drizzle-kit handle this?",
+    "how does next.js do this?",
+    "look at how drizzle-kit handles migrations",
     "what's the appropriate way to handle this?",
     "what's the right way to do this in drizzle?",
     "what's the canonical way to baseline a migration ledger?",
@@ -737,6 +740,9 @@ describe("method-redirect patterns (mt#2446)", () => {
     // "way" phrases without the method-redirect qualifiers
     "is there a way to skip CI?",
     "what's the fastest way to get this merged?",
+    // "look at how" phrasings outside the pinned verb set (handles/handle/do/does)
+    "look at how much time this took",
+    "take a look at how things went",
   ];
 
   for (const phrase of negatives) {

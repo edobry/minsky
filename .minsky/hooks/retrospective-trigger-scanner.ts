@@ -170,8 +170,14 @@ export const METHOD_REDIRECT_PATTERNS: RegExp[] = [
   /\b(you\s+)?should\s+(do\s+(?:some|more)\s+)?research\b/i,
   /\bdid\s+you\s+(?:check|look\s+at)\s+how\b/i,
   /\bis\s+there\s+a\s+(?:standard|canonical|recommended|proper)\s+way\b/i,
-  /\bhow\s+does\s+\w+\s+(?:handle|do)\s+this\b/i,
-  /\blook\s+at\s+how\s+(?:the\s+community|others|\w+)\s+(?:handles?|do(?:es)?)\b/i,
+  // Tool tokens use [\w.-]+ so hyphenated/dotted names match ("drizzle-kit",
+  // "next.js") — the originating incident's tool IS hyphenated (PR #2135 R1).
+  /\bhow\s+does\s+[\w.-]+\s+(?:handle|do)\s+this\b/i,
+  // Intentionally does NOT require a trailing "this": redirects like "look at
+  // how pulumi handles local packages" are genuine method corrections. The
+  // design-context gate bounds the resulting breadth; negative tests pin the
+  // verb set (handles/handle/do/does only).
+  /\blook\s+at\s+how\s+(?:the\s+community|others|[\w.-]+)\s+(?:handles?|do(?:es)?)\b/i,
   /\bwhat[''’]?s\s+the\s+(?:appropriate|right|canonical)\s+way\s+to\b/i,
 ];
 
