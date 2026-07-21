@@ -470,6 +470,13 @@
       "when": 1784624555913,
       "tag": "0066_flippant_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1784626620221,
+      "tag": "0067_careful_saracen",
+      "breakpoints": true
     }
   ]
 }
