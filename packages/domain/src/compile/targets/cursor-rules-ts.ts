@@ -11,11 +11,12 @@
  * different files (legacy: from .mdc sources; this: from .ts sources).
  */
 
-import { join, basename } from "path";
+import { join } from "path";
 import realFs from "fs/promises";
 import matter from "gray-matter";
 import { ruleDefinitionSchema } from "../../definitions/schemas";
 import type { RuleDefinition } from "../../definitions/types";
+import { discoverRuleSources } from "../rule-sources";
 import type {
   MinskyCompileTarget,
   MinskyCompileResult,
@@ -31,14 +32,6 @@ import { GENERATED_BANNER } from "../../rules/compile/banner-constants";
 export type DynamicImportFn = (path: string) => Promise<unknown>;
 
 const realDynamicImport: DynamicImportFn = (path: string) => import(path);
-
-/**
- * Source directory where rules are authored.
- * Pattern: .minsky/rules/<name>/rule.ts
- */
-function ruleSourceDir(workspacePath: string): string {
-  return join(workspacePath, ".minsky", "rules");
-}
 
 /**
  * Root output directory for compiled cursor rules.
@@ -101,39 +94,6 @@ export function buildRuleMdc(rule: RuleDefinition): string {
 }
 
 /**
- * Discover the names of sub-directories under .minsky/rules/ that
- * contain a rule.ts file. Skips any .mdc files in the parent directory.
- */
-async function discoverRuleDirNames(
-  workspacePath: string,
-  fs: MinskyCompileFsDeps
-): Promise<string[]> {
-  const sourceDir = ruleSourceDir(workspacePath);
-  let entries: string[];
-  try {
-    entries = await fs.readdir(sourceDir);
-  } catch {
-    return [];
-  }
-
-  const ruleDirNames: string[] = [];
-  for (const entry of entries) {
-    // Skip .mdc files and other non-directory entries at the parent level.
-    if (entry.endsWith(".mdc")) {
-      continue;
-    }
-    const ruleTsPath = join(sourceDir, entry, "rule.ts");
-    try {
-      await fs.access(ruleTsPath);
-      ruleDirNames.push(basename(entry));
-    } catch {
-      // No rule.ts here — skip (may be a subdir without a rule.ts, or a file)
-    }
-  }
-  return ruleDirNames;
-}
-
-/**
  * Load and validate a rule definition from an imported module.
  * Accepts both `export default defineRule(...)` and named `export { rule }`.
  */
@@ -187,8 +147,13 @@ function makeCursorRulesTsTarget(
       fsDeps?: MinskyCompileFsDeps
     ): Promise<string[]> {
       const fs = fsDeps ?? (realFs as MinskyCompileFsDeps);
-      const dirNames = await discoverRuleDirNames(workspacePath, fs);
-      return dirNames.map((name) => ruleOutputPath(workspacePath, name));
+      const sources = await discoverRuleSources(workspacePath, fs);
+      // Phase 2 (mt#2994): cursor-rules-ts still emits ONLY TS-sourced rules.
+      // Flat `.mdc` rules are discovered via the shared reader, but their
+      // emission — and byte-parity with the legacy writer — is Phase 3 (mt#2995).
+      return sources
+        .filter((s) => s.kind === "ts")
+        .map((s) => ruleOutputPath(workspacePath, s.name));
     },
 
     async compile(
@@ -197,7 +162,7 @@ function makeCursorRulesTsTarget(
       fsDeps?: MinskyCompileFsDeps
     ): Promise<MinskyCompileResult> {
       const fs = fsDeps ?? (realFs as MinskyCompileFsDeps);
-      const dirNames = await discoverRuleDirNames(workspacePath, fs);
+      const sources = await discoverRuleSources(workspacePath, fs);
 
       const filesWritten: string[] = [];
       const definitionsIncluded: string[] = [];
@@ -205,8 +170,21 @@ function makeCursorRulesTsTarget(
       const contentsByPath = new Map<string, string>();
       const dryRunParts: string[] = [];
 
-      for (const dirName of dirNames) {
-        const sourcePath = join(ruleSourceDir(workspacePath), dirName, "rule.ts");
+      for (const source of sources) {
+        // Phase 2 (mt#2994): emit only TS-sourced rules. Flat `.mdc` rules are
+        // discovered via the shared reader but their emission is Phase 3
+        // (mt#2995); an ambiguous `both` source (a rule.ts AND a flat .mdc for
+        // the same name) is skipped rather than silently preferring one format
+        // (mt#2279).
+        if (source.kind === "mdc") {
+          continue;
+        }
+        if (source.kind === "both") {
+          definitionsSkipped.push(source.name);
+          continue;
+        }
+
+        const { name: dirName, path: sourcePath } = source;
 
         let mod: unknown;
         try {
