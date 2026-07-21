@@ -14,14 +14,18 @@ import {
   clearResolvedAskIds,
   selectAckablePaths,
   runSweep,
+  computeReviewDueLogs,
   calibrationRecordToFireLogEntry,
   calibrationLogAsFireLogEntries,
   readAllCalibrationLogsAsFireLogEntries,
   FIRES_THRESHOLD,
   DIVERSITY_THRESHOLD,
+  STALE_DAYS_MS,
+  NEVER_REVIEWED_DAYS,
   CALIBRATION_LOG_REGISTRY,
   UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
   type CalibrationLogEntry,
+  type CalibrationLogResult,
   type CalibrationRecord,
   type LogWatermark,
   type WatermarkStore,
@@ -1302,5 +1306,203 @@ describe("readAllCalibrationLogsAsFireLogEntries", () => {
       readContent
     );
     expect(results).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeReviewDueLogs — the three-condition review-due matrix (mt#2896)
+// ---------------------------------------------------------------------------
+
+describe("computeReviewDueLogs (mt#2896)", () => {
+  const NOW = Date.parse("2026-07-21T00:00:00Z");
+  const DAY = 24 * 60 * 60 * 1000;
+
+  function reviewEntry(
+    name: string,
+    overrides: Partial<CalibrationLogEntry> = {}
+  ): CalibrationLogEntry {
+    return {
+      path: `.minsky/${name}-calibration.jsonl`,
+      name,
+      kind: "causal-premise",
+      ...overrides,
+    };
+  }
+
+  function reviewResult(
+    entry: CalibrationLogEntry,
+    overrides: Partial<CalibrationLogResult> = {}
+  ): CalibrationLogResult {
+    return {
+      entry,
+      exists: true,
+      totalFires: 0,
+      firesSinceLastReview: 0,
+      distinctPhrases: 0,
+      atCountThreshold: false,
+      lowDiversity: false,
+      pastThreshold: false,
+      newRecords: [],
+      watermarkCount: 0,
+      ...overrides,
+    };
+  }
+
+  test("condition 1 — flags a pastThreshold log with reason past-threshold", () => {
+    const entry = reviewEntry(DEFERRAL_KIND);
+    const results = [
+      reviewResult(entry, {
+        pastThreshold: true,
+        firesSinceLastReview: 43,
+        totalFires: 43,
+        distinctPhrases: 31,
+      }),
+    ];
+    const due = computeReviewDueLogs(results, {}, NOW);
+    expect(due).toHaveLength(1);
+    expect(due[0]?.reason).toBe("past-threshold");
+  });
+
+  test("condition 2 — flags a reviewed-but-stale log with reason time-stale", () => {
+    const entry = reviewEntry(RETRO_KIND);
+    const results = [reviewResult(entry, { firesSinceLastReview: 8, totalFires: 20 })];
+    const watermarks: WatermarkStore = {
+      [entry.path]: {
+        lastReviewedCount: 12,
+        lastReviewedAt: new Date(NOW - (STALE_DAYS_MS + DAY)).toISOString(),
+      },
+    };
+    const due = computeReviewDueLogs(results, watermarks, NOW);
+    expect(due).toHaveLength(1);
+    expect(due[0]?.reason).toBe("time-stale");
+  });
+
+  test("condition 3 — flags a NEVER-reviewed log whose first fire is >= 30 days old (the causal-premise blind spot)", () => {
+    const entry = reviewEntry("causal-premise");
+    const results = [
+      reviewResult(entry, {
+        totalFires: 1,
+        firesSinceLastReview: 1,
+        firstRecordTimestamp: new Date(NOW - 31 * DAY).toISOString(),
+      }),
+    ];
+    const due = computeReviewDueLogs(results, {}, NOW);
+    expect(due).toHaveLength(1);
+    expect(due[0]?.reason).toBe("never-reviewed");
+    expect(due[0]?.name).toBe("causal-premise");
+    expect(due[0]?.reviewByDays).toBe(NEVER_REVIEWED_DAYS);
+  });
+
+  test("condition 3 — does NOT flag a never-reviewed log below the 30-day bar (29 days)", () => {
+    const entry = reviewEntry("causal-premise");
+    const results = [
+      reviewResult(entry, {
+        totalFires: 1,
+        firesSinceLastReview: 1,
+        firstRecordTimestamp: new Date(NOW - 29 * DAY).toISOString(),
+      }),
+    ];
+    expect(computeReviewDueLogs(results, {}, NOW)).toHaveLength(0);
+  });
+
+  test("condition 3 — never-reviewed boundary is inclusive at exactly 30 days", () => {
+    const entry = reviewEntry("causal-premise");
+    const results = [
+      reviewResult(entry, {
+        totalFires: 1,
+        firesSinceLastReview: 1,
+        firstRecordTimestamp: new Date(NOW - NEVER_REVIEWED_DAYS * DAY).toISOString(),
+      }),
+    ];
+    expect(computeReviewDueLogs(results, {}, NOW)).toHaveLength(1);
+  });
+
+  test("per-entry reviewByDays override tightens the never-reviewed window (7 days)", () => {
+    const entry = reviewEntry("learn-capture", { reviewByDays: 7 });
+    const at8 = [
+      reviewResult(entry, {
+        totalFires: 2,
+        firesSinceLastReview: 2,
+        firstRecordTimestamp: new Date(NOW - 8 * DAY).toISOString(),
+      }),
+    ];
+    const at6 = [
+      reviewResult(entry, {
+        totalFires: 2,
+        firesSinceLastReview: 2,
+        firstRecordTimestamp: new Date(NOW - 6 * DAY).toISOString(),
+      }),
+    ];
+    expect(computeReviewDueLogs(at8, {}, NOW)[0]?.reason).toBe("never-reviewed");
+    expect(computeReviewDueLogs(at8, {}, NOW)[0]?.reviewByDays).toBe(7);
+    expect(computeReviewDueLogs(at6, {}, NOW)).toHaveLength(0);
+  });
+
+  test("never-reviewed leg ignores 0 fires, a missing first timestamp, and a malformed one", () => {
+    const entry = reviewEntry("causal-premise");
+    const zeroFires = [
+      reviewResult(entry, {
+        totalFires: 0,
+        firesSinceLastReview: 0,
+        firstRecordTimestamp: new Date(NOW - 90 * DAY).toISOString(),
+      }),
+    ];
+    const noTs = [reviewResult(entry, { totalFires: 3, firesSinceLastReview: 3 })];
+    const badTs = [
+      reviewResult(entry, {
+        totalFires: 3,
+        firesSinceLastReview: 3,
+        firstRecordTimestamp: "not-a-date",
+      }),
+    ];
+    expect(computeReviewDueLogs(zeroFires, {}, NOW)).toHaveLength(0);
+    expect(computeReviewDueLogs(noTs, {}, NOW)).toHaveLength(0);
+    expect(computeReviewDueLogs(badTs, {}, NOW)).toHaveLength(0);
+  });
+
+  test("a reviewed log (watermark present, 0 new fires) never takes the never-reviewed leg", () => {
+    const entry = reviewEntry("causal-premise");
+    const results = [
+      reviewResult(entry, {
+        totalFires: 5,
+        firesSinceLastReview: 0,
+        firstRecordTimestamp: new Date(NOW - 90 * DAY).toISOString(),
+      }),
+    ];
+    const watermarks: WatermarkStore = {
+      [entry.path]: { lastReviewedCount: 5, lastReviewedAt: new Date(NOW - DAY).toISOString() },
+    };
+    expect(computeReviewDueLogs(results, watermarks, NOW)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeLogResult — firstRecordTimestamp population (mt#2896)
+// ---------------------------------------------------------------------------
+
+describe("computeLogResult — firstRecordTimestamp (mt#2896)", () => {
+  const CAUSAL: CalibrationLogEntry = {
+    path: ".minsky/causal-premise-calibration.jsonl",
+    name: "causal-premise",
+    kind: "causal-premise",
+  };
+
+  test("surfaces the earliest record's timestamp", () => {
+    const content = `${JSON.stringify({
+      timestamp: "2026-06-08T22:05:17.665Z",
+      matchedPhrases: ["The root cause is"],
+      hadSameTurnVerification: false,
+    })}\n${JSON.stringify({
+      timestamp: "2026-07-01T00:00:00.000Z",
+      matchedPhrases: ["because"],
+      hadSameTurnVerification: true,
+    })}\n`;
+    const result = computeLogResult(CAUSAL, content, true, undefined);
+    expect(result.firstRecordTimestamp).toBe("2026-06-08T22:05:17.665Z");
+  });
+
+  test("is undefined for an absent/empty log", () => {
+    const result = computeLogResult(CAUSAL, "", false, undefined);
+    expect(result.firstRecordTimestamp).toBeUndefined();
   });
 });

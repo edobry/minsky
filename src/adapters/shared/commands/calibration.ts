@@ -32,11 +32,13 @@ import { getErrorMessage } from "@minsky/domain/errors/index";
 import {
   CALIBRATION_LOG_REGISTRY,
   runSweep,
+  computeReviewDueLogs,
   advanceWatermarks,
   clearResolvedAskIds,
   selectAckablePaths,
   UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
   type CalibrationLogResult,
+  type ReviewDueLog,
   type WatermarkStore,
 } from "../../../domain/calibration/calibration-sweep";
 
@@ -95,8 +97,9 @@ async function saveWatermarks(workspacePath: string, store: WatermarkStore): Pro
 // Result formatting
 // ---------------------------------------------------------------------------
 
-function formatResult(results: CalibrationLogResult[]): string {
+function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]): string {
   const lines: string[] = ["=== Calibration Review Sweep ===", ""];
+  const reasonByPath = new Map(reviewDue.map((d) => [d.path, d.reason]));
 
   for (const r of results) {
     lines.push(`Log: ${r.entry.name} (${r.entry.path})`);
@@ -107,6 +110,10 @@ function formatResult(results: CalibrationLogResult[]): string {
     lines.push(`  Distinct phrases:       ${r.distinctPhrases}`);
     lines.push(`  At count threshold:     ${r.atCountThreshold}`);
     lines.push(`  Past threshold:         ${r.pastThreshold}`);
+    const dueReason = reasonByPath.get(r.entry.path);
+    if (dueReason) {
+      lines.push(`  Review-due:             ${dueReason}`);
+    }
     if (r.openAskId) {
       lines.push(`  Open ask (mt#2659):     ${r.openAskId} — disposition pending`);
     }
@@ -157,12 +164,19 @@ function formatResult(results: CalibrationLogResult[]): string {
   }
 
   const pastThresholdLogs = results.filter((r) => r.pastThreshold);
-  if (pastThresholdLogs.length === 0) {
-    lines.push("No logs have reached the review threshold.");
+  if (reviewDue.length === 0) {
+    lines.push("No logs are review-due.");
   } else {
+    lines.push(`${reviewDue.length} log(s) review-due:`);
+    for (const d of reviewDue) {
+      lines.push(
+        `  - ${d.name}: ${d.reason} (${d.firesSinceLastReview} new / ${d.totalFires} total fires)`
+      );
+    }
     lines.push(
-      `${pastThresholdLogs.length} log(s) past threshold. ` +
-        `Re-run with --ack to advance watermarks after review.`
+      pastThresholdLogs.length > 0
+        ? `Re-run with --ack to advance watermarks for the ${pastThresholdLogs.length} past-threshold log(s) after review.`
+        : "Note: --ack advances past-threshold logs only; time-stale / never-reviewed ack is mt#2878."
     );
   }
 
@@ -254,6 +268,12 @@ export function registerCalibrationCommands(): void {
 
         const results = await runSweep(CALIBRATION_LOG_REGISTRY, readContent, watermarks);
 
+        // Review-due determination (mt#2896) — the SAME domain function the
+        // cadence hook uses, so the command surfaces time-stale / never-reviewed
+        // logs, not only pastThreshold. --ack below still advances pastThreshold
+        // logs only (extending ack to the time-based legs is mt#2878).
+        const reviewDue = computeReviewDueLogs(results, watermarks, Date.now());
+
         // Advance watermarks for past-threshold logs when --ack is set.
         //
         // mt#2659 review fix (BLOCKING 2): a past-threshold log whose watermark
@@ -301,9 +321,19 @@ export function registerCalibrationCommands(): void {
               atCountThreshold: r.atCountThreshold,
               lowDiversity: r.lowDiversity,
               pastThreshold: r.pastThreshold,
+              firstRecordTimestamp: r.firstRecordTimestamp,
               newRecordCount: r.newRecords.length,
               newRecords: r.newRecords,
               openAskId: r.openAskId,
+            })),
+            reviewDue: reviewDue.map((d) => ({
+              name: d.name,
+              path: d.path,
+              reason: d.reason,
+              firesSinceLastReview: d.firesSinceLastReview,
+              totalFires: d.totalFires,
+              distinctPhrases: d.distinctPhrases,
+              openAskId: d.openAskId,
             })),
             watermarkAdvanced,
             clearedAskId,
@@ -311,7 +341,7 @@ export function registerCalibrationCommands(): void {
           };
         }
 
-        const text = formatResult(results);
+        const text = formatResult(results, reviewDue);
         const suffix = watermarkAdvanced
           ? "\nWatermarks advanced for past-threshold logs."
           : params.ack && skippedOpenAskPaths.length === 0
