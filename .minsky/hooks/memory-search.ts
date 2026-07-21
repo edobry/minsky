@@ -34,7 +34,14 @@
 import { execWithPath, readHostCap, readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import { emitBraintrustEvent } from "../../packages/domain/src/observability/braintrust";
-import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  readFileSync,
+} from "node:fs";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
@@ -141,6 +148,19 @@ export const AFFIRMATIVE_WORDS = new Set([
 
 /** Debug log file path. */
 export const LOG_PATH = "/tmp/claude-memory-search-hook.log";
+
+/**
+ * Canary stub seam (mt#3004). When this env var names a readable file, the
+ * subprocess call to `minsky memory search` is replaced by reading that
+ * file's content and running it through the SAME `parseSearchOutput` path a
+ * real CLI response takes — so the guard-canary suite can exercise this
+ * hook's real parsing/formatting/injection plumbing hermetically (the live
+ * CLI round trip is not isolatable; this was the mt#2889 KNOWN GAP that
+ * left this guard canary-less). Registered in `HOOK_ONLY_ENV_VARS`
+ * (mt#1788) and mirrored in `known-override-env-vars.ts`. Test-only: never
+ * set outside the canary runner / unit tests.
+ */
+export const CANARY_STUB_ENV = "MINSKY_MEMORY_SEARCH_CANARY_STUB";
 
 /** Rotate log when size exceeds this. */
 const LOG_ROTATE_BYTES = 1_000_000;
@@ -652,6 +672,33 @@ export function runMemorySearch(
   // Truncate overlong queries — embeddings degrade past ~500 chars and we don't
   // want to ship multi-page prompts as the search input.
   const truncatedQuery = query.length > MAX_QUERY_LENGTH ? query.slice(0, MAX_QUERY_LENGTH) : query;
+
+  // Canary stub seam (mt#3004): replace ONLY the subprocess call; everything
+  // downstream (parse, degraded/empty branches, injection build) is the real
+  // production path.
+  const stubPath = process.env[CANARY_STUB_ENV];
+  if (stubPath) {
+    const stubStart = Date.now();
+    let raw: string;
+    try {
+      raw = readFileSync(stubPath, "utf8");
+    } catch (err) {
+      return {
+        response: null,
+        latencyMs: Date.now() - stubStart,
+        error: `canary-stub-read-failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+    const stubParsed = parseSearchOutput(raw);
+    if (!stubParsed) {
+      return {
+        response: null,
+        latencyMs: Date.now() - stubStart,
+        error: "canary-stub-unparseable",
+      };
+    }
+    return { response: stubParsed, latencyMs: Date.now() - stubStart };
+  }
 
   let effectiveTimeout: number;
   let derivationWarning: string | undefined;

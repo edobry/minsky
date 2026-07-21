@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   AFFIRMATIVE_WORDS,
   buildInjection,
+  CANARY_STUB_ENV,
   DEFAULT_K,
   DEFAULT_TOKEN_BUDGET,
   deriveVariantTag,
@@ -13,11 +14,17 @@ import {
   parseSearchOutput,
   renderResult,
   rotateLogIfNeeded,
+  runMemorySearch,
   TRUNCATION_MARKER,
   writeLog,
   type LogFsDeps,
   type MemorySearchResultLite,
 } from "./memory-search";
+// eslint-disable-next-line custom/no-real-fs-in-tests -- mt#3004: the canary stub seam's contract IS a real fixture file read by the hook's own readFileSync; mirrors canary-runner.test.ts's exemption
+import { mkdtempSync, writeFileSync } from "node:fs";
+// eslint-disable-next-line custom/no-real-fs-in-tests -- mt#3004: per-test mkdtemp fixture dirs, same rationale as above
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 // mt#1778 R1 NON-BLOCKING #1: read shared-emitter API directly from its
 // canonical module rather than through the hook's re-export, which was
 // fragile coupling per reviewer feedback.
@@ -842,5 +849,76 @@ describe("emitBraintrust", () => {
     ).resolves.toBeUndefined();
 
     process.env.HOME = originalHome;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canary stub seam (mt#3004)
+// ---------------------------------------------------------------------------
+
+describe("canary stub seam (mt#3004)", () => {
+  const NON_TRIVIAL_PROMPT =
+    "a sufficiently long, clearly non-trivial prompt for exercising the canary stub seam";
+  let prevStub: string | undefined;
+
+  beforeEach(() => {
+    prevStub = process.env[CANARY_STUB_ENV];
+  });
+
+  afterEach(() => {
+    if (prevStub === undefined) delete process.env[CANARY_STUB_ENV];
+    else process.env[CANARY_STUB_ENV] = prevStub;
+  });
+
+  it("returns the fixture through the real parse path without invoking the CLI", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mt3004-memory-search-stub-test-"));
+    const fixturePath = join(dir, "fixture.json");
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- mt#3004: writing the real fixture file the seam reads
+    writeFileSync(
+      fixturePath,
+      JSON.stringify({
+        results: [
+          {
+            record: {
+              id: "stub-record-id",
+              type: "feedback",
+              name: "stub_record",
+              description: "stub description",
+              content: "stub content",
+            },
+            score: 0.42,
+          },
+        ],
+        backend: "embeddings",
+        degraded: false,
+      })
+    );
+    process.env[CANARY_STUB_ENV] = fixturePath;
+
+    const { response, error } = runMemorySearch(NON_TRIVIAL_PROMPT);
+    expect(error).toBeUndefined();
+    expect(response?.results.length).toBe(1);
+    expect(response?.results[0]?.record.name).toBe("stub_record");
+    expect(response?.backend).toBe("embeddings");
+    expect(response?.degraded).toBe(false);
+  });
+
+  it("an unreadable stub path degrades to a canary-stub-read-failed error, not a crash", () => {
+    process.env[CANARY_STUB_ENV] = "/nonexistent/mt3004/fixture.json";
+    const { response, error } = runMemorySearch(NON_TRIVIAL_PROMPT);
+    expect(response).toBeNull();
+    expect(error).toContain("canary-stub-read-failed");
+  });
+
+  it("unparseable stub content degrades to canary-stub-unparseable", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mt3004-memory-search-stub-garbage-"));
+    const fixturePath = join(dir, "garbage.txt");
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- mt#3004: writing the real fixture file the seam reads
+    writeFileSync(fixturePath, "definitely not json and no braces either");
+    process.env[CANARY_STUB_ENV] = fixturePath;
+
+    const { response, error } = runMemorySearch(NON_TRIVIAL_PROMPT);
+    expect(response).toBeNull();
+    expect(error).toBe("canary-stub-unparseable");
   });
 });

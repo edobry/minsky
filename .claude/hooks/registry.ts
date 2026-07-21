@@ -524,13 +524,51 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 10000,
     denyCapable: false,
     attentionCost: { denialMessageSizeChars: 280, optionCount: 1 },
-    // mt#2889 KNOWN GAP (documented in PR body, no silent cap): this guard's
-    // run() shells to the live `minsky memory search` process with no
-    // injectable seam (unlike every other guard, which takes an injected
-    // fs/env dependency) — a canary would require either a live memory-store
-    // round trip (not hermetic/isolated) or an execWithPath-style dependency
-    // injection refactor (out of scope: this task explicitly excludes guard
-    // behavior/refactor changes beyond additive fields). No canary declared.
+    // mt#3004 (closes the mt#2889 KNOWN GAP): the live `minsky memory search`
+    // subprocess is not hermetically canary-able, so the guard exposes a
+    // fixture-file stub seam (CANARY_STUB_ENV) that replaces ONLY the
+    // subprocess call — the fixture flows through the real parse/injection
+    // path. The env mutation persists for the rest of the canary-runner
+    // process by design (setup has no teardown); it is read exclusively by
+    // this guard's runMemorySearch, so later canaries are unaffected.
+    canary: {
+      input: {
+        prompt:
+          "canary: verify the memory-search hook still parses results and injects context for this prompt",
+      },
+      expects: "warn",
+      setup: async () => {
+        const { mkdtempSync, writeFileSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const { CANARY_STUB_ENV } = await import("./memory-search");
+        const dir = mkdtempSync(join(tmpdir(), "mt3004-memory-search-canary-"));
+        const fixturePath = join(dir, "memory-search-fixture.json");
+        writeFileSync(
+          fixturePath,
+          JSON.stringify({
+            results: [
+              {
+                record: {
+                  id: "00000000-0000-0000-0000-mt3004canary",
+                  type: "feedback",
+                  name: "mt3004_canary_fixture_memory",
+                  description: "Synthetic canary fixture record (mt#3004).",
+                  content:
+                    "Synthetic memory content used by the guard-canary suite to prove the " +
+                    "memory-search hook's parse-and-inject plumbing is alive.",
+                },
+                score: 0.11,
+              },
+            ],
+            backend: "embeddings",
+            degraded: false,
+          })
+        );
+        process.env[CANARY_STUB_ENV] = fixturePath;
+        return {};
+      },
+    },
   },
   {
     name: "skill-staleness-detector",
@@ -577,14 +615,61 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 5000,
     denyCapable: false,
     attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
-    // mt#2889 KNOWN GAP (documented in PR body, no silent cap): correctness
-    // depends on a REAL `minskyHomeDir` git checkout whose current HEAD
-    // differs from a stored `startCommit` with `src/` changes in between —
-    // fabricating that safely (without depending on this exact repo's live
-    // commit graph at canary-run time, which would make the canary flaky
-    // across checkouts/rebases) needs a scratch git-repo fixture heavier than
-    // this pass's budget. No canary declared; the guard is still fire-log
-    // instrumented via the dispatcher (GUARD_REGISTRY membership) regardless.
+    // mt#3004 (closes the mt#2889 KNOWN GAP): the "scratch git-repo fixture"
+    // this gap deferred now follows the inject-git-state canary's precedent —
+    // a two-commit repo whose second commit touches src/, plus a daemon state
+    // file (startCommit = first commit) under the canary runner's isolated
+    // MINSKY_STATE_DIR. The session tracker is redirected to a temp HOME via
+    // TRACKER_HOME_ENV so nothing lands under the real ~/.claude (mt#2876
+    // class). The state file is read only by this guard, so writing it into
+    // the shared isolated state dir cannot affect sibling canaries.
+    canary: {
+      input: {},
+      expects: "warn",
+      setup: async () => {
+        const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const { spawnSync } = await import("node:child_process");
+        const { TRACKER_HOME_ENV } = await import("./mcp-daemon-staleness-detector");
+        const repo = mkdtempSync(join(tmpdir(), "mt3004-daemon-staleness-canary-repo-"));
+        const run = (args: string[]) =>
+          spawnSync("git", args, { cwd: repo, stdio: "ignore", timeout: 5000 });
+        run(["init", "--initial-branch=main"]);
+        run(["config", "user.email", "canary@example.invalid"]);
+        run(["config", "user.name", "mt3004 canary"]);
+        mkdirSync(join(repo, "src"), { recursive: true });
+        writeFileSync(join(repo, "src", "canary.ts"), "export const canary = 1;\n");
+        run(["add", "."]);
+        run(["commit", "-m", "canary baseline commit"]);
+        const headResult = spawnSync("git", ["rev-parse", "HEAD"], {
+          cwd: repo,
+          encoding: "utf8",
+          timeout: 5000,
+        });
+        const startCommit = headResult.stdout.trim();
+        writeFileSync(join(repo, "src", "canary.ts"), "export const canary = 2;\n");
+        run(["add", "."]);
+        run(["commit", "-m", "canary drift commit (touches src/)"]);
+        const stateDir = process.env["MINSKY_STATE_DIR"];
+        if (!stateDir) throw new Error("canary runner did not set MINSKY_STATE_DIR");
+        writeFileSync(
+          join(stateDir, "mcp-daemon-state.json"),
+          JSON.stringify({
+            startCommit,
+            startTimestamp: new Date().toISOString(),
+            pid: process.pid,
+            serverName: "minsky",
+            minskyHomeDir: repo,
+            transport: "stdio",
+          })
+        );
+        process.env[TRACKER_HOME_ENV] = mkdtempSync(
+          join(tmpdir(), "mt3004-daemon-staleness-canary-home-")
+        );
+        return { session_id: "mt3004-canary-daemonstale" };
+      },
+    },
   },
   // -------------------------------------------------------------------------
   // Phase 2a (mt#2652) — the six guidance detectors, in the Phase 2a

@@ -92,7 +92,12 @@ export interface CanaryResult {
   guardName: string;
   /** "registry" (GUARD_REGISTRY entry, run via its exported run()) or "standalone" (a non-dispatcher guard's exported pure decision function). */
   source: "registry" | "standalone";
-  expects: CanaryExpectation;
+  /**
+   * Absent when the guard has no declared canary (mt#3004 — the prior
+   * hardcoded `expects: "deny"` placeholder rendered every MISSING line as
+   * `expects=deny`, misreporting warn-shaped guards).
+   */
+  expects?: CanaryExpectation;
   /** Undefined when the guard has no declared canary yet (reported separately from pass/fail). */
   passed: boolean | undefined;
   /** Populated when the guard module threw, or when resolving/invoking it failed. */
@@ -156,7 +161,7 @@ export async function runGuardCanary(
   moduleLoader?: () => Promise<GuardModule>
 ): Promise<CanaryResult> {
   if (!reg.canary) {
-    return { guardName: reg.name, source: "registry", expects: "deny", passed: undefined };
+    return { guardName: reg.name, source: "registry", passed: undefined };
   }
   const { canary } = reg;
   try {
@@ -269,6 +274,7 @@ export function summarizeCanaryResults(results: CanaryResult[]): CanaryReport {
 /** Render a human-readable report line for one result. */
 export function formatCanaryResult(r: CanaryResult): string {
   const status = r.passed === undefined ? "MISSING" : r.passed ? "PASS" : "FAIL";
+  const detail = r.expects === undefined ? "no canary declared" : `expects=${r.expects}`;
   const errSuffix = r.error ? ` (error: ${r.error})` : "";
-  return `[${status}] ${r.guardName} (${r.source}, expects=${r.expects})${errSuffix}`;
+  return `[${status}] ${r.guardName} (${r.source}, ${detail})${errSuffix}`;
 }
