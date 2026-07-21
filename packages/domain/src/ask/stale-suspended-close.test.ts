@@ -137,6 +137,19 @@ describe("runStaleSuspendedAskCloseSweep", () => {
     expect(await stateOf(repo, activeId)).toBe("suspended");
   });
 
+  it("treats a lowercase backend status (gh#-style 'closed') as terminal", async () => {
+    const id = await seed(repo, {
+      kind: KIND_AUTH_APPROVE,
+      parentTaskId: "gh#1761",
+      commitMessage: "fix: tray",
+    });
+    const outcome = await runStaleSuspendedAskCloseSweep(repo, {
+      taskStatusById: new Map([["gh#1761", "closed"]]),
+    });
+    expect(outcome.closedParentTerminal).toBe(1);
+    expect(await stateOf(repo, id)).toBe("closed");
+  });
+
   it("closes a failed-commit orphan when a LATER commit-auth ask from the same session landed", async () => {
     const orphanId = await seed(repo, {
       kind: KIND_AUTH_APPROVE,

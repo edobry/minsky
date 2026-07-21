@@ -64,7 +64,10 @@ export const RESPONDER_SUPERSEDED = "system:superseded-by-later-commit";
 
 /**
  * Task statuses that mean the ask's triggering work has resolved. Matches
- * scripts/backfill-close-stale-asks.ts (mt#2760).
+ * scripts/backfill-close-stale-asks.ts (mt#2760). Membership is checked
+ * case-insensitively (PR #2146 R1): non-minsky backends report lowercase
+ * states (e.g. a GitHub issue's "closed"), and a case miss here silently
+ * exempts exactly the gh#-parented asks this sweep exists to cover.
  */
 const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(["DONE", "CLOSED", "COMPLETED"]);
 
@@ -129,7 +132,7 @@ export function isCommitAuthAsk(ask: Ask): boolean {
 function isParentTerminal(ask: Ask, taskStatusById: ReadonlyMap<string, string>): boolean {
   if (!ask.parentTaskId) return false;
   const status = taskStatusById.get(ask.parentTaskId);
-  return status !== undefined && TERMINAL_TASK_STATUSES.has(status);
+  return status !== undefined && TERMINAL_TASK_STATUSES.has(status.toUpperCase());
 }
 
 /**
@@ -137,14 +140,24 @@ function isParentTerminal(ask: Ask, taskStatusById: ReadonlyMap<string, string>)
  * the session landed a newer commit, so this ask's moment has passed. This is
  * exactly the failed-commit orphan pattern (mt#2935's own PR left two of
  * these): the retry got a NEW ask that closed on success; the orphan stayed.
+ *
+ * `sessionSiblingsCache` memoizes the per-session sibling listing for the
+ * duration of one sweep pass, so N orphans from one session cost one query.
  */
-async function isSupersededByLaterLandedCommit(repo: AskRepository, ask: Ask): Promise<boolean> {
+async function isSupersededByLaterLandedCommit(
+  repo: AskRepository,
+  ask: Ask,
+  sessionSiblingsCache: Map<string, Ask[]>
+): Promise<boolean> {
   if (!ask.parentSessionId) return false;
-  let siblings: Ask[];
-  try {
-    siblings = await repo.listByParentSession(ask.parentSessionId);
-  } catch {
-    return false; // best-effort: an unreadable sibling set never closes anything
+  let siblings = sessionSiblingsCache.get(ask.parentSessionId);
+  if (siblings === undefined) {
+    try {
+      siblings = await repo.listByParentSession(ask.parentSessionId);
+    } catch {
+      return false; // best-effort: an unreadable sibling set never closes anything
+    }
+    sessionSiblingsCache.set(ask.parentSessionId, siblings);
   }
   const askCreatedMs = Date.parse(ask.createdAt);
   return siblings.some(
@@ -161,7 +174,8 @@ async function classify(
   ask: Ask,
   taskStatusById: ReadonlyMap<string, string>,
   nowMs: number,
-  ttlMs: number
+  ttlMs: number,
+  sessionSiblingsCache: Map<string, Ask[]>
 ): Promise<StaleDisposition> {
   if (ask.kind === KIND_QUALITY_REVIEW) {
     return isParentTerminal(ask, taskStatusById) ? "close-parent-terminal" : "keep";
@@ -171,7 +185,9 @@ async function classify(
   // Non-commit authorization asks (credential rotations, canary approvals)
   // close on parent-terminal ONLY — never by supersession or TTL.
   if (!isCommitAuthAsk(ask)) return "keep";
-  if (await isSupersededByLaterLandedCommit(repo, ask)) return "close-superseded";
+  if (await isSupersededByLaterLandedCommit(repo, ask, sessionSiblingsCache)) {
+    return "close-superseded";
+  }
   const ageMs = nowMs - Date.parse(ask.createdAt);
   if (Number.isFinite(ageMs) && ageMs > ttlMs) return "expire-ttl";
   return "keep";
@@ -214,7 +230,11 @@ export async function runStaleSuspendedAskCloseSweep(
     return outcome;
   }
 
-  const batch = suspended.slice(0, batchLimit);
+  // Oldest first (PR #2146 R1): the batch cap must defer the NEWEST debris,
+  // never starve the oldest — accumulated inbox debt retires first.
+  const batch = [...suspended]
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+    .slice(0, batchLimit);
   outcome.deferred = suspended.length - batch.length;
   if (outcome.deferred > 0) {
     // No silent caps: surface what this pass did not examine.
@@ -224,10 +244,18 @@ export async function runStaleSuspendedAskCloseSweep(
     });
   }
 
+  const sessionSiblingsCache = new Map<string, Ask[]>();
   for (const ask of batch) {
     outcome.scanned += 1;
     try {
-      const disposition = await classify(repo, ask, options.taskStatusById, nowMs, ttlMs);
+      const disposition = await classify(
+        repo,
+        ask,
+        options.taskStatusById,
+        nowMs,
+        ttlMs,
+        sessionSiblingsCache
+      );
       if (disposition === "keep") {
         outcome.untouched += 1;
         continue;
