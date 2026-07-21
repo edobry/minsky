@@ -434,6 +434,20 @@ export function assertKnownKind(kind: string | undefined): void {
 export const DEFAULT_KIND: TaskKind = "implementation";
 
 /**
+ * The union of every registered workflow's `terminal` states (currently
+ * {DONE, CLOSED} — single success terminal since mt#2311), as a tuple.
+ * `isTerminal` below is the predicate form; this tuple exists for callers that
+ * need the literal value set (e.g. building their own `Set` for a hot-path
+ * `.has()` lookup — a hook-layer consumer that can't call across the
+ * `.minsky/hooks` <-> domain boundary per-element). Exposed as a tuple, not a
+ * `Set`, for the same `custom/no-domain-singleton` reason as
+ * {@link DEFAULT_HIDDEN_STATUSES}.
+ */
+export const TERMINAL_TASK_STATUS_VALUES = [
+  ...new Set(Object.values(WORKFLOWS).flatMap((workflow) => workflow.terminal)),
+] as readonly string[];
+
+/**
  * True when `status` is a terminal state in ANY registered workflow
  * (currently the union {DONE, CLOSED} — single success terminal since
  * mt#2311). This is the domain-level "no further work expected" predicate —

@@ -15,6 +15,13 @@ import {
   isKnownKind,
   assertKnownKind,
   DEFAULT_KIND,
+  isTerminal,
+  isActiveWork,
+  isAwaitingReview,
+  DEFAULT_HIDDEN_STATUSES,
+  isHiddenByDefaultStatus,
+  BIND_ADVANCE_SEAM_STATUS,
+  TERMINAL_TASK_STATUS_VALUES,
   type TaskKind,
 } from "./workflows";
 import { ValidationError } from "../errors/index";
@@ -318,5 +325,129 @@ describe("assertKnownKind() helper (mt#2762)", () => {
       expect(message).toContain("umbrella");
       expect(message).toContain("state-ops");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3010 — semantic predicates + constants (single-authority consolidation)
+// ---------------------------------------------------------------------------
+
+describe("isTerminal() predicate", () => {
+  test("is true for DONE and CLOSED", () => {
+    expect(isTerminal("DONE")).toBe(true);
+    expect(isTerminal("CLOSED")).toBe(true);
+  });
+
+  test("is false for every non-terminal status", () => {
+    for (const status of ["TODO", "PLANNING", "READY", "IN-PROGRESS", "IN-REVIEW", "BLOCKED"]) {
+      expect(isTerminal(status)).toBe(false);
+    }
+  });
+
+  test("is false for undefined and empty string", () => {
+    expect(isTerminal(undefined)).toBe(false);
+    expect(isTerminal("")).toBe(false);
+  });
+
+  test("is false for an unknown/orphaned status (e.g. the retired COMPLETED)", () => {
+    expect(isTerminal("COMPLETED")).toBe(false);
+  });
+});
+
+describe("isActiveWork() predicate", () => {
+  test("is true only for IN-PROGRESS", () => {
+    expect(isActiveWork("IN-PROGRESS")).toBe(true);
+  });
+
+  test("is false for every other status, including the adjacent IN-REVIEW", () => {
+    for (const status of ["TODO", "PLANNING", "READY", "IN-REVIEW", "DONE", "BLOCKED", "CLOSED"]) {
+      expect(isActiveWork(status)).toBe(false);
+    }
+  });
+});
+
+describe("isAwaitingReview() predicate", () => {
+  test("is true only for IN-REVIEW", () => {
+    expect(isAwaitingReview("IN-REVIEW")).toBe(true);
+  });
+
+  test("is false for every other status, including the adjacent IN-PROGRESS", () => {
+    for (const status of [
+      "TODO",
+      "PLANNING",
+      "READY",
+      "IN-PROGRESS",
+      "DONE",
+      "BLOCKED",
+      "CLOSED",
+    ]) {
+      expect(isAwaitingReview(status)).toBe(false);
+    }
+  });
+});
+
+describe("DEFAULT_HIDDEN_STATUSES / isHiddenByDefaultStatus", () => {
+  test("DEFAULT_HIDDEN_STATUSES is exactly {DONE, CLOSED}", () => {
+    expect([...DEFAULT_HIDDEN_STATUSES].sort()).toEqual(["CLOSED", "DONE"]);
+  });
+
+  test("isHiddenByDefaultStatus matches DEFAULT_HIDDEN_STATUSES membership", () => {
+    for (const status of DEFAULT_HIDDEN_STATUSES) {
+      expect(isHiddenByDefaultStatus(status)).toBe(true);
+    }
+    for (const status of ["TODO", "PLANNING", "READY", "IN-PROGRESS", "IN-REVIEW", "BLOCKED"]) {
+      expect(isHiddenByDefaultStatus(status)).toBe(false);
+    }
+  });
+
+  test("isHiddenByDefaultStatus is false for undefined", () => {
+    expect(isHiddenByDefaultStatus(undefined)).toBe(false);
+  });
+});
+
+describe("BIND_ADVANCE_SEAM_STATUS", () => {
+  test("is READY", () => {
+    expect(BIND_ADVANCE_SEAM_STATUS).toBe("READY");
+  });
+
+  test("is a member of the implementation workflow's states", () => {
+    expect(WORKFLOWS.implementation.states).toContain(BIND_ADVANCE_SEAM_STATUS);
+  });
+});
+
+describe("TERMINAL_TASK_STATUS_VALUES", () => {
+  test("is exactly {DONE, CLOSED}, matching isTerminal's semantics", () => {
+    expect([...TERMINAL_TASK_STATUS_VALUES].sort()).toEqual(["CLOSED", "DONE"]);
+  });
+
+  test("every value in the tuple is terminal per isTerminal()", () => {
+    for (const status of TERMINAL_TASK_STATUS_VALUES) {
+      expect(isTerminal(status)).toBe(true);
+    }
+  });
+
+  test("has no duplicate values across the registry's per-kind terminal arrays", () => {
+    expect(TERMINAL_TASK_STATUS_VALUES.length).toBe(new Set(TERMINAL_TASK_STATUS_VALUES).size);
+  });
+});
+
+describe("Workflow.restrictedTransitions (mt#3010 — data-driven session_start special cases)", () => {
+  test("implementation workflow reserves READY -> IN-PROGRESS for session_start", () => {
+    const restricted = WORKFLOWS.implementation.restrictedTransitions ?? [];
+    const entry = restricted.find((r) => r.from === "READY" && r.to === "IN-PROGRESS");
+    expect(entry).toBeDefined();
+    expect(entry?.message).toContain("session_start");
+  });
+
+  test("implementation workflow gives a READY-first hint for PLANNING -> IN-PROGRESS", () => {
+    const restricted = WORKFLOWS.implementation.restrictedTransitions ?? [];
+    const entry = restricted.find((r) => r.from === "PLANNING" && r.to === "IN-PROGRESS");
+    expect(entry).toBeDefined();
+    expect(entry?.message).toContain("READY");
+  });
+
+  test("umbrella and state-ops workflows declare no restrictedTransitions", () => {
+    expect(WORKFLOWS.umbrella.restrictedTransitions).toBeUndefined();
+    expect(WORKFLOWS["state-ops"].restrictedTransitions).toBeUndefined();
   });
 });

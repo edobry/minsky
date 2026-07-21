@@ -2,6 +2,7 @@
 // Utility: spawnSync wrapper that returns { exitCode, stdout, stderr } without throwing
 
 import { existsSync } from "node:fs";
+import { TERMINAL_TASK_STATUS_VALUES } from "../../packages/domain/src/tasks/workflows";
 
 export interface ClaudeHookInput {
   session_id: string;
@@ -25,8 +26,13 @@ export interface ToolHookInput extends ClaudeHookInput {
  * independently-maintained copies — the sibling duplicate-CHILD matcher and
  * the standalone-duplicate probe both exclude these statuses from their
  * respective candidate pools before thresholding).
+ *
+ * Values sourced from the domain registry's `TERMINAL_TASK_STATUS_VALUES`
+ * (mt#3010 — single-authority consolidation) rather than a hand-typed
+ * literal, so this hook-layer Set can never drift from the domain's terminal
+ * set.
  */
-export const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(["DONE", "CLOSED"]);
+export const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(TERMINAL_TASK_STATUS_VALUES);
 
 export interface StopHookInput extends ClaudeHookInput {
   reason?: string;
