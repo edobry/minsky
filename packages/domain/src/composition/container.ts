@@ -67,6 +67,16 @@ function isBootDeferrable(err: unknown): boolean {
  * returns a benign, distinctly-named constructor-like function — a genuine
  * property read, consistent with every other benign-read prop — so
  * `.constructor.name` resolves to a readable string instead of throwing.
+ *
+ * Nested reads (mt#2945 PR #2113 R1 review): "any other property" previously
+ * returned a bare `() => fail()` function — benign to READ, but a plain
+ * function, so a caller chaining a FURTHER property off it (`service.foo.bar`)
+ * got `undefined` rather than another benign, throws-on-call node. That's not
+ * a crash, but it silently changes shape expectations for deeper inspection
+ * idioms (nested capability objects, `Object.keys`, etc.). Every non-special
+ * property now returns ANOTHER node built by the same recursive factory below,
+ * so benign reads stay safe to ARBITRARY depth, while calling any node in the
+ * chain still throws the same clear deferred-failure error.
  */
 export function makeDeferredFailurePlaceholder(key: string, message: string): object {
   const fail = (): never => {
@@ -81,30 +91,40 @@ export function makeDeferredFailurePlaceholder(key: string, message: string): ob
   // generic placeholder label — e.g. "UnavailablePlaceholder_sessionProvider".
   const constructorName = `UnavailablePlaceholder_${key.replace(/[^a-zA-Z0-9_$]/g, "_")}`;
   const placeholderConstructor = { [constructorName]: function () {} }[constructorName];
-  // A callable target so the apply/construct traps are valid for service
-  // placeholders that may be invoked as functions or constructors.
-  const target = function placeholder() {};
-  return new Proxy(target, {
-    get(_t, prop) {
-      // Benign introspection — never throw, and don't return a throwing function
-      // (so stringify / await / prototype lookups behave normally).
-      if (typeof prop === "symbol" || prop === "then") {
-        return undefined;
-      }
-      if (prop === "constructor") {
-        return placeholderConstructor;
-      }
-      if (prop === "toString" || prop === "valueOf" || prop === "toJSON") {
-        return () => label;
-      }
-      // Any other property read is benign and returns a function that throws
-      // only when invoked — so `service.method()` fails clearly while a bare
-      // read (logging, existence/feature checks) does not crash.
-      return () => fail();
-    },
-    apply: () => fail(),
-    construct: () => fail(),
-  }) as object;
+
+  // Recursive benign-chain node factory. Each node is a callable target
+  // wrapped in the same benign-read / throws-on-call Proxy, so property
+  // chains of any depth (`service.foo.bar.baz`) stay benign to read and only
+  // throw the instant something in the chain is actually INVOKED.
+  const makeNode = (): object => {
+    // A callable target so the apply/construct traps are valid for service
+    // placeholders that may be invoked as functions or constructors.
+    const target = function placeholderNode() {};
+    return new Proxy(target, {
+      get(_t, prop) {
+        // Benign introspection — never throw, and don't return a throwing function
+        // (so stringify / await / prototype lookups behave normally).
+        if (typeof prop === "symbol" || prop === "then") {
+          return undefined;
+        }
+        if (prop === "constructor") {
+          return placeholderConstructor;
+        }
+        if (prop === "toString" || prop === "valueOf" || prop === "toJSON") {
+          return () => label;
+        }
+        // Any other property read is benign and returns ANOTHER benign node —
+        // so `service.method()` fails clearly the instant it's invoked, while
+        // a bare read at any depth (logging, existence/feature checks, nested
+        // capability inspection) never crashes.
+        return makeNode();
+      },
+      apply: () => fail(),
+      construct: () => fail(),
+    }) as object;
+  };
+
+  return makeNode();
 }
 
 export class TsyringeContainer implements AppContainerInterface {
@@ -191,6 +211,20 @@ export class TsyringeContainer implements AppContainerInterface {
     void (async () => {
       try {
         const instance = await Promise.resolve(registration.factory(this));
+        // Contract (PR #2113 R1 review): tsyringe's `register(token, {useValue})`
+        // REPLACES any prior registration for the same token rather than
+        // stacking a second binding — a single `useValue` registration is a
+        // plain map-entry overwrite, not an additive multi-binding (multi-
+        // binding requires tsyringe's separate `resolveAll`/`@injectAll` API,
+        // which this container never uses; `get()` always calls the singular
+        // `resolve()`). This call therefore deterministically swaps out the
+        // placeholder for the real instance — no ambiguous resolution order,
+        // and the placeholder becomes unreferenced (GC-eligible) once
+        // overwritten. Regression-guarded by
+        // container.test.ts's "a service that fails once then succeeds
+        // resolves to the real instance on a later get()" — that test only
+        // passes if this second `register()` call actually wins over the
+        // first.
         this.tsyringe.register(key, { useValue: instance });
         this.deferredKeys.delete(key);
       } catch {

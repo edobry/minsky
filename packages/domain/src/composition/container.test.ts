@@ -98,6 +98,29 @@ describe("TsyringeContainer boot-tolerant deferral (mt#2349)", () => {
       expect(() => (svc.listSessions as () => unknown)()).toThrow(/restart this process/);
       expect(() => (svc.listSessions as () => unknown)()).toThrow(/\/mcp/);
     });
+
+    // mt#2945 PR #2113 R1 review: nested property chains must stay benign to
+    // read at arbitrary depth (not just one level), and calling ANY node in
+    // the chain must still throw the clear deferred-failure error.
+    describe("nested benign reads (mt#2945 R1)", () => {
+      test("reading a property OFF a property read does not throw", async () => {
+        const svc = await makePlaceholder();
+        expect(() => (svc.capabilities as Record<string, unknown>).vectorStorage).not.toThrow();
+        expect(typeof (svc.capabilities as Record<string, unknown>).vectorStorage).toBe("function");
+      });
+
+      test("Object.keys() on the placeholder does not throw", async () => {
+        const svc = await makePlaceholder();
+        expect(() => Object.keys(svc)).not.toThrow();
+      });
+
+      test("calling a NESTED node throws the same clear deferred-failure error", async () => {
+        const svc = await makePlaceholder();
+        const nested = (svc.capabilities as Record<string, unknown>).vectorStorage as () => unknown;
+        expect(() => nested()).toThrow(/unavailable/);
+        expect(() => nested()).toThrow(/PostgreSQL configuration required/);
+      });
+    });
   });
 
   // mt#2945: a deferred-failure placeholder should self-heal on a LATER get()
