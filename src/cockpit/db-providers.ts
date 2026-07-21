@@ -71,6 +71,20 @@ export interface CachedSqlDbGetter {
   __resetForTests(): void;
 }
 
+/**
+ * Guard for the test-only reset surface: `bun test` sets NODE_ENV to "test",
+ * so any other environment reaching a reset API is production misuse — throw
+ * instead of silently corrupting the live singleton caches. (Reviewer-bot
+ * non-blocking finding, PR #2159.)
+ */
+function assertTestEnvironment(api: string): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(
+      `${api} is test-only (NODE_ENV must be "test"; got ${JSON.stringify(process.env.NODE_ENV)})`
+    );
+  }
+}
+
 /** @internal Test-only registry of every getter this factory has produced, so `__resetDbProvidersForTests()` (below) can reset all of them without needing to name each one individually. */
 const _allCachedSqlDbGetters: CachedSqlDbGetter[] = [];
 
@@ -129,6 +143,7 @@ export function createCachedSqlDbGetter(options: {
   } as CachedSqlDbGetter;
 
   getCachedSqlDb.__resetForTests = () => {
+    assertTestEnvironment("__resetForTests");
     cachedDb = null;
     probedAndFailed = false;
   };
@@ -320,6 +335,7 @@ export async function getServerSessionProvider(): Promise<SessionProviderInterfa
  * @internal Test-only. Production code must never call this.
  */
 export function __resetDbProvidersForTests(): void {
+  assertTestEnvironment("__resetDbProvidersForTests");
   for (const getter of _allCachedSqlDbGetters) {
     getter.__resetForTests();
   }
