@@ -354,6 +354,15 @@ export const REQUIRED_CHECKS_OVERRIDE_ENV = "MINSKY_SKIP_REQUIRED_CHECKS";
 
 export const SMOKE_CHECK_OVERRIDE_ENV = "MINSKY_SKIP_SMOKE_CHECK";
 
+// Override env var honored by the REQUEST_CHANGES review-content branch (mt#2989 /
+// mt#2902). When set, an operator-authored REQUEST_CHANGES review no longer blocks
+// merge — the in-band escape valve for a verified-false-positive blocking finding
+// (this hook denies PreToolUse, before the MCP forceBypass logic can run, so a
+// false-positive REQUEST_CHANGES was previously un-mergeable in-band). Audited: the
+// permit emits a stdout audit line. Registered as hook-only in
+// packages/domain/src/configuration/sources/environment.ts (mt#1788 rule).
+export const REQUEST_CHANGES_OVERRIDE_ENV = "MINSKY_ACK_REVIEW_REQUEST_CHANGES";
+
 export interface BranchProtectionParseSuccess {
   ok: true;
   requiredChecks: string[];
@@ -773,6 +782,11 @@ export function validateProvenance(provenance: ReviewProvenance): ProvenanceVali
 export interface ReviewContentResult {
   deny: boolean;
   reason?: string;
+  // mt#2989: set true when the REQUEST_CHANGES denial was overridden via the
+  // operator-authorized escape valve (REQUEST_CHANGES_OVERRIDE_ENV), so the caller
+  // emits the audit line. Only the REQUEST_CHANGES branch honors the override — the
+  // stale / structural-gap / legacy-missing-section denials never do.
+  requestChangesOverridden?: boolean;
 }
 
 export const EXPECTED_REVIEWER_LOGIN = "minsky-reviewer[bot]";
@@ -787,7 +801,11 @@ type ReviewEntry = {
 export function validateReviewContent(
   reviews: ReviewEntry[],
   pr: string,
-  headSha: string | undefined
+  headSha: string | undefined,
+  // mt#2989: operator-authorized escape valve for a verified-false-positive
+  // REQUEST_CHANGES review. When true, the REQUEST_CHANGES branch permits instead
+  // of denying (and flags requestChangesOverridden so the caller audit-logs).
+  overrideRequestChanges = false
 ): ReviewContentResult {
   const sorted = [...reviews]
     .filter((r) => r.body)
@@ -827,11 +845,17 @@ export function validateReviewContent(
 
     // Check conclusion event — REQUEST_CHANGES means outstanding blocking findings
     if (provenance.conclusion?.event === "REQUEST_CHANGES") {
+      // mt#2989: audited escape valve for a verified-false-positive REQUEST_CHANGES.
+      if (overrideRequestChanges) {
+        return { deny: false, requestChangesOverridden: true };
+      }
       return {
         deny: true,
         reason:
           `Bot review on PR #${pr} at commit ${(review.commit_id ?? "unknown").slice(0, 7)} ` +
-          `requested changes. Address the blocking findings before merging.`,
+          `requested changes. Address the blocking findings before merging. ` +
+          `If this is a verified false positive, the audited in-band escape valve is ` +
+          `${REQUEST_CHANGES_OVERRIDE_ENV}=1 (operator-authorized).`,
       };
     }
 
@@ -1019,7 +1043,20 @@ if (import.meta.main) {
   // <!-- minsky-review-provenance:{...} --> HTML comment carrying the structured
   // tool-call summary. If a provenance block exists on a review covering HEAD,
   // validate structurally. Otherwise fall back to legacy text-matching.
-  const provenanceResult = validateReviewContent(reviews, pr, headSha);
+  // mt#2989 / mt#2902: audited escape valve for a verified-false-positive
+  // REQUEST_CHANGES review. Read the operator-authorized override and pass it into
+  // validateReviewContent, which honors it on the REQUEST_CHANGES branch ONLY — the
+  // stale / structural-gap / legacy denials are never overridable. Mirrors the
+  // sibling MINSKY_SKIP_* overrides below.
+  const ackRequestChanges = process.env[REQUEST_CHANGES_OVERRIDE_ENV];
+  const overrideRequestChanges = !!ackRequestChanges && /^(1|true|yes)$/i.test(ackRequestChanges);
+  const provenanceResult = validateReviewContent(reviews, pr, headSha, overrideRequestChanges);
+  if (provenanceResult.requestChangesOverridden) {
+    process.stdout.write(
+      `[require-review-before-merge] REQUEST_CHANGES review overridden via ${REQUEST_CHANGES_OVERRIDE_ENV}=${ackRequestChanges} ` +
+        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()})\n`
+    );
+  }
   if (provenanceResult.deny && provenanceResult.reason) {
     writeOutput({
       hookSpecificOutput: {

@@ -213,17 +213,16 @@ Rationale: in a guard-dense repo, mid-pipeline interruption is the norm. A batch
 
 # Hook Files
 
-All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`; the `Write` tool creates
-`644` by default — pre-commit enforces this).
+All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`; `Write` creates `644` —
+pre-commit enforces this).
 
-**Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620).** Each `Doc:` pointer
-below is a file there. Entries are a terse index (trigger, hook, override, fail posture, doc);
-narration lives in the linked doc.
+**Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620)** — each `Doc:` pointer
+below. Entries are a terse index (trigger, hook, override, fail posture, doc).
 
 ## Guard-Dispatcher Framework (ADR-028)
 
-Shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts` + per-event
-entrypoints): multiple guards share ONE Bun process per event — 17 migrated
+Shared in-process framework (`registry.ts` + `dispatcher.ts` + per-event
+entrypoints): guards share ONE Bun process per event — 17 migrated
 (`GUARD_REGISTRY`; mt#2650/2652/2687/2812/2824); every other guard below is a standalone
 `settings.json` entry. **Load-bearing:** a dispatcher's `timeout` is the HOST CAP and guards run
 SEQUENTIALLY — size the entry to the SUM of pre-migration timeouts. Source `.minsky/hooks/`;
@@ -237,9 +236,9 @@ PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create` (parent set): bloc
 on open-PR file overlap (advisory for recently-merged); blocks duplicate-child titles vs an
 ACTIVE sibling (terminal WARN, mt#2683); parent-less creates get a WARN-only similarity probe
 (mt#2813). Tier-3 ceiling (mt#1362); Tier-2 floor: `/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
-`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time-env-only) + the mid-session, reason-mandatory
-grant channel (mt#2658) for BOTH guards — `--guard parallel-work-open-pr` for the open-PR
-sweep (mt#1637), `--guard duplicate-child-matcher` for the dup matcher; probe has none. Fail: closed
+`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time) + the mid-session reason-mandatory grant channel
+(mt#2658) for both guards (`--guard parallel-work-open-pr` / `duplicate-child-matcher`); probe has
+none. Fail: closed
 (open-PR) / open (duplicate checks warn+permit on unreadable data).
 Doc: `parallel-work-guard.md`.
 
@@ -296,8 +295,8 @@ check_runs_list` on `gh` transport-class failures only. Doc: `pr-data-fetch-laye
 
 PreToolUse on `Bash`/`session_exec` (layer 2 of mt#1951; layer 1: `require-review-before-merge.ts`):
 denies a `gh api PUT .../merge` bypass unless every required check concluded `success` on HEAD.
-mt#2888: only "cannot read" (fetch failed — status UNKNOWN) consults the mt#2658 D8 grant store;
-"read and failed" never does.
+mt#2888: only "cannot read" (status UNKNOWN) consults the mt#2658 D8 grant store; "read and failed"
+never does.
 Hook: `require-checks-on-bypass-merge.ts`. Overrides: `MINSKY_SKIP_REQUIRED_CHECKS=1`
 (launch-time) or a D8 grant (`scripts/grant-guard-override.ts`). Fail: deny-on-failure.
 Doc: `required-checks-bypass-merge-gate.md`.
@@ -316,11 +315,11 @@ follow-up task. Fail: open on unresolvable repo/PR or `gh` failure. Siblings: `/
 PreToolUse on `session_pr_merge`: blocks a deploy-surface PR (`infra/**`, `services/*/Dockerfile`,
 `services/*/railway.json`, `.github/workflows/deploy-*.yml`)
 lacking a `Deploy verification:` commitment; paired PostToolUse injects a
-`deployment_wait-for-latest` reminder (+tray `src-tauri/**` local-app surface, mt#2976). Hooks: `deploy-surface-detector.ts` +
+`deployment_wait-for-latest` reminder (+tray `src-tauri/**`, mt#2976). Hooks: `deploy-surface-detector.ts` +
 `require-deploy-verification-before-merge.ts` + `deploy-verification-after-merge.ts`. Escapes:
 `[no-deploy-impact]` title; a `Deploy verification:` section; `MINSKY_SKIP_DEPLOY_VERIFY=1`.
-Marker forms (mt#2648, shared by all `session_pr_merge` gates): label+colon, or any-level heading
-(colon optional), case-insensitive. Fail: open (unresolvable repo/PR/non-surface); PostToolUse
+Marker forms (mt#2648, shared by all merge gates): label+colon or any-level heading (colon
+optional), case-insensitive. Fail: open (unresolvable repo/PR/non-surface); PostToolUse
 always exits 0. Doc: `deploy-verification-merge-gate.md`.
 
 ## Growth-Justification Merge Gate
@@ -359,16 +358,16 @@ Fail: always exits 0. Doc: `drive-pr-to-convergence-reminder.md`.
 
 UserPromptSubmit: detects verbal commitments with no same-turn encoding, inline-retrospective
 prose without `/retrospective`, DB-substrate-bypass phrasing, and (log-only, mt#2263 ladder)
-`operator-instruction-after-merge` — telling the user to reinstall/rebuild/edit-config to
-ACTIVATE a merged change (in-band `§Turnkey, not portal`, mt#2303). Hook:
+`operator-instruction-after-merge` — telling the user to reinstall/rebuild/edit-config to ACTIVATE
+a merged change (mt#2303). Hook:
 `substrate-bypass-detector.ts`. Overrides: `MINSKY_ACK_SUBSTRATE_BYPASS=1`,
 `MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER=1`. Fail: open on transcript error; silent on first
 turn. Doc: `substrate-bypass-detector.md`.
 
 ## Retrospective-Trigger Scanner
 
-UserPromptSubmit: scans the prior turn for retrospective-trigger phrases + user-correction
-signals; reminds to invoke `/retrospective` (suppressed if already invoked). Hook:
+UserPromptSubmit: scans the prior turn for retrospective-trigger + user-correction phrases;
+reminds `/retrospective` (suppressed if already invoked). Hook:
 `retrospective-trigger-scanner.ts`. Log: `.minsky/retrospective-trigger-calibration.jsonl`.
 Override: `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1`. Fail: open on transcript error.
 Doc: `retrospective-trigger-scanner.md`.
@@ -445,14 +444,13 @@ Doc: `subagent-merge-capability-guard.md`.
 
 ## Ask-Permission Bridge
 
-PreToolUse on `Bash`/`session_exec` (standalone, allow-emitting — not dispatcher-migrated): when
-the pending command matches a live one-shot ask-grant AND the referenced `authorization.approve`
-Ask re-verifies server-side as operator-approved, emits `permissionDecision: allow` with an audit
-reason + `hook.fired` event (mt#2823). Issuance (TTL 15m, one-shot):
-`bun scripts/grant-ask-action.ts --ask <id> --command-exact "<cmd>"`. Hooks:
-`ask-permission-bridge.ts` + `ask-grant-store.ts` + `ask-verification.ts`. No override. Fail:
+PreToolUse on `Bash`/`session_exec` (standalone, allow-emitting): when the pending command matches
+a live one-shot ask-grant AND the referenced `authorization.approve` Ask re-verifies server-side as
+operator-approved, emits `permissionDecision: allow` + audit reason + `hook.fired` event (mt#2823).
+Issuance (TTL 15m, one-shot): `bun scripts/grant-ask-action.ts --ask <id> --command-exact "<cmd>"`.
+Hooks: `ask-permission-bridge.ts` + `ask-grant-store.ts` + `ask-verification.ts`. No override. Fail:
 silent defer on no-grant / store-error / verification-unavailable; DENY only on
-grant-present-but-ask-unverified. Sibling denies outrank this allow (attribution: mt#2898).
+grant-present-but-ask-unverified. Sibling denies outrank this allow (mt#2898).
 Doc: `ask-permission-bridge.md`.
 
 ## Guard-Health Tracker + Escalation Detector

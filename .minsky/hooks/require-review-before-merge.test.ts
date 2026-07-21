@@ -1549,6 +1549,39 @@ describe("validateReviewContent (mt#2055)", () => {
     expect(result.reason).toContain("requested changes");
   });
 
+  it("allows REQUEST_CHANGES when overrideRequestChanges is true, and flags it (mt#2989)", () => {
+    const reqChanges = {
+      ...VALID_PROVENANCE,
+      conclusion: { event: "REQUEST_CHANGES", summary: "Verified false positive" },
+    };
+    const reviews = [makeReview(`## Review\n${makeProvenanceComment(reqChanges)}`, HEAD)];
+    const result = validateReviewContent(reviews, "42", HEAD, true);
+    expect(result.deny).toBe(false);
+    expect(result.requestChangesOverridden).toBe(true);
+  });
+
+  it("names the override env var in the REQUEST_CHANGES denial message (mt#2989)", () => {
+    const reqChanges = {
+      ...VALID_PROVENANCE,
+      conclusion: { event: "REQUEST_CHANGES", summary: "Fix the bug" },
+    };
+    const reviews = [makeReview(`## Review\n${makeProvenanceComment(reqChanges)}`, HEAD)];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.reason).toContain("MINSKY_ACK_REVIEW_REQUEST_CHANGES");
+  });
+
+  it("scopes the override to REQUEST_CHANGES: a stale denial still denies with override set (mt#2989)", () => {
+    // Valid provenance but wrong commit → stale branch denies BEFORE the conclusion
+    // check, so overrideRequestChanges must NOT leak past the REQUEST_CHANGES branch.
+    const reviews = [
+      makeReview(`## Review\n${makeProvenanceComment(VALID_PROVENANCE)}`, "stalecommit999"),
+    ];
+    const result = validateReviewContent(reviews, "42", HEAD, true);
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain("stale");
+    expect(result.requestChangesOverridden).toBeUndefined();
+  });
+
   it("allows when conclusion.event is COMMENT (not REQUEST_CHANGES)", () => {
     const comment = {
       ...VALID_PROVENANCE,
