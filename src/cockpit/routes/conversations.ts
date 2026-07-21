@@ -28,6 +28,7 @@
  * @see mt#2232 — Rung-1 observe→drive ladder (workspace-keyed precursor)
  */
 import type express from "express";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { getContextInspectorDb, getServerSessionProvider } from "../db-providers";
 import type { ConversationId } from "@minsky/domain/ids";
@@ -55,6 +56,29 @@ export interface ConversationRoutesOptions {
   statFn?: StatFn;
   /** Override the poll interval (ms) `startLiveTail` uses (tests use a short window). */
   pollMs?: number;
+  /**
+   * Test seam (mt#3016) — overrides the cockpit-wide SQL connection getter
+   * used by BOTH routes in this file (the live-tail projectDir fast-path
+   * AND the overview route's transcript lookup). Production callers omit
+   * this, so both routes fall back to the real `getContextInspectorDb()`
+   * singleton, exactly matching pre-mt#3016 behavior. Mirrors the same DI
+   * pattern already used by `routes/agent-focus.ts`'s `getDb` option.
+   *
+   * Exists because `getContextInspectorDb()` is a module-level singleton
+   * shared across every test file in the same `bun test` process — its "no
+   * live Postgres in the test environment" assumption
+   * (`server-conversation-overview.test.ts`'s own test titles) is NOT
+   * guaranteed: confirmed empirically that
+   * `packages/domain/src/session-auto-task-creation.test.ts` running first
+   * in the same process (its `beforeEach` calls
+   * `@minsky/domain/configuration`'s equally global, equally un-reset
+   * `initializeConfiguration()`, which still merges in the real user-level
+   * `~/.config/minsky/config.yaml`) makes this resolve a REAL, non-null
+   * connection — flipping the overview route's expected 503 to a 404 (a
+   * real "conversation not found" lookup against the live transcripts
+   * table, since the test's fake conversation id has no matching row).
+   */
+  getDb?: () => Promise<PostgresJsDatabase | null>;
 }
 
 /** Mount /api/conversation/:agentSessionId/live-tail on `app`. */
@@ -62,7 +86,8 @@ export function mountConversationRoutes(
   app: express.Express,
   opts: ConversationRoutesOptions = {}
 ): void {
-  const { claudeProjectsDirOverride, fsMod, tailer, statFn, pollMs } = opts;
+  const { claudeProjectsDirOverride, fsMod, tailer, statFn, pollMs, getDb: getDbOverride } = opts;
+  const getDb = getDbOverride ?? getContextInspectorDb;
 
   /**
    * GET /api/conversation/:agentSessionId/live-tail — conversation-keyed
@@ -101,7 +126,7 @@ export function mountConversationRoutes(
       //    back to its directory scan.
       let projectDir: string | null = null;
       try {
-        const db = await getContextInspectorDb();
+        const db = await getDb();
         if (db) {
           const { agentTranscriptsTable } = await import(
             "@minsky/domain/storage/schemas/agent-transcripts-schema"
@@ -222,7 +247,7 @@ export function mountConversationRoutes(
     const agentSessionId = decodeURIComponent(rawId) as ConversationId;
 
     try {
-      const db = await getContextInspectorDb();
+      const db = await getDb();
       if (!db) {
         res.status(503).json({
           error: "DB unavailable — persistence provider does not support SQL",

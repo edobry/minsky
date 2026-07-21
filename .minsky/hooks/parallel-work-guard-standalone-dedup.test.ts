@@ -69,10 +69,14 @@ describe("detectStandaloneDuplicates (mt#2813)", () => {
   });
 
   it("excludes TERMINAL-status matches (mt#2683 discipline) even under threshold", () => {
+    // COMPLETED used to be exercised here too (mt#2683 discipline predates
+    // mt#2311's single-DONE-terminal collapse), but COMPLETED was removed
+    // entirely as a valid TaskStatus by mt#2311 — no live match can ever
+    // carry it, so the case was dropped rather than kept as a dead-status
+    // regression fixture (mt#3013 residue sweep).
     const candidates = detectStandaloneDuplicates([
       result("mt#1", 0.1, "DONE"),
       result("mt#2", 0.2, "CLOSED"),
-      result("mt#3", 0.3, "COMPLETED"),
       result("mt#4", 0.4, "TODO"),
     ]);
     expect(candidates.map((c) => c.id)).toEqual(["mt#4"]);

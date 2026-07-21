@@ -1,15 +1,32 @@
 /**
  * Tests for GET /api/conversations/search (mt#2523).
  *
- * Mirrors the HTTP-layer contract pattern of `../server-conversation-overview.test.ts`:
- * no real Postgres in the test environment, so `getContextInspectorDb()`
- * resolves to `null` and every request that passes the `q` validation
- * degrades to the same 503 contract. Full search-result behavior (ranking,
- * coverage-gap detection) is covered by the domain-layer unit tests
- * (`transcript-fts-service.test.ts`, `transcript-similarity-service.test.ts`,
+ * Every request that passes the `q` validation degrades to the same 503
+ * contract, via an EXPLICITLY injected `getDb: async () => null` override
+ * (mt#3016 — see below), rather than relying on "no real Postgres in the
+ * test environment" as an ambient property. Full search-result behavior
+ * (ranking, coverage-gap detection) is covered by the domain-layer unit
+ * tests (`transcript-fts-service.test.ts`, `transcript-similarity-service.test.ts`,
  * `transcript-search-filters.test.ts`) and the CLI/MCP command tests
  * (`search-command.test.ts`, `search-text-command.test.ts`) — this file
  * covers only the route's own request-parsing and HTTP-contract behavior.
+ *
+ * ## mt#3016 — explicit `getDb` injection, not ambient "no live db"
+ *
+ * `getContextInspectorDb()` (the real db getter this route falls back to
+ * when no override is supplied) is a module-level singleton shared across
+ * every test file in the same `bun test` process. Confirmed empirically
+ * that `packages/domain/src/session-auto-task-creation.test.ts` running
+ * first in the same process (its `beforeEach` calls
+ * `@minsky/domain/configuration`'s equally global, equally un-reset
+ * `initializeConfiguration()`, which still merges in the real user-level
+ * `~/.config/minsky/config.yaml`) makes `getContextInspectorDb()` resolve a
+ * REAL, non-null connection — flipping every 503 in this file to a real
+ * 200. `startTestServer` below now defaults every test's server to
+ * `overrideConversationSearch: { getDb: async () => null }` so this file's
+ * behavior no longer depends on cross-file process state (see
+ * `src/cockpit/widgets/task-list.test.ts`'s file-header docstring for the
+ * full writeup).
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { createServer } from "http";
@@ -21,7 +38,11 @@ const TEST_TOKEN = "test-conversation-search-token";
 async function startTestServer(
   opts?: Parameters<typeof createCockpitServer>[0]
 ): Promise<{ url: string; close: () => Promise<void> }> {
-  const app = createCockpitServer({ overrideToken: TEST_TOKEN, ...opts });
+  const app = createCockpitServer({
+    overrideToken: TEST_TOKEN,
+    overrideConversationSearch: { getDb: async () => null },
+    ...opts,
+  });
   const server: Server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const addr = server.address();
@@ -61,7 +82,7 @@ describe("GET /api/conversations/search", () => {
     expect(res.status).toBe(400);
   });
 
-  test("returns a JSON 503 when the DB is unavailable (no Postgres in the test environment)", async () => {
+  test("returns a JSON 503 when the DB is unavailable (injected getDb: null)", async () => {
     const url = await server();
     const res = await fetch(`${url}/api/conversations/search?q=hello`);
 

@@ -16,6 +16,7 @@ import type {
 import { SessionStatus } from "@minsky/domain/session/types";
 import type { SessionAttachment } from "@minsky/domain/session/index";
 import { isAllProjects } from "@minsky/domain/project/scope";
+import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -676,17 +677,59 @@ describe("createAgentsWidget — attachState wiring", () => {
 // ---------------------------------------------------------------------------
 // Project-scope wiring (mt#2418)
 //
-// `getContextInspectorDb()` resolves to null in this unit-test environment
-// (no live SQL persistence provider configured), so `resolveCockpitProjectScope`
-// fails open to ALL_PROJECTS regardless of `ctx.query.project` — the
-// end-to-end "slug filters to that project's rows" behavior is covered by
+// These tests prove the WIRING itself: the widget reads `ctx.query.project`,
+// calls through the real resolveCockpitProjectScope codepath, and always
+// supplies a `projectScope` key to listSessions() — without crashing —
+// whether or not the query param is present. The end-to-end "slug filters to
+// that project's rows" behavior is covered by
 // `tests/domain/project-scope-acceptance.test.ts` (listSessions/listTasks
 // projectScope filtering) and `src/cockpit/project-scope.test.ts` (slug->uuid
-// resolution). These tests instead prove the WIRING itself: the widget reads
-// `ctx.query.project`, calls through the real resolveCockpitProjectScope
-// codepath, and always supplies a `projectScope` key to listSessions() —
-// without crashing — whether or not the query param is present.
+// resolution).
+//
+// mt#3016 — explicit `getProjectScopeDb` injection, not ambient "no live db":
+// earlier versions of this block relied on `getContextInspectorDb()` (the
+// REAL, module-level-cached singleton `resolveCockpitProjectScope` falls
+// back to) resolving to `null` as an AMBIENT property of the test
+// environment. That assumption is NOT guaranteed — `getContextInspectorDb`
+// is shared across every test file in the same `bun test` process, and its
+// result depends on whatever OTHER file happened to run first. Confirmed
+// empirically: running `packages/domain/src/session-auto-task-creation.test.ts`
+// (whose `beforeEach` calls the equally global, equally un-reset
+// `@minsky/domain/configuration` `initializeConfiguration()` singleton, which
+// still merges in the real user-level `~/.config/minsky/config.yaml`
+// independent of the fake `workingDirectory` it passes) before this file in
+// the same process made `getContextInspectorDb()` resolve a REAL, non-null
+// Postgres connection, breaking the "no live db" assumption below. See
+// `src/cockpit/widgets/task-list.test.ts`'s file-header docstring (mt#2418's
+// sibling widget) for the full writeup — the fix is the same: inject
+// `getProjectScopeDb` directly via `createAgentsWidget`'s 6th (mt#3016)
+// parameter, so behavior is fully determined by THIS test file.
 // ---------------------------------------------------------------------------
+
+/**
+ * Fake db shaped exactly as `scope-resolver.ts`'s query expects
+ * (`select().from().where().limit()`), resolving to `rows` — mirrors
+ * `src/cockpit/project-scope.test.ts`'s helper of the same name.
+ */
+function makeScopeResolverDb(rows: Array<{ id: string; slug: string }>): ScopeResolverDb {
+  return {
+    select() {
+      return {
+        from() {
+          return {
+            where() {
+              return {
+                limit() {
+                  return Promise.resolve(rows);
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+}
 
 describe("createAgentsWidget — project-scope wiring (mt#2418)", () => {
   test("supplies projectScope: ALL_PROJECTS to listSessions when ctx.query.project is absent", async () => {
@@ -707,7 +750,7 @@ describe("createAgentsWidget — project-scope wiring (mt#2418)", () => {
     expect(isAllProjects(projectScope)).toBe(true);
   });
 
-  test("does not crash when ctx.query.project is present (no live db -> fail-open to ALL_PROJECTS)", async () => {
+  test("does not crash when ctx.query.project is present (injected getProjectScopeDb: null -> fail-open to ALL_PROJECTS)", async () => {
     let capturedOptions: SessionListOptions | undefined;
     const provider: SessionProviderInterface = {
       ...makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
@@ -716,7 +759,17 @@ describe("createAgentsWidget — project-scope wiring (mt#2418)", () => {
         return [makeActiveSession({ sessionId: S1 })];
       },
     };
-    const widget = createAgentsWidget(async () => provider);
+    // mt#3016: explicit injection via the 6th (getProjectScopeDb) param, not
+    // reliance on ambient "no live db" environment state — see the
+    // describe-block header comment above.
+    const widget = createAgentsWidget(
+      async () => provider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async () => null
+    );
 
     const data = await widget.fetch({ id: "agents", query: { project: "edobry/minsky" } });
     expect(data.state).toBe("ok");
@@ -725,19 +778,50 @@ describe("createAgentsWidget — project-scope wiring (mt#2418)", () => {
     expect(isAllProjects(projectScope)).toBe(true);
   });
 
+  // mt#3016 regression guard: project-scope resolution must be driven
+  // ENTIRELY by this test's own injected `getProjectScopeDb`, never by
+  // whatever `@minsky/domain/configuration` / `getContextInspectorDb()`
+  // global singleton state some OTHER test file left behind in this
+  // process. Prove it with a fake db that DOES resolve a matching project
+  // row — see task-list.test.ts's sibling test for the full rationale.
+  test("resolves ctx.query.project to the injected fake db's matching project uuid", async () => {
+    const PROJECT_ID = "33333333-3333-3333-3333-333333333333";
+    let capturedOptions: SessionListOptions | undefined;
+    const provider: SessionProviderInterface = {
+      ...makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
+      listSessions: async (options?: SessionListOptions) => {
+        capturedOptions = options;
+        return [makeActiveSession({ sessionId: S1 })];
+      },
+    };
+    const widget = createAgentsWidget(
+      async () => provider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async () => makeScopeResolverDb([{ id: PROJECT_ID, slug: "edobry/minsky" }])
+    );
+
+    const data = await widget.fetch({ id: "agents", query: { project: "edobry/minsky" } });
+    expect(data.state).toBe("ok");
+    const projectScope = capturedOptions?.projectScope;
+    if (!projectScope) throw new Error("expected projectScope to be set");
+    expect(projectScope).toBe(PROJECT_ID);
+    expect(isAllProjects(projectScope)).toBe(false);
+  });
+
   // PR #2056 R1 BLOCKING 1 / NON-BLOCKING 1: a thrown db-getter (module import
   // failure, connection error, etc.) must degrade project-scope resolution to
   // ALL_PROJECTS — NOT the whole widget to `state: "degraded"`. That contract
-  // now lives entirely inside resolveCockpitProjectScope() (see
+  // lives entirely inside resolveCockpitProjectScope() (see
   // src/cockpit/project-scope.ts's fail-open try/catch, which wraps the
   // db-getter call, the dynamic import, and the resolveProjectScope call all
   // in one boundary) — every consumer of it, including this widget, inherits
-  // the guarantee for free and cannot be individually tested around a thrown
-  // getter without either (a) mock.module() on the sibling db-providers
-  // module — banned by this repo's own custom/no-global-module-mocks ESLint
-  // rule (dependency injection is the mandated alternative), or (b) adding a
-  // redundant DI seam to this widget purely to re-exercise a contract already
-  // exhaustively covered at its source. The thrown-getter / thrown-import /
-  // thrown-query exception paths are covered directly, with clean DI (no
-  // mock.module), in src/cockpit/project-scope.test.ts.
+  // the guarantee for free. This widget DOES now carry a `getProjectScopeDb`
+  // DI seam (added for mt#3016, above) but re-exercising the thrown-getter /
+  // thrown-import / thrown-query paths here would be redundant — they're
+  // already covered directly, with clean DI (no mock.module, banned by this
+  // repo's own custom/no-global-module-mocks ESLint rule), in
+  // src/cockpit/project-scope.test.ts.
 });
