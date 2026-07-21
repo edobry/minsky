@@ -46,6 +46,11 @@ import { join } from "node:path";
 const CANARY_STATE_DIR = mkdtempSync(join(tmpdir(), "mt2889-guard-canaries-"));
 process.env["MINSKY_STATE_DIR"] = CANARY_STATE_DIR;
 process.env["CLAUDE_PROJECT_DIR"] = CANARY_STATE_DIR;
+// Canary-mode gate (mt#3004, PR #2145 R1): the test-only guard seams
+// (memory-search fixture stub, daemon-staleness tracker-home redirect) are
+// honored ONLY while this is set — production processes never enter those
+// branches.
+process.env["MINSKY_CANARY_MODE"] = "1";
 
 const {
   runAllRegistryCanaries,

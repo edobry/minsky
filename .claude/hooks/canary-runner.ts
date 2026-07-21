@@ -146,6 +146,23 @@ function baseCanaryInput(event: GuardRegistration["event"]): ToolHookInput {
 }
 
 /**
+ * Restore `process.env` to an exact prior snapshot: keys added since the
+ * snapshot are deleted; keys changed or removed are set back. Used by
+ * `runGuardCanary` so a canary `setup` that mutates env (fixture-path /
+ * tracker-home seams, mt#3004) cannot leak into sibling canaries
+ * (PR #2145 R1 non-blocking).
+ */
+function restoreEnvSnapshot(snapshot: Record<string, string | undefined>): void {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in snapshot)) delete process.env[key];
+  }
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
+
+/**
  * Run ONE `GUARD_REGISTRY` entry's declared canary through the REAL guard
  * module's exported `run()` — dynamically imported via the SAME `reg.module()`
  * loader the dispatcher itself uses, so a canary failure reflects the exact
@@ -164,6 +181,7 @@ export async function runGuardCanary(
     return { guardName: reg.name, source: "registry", passed: undefined };
   }
   const { canary } = reg;
+  const envSnapshot: Record<string, string | undefined> = { ...process.env };
   try {
     const mod = await (moduleLoader ?? reg.module)();
     const ctx = buildCanaryContext(reg.event, canary.transcriptLines);
@@ -191,6 +209,8 @@ export async function runGuardCanary(
       passed: false,
       error: err instanceof Error ? err.message : String(err),
     };
+  } finally {
+    restoreEnvSnapshot(envSnapshot);
   }
 }
 

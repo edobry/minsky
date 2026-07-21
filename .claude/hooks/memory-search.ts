@@ -34,7 +34,7 @@
 // @see mt#1012 — Phase 1 memory-system migration (bridge-policy b)
 // @see feedback_temporary_mechanism_budget — discipline this hook is bound by
 
-import { execWithPath, readHostCap, readInput, writeOutput } from "./types";
+import { execWithPath, readHostCap, readInput, writeOutput, CANARY_MODE_ENV } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import { emitBraintrustEvent } from "../../packages/domain/src/observability/braintrust";
 import {
@@ -153,15 +153,19 @@ export const AFFIRMATIVE_WORDS = new Set([
 export const LOG_PATH = "/tmp/claude-memory-search-hook.log";
 
 /**
- * Canary stub seam (mt#3004). When this env var names a readable file, the
- * subprocess call to `minsky memory search` is replaced by reading that
- * file's content and running it through the SAME `parseSearchOutput` path a
- * real CLI response takes — so the guard-canary suite can exercise this
- * hook's real parsing/formatting/injection plumbing hermetically (the live
- * CLI round trip is not isolatable; this was the mt#2889 KNOWN GAP that
- * left this guard canary-less). Registered in `HOOK_ONLY_ENV_VARS`
- * (mt#1788) and mirrored in `known-override-env-vars.ts`. Test-only: never
- * set outside the canary runner / unit tests.
+ * Canary stub seam (mt#3004). Honored ONLY when the process is in canary
+ * mode (`CANARY_MODE_ENV === "1"`, set exclusively by the canary runner and
+ * unit tests — PR #2145 R1): when active AND this env var names a readable
+ * file, the subprocess call to `minsky memory search` is replaced by reading
+ * that file's content and running it through the SAME `parseSearchOutput`
+ * path a real CLI response takes — so the guard-canary suite can exercise
+ * this hook's real parsing/formatting/injection plumbing hermetically (the
+ * live CLI round trip is not isolatable; this was the mt#2889 KNOWN GAP that
+ * left this guard canary-less). A production process with this var set but
+ * no canary mode behaves exactly as before. Registered in
+ * `HOOK_ONLY_ENV_VARS` (mt#1788) so setting it can never crash CLI boot;
+ * deliberately NOT in `known-override-env-vars.ts` — it is not an operator
+ * escape hatch.
  */
 export const CANARY_STUB_ENV = "MINSKY_MEMORY_SEARCH_CANARY_STUB";
 
@@ -676,10 +680,11 @@ export function runMemorySearch(
   // want to ship multi-page prompts as the search input.
   const truncatedQuery = query.length > MAX_QUERY_LENGTH ? query.slice(0, MAX_QUERY_LENGTH) : query;
 
-  // Canary stub seam (mt#3004): replace ONLY the subprocess call; everything
-  // downstream (parse, degraded/empty branches, injection build) is the real
-  // production path.
-  const stubPath = process.env[CANARY_STUB_ENV];
+  // Canary stub seam (mt#3004): only in canary mode (PR #2145 R1 — never
+  // honored in production), and replaces ONLY the subprocess call;
+  // everything downstream (parse, degraded/empty branches, injection build)
+  // is the real production path.
+  const stubPath = process.env[CANARY_MODE_ENV] === "1" ? process.env[CANARY_STUB_ENV] : undefined;
   if (stubPath) {
     const stubStart = Date.now();
     let raw: string;

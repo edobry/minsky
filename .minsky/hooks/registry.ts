@@ -524,9 +524,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // subprocess is not hermetically canary-able, so the guard exposes a
     // fixture-file stub seam (CANARY_STUB_ENV) that replaces ONLY the
     // subprocess call — the fixture flows through the real parse/injection
-    // path. The env mutation persists for the rest of the canary-runner
-    // process by design (setup has no teardown); it is read exclusively by
-    // this guard's runMemorySearch, so later canaries are unaffected.
+    // path. The seam is gated on CANARY_MODE_ENV (PR #2145 R1) and this
+    // setup's env mutations are restored by runGuardCanary after the
+    // checked invocation, so nothing leaks to sibling canaries or the host
+    // process.
     canary: {
       input: {
         prompt:
@@ -537,6 +538,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
         const { mkdtempSync, writeFileSync } = await import("node:fs");
         const { tmpdir } = await import("node:os");
         const { join } = await import("node:path");
+        const { CANARY_MODE_ENV } = await import("./types");
         const { CANARY_STUB_ENV } = await import("./memory-search");
         const dir = mkdtempSync(join(tmpdir(), "mt3004-memory-search-canary-"));
         const fixturePath = join(dir, "memory-search-fixture.json");
@@ -561,6 +563,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
             degraded: false,
           })
         );
+        process.env[CANARY_MODE_ENV] = "1";
         process.env[CANARY_STUB_ENV] = fixturePath;
         return {};
       },
@@ -616,9 +619,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // a two-commit repo whose second commit touches src/, plus a daemon state
     // file (startCommit = first commit) under the canary runner's isolated
     // MINSKY_STATE_DIR. The session tracker is redirected to a temp HOME via
-    // TRACKER_HOME_ENV so nothing lands under the real ~/.claude (mt#2876
-    // class). The state file is read only by this guard, so writing it into
-    // the shared isolated state dir cannot affect sibling canaries.
+    // TRACKER_HOME_ENV (gated on CANARY_MODE_ENV, PR #2145 R1) so nothing
+    // lands under the real ~/.claude (mt#2876 class). Env mutations are
+    // restored by runGuardCanary after the checked invocation. The state
+    // file is read only by this guard, so writing it into the shared
+    // isolated state dir cannot affect sibling canaries.
     canary: {
       input: {},
       expects: "warn",
@@ -627,11 +632,26 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
         const { tmpdir } = await import("node:os");
         const { join } = await import("node:path");
         const { spawnSync } = await import("node:child_process");
+        const { CANARY_MODE_ENV } = await import("./types");
         const { TRACKER_HOME_ENV } = await import("./mcp-daemon-staleness-detector");
         const repo = mkdtempSync(join(tmpdir(), "mt3004-daemon-staleness-canary-repo-"));
         const run = (args: string[]) =>
           spawnSync("git", args, { cwd: repo, stdio: "ignore", timeout: 5000 });
-        run(["init", "--initial-branch=main"]);
+        // PR #2145 R1: surface git-unavailable clearly instead of a
+        // confusing downstream mismatch; fall back to plain `git init` for
+        // git versions without --initial-branch (< 2.28).
+        const init = run(["init", "--initial-branch=main"]);
+        if (init.error) {
+          throw new Error(
+            `canary setup: git unavailable (${init.error.message}) — the daemon-staleness canary requires git`
+          );
+        }
+        if (init.status !== 0) {
+          const plainInit = run(["init"]);
+          if (plainInit.error || plainInit.status !== 0) {
+            throw new Error("canary setup: git init failed in the scratch repo");
+          }
+        }
         run(["config", "user.email", "canary@example.invalid"]);
         run(["config", "user.name", "mt3004 canary"]);
         mkdirSync(join(repo, "src"), { recursive: true });
@@ -643,7 +663,12 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
           encoding: "utf8",
           timeout: 5000,
         });
-        const startCommit = headResult.stdout.trim();
+        const startCommit = headResult.stdout?.trim();
+        if (headResult.error || !startCommit) {
+          throw new Error(
+            `canary setup: git rev-parse produced no SHA in the scratch repo — ${headResult.error?.message ?? "baseline commit likely failed"}`
+          );
+        }
         writeFileSync(join(repo, "src", "canary.ts"), "export const canary = 2;\n");
         run(["add", "."]);
         run(["commit", "-m", "canary drift commit (touches src/)"]);
@@ -660,6 +685,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
             transport: "stdio",
           })
         );
+        process.env[CANARY_MODE_ENV] = "1";
         process.env[TRACKER_HOME_ENV] = mkdtempSync(
           join(tmpdir(), "mt3004-daemon-staleness-canary-home-")
         );

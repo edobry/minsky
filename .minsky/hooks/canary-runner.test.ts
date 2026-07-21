@@ -44,6 +44,7 @@ import type { GuardRegistration, GuardModule } from "./registry";
 const MINSKY_STATE_DIR_VAR = "MINSKY_STATE_DIR";
 const CLAUDE_PROJECT_DIR_VAR = "CLAUDE_PROJECT_DIR";
 const CHECK_GUESSED_SESSION_PATH = "check-guessed-session-path";
+const USER_PROMPT_SUBMIT = "UserPromptSubmit";
 
 let canaryTestStateDir: string;
 let prevMinskyStateDir: string | undefined;
@@ -175,7 +176,7 @@ describe("runGuardCanary — SABOTAGE DETECTION (mt#2889 acceptance test)", () =
   test("a warn-expecting guard sabotaged to return null also fails", async () => {
     const sabotagedWarnReg: GuardRegistration = {
       name: "sabotaged-warn-guard-test-copy",
-      event: "UserPromptSubmit",
+      event: USER_PROMPT_SUBMIT,
       module: () => Promise.resolve<GuardModule>({ run: () => null }),
       timeoutMs: 5000,
       denyCapable: false,
@@ -191,7 +192,7 @@ describe("runGuardCanary — setup hook", () => {
     let setupRan = false;
     const reg: GuardRegistration = {
       name: "setup-patch-test",
-      event: "UserPromptSubmit",
+      event: USER_PROMPT_SUBMIT,
       module: () =>
         Promise.resolve<GuardModule>({
           run: (input) => {
@@ -296,6 +297,37 @@ describe("mt#3004 — MISSING result carries no expects", () => {
     expect(formatCanaryResult(result)).toBe(
       "[MISSING] synthetic-no-canary-guard-mt3004 (registry, no canary declared)"
     );
+  });
+});
+
+describe("mt#3004 — runGuardCanary restores env mutated by setup (PR #2145 R1)", () => {
+  test("a sentinel env var set in setup is removed after the canary completes", async () => {
+    const SENTINEL = "MT3004_CANARY_ENV_RESTORE_SENTINEL";
+    delete process.env[SENTINEL];
+    const reg: GuardRegistration = {
+      name: "env-restore-test-guard",
+      event: USER_PROMPT_SUBMIT,
+      module: () =>
+        Promise.resolve<GuardModule>({
+          run: () =>
+            process.env[SENTINEL] === "set-by-setup" ? { additionalContext: "saw sentinel" } : null,
+        }),
+      timeoutMs: 5000,
+      denyCapable: false,
+      canary: {
+        input: {},
+        expects: "warn",
+        setup: () => {
+          process.env[SENTINEL] = "set-by-setup";
+          return {};
+        },
+      },
+    };
+    const result = await runGuardCanary(reg);
+    // The checked invocation SAW the setup's env mutation...
+    expect(result.passed).toBe(true);
+    // ...but nothing leaked past the canary.
+    expect(process.env[SENTINEL]).toBeUndefined();
   });
 });
 

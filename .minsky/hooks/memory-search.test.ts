@@ -25,6 +25,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 // eslint-disable-next-line custom/no-real-fs-in-tests -- mt#3004: per-test mkdtemp fixture dirs, same rationale as above
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CANARY_MODE_ENV } from "./types";
 // mt#1778 R1 NON-BLOCKING #1: read shared-emitter API directly from its
 // canonical module rather than through the hook's re-export, which was
 // fragile coupling per reviewer feedback.
@@ -860,14 +861,19 @@ describe("canary stub seam (mt#3004)", () => {
   const NON_TRIVIAL_PROMPT =
     "a sufficiently long, clearly non-trivial prompt for exercising the canary stub seam";
   let prevStub: string | undefined;
+  let prevMode: string | undefined;
 
   beforeEach(() => {
     prevStub = process.env[CANARY_STUB_ENV];
+    prevMode = process.env[CANARY_MODE_ENV];
+    process.env[CANARY_MODE_ENV] = "1";
   });
 
   afterEach(() => {
     if (prevStub === undefined) delete process.env[CANARY_STUB_ENV];
     else process.env[CANARY_STUB_ENV] = prevStub;
+    if (prevMode === undefined) delete process.env[CANARY_MODE_ENV];
+    else process.env[CANARY_MODE_ENV] = prevMode;
   });
 
   it("returns the fixture through the real parse path without invoking the CLI", () => {
@@ -920,5 +926,15 @@ describe("canary stub seam (mt#3004)", () => {
     const { response, error } = runMemorySearch(NON_TRIVIAL_PROMPT);
     expect(response).toBeNull();
     expect(error).toBe("canary-stub-unparseable");
+  });
+
+  it("PR #2145 R1 gating: stub var WITHOUT canary mode is ignored (production posture)", () => {
+    delete process.env[CANARY_MODE_ENV];
+    process.env[CANARY_STUB_ENV] = "/nonexistent/mt3004/fixture.json";
+    // timeoutMs 1 forces the REAL exec path to return immediately — the
+    // point is that the result error is exec-shaped, never canary-stub-*.
+    const { error } = runMemorySearch(NON_TRIVIAL_PROMPT, DEFAULT_K, 1);
+    expect(error).toBeDefined();
+    expect(error).not.toContain("canary-stub");
   });
 });
