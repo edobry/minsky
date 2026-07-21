@@ -83,13 +83,48 @@ To populate `~/.config/minsky/railway-secrets.json`, create it manually with the
 {
   "MINSKY_MCP_AUTH_TOKEN": "<token>",
   "MINSKY_GITHUB_APP_PRIVATE_KEY": "<private-key-pem>",
-  "MINSKY_PERSISTENCE_POSTGRES_URL": "<supabase-url>",
+  "MINSKY_PERSISTENCE_POSTGRES_URL": "<supabase-url-postgres-role>",
+  "MINSKY_APP_POSTGRES_URL": "<supabase-url-minsky-app-role>",
   "MINSKY_POSTGRES_URL": "<supabase-url>",
   "MINSKY_SESSIONDB_POSTGRES_URL": "<supabase-url>",
   "OPENAI_API_KEY": "<key>",
   "MINSKY_OAUTH_SIGNING_KEY": "<jwk-json-string>"
 }
 ```
+
+> **Two Postgres credentials since mt#2542 (least-privilege role split):** > `MINSKY_PERSISTENCE_POSTGRES_URL` in this file is the DDL-capable `postgres`
+> role — used ONLY by the deploy-keyed migrator (GitHub Actions secret) and
+> explicit local `persistence migrate`. `MINSKY_APP_POSTGRES_URL` is the
+> DML-only `minsky_app` role (`scripts/supabase-app-role.sql`) — the value the
+> runtime services' `MINSKY_PERSISTENCE_POSTGRES_URL` env var is set to (same
+> env-var NAME on the services, different role than the migrator's). Local app
+> config (`~/.config/minsky/config.yaml`) should also use the `minsky_app` URL.
+
+#### Switchover runbook (mt#2542)
+
+Because sealed vars carry `ignoreChanges: ["value"]`, changing the sealed
+source in `infra/index.ts` does NOT rotate a live service — the switch to the
+`minsky_app` credential is an explicit per-service rotation. Old and new
+credentials are both valid throughout, so each step is independently
+reversible.
+
+1. Create the role (once): `psql "$ADMIN_URL" -v app_password="$APP_PW" -f scripts/supabase-app-role.sql`,
+   then store the `minsky_app` URL as `MINSKY_APP_POSTGRES_URL` in
+   `~/.config/minsky/railway-secrets.json` and as the Pulumi secret
+   `secrets:minsky-app-postgres-url` (`pulumi config set --secret`, value via
+   stdin).
+2. Switch the reviewer service (smaller blast radius first):
+   `jq -rj '."MINSKY_APP_POSTGRES_URL"' ~/.config/minsky/railway-secrets.json | railway variables --set-from-stdin MINSKY_PERSISTENCE_POSTGRES_URL -s <reviewer-service-id> -e <reviewer-env-id>`
+   — then verify the triggered redeploy reaches SUCCESS and `/health` is 200.
+3. Switch minsky-mcp the same way; verify deploy SUCCESS + `/health`.
+4. Switch operator-local `~/.config/minsky/config.yaml` to the `minsky_app`
+   URL (local MCP/CLI/sessions).
+5. Final check: with the service credential, `CREATE TABLE` must be denied
+   (`psql "$APP_URL" -c 'CREATE TABLE probe(i int)'` → `permission denied`).
+
+**Rollback (any step):** set the service's `MINSKY_PERSISTENCE_POSTGRES_URL`
+back to the `postgres`-role URL the same way — the DDL credential remains
+valid; nothing else changes.
 
 Secret vars are stored encrypted in Pulumi config (`pulumi config set --secret secrets:<key> <value>`) and applied with Railway's sealed variable semantics. After sealing, the Railway dashboard and CLI hide the value (write-only).
 
@@ -174,17 +209,22 @@ Heroku/GitLab "release phase" pattern.
 
 The step needs the prod Postgres connection as a repo Actions secret:
 
-- **`MINSKY_PERSISTENCE_POSTGRES_URL`** — the SAME value as the service's sealed
-  Pulumi secret `minsky-persistence-postgres-url` (see `infra/index.ts`). The
-  bundle reads this canonical var (NOT `MINSKY_POSTGRES_URL`/`DATABASE_URL`;
-  mt#2439). The value is forwarded into the migrate container by name and is
-  never echoed; GitHub auto-masks `secrets.*` in logs.
+- **`MINSKY_PERSISTENCE_POSTGRES_URL`** — the DDL-capable `postgres` role
+  credential (Pulumi secret `minsky-persistence-postgres-url`). Since mt#2542
+  this is deliberately NOT the same value as the services' sealed var: the
+  services run as the DML-only `minsky_app` role (Pulumi secret
+  `minsky-app-postgres-url`; `scripts/supabase-app-role.sql`), so this GitHub
+  Actions secret is the only DDL credential stored in CI. The bundle reads this
+  canonical var (NOT `MINSKY_POSTGRES_URL`/`DATABASE_URL`; mt#2439). The value
+  is forwarded into the migrate container by name and is never echoed; GitHub
+  auto-masks `secrets.*` in logs.
 
 Set it with:
 
 ```bash
-# value piped from the service's own var; never printed
-railway variables --json | jq -rj '."MINSKY_PERSISTENCE_POSTGRES_URL"' \
+# value piped from the operator secret store; never printed. Do NOT copy the
+# service's live var — post-mt#2542 that's the DML role, which cannot migrate.
+jq -rj '."MINSKY_PERSISTENCE_POSTGRES_URL"' ~/.config/minsky/railway-secrets.json \
   | gh secret set MINSKY_PERSISTENCE_POSTGRES_URL --repo edobry/minsky
 ```
 

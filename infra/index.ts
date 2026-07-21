@@ -67,7 +67,15 @@ defineVariables("minsky-mcp", minskyMcpEnv, minskyMcpServiceId, {
   MINSKY_MCP_AUTH_TOKEN: sealed("minsky-mcp-auth-token"),
   MINSKY_MCP_MAX_SESSIONS: plain("1000"),
   MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
-  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-persistence-postgres-url"),
+  // mt#2542 least-privilege role split: app binaries connect as the DML-only
+  // `minsky_app` Postgres role (scripts/supabase-app-role.sql). The DDL-capable
+  // `postgres` credential lives ONLY in Pulumi key
+  // `minsky-persistence-postgres-url` + the MINSKY_PERSISTENCE_POSTGRES_URL
+  // GitHub Actions secret (the deploy-keyed migrator). NOTE: sealed vars carry
+  // `ignoreChanges: ["value"]`, so this declaration sets the value at resource
+  // CREATION only — the live rotation to the minsky_app URL is done out-of-band
+  // (`railway variables --set`), per the sealed-secret posture (mt#1442 runbook).
+  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-app-postgres-url"),
   NODE_ENV: plain("production"),
   OPENAI_API_KEY: sealed("openai-api-key"),
   MINSKY_OAUTH_SIGNING_KEY: sealed("minsky-oauth-signing-key"),
@@ -138,7 +146,8 @@ defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
   // mt#1610) — the reviewer's own DB client prefers the canonical name and
   // both secrets resolve to the same prod database.
   MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
-  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-persistence-postgres-url"),
+  // mt#2542: DML-only minsky_app role — see the minsky-mcp block above.
+  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-app-postgres-url"),
   // Reviewer external alert sink (mt#2364 / mt#2419): pushes circuit-breaker
   // trips to the operator's Telegram after-hours. PER-STACK opt-in (PR #1672
   // R1): the chat id is an operator-specific identifier and the sink must not
