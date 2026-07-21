@@ -92,7 +92,7 @@ export function checkTransition(
       decision: "deny",
       reason:
         `Refused tasks_status_set on ${taskId}: requested status "${requested}" is not a valid TaskStatus. ` +
-        `Valid: TODO, PLANNING, READY, IN-PROGRESS, IN-REVIEW, DONE, COMPLETED, BLOCKED, CLOSED.`,
+        `Valid: TODO, PLANNING, READY, IN-PROGRESS, IN-REVIEW, DONE, BLOCKED, CLOSED.`,
     };
   }
 
