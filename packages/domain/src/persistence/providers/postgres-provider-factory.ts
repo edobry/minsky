@@ -4,14 +4,14 @@
  * Creates the appropriate PostgreSQL provider class based on runtime capabilities
  */
 
-import postgres from "postgres";
 import { log } from "@minsky/shared/logger";
 import { profileCheckpoint } from "@minsky/shared/cold-start-profile";
-import { logPostgresNotice } from "../postgres-notice-handler";
 import { PersistenceConfig } from "../types";
+import { withPgPoolRetry } from "../postgres-retry";
 import {
   PostgresPersistenceProvider,
   PostgresVectorPersistenceProvider,
+  buildPostgresClient,
 } from "./postgres-provider";
 
 /**
@@ -31,45 +31,58 @@ export class PostgresProviderFactory {
 
     const pgConfig = config.postgres;
 
-    // Test connection and check for pgvector extension. `onnotice` routes
-    // through the shared logger so the cold-path probe doesn't leak Postgres
-    // NOTICEs to stdout (mt#1828; pairs with mt#1827's main-pool fix).
+    // mt#2973: create the REAL production client (not a throwaway max:1 probe
+    // connection) and run the capability probe on it, then hand the SAME
+    // already-open, SELECT-1-validated client to the provider for reuse. This
+    // collapses the former TWO cold-boot handshakes (throwaway probe + the
+    // provider's own connect) into ONE, saving ~486ms/boot. postgres-js opens
+    // connections lazily and reuses them within a client
+    // (github.com/porsager/postgres — "previous opened connection is reused"),
+    // so the probe query opens the pool's first connection and the provider
+    // keeps using it. `onnotice` (inside buildPostgresClient) keeps stdout clean
+    // (mt#1827/mt#1828).
     profileCheckpoint("pg_probe_start");
-    const testSql = postgres(pgConfig.connectionString, {
-      max: 1, // Just need one connection for testing
-      connect_timeout: pgConfig.connectTimeout || 10,
-      onnotice: logPostgresNotice,
-    });
+    const probedSql = buildPostgresClient(pgConfig);
 
     try {
-      // Verify connection works. This is the FIRST remote handshake of the
-      // cold boot — `postgres()` connects lazily, so the TLS handshake to the
-      // pooler happens on this query (mt#2973 measures it here).
-      await testSql`SELECT 1`;
+      // First (and now ONLY) remote handshake of the cold boot: postgres()
+      // connects lazily, so the TLS handshake to the pooler happens on this
+      // query. Retry on pool saturation, matching the provider's own SELECT 1.
+      await withPgPoolRetry(() => probedSql`SELECT 1`, "postgres-provider-factory.probe");
       profileCheckpoint("pg_probe_connect_and_select1");
 
-      // Check for pgvector extension
-      const result = await testSql`
+      // Check for pgvector extension (on the same connection the provider reuses).
+      const result = await probedSql`
         SELECT EXISTS (
           SELECT 1 FROM pg_extension WHERE extname = 'vector'
         ) as exists
       `;
       profileCheckpoint("pg_probe_pgvector");
 
-      await testSql.end(); // Clean up test connection
-      profileCheckpoint("pg_probe_end");
+      const hasVectorExtension = result[0]?.exists ?? false;
 
-      const hasVectorExtension = result[0]?.exists;
-
+      // Hand the probed client to the provider for REUSE — do NOT end() it here.
+      // The provider adopts it (its close() owns the lifecycle from now on).
       if (hasVectorExtension) {
-        log.debug("Creating PostgreSQL provider with vector support");
-        return new PostgresVectorPersistenceProvider(config);
+        log.debug("Creating PostgreSQL provider with vector support (reusing probed connection)");
+        return new PostgresVectorPersistenceProvider(config, {
+          sql: probedSql,
+          pgvectorVerified: true,
+        });
       } else {
-        log.debug("Creating PostgreSQL provider without vector support (pgvector not available)");
-        return new PostgresPersistenceProvider(config);
+        log.debug(
+          "Creating PostgreSQL provider without vector support " +
+            "(pgvector not available; reusing probed connection)"
+        );
+        return new PostgresPersistenceProvider(config, {
+          sql: probedSql,
+          pgvectorVerified: false,
+        });
       }
     } catch (error) {
-      await testSql.end(); // Clean up on error
+      // The probe failed before any provider adopted the client — end it here to
+      // avoid leaking the pool.
+      await probedSql.end();
       log.error(
         "Failed to test PostgreSQL capabilities:",
         error instanceof Error ? error : { error: String(error) }

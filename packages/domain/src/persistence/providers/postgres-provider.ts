@@ -159,6 +159,28 @@ function resolveMaxConnections(configured: number | undefined): number {
 }
 
 /**
+ * Build the production postgres-js client for a config's `postgres` block.
+ *
+ * Single source of truth for the connection options (mt#2973) so the factory's
+ * capability-probe connection and the provider's runtime connection are the
+ * SAME shape of client — which lets the factory hand its already-open,
+ * SELECT-1-validated client to the provider for reuse instead of each opening a
+ * separate remote TLS handshake to the pooler.
+ */
+export function buildPostgresClient(
+  pgConfig: NonNullable<PersistenceConfig["postgres"]>,
+  factory: typeof postgres = postgres
+): ReturnType<typeof postgres> {
+  return factory(pgConfig.connectionString, {
+    max: resolveMaxConnections(pgConfig.maxConnections),
+    connect_timeout: pgConfig.connectTimeout || 10,
+    idle_timeout: pgConfig.idleTimeout || 60,
+    prepare: pgConfig.prepareStatements ?? false,
+    onnotice: logPostgresNotice,
+  });
+}
+
+/**
  * Derive a session-mode-pooler URL from a Supavisor transaction-pooler URL by
  * swapping the URL's port from 6543 → 5432. Returns the input unchanged if the
  * URL is not on port 6543 (so non-Supavisor hosts pass through — the URL is
@@ -202,6 +224,19 @@ export class PostgresPersistenceProvider
   protected listenSql: ReturnType<typeof postgres> | null = null;
   protected config: PersistenceConfig;
   protected isInitialized = false;
+  /**
+   * mt#2973: a factory-probed, already-SELECT-1-validated client handed in for
+   * REUSE. When set, initialize() adopts this client and skips its own connect
+   * + SELECT 1 (the redundant second cold-boot handshake). Null on the
+   * standalone path (the provider opens its own client). The provider OWNS this
+   * client's lifecycle once adopted (close() ends it).
+   */
+  protected preValidatedSql: ReturnType<typeof postgres> | null = null;
+  /**
+   * mt#2973: whether the factory already verified pgvector on the pre-validated
+   * client. When true, the vector provider skips its redundant re-probe.
+   */
+  protected pgvectorVerified = false;
 
   /**
    * Base PostgreSQL capabilities (no vector storage)
@@ -216,12 +251,21 @@ export class PostgresPersistenceProvider
 
   // Note: Capabilities are returned by getCapabilities() method below
 
-  constructor(config: PersistenceConfig) {
+  constructor(
+    config: PersistenceConfig,
+    preValidated?: { sql: ReturnType<typeof postgres>; pgvectorVerified: boolean }
+  ) {
     super();
     if (config.backend !== "postgres" || !config.postgres) {
       throw new Error("PostgresPersistenceProvider requires postgres configuration");
     }
     this.config = config;
+    // mt#2973: the factory may hand us an already-open, capability-probed client
+    // to reuse (eliminating a redundant second handshake). Adopted in initialize().
+    if (preValidated) {
+      this.preValidatedSql = preValidated.sql;
+      this.pgvectorVerified = preValidated.pgvectorVerified;
+    }
   }
 
   /** Returns the postgres config — guaranteed non-null by the constructor. */
@@ -260,24 +304,26 @@ export class PostgresPersistenceProvider
       // Resolve the factory — allows tests to inject a mock without mock.module()
       const pgFactory = deps?.postgresFactory ?? postgres;
 
-      // Create PostgreSQL connection (use injected client or create new one).
-      // `onnotice` routes NOTICEs through `log.debug` (via the shared handler at
-      // postgres-notice-handler.ts). Pre-mt#1828 this site dropped silently with
-      // `() => {}` to keep stdout clean (mt#1827); the helper preserves the
-      // stdout-clean property AND captures the operational signal at debug
-      // level. Six postgres-js sites in total go through this helper.
+      // Connection sourcing (mt#2973), in priority order:
+      //   1. deps.sqlClient — the test seam (caller owns it; suppresses
+      //      auto-migrate via shouldAutoMigrate).
+      //   2. this.preValidatedSql — a factory-probed client handed in for REUSE.
+      //      The factory already opened the remote connection AND ran SELECT 1
+      //      on it, so we adopt it and skip the provider's own handshake +
+      //      SELECT 1 (the ~486ms redundant second cold-boot handshake). The
+      //      provider OWNS this client now (tracked as createdSql for cleanup),
+      //      and auto-migrate is honored normally (unlike the deps.sqlClient seam).
+      //   3. Otherwise open a fresh client (the standalone path).
+      // `onnotice` (inside buildPostgresClient) routes NOTICEs through log.debug
+      // (postgres-notice-handler.ts) to keep stdout clean (mt#1827/mt#1828).
+      const reusingProbedClient = !deps?.sqlClient && this.preValidatedSql !== null;
       const sql =
-        deps?.sqlClient ??
-        pgFactory(pgConfig.connectionString, {
-          max: resolveMaxConnections(pgConfig.maxConnections),
-          connect_timeout: pgConfig.connectTimeout || 10,
-          idle_timeout: pgConfig.idleTimeout || 60,
-          prepare: pgConfig.prepareStatements ?? false,
-          onnotice: logPostgresNotice,
-        });
+        deps?.sqlClient ?? this.preValidatedSql ?? buildPostgresClient(pgConfig, pgFactory);
 
-      // Track only connections we created, so we can clean up on failure without
-      // closing an injected client that the caller still owns
+      // Track connections we created/own so we can clean up on failure without
+      // closing an injected test-seam client the caller still owns. The
+      // factory-probed client IS provider-owned (the factory deliberately left
+      // it open), so it is tracked here too.
       if (!deps?.sqlClient) {
         createdSql = sql;
       }
@@ -285,14 +331,17 @@ export class PostgresPersistenceProvider
       // Create Drizzle instance
       const db = drizzle(sql);
 
-      // Verify connection — retry on pool saturation (mt#1193). When the
-      // factory did NOT hand us a pre-validated client, this SELECT drives the
-      // SECOND remote handshake of the cold boot (the factory's probe
-      // connection was the first) — mt#2973 measures it here to size the
-      // redundant-handshake cost the client-reuse optimization eliminates.
-      profileCheckpoint("pg_init_select1_start");
-      await withPgPoolRetry(() => sql`SELECT 1`, "postgres-provider.initialize");
-      profileCheckpoint("pg_init_select1_done");
+      // Verify connection — retry on pool saturation (mt#1193). Skip when
+      // reusing the factory's pre-validated client: it already ran SELECT 1
+      // during the capability probe, so a second round-trip here is pure
+      // redundant remote latency (the second handshake mt#2973 eliminates).
+      if (!reusingProbedClient) {
+        profileCheckpoint("pg_init_select1_start");
+        await withPgPoolRetry(() => sql`SELECT 1`, "postgres-provider.initialize");
+        profileCheckpoint("pg_init_select1_done");
+      } else {
+        profileCheckpoint("pg_init_reused_probed_client");
+      }
 
       // Cache the connection objects BEFORE running migrations. runMigrations
       // uses `this.db` / `this.sql`, but `this.isInitialized` stays false until
@@ -301,6 +350,11 @@ export class PostgresPersistenceProvider
       // still running (race window where they could read pre-migration schema).
       this.sql = sql;
       this.db = db;
+      // mt#2973: ownership of a reused probed client transfers fully to
+      // this.sql now (createdSql tracks it for failure cleanup); clear the
+      // field so close()'s orphan-cleanup path (never-initialized case) doesn't
+      // double-end it.
+      this.preValidatedSql = null;
 
       // mt#2560: auto-migrate-on-boot is OFF by default. It runs ONLY when the
       // MINSKY_AUTO_MIGRATE opt-in is set ("true"/"1") AND no deps were injected
@@ -526,6 +580,17 @@ export class PostgresPersistenceProvider
         }
         this.listenSql = null;
       }
+      // mt#2973: if a factory-probed client was handed in for reuse but
+      // initialize() never adopted it into this.sql (constructed-then-closed
+      // without initializing), end it here so the pool doesn't leak.
+      if (!this.sql && this.preValidatedSql) {
+        try {
+          await this.preValidatedSql.end();
+        } catch {
+          /* ignore cleanup errors */
+        }
+        this.preValidatedSql = null;
+      }
       if (this.sql) {
         await this.sql.end();
         this.sql = null;
@@ -594,6 +659,19 @@ export class PostgresVectorPersistenceProvider
     // Verify pgvector extension is available (should have been checked by factory)
     if (!this.sql) {
       throw new Error("SQL connection not available");
+    }
+
+    // mt#2973: when the factory already verified pgvector (on the client it
+    // handed us for reuse), the class choice IS the verification — re-running
+    // the pg_extension probe here is a redundant remote round-trip (~81ms).
+    // Only probe on the standalone path (no factory verdict), where this IS the
+    // first and only check.
+    if (this.pgvectorVerified) {
+      profileCheckpoint("pg_init_vector_reprobe_skipped");
+      log.debug(
+        "PostgreSQL persistence provider initialized with vector support (factory-verified)"
+      );
+      return;
     }
 
     try {
