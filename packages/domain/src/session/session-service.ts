@@ -49,8 +49,10 @@ import type {
   SessionDirParams,
   SessionUpdateParams,
 } from "../schemas/session";
-import type { SessionStartParameters, SessionUpdateParameters } from "../schemas";
+import type { SessionUpdateParameters } from "../schemas";
 import type { SessionPRParameters } from "../schemas";
+import type { SessionStartParametersWithIntent } from "./start-session-operations";
+import type { SessionLaunchIntent } from "./session-startability";
 
 /**
  * The superset of all dependencies needed by any session operation.
@@ -114,7 +116,12 @@ export class SessionService {
   /**
    * Start a new session.
    */
-  async start(params: SessionStartParams): Promise<Session> {
+  async start(
+    params: SessionStartParams & {
+      /** mt#2986: domain-only launch intent — not part of the MCP-facing schema. */
+      launchIntent?: SessionLaunchIntent;
+    }
+  ): Promise<Session> {
     const sessionStartParams = {
       sessionId: params.sessionId,
       task: params.task,
@@ -128,7 +135,8 @@ export class SessionService {
       debug: false,
       format: "text" as const,
       force: false,
-    } as SessionStartParameters;
+      launchIntent: params.launchIntent,
+    } as SessionStartParametersWithIntent;
 
     return startSessionImpl(sessionStartParams, {
       sessionDB: this.deps.sessionProvider,

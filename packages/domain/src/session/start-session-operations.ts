@@ -22,6 +22,17 @@ import { generateSessionId, taskIdToBranchName } from "../tasks/task-id";
 import { SessionStatus } from "./types";
 import type { ScopeResolverDb } from "../project/scope-resolver";
 import { sessionStartBlockedReason } from "./session-startability";
+import type { SessionLaunchIntent } from "./session-startability";
+
+/**
+ * Domain-level extension of the zod-derived start params (mt#2986): launch
+ * intent is deliberately NOT in the schema — the MCP boundary rejects
+ * undeclared params (mt#2778), so only direct domain callers (the cockpit
+ * driven-session launch) can assert "principal-driven".
+ */
+export type SessionStartParametersWithIntent = SessionStartParameters & {
+  launchIntent?: SessionLaunchIntent;
+};
 
 export interface StartSessionDependencies {
   sessionDB: SessionProviderInterface;
@@ -76,7 +87,7 @@ interface ValidatedSessionContext {
  * Structural invariant: if this function throws, the system state is unchanged.
  */
 async function validatePreconditions(
-  params: SessionStartParameters,
+  params: SessionStartParametersWithIntent,
   deps: StartSessionDependencies
 ): Promise<ValidatedSessionContext> {
   const {
@@ -201,11 +212,20 @@ Navigate to your main workspace and try again:
     // ONE place (sessionStartBlockedReason) so the cockpit task-detail API can
     // compute an honest Start-session affordance from the SAME logic instead of
     // dead-ending an operator on this error.
+    //
+    // mt#2986: the gate is intent-aware — a principal-driven launch (cockpit
+    // driven session) is exempt: the gate exists to stop unplanned AUTONOMOUS
+    // implementation, and the principal live-driving is the same engagement the
+    // existing-workspace reuse exception already honors.
     if (!noStatusUpdate) {
       const currentStatus = await deps.taskService.getTaskStatus(normalizedTaskId);
       const taskKind = (taskObj as { kind?: string }).kind || "implementation";
 
-      const blockedReason = sessionStartBlockedReason(currentStatus, taskKind);
+      const blockedReason = sessionStartBlockedReason(
+        currentStatus,
+        taskKind,
+        params.launchIntent ?? "autonomous"
+      );
       if (blockedReason) {
         throw new ValidationError(blockedReason, undefined, undefined);
       }
@@ -331,7 +351,7 @@ Navigate to your main workspace and try again:
  */
 async function executeMutations(
   ctx: ValidatedSessionContext,
-  params: SessionStartParameters,
+  params: SessionStartParametersWithIntent,
   deps: StartSessionDependencies
 ): Promise<Session> {
   const fsAdapter = deps.fs || {
@@ -600,6 +620,14 @@ Error: ${getErrorMessage(nestedError)}`
       const taskKind = (task as { kind?: string } | null)?.kind || "implementation";
       const isUmbrella = taskKind === "umbrella";
 
+      // mt#2986: a principal-driven launch on a TODO task means planning is what
+      // is now happening — walk TODO → PLANNING (and no further; IN-PROGRESS is
+      // reserved for implementation actually starting, per the mt#2986 design
+      // decision). READY keeps the existing READY → IN-PROGRESS walk below.
+      if (params.launchIntent === "principal-driven" && currentStatus === TASK_STATUS.TODO) {
+        await deps.taskService.setTaskStatus(taskId, TASK_STATUS.PLANNING);
+      }
+
       const validPrecursor =
         currentStatus === TASK_STATUS.IN_PROGRESS ||
         (isUmbrella ? currentStatus === TASK_STATUS.PLANNING : currentStatus === TASK_STATUS.READY);
@@ -655,7 +683,7 @@ Error: ${getErrorMessage(nestedError)}`
  * This separation ensures that validation failures cannot leave orphaned state.
  */
 export async function startSessionImpl(
-  params: SessionStartParameters,
+  params: SessionStartParametersWithIntent,
   deps: StartSessionDependencies
 ): Promise<Session> {
   try {
