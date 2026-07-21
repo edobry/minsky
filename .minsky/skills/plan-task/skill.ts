@@ -180,8 +180,9 @@ failures together so the user can address them in one pass.
 identifier — NEVER reuse a letter for a different check; a new gate claims the next FREE letter
 (letter \`(i)\` is permanently skipped, see (j) below). Reusing an occupied letter silently deletes
 the gate that held it — mt#2445 reused \`(l)\` and deleted mt#2091's problem-statement gate,
-unnoticed until mt#2958. The \`plan-task-gate-letters\` test enforces no-duplicate-letters plus the
-presence of the restored gate (o).
+unnoticed until mt#2958. The \`plan-task-gate-letters\` test enforces the full gate-letter manifest
+(every shipped gate present at its own letter, in the exact append-only sequence, no reuse or
+deletion) against BOTH the source skill definition and the generated \`.claude/skills\` output.
 
 #### Gate criterion (a) — Required spec sections present
 
