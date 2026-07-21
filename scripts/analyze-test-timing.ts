@@ -23,7 +23,9 @@
  * Or generate the report in one shot:
  *   bun scripts/analyze-test-timing.ts --run [--top=25]
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 interface TestCase {
   file: string;
@@ -33,16 +35,20 @@ interface TestCase {
 }
 
 /**
- * Minimal, allocation-cheap extraction of `<testcase .../>` self-closing
- * elements from a bun-generated JUnit XML file. A full XML parser is
- * unnecessary here: bun's reporter output is well-formed, single-line-per-tag,
- * and testcases are always emitted as self-closing elements with a fixed
- * attribute set (name, classname, time, file, line, assertions[, message]).
- * A regex scan is far cheaper than pulling in an XML DOM for a ~2.6MB report.
+ * Extracts every `<testcase ...>` OPENING tag's attribute list from a bun-generated
+ * JUnit XML report -- whether the element is self-closing (`<testcase .../>`, the
+ * common passing/skipped case) or has child content (`<testcase ...><failure
+ * .../></testcase>`, emitted for failed/errored tests). PR #2120 R1 BLOCKING fix:
+ * the original regex only matched the self-closing form, silently dropping any
+ * failed test AND (confirmed empirically against a real report) skipped tests too
+ * -- both are emitted with a child element and are therefore non-self-closing.
+ * Matching only up to the end of the OPENING tag (`\/?>`) is sufficient and safe
+ * for either form: we only need the attributes (name/classname/time/file), never
+ * the body, so there is no need to also match through to `</testcase>`.
  */
 function parseTestcases(xml: string): TestCase[] {
   const out: TestCase[] = [];
-  const re = /<testcase\b([^>]*?)\/>/g;
+  const re = /<testcase\b([^>]*?)\/?>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(xml))) {
     const attrs = m[1];
@@ -51,21 +57,43 @@ function parseTestcases(xml: string): TestCase[] {
     const classname = attrOf(attrs, "classname");
     const timeStr = attrOf(attrs, "time");
     if (!file || timeStr === undefined) continue;
+    const timeSec = Number(timeStr);
+    if (Number.isNaN(timeSec)) {
+      console.error(
+        `analyze-test-timing: unparseable time="${timeStr}" on testcase "${name ?? "?"}" in ${file} -- treating as 0s`
+      );
+    }
     out.push({
       file,
       classname: classname ?? "",
       name: name ?? "",
-      timeSec: Number(timeStr) || 0,
+      timeSec: Number.isNaN(timeSec) ? 0 : timeSec,
     });
   }
   return out;
 }
 
+/**
+ * Reads one XML attribute's value from a `<tag ...>` attribute-list substring.
+ *
+ * PR #2120 R1 BLOCKING fix: the original implementation searched for
+ * `key="value"` with no boundary before `key`, so `attrOf(attrs, "name")` could
+ * match INSIDE `classname="..."` (since "classname" ends in "name") whenever
+ * attribute order put `classname` before `name` in the tag. Requiring the key to
+ * be preceded by whitespace or the start of the attribute-list string prevents
+ * that collision. Also accepts single-quoted values (XML technically permits
+ * either quote style) even though bun itself only emits double-quoted attributes.
+ */
 function attrOf(attrs: string, key: string): string | undefined {
-  const re = new RegExp(`${key}="([^"]*)"`);
+  const re = new RegExp(`(?:^|\\s)${key}=(?:"([^"]*)"|'([^']*)')`);
   const m = re.exec(attrs);
   if (!m) return undefined;
-  return m[1]
+  const raw = m[1] !== undefined ? m[1] : m[2];
+  return decodeXmlEntities(raw ?? "");
+}
+
+function decodeXmlEntities(s: string): string {
+  return s
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
     .replace(/&lt;/g, "<")
@@ -111,10 +139,22 @@ function main(): void {
   const nearTimeoutArg = args.find((a) => a.startsWith("--near-timeout="));
   const nearTimeoutThresholdSec = nearTimeoutArg ? Number(nearTimeoutArg.split("=")[1]) : 14;
 
-  let xmlPath = args.find((a) => !a.startsWith("--"));
+  const positionalXmlPath = args.find((a) => !a.startsWith("--"));
+  let xmlPath = positionalXmlPath;
+  let ownedTmpPath: string | undefined;
 
   if (args.includes("--run")) {
-    const tmpPath = `/tmp/mt2933-test-timing-${Date.now()}.xml`;
+    // PR #2120 R1 NON-BLOCKING fix: --run now always wins over (and warns about) a
+    // positional path passed alongside it, instead of silently ignoring one of the two.
+    if (positionalXmlPath) {
+      console.error(
+        `analyze-test-timing: both --run and a positional path ("${positionalXmlPath}") were given -- ` +
+          `--run takes precedence; the positional path is ignored.`
+      );
+    }
+    // os.tmpdir() rather than a hardcoded "/tmp" (NON-BLOCKING: not every platform has /tmp).
+    const tmpPath = join(tmpdir(), `mt2933-test-timing-${Date.now()}.xml`);
+    ownedTmpPath = tmpPath;
     console.error(`Running full suite once (this takes several minutes): ${tmpPath}`);
     const proc = Bun.spawnSync(
       ["bun", "scripts/run-tests-main.ts", "--reporter=junit", `--reporter-outfile=${tmpPath}`],
@@ -134,71 +174,94 @@ function main(): void {
     process.exit(1);
   }
 
-  const xml = readFileSync(xmlPath, "utf-8");
-  const cases = parseTestcases(xml);
-  if (cases.length === 0) {
-    console.error(`No <testcase> elements found in ${xmlPath} -- is this a bun junit report?`);
-    process.exit(1);
-  }
+  try {
+    let xml: string;
+    try {
+      xml = readFileSync(xmlPath, "utf-8");
+    } catch (err) {
+      console.error(
+        `Failed to read ${xmlPath}: ${err instanceof Error ? err.message : String(err)}`
+      );
+      process.exit(1);
+    }
+    const cases = parseTestcases(xml);
+    if (cases.length === 0) {
+      console.error(`No <testcase> elements found in ${xmlPath} -- is this a bun junit report?`);
+      process.exit(1);
+    }
 
-  const totalSec = cases.reduce((s, c) => s + c.timeSec, 0);
-  const files = aggregateByFile(cases);
-  const slowestFiles = files.slice(0, top);
-  const slowestTests = [...cases].sort((a, b) => b.timeSec - a.timeSec).slice(0, top);
-  const nearTimeout = cases
-    .filter((c) => c.timeSec >= nearTimeoutThresholdSec)
-    .sort((a, b) => b.timeSec - a.timeSec);
+    const totalSec = cases.reduce((s, c) => s + c.timeSec, 0);
+    const files = aggregateByFile(cases);
+    const slowestFiles = files.slice(0, top);
+    const slowestTests = [...cases].sort((a, b) => b.timeSec - a.timeSec).slice(0, top);
+    const nearTimeoutAll = cases
+      .filter((c) => c.timeSec >= nearTimeoutThresholdSec)
+      .sort((a, b) => b.timeSec - a.timeSec);
+    const nearTimeout = nearTimeoutAll.slice(0, top);
 
-  if (jsonOut) {
+    if (jsonOut) {
+      console.log(
+        JSON.stringify(
+          {
+            totalTestcaseSec: totalSec,
+            testcaseCount: cases.length,
+            fileCount: files.length,
+            slowestFiles,
+            slowestTests,
+            nearTimeoutCount: nearTimeoutAll.length,
+            nearTimeout,
+          },
+          null,
+          2
+        )
+      );
+      return;
+    }
+
+    console.log(`\n=== Test timing analysis: ${xmlPath} ===\n`);
     console.log(
-      JSON.stringify(
-        {
-          totalTestcaseSec: totalSec,
-          testcaseCount: cases.length,
-          fileCount: files.length,
-          slowestFiles,
-          slowestTests,
-          nearTimeout,
-        },
-        null,
-        2
-      )
+      `Total measured testcase time: ${fmt(totalSec)} across ${cases.length} tests in ${files.length} files`
     );
-    return;
-  }
-
-  console.log(`\n=== Test timing analysis: ${xmlPath} ===\n`);
-  console.log(
-    `Total measured testcase time: ${fmt(totalSec)} across ${cases.length} tests in ${files.length} files`
-  );
-  console.log(`(Note: this is SUM of individual test durations, not wall-clock -- bun test runs`);
-  console.log(
-    ` sequentially in one process, so wall-clock ~= this sum + fixed process/preload overhead.)\n`
-  );
-
-  console.log(`--- Top ${slowestFiles.length} slowest files (by summed testcase time) ---\n`);
-  slowestFiles.forEach((f, i) => {
+    console.log(`(Note: this is SUM of individual test durations, not wall-clock -- bun test runs`);
     console.log(
-      `${i + 1}. ${fmt(f.totalSec)}  ${f.file}  (${f.testCount} tests, slowest: ${fmt(f.maxSec)} "${f.maxTestName}")`
+      ` sequentially in one process, so wall-clock ~= this sum + fixed process/preload overhead.)\n`
     );
-  });
 
-  console.log(`\n--- Top ${slowestTests.length} slowest individual tests ---\n`);
-  slowestTests.forEach((t, i) => {
-    console.log(`${i + 1}. ${fmt(t.timeSec)}  ${t.file} :: ${t.classname} > ${t.name}`);
-  });
+    console.log(`--- Top ${slowestFiles.length} slowest files (by summed testcase time) ---\n`);
+    slowestFiles.forEach((f, i) => {
+      console.log(
+        `${i + 1}. ${fmt(f.totalSec)}  ${f.file}  (${f.testCount} tests, slowest: ${fmt(f.maxSec)} "${f.maxTestName}")`
+      );
+    });
 
-  console.log(
-    `\n--- Tests at or above ${nearTimeoutThresholdSec}s (near/at the --timeout=15000 per-test limit) ---\n`
-  );
-  if (nearTimeout.length === 0) {
-    console.log("(none)");
-  } else {
-    nearTimeout.forEach((t, i) => {
+    console.log(`\n--- Top ${slowestTests.length} slowest individual tests ---\n`);
+    slowestTests.forEach((t, i) => {
       console.log(`${i + 1}. ${fmt(t.timeSec)}  ${t.file} :: ${t.classname} > ${t.name}`);
     });
+
+    console.log(
+      `\n--- ${nearTimeoutAll.length} test(s) at or above ${nearTimeoutThresholdSec}s ` +
+        `(near/at the --timeout=15000 per-test limit), showing top ${nearTimeout.length} ---\n`
+    );
+    if (nearTimeoutAll.length === 0) {
+      console.log("(none)");
+    } else {
+      nearTimeout.forEach((t, i) => {
+        console.log(`${i + 1}. ${fmt(t.timeSec)}  ${t.file} :: ${t.classname} > ${t.name}`);
+      });
+    }
+    console.log("");
+  } finally {
+    // PR #2120 R1 NON-BLOCKING fix: clean up the temp report this script created for
+    // --run mode. A caller-supplied path (positional arg) is never deleted.
+    if (ownedTmpPath) {
+      try {
+        unlinkSync(ownedTmpPath);
+      } catch {
+        // best-effort cleanup only
+      }
+    }
   }
-  console.log("");
 }
 
 main();
