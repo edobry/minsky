@@ -67,12 +67,30 @@
  * - **UNIQUE INDEX, not a table-level UNIQUE CONSTRAINT.** Functionally
  *   equivalent for this column (Postgres implements a UNIQUE constraint via
  *   a unique index anyway), but declaring it as an explicit named index
- *   keeps the door open for a later partial-index swap
- *   (`WHERE short_id IS NOT NULL`) — which Drizzle's schema DSL cannot
- *   express directly (see `ask-schema.ts`'s note on `asks_window_idx` for
- *   the established precedent of hand-writing a partial index in the raw
- *   migration SQL when needed) — as a pure migration-file change with no
- *   schema-file rename, because the index name stays the same.
+ *   keeps the index name stable if the declaration ever needs to change,
+ *   because the index name stays the same across a pure migration-file
+ *   edit with no schema-file rename.
+ *
+ *   **Do NOT make this index partial** (`WHERE short_id IS NOT NULL`).
+ *   memory (mt#2966) and session (mt#2967) each independently tried this —
+ *   reasoning that it documents NULL semantics more explicitly and keeps
+ *   the index smaller — and both broke session/memory creation in
+ *   production (mt#3005, 2026-07-21): Postgres only lets `ON CONFLICT`
+ *   infer a partial index as the arbiter when the conflict target's own
+ *   `WHERE` clause matches the index predicate, and every insert path here
+ *   uses a bare `.onConflictDoNothing({ target: table.shortId })` with no
+ *   predicate — so a partial index makes every insert fail with "no unique
+ *   or exclusion constraint matching the ON CONFLICT specification." A
+ *   plain (non-partial) unique index has identical NULL semantics for this
+ *   column (NULLs are never equal to each other under a standard btree
+ *   unique index, so unlimited `short_id IS NULL` rows already coexist
+ *   safely pre-backfill) — the partial predicate buys nothing and breaks
+ *   conflict inference. If a future need genuinely requires a partial
+ *   index here, the `onConflictDoNothing` call at every insert site MUST be
+ *   updated in the same change to pass a matching `where` predicate, or
+ *   inserts will fail identically. ask's `idx_asks_short_id_unique`
+ *   (mt#2965, migration 0065) and `shortIdUniqueIndex()` above both stay
+ *   plain — this is the reference form, not a stopgap.
  *
  * - **Concurrency / uniqueness enforcement lives at the DB layer.**
  *   `nextShortId` (the minting util) is a pure function with no I/O — it
