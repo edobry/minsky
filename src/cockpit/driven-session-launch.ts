@@ -61,8 +61,13 @@ export interface ResolvedTaskWorkspace {
  * resume-detection for the sibling workaround).
  *
  * Create branch: no record → the real `session_start` machinery runs (clone,
- * branch, DB row, READY → IN-PROGRESS status walk). Errors (task not found,
- * task not in a startable status, git failure) propagate to the caller — the
+ * branch, DB row, status walk). The launch declares `launchIntent:
+ * "principal-driven"` (mt#2986): a cockpit driven session is the PRINCIPAL
+ * live-driving (mt#2750's invariant), so the kind-aware planning gate — which
+ * exists to stop unplanned AUTONOMOUS implementation — is exempted. Status
+ * side-effects are stage-honest: TODO walks to PLANNING (planning is what's
+ * now happening); READY keeps the READY → IN-PROGRESS walk. Errors (task not
+ * found, terminal status, git failure) still propagate to the caller — the
  * route surfaces them as an HTTP error body rather than spawning against a
  * guessed directory.
  */
@@ -119,6 +124,7 @@ export async function resolveTaskWorkspace(taskId: string): Promise<ResolvedTask
     quiet: true,
     skipInstall: false,
     noStatusUpdate: false,
+    launchIntent: "principal-driven",
   });
   if (!session?.sessionId) {
     throw new Error(`session_start returned no sessionId for ${taskId}`);

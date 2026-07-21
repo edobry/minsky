@@ -17,7 +17,7 @@
  * @see ../hooks/useDrivenSession.ts — the single WS connection this page owns
  * @see ../widgets/ConversationView.tsx — the `drivenSessionId`/`drivenBlocks` variant
  */
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { ConversationView } from "../widgets/ConversationView";
 import { useDrivenSession } from "../hooks/useDrivenSession";
 import { DrivenSessionStatusBar } from "../components/DrivenSessionStatusBar";
@@ -26,11 +26,16 @@ import { ErrorState } from "../components/ErrorState";
 
 export function DrivenSessionPage() {
   const { id } = useParams<{ id: string }>();
+  // ?compose= pre-fills the composer (mt#2986 plan action) — seed only, never auto-sent.
+  const [searchParams] = useSearchParams();
+  const composePrefill = searchParams.get("compose") ?? undefined;
   // Hooks must run unconditionally — the hook itself no-ops on a falsy id.
   const driven = useDrivenSession(id);
 
   if (!id) {
-    return <div className="p-4 text-sm text-muted-foreground">No driven session id in the URL.</div>;
+    return (
+      <div className="p-4 text-sm text-muted-foreground">No driven session id in the URL.</div>
+    );
   }
 
   // Show the generic connection-failure ErrorState ONLY when the channel never
@@ -71,6 +76,7 @@ export function DrivenSessionPage() {
         interactionState={driven.interactionState}
         onSend={driven.sendText}
         onStop={driven.stop}
+        initialText={composePrefill}
       />
     </div>
   );

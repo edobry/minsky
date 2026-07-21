@@ -84,14 +84,14 @@ describe("GET /api/tasks/:id (mt#1918)", () => {
       expect(Array.isArray(deps["outgoing"])).toBe(true);
       expect(Array.isArray(deps["incoming"])).toBe(true);
 
-      // Startability signal (mt#2959) — drives the honest Start-session affordance.
-      expect(body).toHaveProperty("startability");
-      const startability = body["startability"] as Record<string, unknown>;
-      expect(typeof startability["startable"]).toBe("boolean");
-      expect(
-        startability["startBlockedReason"] === null ||
-          typeof startability["startBlockedReason"] === "string"
-      ).toBe(true);
+      // Act-here actions (mt#2986) — stage-appropriate, server-computed;
+      // replaces mt#2959's startability boolean.
+      expect(body).toHaveProperty("actions");
+      const actions = body["actions"] as Array<Record<string, unknown>>;
+      expect(Array.isArray(actions)).toBe(true);
+      for (const action of actions) {
+        expect(["plan", "start", "resume", "view-pr"]).toContain(action["kind"]);
+      }
     } else {
       expect(body).toHaveProperty("error");
     }

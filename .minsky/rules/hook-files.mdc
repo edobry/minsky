@@ -19,7 +19,7 @@ narration lives in the linked doc.
 
 Shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts` + per-event
 entrypoints): multiple guards share ONE Bun process per event — 17 migrated
-(`GUARD_REGISTRY`; mt#2650/2652/2687/2812/2824); every other guard below is a standalone
+(`GUARD_REGISTRY`); every other guard below is a standalone
 `settings.json` entry. **Load-bearing:** a dispatcher's `timeout` is the HOST CAP and guards run
 SEQUENTIALLY — size the entry to the SUM of pre-migration timeouts. Source `.minsky/hooks/`;
 `.claude/hooks/*` is GENERATED (mt#2304) — `bun run minsky compile --target claude-hooks`, commit
@@ -32,9 +32,8 @@ PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create` (parent set): bloc
 on open-PR file overlap (advisory for recently-merged); blocks duplicate-child titles vs an
 ACTIVE sibling (terminal WARN, mt#2683); parent-less creates get a WARN-only similarity probe
 (mt#2813). Tier-3 ceiling (mt#1362); Tier-2 floor: `/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
-`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time-env-only) + the mid-session, reason-mandatory
-grant channel (mt#2658) for BOTH guards — `--guard parallel-work-open-pr` for the open-PR
-sweep (mt#1637), `--guard duplicate-child-matcher` for the dup matcher; probe has none. Fail: closed
+`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time-env-only) + the mid-session grant channel (mt#2658):
+`--guard parallel-work-open-pr` / `--guard duplicate-child-matcher`; probe has none. Fail: closed
 (open-PR) / open (duplicate checks warn+permit on unreadable data).
 Doc: `parallel-work-guard.md`.
 
@@ -101,7 +100,7 @@ Doc: `required-checks-bypass-merge-gate.md`.
 
 PreToolUse on `session_pr_merge`: blocks a merge adding new **test files** (mt#1459) or
 **operational scripts** (`scripts/*.ts`, mt#2776) without an `Execution evidence:` block;
-dual-mode scripts need EACH branch exercised (dry-run + bounded `--execute`, mt#2760/mt#2774).
+dual-mode scripts need EACH branch exercised (mt#2760/mt#2774).
 Hook: `require-execution-evidence-before-merge.ts`. Override: `[unverified-tests]` title tag +
 follow-up task. Fail: open on unresolvable repo/PR or `gh` failure. Siblings: `/prepare-pr` §1b,
 `/implement-task` §7a.
@@ -140,8 +139,8 @@ Doc: `growth-justification-merge-gate.md`.
   (drifts its ledger hash); additions/unjournaled edits allowed; override
   `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1`. Doc: `immutable-migration-precommit-guard.md`.
 - **Fast related-test gate** (mt#2932) — maps staged files to related tests (sibling + bounded
-  dependency-graph walk) and runs only those, fail-closed via the mt#2716 gate's
-  `evaluateBunTestSummary` (reused). Override `MINSKY_SKIP_RELATED_TESTS=1`.
+  dependency-graph walk) and runs only those, fail-closed (reuses the mt#2716 summary
+  evaluator). Override `MINSKY_SKIP_RELATED_TESTS=1`.
   Doc: `fast-related-test-gate.md`.
 
 ## Drive-PR-To-Convergence Reminder
@@ -175,7 +174,7 @@ Doc: `retrospective-trigger-scanner.md`.
 - **Git state** — branch, tree status, ahead/behind, 5 recent commits; no per-turn fetch.
   `inject-git-state.ts`; override `MINSKY_SKIP_GIT_STATE_INJECTION=1`; silent bail on
   non-repo/detached/timeout. Doc: `git-state-injection-hook.md`.
-- **Prod state** — migration-ledger snapshot (cockpit-sweep producer, local-cache consumer);
+- **Prod state** — migration-ledger snapshot;
   fresh/stale/unknown shapes (never assert from memory when unknown). `inject-prod-state.ts`;
   override `MINSKY_SKIP_PROD_STATE_INJECTION=1`; never crashes.
   Doc: `prod-state-injection-hook.md`.
@@ -247,16 +246,15 @@ reason + `hook.fired` event (mt#2823). Issuance (TTL 15m, one-shot):
 `bun scripts/grant-ask-action.ts --ask <id> --command-exact "<cmd>"`. Hooks:
 `ask-permission-bridge.ts` + `ask-grant-store.ts` + `ask-verification.ts`. No override. Fail:
 silent defer on no-grant / store-error / verification-unavailable; DENY only on
-grant-present-but-ask-unverified. Sibling denies outrank this allow (attribution: mt#2898).
+grant-present-but-ask-unverified. Sibling denies outrank this allow (mt#2898).
 Doc: `ask-permission-bridge.md`.
 
 ## Guard-Health Tracker + Escalation Detector
 
-Not a permission gate — surfaces guard-layer failures (mt#2812). `dispatcher.ts`'s `catch` calls
-`recordGuardError()`/`recordGuardCheckSkip()` → `~/.local/state/minsky/guard-health-log.jsonl`;
-`debug_systemInfo.guardHealth` reports counts/streaks/tier (critical = 3+ consecutive); the
-escalation guard (+ cockpit widget) warns every turn while any guard is critical. Hooks:
-`guard-health.ts` + `guard-health-escalation-detector.ts`. No override; fail-safe.
+Not a permission gate — surfaces guard-layer failures (mt#2812): dispatcher errors land in the
+guard-health log; `debug_systemInfo.guardHealth` reports counts/streaks/tier (critical = 3+
+consecutive); the escalation guard (+ cockpit widget) warns every turn while any guard is
+critical. Hooks: `guard-health.ts` + `guard-health-escalation-detector.ts`. No override; fail-safe.
 Doc: `guard-health-tracker.md`.
 
 ## Dispatch-Intent Write Gate
