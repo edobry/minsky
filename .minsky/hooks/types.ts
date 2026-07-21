@@ -304,6 +304,26 @@ export function execSync(
 }
 
 /**
+ * Fail-fast Postgres connect for hook-shelled `minsky` CLI calls (mt#2982).
+ *
+ * Every guard that shells the minsky CLI runs under a hard spawn-kill budget
+ * (4-8s across consumers), while the CLI's default postgres-js connect_timeout
+ * is 10s — so a hanging/reconnecting DB always loses the race to the kill and
+ * surfaces as an empty-output "unparseable" failure (the mt#2982 confirmed
+ * diagnosis). Injecting a 2s connect timeout keeps the worst case (bundle boot
+ * ~1s + embed ~1s + connect-fail 2s) inside every consumer budget and turns
+ * the failure into a fast, clearly attributed error (postgres-js
+ * CONNECT_TIMEOUT) that the guards' existing stderr surfacing reports
+ * verbatim. An operator-set value in the parent env wins (spread order in
+ * execWithPath). Tradeoff: a healthy-but-slow connect (>2s, degraded-DB
+ * window) now fails fast too — for a guard probe that outcome is the same
+ * designed fail-open skip the spawn-kill produced, minus the hang and the
+ * vague signature. Non-minsky spawns (git/gh) ignore the variable; injecting
+ * it unconditionally keeps this a single-choke-point change.
+ */
+export const HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC = "2";
+
+/**
  * PATH-augmented sync exec helper. Prepends common homebrew/system binary
  * directories to PATH so that `gh` resolves correctly regardless of the
  * shell PATH that launched Claude Code, and additionally resolves `git`
@@ -320,7 +340,11 @@ export function execWithPath(
   return safeSpawnSync(resolveGitCommand(cmd), {
     cwd: options?.cwd,
     timeout: options?.timeout ?? 10000,
-    env: { ...process.env, PATH: pathPrefix },
+    env: {
+      MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT: HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC,
+      ...process.env,
+      PATH: pathPrefix,
+    },
   });
 }
 
@@ -374,7 +398,11 @@ export function emitHookFiredOnDeny(output: HookOutput): void {
       stdout: "ignore",
       stderr: "ignore",
       stdin: "ignore",
-      env: { ...process.env, PATH: pathPrefix },
+      env: {
+        MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT: HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC,
+        ...process.env,
+        PATH: pathPrefix,
+      },
     });
     proc.unref();
   } catch {

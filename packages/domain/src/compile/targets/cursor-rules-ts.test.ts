@@ -405,6 +405,37 @@ describe("cursorRulesTsTarget.compile (normal)", () => {
     expect(result.filesWritten).toHaveLength(2);
     expect(result.definitionsSkipped).toEqual([]);
   });
+
+  it("skips + warns an ambiguous 'both' source (flat .mdc + rule.ts for the same name)", async () => {
+    // mt#2279-consistent policy: a name authored in BOTH formats is ambiguous;
+    // skip it and surface a warning rather than silently preferring one format.
+    const fakeFs = makeFakeFs({
+      [`${WORKSPACE}/.minsky/rules/dup/rule.ts`]: "// sentinel",
+      [`${WORKSPACE}/.minsky/rules/dup.mdc`]: "---\ndescription: dup\n---\ncontent\n",
+    });
+    const skips: string[] = [];
+    const target = makeCursorRulesTsTarget(makeImportStub({}), (m) => skips.push(m));
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.definitionsSkipped).toContain("dup");
+    expect(result.definitionsIncluded).toEqual([]);
+    expect(skips.some((m) => m.includes("dup") && m.includes("ambiguous"))).toBe(true);
+  });
+
+  it("warns (does not silently swallow) when a rule.ts import fails (mt#2182)", async () => {
+    const fakeFs = makeRuleFs("bad-rule");
+    const importStub = async () => {
+      throw new Error("module not found");
+    };
+    const skips: string[] = [];
+    const target = makeCursorRulesTsTarget(importStub, (m) => skips.push(m));
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.definitionsSkipped).toEqual(["bad-rule"]);
+    expect(skips.some((m) => m.includes("bad-rule") && m.includes("failed to import"))).toBe(true);
+  });
 });
 
 // ─── compile — dryRun mode ────────────────────────────────────────────────────

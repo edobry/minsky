@@ -65,6 +65,8 @@ export interface SessionPrRef {
 export interface WorkspaceOverviewFields {
   session: {
     sessionId: string;
+    /** Numeric `ws#N` short id (mt#2967) — null for legacy sessions pre-backfill. */
+    shortId: string | null;
     taskId: string | null;
     taskTitle: string | null;
     status: string | null;
@@ -124,7 +126,15 @@ export interface ConversationOverviewPayload {
 // Fetchers
 // ---------------------------------------------------------------------------
 
-async function fetchWorkspaceDetail(sessionId: WorkspaceId): Promise<WorkspaceDetailPayload> {
+/**
+ * Exported (mt#2967) so page-level chrome (`pages/WorkspaceDetailPage.tsx`'s
+ * breadcrumb) can fetch the SAME workspace-detail payload — under the same
+ * `["workspace-detail", id]` query key used below — to read `session.shortId`
+ * for the `CopyId` `displayId` prop, without triggering a second network
+ * request (TanStack Query dedupes identical keys under one QueryClient).
+ * Mirrors `MemoryPage.tsx`'s displayId-fetch pattern (mt#2966).
+ */
+export async function fetchWorkspaceDetail(sessionId: WorkspaceId): Promise<WorkspaceDetailPayload> {
   const encoded = encodeURIComponent(sessionId);
   const res = await fetch(`/api/agents/${encoded}`);
   if (!res.ok) {

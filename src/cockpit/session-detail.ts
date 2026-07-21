@@ -56,6 +56,8 @@ export interface SessionPrRef {
 
 export interface SessionDetailMeta {
   sessionId: string;
+  /** Numeric `ws#N` short id (mt#2967) — null for legacy sessions pre-backfill. */
+  shortId: string | null;
   taskId: string | null;
   taskTitle: string | null;
   status: string | null;
@@ -242,6 +244,7 @@ export function buildSessionMeta(
 ): SessionDetailMeta {
   return {
     sessionId: record.sessionId,
+    shortId: record.shortId ?? null,
     taskId: record.taskId ? formatTaskIdForDisplay(record.taskId) : null,
     taskTitle,
     status: record.status ?? null,

@@ -73,6 +73,17 @@ export const environmentMappings = {
   // provider auto-derives by swapping :6543 → :5432 from connectionString.
   MINSKY_POSTGRES_SESSION_URL: "persistence.postgres.sessionConnectionString",
 
+  // Fail-fast Postgres connect for short-lived CLI invocations (mt#2982).
+  // Hook-shelled `minsky` CLI calls (see .minsky/hooks/types.ts execWithPath)
+  // inject a short value so a hanging/reconnecting DB yields a fast, clearly
+  // attributed connect failure instead of hanging to the guard's spawn-kill
+  // (default connect_timeout 10s vs guard budgets of 4-8s). Explicit mapping
+  // required: the auto-conversion fallback would route CONNECT_TIMEOUT to
+  // "persistence.postgres.connect.timeout", which the persistence schema
+  // rejects at boot. Value type registered in fieldTypes below — the schema
+  // is z.number().int() with no coercion.
+  MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT: "persistence.postgres.connectTimeout",
+
   // Supabase Management API credentials (developer-local; consumed by
   // `just supabase-usage`). Distinct from the Postgres connection string,
   // which lives under MINSKY_PERSISTENCE_POSTGRES_URL.
@@ -316,6 +327,7 @@ const fieldTypes: Record<string, keyof typeof typeConverters> = {
   // Numbers
   "github.serviceAccount.appId": "number",
   "github.serviceAccount.installationId": "number",
+  "persistence.postgres.connectTimeout": "number",
   "logger.maxFileSize": "number",
   "logger.maxFiles": "number",
   "ai.providers.openai.maxTokens": "number",

@@ -90,6 +90,7 @@ const OPEN_CHANGESET = {
   },
   session: {
     sessionId: "aaa11111-0000-0000-0000-000000000001",
+    shortId: "ws#1",
     taskId: "mt#1920",
     taskTitle: "Changesets list page",
     status: "IN-PROGRESS",
@@ -117,6 +118,7 @@ const DRAFT_CHANGESET = {
   },
   session: {
     sessionId: "bbb22222-0000-0000-0000-000000000002",
+    shortId: "ws#2",
     taskId: "mt#9999",
     taskTitle: "Draft task",
     status: "IN-PROGRESS",
@@ -145,6 +147,7 @@ const OLD_CHANGESET = {
   },
   session: {
     sessionId: "ccc33333-0000-0000-0000-000000000003",
+    shortId: "ws#3",
     taskId: "mt#7",
     taskTitle: "Old task",
     status: "IN-PROGRESS",

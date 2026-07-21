@@ -18,11 +18,14 @@ import {
   timestamp,
   pgEnum,
   index,
+  uniqueIndex,
   uuid,
   jsonb,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createEmbeddingsTable } from "./embeddings-schema-factory";
 import { MEMORY_TYPE_VALUES } from "../../memory/types";
+import { shortIdColumn } from "./short-id-column";
 
 // Postgres enums for memory type and scope
 // MEMORY_TYPE_VALUES is the single source of truth — adding a value there
@@ -38,6 +41,38 @@ export const memoriesTable = pgTable(
   "memories",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+
+    /**
+     * Numeric `mem#N` short id (mt#2966, ADR-029) — added alongside the
+     * canonical uuid PK above, never replacing it. Nullable text; NULL until
+     * minted on create (new rows) or backfilled
+     * (`scripts/backfill-memory-short-ids.ts`, existing rows). See
+     * `../short-id-column.ts` for the general design rationale
+     * (nullable-not-backfilled-here, concurrency contract).
+     *
+     * The unique index on this column (`idx_memories_short_id_unique`,
+     * declared below in the index-builder callback) is PARTIAL — `WHERE
+     * short_id IS NOT NULL` — for explicit NULL semantics + planner clarity
+     * (PR #2134 R2). Postgres unique indexes already treat NULLs as
+     * distinct from each other, so an all-NULL `short_id` column during the
+     * pre-backfill window is safe either way; the WHERE clause just makes
+     * that intent explicit and keeps the index small (entries only for
+     * backfilled/minted rows).
+     *
+     * Declared directly via `uniqueIndex(...).on(...).where(sql\`...\`)`
+     * (drizzle-orm's `IndexBuilder.where()`, confirmed supported by this
+     * project's drizzle-orm version — see `pr-watch-schema.ts`'s
+     * `idx_pr_watches_parent_session` for an existing partial-index
+     * precedent) rather than the shared `shortIdUniqueIndex()` foundation
+     * helper (`short-id-column.ts`), which produces a NON-partial index.
+     * Ask's `idx_asks_short_id_unique` (mt#2965, migration 0065) still uses
+     * that shared helper and stays non-partial — changing the SHARED helper
+     * to partial would make drizzle-kit want to re-migrate ask's
+     * already-merged index too. Aligning ask (and session, mt#2967) to
+     * partial via the shared helper is a cheap follow-up.
+     */
+    shortId: shortIdColumn(),
+
     type: memoryTypeEnum("type").notNull(),
     name: text("name").notNull(),
     description: text("description").notNull(),
@@ -65,6 +100,13 @@ export const memoriesTable = pgTable(
     index("idx_memories_superseded_by").on(table.supersededBy),
     // GIN index for JSONB containment queries (@>) on associations
     index("idx_memories_associations").using("gin", table.associations),
+    // Partial unique index on the mem#N short id (mt#2966/mt#2963, ADR-029,
+    // PR #2134 R2) — WHERE short_id IS NOT NULL. See the `shortId` field's
+    // doc comment above for the full rationale (partial vs. ask's
+    // non-partial shared-helper index, and why).
+    uniqueIndex("idx_memories_short_id_unique")
+      .on(table.shortId)
+      .where(sql`${table.shortId} IS NOT NULL`),
   ]
 );
 

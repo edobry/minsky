@@ -213,18 +213,17 @@ Rationale: in a guard-dense repo, mid-pipeline interruption is the norm. A batch
 
 # Hook Files
 
-All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`; the `Write` tool creates
-`644` by default — pre-commit enforces this).
+All `.claude/hooks/*.ts` files must have execute permission (`chmod +x` — the `Write` tool
+creates `644` by default; pre-commit enforces).
 
-**Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620).** Each `Doc:` pointer
-below is a file there. Entries are a terse index (trigger, hook, override, fail posture, doc);
-narration lives in the linked doc.
+**Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620)** — each `Doc:` pointer
+below is a file there. Entries are a terse index; narration lives in the linked doc.
 
 ## Guard-Dispatcher Framework (ADR-028)
 
 Shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts` + per-event
 entrypoints): multiple guards share ONE Bun process per event — 17 migrated
-(`GUARD_REGISTRY`; mt#2650/2652/2687/2812/2824); every other guard below is a standalone
+(`GUARD_REGISTRY`); every other guard below is a standalone
 `settings.json` entry. **Load-bearing:** a dispatcher's `timeout` is the HOST CAP and guards run
 SEQUENTIALLY — size the entry to the SUM of pre-migration timeouts. Source `.minsky/hooks/`;
 `.claude/hooks/*` is GENERATED (mt#2304) — `bun run minsky compile --target claude-hooks`, commit
@@ -237,9 +236,8 @@ PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create` (parent set): bloc
 on open-PR file overlap (advisory for recently-merged); blocks duplicate-child titles vs an
 ACTIVE sibling (terminal WARN, mt#2683); parent-less creates get a WARN-only similarity probe
 (mt#2813). Tier-3 ceiling (mt#1362); Tier-2 floor: `/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
-`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time-env-only) + the mid-session, reason-mandatory
-grant channel (mt#2658) for BOTH guards — `--guard parallel-work-open-pr` for the open-PR
-sweep (mt#1637), `--guard duplicate-child-matcher` for the dup matcher; probe has none. Fail: closed
+`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time-env-only) + the mid-session grant channel (mt#2658):
+`--guard parallel-work-open-pr` / `--guard duplicate-child-matcher`; probe has none. Fail: closed
 (open-PR) / open (duplicate checks warn+permit on unreadable data).
 Doc: `parallel-work-guard.md`.
 
@@ -286,27 +284,24 @@ Merge-gate extension: denies `session_pr_merge` unless `bundle-boot-smoke` CI co
 on HEAD. Override: `MINSKY_SKIP_BUNDLE_SMOKE=1` (only after verifying local boot). Fail:
 deny-by-default. Doc: `bundle-boot-smoke-gate.md`.
 
-## Single Shared PR-Data Fetch Layer
-
-Not a guard: `.claude/hooks/pr-context.ts` (mt#2617) — the ONE place the 4 `session_pr_merge`
-gates fetch PR data from `gh`. mt#2888: check-run fetches retry via `minsky forge
-check_runs_list` on `gh` transport-class failures only. Doc: `pr-data-fetch-layer.md`.
-
 ## Required-Checks Bypass-Merge D8 Escape Valve
 
 PreToolUse on `Bash`/`session_exec` (layer 2 of mt#1951; layer 1: `require-review-before-merge.ts`):
 denies a `gh api PUT .../merge` bypass unless every required check concluded `success` on HEAD.
-mt#2888: only "cannot read" (fetch failed — status UNKNOWN) consults the mt#2658 D8 grant store;
-"read and failed" never does.
+mt#2888: only "cannot read" (status UNKNOWN) consults the mt#2658 D8 grant store; "read and
+failed" never does.
 Hook: `require-checks-on-bypass-merge.ts`. Overrides: `MINSKY_SKIP_REQUIRED_CHECKS=1`
 (launch-time) or a D8 grant (`scripts/grant-guard-override.ts`). Fail: deny-on-failure.
+PR data for the 4 `session_pr_merge` gates comes from the single fetch layer `pr-context.ts`
+(mt#2617; mt#2888 retries check-run fetches via `minsky forge check_runs_list` on `gh`
+transport failures; doc: `pr-data-fetch-layer.md`).
 Doc: `required-checks-bypass-merge-gate.md`.
 
 ## Execution-Evidence Merge Gate
 
 PreToolUse on `session_pr_merge`: blocks a merge adding new **test files** (mt#1459) or
 **operational scripts** (`scripts/*.ts`, mt#2776) without an `Execution evidence:` block;
-dual-mode scripts need EACH branch exercised (dry-run + bounded `--execute`, mt#2760/mt#2774).
+dual-mode scripts need EACH branch exercised (mt#2760/mt#2774).
 Hook: `require-execution-evidence-before-merge.ts`. Override: `[unverified-tests]` title tag +
 follow-up task. Fail: open on unresolvable repo/PR or `gh` failure. Siblings: `/prepare-pr` §1b,
 `/implement-task` §7a.
@@ -316,11 +311,11 @@ follow-up task. Fail: open on unresolvable repo/PR or `gh` failure. Siblings: `/
 PreToolUse on `session_pr_merge`: blocks a deploy-surface PR (`infra/**`, `services/*/Dockerfile`,
 `services/*/railway.json`, `.github/workflows/deploy-*.yml`)
 lacking a `Deploy verification:` commitment; paired PostToolUse injects a
-`deployment_wait-for-latest` reminder (+tray `src-tauri/**` local-app surface, mt#2976). Hooks: `deploy-surface-detector.ts` +
+`deployment_wait-for-latest` reminder (+tray `src-tauri/**` surface, mt#2976). Hooks: `deploy-surface-detector.ts` +
 `require-deploy-verification-before-merge.ts` + `deploy-verification-after-merge.ts`. Escapes:
 `[no-deploy-impact]` title; a `Deploy verification:` section; `MINSKY_SKIP_DEPLOY_VERIFY=1`.
-Marker forms (mt#2648, shared by all `session_pr_merge` gates): label+colon, or any-level heading
-(colon optional), case-insensitive. Fail: open (unresolvable repo/PR/non-surface); PostToolUse
+Marker forms (mt#2648, all `session_pr_merge` gates): label+colon or any-level heading (colon
+optional), case-insensitive. Fail: open (unresolvable repo/PR/non-surface); PostToolUse
 always exits 0. Doc: `deploy-verification-merge-gate.md`.
 
 ## Growth-Justification Merge Gate
@@ -345,8 +340,8 @@ Doc: `growth-justification-merge-gate.md`.
   (drifts its ledger hash); additions/unjournaled edits allowed; override
   `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1`. Doc: `immutable-migration-precommit-guard.md`.
 - **Fast related-test gate** (mt#2932) — maps staged files to related tests (sibling + bounded
-  dependency-graph walk) and runs only those, fail-closed via the mt#2716 gate's
-  `evaluateBunTestSummary` (reused). Override `MINSKY_SKIP_RELATED_TESTS=1`.
+  dependency-graph walk) and runs only those, fail-closed (reuses the mt#2716 summary
+  evaluator). Override `MINSKY_SKIP_RELATED_TESTS=1`.
   Doc: `fast-related-test-gate.md`.
 
 ## Drive-PR-To-Convergence Reminder
@@ -360,7 +355,7 @@ Fail: always exits 0. Doc: `drive-pr-to-convergence-reminder.md`.
 UserPromptSubmit: detects verbal commitments with no same-turn encoding, inline-retrospective
 prose without `/retrospective`, DB-substrate-bypass phrasing, and (log-only, mt#2263 ladder)
 `operator-instruction-after-merge` — telling the user to reinstall/rebuild/edit-config to
-ACTIVATE a merged change (in-band `§Turnkey, not portal`, mt#2303). Hook:
+activate a merged change (`§Turnkey, not portal`, mt#2303). Hook:
 `substrate-bypass-detector.ts`. Overrides: `MINSKY_ACK_SUBSTRATE_BYPASS=1`,
 `MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER=1`. Fail: open on transcript error; silent on first
 turn. Doc: `substrate-bypass-detector.md`.
@@ -373,14 +368,14 @@ signals; reminds to invoke `/retrospective` (suppressed if already invoked). Hoo
 Override: `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1`. Fail: open on transcript error.
 Doc: `retrospective-trigger-scanner.md`.
 
-## Injection Hooks (UserPromptSubmit, per-turn context)
+## Injection Hooks (UserPromptSubmit)
 
 - **Current time** — date/day/local/UTC every turn. `inject-current-time.ts`; override
   `MINSKY_SKIP_TIME_INJECTION=1`. Doc: `current-time-injection-hook.md`.
 - **Git state** — branch, tree status, ahead/behind, 5 recent commits; no per-turn fetch.
   `inject-git-state.ts`; override `MINSKY_SKIP_GIT_STATE_INJECTION=1`; silent bail on
   non-repo/detached/timeout. Doc: `git-state-injection-hook.md`.
-- **Prod state** — migration-ledger snapshot (cockpit-sweep producer, local-cache consumer);
+- **Prod state** — migration-ledger snapshot;
   fresh/stale/unknown shapes (never assert from memory when unknown). `inject-prod-state.ts`;
   override `MINSKY_SKIP_PROD_STATE_INJECTION=1`; never crashes.
   Doc: `prod-state-injection-hook.md`.
@@ -412,7 +407,7 @@ Doc: `bind-advance-spec-read-guard.md`.
 Fail: always exits 0.
 Doc: `session-end-transcript-ingest-hook.md`.
 
-## Calibration Detectors (UserPromptSubmit, log-only + cadence)
+## Calibration Detectors (UserPromptSubmit, log-only)
 
 - **Causal-premise** — logs volunteered causal claims lacking same-turn verification.
   `causal-premise-detector.ts`; log `.minsky/causal-premise-calibration.jsonl`; companion
@@ -452,16 +447,15 @@ reason + `hook.fired` event (mt#2823). Issuance (TTL 15m, one-shot):
 `bun scripts/grant-ask-action.ts --ask <id> --command-exact "<cmd>"`. Hooks:
 `ask-permission-bridge.ts` + `ask-grant-store.ts` + `ask-verification.ts`. No override. Fail:
 silent defer on no-grant / store-error / verification-unavailable; DENY only on
-grant-present-but-ask-unverified. Sibling denies outrank this allow (attribution: mt#2898).
+grant-present-but-ask-unverified. Sibling denies outrank this allow (mt#2898).
 Doc: `ask-permission-bridge.md`.
 
 ## Guard-Health Tracker + Escalation Detector
 
-Not a permission gate — surfaces guard-layer failures (mt#2812). `dispatcher.ts`'s `catch` calls
-`recordGuardError()`/`recordGuardCheckSkip()` → `~/.local/state/minsky/guard-health-log.jsonl`;
-`debug_systemInfo.guardHealth` reports counts/streaks/tier (critical = 3+ consecutive); the
-escalation guard (+ cockpit widget) warns every turn while any guard is critical. Hooks:
-`guard-health.ts` + `guard-health-escalation-detector.ts`. No override; fail-safe.
+Not a permission gate — surfaces guard-layer failures (mt#2812): dispatcher errors land in the
+guard-health log; `debug_systemInfo.guardHealth` reports counts/streaks/tier (critical = 3+
+consecutive); the escalation guard (+ cockpit widget) warns every turn while any guard is
+critical. Hooks: `guard-health.ts` + `guard-health-escalation-detector.ts`. No override; fail-safe.
 Doc: `guard-health-tracker.md`.
 
 ## Dispatch-Intent Write Gate

@@ -55,6 +55,17 @@ export type MemoryScope = (typeof MEMORY_SCOPES)[keyof typeof MEMORY_SCOPES];
  */
 export interface MemoryRecord {
   id: string;
+  /**
+   * Numeric `mem#N` short id (mt#2966, ADR-029), added alongside the
+   * canonical uuid `id`. Minted sequentially on create via `nextShortId`
+   * (monotonic-counter-over-tombstones pattern, generalized from tasks'
+   * `mt#NNNN`). Absent (`undefined`) for legacy rows that predate the
+   * backfill (`scripts/backfill-memory-short-ids.ts`) until that script
+   * runs. The uuid `id` remains the canonical PK and
+   * `minsky://memory/<uuid>` deeplink target — this field is a
+   * human-readable display/reference alias, never a replacement.
+   */
+  shortId?: string;
   type: MemoryType;
   name: string;
   description: string;

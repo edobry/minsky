@@ -1,0 +1,2 @@
+ALTER TABLE "sessions" ADD COLUMN "short_id" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_sessions_short_id_unique" ON "sessions" USING btree ("short_id") WHERE "sessions"."short_id" IS NOT NULL;

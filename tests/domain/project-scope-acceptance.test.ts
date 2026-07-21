@@ -467,6 +467,7 @@ describe("Sessions — generated-SQL project_id predicate (ADR-021, mt#2416)", (
  */
 type MemoryRow = {
   id: string;
+  short_id?: string | null;
   type: string;
   name: string;
   description: string;
@@ -583,6 +584,10 @@ function createMemoryFakeDb(
           const id = (data["id"] as string | undefined) ?? genMemId();
           const row: MemoryRow = {
             id,
+            short_id:
+              (data["shortId"] as string | undefined) ??
+              (data["short_id"] as string | undefined) ??
+              null,
             type: data["type"] ?? "user",
             name: data["name"] ?? "",
             description: data["description"] ?? "",
@@ -602,7 +607,15 @@ function createMemoryFakeDb(
             access_count: 0,
           };
           rows.set(id, row);
-          return { returning: () => Promise.resolve([row]) };
+          // mt#2966: onConflictDoNothing no-op passthrough (see
+          // memory-service.integration.test.ts's fake for the same pattern).
+          const result = {
+            onConflictDoNothing(_opts?: unknown) {
+              return result;
+            },
+            returning: () => Promise.resolve([row]),
+          };
+          return result;
         },
       };
     },
