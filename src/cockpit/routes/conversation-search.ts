@@ -23,8 +23,31 @@
  *   pattern rather than shelling out to the command registry
  */
 import type express from "express";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { getContextInspectorDb } from "../db-providers";
+
+export interface ConversationSearchRouteOptions {
+  /**
+   * Test seam (mt#3016) — overrides the cockpit-wide SQL connection getter.
+   * Production callers omit this, so this route falls back to the real
+   * `getContextInspectorDb()` singleton, exactly matching pre-mt#3016
+   * behavior. Mirrors the same DI pattern already used by
+   * `routes/agent-focus.ts`'s `getDb` option.
+   *
+   * Exists because `getContextInspectorDb()` is a module-level singleton
+   * shared across every test file in the same `bun test` process — its "no
+   * live Postgres in the test environment" assumption (this file's own test
+   * suite comment) is NOT guaranteed: confirmed empirically that
+   * `packages/domain/src/session-auto-task-creation.test.ts` running first
+   * in the same process (its `beforeEach` calls
+   * `@minsky/domain/configuration`'s equally global, equally un-reset
+   * `initializeConfiguration()`, which still merges in the real user-level
+   * `~/.config/minsky/config.yaml`) makes this resolve a REAL, non-null
+   * connection, flipping this route's 503 responses to real 200s.
+   */
+  getDb?: () => Promise<PostgresJsDatabase | null>;
+}
 
 /** Accepted `mode` query values. Defaults to `text` (FTS — no embedding API dependency). */
 type SearchMode = "text" | "semantic";
@@ -45,7 +68,10 @@ function parseDate(raw: unknown): Date | undefined {
 }
 
 /** Mount /api/conversations/search on `app`. */
-export function mountConversationSearchRoutes(app: express.Express): void {
+export function mountConversationSearchRoutes(
+  app: express.Express,
+  opts: ConversationSearchRouteOptions = {}
+): void {
   /**
    * GET /api/conversations/search?q=<text>&mode=text|semantic&from=<iso>&to=<iso>&limit=<n>
    *
@@ -75,7 +101,8 @@ export function mountConversationSearchRoutes(app: express.Express): void {
     const dateRange = from || to ? { from, to } : undefined;
 
     try {
-      const db = await getContextInspectorDb();
+      const getDb = opts.getDb ?? getContextInspectorDb;
+      const db = await getDb();
       if (!db) {
         res.status(503).json({
           error: "DB unavailable — persistence provider does not support SQL",
