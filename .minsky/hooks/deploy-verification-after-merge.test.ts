@@ -168,4 +168,24 @@ describe("decideDeployReminder (mt#2353)", () => {
     );
     expect(reminder).toBeNull();
   });
+
+  test("suppressRailway drops the Railway reminder but KEEPS the tray reminder (mt#2976 review)", () => {
+    const reminder = decideDeployReminder(
+      mergeInput({ pr_url: PR_URL }),
+      depsReturning([f(INFRA_INDEX), f(TRAY_FILE)]),
+      true
+    );
+    expect(reminder).not.toBeNull();
+    expect(reminder).toContain(INSTALL_LOCAL);
+    expect(reminder).not.toContain(DEPLOY_WAIT);
+  });
+
+  test("suppressRailway on a Railway-only merge is silent (mt#2976 review)", () => {
+    const reminder = decideDeployReminder(
+      mergeInput({ pr_url: PR_URL }),
+      depsReturning([f(INFRA_INDEX)]),
+      true
+    );
+    expect(reminder).toBeNull();
+  });
 });

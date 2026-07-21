@@ -180,7 +180,11 @@ export interface PostMergeDeps {
  * PR ref, fetch failure, or no deploy surface touched). Injectable deps make the
  * decision unit-testable without `gh`.
  */
-export function decideDeployReminder(input: ToolHookInput, deps: PostMergeDeps): string | null {
+export function decideDeployReminder(
+  input: ToolHookInput,
+  deps: PostMergeDeps,
+  suppressRailway = false
+): string | null {
   if (input.tool_name !== TARGET_TOOL_NAME) return null;
   if (!input.tool_result || typeof input.tool_result !== "object") return null;
   if (input.tool_result["success"] !== true) return null;
@@ -189,7 +193,12 @@ export function decideDeployReminder(input: ToolHookInput, deps: PostMergeDeps):
   if (!ref) return null;
 
   const { files } = deps.fetchPrFiles(ref.repo, ref.prNumber);
-  const railwayFiles = findDeploySurfaceFiles(files);
+  // MINSKY_SKIP_DEPLOY_VERIFY is a Railway deploy-verification bypass — it must NOT
+  // silence the tray reinstall reminder (mt#2976 review): the tray surface is
+  // deliberately outside the pre-merge gate, so the post-merge reminder is the ONLY
+  // structural prompt for a tray-binary merge. The override drops the Railway section
+  // only; the tray section always fires.
+  const railwayFiles = suppressRailway ? [] : findDeploySurfaceFiles(files);
   const trayFiles = findLocalAppDeploySurfaceFiles(files);
   if (railwayFiles.length === 0 && trayFiles.length === 0) return null;
 
@@ -207,16 +216,18 @@ async function main(): Promise<void> {
     process.exit(0); // malformed stdin — never block
   }
 
-  // Honor the gate's operator override: if the pre-merge deploy-verification gate
-  // was intentionally bypassed (MINSKY_SKIP_DEPLOY_VERIFY), suppress the post-merge
-  // reminder too so the operator doesn't get a contradictory signal. Audit-logged
-  // to stdout (non-JSON — matches the sibling override convention).
-  if (isOverrideSet()) {
-    process.stdout.write(
-      `[deploy-verification-reminder] suppressed: ${OVERRIDE_ENV_VAR}=${process.env[OVERRIDE_ENV_VAR]} ` +
-        `at ${new Date().toISOString()}\n`
+  // Honor the gate's operator override (MINSKY_SKIP_DEPLOY_VERIFY): a bypass of the
+  // pre-merge Railway deploy-verification gate suppresses the Railway post-merge
+  // reminder so the operator doesn't get a contradictory signal. It does NOT suppress
+  // the tray reinstall reminder — the tray is outside the pre-merge gate, so its
+  // reminder is the only structural prompt for a tray merge (mt#2976 review). Audit to
+  // STDERR (not stdout) so it never collides with a tray-reminder JSON output.
+  const suppressRailway = isOverrideSet();
+  if (suppressRailway) {
+    process.stderr.write(
+      `[deploy-verification-reminder] Railway reminder suppressed: ${OVERRIDE_ENV_VAR}=${process.env[OVERRIDE_ENV_VAR]} ` +
+        `(tray reinstall reminder still emitted) at ${new Date().toISOString()}\n`
     );
-    process.exit(0);
   }
 
   const deps: PostMergeDeps = {
@@ -226,7 +237,7 @@ async function main(): Promise<void> {
 
   let reminder: string | null = null;
   try {
-    reminder = decideDeployReminder(input, deps);
+    reminder = decideDeployReminder(input, deps, suppressRailway);
   } catch {
     process.exit(0); // any failure → silent (informational hook)
   }

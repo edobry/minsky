@@ -87,9 +87,12 @@ pre-merge-blocked** — a local reinstall is low-stakes and reversible. The tray
 SEPARATE from `DEPLOY_SURFACE_PATTERNS` (via `isLocalAppDeploySurfaceFile` /
 `LOCAL_APP_DEPLOY_SURFACE_PATTERNS` in `packages/domain/src/deployment/deploy-surface.ts`) so the
 pre-merge gate AND the `session.pr.drive` deploy-watch — both keyed on the Railway patterns — never
-treat a tray change as a Railway deploy. A PR touching both surfaces gets both reminders. This is
-the structural version of the mt#2942-retrospective interim ("the agent reinstalls the tray for
-you"), firing mechanically instead of relying on agent memory across conversations; the eventual
+treat a tray change as a Railway deploy. A PR touching both surfaces gets both reminders. The
+Railway override `MINSKY_SKIP_DEPLOY_VERIFY` is scoped to the **Railway** reminder only — it does
+NOT suppress the tray reinstall reminder (mt#2976 review): the tray reminder is the sole structural
+prompt for a tray merge, so a Railway-motivated skip must not silence it. This is the structural
+version of the mt#2942-retrospective interim ("the agent reinstalls the tray for you"), firing
+mechanically instead of relying on agent memory across conversations; the eventual
 elimination is auto-update (mt#2962, gated on Apple Developer signing mt#2201, declined 2026-07-20).
 
 **Cross-references:**
