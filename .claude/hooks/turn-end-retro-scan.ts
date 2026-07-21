@@ -101,9 +101,13 @@ export function run(
 
   const { turnLines, openingPrompt } = extractFinalTurn(ctx.transcriptLines);
 
-  // A /retrospective invocation anywhere in the completed turn means the
-  // admission was already acted on — nothing to remind about.
-  if (turnLines.length > 0 && hasRetrospectiveSkillInvocation(turnLines)) return null;
+  // A /retrospective invocation anywhere in the RECORDED completed turn means
+  // the admission was already acted on — nothing to remind about. (An
+  // invocation sitting only in a not-yet-flushed transcript tail is invisible
+  // here by construction — no recorded line carries it; PR #2148 R1. Accepted:
+  // the cost is one advisory beat, bounded by the dedup store, and the
+  // prompt-time scanner re-applies its own suppression once the tail lands.)
+  if (hasRetrospectiveSkillInvocation(turnLines)) return null;
 
   // Union of transcript-recorded turn text and the directly-supplied final
   // message (the transcript is not guaranteed to include it at Stop time).

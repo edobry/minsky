@@ -75,8 +75,11 @@ the guard — the admission was already acted on.
 
 ## Turn boundary correctness (the mt#2357 primary fix)
 
-This guard depends on `transcript.ts`'s `extractFinalTurn` and the
-`isRealUserPrompt` skill-body exclusion shipped in the same task: Skill-tool
+This guard depends on `transcript.ts`'s `extractFinalTurn` (new in mt#2357 —
+the Stop-time complement of the existing `extractLastAssistantTurn`, which
+requires TWO bounding prompts and so returns nothing for a turn that has no
+subsequent prompt yet) and the `isRealUserPrompt` skill-body exclusion
+shipped in the same task: Skill-tool
 invocation bodies (user-role text lines opening "Base directory for this
 skill:", stamped `isMeta: true`) previously registered as real prompt
 boundaries, splitting every skill-spanning turn. That bug corrupted all

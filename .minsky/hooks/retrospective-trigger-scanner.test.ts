@@ -609,8 +609,18 @@ describe("filterStopFlagged (mt#2357)", () => {
     const dir = mkdtempSync(join(tmpdir(), "mt2357-scanner-dedup-"));
     try {
       expect(filterStopFlagged("s-1", lines, [r1Match], dir)).toEqual([r1Match]);
+      // PR #2148 R1: non-Stop-scanned families pass through even when a
+      // MATCHING store key exists — the family allowlist is enforced in
+      // code, not just at call sites.
       const userCorrection = { family: "user-correction" as const, matchedPhrase: "why did you" };
-      writeFlagged("s-1", new Set([flagKey(turnKeyFor(opening), "R1", R1_PHRASE)]), dir);
+      writeFlagged(
+        "s-1",
+        new Set([
+          flagKey(turnKeyFor(opening), "R1", R1_PHRASE),
+          flagKey(turnKeyFor(opening), "user-correction", "why did you"),
+        ]),
+        dir
+      );
       expect(filterStopFlagged("s-1", lines, [userCorrection], dir)).toEqual([userCorrection]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
