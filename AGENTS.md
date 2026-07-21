@@ -1128,6 +1128,10 @@ creates `644` by default; pre-commit enforces).
 
 **Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620)** — each `Doc:` pointer
 below is a file there. Entries are a terse index; narration lives in the linked doc.
+**This rule indexes the PERMISSION GATES** (PreToolUse deny/allow, merge gates, pre-commit steps)
+plus the shared framework; the non-blocking observer hooks (detectors, per-turn injection,
+reminders, trackers, SessionEnd ingest) are indexed in the sibling `hook-observers` rule
+(split mt#2987 — the combined index exceeded the per-rule compile ceiling three times in one day).
 
 ## Guard-Dispatcher Framework (ADR-028)
 
@@ -1145,7 +1149,7 @@ Doc: `guard-dispatcher-framework.md`.
 PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create` (parent set): blocks session-binding
 on open-PR file overlap (advisory for recently-merged); blocks duplicate-child titles vs an
 ACTIVE sibling (terminal WARN, mt#2683); parent-less creates get a WARN-only similarity probe
-(mt#2813). Tier-3 ceiling (mt#1362); Tier-2 floor: `/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
+(mt#2813, in-process since mt#2958). Tier-3 ceiling (mt#1362); Tier-2 floor: `/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
 `MINSKY_FORCE_DUPLICATE_OK=1` (launch-time-env-only) + the mid-session grant channel (mt#2658):
 `--guard parallel-work-open-pr` / `--guard duplicate-child-matcher`; probe has none. Fail: closed
 (open-PR) / open (duplicate checks warn+permit on unreadable data).
@@ -1164,13 +1168,6 @@ PreToolUse on `session_pr_merge`/`gh api PUT merge`: blocks a merge whose PR bod
 coupled out-of-band step never confirmed. Hook: `block-out-of-band-merge.ts`. Override:
 `MINSKY_ACK_OOB_MERGE=1`. Fail: open (`gh` failure warns).
 Doc: `out-of-band-merge-guard.md`.
-
-## Skill/Agent/Rule Staleness Detector
-
-UserPromptSubmit: warns when `.claude/skills/**` / `.claude/agents/**` / `.minsky/rules/**`
-changed since session baseline mtime. Hook: `skill-staleness-detector.ts`. Override:
-`MINSKY_SKIP_SKILL_STALENESS=1`. Fail: silent-informational.
-Doc: `skill-staleness-detector.md`.
 
 ## Generated File Edit Guard
 
@@ -1254,6 +1251,70 @@ Doc: `growth-justification-merge-gate.md`.
   evaluator). Override `MINSKY_SKIP_RELATED_TESTS=1`.
   Doc: `fast-related-test-gate.md`.
 
+## Guessed-Session-Path Guard
+
+PreToolUse on `Bash`/`session_exec`: denies a command referencing an absolute `sessions/<id>/...`
+path that doesn't exist. Hook: `check-guessed-session-path.ts`. Override:
+`MINSKY_SKIP_SESSION_PATH_CHECK=1`. Fail: open — only a confirmed-nonexistent path denies.
+Doc: `guessed-session-path-guard.md`.
+
+## Bind/Advance Spec-Read Guard
+
+PreToolUse on `tasks_status_set` (READY) / `session_start` / `tasks_dispatch` (existing-task,
+mt#2657): blocks when the spec was never surfaced (`tasks_spec_get` / `tasks_get
+includeSpec:true`). Hook: `check-task-spec-read.ts`. Override:
+`MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error.
+Doc: `bind-advance-spec-read-guard.md`.
+
+## Subagent Merge Capability Guard
+
+PreToolUse on `session_pr_merge`: denies subagent-initiated merges (`agent_id` set) without an
+unexpired capability grant (ADR-028 D5): `bun scripts/grant-subagent-merge.ts --task mt#<id>
+--ttl-minutes 30`. Hooks: `block-subagent-merge-without-grant.ts` + `merge-grant-store.ts`.
+Override: `MINSKY_SKIP_MERGE_GRANT_CHECK=1`. Fail: open only on genuine grant-store errors.
+Doc: `subagent-merge-capability-guard.md`.
+
+## Ask-Permission Bridge
+
+PreToolUse on `Bash`/`session_exec` (standalone, allow-emitting — not dispatcher-migrated): when
+the pending command matches a live one-shot ask-grant AND the referenced `authorization.approve`
+Ask re-verifies server-side as operator-approved, emits `permissionDecision: allow` with an audit
+reason + `hook.fired` event (mt#2823). Issuance (TTL 15m, one-shot):
+`bun scripts/grant-ask-action.ts --ask <id> --command-exact "<cmd>"`. Hooks:
+`ask-permission-bridge.ts` + `ask-grant-store.ts` + `ask-verification.ts`. No override. Fail:
+silent defer on no-grant / store-error / verification-unavailable; DENY only on
+grant-present-but-ask-unverified. Sibling denies outrank this allow (mt#2898).
+Doc: `ask-permission-bridge.md`.
+
+## Dispatch-Intent Write Gate
+
+PreToolUse on 6 session/PR-mutating tools (`session_pr_merge` excluded — D5-covered): denies a
+subagent call when a live `"read-only"` dispatch-intent covers the target session (forks
+included). Declared via the dispatch surfaces'
+`intent` param (default `"implementation"`, no-op). Default-ALLOW. Hooks:
+`dispatch-intent-write-gate.ts` + `dispatch-intent-store.ts`. No override; fail-open on
+store-read errors only. Doc: `dispatch-intent-write-gate.md`.
+
+# Hook Observers
+
+Index of the NON-BLOCKING hook layer: UserPromptSubmit detectors, per-turn context injection,
+PostToolUse reminders, health trackers, and the SessionEnd ingest. None of these emit a
+permission decision. The permission gates (PreToolUse deny/allow, merge gates, pre-commit
+steps), the shared guard-dispatcher framework, the compile workflow
+(`.claude/hooks/*` GENERATED from `.minsky/hooks/`, `bun run minsky compile --target
+claude-hooks`, commit both), and the execute-permission requirement are indexed in the sibling
+`hook-files` rule — this rule was split from it (mt#2987: the combined index exceeded the
+per-rule compile ceiling three times in one day). Entries stay a terse index; per-hook
+narration lives in `docs/architecture/hooks/<name>.md` (mt#2620), each `Doc:` pointer a file
+there.
+
+## Skill/Agent/Rule Staleness Detector
+
+UserPromptSubmit: warns when `.claude/skills/**` / `.claude/agents/**` / `.minsky/rules/**`
+changed since session baseline mtime. Hook: `skill-staleness-detector.ts`. Override:
+`MINSKY_SKIP_SKILL_STALENESS=1`. Fail: silent-informational.
+Doc: `skill-staleness-detector.md`.
+
 ## Drive-PR-To-Convergence Reminder
 
 PostToolUse on successful `session_pr_create`: injects a convergence reminder naming
@@ -1305,21 +1366,6 @@ mt#3002 excludes file-name/hex-id symbol FPs and flips
   `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`; silent on empty cache.
   Doc: `dispatch-watchdog-injection-hook.md`.
 
-## Guessed-Session-Path Guard
-
-PreToolUse on `Bash`/`session_exec`: denies a command referencing an absolute `sessions/<id>/...`
-path that doesn't exist. Hook: `check-guessed-session-path.ts`. Override:
-`MINSKY_SKIP_SESSION_PATH_CHECK=1`. Fail: open — only a confirmed-nonexistent path denies.
-Doc: `guessed-session-path-guard.md`.
-
-## Bind/Advance Spec-Read Guard
-
-PreToolUse on `tasks_status_set` (READY) / `session_start` / `tasks_dispatch` (existing-task,
-mt#2657): blocks when the spec was never surfaced (`tasks_spec_get` / `tasks_get
-includeSpec:true`). Hook: `check-task-spec-read.ts`. Override:
-`MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error.
-Doc: `bind-advance-spec-read-guard.md`.
-
 ## Session-End Transcript Ingest Hook
 
 `SessionEnd` hook: synchronously ingests the finished transcript into `agent_transcripts`
@@ -1351,26 +1397,6 @@ Doc: `session-end-transcript-ingest-hook.md`.
 
 All five: fail open on transcript/read error.
 
-## Subagent Merge Capability Guard
-
-PreToolUse on `session_pr_merge`: denies subagent-initiated merges (`agent_id` set) without an
-unexpired capability grant (ADR-028 D5): `bun scripts/grant-subagent-merge.ts --task mt#<id>
---ttl-minutes 30`. Hooks: `block-subagent-merge-without-grant.ts` + `merge-grant-store.ts`.
-Override: `MINSKY_SKIP_MERGE_GRANT_CHECK=1`. Fail: open only on genuine grant-store errors.
-Doc: `subagent-merge-capability-guard.md`.
-
-## Ask-Permission Bridge
-
-PreToolUse on `Bash`/`session_exec` (standalone, allow-emitting — not dispatcher-migrated): when
-the pending command matches a live one-shot ask-grant AND the referenced `authorization.approve`
-Ask re-verifies server-side as operator-approved, emits `permissionDecision: allow` with an audit
-reason + `hook.fired` event (mt#2823). Issuance (TTL 15m, one-shot):
-`bun scripts/grant-ask-action.ts --ask <id> --command-exact "<cmd>"`. Hooks:
-`ask-permission-bridge.ts` + `ask-grant-store.ts` + `ask-verification.ts`. No override. Fail:
-silent defer on no-grant / store-error / verification-unavailable; DENY only on
-grant-present-but-ask-unverified. Sibling denies outrank this allow (mt#2898).
-Doc: `ask-permission-bridge.md`.
-
 ## Guard-Health Tracker + Escalation Detector
 
 Not a permission gate — surfaces guard-layer failures (mt#2812): dispatcher errors land in the
@@ -1378,15 +1404,6 @@ guard-health log; `debug_systemInfo.guardHealth` reports counts/streaks/tier (cr
 consecutive); the escalation guard (+ cockpit widget) warns every turn while any guard is
 critical. Hooks: `guard-health.ts` + `guard-health-escalation-detector.ts`. No override; fail-safe.
 Doc: `guard-health-tracker.md`.
-
-## Dispatch-Intent Write Gate
-
-PreToolUse on 6 session/PR-mutating tools (`session_pr_merge` excluded — D5-covered): denies a
-subagent call when a live `"read-only"` dispatch-intent covers the target session (forks
-included). Declared via the dispatch surfaces'
-`intent` param (default `"implementation"`, no-op). Default-ALLOW. Hooks:
-`dispatch-intent-write-gate.ts` + `dispatch-intent-store.ts`. No override; fail-open on
-store-read errors only. Doc: `dispatch-intent-write-gate.md`.
 
 # Principal Communication Contract
 
