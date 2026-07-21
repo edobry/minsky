@@ -32,7 +32,13 @@ if (!taskId) process.exit(0);
 const envPATH = `${process.env.HOME}/.bun/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ""}`;
 const specProc = Bun.spawnSync(["minsky", "tasks", "spec", "get", taskId, "--non-interactive"], {
   cwd: input.cwd,
-  env: { ...process.env, PATH: envPATH },
+  // Fail-fast Postgres connect (mt#2982) — same injection as execWithPath in
+  // types.ts; a hanging DB must not stall this hook to its host cap.
+  env: {
+    MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT: "2",
+    ...process.env,
+    PATH: envPATH,
+  },
   stdout: "pipe",
   stderr: "pipe",
 });

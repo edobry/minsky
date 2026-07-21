@@ -7,7 +7,7 @@
  * `minsky events emit hook.fired` subprocess that must never block or throw
  * back into the caller regardless of spawn success/failure.
  */
-import { describe, test, expect, spyOn, afterEach } from "bun:test";
+import { describe, test, expect, spyOn, afterEach, beforeEach } from "bun:test";
 import {
   emitHookFiredOnDeny,
   writeOutput,
@@ -15,6 +15,7 @@ import {
   execWithPath,
   resolveGitBinary,
   __resetGitBinaryCacheForTests,
+  HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC,
 } from "./types";
 
 describe("emitHookFiredOnDeny (mt#2537)", () => {
@@ -296,5 +297,58 @@ describe("execWithPath / execSync spawn-failure safety (mt#2810)", () => {
     } finally {
       process.env.PATH = originalPath;
     }
+  });
+});
+
+describe("execWithPath Postgres connect-timeout injection (mt#2982)", () => {
+  let spawnSyncSpy: ReturnType<typeof spyOn<typeof Bun, "spawnSync">> | undefined;
+  let priorValue: string | undefined;
+
+  beforeEach(() => {
+    priorValue = process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT;
+  });
+
+  afterEach(() => {
+    spawnSyncSpy?.mockRestore();
+    spawnSyncSpy = undefined;
+    if (priorValue === undefined) {
+      delete process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT;
+    } else {
+      process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT = priorValue;
+    }
+  });
+
+  /** Spy Bun.spawnSync and capture the env the spawn was given. */
+  function captureSpawnEnv(): () => Record<string, string | undefined> {
+    let seenEnv: Record<string, string | undefined> = {};
+    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(((
+      _cmd: unknown,
+      opts?: { env?: Record<string, string | undefined> }
+    ) => {
+      seenEnv = opts?.env ?? {};
+      return {
+        exitCode: 0,
+        stdout: Buffer.from(""),
+        stderr: Buffer.from(""),
+        signalCode: null,
+      } as never;
+    }) as never);
+    return () => seenEnv;
+  }
+
+  test("injects the short connect timeout into the spawn env by default", () => {
+    delete process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT;
+    const getEnv = captureSpawnEnv();
+    execWithPath(["minsky", "tasks", "search", "query", "--json"]);
+    expect(getEnv().MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT).toBe(
+      HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC
+    );
+  });
+
+  test("an operator-set parent-env value wins over the injected default", () => {
+    process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT = "7";
+    const getEnv = captureSpawnEnv();
+    execWithPath(["minsky", "tasks", "search", "query", "--json"]);
+    expect(getEnv().MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT).toBe("7");
   });
 });

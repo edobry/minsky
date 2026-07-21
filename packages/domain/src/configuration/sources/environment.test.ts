@@ -16,6 +16,7 @@ const PERSISTENCE_KEYS = [
   "MINSKY_PERSISTENCE_BACKEND",
   "MINSKY_PERSISTENCE_POSTGRES_URL",
   "MINSKY_POSTGRES_URL",
+  "MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT",
 ];
 
 /**
@@ -27,7 +28,7 @@ const PERSISTENCE_KEYS = [
 type ExpectedShape = {
   persistence?: {
     backend?: string;
-    postgres?: { connectionString?: string };
+    postgres?: { connectionString?: string; connectTimeout?: number };
   };
 };
 
@@ -95,6 +96,24 @@ describe("environment configuration source — persistence mappings (mt#1223)", 
     // a top-level `postgres` key from the auto-mapping fallback.
     const config = loadEnvironmentConfiguration() as Record<string, unknown>;
     expect(config.postgres).toBeUndefined();
+  });
+
+  test("MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT maps to persistence.postgres.connectTimeout as a NUMBER (mt#2982)", () => {
+    // The persistence schema is z.number().int() with NO coercion — if the
+    // fieldTypes entry is ever dropped, the value stays a string and config
+    // load crashes at boot for every consumer that sets this var. toBe(2)
+    // (not "2") locks both the mapping and the number conversion.
+    process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT = "2";
+    const config = loadAsExpected();
+    expect(config.persistence?.postgres?.connectTimeout).toBe(2);
+  });
+
+  test("MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT does NOT route to persistence.postgres.connect.timeout under auto-mapping fallback", () => {
+    process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT = "2";
+    const config = loadEnvironmentConfiguration() as {
+      persistence?: { postgres?: { connect?: unknown } };
+    };
+    expect(config.persistence?.postgres?.connect).toBeUndefined();
   });
 });
 
