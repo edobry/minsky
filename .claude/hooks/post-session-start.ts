@@ -88,7 +88,14 @@ async function main(): Promise<void> {
     const pathPrefix = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`;
 
     const result = Bun.spawnSync([minskyPath, "tasks", "get", taskId, "--json"], {
-      env: { ...process.env, PATH: pathPrefix },
+      // Fail-fast Postgres connect (mt#2982) — same injection as execWithPath
+      // in types.ts; this spawn has no timeout, so a hanging DB would
+      // otherwise stall the hook to its host cap.
+      env: {
+        MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT: "2",
+        ...process.env,
+        PATH: pathPrefix,
+      },
       stdout: "pipe",
       stderr: "pipe",
     });
