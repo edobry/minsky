@@ -39,7 +39,7 @@ import { readInput } from "./types";
 import type { ToolHookInput, HookOutput } from "./types";
 import { deriveRepoFromGit, makeProdPrDeps } from "./require-execution-evidence-before-merge";
 import type { PrFile } from "./require-execution-evidence-before-merge";
-import { findDeploySurfaceFiles } from "./deploy-surface-detector";
+import { findDeploySurfaceFiles, findLocalAppDeploySurfaceFiles } from "./deploy-surface-detector";
 import { isOverrideSet, OVERRIDE_ENV_VAR } from "./require-deploy-verification-before-merge";
 
 /** The MCP tool this hook reacts to. */
@@ -135,6 +135,43 @@ export function buildDeployVerificationReminder(deploySurfaceFiles: string[]): s
   ].join("\n");
 }
 
+/**
+ * Build the post-merge reminder for a cockpit-tray (LOCAL-APP) binary change
+ * (mt#2976). The tray runs from the operator's `/Applications` and its Rust
+ * binary is NOT auto-rebuilt, so a merged change is invisible until the app is
+ * reinstalled — and the AGENT does the reinstall, not the operator (telling the
+ * operator to reinstall manually is the §Turnkey-not-portal anti-pattern the
+ * mt#2942 retrospective flagged). This is the structural version of "the agent
+ * reinstalls the tray for you": it fires mechanically on every tray-binary merge
+ * instead of relying on agent memory across conversations.
+ */
+export function buildTrayReinstallReminder(trayFiles: string[]): string {
+  const fileList = trayFiles.map((f) => `  - ${f}`).join("\n");
+  return [
+    "COCKPIT-TRAY BINARY MERGE — the fix is NOT live for the operator yet.",
+    "",
+    "This PR touched the cockpit-tray native binary source:",
+    fileList,
+    "",
+    "The tray is a LOCAL deploy target (it runs from the operator's /Applications).",
+    "Unlike `src/cockpit/**` (auto-rebuilt + auto-restarted by the tray,",
+    "mt#2297/mt#2299), the tray's own Rust binary is NOT auto-rebuilt — a merged",
+    "change is invisible until the app is reinstalled (mt#2942).",
+    "",
+    "**Required next action — the AGENT does this, NOT the operator (mt#2942):**",
+    "- Run `cockpit-tray/scripts/install-local.sh` (app-only build → replace the",
+    "  /Applications bundle → re-register scheme), then relaunch it:",
+    '  `open "/Applications/Minsky Cockpit.app"` (the script quits the app but does',
+    "  NOT relaunch it).",
+    "- Reinstalling is env-mutating — it restarts the operator's running cockpit —",
+    "  so get explicit consent + confirm a clean end-state before running it",
+    "  (memory `427cdf15`). Do NOT tell the operator to reinstall manually.",
+    "",
+    "Interim until auto-update ships (mt#2962, gated on Apple Developer signing",
+    "mt#2201). If the operator declined signing, this reminder IS the mechanism.",
+  ].join("\n");
+}
+
 export interface PostMergeDeps {
   deriveRepo: (cwd: string) => string | null;
   fetchPrFiles: (repo: string, prNumber: number) => { files: PrFile[]; warning?: string };
@@ -146,7 +183,11 @@ export interface PostMergeDeps {
  * PR ref, fetch failure, or no deploy surface touched). Injectable deps make the
  * decision unit-testable without `gh`.
  */
-export function decideDeployReminder(input: ToolHookInput, deps: PostMergeDeps): string | null {
+export function decideDeployReminder(
+  input: ToolHookInput,
+  deps: PostMergeDeps,
+  suppressRailway = false
+): string | null {
   if (input.tool_name !== TARGET_TOOL_NAME) return null;
   if (!input.tool_result || typeof input.tool_result !== "object") return null;
   if (input.tool_result["success"] !== true) return null;
@@ -155,10 +196,19 @@ export function decideDeployReminder(input: ToolHookInput, deps: PostMergeDeps):
   if (!ref) return null;
 
   const { files } = deps.fetchPrFiles(ref.repo, ref.prNumber);
-  const deploySurfaceFiles = findDeploySurfaceFiles(files);
-  if (deploySurfaceFiles.length === 0) return null;
+  // MINSKY_SKIP_DEPLOY_VERIFY is a Railway deploy-verification bypass — it must NOT
+  // silence the tray reinstall reminder (mt#2976 review): the tray surface is
+  // deliberately outside the pre-merge gate, so the post-merge reminder is the ONLY
+  // structural prompt for a tray-binary merge. The override drops the Railway section
+  // only; the tray section always fires.
+  const railwayFiles = suppressRailway ? [] : findDeploySurfaceFiles(files);
+  const trayFiles = findLocalAppDeploySurfaceFiles(files);
+  if (railwayFiles.length === 0 && trayFiles.length === 0) return null;
 
-  return buildDeployVerificationReminder(deploySurfaceFiles);
+  const sections: string[] = [];
+  if (railwayFiles.length > 0) sections.push(buildDeployVerificationReminder(railwayFiles));
+  if (trayFiles.length > 0) sections.push(buildTrayReinstallReminder(trayFiles));
+  return sections.join("\n\n---\n\n");
 }
 
 async function main(): Promise<void> {
@@ -169,16 +219,18 @@ async function main(): Promise<void> {
     process.exit(0); // malformed stdin — never block
   }
 
-  // Honor the gate's operator override: if the pre-merge deploy-verification gate
-  // was intentionally bypassed (MINSKY_SKIP_DEPLOY_VERIFY), suppress the post-merge
-  // reminder too so the operator doesn't get a contradictory signal. Audit-logged
-  // to stdout (non-JSON — matches the sibling override convention).
-  if (isOverrideSet()) {
-    process.stdout.write(
-      `[deploy-verification-reminder] suppressed: ${OVERRIDE_ENV_VAR}=${process.env[OVERRIDE_ENV_VAR]} ` +
-        `at ${new Date().toISOString()}\n`
+  // Honor the gate's operator override (MINSKY_SKIP_DEPLOY_VERIFY): a bypass of the
+  // pre-merge Railway deploy-verification gate suppresses the Railway post-merge
+  // reminder so the operator doesn't get a contradictory signal. It does NOT suppress
+  // the tray reinstall reminder — the tray is outside the pre-merge gate, so its
+  // reminder is the only structural prompt for a tray merge (mt#2976 review). Audit to
+  // STDERR (not stdout) so it never collides with a tray-reminder JSON output.
+  const suppressRailway = isOverrideSet();
+  if (suppressRailway) {
+    process.stderr.write(
+      `[deploy-verification-reminder] Railway reminder suppressed: ${OVERRIDE_ENV_VAR}=${process.env[OVERRIDE_ENV_VAR]} ` +
+        `(tray reinstall reminder still emitted) at ${new Date().toISOString()}\n`
     );
-    process.exit(0);
   }
 
   const deps: PostMergeDeps = {
@@ -188,7 +240,7 @@ async function main(): Promise<void> {
 
   let reminder: string | null = null;
   try {
-    reminder = decideDeployReminder(input, deps);
+    reminder = decideDeployReminder(input, deps, suppressRailway);
   } catch {
     process.exit(0); // any failure → silent (informational hook)
   }

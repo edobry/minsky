@@ -37,12 +37,24 @@ import { cn } from "../lib/utils";
 export interface CopyIdProps {
   /** The entity type — drives the `minsky://<type>/<id>` deeplink. */
   type: RoutableEntityType;
-  /** The full entity id (never truncated for copy purposes). */
+  /**
+   * The canonical entity id — always used to build the "Copy link"
+   * `minsky://` deeplink via `entityToMinskyUri`, regardless of `displayId`.
+   */
   id: string;
+  /**
+   * Optional display/primary-copy id (mt#2965), distinct from `id`. When
+   * provided, this is what's rendered as text and copied by the "Copy ID"
+   * action — e.g. a human-readable short id (`ask#7`) shown in place of the
+   * raw uuid `id`. `id` remains the "Copy link" target unconditionally.
+   * Defaults to `id` — every caller that only supplies `id` (task, session,
+   * memory, changeset) behaves exactly as before this prop was added.
+   */
+  displayId?: string;
   /**
    * Display-truncation threshold (code points). Ids at or below this length
    * are rendered in full regardless — this only shortens genuinely long ids
-   * (session/ask UUIDs), never a short task id like `mt#2410`.
+   * (session/ask UUIDs), never a short task id like `mt#2410` or `ask#7`.
    */
   truncateAt?: number;
   className?: string;
@@ -55,7 +67,7 @@ function entityLabel(type: RoutableEntityType): string {
   return `${type} id`;
 }
 
-export function CopyId({ type, id, truncateAt = 8, className }: CopyIdProps) {
+export function CopyId({ type, id, displayId, truncateAt = 8, className }: CopyIdProps) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<CopiedKind>(null);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -69,7 +81,8 @@ export function CopyId({ type, id, truncateAt = 8, className }: CopyIdProps) {
     };
   }, []);
 
-  const displayId = id.length > truncateAt ? shortenId(id, truncateAt) : id;
+  const shownId = displayId ?? id;
+  const displayText = shownId.length > truncateAt ? shortenId(shownId, truncateAt) : shownId;
 
   const doCopy = useCallback((kind: Exclude<CopiedKind, null>, value: string) => {
     void navigator.clipboard.writeText(value).then(() => {
@@ -82,7 +95,7 @@ export function CopyId({ type, id, truncateAt = 8, className }: CopyIdProps) {
     });
   }, []);
 
-  const handleCopyId = useCallback(() => doCopy("id", id), [doCopy, id]);
+  const handleCopyId = useCallback(() => doCopy("id", shownId), [doCopy, shownId]);
   const handleCopyLink = useCallback(
     () => doCopy("link", entityToMinskyUri(type, id)),
     [doCopy, type, id]
@@ -92,8 +105,8 @@ export function CopyId({ type, id, truncateAt = 8, className }: CopyIdProps) {
 
   return (
     <span className={cn("inline-flex items-center gap-1", className)}>
-      <span className="font-mono text-foreground select-all" title={id}>
-        {displayId}
+      <span className="font-mono text-foreground select-all" title={shownId}>
+        {displayText}
       </span>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>

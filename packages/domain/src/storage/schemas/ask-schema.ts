@@ -12,6 +12,7 @@ import {
 import { sql } from "drizzle-orm";
 import type { AskKind, AskState, AskOption, ContextRef } from "../../ask/types";
 import { projectsTable } from "./projects-schema";
+import { shortIdColumn, shortIdUniqueIndex } from "./short-id-column";
 
 /**
  * Asks table — the unified domain entity for all human-in-the-loop mechanisms.
@@ -85,6 +86,17 @@ export const asksTable = pgTable(
     // Identity
     // -------------------------------------------------------------------------
     id: uuid("id").defaultRandom().primaryKey(),
+
+    /**
+     * Numeric `ask#N` short id (mt#2965, ADR-029) — added alongside the
+     * canonical uuid PK above, never replacing it. Nullable text with a
+     * unique index (see `shortIdUniqueIndex` below); NULL until minted on
+     * create (new rows) or backfilled (`scripts/backfill-ask-short-ids.ts`,
+     * existing rows). See `../short-id-column.ts` for the full design
+     * rationale (nullable-not-backfilled-here, plain unique index safety
+     * with nullable columns, concurrency contract).
+     */
+    shortId: shortIdColumn(),
 
     /** Seven-kind taxonomy label (CHECK constraint enforced). */
     kind: text("kind").notNull(),
@@ -242,6 +254,11 @@ export const asksTable = pgTable(
 
     // Coherence guard: window_key only valid when service_strategy = 'scheduled' (migration 0029)
     windowKeyStrategyCheck: check("chk_asks_window_key_strategy", windowKeyStrategyCheckSql),
+
+    // Unique index on the ask#N short id (mt#2965/mt#2963, ADR-029). Plain
+    // (non-partial) unique index — safe with NULLs pre-backfill, see
+    // short-id-column.ts's design-decisions doc comment.
+    shortIdUnique: shortIdUniqueIndex("asks", table.shortId),
   })
 );
 

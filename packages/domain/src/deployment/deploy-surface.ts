@@ -36,6 +36,21 @@ export const DEPLOY_SURFACE_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
+ * LOCAL-APP deploy surface (mt#2976): the cockpit-tray native binary source.
+ *
+ * Unlike the Railway `DEPLOY_SURFACE_PATTERNS` above, a change here "deploys" to
+ * the operator's local `/Applications` via `cockpit-tray/scripts/install-local.sh`
+ * — and the tray's own Rust binary is NOT auto-rebuilt (only `src/cockpit/**` is,
+ * mt#2297/mt#2299), so a merged change is invisible until the app is reinstalled
+ * (mt#2942). Kept SEPARATE from the Railway surface on purpose: the pre-merge gate
+ * and the `session.pr.drive` deploy-watch both key off `DEPLOY_SURFACE_PATTERNS`
+ * → `deployment_wait-for-latest`, which is meaningless for the tray. Only the
+ * post-merge reminder branches on this set (a reinstall reminder, no pre-merge
+ * block — a local reinstall is low-stakes + reversible).
+ */
+export const LOCAL_APP_DEPLOY_SURFACE_PATTERNS: readonly RegExp[] = [/^cockpit-tray\/src-tauri\//];
+
+/**
  * Normalise a path for matching: backslashes -> `/`, strip a leading `./`.
  *
  * Accepts `null`/`undefined` defensively (mt#2809 — trust-boundary guard).
@@ -78,6 +93,18 @@ export function isDeploySurfaceFile(filename: string | null | undefined): boolea
   const normalised = normalisePath(filename);
   if (normalised === null) return false;
   return DEPLOY_SURFACE_PATTERNS.some((re) => re.test(normalised));
+}
+
+/**
+ * True when a repo-relative path is a LOCAL-APP (cockpit-tray binary) deploy
+ * surface (mt#2976). Separate from `isDeploySurfaceFile` (Railway) so the
+ * pre-merge gate + `session.pr.drive` deploy-watch never treat a tray change as
+ * a Railway deploy. Same null-safety posture as `isDeploySurfaceFile` (mt#2809).
+ */
+export function isLocalAppDeploySurfaceFile(filename: string | null | undefined): boolean {
+  const normalised = normalisePath(filename);
+  if (normalised === null) return false;
+  return LOCAL_APP_DEPLOY_SURFACE_PATTERNS.some((re) => re.test(normalised));
 }
 
 /**
