@@ -29,25 +29,46 @@
 // interrupt point (RFC: Communication altitude's heartbeat-floor target of
 // ~10 minutes matches).
 //
-// **Measurement.** Walks the just-completed turn (`extractLastAssistantTurn`)
-// line by line, tracking the timestamp of the most recent assistant TEXT
-// line and the count of tool_use blocks emitted since. A TEXT line resets
-// the tool-call counter to 0 (mirrors the discipline-layer rule: narrating
-// resets the silent-stretch clock). This deliberately reuses the shared
-// turn-boundary + text/tool-use extraction helpers in `./transcript` rather
-// than naive `role === "user"` checks — Claude Code records `tool_result`
-// blocks as USER-ROLE transcript lines, so a naive scan would misclassify
-// tool-result rows as human silence-breakers and undercount the stretch.
-// Skill-invocation bodies also register as user-role text in the transcript
-// (another reason to use the real-prompt-boundary helper rather than
-// scanning role fields directly).
+// **Measurement (mt#3027 — WITHIN-TURN only).** Walks the just-completed
+// turn (`extractLastAssistantTurn`) line by line, tracking runs of
+// consecutive tool_use blocks bounded by assistant TEXT lines (a TEXT line
+// resets the run — mirrors the discipline-layer rule that narrating resets
+// the silent-stretch clock). Each run's wall-clock span is measured strictly
+// from the run's OWN start (the prior TEXT line, or the turn's opening
+// prompt when no TEXT has occurred yet) to the LAST TOOL CALL actually
+// observed in that run — never to the timestamp of a LATER real user
+// prompt. A run with zero tool calls can never match (structurally, not via
+// a post-hoc filter): `hadTextInTurn: true` with no trailing tool calls
+// yields `toolCallCount: 0` and is therefore never a candidate.
+//
+// The v1 implementation measured the gap as (last-text-or-turn-start) to
+// (the NEXT real user prompt's timestamp) — i.e. it silently folded in
+// inter-turn user-idle time. The 2026-07-21 calibration round's 13 new
+// fires were entirely this contamination: every record had
+// `hadTextInTurn: true` (the turn's last narration was followed by nothing
+// further), yet `gapMinutes` read in the hundreds or tens of thousands
+// (315, 441, 36710, 50902, ...) because the "gap" extended all the way to
+// whenever the operator happened to submit their NEXT prompt — sometimes
+// days later. A resumed conversation after N days must never fire; this
+// walk only ever measures timestamps that appear WITHIN the completed turn
+// itself, so inter-turn idle is structurally excluded from the measured
+// span, not filtered after the fact.
+//
+// This deliberately reuses the shared turn-boundary + text/tool-use
+// extraction helpers in `./transcript` rather than naive `role === "user"`
+// checks — Claude Code records `tool_result` blocks as USER-ROLE transcript
+// lines, so a naive scan would misclassify tool-result rows as human
+// silence-breakers and undercount the stretch. Skill-invocation bodies also
+// register as user-role text in the transcript (another reason to use the
+// real-prompt-boundary helper rather than scanning role fields directly).
 //
 // @see .claude/hooks/causal-premise-detector.ts — sibling calibration-first pattern this file mirrors
 // @see .claude/hooks/inject-dispatch-watchdog.ts — sibling silence detector (SUBAGENT side; this covers the MAIN agent's own silence)
 // @see .minsky/hooks/transcript.ts — shared turn-boundary + timestamp helpers
 // @see mt#2263 — detector ladder (calibration before injection)
 // @see mt#2637 — ctx.transcriptLines / needsTranscript wiring
-// @see mt#2824 — this task
+// @see mt#2824 — origin (cadence + v1 measurement)
+// @see mt#3027 — this task: within-turn-only re-measurement (13/13 FP calibration round)
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard
 
 import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
@@ -102,30 +123,43 @@ export const TOOL_CALL_THRESHOLD = 15;
 // ---------------------------------------------------------------------------
 
 export interface SilentStretchMeasurement {
-  /** true when either cadence threshold was crossed. */
+  /** true when any within-turn tool-only run crossed either cadence threshold. */
   matched: boolean;
-  /** Minutes between the last assistant TEXT output and the current prompt. */
+  /**
+   * Minutes spanned by the FINAL (possibly still-open) tool-only run, from
+   * that run's own start to the last tool call actually observed in it.
+   * Always 0 when that run has no tool calls (nothing to measure) — never
+   * extended by time elapsed after the turn ended.
+   */
   gapMinutes: number;
-  /** Count of tool_use blocks since the last assistant TEXT output (reset on each TEXT line). */
+  /** Count of tool_use blocks in the FINAL run since the last assistant TEXT output (reset on each TEXT line). */
   toolCallCount: number;
   /** Whether ANY assistant text appeared anywhere in the turn. */
   hadTextInTurn: boolean;
 }
 
 /**
- * Walk `turnLines` in order, tracking the timestamp of the most recent
- * assistant TEXT line and the number of tool_use blocks emitted since. A
- * TEXT line resets the tool-call counter to 0 — mirroring the
- * discipline-layer rule that narrating resets the silent-stretch clock, and
- * satisfying the "text output mid-stretch resets the counter" acceptance
- * test.
+ * Walk `turnLines` in order, splitting them into runs of consecutive
+ * tool_use blocks bounded by assistant TEXT lines. A TEXT line both ends the
+ * current run (evaluated against the cadence thresholds before it resets)
+ * and starts a new one at that line's own timestamp — mirroring the
+ * discipline-layer rule that narrating resets the silent-stretch clock.
  *
- * `turnStartTimestamp` is the fallback "last text" baseline used when the
- * turn contains NO assistant text at all — the silence is then measured
- * from the moment the human last spoke, since narration never happened in
- * this turn. `currentPromptTimestamp` is the timestamp of the prompt that
- * just arrived (the end of the measurement window) — typically the
- * operator's interrupt, in the originating-incident case.
+ * `matched` is true iff ANY run in the turn (not just the trailing one)
+ * crosses a threshold — so an early genuine stretch is not masked by a
+ * short, harmless trailing run. Each run's span is bounded to timestamps
+ * that actually occur WITHIN the turn: a run's start is the prior TEXT
+ * line's timestamp (or `turnStartTimestamp` as a fallback when no TEXT has
+ * occurred yet in the turn) and its end is the LAST TOOL CALL observed in
+ * that run — never a timestamp from a later prompt (mt#3027; see this
+ * file's header comment for the incident this structurally forecloses). A
+ * run with zero tool calls is never a match candidate, which makes the
+ * `hadTextInTurn: true, toolCallCount: 0` false-positive shape structurally
+ * impossible rather than merely filtered.
+ *
+ * The returned `gapMinutes`/`toolCallCount` describe the FINAL run only
+ * (matching the pre-mt#3027 reporting contract that callers/tests rely on
+ * for the trailing-run case); `matched` reflects the whole turn.
  *
  * Reuses `extractAssistantText`/`extractToolUseNames` (both already handle
  * the tool_result-is-user-role hazard and the string-vs-content-array
@@ -134,28 +168,48 @@ export interface SilentStretchMeasurement {
  */
 export function measureSilentStretch(
   turnLines: TranscriptLine[],
-  turnStartTimestamp: string | undefined,
-  currentPromptTimestamp: string | undefined
+  turnStartTimestamp: string | undefined
 ): SilentStretchMeasurement {
-  let lastTextTimestamp = turnStartTimestamp;
-  let toolCallCount = 0;
   let hadTextInTurn = false;
+  let matched = false;
+
+  // Bounds of the CURRENT (possibly still-open) tool-only run.
+  let runStartTimestamp = turnStartTimestamp;
+  let runToolCallCount = 0;
+  let runLastToolTimestamp: string | undefined;
+
+  const runCrossesThreshold = (): boolean => {
+    if (runToolCallCount === 0) return false;
+    const gapMinutes = computeGapMinutes(runStartTimestamp, runLastToolTimestamp);
+    return gapMinutes >= GAP_MINUTES_THRESHOLD || runToolCallCount >= TOOL_CALL_THRESHOLD;
+  };
 
   for (const line of turnLines) {
     const text = extractAssistantText([line]);
     if (text.trim().length > 0) {
       hadTextInTurn = true;
-      lastTextTimestamp = line.timestamp ?? lastTextTimestamp;
-      toolCallCount = 0;
+      if (runCrossesThreshold()) matched = true;
+      // A new run starts at this narration — the tool-only clock resets.
+      runStartTimestamp = line.timestamp ?? runStartTimestamp;
+      runToolCallCount = 0;
+      runLastToolTimestamp = undefined;
       continue;
     }
-    toolCallCount += extractToolUseNames([line]).length;
+    const toolNames = extractToolUseNames([line]);
+    if (toolNames.length > 0) {
+      runToolCallCount += toolNames.length;
+      runLastToolTimestamp = line.timestamp ?? runLastToolTimestamp;
+    }
   }
 
-  const gapMinutes = computeGapMinutes(lastTextTimestamp, currentPromptTimestamp);
-  const matched = gapMinutes >= GAP_MINUTES_THRESHOLD || toolCallCount >= TOOL_CALL_THRESHOLD;
+  if (runCrossesThreshold()) matched = true;
 
-  return { matched, gapMinutes, toolCallCount, hadTextInTurn };
+  return {
+    matched,
+    gapMinutes: computeGapMinutes(runStartTimestamp, runLastToolTimestamp),
+    toolCallCount: runToolCallCount,
+    hadTextInTurn,
+  };
 }
 
 /**
@@ -262,8 +316,8 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   let measurement: SilentStretchMeasurement;
   try {
-    const { turnStartTimestamp, currentPromptTimestamp } = findTurnBoundaryTimestamps(lines);
-    measurement = measureSilentStretch(turnLines, turnStartTimestamp, currentPromptTimestamp);
+    const { turnStartTimestamp } = findTurnBoundaryTimestamps(lines);
+    measurement = measureSilentStretch(turnLines, turnStartTimestamp);
   } catch (err) {
     process.stderr.write(
       `[silent-stretch-detector] Measurement error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -374,8 +428,8 @@ export async function main(): Promise<void> {
 
   let measurement: SilentStretchMeasurement;
   try {
-    const { turnStartTimestamp, currentPromptTimestamp } = findTurnBoundaryTimestamps(lines);
-    measurement = measureSilentStretch(turnLines, turnStartTimestamp, currentPromptTimestamp);
+    const { turnStartTimestamp } = findTurnBoundaryTimestamps(lines);
+    measurement = measureSilentStretch(turnLines, turnStartTimestamp);
   } catch (err) {
     console.error(
       `[silent-stretch-detector] Measurement error: ${err instanceof Error ? err.message : String(err)}`
