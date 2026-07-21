@@ -516,8 +516,14 @@ describe("run() (dispatcher-compatible)", () => {
     const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
     expect(outcome?.additionalContext).toContain("Retrospective trigger detected");
     expect(outcome?.calibration).toBeDefined();
-    const cal = outcome?.calibration as { matches: Array<{ family: string; phrase: string }> };
+    const cal = outcome?.calibration as {
+      source?: string;
+      matches: Array<{ family: string; phrase: string }>;
+    };
     expect(cal.matches.some((m) => m.family === "R1")).toBe(true);
+    // SC#5 (mt#2554): runtime fires are stamped source:"live" so the
+    // coverage-receipt gate can tell them from synthetic fixture entries.
+    expect(cal.source).toBe("live");
   });
 
   test("no match -> null (silent allow)", () => {
