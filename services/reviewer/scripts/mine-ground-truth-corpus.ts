@@ -303,20 +303,25 @@ export function regionChangedForFinding(compare: CachedCompare, finding: FlatFin
 }
 
 /**
+ * Max line-number distance for a next-round finding to count as "the same
+ * location" as the current finding. Mirrors `refutation-recovery.ts`'s
+ * `LINE_PROXIMITY` — successive review rounds routinely re-cite the same
+ * concern with a slightly different line number as unrelated code shifts
+ * above it, so exact-line or strict-range-overlap matching is too strict.
+ */
+const RE_RAISE_LINE_PROXIMITY = 5;
+
+/**
  * Determine whether `finding` was re-raised in `nextRoundFindings`: same
- * file, and an overlapping line window (or — when either side lacks line
- * info — same file is the best signal available). Pure. Exported for unit
- * testing.
+ * file, and a line number within `RE_RAISE_LINE_PROXIMITY` (or — when
+ * either side lacks line info — same file is the best signal available).
+ * Pure. Exported for unit testing.
  */
 export function findingReRaised(finding: FlatFinding, nextRoundFindings: FlatFinding[]): boolean {
-  const findingStart = finding.line;
-  const findingEnd = finding.lineEnd ?? finding.line;
   return nextRoundFindings.some((other) => {
     if (other.file !== finding.file) return false;
-    if (findingStart === undefined || other.line === undefined) return true;
-    const otherStart = other.line;
-    const otherEnd = other.lineEnd ?? other.line;
-    return otherStart <= (findingEnd ?? findingStart) && findingStart <= otherEnd;
+    if (finding.line === undefined || other.line === undefined) return true;
+    return Math.abs(finding.line - other.line) <= RE_RAISE_LINE_PROXIMITY;
   });
 }
 
