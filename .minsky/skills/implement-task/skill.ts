@@ -466,6 +466,14 @@ If the named condition, once checked against its definition, does not actually h
 
 **Post-merge:** §10 (Post-merge deploy verification) takes over when the merged PR touches a deployed service. Otherwise the at-merge handler sets DONE and the lifecycle is complete.
 
+**Completion-claim format (mt#2924).** For build/install deliverables (a CLI or the cockpit-tray app the principal must rebuild/reinstall) and deploy-surface deliverables (§10's deploy surface), report the completion claim in the claim-confidence format — \`[delivery state] — [evidential warrant + basis]\` — per \`.minsky/rules/claim-confidence.mdc\`. Bind that rule's Axis A class-conditional lattice: **auto-usable** deliverables (a running service that picks up the merge; config takes effect on deploy) may claim \`usable\` once \`deployed\`. **Build/install** deliverables (cockpit-tray, CLI) must name the remaining principal-side step and must NOT claim \`usable\` without a **verified-1b** (live-probe) basis — a merge or a healthy deploy alone is not evidence of \`usable\` for this class.
+
+Worked example (the mt#2528 class — merged but not yet usable):
+
+> Merged (verified-1a: PR merged this turn) — to reach usable: rebuild + tray reinstall.
+
+When §9/§10 touches shared/prod state, the claim-confidence rule's risk-and-evidence ledger may also apply — see \`.minsky/rules/claim-confidence.mdc §The risk-and-evidence ledger\` for the trigger and mechanics (not restated here).
+
 **Cross-references:**
 
 - \`CLAUDE.md §Drive-PR-To-Convergence Reminder\` — the runtime hook this step's discipline aligns with.
