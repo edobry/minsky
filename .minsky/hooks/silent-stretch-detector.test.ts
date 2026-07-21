@@ -270,3 +270,40 @@ describe("run() (dispatcher-compatible)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#2357 regression: a mid-turn skill launch must NOT reset the measured
+// silent stretch. Before the isRealUserPrompt skill-body exclusion, the
+// skill-body user-role line registered as a real prompt boundary, collapsing
+// the measured window to only the post-skill segment — hiding exactly the
+// long tool-only stretch this detector exists to catch.
+// ---------------------------------------------------------------------------
+
+describe("mt#2357 — skill body does not reset the silence window", () => {
+  test("20-call chain with a mid-chain skill launch still measures the full stretch", () => {
+    const skillBodyLine: TranscriptLine = {
+      type: "user",
+      isMeta: true,
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Base directory for this skill: /Users/x/.claude/skills/implement-task\n\n# Implement Task",
+          },
+        ],
+      },
+      timestamp: ts(1 + 10 * 5),
+    };
+    const transcriptLines = [
+      userPromptLine(0),
+      ...toolCallChain(1, 10),
+      skillBodyLine,
+      ...toolCallChain(1 + 10 * 5 + 5, 10),
+      userPromptLine(1 + 20 * 5 + 40, "how is it going?"),
+    ];
+    const outcome = run(HOOK_INPUT, makeCtx(transcriptLines));
+    expect(outcome?.calibration).toBeDefined();
+    expect(outcome?.calibration?.toolCallCount).toBe(20);
+  });
+});

@@ -53,6 +53,19 @@ export interface TranscriptLine {
    * measurement rather than just line-order/content.
    */
   timestamp?: string;
+  /**
+   * Harness-synthetic-message marker (mt#2357). Claude Code stamps
+   * `isMeta: true` on user-role lines it synthesizes itself — Skill-tool
+   * invocation bodies ("Base directory for this skill: ..."), skill
+   * re-invocation notices, and some local-command caveat lines. Verified
+   * across recent live transcripts (2026-07-21): all 31 skill-body lines
+   * sampled carry `isMeta: true`; typed and queued human prompts never do.
+   * Excluded from {@link isRealUserPrompt} so a skill launch does not split
+   * the logical turn.
+   */
+  isMeta?: boolean;
+  /** Line identity stamped by Claude Code; used for stable turn keying (mt#2357). */
+  uuid?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +198,24 @@ const SYNTHETIC_INTERRUPT_MARKERS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Skill-tool invocation bodies are recorded as user-role TEXT lines whose
+ * text opens with this prefix (mt#2357). They are harness plumbing — the
+ * Skill tool returning the skill's instructions — not human input, so they
+ * must not bound a logical turn. The primary discriminator is the
+ * `isMeta: true` flag ({@link TranscriptLine.isMeta}); this prefix check is
+ * the belt-and-suspenders fallback for any harness version or transcript
+ * that does not stamp the flag. Originating incident: every `/skill`
+ * invocation split the scanned turn at the skill launch, corrupting all
+ * eight turn-boundary consumers (e.g. resetting the silent-stretch silence
+ * clock mid-turn, and the mt#2467 substrate-bypass suppression FP).
+ */
+const SKILL_BODY_PREFIX = "Base directory for this skill:";
+
+function isSkillBodyText(trimmedText: string): boolean {
+  return trimmedText.startsWith(SKILL_BODY_PREFIX);
+}
+
+/**
  * True iff `trimmedText` is exactly one of {@link SYNTHETIC_INTERRUPT_MARKERS}.
  * Shared by BOTH content shapes `isRealUserPrompt` checks (string content and
  * array-of-text-blocks content) — PR #1963 R2 finding: the original fix only
@@ -206,6 +237,7 @@ function isRealTextBlock(block: unknown): boolean {
   if (b["type"] !== "text") return false;
   const text = typeof b["text"] === "string" ? b["text"].trim() : undefined;
   if (text !== undefined && isSyntheticInterruptText(text)) return false;
+  if (text !== undefined && isSkillBodyText(text)) return false;
   return true;
 }
 
@@ -231,9 +263,13 @@ function isRealTextBlock(block: unknown): boolean {
  */
 export function isRealUserPrompt(line: TranscriptLine): boolean {
   if (!isUserRole(line)) return false;
+  // Harness-synthetic user-role lines (skill bodies, re-invocation notices)
+  // are marked isMeta and are never human prompts (mt#2357).
+  if (line.isMeta === true) return false;
   const content = line.message?.content;
   if (typeof content === "string") {
-    return !isSyntheticInterruptText(content.trim());
+    const trimmed = content.trim();
+    return !isSyntheticInterruptText(trimmed) && !isSkillBodyText(trimmed);
   }
   if (Array.isArray(content)) {
     return content.some(isRealTextBlock);
@@ -287,6 +323,29 @@ export function extractLastAssistantTurn(lines: TranscriptLine[]): TranscriptLin
   const startIdx = (promptIndices[promptIndices.length - 2] as number) + 1;
   const endIdx = promptIndices[promptIndices.length - 1] as number;
   return lines.slice(startIdx, endIdx);
+}
+
+/**
+ * Extract the FINAL (just-completed) turn: every line AFTER the last real
+ * user prompt through end-of-transcript. This is the Stop-event counterpart
+ * of {@link extractLastAssistantTurn} (mt#2357): at Stop time no subsequent
+ * prompt exists yet, so the completed turn is the transcript's tail — a
+ * shape extractLastAssistantTurn (which needs two bounding prompts) returns
+ * [] for. Also returns the bounding prompt line itself so callers can key
+ * the turn stably (`uuid` / `timestamp`) across a later prompt-time re-scan
+ * of the same turn.
+ *
+ * Returns { turnLines: [], openingPrompt: undefined } when the transcript
+ * has no real user prompt at all.
+ */
+export function extractFinalTurn(lines: TranscriptLine[]): {
+  turnLines: TranscriptLine[];
+  openingPrompt: TranscriptLine | undefined;
+} {
+  const promptIndices = findRealPromptIndices(lines);
+  if (promptIndices.length === 0) return { turnLines: [], openingPrompt: undefined };
+  const lastIdx = promptIndices[promptIndices.length - 1] as number;
+  return { turnLines: lines.slice(lastIdx + 1), openingPrompt: lines[lastIdx] };
 }
 
 // ---------------------------------------------------------------------------

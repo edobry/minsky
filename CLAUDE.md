@@ -367,6 +367,9 @@ signals; reminds to invoke `/retrospective` (suppressed if already invoked). Hoo
 `retrospective-trigger-scanner.ts`. Log: `.minsky/retrospective-trigger-calibration.jsonl`.
 Override: `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1`. Fail: open on transcript error.
 Doc: `retrospective-trigger-scanner.md`.
+Stop-event sibling (mt#2357): `turn-end-retro-scan.ts` — advisory turn-end scan (registry,
+via `dispatch-stop.ts`); dedup caps phrases at one beat; same override/log (`channel:"stop"`).
+Doc: `turn-end-retro-scan.md`.
 
 ## Injection Hooks (UserPromptSubmit)
 
