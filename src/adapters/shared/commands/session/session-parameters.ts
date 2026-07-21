@@ -13,7 +13,9 @@ import { CONVENTIONAL_COMMIT_TYPES } from "@minsky/domain/git/conventional-commi
 export const commonSessionParams = {
   sessionId: {
     schema: z.string(),
-    description: "Session ID",
+    description:
+      "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex " +
+      "prefix of the uuid, or a legacy custom session name.",
     required: false,
   },
   task: {

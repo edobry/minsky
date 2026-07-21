@@ -14,6 +14,9 @@ import { FakeSessionProvider } from "./fake-session-provider";
 import type { SessionProviderInterface } from "../session";
 import { makeDeferredFailurePlaceholder } from "../composition/container";
 
+/** Shared fixture uuid for the mt#2967 canonical-id-propagation tests below. */
+const CANONICAL_TEST_UUID = "6f9a3b10-1111-4a22-8888-abcdefabcdef";
+
 describe("resolveSessionContext", () => {
   let mockSessionProvider: SessionProviderInterface;
 
@@ -96,6 +99,53 @@ describe("resolveSessionContext", () => {
           allowAutoDetection: false,
         })
       ).rejects.toThrow(ValidationError);
+    });
+  });
+
+  describe("canonical-id propagation (mt#2967)", () => {
+    test("returns the sessionProvider record's canonical sessionId, not the raw input", async () => {
+      // Simulates a ws#N short id / hex-prefix input: the sessionProvider
+      // (DrizzleSessionRepository in production) resolves it internally and
+      // returns a record whose .sessionId is the CANONICAL uuid, which
+      // differs from the raw input string the caller supplied.
+      const shortIdAwareProvider = {
+        getSession: async (input: string) =>
+          input === "ws#7"
+            ? {
+                sessionId: CANONICAL_TEST_UUID,
+                repoName: "test-repo",
+                repoUrl: "https://github.com/test/repo.git",
+                createdAt: "2024-01-01T00:00:00Z",
+                taskId: "md#123",
+              }
+            : null,
+      } as unknown as SessionProviderInterface;
+
+      const result = await resolveSessionContext({
+        sessionId: "ws#7",
+        sessionProvider: shortIdAwareProvider,
+        allowAutoDetection: false,
+      });
+
+      expect(result.sessionId).toBe(CANONICAL_TEST_UUID);
+      expect(result.taskId).toBe("md#123");
+    });
+
+    test("falls back to the raw input when the returned record has no sessionId (defensive)", async () => {
+      // Defends against malformed/test-double records missing `.sessionId`
+      // (several pre-existing fixtures across the codebase use a legacy
+      // `session:` field instead) — every real persisted row always has one.
+      const malformedRecordProvider = {
+        getSession: async () => ({ session: "s", taskId: "md#1" }) as never,
+      } as unknown as SessionProviderInterface;
+
+      const result = await resolveSessionContext({
+        sessionId: "s",
+        sessionProvider: malformedRecordProvider,
+        allowAutoDetection: false,
+      });
+
+      expect(result.sessionId).toBe("s");
     });
   });
 
@@ -344,5 +394,43 @@ describe("resolveSessionIdForCommand", () => {
     const resolved = await resolveSessionIdForCommand({ sessionProvider });
 
     expect(resolved).toBeUndefined();
+  });
+
+  describe("canonical-id resolution (mt#2967)", () => {
+    test("resolves a ws#N short id / hex-prefix input to the canonical sessionId via getSession", async () => {
+      // Simulates the DrizzleSessionRepository production wiring: getSession
+      // resolves a ws#N/hex-prefix input internally and returns the record
+      // under its CANONICAL uuid — resolveSessionIdForCommand must surface
+      // that canonical id, not echo the raw short-id token back.
+      const shortIdAwareProvider = {
+        getSession: async (input: string) =>
+          input === "ws#7"
+            ? {
+                sessionId: CANONICAL_TEST_UUID,
+                repoName: "test-repo",
+                repoUrl: "https://github.com/test/repo.git",
+                createdAt: "2024-01-01T00:00:00Z",
+              }
+            : null,
+      } as unknown as SessionProviderInterface;
+
+      const resolved = await resolveSessionIdForCommand({
+        sessionId: "ws#7",
+        sessionProvider: shortIdAwareProvider,
+      });
+
+      expect(resolved).toBe(CANONICAL_TEST_UUID);
+    });
+
+    test("falls back to the raw input when getSession finds no matching row (existence validation left to caller)", async () => {
+      const sessionProvider = new FakeSessionProvider(); // no sessions registered
+
+      const resolved = await resolveSessionIdForCommand({
+        sessionId: "ws#999",
+        sessionProvider,
+      });
+
+      expect(resolved).toBe("ws#999");
+    });
   });
 });

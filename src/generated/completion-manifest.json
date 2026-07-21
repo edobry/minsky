@@ -2246,7 +2246,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -2272,7 +2272,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -2296,7 +2296,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -2320,7 +2320,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -2345,7 +2345,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -2469,7 +2469,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -2589,7 +2589,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -2787,7 +2787,7 @@
                 },
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -2916,7 +2916,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -2937,7 +2937,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -2967,7 +2967,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -3006,7 +3006,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -3048,7 +3048,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -3140,7 +3140,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -3255,7 +3255,7 @@
                       "options": [
                         {
                           "flags": ["--session-id"],
-                          "description": "Session ID",
+                          "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                           "takesValue": true
                         },
                         {
@@ -3301,7 +3301,7 @@
                       "options": [
                         {
                           "flags": ["--session-id"],
-                          "description": "Session ID",
+                          "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                           "takesValue": true
                         },
                         {
@@ -3341,7 +3341,7 @@
                           "options": [
                             {
                               "flags": ["--session-id"],
-                              "description": "Session ID",
+                              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                               "takesValue": true
                             },
                             {
@@ -3385,7 +3385,7 @@
                       "options": [
                         {
                           "flags": ["--session-id"],
-                          "description": "Session ID",
+                          "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                           "takesValue": true
                         },
                         {
@@ -3467,7 +3467,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -3587,7 +3587,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
