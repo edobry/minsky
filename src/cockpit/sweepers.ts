@@ -6,6 +6,7 @@
  * use it:
  *
  *   - startAskAdvancementSweeper   (mt#2265)
+ *   - startStaleAskCloseSweeper    (mt#3001)
  *   - startProdStateRefreshSweeper (mt#2506)
  *   - startTopologySweeper         (mt#2602)
  *   - startTranscriptSweepBackstop (mt#2321)
@@ -20,7 +21,11 @@
  */
 import { log } from "@minsky/shared/logger";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
-import { getServerAskRepository, getServerFollowUpService } from "./db-providers";
+import {
+  getServerAskRepository,
+  getServerFollowUpService,
+  getServerTaskService,
+} from "./db-providers";
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
 
 // ---------------------------------------------------------------------------
@@ -539,6 +544,69 @@ export function startAskAdvancementSweeper(intervalMs?: number): () => void {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: ask advancement sweep failed", { message });
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stale-suspended-ask close sweeper (mt#3001)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default cadence for the stale-ask close sweep. Staleness is a day-scale
+ * signal (parent tasks finish, TTLs are 7 days), so a 15-minute pass keeps
+ * the operator inbox clean without re-listing tasks every advancement tick.
+ */
+const STALE_ASK_CLOSE_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+
+/**
+ * Start the periodic stale-suspended-ask close sweep in this cockpit process
+ * (mt#3001).
+ *
+ * The recurring reconciliation layer over `suspended` asks: closes
+ * `authorization.approve` / `quality.review` asks whose parent task has since
+ * reached a terminal status, closes failed-commit orphans superseded by a
+ * later landed commit from the same session, and expires commit-auth asks
+ * older than the TTL. Sweeper-not-event per decision-defaults §Reliability —
+ * this pass catches everything the mt#2593 same-call closes structurally
+ * cannot (crashed processes, gh# parents, debris between one-time sweeps).
+ *
+ * Fail-open: a missing task service or a failed task listing degrades to an
+ * empty status map (parent-terminal closes nothing; supersession and TTL
+ * still apply); a failed pass logs and waits for the next tick.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
+  return createIntervalSweeper({
+    name: "stale-ask close",
+    intervalMs: intervalMs ?? STALE_ASK_CLOSE_SWEEP_INTERVAL_MS,
+    tick: async () => {
+      try {
+        const repo = await getServerAskRepository();
+        if (!repo) return;
+        const { runStaleSuspendedAskCloseSweep } = await import(
+          "@minsky/domain/ask/stale-suspended-close"
+        );
+        let taskStatusById: ReadonlyMap<string, string> = new Map();
+        try {
+          const taskService = await getServerTaskService();
+          if (taskService) {
+            const tasks = await taskService.listTasks({ all: true });
+            taskStatusById = new Map(tasks.map((t) => [t.id, t.status]));
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          log.warn(
+            "cockpit: stale-ask close sweep could not build task-status map; parent-terminal pass skipped this tick",
+            { message }
+          );
+        }
+        await runStaleSuspendedAskCloseSweep(repo, { taskStatusById });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: stale-ask close sweep failed", { message });
       }
     },
   });

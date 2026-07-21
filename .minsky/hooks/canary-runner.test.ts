@@ -44,6 +44,7 @@ import type { GuardRegistration, GuardModule } from "./registry";
 const MINSKY_STATE_DIR_VAR = "MINSKY_STATE_DIR";
 const CLAUDE_PROJECT_DIR_VAR = "CLAUDE_PROJECT_DIR";
 const CHECK_GUESSED_SESSION_PATH = "check-guessed-session-path";
+const USER_PROMPT_SUBMIT = "UserPromptSubmit";
 
 let canaryTestStateDir: string;
 let prevMinskyStateDir: string | undefined;
@@ -175,7 +176,7 @@ describe("runGuardCanary — SABOTAGE DETECTION (mt#2889 acceptance test)", () =
   test("a warn-expecting guard sabotaged to return null also fails", async () => {
     const sabotagedWarnReg: GuardRegistration = {
       name: "sabotaged-warn-guard-test-copy",
-      event: "UserPromptSubmit",
+      event: USER_PROMPT_SUBMIT,
       module: () => Promise.resolve<GuardModule>({ run: () => null }),
       timeoutMs: 5000,
       denyCapable: false,
@@ -191,7 +192,7 @@ describe("runGuardCanary — setup hook", () => {
     let setupRan = false;
     const reg: GuardRegistration = {
       name: "setup-patch-test",
-      event: "UserPromptSubmit",
+      event: USER_PROMPT_SUBMIT,
       module: () =>
         Promise.resolve<GuardModule>({
           run: (input) => {
@@ -269,5 +270,147 @@ describe("runAllRegistryCanaries", () => {
     const results = await runAllRegistryCanaries(GUARD_REGISTRY);
     expect(results).toHaveLength(GUARD_REGISTRY.length);
     expect(results.map((r) => r.guardName)).toEqual(GUARD_REGISTRY.map((r) => r.name));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3004 — MISSING-result honesty + the two formerly-canary-less guards
+// ---------------------------------------------------------------------------
+
+const MEMORY_SEARCH_GUARD = "memory-search";
+const DAEMON_STALENESS_GUARD = "mcp-daemon-staleness-detector";
+const CANARY_STUB_ENV_VAR = "MINSKY_MEMORY_SEARCH_CANARY_STUB";
+const TRACKER_HOME_ENV_VAR = "MINSKY_DAEMON_TRACKER_HOME";
+
+describe("mt#3004 — MISSING result carries no expects", () => {
+  test("a no-canary registry entry has undefined expects and renders 'no canary declared'", async () => {
+    const syntheticReg: GuardRegistration = {
+      name: "synthetic-no-canary-guard-mt3004",
+      event: "PreToolUse",
+      module: () => Promise.resolve<GuardModule>({ run: () => null }),
+      timeoutMs: 5000,
+      denyCapable: false,
+    };
+    const result = await runGuardCanary(syntheticReg);
+    expect(result.passed).toBeUndefined();
+    expect(result.expects).toBeUndefined();
+    expect(formatCanaryResult(result)).toBe(
+      "[MISSING] synthetic-no-canary-guard-mt3004 (registry, no canary declared)"
+    );
+  });
+});
+
+describe("mt#3004 — runGuardCanary restores env mutated by setup (PR #2145 R1)", () => {
+  test("a sentinel env var set in setup is removed after the canary completes", async () => {
+    const SENTINEL = "MT3004_CANARY_ENV_RESTORE_SENTINEL";
+    delete process.env[SENTINEL];
+    const reg: GuardRegistration = {
+      name: "env-restore-test-guard",
+      event: USER_PROMPT_SUBMIT,
+      module: () =>
+        Promise.resolve<GuardModule>({
+          run: () =>
+            process.env[SENTINEL] === "set-by-setup" ? { additionalContext: "saw sentinel" } : null,
+        }),
+      timeoutMs: 5000,
+      denyCapable: false,
+      canary: {
+        input: {},
+        expects: "warn",
+        setup: () => {
+          process.env[SENTINEL] = "set-by-setup";
+          return {};
+        },
+      },
+    };
+    const result = await runGuardCanary(reg);
+    // The checked invocation SAW the setup's env mutation...
+    expect(result.passed).toBe(true);
+    // ...but nothing leaked past the canary.
+    expect(process.env[SENTINEL]).toBeUndefined();
+  });
+});
+
+describe("mt#3004 — the two formerly-canary-less registry guards", () => {
+  // Both guards' canary setups mutate test-only env vars; snapshot/restore so
+  // no state leaks into sibling tests.
+  let prevStub: string | undefined;
+  let prevTrackerHome: string | undefined;
+
+  const snapshotEnv = () => {
+    prevStub = process.env[CANARY_STUB_ENV_VAR];
+    prevTrackerHome = process.env[TRACKER_HOME_ENV_VAR];
+  };
+  const restoreEnv = () => {
+    if (prevStub === undefined) delete process.env[CANARY_STUB_ENV_VAR];
+    else process.env[CANARY_STUB_ENV_VAR] = prevStub;
+    if (prevTrackerHome === undefined) delete process.env[TRACKER_HOME_ENV_VAR];
+    else process.env[TRACKER_HOME_ENV_VAR] = prevTrackerHome;
+  };
+
+  test("memory-search's declared canary passes against its REAL run()", async () => {
+    snapshotEnv();
+    try {
+      const reg = GUARD_REGISTRY.find((r) => r.name === MEMORY_SEARCH_GUARD);
+      if (!reg?.canary) throw new Error("memory-search canary missing from GUARD_REGISTRY");
+      const result = await runGuardCanary(reg);
+      expect(result.error).toBeUndefined();
+      expect(result.passed).toBe(true);
+      expect(result.expects).toBe("warn");
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  test("memory-search sabotaged to return null FAILS its canary (acceptance: break it -> FAIL)", async () => {
+    snapshotEnv();
+    try {
+      const realReg = GUARD_REGISTRY.find((r) => r.name === MEMORY_SEARCH_GUARD);
+      if (!realReg?.canary) throw new Error("memory-search canary missing from GUARD_REGISTRY");
+      const sabotagedReg: GuardRegistration = {
+        ...realReg,
+        name: "memory-search-SABOTAGED-test-copy",
+        module: () => Promise.resolve<GuardModule>({ run: () => null }),
+      };
+      const result = await runGuardCanary(sabotagedReg);
+      expect(result.passed).toBe(false);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  test("mcp-daemon-staleness-detector's declared canary passes against its REAL run()", async () => {
+    snapshotEnv();
+    try {
+      const reg = GUARD_REGISTRY.find((r) => r.name === DAEMON_STALENESS_GUARD);
+      if (!reg?.canary) {
+        throw new Error("mcp-daemon-staleness-detector canary missing from GUARD_REGISTRY");
+      }
+      const result = await runGuardCanary(reg);
+      expect(result.error).toBeUndefined();
+      expect(result.passed).toBe(true);
+      expect(result.expects).toBe("warn");
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  test("mcp-daemon-staleness-detector sabotaged to return null FAILS its canary", async () => {
+    snapshotEnv();
+    try {
+      const realReg = GUARD_REGISTRY.find((r) => r.name === DAEMON_STALENESS_GUARD);
+      if (!realReg?.canary) {
+        throw new Error("mcp-daemon-staleness-detector canary missing from GUARD_REGISTRY");
+      }
+      const sabotagedReg: GuardRegistration = {
+        ...realReg,
+        name: "mcp-daemon-staleness-detector-SABOTAGED-test-copy",
+        module: () => Promise.resolve<GuardModule>({ run: () => null }),
+      };
+      const result = await runGuardCanary(sabotagedReg);
+      expect(result.passed).toBe(false);
+    } finally {
+      restoreEnv();
+    }
   });
 });
