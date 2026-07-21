@@ -40,7 +40,10 @@ import { MEMORY_TYPES, MEMORY_SCOPES } from "@minsky/domain/memory/types";
 import { checkDerivation } from "@minsky/domain/memory/validation";
 import { emitSystemEventBestEffort } from "../system-event-emit";
 import { memoriesTable } from "@minsky/domain/storage/schemas/memory-embeddings";
-import { classifyIdInput, resolveIdPrefixOrThrow } from "@minsky/domain/utils/id-prefix-resolver";
+import {
+  classifyIdInput,
+  resolveEntityIdPrefixOrThrow,
+} from "@minsky/domain/utils/id-prefix-resolver";
 
 // ─── Zod enum helpers ────────────────────────────────────────────────────────
 
@@ -93,7 +96,9 @@ const memorySearchParams = {
 const memoryGetParams = {
   id: {
     schema: z.string(),
-    description: "Memory record identifier",
+    description:
+      "Memory record identifier — full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+      "or a mem#N short id (mt#2966)",
     required: true as const,
   },
 } satisfies CommandParameterMap;
@@ -613,27 +618,37 @@ async function resolveMemoryDbForPrefix(
 }
 
 /**
- * Resolve a caller-supplied memory id (full UUID or unambiguous prefix, mt#2696)
- * to the full UUID `memories.id` before it reaches any `eq(memoriesTable.id, ...)`
- * comparison. A full UUID passes through unchanged with no query. A short/no-match/
- * ambiguous prefix throws a clean tool-level error (never a raw Postgres
- * "invalid input syntax for type uuid" error).
+ * Resolve a caller-supplied memory id — a full UUID, an unambiguous 8-char
+ * hex prefix (mt#2696), or a `mem#N` short id (mt#2966/mt#2963) — to the
+ * full UUID `memories.id` before it reaches any `eq(memoriesTable.id, ...)`
+ * comparison. A full UUID passes through unchanged with no query. A
+ * short/no-match/ambiguous prefix, or a `mem#N` with no matching row, throws
+ * a clean tool-level error (never a raw Postgres "invalid input syntax for
+ * type uuid" error).
  *
  * When no DB connection is resolvable here, the raw input is passed through —
  * the immediately-following `resolveMemoryService` call in every command
  * surfaces the "persistence provider required" error instead.
+ *
+ * Exported for unit testing (memory-commands.test.ts) — not part of the
+ * public command surface.
  */
-async function resolveMemoryIdInput(id: string, ctx: CommandExecutionContext): Promise<string> {
+export async function resolveMemoryIdInput(
+  id: string,
+  ctx: CommandExecutionContext
+): Promise<string> {
   const db = await resolveMemoryDbForPrefix(ctx);
   if (!db) return id;
 
-  return resolveIdPrefixOrThrow({
+  return resolveEntityIdPrefixOrThrow({
     db,
     table: memoriesTable,
     idColumn: memoriesTable.id,
     labelColumn: memoriesTable.name,
     input: id,
     entityName: "memory",
+    shortIdColumn: memoriesTable.shortId,
+    shortIdPrefix: "mem",
   });
 }
 
@@ -687,8 +702,9 @@ export function registerMemoryCommands(
     category: CommandCategory.MEMORY,
     name: "get",
     description:
-      "Fetch a single memory record by its identifier. Accepts a full UUID or an " +
-      "unambiguous prefix (>=8 hex chars, mt#2696) — e.g. an id cited in a handoff.",
+      "Fetch a single memory record by its identifier. Accepts a full UUID, an " +
+      "unambiguous prefix (>=8 hex chars, mt#2696) — e.g. an id cited in a handoff — " +
+      "or a mem#N short id (mt#2966).",
     parameters: memoryGetParams,
     execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.get", { id: params.id });
@@ -909,8 +925,9 @@ export function registerMemoryCommands(
     name: "similar",
     description:
       "Find memory records semantically similar to an existing one. " +
-      "Excludes the source memory from results. Accepts a full UUID or an " +
-      "unambiguous prefix (>=8 hex chars, mt#2696) for `id`.",
+      "Excludes the source memory from results. Accepts a full UUID, an " +
+      "unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id " +
+      "(mt#2966) for `id`.",
     parameters: memorySimilarParams,
     execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.similar", { id: params.id, limit: params.limit });
@@ -978,8 +995,8 @@ export function registerMemoryCommands(
     name: "lineage",
     description:
       "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. " +
-      "Each step carries the supersession_reason in its metadata. Accepts a full UUID or " +
-      "an unambiguous prefix (>=8 hex chars, mt#2696) for `id`.",
+      "Each step carries the supersession_reason in its metadata. Accepts a full UUID, " +
+      "an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966) for `id`.",
     parameters: memoryLineageParams,
     execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.lineage", { id: params.id });

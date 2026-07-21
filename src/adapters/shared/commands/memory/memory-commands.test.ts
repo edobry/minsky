@@ -7,7 +7,8 @@
 
 import { describe, test, expect } from "bun:test";
 import { createSharedCommandRegistry, CommandCategory } from "../../command-registry";
-import { registerMemoryCommands, type MemoryCommandsDeps } from "./index";
+import { registerMemoryCommands, resolveMemoryIdInput, type MemoryCommandsDeps } from "./index";
+import type { PersistenceCapabilities } from "@minsky/domain/persistence/types";
 import type {
   MemoryRecord,
   MemoryCreateInput,
@@ -739,5 +740,100 @@ describe("Memory Commands", () => {
       expect(result.truncated).toBe(true);
       expect(result.chain).toHaveLength(1);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveMemoryIdInput — mem#N short id resolution (mt#2966)
+//
+// Mirrors asks.test.ts's "resolveAskIdInput (mt#2965)" describe block. The
+// memory resolver's DB bridge (`resolveMemoryDbForPrefix`) gates on
+// `persistence instanceof PersistenceProvider` (unlike ask's duck-typed
+// `getAskDb`) — pre-existing mt#2696 behavior, unchanged by mt#2966 — so the
+// fake `container.get("persistence")` here must be a real PersistenceProvider
+// subclass instance, not a plain object literal.
+// ---------------------------------------------------------------------------
+
+describe("resolveMemoryIdInput (mt#2966)", () => {
+  const MEMORY_UUID = "11111111-1111-1111-1111-111111111111";
+  const PERSISTENCE_TYPES_MODULE = "@minsky/domain/persistence/types";
+
+  /**
+   * Build a fake `CommandExecutionContext` satisfying
+   * `resolveMemoryDbForPrefix`'s narrow usage
+   * (`ctx.container.has("persistence")` + `ctx.container.get("persistence")`
+   * returning a real `PersistenceProvider` subclass instance) whose
+   * `getDatabaseConnection()` resolves to `select()` — injectable so tests
+   * can either return canned rows (resolution tests) or observe whether the
+   * query ran at all (the mismatched-prefix short-circuit test).
+   */
+  async function fakeCtx(select: () => { from: (table: unknown) => unknown }) {
+    const { PersistenceProvider } = await import(PERSISTENCE_TYPES_MODULE);
+
+    class FakePersistenceProvider extends PersistenceProvider {
+      readonly capabilities = { sql: true } as unknown as PersistenceCapabilities;
+      getCapabilities() {
+        return this.capabilities;
+      }
+      async initialize() {}
+      async close() {}
+      getConnectionInfo() {
+        return "fake";
+      }
+      async getDatabaseConnection() {
+        return { select };
+      }
+    }
+
+    const provider = new FakePersistenceProvider();
+    return {
+      container: {
+        has: (key: string) => key === "persistence",
+        get: (_key: string) => provider,
+      },
+    } as any;
+  }
+
+  /** Resolve `select()` to a fixed set of candidate rows regardless of the query condition. */
+  function fakeCtxWithRows(rows: Array<{ id: string; label?: string }>) {
+    return fakeCtx(() => ({
+      from: (_table: unknown) => ({
+        where: (_cond: unknown) => Promise.resolve(rows),
+      }),
+    }));
+  }
+
+  test("passes a full uuid through unchanged", async () => {
+    const ctx = await fakeCtxWithRows([]);
+    const id = await resolveMemoryIdInput(MEMORY_UUID, ctx);
+    expect(id).toBe(MEMORY_UUID);
+  });
+
+  test("resolves mem#7 to the row's uuid via the short_id column", async () => {
+    const ctx = await fakeCtxWithRows([{ id: MEMORY_UUID, label: "my memory" }]);
+    const id = await resolveMemoryIdInput("mem#7", ctx);
+    expect(id).toBe(MEMORY_UUID);
+  });
+
+  test("REGRESSION (mt#2696 unchanged): an unambiguous 8-char hex prefix still resolves", async () => {
+    const ctx = await fakeCtxWithRows([{ id: MEMORY_UUID, label: "my memory" }]);
+    const id = await resolveMemoryIdInput(MEMORY_UUID.slice(0, 8), ctx);
+    expect(id).toBe(MEMORY_UUID);
+  });
+
+  test("rejects a mismatched-entity short id (e.g. ask#3) without querying the DB", async () => {
+    let queried = false;
+    const ctx = await fakeCtx(() => {
+      queried = true;
+      return { from: () => ({ where: () => Promise.resolve([]) }) };
+    });
+
+    await expect(resolveMemoryIdInput("ask#3", ctx)).rejects.toThrow(/short id prefix mismatch/i);
+    expect(queried).toBe(false);
+  });
+
+  test("throws a clean not-found error for a mem#N with no matching row", async () => {
+    const ctx = await fakeCtxWithRows([]);
+    await expect(resolveMemoryIdInput("mem#999", ctx)).rejects.toThrow(/not found/i);
   });
 });
