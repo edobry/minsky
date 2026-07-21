@@ -4,8 +4,17 @@
 // buildVerificationCorpus (tool inputs + tool_result content), and
 // elideBlocksAndQuotes. The canonical case is R9 (PR #1694): a maxBuffer/
 // executeCommand behavioral claim made without reading exec.ts.
+//
+// main()/CLI-path E2E coverage (mt#3002 R1, mirrors pre-narration-detector.
+// test.ts): the hook reads real transcript files via fs.readFileSync and the
+// E2E tests below must write real transcript JSONL files so Bun.spawn can
+// read them.
 
-import { describe, test, expect } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- see file-header note above */
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   detectCodeMechanismAssertion,
   buildVerificationCorpus,
@@ -176,6 +185,10 @@ describe("mt#2673 — truncated-substring extraction + backed-claim accounting",
   });
 });
 
+// Shared genuine-claim fixture (tasks_create::guard-style, per the mt#3002
+// spec's AT3/AT4) — reused across the pure-function and E2E CLI tests below.
+const GENUINE_UNBACKED_CLAIM_TEXT = "`tasks_create` guards against duplicate task creation.";
+
 describe("mt#3002 — file-name and hex-id symbol-class exclusions", () => {
   test("AT1: 2026-07-21T08:13-shaped fixture (hook-files.mdc + override/trim verbs) -> no claim extracted", () => {
     const text =
@@ -210,7 +223,7 @@ describe("mt#3002 — file-name and hex-id symbol-class exclusions", () => {
   });
 
   test("AT3: genuine unbacked claim (tasks_create::guard-style) still extracted, and injected (INJECTION_ENABLED=true)", () => {
-    const text = "`tasks_create` guards against duplicate task creation.";
+    const text = GENUINE_UNBACKED_CLAIM_TEXT;
     const result = detectCodeMechanismAssertion(text, "");
     expect(result.matched).toBe(true);
     expect(result.claims.map((c) => c.symbol)).toContain("tasks_create");
@@ -223,7 +236,7 @@ describe("mt#3002 — file-name and hex-id symbol-class exclusions", () => {
   });
 
   test("AT4: same fixture WITH a same-turn read of the symbol -> no fire (backed-claim exclusion intact)", () => {
-    const text = "`tasks_create` guards against duplicate task creation.";
+    const text = GENUINE_UNBACKED_CLAIM_TEXT;
     const corpus = "export async function tasks_create() { /* read this turn */ }";
     const result = detectCodeMechanismAssertion(text, corpus);
     expect(result.matched).toBe(false);
@@ -443,5 +456,132 @@ describe("run() (dispatcher-compatible)", () => {
     } finally {
       delete process.env[OVERRIDE_ENV_VAR];
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// main()/CLI-path E2E (Bun.spawn) — mt#3002 R1
+//
+// The reviewer's blocking gap: run()/the dispatcher path is well-covered, but
+// no test exercised main() — the actual CLI entrypoint the Claude Code harness
+// invokes — now that INJECTION_ENABLED=true. This proves the emitted stdout
+// JSON contract (hookSpecificOutput.hookEventName / .additionalContext) the
+// harness parses, not just the in-process `run()` return shape. Mirrors the
+// established pattern in pre-narration-detector.test.ts's "E2E" describe.
+// ---------------------------------------------------------------------------
+
+type CliJsonlLine = { type?: string; message?: { role?: string; content?: unknown } };
+
+function cliUserLine(): CliJsonlLine {
+  return { type: "user", message: { role: "user", content: "test user message" } };
+}
+
+function cliAssistantLine(text: string): CliJsonlLine {
+  return { type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } };
+}
+
+function buildCliTranscriptJSONL(lines: CliJsonlLine[]): string {
+  return lines.map((l) => JSON.stringify(l)).join("\n");
+}
+
+function makeCliHookInput(transcriptPath: string): ClaudeHookInput {
+  return {
+    session_id: "test-session-cma-cli",
+    transcript_path: transcriptPath,
+    cwd: "/tmp",
+    hook_event_name: RUN_HOOK_EVENT_NAME,
+  } as ClaudeHookInput;
+}
+
+async function invokeCliHook(
+  input: ClaudeHookInput,
+  env: Record<string, string> = {}
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const hookPath = new URL("code-mechanism-assertion-detector.ts", import.meta.url).pathname;
+  const proc = Bun.spawn(["bun", "run", hookPath], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, ...env },
+  });
+  proc.stdin.write(JSON.stringify(input));
+  proc.stdin.end();
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  const exitCode = await proc.exited;
+  return { exitCode, stdout, stderr };
+}
+
+describe("code-mechanism-assertion-detector main()/CLI-path E2E (mt#3002 R1)", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "cma-e2e-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("unread genuine claim -> exit 0, hookSpecificOutput/additionalContext JSON contract (INJECTION_ENABLED=true)", async () => {
+    const p = join(dir, "claim.jsonl");
+    writeFileSync(
+      p,
+      buildCliTranscriptJSONL([
+        cliUserLine(),
+        cliAssistantLine(GENUINE_UNBACKED_CLAIM_TEXT),
+        cliUserLine(),
+      ]),
+      "utf8"
+    );
+    const { exitCode, stdout } = await invokeCliHook(makeCliHookInput(p));
+    expect(exitCode).toBe(0);
+
+    // The harness parses this exact envelope from stdout — assert the real
+    // shape, not a substring match, so a contract drift (renamed field,
+    // wrong hookEventName, non-JSON output) fails this test.
+    const parsed = JSON.parse(stdout) as {
+      hookSpecificOutput?: { hookEventName?: string; additionalContext?: string };
+    };
+    expect(parsed.hookSpecificOutput?.hookEventName).toBe(RUN_HOOK_EVENT_NAME);
+    expect(typeof parsed.hookSpecificOutput?.additionalContext).toBe("string");
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain("tasks_create");
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain(
+      "code-mechanism-assertion-detector"
+    );
+  });
+
+  test("no code-mechanism claim -> exit 0, empty stdout (silent allow) via the CLI path", async () => {
+    const p = join(dir, "no-claim.jsonl");
+    writeFileSync(
+      p,
+      buildCliTranscriptJSONL([
+        cliUserLine(),
+        cliAssistantLine("The build passed and all tests are green."),
+        cliUserLine(),
+      ]),
+      "utf8"
+    );
+    const { exitCode, stdout } = await invokeCliHook(makeCliHookInput(p));
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toBe("");
+  });
+
+  test("file-name/hex-id FP fixtures produce no output via the CLI path (mt#3002)", async () => {
+    const p = join(dir, "fp.jsonl");
+    writeFileSync(
+      p,
+      buildCliTranscriptJSONL([
+        cliUserLine(),
+        cliAssistantLine(
+          "See `hook-files.mdc` for how the override behaves; the commit `a30378971` guards against the regression."
+        ),
+        cliUserLine(),
+      ]),
+      "utf8"
+    );
+    const { exitCode, stdout } = await invokeCliHook(makeCliHookInput(p));
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toBe("");
   });
 });
