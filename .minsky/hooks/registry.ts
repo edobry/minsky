@@ -1002,6 +1002,56 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#2923 — build/deploy-claim seam detector (mt#2707 RFC Part 2). New
+  // guard, not part of any legacy settings.json migration. Fires ONLY on the
+  // seam no reactive detector reaches: a chat-only usability/delivery claim
+  // after an in-session build/deploy-surface merge with no rebuild evidence.
+  // Needs transcriptLines (D6) to walk the whole session for the merge +
+  // deploy-surface-edit + rebuild-evidence signals, not just the last turn.
+  // -------------------------------------------------------------------------
+  {
+    name: "build-claim-injection-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./build-claim-injection-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "build-claim-injection",
+    denyCapable: false,
+    needsTranscript: true,
+    // mt#2923: INJECTION_ENABLED=false — calibration-first, same rationale as
+    // causal-premise-detector above; canary asserts calibration, not warn.
+    attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2923-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                name: "mcp__minsky__session_edit_file",
+                input: { path: "cockpit-tray/src-tauri/src/main.rs" },
+              },
+              {
+                type: "tool_use",
+                name: "mcp__minsky__session_pr_merge",
+                input: { task: "mt#0000" },
+              },
+              {
+                type: "text",
+                text: "The tray app is updated and ready — you can use it now.",
+              },
+            ],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
   // Stop event (mt#2357) — the framework's FIRST Stop-event guard. Runs via
   // the new `dispatch-stop.ts` entrypoint. Placed BEFORE the
   // calibration-review-cadence-detector entry to preserve that entry's

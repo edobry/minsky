@@ -60,6 +60,10 @@ export interface CalibrationLogEntry {
    *   distinct `session_id` (conversation) values instead of distinct
    *   phrases — the signal is "how many different conversations hit the
    *   cadence threshold," mirroring policy-coverage's non-phrase axis.
+   * "build-claim-injection"    → record.matchedPhrases: string[] (mt#2923) —
+   *   the matched usability/delivery claim phrase(s), same shape family as
+   *   causal-premise. `deploySurfaceFiles: string[]` is carried as extra
+   *   context (not consulted by diversity/threshold logic).
    */
   kind:
     | "causal-premise"
@@ -69,7 +73,8 @@ export interface CalibrationLogEntry {
     | "pre-narration"
     | "policy-coverage"
     | "silent-stretch"
-    | "wall-of-text";
+    | "wall-of-text"
+    | "build-claim-injection";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
    * trigger: the number of days a NEVER-reviewed log may accumulate fires
@@ -114,6 +119,12 @@ export interface CalibrationLogEntry {
  *     report-shape measurement (wordCount/trigger/leadLabelHits); diversity
  *     is measured over distinct `session_id` values, like silent-stretch.
  *
+ * V5 entry (mt#2923):
+ *   - build-claim-injection-calibration.jsonl (mt#2923 detector, the
+ *     mt#2707-RFC build/deploy-claim seam) — a matched-phrase log (same
+ *     shape family as causal-premise). Declares `reviewByDays: 30` (the
+ *     mt#2896 never-reviewed-aging leg) as its graduation contract.
+ *
  * To add another log: append one CalibrationLogEntry here.
  */
 export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
@@ -156,6 +167,15 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     path: ".minsky/wall-of-text-calibration.jsonl",
     name: "wall-of-text",
     kind: "wall-of-text",
+  },
+  {
+    path: ".minsky/build-claim-injection-calibration.jsonl",
+    name: "build-claim-injection",
+    kind: "build-claim-injection",
+    // mt#2923 graduation contract: dispose within 30 days even at low fire
+    // volume (per the mt#2923 spec's Planning notes; enforced via the
+    // mt#2896 never-reviewed-aging leg in computeReviewDueLogs below).
+    reviewByDays: 30,
   },
 ];
 
@@ -334,6 +354,23 @@ export interface WallOfTextRecord {
   namedRefCount?: number;
 }
 
+/**
+ * Parsed build-claim-injection calibration record (mt#2923).
+ *
+ * Same matched-phrase shape family as `CausalPremiseRecord` — the matched
+ * usability/delivery claim phrase(s) go in `matchedPhrases`.
+ * `deploySurfaceFiles` is carried as extra context (the deploy/build-surface
+ * paths edited in the session) and is not consulted by diversity/threshold
+ * logic. Mirrors the exact fields the detector writes in
+ * `.minsky/hooks/build-claim-injection-detector.ts`.
+ */
+export interface BuildClaimInjectionRecord {
+  timestamp: string;
+  session_id?: string;
+  matchedPhrases: string[];
+  deploySurfaceFiles: string[];
+}
+
 /** Union of all record types. */
 export type CalibrationRecord =
   | CausalPremiseRecord
@@ -341,7 +378,8 @@ export type CalibrationRecord =
   | CodeMechanismAssertionRecord
   | PolicyCoverageRecord
   | SilentStretchRecord
-  | WallOfTextRecord;
+  | WallOfTextRecord
+  | BuildClaimInjectionRecord;
 
 // ---------------------------------------------------------------------------
 // Per-log result
@@ -479,6 +517,21 @@ export function parseCalibrationRecord(
         hadTextInTurn:
           raw["hadTextInTurn"] !== undefined ? Boolean(raw["hadTextInTurn"]) : undefined,
       } satisfies SilentStretchRecord;
+    }
+
+    if (kind === "build-claim-injection") {
+      // Shape: { timestamp, session_id?, matchedPhrases: string[], deploySurfaceFiles: string[] }
+      // Mirrors the exact record `.minsky/hooks/build-claim-injection-detector.ts`
+      // appends (mt#2923). Same matched-phrase shape family as causal-premise.
+      if (!Array.isArray(raw["matchedPhrases"])) return null;
+      return {
+        timestamp: String(raw["timestamp"] ?? ""),
+        session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
+        matchedPhrases: (raw["matchedPhrases"] as unknown[]).map(String),
+        deploySurfaceFiles: Array.isArray(raw["deploySurfaceFiles"])
+          ? (raw["deploySurfaceFiles"] as unknown[]).map(String)
+          : [],
+      } satisfies BuildClaimInjectionRecord;
     }
 
     if (kind === "wall-of-text") {
@@ -1012,6 +1065,7 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "policy-coverage": "policy-coverage-detector",
   "silent-stretch": "silent-stretch-detector",
   "wall-of-text": "wall-of-text-detector",
+  "build-claim-injection": "build-claim-injection-detector",
 };
 
 /**

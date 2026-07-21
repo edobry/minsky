@@ -106,8 +106,16 @@ Doc: `session-end-transcript-ingest-hook.md`.
 - **Wall-of-text** — flags a turn-end report >2x the ~200-word Tier-1 budget or label-led
   (mt#2870). `wall-of-text-detector.ts`; log `.minsky/wall-of-text-calibration.jsonl`;
   override `MINSKY_SKIP_WALL_OF_TEXT=1`. Doc: `wall-of-text-detector.md`.
+- **Build-claim injection** — the mt#2707-RFC build/deploy-claim seam (mt#2923): fires when an
+  in-session `session_pr_merge` touched a deploy/build surface (shared `deploy-surface.ts`
+  detection with mt#2545) AND the prior turn makes a usability/delivery claim AND no
+  rebuild/reinstall/deploy evidence (`install-local.sh`, `tauri build`,
+  `deployment_wait-for-latest`, or equivalent) appears in the session. `build-claim-injection-detector.ts`;
+  log `.minsky/build-claim-injection-calibration.jsonl`; graduation contract `reviewByDays: 30`
+  (mt#2896 never-reviewed-aging leg); override `MINSKY_ACK_BUILD_CLAIM_INJECTION=1`.
+  Doc: `build-claim-injection-detector.md`.
 
-All five: fail open on transcript/read error.
+All six: fail open on transcript/read error.
 
 ## Guard-Health Tracker + Escalation Detector
 
