@@ -11,7 +11,9 @@ import {
   aggregateShardResults,
   assertBinPackCompleteness,
   binPackFiles,
+  collectShardActualFiles,
   collectShardDurationsSec,
+  detectShardScopeViolations,
   mergeDurationsIntoCache,
   readDurationCache,
   resolveShardCount,
@@ -22,6 +24,18 @@ import {
   writeDurationCache,
   type ShardOutcome,
 } from "./run-tests-main-sharded";
+
+// Shared `bun test` invocation args, reused across several real-subprocess
+// tests below.
+const BUN_TEST_PRELOAD_ARGS = ["--preload", "./tests/setup.ts", "--timeout=15000"];
+
+// The real, currently-existing file pair in this repo whose relative paths
+// exhibit the R1-review-discovered substring collision (see
+// run-tests-main-sharded.ts's header docstring / `detectShardScopeViolations`
+// for the full explanation): `REAL_COLLISION_SHORT_PATH` is a literal
+// substring of `REAL_COLLISION_LONG_PATH`.
+const REAL_COLLISION_SHORT_PATH = "src/composition/container.test.ts";
+const REAL_COLLISION_LONG_PATH = "packages/domain/src/composition/container.test.ts";
 
 // ---------------------------------------------------------------------------
 // resolveShardCount / resolveShardTimeoutMs
@@ -178,6 +192,32 @@ describe("binPackFiles (production wrapper over the prototype's validated LPT al
 });
 
 // ---------------------------------------------------------------------------
+// detectShardScopeViolations -- cross-shard leakage backstop (R1 review)
+// ---------------------------------------------------------------------------
+
+describe("detectShardScopeViolations", () => {
+  it("returns an empty array when actualFiles is a subset of assignedFiles", () => {
+    expect(detectShardScopeViolations(["a.test.ts", "b.test.ts"], ["a.test.ts"])).toEqual([]);
+    expect(
+      detectShardScopeViolations(["a.test.ts", "b.test.ts"], ["a.test.ts", "b.test.ts"])
+    ).toEqual([]);
+  });
+
+  it("reports files that ran but were not assigned", () => {
+    expect(
+      detectShardScopeViolations(
+        [REAL_COLLISION_SHORT_PATH],
+        [REAL_COLLISION_SHORT_PATH, REAL_COLLISION_LONG_PATH]
+      )
+    ).toEqual([REAL_COLLISION_LONG_PATH]);
+  });
+
+  it("returns an empty array for an empty actualFiles list", () => {
+    expect(detectShardScopeViolations(["a.test.ts"], [])).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // verifyShard -- ANSI + stream-separation hardening (requirements #2, #4)
 // ---------------------------------------------------------------------------
 
@@ -287,6 +327,32 @@ describe("verifyShard", () => {
     const v = verifyShard(timedOut);
     expect(v.passed).toBe(false);
     expect(v.reason).toMatch(/timeout/);
+  });
+
+  it("FAILS on a scope violation even though the output otherwise looks healthy (R1 review backstop)", () => {
+    const leaked: ShardOutcome = {
+      label: "shard-leaked",
+      stdout: "",
+      stderr: "6 pass\n0 fail\nRan 6 tests across 2 files.\n",
+      exitCode: 0,
+      timedOut: false,
+      scopeViolationFiles: [REAL_COLLISION_LONG_PATH],
+    };
+    const v = verifyShard(leaked);
+    expect(v.passed).toBe(false);
+    expect(v.reason).toMatch(/cross-shard/);
+  });
+
+  it("does not fail on an empty scopeViolationFiles array", () => {
+    const clean: ShardOutcome = {
+      label: "shard-clean",
+      stdout: "",
+      stderr: "1 pass\n0 fail\nRan 1 tests across 1 file.\n",
+      exitCode: 0,
+      timedOut: false,
+      scopeViolationFiles: [],
+    };
+    expect(verifyShard(clean).passed).toBe(true);
   });
 });
 
@@ -495,6 +561,112 @@ describe("duration cache", () => {
     const totals = collectShardDurationsSec([xmlPath, missingPath]);
     expect(totals.get("x.test.ts")).toBeCloseTo(0.000012, 6);
   });
+
+  it("collectShardActualFiles returns the unique file set from a real bun JUnit fragment", () => {
+    const xmlPath = join(dir, "shard-1.xml");
+    writeFileSync(
+      xmlPath,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="2" assertions="2" failures="0" skipped="0" time="0.01">
+  <testsuite name="a.test.ts" file="a.test.ts" tests="1" assertions="1" failures="0" skipped="0" time="0" hostname="Mac">
+    <testcase name="x" classname="" time="0.000012" file="a.test.ts" line="2" assertions="1" />
+  </testsuite>
+  <testsuite name="b.test.ts" file="b.test.ts" tests="1" assertions="1" failures="0" skipped="0" time="0" hostname="Mac">
+    <testcase name="y" classname="" time="0.000013" file="b.test.ts" line="2" assertions="1" />
+  </testsuite>
+</testsuites>`
+    );
+    expect(collectShardActualFiles(xmlPath)).toEqual(["a.test.ts", "b.test.ts"]);
+  });
+
+  it("collectShardActualFiles returns undefined for a missing file (best-effort, never throws)", () => {
+    expect(collectShardActualFiles(join(dir, "does-not-exist.xml"))).toBeUndefined();
+  });
+
+  it("collectShardActualFiles never throws on non-XML content (parseTestcases tolerates it, yielding [])", () => {
+    const xmlPath = join(dir, "corrupt.xml");
+    writeFileSync(xmlPath, "not xml at all {{{");
+    // parseTestcases's regex simply finds no <testcase> matches in
+    // non-matching content -- it returns [] rather than throwing, so this
+    // is the safe (not `undefined`) outcome; asserting the actual behavior
+    // rather than a stronger claim.
+    expect(collectShardActualFiles(xmlPath)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-shard file-targeting regression test (R1 review, mt#2990): the EXACT
+// real collision found during this PR's own live verification against the
+// real suite -- src/composition/container.test.ts and
+// packages/domain/src/composition/container.test.ts both exist, and the
+// former's path is a literal substring of the latter's.
+// ---------------------------------------------------------------------------
+
+describe("cross-shard file-targeting: the real src/composition/container.test.ts collision", () => {
+  it("an UN-prefixed positional arg leaks the sibling file in (demonstrates the bug this PR fixes)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "run-tests-main-sharded-collision-test-"));
+    const junitPath = join(dir, "shard.xml");
+    try {
+      await runShardsConcurrently(
+        [
+          {
+            label: "unprefixed",
+            command: [
+              "bun",
+              "test",
+              ...BUN_TEST_PRELOAD_ARGS,
+              "--reporter=junit",
+              `--reporter-outfile=${junitPath}`,
+              // Deliberately NOT `./`-prefixed -- reproduces the bug.
+              REAL_COLLISION_SHORT_PATH,
+            ],
+          },
+        ],
+        30_000
+      );
+      const actualFiles = collectShardActualFiles(junitPath);
+      expect(actualFiles).toBeDefined();
+      // The sibling leaked in, proving the collision is real against this
+      // repo's actual files (not a synthetic fixture).
+      expect(actualFiles).toContain(REAL_COLLISION_LONG_PATH);
+      // And detectShardScopeViolations catches it, exactly as the
+      // production orchestration's backstop would.
+      const violations = detectShardScopeViolations([REAL_COLLISION_SHORT_PATH], actualFiles ?? []);
+      expect(violations).toEqual([REAL_COLLISION_LONG_PATH]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it("the `./`-prefixed positional arg (the production fix) runs ONLY the intended file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "run-tests-main-sharded-collision-test-"));
+    const junitPath = join(dir, "shard.xml");
+    try {
+      await runShardsConcurrently(
+        [
+          {
+            label: "prefixed",
+            command: [
+              "bun",
+              "test",
+              ...BUN_TEST_PRELOAD_ARGS,
+              "--reporter=junit",
+              `--reporter-outfile=${junitPath}`,
+              // `./`-prefixed -- the actual production fix.
+              `./${REAL_COLLISION_SHORT_PATH}`,
+            ],
+          },
+        ],
+        30_000
+      );
+      const actualFiles = collectShardActualFiles(junitPath);
+      expect(actualFiles).toEqual([REAL_COLLISION_SHORT_PATH]);
+      const violations = detectShardScopeViolations([REAL_COLLISION_SHORT_PATH], actualFiles ?? []);
+      expect(violations).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30000);
 });
 
 // ---------------------------------------------------------------------------
@@ -512,9 +684,7 @@ describe("fault-injection acceptance test: truncated shard vs a REAL suite file"
           command: [
             "bun",
             "test",
-            "--preload",
-            "./tests/setup.ts",
-            "--timeout=15000",
+            ...BUN_TEST_PRELOAD_ARGS,
             "scripts/run-tests-sharded-prototype.test.ts",
           ],
         },

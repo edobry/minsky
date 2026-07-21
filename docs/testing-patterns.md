@@ -431,3 +431,70 @@ mt#2662 incident.
 - `bunfig.toml` — `[test]` defaults (`preload`, `randomize`, `pathIgnorePatterns`) used by
   bare `bun test`; see the note in the file itself on why `src/mcp` is excluded via the
   wrapper scripts rather than `pathIgnorePatterns`
+
+## mt#2990: opt-in parallel-sharded test runner (`bun run test:sharded`)
+
+The main suite (`bun run test` / `scripts/run-tests-main.ts`) runs strictly sequentially in
+one `bun test` process (~130s wall-clock for ~655 files, per mt#2933/mt#2981's measurements).
+`scripts/run-tests-main-sharded.ts` is an ADDITIVE, OPT-IN alternative that splits the same
+file set across N concurrently-spawned `bun test` processes and reports one aggregated
+pass/fail result — **not** a replacement for `bun run test`, `.husky/pre-push`, or
+`src/hooks/pre-commit.ts`, all of which are unchanged and still use the sequential path.
+
+### Usage
+
+```bash
+bun run test:sharded
+```
+
+Locally, on a 16-core machine, this reduced wall-clock from ~77–85s (sequential) to ~11–17s
+(sharded) — roughly a 4–5x reduction. Numbers vary by core count and machine load; the
+runner logs the shard count and per-shard timing on every invocation.
+
+### Env var overrides
+
+- **`TEST_SHARD_COUNT`** — overrides the auto-detected shard count (default:
+  `os.cpus().length`, capped to the file count). Must be a positive integer.
+- **`TEST_SHARD_TIMEOUT_MS`** — overrides the per-shard timeout (default: 5 minutes,
+  grounded in the ~130s sequential baseline). A shard exceeding this is killed and treated
+  as FAILED; every other still-running shard is aborted too, since the overall run has
+  already failed at that point.
+
+### How it works (brief)
+
+- **Shard-splitting:** greedy LPT (longest-processing-time-first) bin-packing by historical
+  per-file duration, round-robin fallback for files with no timing history yet (cold start).
+- **Duration cache:** `scripts/test-duration-cache.json` (gitignored, local/machine-specific)
+  — a flat `{ file: durationMs }` map self-updated from each run's own per-shard
+  `--reporter=junit` output. Delete it any time to reset to cold-start round-robin.
+  Corrupt or unreadable, it is silently ignored (falls back to round-robin), never a
+  hard failure.
+- **Aggregation contract:** preserves this doc's mt#2665 fail-closed discipline per shard
+  (a shard exiting 0 with no "Ran N tests across M files" line is FAILED regardless of exit
+  code) plus fail-closed `<N> fail` parsing, then synthesizes a single unified summary line
+  in bun's own exact textual shape so a future wiring into `ci.yml`/`.husky/pre-push` would
+  need no gate rewrite.
+- **Cross-shard file-targeting:** `bun test <path>` matches positional args as SUBSTRINGS
+  against its own default repo-wide discovery, not as exact single-file targets — confirmed
+  empirically: `packages/domain/src/**` mirrors several `src/**` paths one-for-one (e.g. both
+  `src/composition/container.test.ts` and
+  `packages/domain/src/composition/container.test.ts` exist), and the shorter path is a
+  literal substring of the longer one, so an un-prefixed shard arg could incidentally also
+  run a sibling shard's file. Every file arg is `./`-prefixed to prevent this, with a
+  defense-in-depth backstop (`detectShardScopeViolations`) that fails a shard closed if
+  anything still leaks in.
+
+### Cross-references
+
+- mt#2981 — the design/investigation pass this implements (full rationale, wall-clock
+  estimate, rejected alternatives, community-practice citations for the bin-packing
+  strategy).
+- mt#2990 — this production implementation; its PR body has the measured wall-clock
+  comparison and the empirical repro for the cross-shard collision above.
+- mt#3014 / mt#3016 — follow-up investigations into two things mt#2990's own live
+  verification surfaced: the cross-shard file-targeting collision's full prevention
+  (beyond the `./`-prefix fix already shipped) and an unrelated test-isolation flake
+  observed only under sharded concurrent execution.
+- `scripts/run-tests-sharded-prototype.ts` — the merged prototype (mt#2981) this production
+  runner hardens; its own file docstring explains why it stays as a historical reference
+  rather than being extended in place.

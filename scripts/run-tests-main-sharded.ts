@@ -65,6 +65,23 @@
  *      `.husky/pre-push` (via scripts/run-tests-gated.ts's
  *      `evaluateBunTestSummary`) grep for.
  *
+ * Cross-shard file-targeting hardening (R1 review, mt#2990 -- found via this
+ * PR's own live verification against the real suite, not anticipated by the
+ * prototype): `bun test <path>` matches positional args as SUBSTRINGS against
+ * its own default repo-wide discovery, not as exact single-file targets.
+ * Confirmed empirically: `packages/domain/src/**` mirrors several `src/**`
+ * paths one-for-one, and an un-prefixed `"src/composition/container.test.ts"`
+ * is a literal substring of
+ * `"packages/domain/src/composition/container.test.ts"` -- so a shard given
+ * the former as a bare arg also runs the latter, regardless of which shard
+ * (if any) it was actually bin-packed into. PRIMARY fix: every file arg is
+ * prefixed with `./`, which anchors the match and eliminates this collision
+ * class (verified). DEFENSE-IN-DEPTH backstop: `detectShardScopeViolations`
+ * compares each shard's own JUnit report against its assigned file list and
+ * fails that shard closed if anything leaked in, catching any collision
+ * class the prefix fix doesn't. See `detectShardScopeViolations`'s docstring
+ * for the full empirical repro.
+ *
  * Shard count: auto-detected via `os.cpus().length`, capped to the file
  * count (never more shards than files -- an excess shard would otherwise be
  * built with zero files); override with TEST_SHARD_COUNT (must be a positive
@@ -247,6 +264,53 @@ export interface ShardOutcome {
    * or a shared abort triggered by a sibling's timeout) rather than exiting
    * normally. */
   timedOut: boolean;
+  /**
+   * Files this shard actually ran (per its own JUnit report) that were NOT in
+   * its assigned file list -- cross-shard leakage (R1 review finding, see
+   * `detectShardScopeViolations`). Populated by the orchestration layer after
+   * parsing the shard's JUnit output; undefined when no JUnit report was
+   * generated for this run (e.g. the caller supplied its own `--reporter`
+   * flag) or none were found.
+   */
+  scopeViolationFiles?: string[];
+}
+
+/**
+ * Returns the subset of `actualFiles` (files a shard's own JUnit report shows
+ * it ran) that are NOT present in `assignedFiles` (the files this shard was
+ * bin-packed to run) -- i.e. files that leaked in from elsewhere.
+ *
+ * Why this is possible at all: `bun test <path>` does NOT treat a positional
+ * argument as an exact single-file target. It performs its own default
+ * repo-wide test-file discovery (governed by `bunfig.toml`, not this
+ * script's `ROOTS`/`EXCLUDE_DIR_PREFIXES`) and matches each given argument as
+ * a SUBSTRING against that discovered set. Confirmed empirically against
+ * this repo's real suite (R1 review, mt#2990): `packages/domain/src/**`
+ * mirrors several `src/**` paths one-for-one (e.g. both
+ * `src/composition/container.test.ts` and
+ * `packages/domain/src/composition/container.test.ts` exist), and
+ * `"src/composition/container.test.ts"` is a literal SUFFIX/substring of
+ * `"packages/domain/src/composition/container.test.ts"` -- so a shard given
+ * the former as a bare positional arg also runs the latter, regardless of
+ * which shard (if any) the latter was actually bin-packed into.
+ *
+ * The PRIMARY fix (see the orchestration below) prefixes every positional
+ * arg with `./`, which anchors the match and empirically eliminates this
+ * specific collision class (confirmed: `bun test ./src/composition/container.test.ts`
+ * runs exactly one file). This function is the DEFENSE-IN-DEPTH backstop:
+ * even with the `./` prefix applied, if some other unanticipated collision
+ * class exists, this detects it from data already being parsed (each shard's
+ * own JUnit report) and fails the run closed rather than silently accepting
+ * inflated/corrupted results -- mirroring this file's `assertBinPackCompleteness`
+ * and the project-wide mt#2665 fail-closed philosophy this task already applies
+ * elsewhere.
+ */
+export function detectShardScopeViolations(
+  assignedFiles: string[],
+  actualFiles: string[]
+): string[] {
+  const assignedSet = new Set(assignedFiles);
+  return actualFiles.filter((f) => !assignedSet.has(f));
 }
 
 /**
@@ -361,6 +425,19 @@ export function verifyShard(outcome: ShardOutcome): ShardVerification {
       reason:
         "shard exceeded its bounded timeout (or was aborted after a sibling did) and was killed -- " +
         "treating as FAILED; a hung shard must never stall the run indefinitely nor pass silently.",
+    };
+  }
+
+  if (outcome.scopeViolationFiles && outcome.scopeViolationFiles.length > 0) {
+    return {
+      label: outcome.label,
+      passed: false,
+      reason:
+        `bun ran ${outcome.scopeViolationFiles.length} file(s) not assigned to this shard -- ` +
+        "cross-shard substring-match leakage (see detectShardScopeViolations' docstring): " +
+        `${outcome.scopeViolationFiles.slice(0, 5).join(", ")}` +
+        `${outcome.scopeViolationFiles.length > 5 ? ", ..." : ""} -- failing closed rather than ` +
+        "accepting possibly double-counted or cross-contaminated results.",
     };
   }
 
@@ -534,6 +611,24 @@ export function collectShardDurationsSec(junitPaths: string[]): Map<string, numb
   return totals;
 }
 
+/**
+ * Returns the set of unique file paths ONE shard's own JUnit report shows it
+ * actually ran (reusing `parseTestcases`, not re-deriving XML parsing), or
+ * `undefined` if the report is missing or unparseable. Feeds
+ * `detectShardScopeViolations` -- the cross-shard-leakage defense-in-depth
+ * backstop (R1 review, mt#2990). Best-effort like `collectShardDurationsSec`:
+ * never throws.
+ */
+export function collectShardActualFiles(junitPath: string): string[] | undefined {
+  if (!existsSync(junitPath)) return undefined;
+  try {
+    const cases = parseTestcases(readFileSync(junitPath, "utf-8"));
+    return [...new Set(cases.map((c) => c.file))];
+  } catch {
+    return undefined;
+  }
+}
+
 export function mergeDurationsIntoCache(
   cache: DurationCache,
   freshSec: Map<string, number>
@@ -607,7 +702,22 @@ if (import.meta.main) {
       "--timeout=15000",
       ...(junitOutfile ? ["--reporter=junit", `--reporter-outfile=${junitOutfile}`] : []),
       ...rawExtraArgs,
-      ...shardFiles,
+      // `./`-prefixed (R1 review, mt#2990): `bun test <path>` matches its
+      // positional args as SUBSTRINGS against its own default repo-wide
+      // discovery, not as exact single-file targets. Confirmed empirically
+      // against this repo's real suite: `packages/domain/src/**` mirrors
+      // several `src/**` paths one-for-one, and an un-prefixed
+      // `"src/composition/container.test.ts"` is a literal substring of
+      // `"packages/domain/src/composition/container.test.ts"` -- so an
+      // un-prefixed shard arg can incidentally run a sibling shard's file
+      // too. The leading `./` anchors the match and eliminates this
+      // collision class (verified: `bun test ./src/composition/container.test.ts`
+      // runs exactly the one intended file); bun's own JUnit `file` attribute
+      // still reports the un-prefixed form, so this has no effect on the
+      // duration-cache key format (verified). `detectShardScopeViolations`
+      // below is the defense-in-depth backstop for anything this doesn't
+      // catch.
+      ...shardFiles.map((f) => `./${f}`),
     ];
     return { label: `shard-${i}`, command };
   });
@@ -621,12 +731,12 @@ if (import.meta.main) {
   console.log("");
 
   const startedAt = Date.now();
-  const outcomes = await runShardsConcurrently(shardCommands, shardTimeoutMs);
+  const rawOutcomes = await runShardsConcurrently(shardCommands, shardTimeoutMs);
   const wallClockMs = Date.now() - startedAt;
 
   // Re-emit each shard's own output so a human/CI log still shows real
   // failures and their context, not just the synthesized aggregate below.
-  for (const o of outcomes) {
+  for (const o of rawOutcomes) {
     console.log(`\n=== ${o.label} ===`);
     if (o.stdout) process.stdout.write(o.stdout);
     if (o.stderr) process.stderr.write(o.stderr);
@@ -636,6 +746,19 @@ if (import.meta.main) {
       );
     }
   }
+
+  // Defense-in-depth (R1 review, mt#2990): even with the `./`-prefix fix
+  // above, detect from each shard's own JUnit report whether it ran any file
+  // it wasn't assigned (cross-shard substring-match leakage) and fail that
+  // shard closed rather than silently accept inflated/corrupted results.
+  const outcomes = shardTmpDir
+    ? rawOutcomes.map((o, i) => {
+        const actualFiles = collectShardActualFiles(join(shardTmpDir, `shard-${i}.xml`));
+        if (!actualFiles) return o;
+        const violations = detectShardScopeViolations(shards[i], actualFiles);
+        return violations.length > 0 ? { ...o, scopeViolationFiles: violations } : o;
+      })
+    : rawOutcomes;
 
   const result = aggregateShardResults(outcomes);
 
