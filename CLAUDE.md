@@ -302,6 +302,13 @@ reminder. Hooks: `deploy-surface-detector.ts` + `require-deploy-verification-bef
 `deploy-verification-after-merge.ts`. Escapes: `[no-deploy-impact]` title; a `Deploy
 verification:` marker (label+colon or any-level heading, case-insensitive); `MINSKY_SKIP_DEPLOY_VERIFY=1`.
 Fail: open (unresolvable repo/PR/non-surface); PostToolUse always exits 0.
+**Gap A extension (mt#2545):** a SECOND, independent condition on the same PreToolUse hook — a
+build-surface PR (tray `src-tauri/**` only) whose body asserts altitude-4 usability ("you can use
+it now" / "ready to use" / "it's live", per `claim-confidence.mdc` Axis A) without an explicit
+rebuild + reinstall acknowledgment is hard-blocked. `[no-deploy-impact]` does NOT bypass this
+check (a tray build-surface file IS a deploy/build surface); the only escapes are adding the
+acknowledgment itself or `MINSKY_SKIP_USABILITY_CLAIM_CHECK=1` (independent of
+`MINSKY_SKIP_DEPLOY_VERIFY`).
 Doc: `deploy-verification-merge-gate.md`.
 
 ## Growth-Justification Merge Gate
@@ -469,8 +476,16 @@ Doc: `session-end-transcript-ingest-hook.md`.
 - **Wall-of-text** — flags a turn-end report >2x the ~200-word Tier-1 budget or label-led
   (mt#2870). `wall-of-text-detector.ts`; log `.minsky/wall-of-text-calibration.jsonl`;
   override `MINSKY_SKIP_WALL_OF_TEXT=1`. Doc: `wall-of-text-detector.md`.
+- **Build-claim injection** — the mt#2707-RFC build/deploy-claim seam (mt#2923): fires when an
+  in-session `session_pr_merge` touched a deploy/build surface (shared `deploy-surface.ts`
+  detection with mt#2545) AND the prior turn makes a usability/delivery claim AND no
+  rebuild/reinstall/deploy evidence (`install-local.sh`, `tauri build`,
+  `deployment_wait-for-latest`, or equivalent) appears in the session. `build-claim-injection-detector.ts`;
+  log `.minsky/build-claim-injection-calibration.jsonl`; graduation contract `reviewByDays: 30`
+  (mt#2896 never-reviewed-aging leg); override `MINSKY_ACK_BUILD_CLAIM_INJECTION=1`.
+  Doc: `build-claim-injection-detector.md`.
 
-All five: fail open on transcript/read error.
+All six: fail open on transcript/read error.
 
 ## Guard-Health Tracker + Escalation Detector
 

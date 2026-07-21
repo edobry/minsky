@@ -38,6 +38,7 @@ const DEFERRAL_KIND = "ask-routing-deferral";
 const DEFERRAL_CLASS = "principal-reserved";
 const CODE_MECHANISM_KIND = "code-mechanism-assertion";
 const SILENT_STRETCH_KIND = "silent-stretch";
+const BUILD_CLAIM_INJECTION_KIND = "build-claim-injection";
 const TEST_ASK_ID = "483dbcb0-788a-4159-9d8a-ba718ba1f2b0";
 const RETRO_PATH = ".minsky/retrospective-trigger-calibration.jsonl";
 const CAUSAL_GUARD_NAME = "causal-premise-detector";
@@ -107,8 +108,8 @@ function buildLines(count: number, makeLine: (i: number) => string): string {
 // ---------------------------------------------------------------------------
 
 describe("CALIBRATION_LOG_REGISTRY", () => {
-  test("has eight entries (mt#2619 adds three; mt#2866 adds silent-stretch; mt#2870 adds wall-of-text)", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(8);
+  test("has nine entries (mt#2619 adds three; mt#2866 adds silent-stretch; mt#2870 adds wall-of-text; mt#2923 adds build-claim-injection)", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(9);
   });
 
   test("first entry is causal-premise", () => {
@@ -160,6 +161,15 @@ describe("CALIBRATION_LOG_REGISTRY", () => {
     expect(CALIBRATION_LOG_REGISTRY[7]?.name).toBe("wall-of-text");
     expect(CALIBRATION_LOG_REGISTRY[7]?.path).toBe(".minsky/wall-of-text-calibration.jsonl");
   });
+
+  test("ninth entry is build-claim-injection (mt#2923) with a reviewByDays graduation contract", () => {
+    expect(CALIBRATION_LOG_REGISTRY[8]?.kind).toBe(BUILD_CLAIM_INJECTION_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[8]?.name).toBe(BUILD_CLAIM_INJECTION_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[8]?.path).toBe(
+      ".minsky/build-claim-injection-calibration.jsonl"
+    );
+    expect(CALIBRATION_LOG_REGISTRY[8]?.reviewByDays).toBe(30);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -171,7 +181,7 @@ describe("parseCalibrationRecord", () => {
     const line = makeCausalRecord(["because of the config"]);
     const result = parseCalibrationRecord(line, "causal-premise");
     expect(result).not.toBeNull();
-    if (!result || !("matchedPhrases" in result)) throw new Error("wrong type");
+    if (!result || !("hadSameTurnVerification" in result)) throw new Error("wrong type");
     expect(result.matchedPhrases).toEqual(["because of the config"]);
     expect(result.hadSameTurnVerification).toBe(false);
   });
@@ -1229,6 +1239,16 @@ const KIND_FIXTURES: Readonly<
       }),
     expectedGuardName: "wall-of-text-detector",
   },
+  "build-claim-injection": {
+    line: () =>
+      JSON.stringify({
+        timestamp: "2026-07-21T12:00:00Z",
+        session_id: "test-session",
+        matchedPhrases: ["you can use it now"],
+        deploySurfaceFiles: ["cockpit-tray/src-tauri/src/main.rs"],
+      }),
+    expectedGuardName: "build-claim-injection-detector",
+  },
 };
 
 describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
@@ -1254,8 +1274,8 @@ describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
     }
   });
 
-  test("CALIBRATION_LOG_REGISTRY has exactly 8 entries and every kind has a fixture above", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(8);
+  test("CALIBRATION_LOG_REGISTRY has exactly 9 entries and every kind has a fixture above", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(9);
     for (const entry of CALIBRATION_LOG_REGISTRY) {
       expect(KIND_FIXTURES[entry.kind]).toBeDefined();
     }
