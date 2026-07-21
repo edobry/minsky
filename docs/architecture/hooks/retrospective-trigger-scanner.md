@@ -46,10 +46,38 @@ research X?") would false-positive. Per ADR-024 this family is a
 Rung-1 input: plain regex matched on the elided residual, same
 prefilter path as every other family.
 
-**False-positive suppression:** when the prior assistant turn contains a
-`Skill` tool call with `skill: "retrospective"`, ALL trigger-phrase
-detections are suppressed — the agent is already inside a retrospective
-and the phrases are legitimate output.
+**False-positive suppression (mt#3036):** when ANY of the **last 5
+completed assistant turns** contains a `Skill` tool call with `skill:
+"retrospective"`, the **assistant-side R-family scan is suppressed** —
+the agent is already inside a retrospective and the phrases are
+legitimate output. The 5-turn window covers multi-turn advisor-based
+retrospectives, where the Skill invocation lives in turn N and the
+advisor's structured output — required by the skill to carry the
+R-family taxonomy vocabulary ("I conflated", "I should have caught",
+"Assumption Error") — lands 1-3 turns later. A same-turn-only
+suppression missed the invocation and let the output turn's own
+taxonomy vocabulary fire the scanner (the tautology mt#3036 fixed).
+**User-side scans (user-correction, method-redirect) remain LIVE**
+across the whole 5-turn window (PR #2169 R1) — an operator complaint
+or method redirect arriving mid- or post-retrospective is not the same
+event as the retrospective and must fire, mirroring the mt#2672 policy
+that user-correction is never meta-suppressed.
+
+**Defense-in-depth — retro output shape META markers:** structural
+headings distinctive to `/retrospective`'s Step 2a output —
+`## Retrospective:`, `### Agent error (cognitive)`, `### Recurrence
+check`, `### Recurrence-after-DONE`, `**Correction noted**:` — are
+treated as detector-meta context and suppress R-family matching
+whole-turn (mt#3036, extending mt#2672). This catches the same
+tautology when the invocation itself isn't in the visible transcript
+window (e.g., a retrospective's structured output cited or re-surfaced
+in a new conversation). Generic RCA / design-doc headings like
+`### Root cause` and `### Failure mode:` are deliberately NOT in the
+META set (PR #2169 R1) — they appear in ordinary specs, ADRs, and
+incident memos, and suppressing R-family scanning on that content
+would silence real admissions. User-correction and method-redirect
+families are not meta-suppressed here either — a user correction
+inside a retro-output-shaped turn still fires.
 
 **On match:** the hook emits a `HookOutput` with `additionalContext`
 naming each matched phrase, its R-family, and the required action: invoke
@@ -99,6 +127,16 @@ registered in `HOOK_ONLY_ENV_VARS` at
   The redirect matched no negative-valence pattern, no retrospective
   triage fired, and the user had to request the retro explicitly —
   a two-level miss (mt#2446 closes the detection gap).
+- **Multi-turn tautology (2026-07-21, mt#3036):** a full
+  `/retrospective` was invoked and dispatched an advisor subagent; the
+  advisor's structured output — containing the required Step 2a
+  taxonomy vocabulary ("I conflated", "Assumption Error") — landed
+  1-2 turns AFTER the Skill invocation. The same-turn-only suppression
+  saw only the output turn (no `Skill` call in it) and fired the
+  scanner on the retrospective's OWN required output vocabulary,
+  demanding another retrospective for the one just completed. Fix:
+  widen the invocation check to the last 5 completed turns + add
+  retro-output-shape META markers as defense-in-depth.
 
 **Cross-references:**
 
