@@ -81,8 +81,13 @@ export class PostgresProviderFactory {
       }
     } catch (error) {
       // The probe failed before any provider adopted the client — end it here to
-      // avoid leaking the pool.
-      await probedSql.end();
+      // avoid leaking the pool. Guard the cleanup so an end() failure can't mask
+      // the original probe error (matches the provider's initialize() catch).
+      try {
+        await probedSql.end();
+      } catch {
+        /* ignore cleanup errors */
+      }
       log.error(
         "Failed to test PostgreSQL capabilities:",
         error instanceof Error ? error : { error: String(error) }
