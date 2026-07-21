@@ -37,7 +37,12 @@ export {
 export {
   writeTurnsForTranscript,
   extractTurnsForAllTranscripts,
+  fetchTranscriptPage,
+  DEFAULT_EXTRACT_ALL_BATCH_SIZE,
   type ExtractAllTurnsResult,
+  type ExtractAllTurnsOptions,
+  type WriteTurnsResult,
+  type TranscriptPageRow,
 } from "./turn-writer";
 // minsky_session_links `cwd_match` writer + backfill (mt#2441).
 export {
