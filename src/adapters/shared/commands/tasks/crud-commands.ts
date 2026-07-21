@@ -231,7 +231,9 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
             if (ask) {
               blockingAskMap.set(taskId, {
                 kind: ask.kind,
-                id: ask.id,
+                // ask#N short id (mt#2965) when minted/backfilled; falls
+                // back to the uuid for legacy rows pre-backfill.
+                id: ask.shortId ?? ask.id,
                 ...(ask.deadline && { deadline: ask.deadline }),
               });
             }
@@ -483,7 +485,9 @@ export class TasksGetCommand extends BaseTaskCommand<typeof tasksGetParams> {
             if (openAsk) {
               const blockingAsk: BlockingAskInfo = {
                 kind: openAsk.kind,
-                id: openAsk.id,
+                // ask#N short id (mt#2965) when minted/backfilled; falls
+                // back to the uuid for legacy rows pre-backfill.
+                id: openAsk.shortId ?? openAsk.id,
                 ...(openAsk.deadline && { deadline: openAsk.deadline }),
               };
               extras.blockingAsk = blockingAsk;

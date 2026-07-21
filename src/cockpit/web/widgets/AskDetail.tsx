@@ -91,6 +91,8 @@ export interface AskResponse {
 
 export interface AskItem {
   id: string;
+  /** ask#N short id (mt#2965) — absent for legacy asks pre-backfill. */
+  shortId?: string;
   kind: AskKind;
   state: AskState;
   title: string;
@@ -389,7 +391,8 @@ export function AskDetail({
         {/* Metadata */}
         <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
           <div>
-            <span className="font-medium">Id:</span> <CopyId type="ask" id={ask.id} />
+            <span className="font-medium">Id:</span>{" "}
+            <CopyId type="ask" id={ask.id} displayId={ask.shortId} />
           </div>
           <div>
             <span className="font-medium">From:</span>{" "}

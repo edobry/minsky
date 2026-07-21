@@ -28,6 +28,7 @@ import type { AskRecord, AskInsert } from "../storage/schemas/ask-schema";
 import type { Ask, AskState, AskKind, AgentId, AttentionCost } from "./types";
 import { guardTransition, isTerminal, ALL_ASK_STATES, TERMINAL_ASK_STATES } from "./state-machine";
 import { isAllProjects, type ProjectScope } from "../project/scope";
+import { nextShortId, formatShortId } from "../utils/short-id";
 
 // ---------------------------------------------------------------------------
 // Row ↔ domain mapping
@@ -44,6 +45,8 @@ import { isAllProjects, type ProjectScope } from "../project/scope";
 export function toAsk(row: AskRecord): Ask {
   return {
     id: row.id,
+    // ask#N short id (mt#2965) — undefined for legacy rows pre-backfill.
+    shortId: row.shortId ?? undefined,
     kind: row.kind as AskKind,
     classifierVersion: row.classifierVersion,
     state: row.state as AskState,
@@ -601,13 +604,63 @@ export async function respondAndCloseAsk(
 export class DrizzleAskRepository implements AskRepository {
   constructor(private readonly db: PostgresJsDatabase) {}
 
+  /**
+   * Mint the next `ask#N` short id (mt#2965, generalizing mt#2205's
+   * `computeNextTaskId` pattern via the shared `nextShortId` util).
+   *
+   * Targeted query (PR #2110 R1 perf finding): rather than loading every
+   * non-null `short_id` row into memory to fold over client-side, fetch ONLY
+   * the single highest-numbered row via `ORDER BY <numeric suffix> DESC
+   * LIMIT 1` — a `WHERE short_id ~ '^ask#[0-9]+$'` filter (mirroring
+   * `parseShortId`'s shape) excludes any malformed value before the numeric
+   * cast, and the `ORDER BY` computes the numeric suffix server-side so a
+   * lexicographic string sort (which would misorder "ask#10" before
+   * "ask#2") is never used. `nextShortId` remains the single source of
+   * truth for the "+1" computation — this only changes how the CANDIDATE
+   * max is fetched, not how the next id is derived from it.
+   *
+   * Asks have no tombstone table analogous to tasks' `deleted_task_ids`
+   * (mt#2205) — the max is computed over live short ids only, so a deleted
+   * ask's short id MAY be reissued to a new ask. Acceptable for v1 per the
+   * mt#2965 spec; a future task can add a `deleted_ask_short_ids` tombstone
+   * table mirroring the tasks pattern if reuse proves undesirable.
+   */
+  private async nextAskShortId(): Promise<string> {
+    const [top] = await this.db
+      .select({ shortId: asksTable.shortId })
+      .from(asksTable)
+      .where(sql`${asksTable.shortId} ~ '^ask#[0-9]+$'`)
+      .orderBy(sql`(substring(${asksTable.shortId} from 5))::bigint DESC`)
+      .limit(1);
+    const liveIds = top?.shortId ? [top.shortId] : [];
+    return nextShortId("ask", liveIds, []);
+  }
+
   async create(input: CreateAskInput): Promise<Ask> {
-    const rows = await this.db.insert(asksTable).values(toInsert(input)).returning();
-    const row = rows[0];
-    if (!row) {
-      throw new Error("Ask insert returned no row");
+    // Retry loop mirroring MinskyTaskBackend.tryInsertTask (mt#2205): the
+    // short-id proposal (SELECT max) and the INSERT are not atomic, so a
+    // concurrent writer may claim the proposed id between the two. The
+    // unique index on `short_id` turns that race into a clean
+    // onConflictDoNothing no-op we detect and retry against, rather than
+    // silently clobbering or throwing a raw constraint-violation error.
+    const MAX_RETRIES = 5;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const shortId = await this.nextAskShortId();
+      const rows = await this.db
+        .insert(asksTable)
+        .values({ ...toInsert(input), shortId })
+        .onConflictDoNothing({ target: asksTable.shortId })
+        .returning();
+      const row = rows[0];
+      if (row) {
+        return toAsk(row);
+      }
+      // short_id collision — another writer took it; loop and re-propose.
     }
-    return toAsk(row);
+    throw new Error(
+      `Failed to allocate a unique ask short id after ${MAX_RETRIES} attempts. ` +
+        "This indicates extremely high concurrent ask creation — please retry."
+    );
   }
 
   async getById(id: string): Promise<Ask | null> {
@@ -996,9 +1049,13 @@ export class FakeAskRepository implements AskRepository {
 
   async create(input: CreateAskInput): Promise<Ask> {
     const id = `fake-ask-${++this.idCounter}`;
+    // Mirrors DrizzleAskRepository's minting (mt#2965): sequential ask#N,
+    // no tombstones (fake store never retains deleted rows anyway).
+    const shortId = formatShortId("ask", this.idCounter);
     const now = new Date().toISOString();
     const ask: Ask = {
       id,
+      shortId,
       kind: input.kind,
       classifierVersion: input.classifierVersion,
       state: "detected",

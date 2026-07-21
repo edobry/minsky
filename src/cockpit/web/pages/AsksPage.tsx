@@ -173,6 +173,12 @@ function AskRow({
               {ks.priority}
             </span>
           )}
+          {/* ask#N short id (mt#2965) — absent for legacy pre-backfill asks. */}
+          {ask.shortId && (
+            <span className="font-mono text-xs text-muted-foreground flex-shrink-0">
+              {ask.shortId}
+            </span>
+          )}
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
             {ask.title}
           </span>
@@ -243,7 +249,7 @@ function AskRow({
           )}
           <button
             type="button"
-            aria-label={`Open ask ${ask.id}`}
+            aria-label={`Open ask ${ask.shortId ?? ask.id}`}
             title="Full detail (context, escalate)"
             onClick={() => navigate(`/ask/${encodeURIComponent(ask.id)}`)}
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

@@ -27,9 +27,10 @@ import type { PrFile } from "./require-execution-evidence-before-merge";
 import {
   DEPLOY_SURFACE_PATTERNS,
   isDeploySurfaceFile,
+  isLocalAppDeploySurfaceFile,
 } from "../../packages/domain/src/deployment/deploy-surface";
 
-export { DEPLOY_SURFACE_PATTERNS, isDeploySurfaceFile };
+export { DEPLOY_SURFACE_PATTERNS, isDeploySurfaceFile, isLocalAppDeploySurfaceFile };
 
 /**
  * Filter a PR's changed files to the deploy-surface ones.
@@ -68,5 +69,20 @@ export { DEPLOY_SURFACE_PATTERNS, isDeploySurfaceFile };
 export function findDeploySurfaceFiles(files: PrFile[]): string[] {
   return files
     .filter((f) => isDeploySurfaceFile(f.filename) || isDeploySurfaceFile(f.previous_filename))
+    .map((f) => f.filename);
+}
+
+/**
+ * Filter a PR's changed files to the LOCAL-APP (cockpit-tray binary)
+ * deploy-surface ones (mt#2976). Mirrors `findDeploySurfaceFiles` exactly (same
+ * two-check filename / previous_filename logic), keyed on the local-app pattern
+ * set so the tray surface is detected independently of the Railway one.
+ */
+export function findLocalAppDeploySurfaceFiles(files: PrFile[]): string[] {
+  return files
+    .filter(
+      (f) =>
+        isLocalAppDeploySurfaceFile(f.filename) || isLocalAppDeploySurfaceFile(f.previous_filename)
+    )
     .map((f) => f.filename);
 }

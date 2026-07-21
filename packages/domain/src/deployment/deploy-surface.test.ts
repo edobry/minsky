@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   isDeploySurfaceFile,
+  isLocalAppDeploySurfaceFile,
   extractServiceFromPath,
   findAffectedServices,
 } from "./deploy-surface";
@@ -47,6 +48,33 @@ describe("isDeploySurfaceFile", () => {
     expect(() => isDeploySurfaceFile(undefined)).not.toThrow();
     expect(isDeploySurfaceFile(null)).toBe(false);
     expect(isDeploySurfaceFile(undefined)).toBe(false);
+  });
+});
+
+describe("isLocalAppDeploySurfaceFile (mt#2976)", () => {
+  test("matches cockpit-tray binary source (src, Cargo.toml, tauri.conf.json)", () => {
+    expect(isLocalAppDeploySurfaceFile("cockpit-tray/src-tauri/src/menu.rs")).toBe(true);
+    expect(isLocalAppDeploySurfaceFile("cockpit-tray/src-tauri/Cargo.toml")).toBe(true);
+    expect(isLocalAppDeploySurfaceFile("cockpit-tray/src-tauri/tauri.conf.json")).toBe(true);
+  });
+
+  test("does not match cockpit-web, services, or non-src-tauri tray files", () => {
+    expect(isLocalAppDeploySurfaceFile("src/cockpit/web/App.tsx")).toBe(false);
+    expect(isLocalAppDeploySurfaceFile("services/reviewer/Dockerfile")).toBe(false);
+    expect(isLocalAppDeploySurfaceFile("cockpit-tray/README.md")).toBe(false);
+    expect(isLocalAppDeploySurfaceFile("infra/index.ts")).toBe(false);
+  });
+
+  test("is disjoint from the Railway surface — a tray file is NOT a Railway deploy surface", () => {
+    // Load-bearing: keeps the pre-merge gate + session.pr.drive deploy-watch
+    // (both keyed on isDeploySurfaceFile) from ever treating a tray change as a
+    // Railway deploy (mt#2976).
+    expect(isDeploySurfaceFile("cockpit-tray/src-tauri/src/menu.rs")).toBe(false);
+  });
+
+  test("mt#2809: tolerates null/undefined without throwing", () => {
+    expect(isLocalAppDeploySurfaceFile(null)).toBe(false);
+    expect(isLocalAppDeploySurfaceFile(undefined)).toBe(false);
   });
 });
 

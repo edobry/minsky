@@ -22,6 +22,7 @@ import { describe, it, expect, beforeEach } from "bun:test";
 import type { Ask, AskKind } from "./types";
 import {
   FakeAskRepository,
+  DrizzleAskRepository,
   toAsk,
   respondAndCloseAsk,
   ConcurrentTransitionError,
@@ -30,6 +31,7 @@ import type { CreateAskInput } from "./repository";
 import type { AskRecord } from "../storage/schemas/ask-schema";
 import { InvalidAskTransitionError } from "./state-machine";
 import { ALL_PROJECTS } from "../project/scope";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -121,6 +123,181 @@ describe("create", () => {
     const a = await repo.create(makeInput());
     const b = await repo.create(makeInput());
     expect(a.id).not.toBe(b.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ask#N short id minting (mt#2965, FakeAskRepository)
+// ---------------------------------------------------------------------------
+
+describe("short id minting (mt#2965)", () => {
+  it("mints sequential ask#N short ids alongside the uuid PK", async () => {
+    const a = await repo.create(makeInput());
+    const b = await repo.create(makeInput());
+    const c = await repo.create(makeInput());
+
+    expect(a.shortId).toBe("ask#1");
+    expect(b.shortId).toBe("ask#2");
+    expect(c.shortId).toBe("ask#3");
+  });
+
+  it("REGRESSION: the uuid id remains the canonical PK, distinct from short_id", async () => {
+    const a = await repo.create(makeInput());
+    const b = await repo.create(makeInput());
+
+    // The uuid `id` field is untouched by short-id minting — still unique,
+    // still what getById looks up by.
+    expect(a.id).not.toBe(b.id);
+    expect(a.shortId).not.toBe(a.id);
+
+    const fetched = await repo.getById(a.id);
+    expect(fetched?.id).toBe(a.id);
+    expect(fetched?.shortId).toBe(a.shortId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DrizzleAskRepository — short id minting + collision retry (mt#2965)
+//
+// Exercises the ACTUAL production minting path (select-then-insert +
+// onConflictDoNothing + bounded retry), not just FakeAskRepository's
+// simplified mirror above — using a minimal fake Drizzle db that models the
+// real TOCTOU race: a short_id proposal can collide with a row that was
+// invisible to the SELECT (not yet committed-and-visible) but IS enforced by
+// the unique index at INSERT time. Modeled after
+// tests/domain/tasks/minsky-task-backend-id-collision.test.ts's fake-db
+// pattern for the analogous mt#N task-id race.
+// ---------------------------------------------------------------------------
+
+interface FakeAskRow {
+  id: string;
+  shortId: string;
+  [key: string]: unknown;
+}
+
+function createFakeDrizzleAskDb(opts: { preClaimedShortIds?: string[] } = {}) {
+  // `visible` — short ids a SELECT can currently see (committed rows).
+  const visible = new Set<string>();
+  // `claimed` — short ids the unique index will reject an INSERT for,
+  // including ones not yet visible to a SELECT (the race window).
+  const claimed = new Set<string>(opts.preClaimedShortIds ?? []);
+  let nextRowId = 0;
+  let insertAttempts = 0;
+
+  const db = {
+    select(_fields?: unknown) {
+      return {
+        from(_table: unknown) {
+          return {
+            where(_cond: unknown) {
+              const rows = Array.from(visible).map((shortId) => ({ shortId }));
+              return {
+                // Mirrors nextAskShortId's targeted `ORDER BY ... LIMIT 1`
+                // query (PR #2110 R1 perf fix): sort descending by the
+                // numeric suffix — the same ordering a real
+                // `(substring(short_id from 5))::bigint DESC` would
+                // produce — so `[top]` at the call site picks the max.
+                orderBy(_order: unknown) {
+                  const sorted = [...rows].sort((a, b) => {
+                    const na = Number(a.shortId.split("#")[1]);
+                    const nb = Number(b.shortId.split("#")[1]);
+                    return nb - na;
+                  });
+                  return {
+                    limit(n: number) {
+                      return Promise.resolve(sorted.slice(0, n));
+                    },
+                  };
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+    insert(_table: unknown) {
+      return {
+        values(row: FakeAskRow) {
+          return {
+            onConflictDoNothing(_opts?: unknown) {
+              return {
+                returning() {
+                  insertAttempts += 1;
+                  if (claimed.has(row.shortId)) {
+                    // A concurrent writer already holds this short_id. By the
+                    // time we retry, its commit is now visible to a fresh SELECT.
+                    visible.add(row.shortId);
+                    return Promise.resolve([]);
+                  }
+                  const id = row.id ?? `uuid-${nextRowId++}`;
+                  const inserted = {
+                    ...row,
+                    id,
+                    createdAt: new Date(),
+                    kind: row.kind ?? "quality.review",
+                    classifierVersion: row.classifierVersion ?? "v1.0.0",
+                    state: "detected",
+                    requestor: row.requestor ?? "test-agent",
+                    title: row.title ?? "",
+                    question: row.question ?? "",
+                    metadata: row.metadata ?? {},
+                  };
+                  claimed.add(row.shortId);
+                  visible.add(row.shortId);
+                  return Promise.resolve([inserted]);
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  return {
+    db: db as unknown as PostgresJsDatabase,
+    get insertAttempts() {
+      return insertAttempts;
+    },
+  };
+}
+
+describe("DrizzleAskRepository — short id minting (mt#2965)", () => {
+  it("mints ask#1 then ask#2 on sequential creates against the real minting path", async () => {
+    const { db } = createFakeDrizzleAskDb();
+    const repo = new DrizzleAskRepository(db);
+
+    const a = await repo.create(makeInput());
+    const b = await repo.create(makeInput());
+
+    expect(a.shortId).toBe("ask#1");
+    expect(b.shortId).toBe("ask#2");
+    // REGRESSION: uuid id is still the PK — unaffected by short-id minting.
+    expect(a.id).not.toBe(b.id);
+    expect(a.id).not.toBe(a.shortId);
+  });
+
+  it("retries past a short_id collision invisible to the SELECT snapshot (TOCTOU race)", async () => {
+    // "ask#1" is already claimed by a concurrent writer but not yet visible
+    // to a fresh SELECT — the exact race the retry loop exists to handle.
+    const fake = createFakeDrizzleAskDb({ preClaimedShortIds: ["ask#1"] });
+    const repo = new DrizzleAskRepository(fake.db);
+
+    const ask = await repo.create(makeInput());
+
+    expect(ask.shortId).toBe("ask#2");
+    // Read live (a getter) AFTER the operation — destructuring it up front
+    // would capture the value at construction time (0), not after retries.
+    expect(fake.insertAttempts).toBe(2); // first attempt collided, second succeeded
+  });
+
+  it("throws after MAX_RETRIES exhausted when every proposed id keeps colliding", async () => {
+    const { db } = createFakeDrizzleAskDb({
+      preClaimedShortIds: ["ask#1", "ask#2", "ask#3", "ask#4", "ask#5"],
+    });
+    const repo = new DrizzleAskRepository(db);
+
+    await expect(repo.create(makeInput())).rejects.toThrow(/unique ask short id/i);
   });
 });
 
@@ -814,6 +991,8 @@ describe("toAsk — service-window NULL coalescing (B2, mt#1488 R3)", () => {
   function makeLegacyRow(overrides: Partial<AskRecord> = {}): AskRecord {
     return {
       id: "00000000-0000-0000-0000-000000000001",
+      // Legacy row predates the short_id column (mt#2965) — NULL until backfilled.
+      shortId: null,
       kind: "quality.review",
       classifierVersion: "v1.0.0",
       state: "detected",
