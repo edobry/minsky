@@ -30,11 +30,12 @@
 --   psql "$APP_URL" -c 'SELECT count(*) FROM tasks'          -- must succeed
 
 -- Refuse to run without the password variable (psql would otherwise substitute
--- the literal text as the password).
+-- the literal text as the password). ON_ERROR_STOP makes any failure abort the
+-- run with a non-zero exit code instead of continuing in an aborted transaction.
+\set ON_ERROR_STOP on
 \if :{?app_password}
 \else
-\warn 'ERROR: app_password not set. Run with: psql ... -v app_password="$APP_PW" -f scripts/supabase-app-role.sql'
-\quit 1
+DO $$ BEGIN RAISE EXCEPTION 'app_password not set. Run with: psql ... -v app_password="$APP_PW" -f scripts/supabase-app-role.sql'; END $$;
 \endif
 
 BEGIN;
