@@ -980,3 +980,63 @@ describe("run() (dispatcher-compatible)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#2467 replay (subsumed into mt#2357): the 2026-06-12 skill-suppression FP.
+// The Skill(retrospective) invocation and the retro-formatted output spanned
+// what the OLD turn-bounding treated as two turns — the skill-body user-role
+// message ("Base directory for this skill: ...") registered as a real prompt
+// boundary, so detectSkillBypass's same-turn suppression looked in the wrong
+// turn and fired on legitimate /retrospective output. With the mt#2357
+// isRealUserPrompt fix the turn spans the skill launch and suppression sees
+// the invocation.
+// ---------------------------------------------------------------------------
+
+describe("mt#2467 replay — skill body must not split the suppression turn", () => {
+  const retroOutput = [
+    "## Acknowledgment",
+    "I made an error here.",
+    "",
+    "## Root cause",
+    "I anchored on X without verifying Y.",
+  ].join("\n");
+
+  const skillBodyLine: TranscriptLine = {
+    type: "user",
+    isMeta: true,
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "Base directory for this skill: /Users/x/.claude/skills/retrospective\n\n# Retrospective\n...",
+        },
+      ],
+    },
+  };
+
+  test("Skill invocation -> skill body -> retro output, one logical turn: NO fire", () => {
+    const lines: TranscriptLine[] = [
+      { type: "user", message: { role: "user", content: "retro this" } },
+      makeToolUseLine("Skill", { skill: "retrospective", args: "" }),
+      skillBodyLine,
+      makeAssistantLine(retroOutput),
+      { type: "user", message: { role: "user", content: "thanks" } },
+    ];
+    const turn = extractLastAssistantTurn(lines);
+    const result = detectSkillBypass(turn);
+    expect(result.matched).toBe(false);
+  });
+
+  test("control: same shape WITHOUT the Skill invocation still fires", () => {
+    const lines: TranscriptLine[] = [
+      { type: "user", message: { role: "user", content: "summarize" } },
+      skillBodyLine,
+      makeAssistantLine(retroOutput),
+      { type: "user", message: { role: "user", content: "thanks" } },
+    ];
+    const turn = extractLastAssistantTurn(lines);
+    const result = detectSkillBypass(turn);
+    expect(result.matched).toBe(true);
+  });
+});

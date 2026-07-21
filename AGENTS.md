@@ -1277,6 +1277,17 @@ signals; reminds to invoke `/retrospective` (suppressed if already invoked). Hoo
 `retrospective-trigger-scanner.ts`. Log: `.minsky/retrospective-trigger-calibration.jsonl`.
 Override: `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1`. Fail: open on transcript error.
 Doc: `retrospective-trigger-scanner.md`.
+Stop-event sibling (mt#2357): `turn-end-retro-scan.ts` — advisory turn-end scan (registry,
+via `dispatch-stop.ts`); dedup caps phrases at one beat; same override/log (`channel:"stop"`).
+Doc: `turn-end-retro-scan.md`.
+
+## Code-Mechanism-Assertion Detector
+
+UserPromptSubmit: flags an asserted-but-unread code-symbol behavior claim.
+mt#3002 excludes file-name/hex-id symbol FPs and flips
+`INJECTION_ENABLED=true` (calibration-only since mt#2486). Hook:
+`code-mechanism-assertion-detector.ts`. Override:
+`MINSKY_ACK_CODE_MECHANISM_ASSERTION=1`. Fail: open. Doc: same-name `.md`.
 
 ## Injection Hooks (UserPromptSubmit)
 

@@ -9,6 +9,10 @@ scripts/cold-start-results.json
 # mt#2968: machine-specific benchmark output from scripts/benchmark-cold-boot.ts
 # (absolute paths, timestamps — baseline is recorded in the mt#2968 task record, not here)
 scripts/cold-boot-benchmark-results.json
+# mt#2990: self-updating per-file test-duration cache written by
+# scripts/run-tests-main-sharded.ts after every run (bin-packing input for the
+# NEXT run) — local, machine-specific measurements, not committed.
+scripts/test-duration-cache.json
 # mt#1930: ephemeral output from scripts/principal-corpus/ — classifier cache,
 # ingestion stats, memeplex JSON. Local runtime artifacts; not committed.
 tmp/

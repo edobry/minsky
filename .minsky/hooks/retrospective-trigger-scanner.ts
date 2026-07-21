@@ -34,12 +34,14 @@ import {
   extractLastAssistantTurn,
   extractAssistantText,
   extractLastUserMessage,
+  findRealPromptIndices,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { elideQuotedAndCodeContexts } from "./elision";
+import { flagKey, readFlagged, turnKeyFor } from "./turn-end-scan-store";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -346,6 +348,54 @@ export function detectMethodRedirect(userText: string, priorAssistantText: strin
 }
 
 // ---------------------------------------------------------------------------
+// Turn-end dedup (mt#2357)
+// ---------------------------------------------------------------------------
+
+/**
+ * The families the Stop-event guard actually scans — the ONLY families
+ * {@link filterStopFlagged} may ever drop. Enforced in code (PR #2148 R1):
+ * user-correction / method-redirect are prompt-side families the Stop guard
+ * never sees, so they pass through unconditionally even if a matching store
+ * key were somehow present — a future caller reusing this helper on
+ * user-side matches cannot silently over-filter.
+ */
+const STOP_SCANNED_FAMILIES: ReadonlySet<TriggerFamily> = new Set(["R1", "R2", "R3", "R4", "R5"]);
+
+/**
+ * Drop assistant-turn matches already flagged by the turn-end (Stop) scan of
+ * this SAME turn (mt#2357). The Stop guard scans "the final turn" (after the
+ * transcript's last real prompt); by the time this prompt-time scanner runs,
+ * that same turn is "the last completed turn" — opened by the SECOND-TO-LAST
+ * real prompt — so the shared turn key (opening prompt's uuid/timestamp)
+ * lines up across both scans. Only {@link STOP_SCANNED_FAMILIES} are ever
+ * filtered (enforced below, not just at call sites). Fail-open: any error
+ * returns the matches unfiltered — dedup is best-effort.
+ */
+export function filterStopFlagged(
+  sessionId: string | undefined,
+  lines: TranscriptLine[],
+  matches: TriggerMatch[],
+  storeDir?: string
+): TriggerMatch[] {
+  if (matches.length === 0) return matches;
+  try {
+    const promptIndices = findRealPromptIndices(lines);
+    if (promptIndices.length < 2) return matches;
+    const opening = lines[promptIndices[promptIndices.length - 2] as number];
+    const key = turnKeyFor(opening);
+    const flagged = readFlagged(sessionId ?? "unknown", storeDir);
+    if (flagged.size === 0) return matches;
+    return matches.filter(
+      (m) =>
+        !STOP_SCANNED_FAMILIES.has(m.family) ||
+        !flagged.has(flagKey(key, m.family, m.matchedPhrase))
+    );
+  } catch {
+    return matches;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Calibration logging
 // ---------------------------------------------------------------------------
 
@@ -476,7 +526,9 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     if (turnLines.length > 0) {
       runAssistantText = extractAssistantText(turnLines);
       if (runAssistantText) {
-        allMatches.push(...detectTriggerPhrases(runAssistantText));
+        allMatches.push(
+          ...filterStopFlagged(input.session_id, lines, detectTriggerPhrases(runAssistantText))
+        );
       }
     }
   } catch (err) {
@@ -599,7 +651,11 @@ export async function main(): Promise<void> {
     if (turnLines.length > 0) {
       mainAssistantText = extractAssistantText(turnLines);
       if (mainAssistantText) {
-        const triggerMatches = detectTriggerPhrases(mainAssistantText);
+        const triggerMatches = filterStopFlagged(
+          input.session_id,
+          lines,
+          detectTriggerPhrases(mainAssistantText)
+        );
         allMatches.push(...triggerMatches);
       }
     }
