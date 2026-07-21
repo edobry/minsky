@@ -143,3 +143,35 @@ describe("startSessionImpl kind-aware status gate (mt#1870)", () => {
     );
   });
 });
+
+describe("principal-driven launch intent (mt#2986)", () => {
+  it("accepts a TODO implementation task and walks it to PLANNING (not IN-PROGRESS)", async () => {
+    const deps = createDeps({ kind: "implementation", initialStatus: "TODO" });
+    const params = {
+      task: "mt#9999",
+      launchIntent: "principal-driven",
+    } as unknown as SessionStartParameters;
+    await startSessionImpl(params, deps);
+    const calls = deps.setStatusSpy.mock.calls as unknown[][];
+    expect(calls.length).toBe(1);
+    expect(calls[0]?.[1]).toBe("PLANNING");
+  });
+
+  it("keeps the READY → IN-PROGRESS walk for principal-driven launches", async () => {
+    const deps = createDeps({ kind: "implementation", initialStatus: "READY" });
+    const params = {
+      task: "mt#9999",
+      launchIntent: "principal-driven",
+    } as unknown as SessionStartParameters;
+    await startSessionImpl(params, deps);
+    const calls = deps.setStatusSpy.mock.calls as unknown[][];
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall?.[1]).toBe("IN-PROGRESS");
+  });
+
+  it("autonomous launches on TODO are still rejected (gate unchanged)", async () => {
+    const deps = createDeps({ kind: "implementation", initialStatus: "TODO" });
+    const params = { task: "mt#9999" } as unknown as SessionStartParameters;
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/READY/);
+  });
+});

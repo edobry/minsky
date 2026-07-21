@@ -25,6 +25,13 @@ export interface StartDrivenSessionInput {
   taskId?: string;
   /** Explicit-directory launch. Omit BOTH fields for a scratch session. */
   cwd?: string;
+  /**
+   * Client-side only (mt#2986): pre-fill the driven-session composer with this
+   * text after landing on /driven/:id (e.g. "/plan-task mt#X" for the plan
+   * action). Never sent to the server; never auto-submitted — the operator
+   * reviews and sends it themselves.
+   */
+  composePrefill?: string;
 }
 
 export interface StartDrivenSessionResponse {
@@ -46,10 +53,11 @@ function isStartDrivenSessionResponse(
 async function postDrivenSession(
   input: StartDrivenSessionInput
 ): Promise<StartDrivenSessionResponse> {
+  const { composePrefill: _composePrefill, ...requestBody } = input;
   const res = await fetch("/api/driven-session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify(requestBody),
   });
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
@@ -68,9 +76,12 @@ export function useStartDrivenSession() {
 
   return useMutation<StartDrivenSessionResponse, Error, StartDrivenSessionInput>({
     mutationFn: postDrivenSession,
-    onSuccess: (session) => {
+    onSuccess: (session, input) => {
       void queryClient.invalidateQueries({ queryKey: ["agents"] });
-      navigate(`/driven/${encodeURIComponent(session.sessionId)}`);
+      const composeQuery = input.composePrefill
+        ? `?compose=${encodeURIComponent(input.composePrefill)}`
+        : "";
+      navigate(`/driven/${encodeURIComponent(session.sessionId)}${composeQuery}`);
     },
   });
 }

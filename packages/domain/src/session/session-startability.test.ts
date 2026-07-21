@@ -11,6 +11,39 @@
  */
 import { describe, it, expect } from "bun:test";
 import { sessionStartBlockedReason, computeSessionStartability } from "./session-startability";
+import type { SessionLaunchIntent } from "./session-startability";
+
+const PRINCIPAL_DRIVEN: SessionLaunchIntent = "principal-driven";
+
+describe("principal-driven launch intent (mt#2986)", () => {
+  it("principal-driven is exempt from the TODO/PLANNING gate (implementation kind)", () => {
+    expect(sessionStartBlockedReason("TODO", "implementation", PRINCIPAL_DRIVEN)).toBeNull();
+    expect(sessionStartBlockedReason("PLANNING", "implementation", PRINCIPAL_DRIVEN)).toBeNull();
+  });
+
+  it("autonomous default is unchanged — omitting intent behaves as autonomous", () => {
+    expect(sessionStartBlockedReason("TODO", "implementation")).toMatch(/READY/);
+    expect(sessionStartBlockedReason("TODO", "implementation", "autonomous")).toMatch(/READY/);
+  });
+
+  it("terminal statuses still refuse under principal-driven (button stays hidden)", () => {
+    expect(computeSessionStartability("DONE", "implementation", false, PRINCIPAL_DRIVEN)).toEqual({
+      startable: false,
+      startBlockedReason: null,
+    });
+    expect(computeSessionStartability("CLOSED", "implementation", true, PRINCIPAL_DRIVEN)).toEqual({
+      startable: false,
+      startBlockedReason: null,
+    });
+  });
+
+  it("computeSessionStartability marks a workspace-less TODO task startable under principal-driven", () => {
+    expect(computeSessionStartability("TODO", "implementation", false, PRINCIPAL_DRIVEN)).toEqual({
+      startable: true,
+      startBlockedReason: null,
+    });
+  });
+});
 
 describe("sessionStartBlockedReason (mt#2959)", () => {
   it("implementation-kind TODO names READY as the required precursor (not PLANNING)", () => {

@@ -44,29 +44,37 @@ export interface TaskDetailPayload {
     outgoing: TaskRef[];
     incoming: TaskRef[];
   };
-  /** Session-start affordance state (mt#2959) — computed server-side. */
-  startability: {
-    startable: boolean;
-    startBlockedReason: string | null;
-  };
+  /**
+   * Stage-appropriate act-here actions (mt#2986) — computed server-side per the
+   * stage→action map; empty for terminal statuses. Replaces mt#2959's
+   * button-shaped `startability` boolean.
+   */
+  actions: TaskAction[];
+}
+
+export interface TaskAction {
+  kind: "plan" | "start" | "resume" | "view-pr";
+  sessionId?: string;
+  prNumber?: number;
+  note?: string;
+}
+
+const ACTION_KINDS = new Set(["plan", "start", "resume", "view-pr"]);
+
+function isTaskAction(v: unknown): v is TaskAction {
+  if (typeof v !== "object" || v === null) return false;
+  const a = v as Record<string, unknown>;
+  return typeof a.kind === "string" && ACTION_KINDS.has(a.kind);
 }
 
 function isTaskDetailPayload(v: unknown): v is TaskDetailPayload {
   if (typeof v !== "object" || v === null) return false;
   const obj = v as Record<string, unknown>;
   if (typeof obj.task !== "object" || obj.task === null) return false;
-  // Validate the startability contract (mt#2959) so a payload missing it fails
-  // loudly (ErrorState) rather than silently dropping the Start-session affordance.
-  const startability = obj.startability as Record<string, unknown> | null | undefined;
-  if (typeof startability !== "object" || startability === null) return false;
-  if (typeof startability.startable !== "boolean") return false;
-  if (
-    startability.startBlockedReason !== null &&
-    typeof startability.startBlockedReason !== "string"
-  ) {
-    return false;
-  }
-  return true;
+  // Validate the actions contract (mt#2986) so a payload missing it fails
+  // loudly (ErrorState) rather than silently dropping the act-here region.
+  if (!Array.isArray(obj.actions)) return false;
+  return (obj.actions as unknown[]).every(isTaskAction);
 }
 
 // ---------------------------------------------------------------------------
@@ -165,70 +173,116 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 // Inner — rendered after data is confirmed
 // ---------------------------------------------------------------------------
 
-type Startability = TaskDetailPayload["startability"];
-
 /**
- * "Start session" affordance (mt#2752 Rung 2C; gating fixed in mt#2959).
+ * Act-here action region (mt#2986; supersedes mt#2959's single gated button).
  *
- * Startability is decided SERVER-SIDE (computeSessionStartability) so the button
- * is only offered when a session can actually start — accounting for the reuse
- * case (a task with an existing workspace is startable from any status). When
- * not startable, the reason is shown inline instead of a dead-end button that
- * surfaces the domain error only after a failed click (the mt#2959 defect).
- *
- * Split so the launch hook (useStartDrivenSession → useMutation/useNavigate) is
- * only mounted on the startable path; the blocked/terminal paths are pure.
+ * Renders the server-computed stage-appropriate actions: every non-terminal
+ * stage offers at least one action that can actually succeed (principal-driven
+ * launches are exempt from the planning gate); terminal stages render nothing.
+ * A note, when present, is the honesty layer — secondary text under the
+ * control, never the sole content.
  */
-export function StartSessionButton({
-  taskId,
-  startability,
-}: {
-  taskId: string;
-  startability: Startability | undefined;
-}) {
-  // Unknown (older payload) or terminal → no affordance (matches prior hiding).
-  if (!startability) return null;
+export function TaskActions({ taskId, actions }: { taskId: string; actions: TaskAction[] }) {
+  if (actions.length === 0) return null;
 
-  if (!startability.startable) {
-    if (!startability.startBlockedReason) return null; // terminal — hidden, as before
-    return (
-      <span className="ml-auto text-xs text-muted-foreground" role="note">
-        {startability.startBlockedReason}
-      </span>
-    );
-  }
-
-  return <StartSessionLaunchButton taskId={taskId} />;
+  return (
+    <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
+      {actions.map((action, i) => (
+        <TaskActionControl key={`${action.kind}-${i}`} taskId={taskId} action={action} />
+      ))}
+    </span>
+  );
 }
 
-/** The live launch control — only rendered when the task is actually startable. */
-function StartSessionLaunchButton({ taskId }: { taskId: string }) {
+function TaskActionControl({ taskId, action }: { taskId: string; action: TaskAction }) {
+  switch (action.kind) {
+    case "plan":
+      return (
+        <LaunchActionButton
+          taskId={taskId}
+          label="Plan in session"
+          ariaLabel={`Plan ${taskId} in a driven session`}
+          title="Spawns a driven claude session in this task's workspace, composer primed with /plan-task"
+          composePrefill={`/plan-task ${taskId}`}
+          note={action.note}
+        />
+      );
+    case "start":
+      return (
+        <LaunchActionButton
+          taskId={taskId}
+          label="Start session"
+          ariaLabel={`Start driven session for ${taskId}`}
+          title="Spawns a driven claude session (bypassPermissions) in the task's isolated workspace clone"
+          note={action.note}
+        />
+      );
+    case "resume":
+      if (!action.sessionId) return null;
+      return (
+        <Button asChild size="sm" variant="outline" className="h-7 px-2.5 text-xs">
+          <Link to={`/agents/${encodeURIComponent(action.sessionId)}`}>Open session</Link>
+        </Button>
+      );
+    case "view-pr":
+      if (action.prNumber === undefined || action.prNumber === null) return null;
+      return (
+        <Button asChild size="sm" variant="outline" className="h-7 px-2.5 text-xs">
+          <Link to={`/changeset/${action.prNumber}`}>View PR #{action.prNumber}</Link>
+        </Button>
+      );
+    default:
+      return null;
+  }
+}
+
+/** Launchable control — the only path that mounts the launch mutation hook. */
+function LaunchActionButton({
+  taskId,
+  label,
+  ariaLabel,
+  title,
+  composePrefill,
+  note,
+}: {
+  taskId: string;
+  label: string;
+  ariaLabel: string;
+  title: string;
+  composePrefill?: string;
+  note?: string;
+}) {
   const start = useStartDrivenSession();
 
   return (
-    <span className="ml-auto flex items-center gap-2">
+    <span className="flex items-center gap-2">
       {start.isError && (
         <span className="text-xs text-destructive" role="alert">
           {start.error.message}
         </span>
       )}
+      {note && !start.isError && (
+        <span className="text-xs text-muted-foreground" role="note">
+          {note}
+        </span>
+      )}
       <Button
         size="sm"
-        onClick={() => start.mutate({ taskId })}
+        onClick={() => start.mutate({ taskId, composePrefill })}
         disabled={start.isPending}
         className="h-7 px-2.5 text-xs"
-        aria-label={`Start driven session for ${taskId}`}
-        title="Spawns a driven claude session (bypassPermissions) in the task's isolated workspace clone"
+        aria-label={ariaLabel}
+        title={title}
       >
         <Play className="h-3.5 w-3.5 mr-1" />
-        {start.isPending ? "Starting…" : "Start session"}
+        {start.isPending ? "Starting…" : label}
       </Button>
     </span>
   );
 }
 
 function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
-  const { task, spec, parent, children, deps, startability } = data;
+  const { task, spec, parent, children, deps, actions } = data;
 
   return (
     <div className="flex flex-col gap-0">
@@ -249,7 +303,7 @@ function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
             {tag}
           </span>
         ))}
-        <StartSessionButton taskId={task.id} startability={startability} />
+        <TaskActions taskId={task.id} actions={actions} />
       </div>
 
       {/* Parent */}
