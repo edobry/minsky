@@ -91,6 +91,12 @@ tree** as the guarded call:
 - `mcp__minsky__tasks_spec_patch` whose `taskId` input matches the target.
 - `mcp__minsky__tasks_spec_search_replace` whose `taskId` input matches the
   target.
+- `mcp__minsky__tasks_edit` whose `taskId` input matches the target AND which
+  carries a non-empty spec-writing operation — `specContent`, `spec`, or
+  `specFile` (the set `edit-commands.ts`'s `hasSpecOperation` recognizes; the
+  full-spec-replacement path `tasks_spec_patch`'s fail-closed message points
+  callers to). A metadata-only `tasks_edit` (status/kind/title/tags, no
+  spec-writing field) is NOT credited. Added by mt#2558.
 
 **Result-parsing robustness (PR #1982 review).** `extractToolResultText()`
 (the helper that reads a `tool_result` block's text before JSON-parsing it)
@@ -220,6 +226,8 @@ evidence that made it urgent.
 - mt#2814 — same-transcript spec-authorship credit (`tasks_create`-with-spec /
   `tasks_spec_patch` / `tasks_spec_search_replace`); adds `specWasAuthored()`
   and `findCreatedResourceIds()`; documents the partial-edit decision above
+- mt#2558 — extends `specWasAuthored()` to credit `tasks_edit` carrying a
+  spec-writing operation (`specContent` / `spec` / `specFile`) as authorship
 - mt#2511 — parent (task-hijack guard); mt#2514 — Seam 2 (merge-time
   PR-task-correspondence guard in `applyPostMergeStateSync`)
 - mt#979 — subsumed (this guard adds the spec-read detection it deemed too brittle)
