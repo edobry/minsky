@@ -456,6 +456,13 @@
       "when": 1784576982809,
       "tag": "0064_third_scarlet_witch",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1784589472180,
+      "tag": "0065_kind_queen_noir",
+      "breakpoints": true
     }
   ]
 }

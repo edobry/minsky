@@ -25,7 +25,11 @@ import {
   validateAsksCreateParams,
   validateAsksEditParams,
   formatAskWaitMessage,
+  resolveAskIdInput,
+  listAsksFiltered,
 } from "./asks";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { CreateAskInput } from "@minsky/domain/ask/repository";
 import type { AskWaitForResponseResult } from "@minsky/domain/ask/wait-for-response";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";
 import {
@@ -1422,5 +1426,167 @@ describe("validateAsksEditParams", () => {
     expect(() =>
       validateAsksEditParams({ metadata: { refreshedFrom: "docs/research/x.md" } })
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveAskIdInput — ask#N short id resolution (mt#2965)
+// ---------------------------------------------------------------------------
+
+describe("resolveAskIdInput (mt#2965)", () => {
+  const ASK_UUID = "483dbcb0-0000-0000-0000-000000000099";
+
+  /**
+   * Fake container satisfying `getAskDb`'s narrow usage
+   * (`container.has("persistence")` + `container.get("persistence")
+   * .getDatabaseConnection()`), backed by a fake db whose `.select().from()
+   * .where()` resolves the given rows regardless of the query condition —
+   * each test pre-seeds exactly the rows the real query would have matched.
+   */
+  function fakeContainer(rows: Array<{ id: string; label?: string }>): AppContainerInterface {
+    const fakeDb = {
+      select(_fields?: unknown) {
+        return {
+          from(_table: unknown) {
+            return {
+              where(_cond: unknown) {
+                return Promise.resolve(rows);
+              },
+            };
+          },
+        };
+      },
+    };
+    return {
+      has: (key: string) => key === "persistence",
+      get: (_key: string) => ({ getDatabaseConnection: async () => fakeDb }),
+    } as unknown as AppContainerInterface;
+  }
+
+  test("passes a full uuid through unchanged", async () => {
+    const container = fakeContainer([]);
+    const id = await resolveAskIdInput(ASK_UUID, container);
+    expect(id).toBe(ASK_UUID);
+  });
+
+  test("resolves ask#7 to the row's uuid via the short_id column", async () => {
+    const container = fakeContainer([{ id: ASK_UUID, label: "my ask" }]);
+    const id = await resolveAskIdInput("ask#7", container);
+    expect(id).toBe(ASK_UUID);
+  });
+
+  test("REGRESSION (mt#2696 unchanged): an unambiguous 8-char hex prefix still resolves", async () => {
+    const container = fakeContainer([{ id: ASK_UUID, label: "my ask" }]);
+    const id = await resolveAskIdInput(ASK_UUID.slice(0, 8), container);
+    expect(id).toBe(ASK_UUID);
+  });
+
+  test("rejects a mismatched-entity short id (e.g. mem#3) without querying the DB", async () => {
+    let queried = false;
+    const container = {
+      has: (key: string) => key === "persistence",
+      get: (_key: string) => ({
+        getDatabaseConnection: async () => ({
+          select() {
+            queried = true;
+            return { from: () => ({ where: () => Promise.resolve([]) }) };
+          },
+        }),
+      }),
+    } as unknown as AppContainerInterface;
+
+    await expect(resolveAskIdInput("mem#3", container)).rejects.toThrow(
+      /short id prefix mismatch/i
+    );
+    expect(queried).toBe(false);
+  });
+
+  test("throws a clean not-found error for an ask#N with no matching row", async () => {
+    const container = fakeContainer([]);
+    await expect(resolveAskIdInput("ask#999", container)).rejects.toThrow(/not found/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listAsksFiltered — asks.list id filter (mt#2965 R1, PR #2110 review round)
+// ---------------------------------------------------------------------------
+
+describe("listAsksFiltered — asks.list id filter (mt#2965 R1)", () => {
+  /** Minimal valid CreateAskInput for this describe block's fixtures. */
+  function makeAskInput(overrides: Partial<CreateAskInput> = {}): CreateAskInput {
+    return {
+      kind: "quality.review",
+      classifierVersion: "v1.0.0",
+      requestor: FIXTURE_RESPONDER_ID,
+      title: "Fixture ask",
+      question: "does this filter correctly?",
+      metadata: {},
+      ...overrides,
+    };
+  }
+
+  test("filters to the single Ask matching a resolved ask#N id", async () => {
+    const repo = new FakeAskRepository();
+    const target = await repo.create(makeAskInput({ title: "Target" }));
+    await repo.create(makeAskInput({ title: "Other" }));
+
+    // Injected resolver mirrors resolveAskIdInput's ask#N -> uuid contract;
+    // resolveAskIdInput's OWN resolution correctness is covered separately
+    // above (the "resolveAskIdInput (mt#2965)" describe block).
+    const resolveId = async (id: string) => (id === "ask#7" ? target.id : id);
+
+    const result = await listAsksFiltered(repo, resolveId, { id: "ask#7" });
+
+    expect(result.total).toBe(1);
+    expect(result.returned).toBe(1);
+    expect(result.asks).toHaveLength(1);
+    expect(result.asks[0]?.id).toBe(target.id);
+    expect(result.asks[0]?.title).toBe("Target");
+  });
+
+  test("filters to the single Ask matching a resolved full uuid (regression: raw uuid unaffected)", async () => {
+    const repo = new FakeAskRepository();
+    const target = await repo.create(makeAskInput({ title: "Target" }));
+    await repo.create(makeAskInput({ title: "Other" }));
+
+    const resolveId = async (id: string) => id; // uuid passthrough, matching resolveAskIdInput
+    const result = await listAsksFiltered(repo, resolveId, { id: target.id });
+
+    expect(result.total).toBe(1);
+    expect(result.asks[0]?.id).toBe(target.id);
+  });
+
+  test("returns the full unfiltered list when no id filter is supplied", async () => {
+    const repo = new FakeAskRepository();
+    await repo.create(makeAskInput({ title: "A" }));
+    await repo.create(makeAskInput({ title: "B" }));
+
+    const resolveId = async (id: string) => id;
+    const result = await listAsksFiltered(repo, resolveId, {});
+
+    expect(result.total).toBe(2);
+  });
+
+  test("combines the id filter with state/kind as an AND — no match yields an empty (not erroring) result", async () => {
+    const repo = new FakeAskRepository();
+    const target = await repo.create(makeAskInput({ title: "Target", kind: "quality.review" }));
+
+    const resolveId = async (_id: string) => target.id;
+    // target is in state "detected" (fresh create) — filtering by "closed" must exclude it.
+    const result = await listAsksFiltered(repo, resolveId, { id: "ask#anything", state: "closed" });
+
+    expect(result.total).toBe(0);
+    expect(result.asks).toHaveLength(0);
+  });
+
+  test("propagates a resolution error (e.g. not-found ask#N) instead of silently returning empty", async () => {
+    const repo = new FakeAskRepository();
+    const resolveId = async (_id: string): Promise<string> => {
+      throw new Error("Ask not found: ask#999");
+    };
+
+    await expect(listAsksFiltered(repo, resolveId, { id: "ask#999" })).rejects.toThrow(
+      /not found/i
+    );
   });
 });
