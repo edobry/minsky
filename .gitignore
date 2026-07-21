@@ -33,6 +33,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # caches
 .eslintcache
 .cache
+
+# mt#2726: reviewer benchmark diff cache (fetched GitHub diffs; regenerable, not committed)
+services/reviewer/eval/cache/
 *.tsbuildinfo
 
 # Hook-calibration telemetry + calibration-review state (mt#2667) — local
