@@ -895,6 +895,52 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // Stop event (mt#2357) — the framework's FIRST Stop-event guard. Runs via
+  // the new `dispatch-stop.ts` entrypoint. Placed BEFORE the
+  // calibration-review-cadence-detector entry to preserve that entry's
+  // documented literal-LAST-entry invariant; cross-event array order is
+  // inert (getGuardsForEvent filters by event before running in order).
+  // -------------------------------------------------------------------------
+  {
+    name: "turn-end-retro-scan",
+    event: "Stop",
+    module: () => import("./turn-end-retro-scan").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "retrospective-trigger",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 2 },
+    canary: {
+      // The guard reads ctx.transcriptLines (needsTranscript) plus the
+      // Stop-specific last_assistant_message; session_id keys the dedup
+      // store, which setup clears so the canary is repeatable (an
+      // un-cleared store would dedup the SECOND canary run into silence
+      // and misreport the guard as broken).
+      input: {
+        session_id: "mt2357-turn-end-canary",
+        transcript_path: "/nonexistent/mt2357-canary.jsonl",
+        last_assistant_message: "I made a mistake in the deploy step.",
+      },
+      transcriptLines: [
+        {
+          type: "user",
+          message: { role: "user", content: "please deploy the service" },
+          uuid: "mt2357-canary-prompt",
+          timestamp: "2026-07-21T00:00:00.000Z",
+        },
+        {
+          type: "assistant",
+          message: { role: "assistant", content: [{ type: "text", text: "Deploying now." }] },
+        },
+      ],
+      expects: "warn",
+      setup: async () => {
+        const store = await import("./turn-end-scan-store");
+        store.clearFlagged("mt2357-turn-end-canary");
+      },
+    },
+  },
+  // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the
   // Phase 2a dispatcher slot in the pre-migration settings.json order. Kept
   // as the LAST entry across the mt#2812 x mt#2824 merge (2026-07-16): both

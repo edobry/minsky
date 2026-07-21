@@ -37,12 +37,14 @@ import {
   extractLastAssistantTurn,
   extractAssistantText,
   extractLastUserMessage,
+  findRealPromptIndices,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { elideQuotedAndCodeContexts } from "./elision";
+import { flagKey, readFlagged, turnKeyFor } from "./turn-end-scan-store";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -349,6 +351,40 @@ export function detectMethodRedirect(userText: string, priorAssistantText: strin
 }
 
 // ---------------------------------------------------------------------------
+// Turn-end dedup (mt#2357)
+// ---------------------------------------------------------------------------
+
+/**
+ * Drop assistant-turn matches already flagged by the turn-end (Stop) scan of
+ * this SAME turn (mt#2357). The Stop guard scans "the final turn" (after the
+ * transcript's last real prompt); by the time this prompt-time scanner runs,
+ * that same turn is "the last completed turn" — opened by the SECOND-TO-LAST
+ * real prompt — so the shared turn key (opening prompt's uuid/timestamp)
+ * lines up across both scans. User-correction / method-redirect matches are
+ * never filtered: they are prompt-side families the Stop guard never scans.
+ * Fail-open: any error returns the matches unfiltered — dedup is best-effort.
+ */
+export function filterStopFlagged(
+  sessionId: string | undefined,
+  lines: TranscriptLine[],
+  matches: TriggerMatch[],
+  storeDir?: string
+): TriggerMatch[] {
+  if (matches.length === 0) return matches;
+  try {
+    const promptIndices = findRealPromptIndices(lines);
+    if (promptIndices.length < 2) return matches;
+    const opening = lines[promptIndices[promptIndices.length - 2] as number];
+    const key = turnKeyFor(opening);
+    const flagged = readFlagged(sessionId ?? "unknown", storeDir);
+    if (flagged.size === 0) return matches;
+    return matches.filter((m) => !flagged.has(flagKey(key, m.family, m.matchedPhrase)));
+  } catch {
+    return matches;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Calibration logging
 // ---------------------------------------------------------------------------
 
@@ -479,7 +515,9 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     if (turnLines.length > 0) {
       runAssistantText = extractAssistantText(turnLines);
       if (runAssistantText) {
-        allMatches.push(...detectTriggerPhrases(runAssistantText));
+        allMatches.push(
+          ...filterStopFlagged(input.session_id, lines, detectTriggerPhrases(runAssistantText))
+        );
       }
     }
   } catch (err) {
@@ -602,7 +640,11 @@ export async function main(): Promise<void> {
     if (turnLines.length > 0) {
       mainAssistantText = extractAssistantText(turnLines);
       if (mainAssistantText) {
-        const triggerMatches = detectTriggerPhrases(mainAssistantText);
+        const triggerMatches = filterStopFlagged(
+          input.session_id,
+          lines,
+          detectTriggerPhrases(mainAssistantText)
+        );
         allMatches.push(...triggerMatches);
       }
     }

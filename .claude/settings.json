@@ -253,6 +253,13 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/typecheck-on-stop.ts",
             "timeout": 60,
             "statusMessage": "Final type check..."
+          },
+          {
+            "_comment": "ADR-028 guard-dispatcher Stop entrypoint (mt#2357): the SOLE settings.json entry for every Stop-event guard registered in .minsky/hooks/registry.ts's GUARD_REGISTRY (currently one: turn-end-retro-scan, the framework's first Stop-event guard — advisory turn-end retrospective-trigger scan, dedup-bounded to one continuation beat per phrase). Do not add new individual Stop hook commands here; register them in GUARD_REGISTRY instead. Timeout=15 (host-cap budget model, hook-files.mdc): the family's worst-case SUM — one guard at timeoutMs 10s — plus dispatcher overhead margin. typecheck-on-stop.ts above stays deliberately standalone (predates the framework; emits its own block decisions on its own 60s budget).",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-stop.ts",
+            "timeout": 15,
+            "statusMessage": "Running guard dispatcher (Stop)..."
           }
         ]
       }
