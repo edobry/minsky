@@ -10,7 +10,12 @@
  * omitting it applies no kind filter.
  */
 import { describe, test, expect } from "bun:test";
-import { tasksListParams, tasksSearchParams, taskEditParams } from "./task-parameters";
+import {
+  tasksListParams,
+  tasksSearchParams,
+  taskEditParams,
+  tasksCreateParams,
+} from "./task-parameters";
 import { WORKFLOWS } from "@minsky/domain/tasks/workflows";
 
 const KNOWN_KINDS = Object.keys(WORKFLOWS);
@@ -49,5 +54,26 @@ describe("tasks_list / tasks_search kind filter param (mt#2762)", () => {
 
   test("kind schema rejects an unknown kind", () => {
     expect(() => tasksListParams.kind.schema.parse("not-a-real-kind")).toThrow();
+  });
+});
+
+describe("tasks_create kind param — governance gap fix (mt#3010)", () => {
+  test("tasksCreateParams.kind reuses the same registry-derived schema as tasksListParams.kind", () => {
+    // Before mt#3010, taskCreationParams.kind was a raw z.string().optional() —
+    // every OTHER kind param in this file already used the validated enum, so
+    // an unknown kind at CREATE time was accepted by the schema and silently
+    // fell back to "implementation" at getWorkflow() time instead of being
+    // rejected up front.
+    expect(tasksCreateParams.kind.schema).toBe(tasksListParams.kind.schema);
+  });
+
+  test("tasksCreateParams.kind schema accepts every known workflow kind", () => {
+    for (const kind of KNOWN_KINDS) {
+      expect(() => tasksCreateParams.kind.schema.parse(kind)).not.toThrow();
+    }
+  });
+
+  test("tasksCreateParams.kind schema rejects an unknown kind", () => {
+    expect(() => tasksCreateParams.kind.schema.parse("not-a-real-kind")).toThrow();
   });
 });
