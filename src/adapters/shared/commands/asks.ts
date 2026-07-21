@@ -306,7 +306,9 @@ const asksListParams = {
       "parentTaskId, createdAt, routedAt) with no question/options/contextRefs/metadata " +
       "body (mt#2748). Default false preserves full ask records for back-compat — pass " +
       "`summary: true` to browse/filter cheaply, or use `asks_get` to fetch one full " +
-      "record by id.",
+      "record by id. The result echoes `summary` (mt#2748 R1 review) so callers can " +
+      "branch safely: `summary: true` on the result means `asks` is `AskSummaryRow[]`; " +
+      "absent/false means `asks` is the full `Ask[]`.",
     required: false,
   },
 };
@@ -343,8 +345,7 @@ export function toAskSummary(ask: Ask): AskSummaryRow {
   };
 }
 
-export interface AsksListResult {
-  asks: Ask[] | AskSummaryRow[];
+interface AsksListResultBase {
   /** True count of everything matching the filters, before the `limit` slice. */
   total: number;
   limit: number;
@@ -353,6 +354,26 @@ export interface AsksListResult {
   /** `returned < total` — true when this payload does NOT contain every match (mt#2817). */
   truncated: boolean;
 }
+
+/** Full-record `asks.list` result — the default (no `summary` requested). */
+export interface AsksListFullResult extends AsksListResultBase {
+  /** Discriminator (mt#2748 R1 review) — absent/false when full records were returned. */
+  summary?: false;
+  asks: Ask[];
+}
+
+/** Compact-projection `asks.list` result — returned when `summary: true` was requested. */
+export interface AsksListSummaryResult extends AsksListResultBase {
+  summary: true;
+  asks: AskSummaryRow[];
+}
+
+/**
+ * Discriminated union (mt#2748 R1 review): `asks.list`'s `execute` returns either
+ * variant depending on the caller's `summary` param. Branch on `result.summary` to
+ * safely narrow `result.asks` to `Ask[]` vs `AskSummaryRow[]` — no unsafe cast needed.
+ */
+export type AsksListResult = AsksListFullResult | AsksListSummaryResult;
 
 async function gatherAsks(
   repo: AskRepository,
@@ -405,7 +426,7 @@ export async function listAsksFiltered(
   repo: AskRepository,
   resolveId: (id: string) => Promise<string>,
   params: ListAsksFilters
-): Promise<AsksListResult> {
+): Promise<AsksListFullResult> {
   const resolvedId = params.id ? await resolveId(params.id) : undefined;
   const gathered = await gatherAsks(repo, params.state, params.kind, params.projectScope);
   const asks = resolvedId ? gathered.filter((a) => a.id === resolvedId) : gathered;
@@ -428,8 +449,9 @@ const asksGetParams = {
   id: {
     schema: z.string().trim().min(1),
     description:
-      "Ask ID (UUID) to fetch. Accepts a full UUID or an unambiguous prefix " +
-      "(>=8 hex chars, mt#2696).",
+      "Ask ID to fetch. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, " +
+      "mt#2696), or an `ask#N` short id (mt#2965) — resolved via the same generalized " +
+      "resolver asks.list/respond/edit/wait-for-response use.",
     required: true,
   },
 };
@@ -1183,7 +1205,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         if (!summary) return result;
         return {
           ...result,
-          asks: (result.asks as Ask[]).map(toAskSummary),
+          summary: true,
+          asks: result.asks.map(toAskSummary),
         };
       },
     })
@@ -1197,8 +1220,9 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       description:
         "Fetch a single full Ask record by id — the ergonomic path for inspecting a " +
         "specific Ask without pulling a whole `asks_list` page (mt#2748). `id` accepts a " +
-        "full UUID or an unambiguous prefix (>=8 hex chars, mt#2696). Use `asks_list` " +
-        "with `summary: true` to browse/filter across many Asks instead.",
+        "full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id " +
+        "(mt#2965). Use `asks_list` with `summary: true` to browse/filter across many Asks " +
+        "instead.",
       requiresSetup: true,
       parameters: asksGetParams,
       execute: async (params): Promise<Ask> => {

@@ -4691,13 +4691,13 @@
                 },
                 {
                   "flags": ["--summary"],
-                  "description": "When true, return compact rows (id, kind, state, title, routingTarget, parentTaskId, createdAt, routedAt) with no question/options/contextRefs/metadata body (mt#2748). Default false preserves full ask records for back-compat — pass `summary: true` to browse/filter cheaply, or use `asks_get` to fetch one full record by id."
+                  "description": "When true, return compact rows (id, kind, state, title, routingTarget, parentTaskId, createdAt, routedAt) with no question/options/contextRefs/metadata body (mt#2748). Default false preserves full ask records for back-compat — pass `summary: true` to browse/filter cheaply, or use `asks_get` to fetch one full record by id. The result echoes `summary` (mt#2748 R1 review) so callers can branch safely: `summary: true` on the result means `asks` is `AskSummaryRow[]`; absent/false means `asks` is the full `Ask[]`."
                 }
               ]
             },
             {
               "name": "get",
-              "description": "Fetch a single full Ask record by id — the ergonomic path for inspecting a specific Ask without pulling a whole `asks_list` page (mt#2748). `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696). Use `asks_list` with `summary: true` to browse/filter across many Asks instead."
+              "description": "Fetch a single full Ask record by id — the ergonomic path for inspecting a specific Ask without pulling a whole `asks_list` page (mt#2748). `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965). Use `asks_list` with `summary: true` to browse/filter across many Asks instead."
             },
             {
               "name": "reconcile",
