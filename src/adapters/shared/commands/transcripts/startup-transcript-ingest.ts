@@ -27,13 +27,18 @@ const INIT_RETRY_DELAY_MS = 5_000;
  * Triggers a background transcript ingest sweep for all discoverable sessions.
  *
  * @param persistenceProvider - The persistence provider from the DI container.
+ * @param options.initRetryDelayMs - mt#2980: overrides `INIT_RETRY_DELAY_MS` for
+ *   the single init-coordination retry in `resolveDb`. Defaults to the real
+ *   5s production delay; tests inject a near-zero value to exercise the
+ *   retry-once behavior without a real 5s sleep.
  */
 export async function triggerStartupTranscriptIngest(
-  persistenceProvider: BasePersistenceProvider
+  persistenceProvider: BasePersistenceProvider,
+  options?: { initRetryDelayMs?: number }
 ): Promise<void> {
   if (!persistenceProvider.capabilities.sql) return;
 
-  const db = await resolveDb(persistenceProvider);
+  const db = await resolveDb(persistenceProvider, options?.initRetryDelayMs);
   if (!db) {
     // mt#2192: surface at warn — a skipped boot sweep means NO automatic
     // ingestion ran this boot, which is an operationally interesting signal
@@ -75,7 +80,10 @@ export async function triggerStartupTranscriptIngest(
   }
 }
 
-async function resolveDb(provider: BasePersistenceProvider): Promise<unknown> {
+async function resolveDb(
+  provider: BasePersistenceProvider,
+  retryDelayMs: number = INIT_RETRY_DELAY_MS
+): Promise<unknown> {
   const getDb =
     "getDatabaseConnection" in provider && typeof provider.getDatabaseConnection === "function"
       ? provider.getDatabaseConnection
@@ -85,6 +93,6 @@ async function resolveDb(provider: BasePersistenceProvider): Promise<unknown> {
   const first = await getDb.call(provider);
   if (first) return first;
 
-  await new Promise((r) => setTimeout(r, INIT_RETRY_DELAY_MS));
+  await new Promise((r) => setTimeout(r, retryDelayMs));
   return getDb.call(provider);
 }

@@ -61,11 +61,27 @@ export class OpenAIEmbeddingService implements EmbeddingService {
   private readonly apiKey: string;
   private readonly baseURL: string;
   private readonly model: string;
+  private readonly retryService: IntelligentRetryService;
 
-  constructor(apiKey: string, baseURL?: string, model?: string) {
+  /**
+   * `retryService` (mt#2980): optional injectable retry-config seam, following
+   * the `postgres-channel-listener.ts` `RetryConfig` precedent. Defaults to
+   * the module-level `sharedRetryService` singleton (preserving the existing
+   * production behavior — one circuit breaker shared across every
+   * `OpenAIEmbeddingService` instance created via `fromConfig()`). Tests can
+   * inject a fast `IntelligentRetryService` (tiny `baseDelay`/`maxDelay` and
+   * `jitterMaxMs: 0`) to exercise the real retry loop without real delays.
+   */
+  constructor(
+    apiKey: string,
+    baseURL?: string,
+    model?: string,
+    retryService?: IntelligentRetryService
+  ) {
     this.apiKey = apiKey;
     this.baseURL = baseURL || "https://api.openai.com/v1";
     this.model = model || "text-embedding-3-small";
+    this.retryService = retryService ?? sharedRetryService;
   }
 
   static async fromConfig(): Promise<OpenAIEmbeddingService> {
@@ -98,7 +114,7 @@ export class OpenAIEmbeddingService implements EmbeddingService {
 
   private async requestWithRetry(inputs: string[]) {
     try {
-      const result = await sharedRetryService.execute(
+      const result = await this.retryService.execute(
         async () => this.request(inputs),
         isRetryableAIError,
         "openai-embeddings"

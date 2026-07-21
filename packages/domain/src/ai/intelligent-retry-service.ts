@@ -20,6 +20,13 @@ export class IntelligentRetryService {
   private readonly maxDelay: number = 60000; // 60 seconds
   private readonly circuitBreakerThreshold: number = 5;
   private readonly circuitBreakerTimeout: number = 60000; // 1 minute
+  // mt#2980: upper bound of the random jitter added to every computed delay
+  // (see `calculateDelay`). This is a FLAT addition independent of
+  // `baseDelay`/`maxDelay` — a test that only overrides those two still pays
+  // up to 1000ms of jitter per retry. Injectable so fast-retry test configs
+  // (e.g. `{ baseDelay: 1, maxDelay: 5, jitterMaxMs: 0 }`) can eliminate it;
+  // defaults to the original hardcoded 1000ms for production callers.
+  private readonly jitterMaxMs: number = 1000;
 
   private circuitBreaker = new Map<string, CircuitBreakerState>();
 
@@ -29,12 +36,14 @@ export class IntelligentRetryService {
     maxDelay?: number;
     circuitBreakerThreshold?: number;
     circuitBreakerTimeout?: number;
+    jitterMaxMs?: number;
   }) {
     this.maxRetries = options?.maxRetries ?? this.maxRetries;
     this.baseDelay = options?.baseDelay ?? this.baseDelay;
     this.maxDelay = options?.maxDelay ?? this.maxDelay;
     this.circuitBreakerThreshold = options?.circuitBreakerThreshold ?? this.circuitBreakerThreshold;
     this.circuitBreakerTimeout = options?.circuitBreakerTimeout ?? this.circuitBreakerTimeout;
+    this.jitterMaxMs = options?.jitterMaxMs ?? this.jitterMaxMs;
   }
 
   async execute<T>(
@@ -148,7 +157,7 @@ export class IntelligentRetryService {
     }
 
     // Add jitter to prevent thundering herd
-    delay = delay + Math.random() * 1000;
+    delay = delay + Math.random() * this.jitterMaxMs;
 
     return Math.floor(delay);
   }

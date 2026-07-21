@@ -699,7 +699,10 @@ describe("NotionKnowledgeProvider retry behavior", () => {
     const { IntelligentRetryService } = await import("../../ai/intelligent-retry-service");
     const provider = new NotionKnowledgeProvider("root", "token", "test", {
       fetch: fetchFn,
-      retryService: new IntelligentRetryService({ maxRetries: 3, baseDelay: 0 }),
+      // mt#2980: baseDelay: 0 alone left ~0.97s of real sleep — the shared
+      // retry service's jitter is a flat `Math.random() * jitterMaxMs`
+      // addition independent of baseDelay/maxDelay. jitterMaxMs: 0 removes it.
+      retryService: new IntelligentRetryService({ maxRetries: 3, baseDelay: 0, jitterMaxMs: 0 }),
     });
 
     const doc = await provider.fetchDocument(pageId);
@@ -758,7 +761,9 @@ describe("NotionKnowledgeProvider retry behavior", () => {
     const { IntelligentRetryService } = await import("../../ai/intelligent-retry-service");
     const provider = new NotionKnowledgeProvider("root", "token", "test", {
       fetch: fetchFn,
-      retryService: new IntelligentRetryService({ maxRetries: 3, baseDelay: 0 }),
+      // mt#2980: see the 502 test above — jitterMaxMs: 0 is required in
+      // addition to baseDelay: 0 to eliminate the real sleep.
+      retryService: new IntelligentRetryService({ maxRetries: 3, baseDelay: 0, jitterMaxMs: 0 }),
     });
 
     const doc = await provider.fetchDocument(pageId);
