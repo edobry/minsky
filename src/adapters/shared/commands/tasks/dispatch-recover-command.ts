@@ -99,6 +99,7 @@ import {
   buildDispatchRecoveryContinuationPrompt,
   DISPATCH_RECOVERY_STALE_MS,
 } from "@minsky/domain/session/dispatch-recovery-classifier";
+import type { PromptType } from "@minsky/domain/session/prompt-generation";
 
 // ---------------------------------------------------------------------------
 // Git-ops seam (mt#2831) — injectable so unit tests never spawn real git.
@@ -213,6 +214,33 @@ export interface DispatchRecoveryEscalationAttempt {
   attemptNumber: number;
   startedAt: string;
   outcome: string | null;
+}
+
+/**
+ * Map the ORIGINAL dispatch's stored `agentType` (e.g. "implementer",
+ * "refactorer") to the `PromptType` used to re-generate a guard-valid
+ * continuation prompt via `generateSubagentPrompt` (mt#2947).
+ *
+ * The recovery narrative built by `buildDispatchRecoveryContinuationPrompt`
+ * is always write/commit-oriented (see its per-classification instructions —
+ * "commit them", "create the PR", "drive it to convergence"). The
+ * "review"/"audit" `PromptType` shapes force a READ-ONLY operating envelope
+ * and OMIT commit/PR instructions entirely (`generateSinglePrompt`'s
+ * `type === "review" | "audit"` branches) — using either here would ship a
+ * prompt that both tells the agent to commit AND tells it commits are
+ * structurally denied. So only the write-capable prompt types
+ * ("implementation" / "refactor" / "cleanup") are honored; anything else
+ * (an unmapped/legacy agent type, or one that maps to "review"/"audit")
+ * falls back to "implementation" — the common shape for git-diff-tracked
+ * session work, which is exactly what this recovery classifier is scoped to
+ * (see the module header's "Covers" list).
+ */
+export function promptTypeForRecovery(
+  agentType: string,
+  agentTypeToPromptType: Record<string, PromptType>
+): PromptType {
+  const mapped = agentTypeToPromptType[agentType];
+  return mapped === "refactor" || mapped === "cleanup" ? mapped : "implementation";
 }
 
 export function createTasksDispatchRecoverCommand(
@@ -413,7 +441,7 @@ export function createTasksDispatchRecoverCommand(
         handoffExists: probe.handoff.exists,
       });
 
-      const continuationPrompt = buildDispatchRecoveryContinuationPrompt({
+      const recoveryInstructions = buildDispatchRecoveryContinuationPrompt({
         taskId,
         sessionId: subagentSessionId,
         sessionDir,
@@ -429,6 +457,49 @@ export function createTasksDispatchRecoverCommand(
         attemptNumber: attemptNumber + 1,
         originalStartedAt: latest.startedAt.toISOString(),
       });
+
+      // mt#2947: wrap the recovery narrative through the SAME generator
+      // `session.generate_prompt` uses (`generateSubagentPrompt`), so the
+      // returned continuationPrompt carries the `<!-- minsky:prompt:v1 -->`
+      // watermark the PreToolUse dispatch guard
+      // (`.minsky/hooks/check-prompt-watermark.ts`) requires before it will
+      // allow an Agent-tool dispatch that references a session directory or
+      // a session write tool. Without this, the documented "redispatch the
+      // continuationPrompt VERBATIM via the Agent tool" protocol
+      // (`/orchestrate`'s "Dispatch watchdog and resume protocol" section,
+      // `.minsky/hooks/inject-dispatch-watchdog.ts`) is unexecutable — the
+      // guard denies it outright (mt#2947's originating incident).
+      //
+      // `workspacePath` is passed explicitly as `sessionDir` (PR #2119 R1
+      // BLOCKING #1): on the "standalone" harness path, `generateSubagentPrompt`
+      // reads `.claude/agents/<type>.md` / `.claude/skills/<name>/SKILL.md`
+      // from `workspacePath`, which defaults to the CALLING PROCESS's
+      // `process.cwd()` when omitted. This command runs server-side inside
+      // the MCP server process — its cwd has no necessary relationship to
+      // the SESSION workspace the resumed agent will actually operate in
+      // (`sessionDir`, resolved above). Omitting `workspacePath` would read
+      // skill/agent definitions from wherever the server happens to be
+      // running, not from the session branch's own checkout — a correctness
+      // risk (stale/divergent skill content) this recovery path should not
+      // carry, even though the sibling `session.generate_prompt` command
+      // (`prompt-command.ts`) currently has the same omission on its own
+      // callsite (a pre-existing gap out of scope for this fix, since that
+      // command is invoked BY the same session's own agent, not server-side
+      // on its behalf).
+      const { generateSubagentPrompt, PROMPT_TYPE_TO_AGENT_TYPE } = await import(
+        "@minsky/domain/session/prompt-generation"
+      );
+      const agentTypeToPromptType = Object.fromEntries(
+        Object.entries(PROMPT_TYPE_TO_AGENT_TYPE).map(([promptType, agent]) => [agent, promptType])
+      ) as Record<string, PromptType>;
+      const continuationPrompt = generateSubagentPrompt({
+        sessionDir,
+        sessionId: subagentSessionId,
+        taskId,
+        type: promptTypeForRecovery(latest.agentType, agentTypeToPromptType),
+        instructions: recoveryInstructions,
+        workspacePath: sessionDir,
+      }).prompt;
 
       // Close out the ORIGINAL row: it has now been classified as died/stalled. The
       // classification describes the ORIGINAL attempt's final state, not the new
