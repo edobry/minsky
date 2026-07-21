@@ -43,7 +43,11 @@
  * output inspection. No such collision exists in the CURRENT file tree
  * (verified during mt#3014's investigation), but the exposure is structural,
  * not merely historical. Every file arg is prefixed with `./` via
- * `toBunTestArgs` below, mirroring the already-validated fix in
+ * `toBunTestArgs` below (reusing scripts/run-related-tests.ts's already-idempotent
+ * `toBunTestPath` -- R1 review, mt#3014: it's a no-op for a path that already
+ * starts with `./`/`../`/`/`, avoiding a `././`-prefixed arg that would fail
+ * to substring-match ANY discovered path, per that file's own docstring for
+ * why it must be idempotent), mirroring the already-validated fix in
  * scripts/run-tests-main-sharded.ts (see that file's header docstring for the
  * full empirical repro) -- anchoring the match and eliminating this
  * collision class.
@@ -52,6 +56,7 @@
  */
 import { readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { toBunTestPath } from "./run-related-tests";
 
 export const ROOTS = [
   "./src",
@@ -95,7 +100,7 @@ export function shouldExclude(relPath: string): boolean {
  * run-tests-main.test.ts and scripts/run-tests-main-sharded.test.ts).
  */
 export function toBunTestArgs(files: string[]): string[] {
-  return files.map((f) => `./${f}`);
+  return files.map((f) => toBunTestPath(f));
 }
 
 function walk(dir: string, out: string[]): void {

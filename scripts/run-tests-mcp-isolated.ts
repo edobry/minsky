@@ -45,6 +45,7 @@
  */
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { toBunTestPath } from "./run-related-tests";
 
 export const MCP_DIR = "./src/mcp";
 
@@ -89,10 +90,14 @@ export function discoverMcpTestFiles(mcpDir: string = MCP_DIR): string[] {
 /**
  * Prefixes a single file path with `./` before it is passed to `bun test` as
  * a positional arg (mt#3014 hardening). See this file's header docstring
- * ("Cross-file substring-collision hardening") for why.
+ * ("Cross-file substring-collision hardening") for why. Reuses
+ * scripts/run-related-tests.ts's already-idempotent `toBunTestPath` (R1
+ * review, mt#3014) rather than duplicating the startsWith check: it is a
+ * no-op for a path that already starts with `./`/`../`/`/`, avoiding a
+ * `././`-prefixed arg that would fail to substring-match ANY discovered path.
  */
 export function toBunTestArg(file: string): string {
-  return `./${file}`;
+  return toBunTestPath(file);
 }
 
 export interface IsolatedRunVerification {

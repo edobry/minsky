@@ -50,6 +50,12 @@ describe("toBunTestArgs", () => {
   it("returns an empty array for an empty input", () => {
     expect(toBunTestArgs([])).toEqual([]);
   });
+
+  it("is idempotent -- does not double-prefix a path that already starts with ./, ../, or /", () => {
+    expect(toBunTestArgs(["./src/a.test.ts"])).toEqual(["./src/a.test.ts"]);
+    expect(toBunTestArgs(["../src/a.test.ts"])).toEqual(["../src/a.test.ts"]);
+    expect(toBunTestArgs(["/abs/src/a.test.ts"])).toEqual(["/abs/src/a.test.ts"]);
+  });
 });
 
 describe("discoverTestFiles / shouldExclude (mt#3014 substring-collision invariant)", () => {
@@ -141,6 +147,13 @@ describe(
       });
       const [stderr] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
       expect(/Ran \d+ tests? across 1 files?/.test(stderr)).toBe(true);
+      // Explicit singular-form check (R1 review, mt#3014): the loose "files?"
+      // regex above would still match a regression to plural "1 files" (bun
+      // never actually emits that grammatically-inconsistent form, but the
+      // regex alone wouldn't catch a typo/logic bug that produced it) --
+      // assert the EXACT singular text bun emits for a genuinely single-file
+      // run.
+      expect(stderr).toContain("across 1 file.");
     }, 30000);
   }
 );

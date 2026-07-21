@@ -33,6 +33,12 @@ describe("toBunTestArg", () => {
   it("prefixes the file path with ./", () => {
     expect(toBunTestArg(SAMPLE_FILE)).toBe(`./${SAMPLE_FILE}`);
   });
+
+  it("is idempotent -- does not double-prefix a path that already starts with ./, ../, or /", () => {
+    expect(toBunTestArg(`./${SAMPLE_FILE}`)).toBe(`./${SAMPLE_FILE}`);
+    expect(toBunTestArg(`../${SAMPLE_FILE}`)).toBe(`../${SAMPLE_FILE}`);
+    expect(toBunTestArg(`/abs/${SAMPLE_FILE}`)).toBe(`/abs/${SAMPLE_FILE}`);
+  });
 });
 
 describe("verifyIsolatedRun", () => {
