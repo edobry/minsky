@@ -10,7 +10,9 @@
  *
  * - DONE   -> GitHub issue closed, state_reason "completed"
  * - CLOSED -> GitHub issue closed, state_reason "not_planned"
- * - every non-terminal status -> open, state_reason null
+ * - every non-terminal status -> open (no state_reason field sent — the GitHub
+ *   API only accepts state_reason alongside a closed state, so it is omitted
+ *   entirely rather than sent as an explicit null; see R1 reviewer finding)
  */
 
 import { describe, test, expect, mock } from "bun:test";
