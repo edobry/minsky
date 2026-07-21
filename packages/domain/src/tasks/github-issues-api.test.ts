@@ -98,7 +98,12 @@ describe("updateIssueStatus — terminal-status close mapping (mt#3032)", () => 
     expect(updateCalls[0]?.state_reason).toBe("not_planned");
   });
 
-  test("a non-terminal status (IN-PROGRESS) leaves the issue open with no state_reason", async () => {
+  test("a non-terminal status (IN-PROGRESS) leaves the issue open and omits state_reason entirely", async () => {
+    // state_reason must be OMITTED (not sent as explicit null) for non-terminal
+    // statuses, to exactly preserve prior behavior for open/reopen transitions
+    // (reviewer-bot R1 finding: an explicit `state_reason: null` for open states
+    // was untested prior behavior and a needless departure from the old payload
+    // shape, which never included the field at all).
     const { octokit, updateCalls } = makeMockOctokit();
 
     await updateIssueStatus(
@@ -112,7 +117,7 @@ describe("updateIssueStatus — terminal-status close mapping (mt#3032)", () => 
 
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]?.state).toBe("open");
-    expect(updateCalls[0]?.state_reason).toBeNull();
+    expect(updateCalls[0]).not.toHaveProperty("state_reason");
   });
 
   test("still preserves non-status labels alongside the state fields", async () => {

@@ -191,6 +191,13 @@ export async function updateIssueStatus(
   // CLOSED close the mirrored issue — previously only DONE did, leaving a
   // cancelled/superseded (CLOSED) task's issue open indefinitely (mt#3012's
   // sibling defect, mt#3032).
+  //
+  // state_reason is only included in the payload when non-null (i.e. for the
+  // two terminal/closing statuses). The GitHub REST API docs note state_reason
+  // is "ignored unless state is changed," but omitting it entirely for
+  // non-terminal statuses preserves the exact prior behavior for open/reopen
+  // transitions rather than introducing an explicit `state_reason: null` that
+  // was never exercised before this fix (reviewer-bot R1 finding).
   const { state, state_reason } = getIssueStateForTaskStatus(status);
 
   const updateResponse = await octokit.rest.issues.update({
@@ -199,7 +206,7 @@ export async function updateIssueStatus(
     issue_number: issueNumber,
     labels: newLabels,
     state,
-    state_reason,
+    ...(state_reason !== null ? { state_reason } : {}),
   });
 
   // Read-back verification: confirm the expected status label was actually applied.
