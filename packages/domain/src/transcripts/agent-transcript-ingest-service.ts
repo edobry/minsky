@@ -347,7 +347,7 @@ export class AgentTranscriptIngestService {
         .limit(1);
       const fullTranscript = fullRows[0]?.transcript ?? null;
       persistedCwd = fullRows[0]?.cwd ?? null;
-      const { nonEmptyYieldedZero } = await writeTurnsForTranscript(
+      const { nonEmptyYieldedZero, erroredChunks } = await writeTurnsForTranscript(
         this.db,
         agentSessionId,
         fullTranscript
@@ -359,6 +359,13 @@ export class AgentTranscriptIngestService {
         // WARN; this makes it count as a degraded ingest too, same as a throw).
         turnExtractError = new Error(
           `Non-empty transcript yielded zero turns for session ${agentSessionId}`
+        );
+      } else if (erroredChunks > 0) {
+        // A failed bulk-upsert chunk is a partial write, not a success — surface
+        // it as a degraded ingest so ingestAll counts this session in
+        // sessionsErrored, matching the sweep and single-session classifications.
+        turnExtractError = new Error(
+          `${erroredChunks} turn-upsert chunk(s) failed for session ${agentSessionId}`
         );
       }
     } catch (err) {
