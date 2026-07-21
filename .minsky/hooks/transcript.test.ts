@@ -6,6 +6,7 @@ import {
   extractToolUseNames,
   extractLastUserMessage,
   findRealPromptIndices,
+  extractFinalTurn,
   type TranscriptLine,
 } from "./transcript";
 
@@ -75,6 +76,28 @@ const interruptMarkerString = (variant: "tool use" | "bare" = "tool use"): Trans
       ? "[Request interrupted by user for tool use]"
       : "[Request interrupted by user]"
   );
+
+/**
+ * A Skill-tool invocation body — the harness-synthesized user-role line that
+ * delivers a skill's instructions (mt#2357). Real shape verified against
+ * live 2026-07-21 transcripts: `isMeta: true`, single text block opening
+ * with "Base directory for this skill:". `withMeta: false` models a harness
+ * version that does not stamp the flag — the text-prefix fallback must
+ * still exclude it.
+ */
+const skillBody = (withMeta = true): TranscriptLine => ({
+  type: "user",
+  ...(withMeta ? { isMeta: true } : {}),
+  message: {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: "Base directory for this skill: /Users/x/.claude/skills/implement-task\n\n# Implement Task\n\nStep-by-step...",
+      },
+    ],
+  },
+});
 
 // ---------------------------------------------------------------------------
 // isRealUserPrompt — the text-content discriminator
@@ -307,5 +330,102 @@ describe("findRealPromptIndices", () => {
     expect(indices).toEqual([0, 3]);
     const turn = extractLastAssistantTurn(lines);
     expect(turn).toEqual(lines.slice((indices[0] as number) + 1, indices[1] as number));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Skill-body exclusion (mt#2357) — a skill launch must not split the turn
+// ---------------------------------------------------------------------------
+
+describe("isRealUserPrompt — skill-body exclusion (mt#2357)", () => {
+  test("skill-body line with isMeta: true is not a real prompt", () => {
+    expect(isRealUserPrompt(skillBody(true))).toBe(false);
+  });
+
+  test("skill-body line WITHOUT isMeta is still excluded via the text prefix", () => {
+    expect(isRealUserPrompt(skillBody(false))).toBe(false);
+  });
+
+  test("skill-body text as bare STRING content is excluded (both content shapes)", () => {
+    expect(
+      isRealUserPrompt(userPrompt("Base directory for this skill: /x/.claude/skills/foo\n\n# Foo"))
+    ).toBe(false);
+  });
+
+  test("any isMeta: true user line (e.g. a skill re-invocation notice) is excluded", () => {
+    const reinvocation: TranscriptLine = {
+      type: "user",
+      isMeta: true,
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "(Re-invocation of /implement-task — ...)" }],
+      },
+    };
+    expect(isRealUserPrompt(reinvocation)).toBe(false);
+  });
+
+  test("ordinary prompts remain real; a prompt merely MENTIONING the prefix mid-text stays real", () => {
+    expect(isRealUserPrompt(userPrompt("do the thing"))).toBe(true);
+    expect(isRealUserPrompt(userPromptTextArray("queued follow-up message"))).toBe(true);
+    expect(
+      isRealUserPrompt(userPrompt('why does the transcript say "Base directory for this skill:"?'))
+    ).toBe(true);
+  });
+
+  test("extractLastAssistantTurn does NOT split at a skill launch", () => {
+    const lines: TranscriptLine[] = [
+      userPrompt("run the skill"),
+      assistantText("Launching the skill now."),
+      assistantToolUse("Skill"),
+      skillBody(true),
+      assistantText("Done with the skill's work."),
+      userPrompt("thanks"),
+    ];
+    expect(findRealPromptIndices(lines)).toEqual([0, 5]);
+    const turn = extractLastAssistantTurn(lines);
+    expect(turn).toHaveLength(4);
+    const text = extractAssistantText(turn);
+    expect(text).toContain("Launching the skill now.");
+    expect(text).toContain("Done with the skill's work.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractFinalTurn (mt#2357) — the Stop-time turn shape
+// ---------------------------------------------------------------------------
+
+describe("extractFinalTurn", () => {
+  test("returns the tail after the last real prompt, plus the opening prompt line", () => {
+    const opening: TranscriptLine = { ...userPrompt("deploy it"), uuid: "u-1" };
+    const lines: TranscriptLine[] = [
+      userPrompt("earlier"),
+      assistantText("earlier turn"),
+      opening,
+      assistantToolUse("Bash"),
+      toolResult(),
+      assistantText("I made a mistake in the deploy step."),
+    ];
+    const { turnLines, openingPrompt } = extractFinalTurn(lines);
+    expect(turnLines).toHaveLength(3);
+    expect(extractAssistantText(turnLines)).toContain("I made a mistake");
+    expect(openingPrompt?.uuid).toBe("u-1");
+  });
+
+  test("spans a mid-turn skill launch without splitting", () => {
+    const lines: TranscriptLine[] = [
+      userPrompt("go"),
+      assistantToolUse("Skill"),
+      skillBody(true),
+      assistantText("post-skill admission text"),
+    ];
+    const { turnLines } = extractFinalTurn(lines);
+    expect(turnLines).toHaveLength(3);
+    expect(extractAssistantText(turnLines)).toContain("post-skill admission text");
+  });
+
+  test("no real prompt at all -> empty turn, undefined opening prompt", () => {
+    const { turnLines, openingPrompt } = extractFinalTurn([toolResult(), assistantText("x")]);
+    expect(turnLines).toEqual([]);
+    expect(openingPrompt).toBeUndefined();
   });
 });

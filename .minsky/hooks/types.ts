@@ -433,6 +433,18 @@ import { join } from "node:path";
 export const DEFAULT_HOST_CAP_SEC = 15;
 
 /**
+ * Canary-mode gate (mt#3004, PR #2145 R1). Set to "1" ONLY by the canary
+ * runner (`scripts/run-guard-canaries.ts`) and by unit tests. The test-only
+ * seams that alter guard behavior via env (memory-search's fixture stub,
+ * the daemon-staleness tracker-home redirect) are honored ONLY when this
+ * gate is active — a production process with one of those vars set but no
+ * canary mode behaves exactly as before. Shared here (not in
+ * canary-runner.ts) so guard modules can import it without a
+ * guard -> canary-runner -> registry -> guard import cycle.
+ */
+export const CANARY_MODE_ENV = "MINSKY_CANARY_MODE";
+
+/**
  * Floor on derived per-call timeouts. Without a clamp, hostCaps in the
  * single-digit seconds (or pathologically small values) can floor to 0 or
  * a few ms, which is shorter than realistic git-call wall time and would

@@ -8,6 +8,7 @@ import { createCockpitServer } from "../../cockpit/server";
 import { startSseBrokerWarmup } from "../../cockpit/routes/events";
 import {
   startAskAdvancementSweeper,
+  startStaleAskCloseSweeper,
   startProdStateRefreshSweeper,
   startTopologySweeper,
   startTranscriptSweepBackstop,
@@ -321,6 +322,11 @@ export function createStartCommand(): Command {
       // expire) so the /asks surface reflects reality. Boot pass + 60s loop;
       // fail-open inside the sweeper.
       const stopAskSweeper = startAskAdvancementSweeper();
+      // Stale-suspended-ask close sweep (mt#3001): recurring reconciliation
+      // over `suspended` asks — close parent-terminal authz/review asks,
+      // close failed-commit orphans superseded by a later landed commit,
+      // expire abandoned commit-auth asks past the TTL. 15-minute cadence.
+      const stopStaleAskCloseSweeper = startStaleAskCloseSweeper();
       // Prod-state cache refresh (mt#2506): periodically read the prod migration
       // ledger and write the local cache that inject-prod-state.ts injects each turn.
       const stopProdStateSweeper = startProdStateRefreshSweeper();
@@ -357,7 +363,7 @@ export function createStartCommand(): Command {
       const stopFollowUpSweeper = startFollowUpSweeper();
       // Sweep meta-watchdog (mt#2894): a "sweep of sweeps" on its OWN
       // self-rescheduling setTimeout chain (deliberately not setInterval —
-      // see sweepers.ts's docblock) that force-restarts any of the seven
+      // see sweepers.ts's docblock) that force-restarts any of the eight
       // sweeps above whose interval has stopped attempting ticks entirely.
       // Covers the class per-tick isolation structurally cannot: a dropped
       // or wedged setInterval handle, not a hung/throwing tick.
@@ -368,6 +374,7 @@ export function createStartCommand(): Command {
         if (shuttingDown) return;
         shuttingDown = true;
         stopAskSweeper();
+        stopStaleAskCloseSweeper();
         stopProdStateSweeper();
         stopTopologySweeper();
         stopTranscriptWatcher();

@@ -220,6 +220,9 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_FORCE_LOOP_TERMINAL", // .claude/hooks/loop-preflight-pr-merge-check.ts
   "MINSKY_POLICY_COVERAGE_MODE", // .claude/hooks/policy-coverage-detector.ts (mt#1541)
   "MINSKY_SKIP_DAEMON_STALENESS", // .claude/hooks/mcp-daemon-staleness-detector.ts
+  "MINSKY_CANARY_MODE", // .claude/hooks/types.ts (mt#3004, PR #2145 R1) — canary-mode gate set only by scripts/run-guard-canaries.ts + tests; the two seams below are honored only while it is "1"
+  "MINSKY_DAEMON_TRACKER_HOME", // .claude/hooks/mcp-daemon-staleness-detector.ts (mt#3004) — canary-gated tracker-home override for the guard-canary suite
+  "MINSKY_MEMORY_SEARCH_CANARY_STUB", // .claude/hooks/memory-search.ts (mt#3004) — canary-gated fixture-file stub replacing the CLI subprocess in the guard-canary suite
   "MINSKY_UNASKED_DIRECTION_DETECTOR", // .claude/hooks/post-merge-unasked-direction-scan.ts
   // mt#1767 / mt#2560 — auto-migration controls in postgres-provider.ts.
   // Process-only; they govern boot-time behavior, not runtime config. Adding to

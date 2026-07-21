@@ -85,16 +85,31 @@ function walk(dir: string, out: string[]): void {
   }
 }
 
-// mt#2932: guarded so `import { ROOTS, EXCLUDE_DIR_PREFIXES, shouldExclude }
-// from "./run-tests-main"` (the changed-file -> related-test mapping layer)
-// can reuse this script's scope/exclusion list without triggering a full
-// `bun test` spawn + process.exit as a side effect of the import.
-if (import.meta.main) {
+/**
+ * Walks `roots` (defaulting to this script's own ROOTS) and returns the sorted
+ * list of `*.test.ts` files, applying the same EXCLUDE_DIR_PREFIXES exclusion
+ * rules as the sequential runner below. Exported (mt#2990) so the sharded
+ * runner (scripts/run-tests-main-sharded.ts) reuses exactly this
+ * file-discovery logic instead of re-deriving it -- the same mt#2932
+ * rationale that already motivated exporting ROOTS/shouldExclude: keep
+ * exactly ONE definition of "what is the main suite".
+ */
+export function discoverTestFiles(roots: string[] = ROOTS): string[] {
   const files: string[] = [];
-  for (const root of ROOTS) {
+  for (const root of roots) {
     walk(root, files);
   }
   files.sort();
+  return files;
+}
+
+// mt#2932: guarded so `import { ROOTS, EXCLUDE_DIR_PREFIXES, shouldExclude }
+// from "./run-tests-main"` (the changed-file -> related-test mapping layer)
+// can reuse this script's scope/exclusion list without triggering a full
+// `bun test` spawn + process.exit as a side effect of the import. mt#2990
+// extends the same guard to cover `discoverTestFiles` (the sharded runner).
+if (import.meta.main) {
+  const files = discoverTestFiles();
 
   if (files.length === 0) {
     console.error(

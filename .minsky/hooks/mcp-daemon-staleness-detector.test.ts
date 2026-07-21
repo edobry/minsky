@@ -10,6 +10,7 @@ import {
   getDaemonStatePath,
   encodeProjectDir,
   OPT_OUT_ENV,
+  TRACKER_HOME_ENV,
   readDaemonStateFile,
   readTracker,
   resolveMinskyHomeDir,
@@ -20,6 +21,7 @@ import {
   type GitDeps,
   type SessionTracker,
 } from "./mcp-daemon-staleness-detector";
+import { CANARY_MODE_ENV } from "./types";
 
 // ---------------------------------------------------------------------------
 // Test constants
@@ -574,5 +576,41 @@ describe("decideAndUpdate", () => {
     // State file will fail shape validation (missing minskyHomeDir) → no-daemon-state
     expect(result.injection).toBeNull();
     expect(result.log.skipReason).toBe("no-daemon-state");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRACKER_HOME_ENV override (mt#3004)
+// ---------------------------------------------------------------------------
+
+describe("TRACKER_HOME_ENV tracker-home override (mt#3004)", () => {
+  // The opt-out early return still computes trackerPath first, so these
+  // tests exercise the home-resolution chain with no fs/git dependencies.
+  test("env override redirects the tracker home when homeOverride is absent (canary mode on)", () => {
+    const result = decideAndUpdate({
+      projectDir: "/p/repo",
+      sessionId: "mt3004-sess",
+      env: { [OPT_OUT_ENV]: "1", [CANARY_MODE_ENV]: "1", [TRACKER_HOME_ENV]: "/canary/home" },
+    });
+    expect(result.trackerPath).toBe(resolveTrackerPath("/p/repo", "mt3004-sess", "/canary/home"));
+  });
+
+  test("explicit homeOverride still wins over the env override", () => {
+    const result = decideAndUpdate({
+      projectDir: "/p/repo",
+      sessionId: "mt3004-sess",
+      env: { [OPT_OUT_ENV]: "1", [CANARY_MODE_ENV]: "1", [TRACKER_HOME_ENV]: "/canary/home" },
+      homeOverride: "/explicit/home",
+    });
+    expect(result.trackerPath).toBe(resolveTrackerPath("/p/repo", "mt3004-sess", "/explicit/home"));
+  });
+
+  test("PR #2145 R1 gating: tracker-home var WITHOUT canary mode is ignored (production posture)", () => {
+    const result = decideAndUpdate({
+      projectDir: "/p/repo",
+      sessionId: "mt3004-sess",
+      env: { [OPT_OUT_ENV]: "1", [TRACKER_HOME_ENV]: "/canary/home" },
+    });
+    expect(result.trackerPath).toBe(resolveTrackerPath("/p/repo", "mt3004-sess"));
   });
 });
