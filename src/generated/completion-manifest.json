@@ -4663,8 +4663,13 @@
           "subcommands": [
             {
               "name": "list",
-              "description": "List Asks with optional state and kind filters",
+              "description": "List Asks with optional id, state, and kind filters. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965).",
               "options": [
+                {
+                  "flags": ["--id"],
+                  "description": "Filter to a single Ask by id — accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965). Resolved via the same generalized resolver used by asks.respond/edit/wait-for-response; throws if the id does not resolve to exactly one Ask.",
+                  "takesValue": true
+                },
                 {
                   "flags": ["--state"],
                   "description": "Filter by Ask state (detected | classified | routed | ...)",

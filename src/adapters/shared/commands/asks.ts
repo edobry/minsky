@@ -223,6 +223,15 @@ export async function resolveAskIdInput(
 // ---------------------------------------------------------------------------
 
 const asksListParams = {
+  id: {
+    schema: z.string().trim().min(1).optional(),
+    description:
+      "Filter to a single Ask by id — accepts a full UUID, an unambiguous prefix " +
+      "(>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965). Resolved via the " +
+      "same generalized resolver used by asks.respond/edit/wait-for-response; throws " +
+      "if the id does not resolve to exactly one Ask.",
+    required: false,
+  },
   state: {
     schema: z.enum(ALL_STATES as [AskState, ...AskState[]]).optional(),
     description: "Filter by Ask state (detected | classified | routed | ...)",
@@ -247,7 +256,7 @@ const asksListParams = {
   },
 };
 
-interface AsksListResult {
+export interface AsksListResult {
   asks: Ask[];
   /** True count of everything matching the filters, before the `limit` slice. */
   total: number;
@@ -275,6 +284,53 @@ async function gatherAsks(
     all.push(...subset);
   }
   return kind ? all.filter((a) => a.kind === kind) : all;
+}
+
+/**
+ * Filter params accepted by `listAsksFiltered` — mirrors `asks.list`'s
+ * `asksListParams` shape (already-narrowed types, not raw MCP params).
+ */
+export interface ListAsksFilters {
+  /** Raw id/prefix/short-id input — resolved via the injected `resolveId`. */
+  id?: string;
+  state?: AskState;
+  kind?: AskKind;
+  limit?: number;
+  projectScope?: import("@minsky/domain/project/scope").ProjectScope;
+}
+
+/**
+ * Core `asks.list` filtering logic (mt#2965 R1 — PR #2110), extracted from
+ * the command's `execute` handler so it's directly unit-testable without a
+ * live DB. `resolveId` is injected: production wires the real
+ * `resolveAskIdInput` (uuid / 8-char hex prefix / `ask#N` short id, all
+ * resolved via the SAME generalized resolver `asks.respond`/`edit`/
+ * `wait-for-response` use — mt#2696 / mt#2965); tests can supply a trivial
+ * stand-in since `resolveAskIdInput`'s own resolution correctness is
+ * covered separately (see the `resolveAskIdInput` describe block).
+ *
+ * When `params.id` is supplied, the resolved uuid is applied as an
+ * additional AND-filter on top of any `state`/`kind`/`projectScope`
+ * filters — an id that resolves successfully but whose Ask does not match
+ * the other filters yields an empty result, not an error.
+ */
+export async function listAsksFiltered(
+  repo: AskRepository,
+  resolveId: (id: string) => Promise<string>,
+  params: ListAsksFilters
+): Promise<AsksListResult> {
+  const resolvedId = params.id ? await resolveId(params.id) : undefined;
+  const gathered = await gatherAsks(repo, params.state, params.kind, params.projectScope);
+  const asks = resolvedId ? gathered.filter((a) => a.id === resolvedId) : gathered;
+  const limit = params.limit ?? 50;
+  const returnedAsks = asks.slice(0, limit);
+  return {
+    asks: returnedAsks,
+    total: asks.length,
+    limit,
+    returned: returnedAsks.length,
+    truncated: returnedAsks.length < asks.length,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -975,7 +1031,9 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       id: "asks.list",
       category: CommandCategory.TOOLS,
       name: "list",
-      description: "List Asks with optional state and kind filters",
+      description:
+        "List Asks with optional id, state, and kind filters. `id` accepts a full UUID, " +
+        "an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965).",
       requiresSetup: true,
       parameters: asksListParams,
       execute: async (params): Promise<AsksListResult> => {
@@ -986,9 +1044,6 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
-        const state = params.state as AskState | undefined;
-        const kind = params.kind as AskKind | undefined;
-        const limit = (params.limit as number | undefined) ?? 50;
         const allProjects = params.allProjects as boolean | undefined;
 
         // ADR-021 / mt#2416: resolve project scope so list returns only this
@@ -999,15 +1054,16 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           ? undefined
           : await resolveCurrentProjectScope(container, "asks.list");
 
-        const asks = await gatherAsks(repo, state, kind, projectScope);
-        const returnedAsks = asks.slice(0, limit);
-        return {
-          asks: returnedAsks,
-          total: asks.length,
-          limit,
-          returned: returnedAsks.length,
-          truncated: returnedAsks.length < asks.length,
-        };
+        // mt#2965: id resolution (uuid / 8-char hex prefix / ask#N short id)
+        // is delegated to resolveAskIdInput — the SAME generalized resolver
+        // asks.respond/edit/wait-for-response use — via listAsksFiltered.
+        return listAsksFiltered(repo, (id) => resolveAskIdInput(id, container), {
+          id: params.id as string | undefined,
+          state: params.state as AskState | undefined,
+          kind: params.kind as AskKind | undefined,
+          limit: (params.limit as number | undefined) ?? 50,
+          projectScope,
+        });
       },
     })
   );

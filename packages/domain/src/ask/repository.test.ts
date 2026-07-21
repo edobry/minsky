@@ -190,7 +190,26 @@ function createFakeDrizzleAskDb(opts: { preClaimedShortIds?: string[] } = {}) {
         from(_table: unknown) {
           return {
             where(_cond: unknown) {
-              return Promise.resolve(Array.from(visible).map((shortId) => ({ shortId })));
+              const rows = Array.from(visible).map((shortId) => ({ shortId }));
+              return {
+                // Mirrors nextAskShortId's targeted `ORDER BY ... LIMIT 1`
+                // query (PR #2110 R1 perf fix): sort descending by the
+                // numeric suffix — the same ordering a real
+                // `(substring(short_id from 5))::bigint DESC` would
+                // produce — so `[top]` at the call site picks the max.
+                orderBy(_order: unknown) {
+                  const sorted = [...rows].sort((a, b) => {
+                    const na = Number(a.shortId.split("#")[1]);
+                    const nb = Number(b.shortId.split("#")[1]);
+                    return nb - na;
+                  });
+                  return {
+                    limit(n: number) {
+                      return Promise.resolve(sorted.slice(0, n));
+                    },
+                  };
+                },
+              };
             },
           };
         },

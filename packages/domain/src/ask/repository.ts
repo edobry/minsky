@@ -608,6 +608,17 @@ export class DrizzleAskRepository implements AskRepository {
    * Mint the next `ask#N` short id (mt#2965, generalizing mt#2205's
    * `computeNextTaskId` pattern via the shared `nextShortId` util).
    *
+   * Targeted query (PR #2110 R1 perf finding): rather than loading every
+   * non-null `short_id` row into memory to fold over client-side, fetch ONLY
+   * the single highest-numbered row via `ORDER BY <numeric suffix> DESC
+   * LIMIT 1` — a `WHERE short_id ~ '^ask#[0-9]+$'` filter (mirroring
+   * `parseShortId`'s shape) excludes any malformed value before the numeric
+   * cast, and the `ORDER BY` computes the numeric suffix server-side so a
+   * lexicographic string sort (which would misorder "ask#10" before
+   * "ask#2") is never used. `nextShortId` remains the single source of
+   * truth for the "+1" computation — this only changes how the CANDIDATE
+   * max is fetched, not how the next id is derived from it.
+   *
    * Asks have no tombstone table analogous to tasks' `deleted_task_ids`
    * (mt#2205) — the max is computed over live short ids only, so a deleted
    * ask's short id MAY be reissued to a new ask. Acceptable for v1 per the
@@ -615,13 +626,13 @@ export class DrizzleAskRepository implements AskRepository {
    * table mirroring the tasks pattern if reuse proves undesirable.
    */
   private async nextAskShortId(): Promise<string> {
-    const rows = await this.db
+    const [top] = await this.db
       .select({ shortId: asksTable.shortId })
       .from(asksTable)
-      .where(isNotNull(asksTable.shortId));
-    const liveIds = rows
-      .map((r: { shortId: string | null }) => r.shortId)
-      .filter((id: string | null): id is string => id !== null);
+      .where(sql`${asksTable.shortId} ~ '^ask#[0-9]+$'`)
+      .orderBy(sql`(substring(${asksTable.shortId} from 5))::bigint DESC`)
+      .limit(1);
+    const liveIds = top?.shortId ? [top.shortId] : [];
     return nextShortId("ask", liveIds, []);
   }
 

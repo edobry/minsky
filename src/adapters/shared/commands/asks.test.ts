@@ -26,8 +26,10 @@ import {
   validateAsksEditParams,
   formatAskWaitMessage,
   resolveAskIdInput,
+  listAsksFiltered,
 } from "./asks";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { CreateAskInput } from "@minsky/domain/ask/repository";
 import type { AskWaitForResponseResult } from "@minsky/domain/ask/wait-for-response";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";
 import {
@@ -1502,5 +1504,89 @@ describe("resolveAskIdInput (mt#2965)", () => {
   test("throws a clean not-found error for an ask#N with no matching row", async () => {
     const container = fakeContainer([]);
     await expect(resolveAskIdInput("ask#999", container)).rejects.toThrow(/not found/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listAsksFiltered — asks.list id filter (mt#2965 R1, PR #2110 review round)
+// ---------------------------------------------------------------------------
+
+describe("listAsksFiltered — asks.list id filter (mt#2965 R1)", () => {
+  /** Minimal valid CreateAskInput for this describe block's fixtures. */
+  function makeAskInput(overrides: Partial<CreateAskInput> = {}): CreateAskInput {
+    return {
+      kind: "quality.review",
+      classifierVersion: "v1.0.0",
+      requestor: FIXTURE_RESPONDER_ID,
+      title: "Fixture ask",
+      question: "does this filter correctly?",
+      metadata: {},
+      ...overrides,
+    };
+  }
+
+  test("filters to the single Ask matching a resolved ask#N id", async () => {
+    const repo = new FakeAskRepository();
+    const target = await repo.create(makeAskInput({ title: "Target" }));
+    await repo.create(makeAskInput({ title: "Other" }));
+
+    // Injected resolver mirrors resolveAskIdInput's ask#N -> uuid contract;
+    // resolveAskIdInput's OWN resolution correctness is covered separately
+    // above (the "resolveAskIdInput (mt#2965)" describe block).
+    const resolveId = async (id: string) => (id === "ask#7" ? target.id : id);
+
+    const result = await listAsksFiltered(repo, resolveId, { id: "ask#7" });
+
+    expect(result.total).toBe(1);
+    expect(result.returned).toBe(1);
+    expect(result.asks).toHaveLength(1);
+    expect(result.asks[0]?.id).toBe(target.id);
+    expect(result.asks[0]?.title).toBe("Target");
+  });
+
+  test("filters to the single Ask matching a resolved full uuid (regression: raw uuid unaffected)", async () => {
+    const repo = new FakeAskRepository();
+    const target = await repo.create(makeAskInput({ title: "Target" }));
+    await repo.create(makeAskInput({ title: "Other" }));
+
+    const resolveId = async (id: string) => id; // uuid passthrough, matching resolveAskIdInput
+    const result = await listAsksFiltered(repo, resolveId, { id: target.id });
+
+    expect(result.total).toBe(1);
+    expect(result.asks[0]?.id).toBe(target.id);
+  });
+
+  test("returns the full unfiltered list when no id filter is supplied", async () => {
+    const repo = new FakeAskRepository();
+    await repo.create(makeAskInput({ title: "A" }));
+    await repo.create(makeAskInput({ title: "B" }));
+
+    const resolveId = async (id: string) => id;
+    const result = await listAsksFiltered(repo, resolveId, {});
+
+    expect(result.total).toBe(2);
+  });
+
+  test("combines the id filter with state/kind as an AND — no match yields an empty (not erroring) result", async () => {
+    const repo = new FakeAskRepository();
+    const target = await repo.create(makeAskInput({ title: "Target", kind: "quality.review" }));
+
+    const resolveId = async (_id: string) => target.id;
+    // target is in state "detected" (fresh create) — filtering by "closed" must exclude it.
+    const result = await listAsksFiltered(repo, resolveId, { id: "ask#anything", state: "closed" });
+
+    expect(result.total).toBe(0);
+    expect(result.asks).toHaveLength(0);
+  });
+
+  test("propagates a resolution error (e.g. not-found ask#N) instead of silently returning empty", async () => {
+    const repo = new FakeAskRepository();
+    const resolveId = async (_id: string): Promise<string> => {
+      throw new Error("Ask not found: ask#999");
+    };
+
+    await expect(listAsksFiltered(repo, resolveId, { id: "ask#999" })).rejects.toThrow(
+      /not found/i
+    );
   });
 });
