@@ -56,6 +56,7 @@ a status transition; everything else is investigation and gate-check.
     designing a mechanism on a third-party's internals, or how to use a named tool with docs)
   - (m) Factual-claim citation verification
   - (n) External-system integration provisioning enumeration
+  - (o) Problem-statement verification (reproduce a spec's asserted runtime/causal failure before accepting it)
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -174,6 +175,13 @@ If no structural issue is suspected: "(iv) No recurring pattern identified; tact
 
 Evaluate each criterion in order. A single **fail** halts promotion to READY; surface all
 failures together so the user can address them in one pass.
+
+**Gate letters are append-only (mt#2964).** Each \`#### Gate criterion (X)\` letter is a stable
+identifier — NEVER reuse a letter for a different check; a new gate claims the next FREE letter
+(letter \`(i)\` is permanently skipped, see (j) below). Reusing an occupied letter silently deletes
+the gate that held it — mt#2445 reused \`(l)\` and deleted mt#2091's problem-statement gate,
+unnoticed until mt#2958. The \`plan-task-gate-letters\` test enforces no-duplicate-letters plus the
+presence of the restored gate (o).
 
 #### Gate criterion (a) — Required spec sections present
 
@@ -813,6 +821,64 @@ conflate the two; a change can trip one, both, or neither.
 
 Cross-reference: this task (mt#2740) formalizes the gate; bridge memory \`2de33884\`. Sibling
 verify-time enforcement: \`/implement-task\` §7a/§10 (live-exercise requirement, same task).
+
+#### Gate criterion (o) — Problem-statement verification
+
+When the spec (or a plan-decision) asserts a **causal claim about runtime behavior** — "X fails
+because Y", "the timeout fires and both retries fail", "the guard degrades because Z", "users see W
+when V" — the investigation MUST verify the problem actually occurs as described BEFORE designing or
+accepting a fix. Plausibility from reading the code ("the code COULD fail this way") is confirmation
+bias, not verification; the missing step is checking whether the failure ACTUALLY occurs. Reproduce
+it — run the failing command, read the live health/log signal, trace the actual event sequence — and
+record the observed evidence in the spec.
+
+**Why this gate exists (and why it was re-added).** It originally shipped as gate (l)
+"problem-statement verification" via mt#2091 / PR #1272 (2026-05-24), after mt#2083 shipped three
+fixes for a reviewer-timeout "problem" that production logs showed never happened (both timeouts
+recovered via existing retry; one fix actively degraded review quality and was reverted). mt#2445
+later reused letter (l) for the authoritative-source gate and **silently deleted** this gate; the
+loss went unnoticed until mt#2958 (2026-07-20), where an agent inherited a spec's simulation-based
+root cause (\`execWithPath\` omits \`~/.bun/bin\` → \`minsky\` ENOENT → the guard fails) as settled and
+spent a multi-hour investigation on wrong theories — the actual cause was a CLI-boot-vs-timeout
+issue and the alarming signal was stale. Running the one command the claim rested on, on turn one,
+would have falsified it immediately.
+
+**Trigger condition.** Fires when the spec makes a causal/behavioral claim about runtime — trigger
+phrases: "X fails/throws/crashes/times out because Y", "the parser doesn't handle Q", "users see Y
+when Z", "the config doesn't support W", "the mechanism degrades under V", or any "reproduced" /
+"definitive diagnosis" claim whose evidence is a SIMULATION rather than an observation of the actual
+failing context. If the spec makes no runtime causal claim (a pure refactor, a docs edit, a
+greenfield feature with no "X is broken" premise), it passes automatically. State that explicitly:
+"(o) No runtime causal claim to verify — criterion passes."
+
+**Required when triggered.** Reproduce the asserted failure against the real system and record the
+observed evidence in the spec's \`## Context\` (or a \`## Diagnosis\` section):
+
+1. **Identify the cheapest falsifier** — the single command / query / log read that, if the claim
+   were false, would show it. (mt#2958: \`minsky tasks search ...\` runs fine + \`debug_systemInfo\`
+   shows the streak is stale — either falsifies the ENOENT premise in seconds.)
+2. **Run it against the ACTUAL failing context**, not a simulation. A simulation (\`env PATH=... cmd\`)
+   proves a CONDITIONAL ("IF the PATH lacks X THEN it fails"), NOT the ANTECEDENT ("the hook's PATH
+   lacks X"). A "reproduced (definitive)" claim whose repro is a conditional is not verified.
+3. **Record the observed result** — pass/fail, exit code, the live signal — as the evidence the fix
+   rests on. If the observed behavior contradicts the spec's claim, the problem statement is wrong:
+   surface the gap and re-scope BEFORE designing a fix.
+
+**Rigor-theater callout.** A confident "Diagnosis (definitive — reproduced)" section is exactly the
+shape that invites inheritance without re-verification. Treat a spec's own diagnosis as a HYPOTHESIS
+to reproduce, not a settled premise — especially a spec you did not author, or authored in a prior
+session.
+
+**Disambiguation from adjacent gates.** Gate (m) verifies a spec's cited MEMORY/RULE/DOC claim
+against its source; gate (o) verifies a spec's asserted RUNTIME-BEHAVIOR claim against the live
+system. Premise-audit check (i) asks whether the parent investigation leaves premises open; gate (o)
+is the stronger, action-forcing requirement to REPRODUCE a runtime claim before building on it.
+
+Cross-references: mt#2091 / PR #1272 (original gate); mt#2083 (originating incident); mt#2445 (the
+letter-(l) reuse that clobbered it); mt#2958 (the recurrence that surfaced the loss); mt#2964 (this
+restore + the append-only convention above); memories \`d77d2bd4\` (problem-statement verification),
+\`dc9f7ad8\` (the mt#2958 retro), \`7c83fed0\` ("reproduce error before theorizing"), \`8814a2e1\`
+(verify diagnostic tools before building theories).
 
 ### Step 4: Act on gate results
 
