@@ -524,3 +524,59 @@ export function isHiddenByDefaultStatus(status: string | undefined): boolean {
  * `.minsky/hooks/check-task-spec-read.ts`, the guard keyed on this constant.
  */
 export const BIND_ADVANCE_SEAM_STATUS = "READY";
+
+/**
+ * Compute the sequence of statuses to walk through to auto-advance a task from
+ * `from` to `to` (mt#3010 — previously a hand-chained
+ * `if (status === TODO) ... if (status === PLANNING) ...` in
+ * `tasks.dispatch`'s existing-task mode, hardcoded to the "implementation"
+ * workflow's TODO -> PLANNING -> READY shape).
+ *
+ * Deliberately NOT a general graph-reachability search: this is a
+ * "not-yet-started" auto-advance, not a path-finder over the full transition
+ * graph. The per-kind transition graphs have back-edges intended for
+ * OPERATOR-DRIVEN recovery, not silent auto-walk — e.g. the implementation
+ * workflow allows `BLOCKED -> READY` and `IN-REVIEW -> IN-PROGRESS -> PLANNING
+ * -> READY` directly, but a task sitting BLOCKED or mid-review must never be
+ * silently walked to READY by a dispatch call; that decision belongs to a
+ * human. So this only considers `from` walkable when it appears BEFORE `to`
+ * in the workflow's `states` list (the registry's canonical lifecycle
+ * ordering, with side-states like BLOCKED/CLOSED listed after the terminal
+ * states specifically so they never satisfy this prefix check) — i.e. it
+ * derives the intended "pre-work" prefix from registry data instead of
+ * hardcoding the TODO/PLANNING literal list.
+ *
+ * Returns:
+ *   - `[]` when `from === to` (already there, no walk needed).
+ *   - The ordered list of statuses to SET, in order (excluding `from` itself),
+ *     e.g. `computeStatusWalkPath("TODO", "READY", "implementation")` returns
+ *     `["PLANNING", "READY"]`.
+ *   - `null` when `from` is not strictly before `to` in `states` (including
+ *     when either is absent from the workflow's states), or when any
+ *     consecutive pair in that prefix isn't actually a legal transition — the
+ *     caller should treat this the same as "cannot resolve automatically" —
+ *     it does NOT throw, since this is an expected outcome for many
+ *     (from, kind) pairs, not a programming error.
+ */
+export function computeStatusWalkPath(
+  from: string,
+  to: string,
+  kind?: string | null
+): string[] | null {
+  if (from === to) return [];
+  const workflow = getWorkflow(kind);
+  const { states, transitions } = workflow;
+
+  const fromIndex = states.indexOf(from);
+  const toIndex = states.indexOf(to);
+  if (fromIndex === -1 || toIndex === -1 || fromIndex >= toIndex) return null;
+
+  const prefix = states.slice(fromIndex, toIndex + 1);
+  for (let i = 0; i < prefix.length - 1; i++) {
+    const current = prefix[i] as string;
+    const next = prefix[i + 1] as string;
+    if (!(transitions[current] ?? []).includes(next)) return null;
+  }
+
+  return prefix.slice(1);
+}

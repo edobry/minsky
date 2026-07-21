@@ -22,6 +22,7 @@ import {
   isHiddenByDefaultStatus,
   BIND_ADVANCE_SEAM_STATUS,
   TERMINAL_TASK_STATUS_VALUES,
+  computeStatusWalkPath,
   type TaskKind,
 } from "./workflows";
 import { ValidationError } from "../errors/index";
@@ -449,5 +450,62 @@ describe("Workflow.restrictedTransitions (mt#3010 — data-driven session_start 
   test("umbrella and state-ops workflows declare no restrictedTransitions", () => {
     expect(WORKFLOWS.umbrella.restrictedTransitions).toBeUndefined();
     expect(WORKFLOWS["state-ops"].restrictedTransitions).toBeUndefined();
+  });
+});
+
+describe("computeStatusWalkPath() (mt#3010 — tasks.dispatch's registry-derived walk)", () => {
+  test("returns [] when already at the target", () => {
+    expect(computeStatusWalkPath("READY", "READY", "implementation")).toEqual([]);
+  });
+
+  test("TODO -> READY walks through PLANNING (implementation kind, default)", () => {
+    expect(computeStatusWalkPath("TODO", "READY")).toEqual(["PLANNING", "READY"]);
+  });
+
+  test("PLANNING -> READY is a single-step walk (implementation kind)", () => {
+    expect(computeStatusWalkPath("PLANNING", "READY", "implementation")).toEqual(["READY"]);
+  });
+
+  // The critical regression this function's design guards against: a naive
+  // graph-reachability search would find BLOCKED -> READY (a legal DIRECT
+  // transition in the implementation workflow, meant for OPERATOR recovery)
+  // and silently auto-walk a blocked task to READY. That must never happen —
+  // BLOCKED sits AFTER READY in the workflow's states list, so the prefix
+  // check refuses it.
+  test("does NOT auto-walk from BLOCKED, even though BLOCKED -> READY is a legal direct transition", () => {
+    expect(computeStatusWalkPath("BLOCKED", "READY", "implementation")).toBeNull();
+  });
+
+  // Same hazard, multi-hop: IN-REVIEW -> IN-PROGRESS -> PLANNING -> READY is a
+  // legal (if unusual) manual recovery path, but dispatch must never silently
+  // regress a task that's mid-review.
+  test("does NOT auto-walk from IN-REVIEW, even though a multi-hop path to READY exists", () => {
+    expect(computeStatusWalkPath("IN-REVIEW", "READY", "implementation")).toBeNull();
+  });
+
+  test("does NOT auto-walk from IN-PROGRESS, DONE, or CLOSED", () => {
+    expect(computeStatusWalkPath("IN-PROGRESS", "READY", "implementation")).toBeNull();
+    expect(computeStatusWalkPath("DONE", "READY", "implementation")).toBeNull();
+    expect(computeStatusWalkPath("CLOSED", "READY", "implementation")).toBeNull();
+  });
+
+  test("returns null for a status unknown to the workflow", () => {
+    expect(computeStatusWalkPath("NOT-A-STATUS", "READY", "implementation")).toBeNull();
+    expect(computeStatusWalkPath("TODO", "NOT-A-STATUS", "implementation")).toBeNull();
+  });
+
+  test("state-ops kind: TODO -> READY walks through PLANNING", () => {
+    expect(computeStatusWalkPath("TODO", "READY", "state-ops")).toEqual(["PLANNING", "READY"]);
+  });
+
+  test("umbrella kind: no READY state, so any walk targeting it is null", () => {
+    expect(computeStatusWalkPath("TODO", "READY", "umbrella")).toBeNull();
+  });
+
+  test("unknown kind falls back to implementation semantics", () => {
+    expect(computeStatusWalkPath("TODO", "READY", "some-unknown-kind")).toEqual([
+      "PLANNING",
+      "READY",
+    ]);
   });
 });
