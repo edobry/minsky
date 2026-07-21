@@ -35,14 +35,19 @@
  *   - the process exit code is 0.
  * A missing/unparseable summary is treated as FAILURE (fail-closed) regardless of
  * exit code — that is exactly the silent-truncation signature. "files?" is
- * load-bearing: bun prints singular "1 file" for a single-file run. Kept aligned
- * with ci.yml's grep logic.
+ * load-bearing: bun prints singular "1 file" for a single-file run. "tests?"
+ * (mt#3014 finding) is equally load-bearing: bun independently pluralizes the
+ * test count too -- a run with exactly one test prints "Ran 1 test across ..."
+ * (singular, no trailing s), confirmed empirically against the pinned bun
+ * 1.2.21; the original pattern required a literal "tests" and would have
+ * fail-closed a genuinely-passing single-test run. Kept aligned with ci.yml's
+ * grep logic.
  */
 export function evaluateBunTestSummary(
   output: string,
   exitCode: number
 ): { ok: boolean; reason: string } {
-  if (!/Ran \d+ tests across \d+ files?/.test(output)) {
+  if (!/Ran \d+ tests? across \d+ files?/.test(output)) {
     return {
       ok: false,
       reason:

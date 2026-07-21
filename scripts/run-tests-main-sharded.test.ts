@@ -315,6 +315,23 @@ describe("verifyShard", () => {
     expect(verifyShard(single).passed).toBe(true);
   });
 
+  it(
+    "handles the REAL singular 'test' form too (no trailing s, mt#3014 finding): bun " +
+      "independently pluralizes the test count, so a shard whose combined output has exactly " +
+      'one test prints "Ran 1 test across 1 file." -- confirmed empirically against the pinned ' +
+      "bun 1.2.21, distinct from the already-covered singular-FILE case above",
+    () => {
+      const single: ShardOutcome = {
+        label: "shard-h",
+        stdout: "",
+        stderr: "1 pass\n0 fail\n1 expect() calls\nRan 1 test across 1 file. [1.00ms]\n",
+        exitCode: 0,
+        timedOut: false,
+      };
+      expect(verifyShard(single).passed).toBe(true);
+    }
+  );
+
   it("FAILS immediately on timedOut, without inspecting output text (requirement #1)", () => {
     const timedOut: ShardOutcome = {
       label: "shard-hung",
