@@ -339,12 +339,18 @@ export const META_CONTEXT_PATTERNS: RegExp[] = [
   // trigger phrases in it are describing the analyzed failure, not asserting
   // a fresh one. Whole-turn suppression here mirrors the existing
   // meta-discussion tradeoff (a live admission mixed into a retro-output
-  // turn is a documented FN; the widened invocation look-back below is the
+  // turn is a documented FN; the widened invocation look-back is the
   // primary defense, this pattern set is defense-in-depth).
+  //
+  // PR #2169 R1 (narrowed): patterns are limited to headings distinctive
+  // to `/retrospective`'s Step 2a output. Generic RCA/design-doc headings
+  // (`### Root cause`, `### Failure mode:`) were dropped — they appear in
+  // ordinary specs, ADRs, and incident memos, and their broad match risks
+  // suppressing R-family scanning on unrelated content. The retained set
+  // requires the retro-specific `## Retrospective:` header OR one of the
+  // taxonomy sub-headings that is essentially a retro-only phrase.
   /^##\s+Retrospective:/m,
   /^###\s+Agent error\s*\(cognitive\)/m,
-  /^###\s+Failure mode\s*:/m,
-  /^###\s+Root cause\b/m,
   /^###\s+Recurrence check\b/m,
   /^###\s+Recurrence-after-DONE\b/m,
   /^\*\*Correction noted\*\*\s*:/m,
@@ -577,18 +583,24 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   const lines = ctx.transcriptLines;
   if (lines.length === 0) return null;
 
+  // mt#3036: widened `/retrospective` invocation look-back (K=5 turns), so
+  // multi-turn advisor retrospectives don't false-fire on the output turn's
+  // own required taxonomy vocabulary. Scope: ONLY the assistant-side
+  // R-family scan is suppressed — user-correction and method-redirect
+  // families stay live (PR #2169 R1). A 5-turn window is far too long to
+  // silence user-side signals: an operator complaint or method redirect
+  // arriving 2-4 turns after a completed retrospective is not the same
+  // event as the retrospective, and losing it would suppress critical
+  // course-correction signals during exactly the phase (mid-fix / post-fix
+  // work) where they are most likely.
   let retrospectiveAlreadyInvoked = false;
   try {
-    // mt#3036: widened from `extractLastAssistantTurn` to a K-turn look-back
-    // so multi-turn/advisor retrospectives whose output lands in a later
-    // turn don't false-fire on their own required taxonomy vocabulary.
     if (hasRecentRetrospectiveInvocation(lines)) {
       retrospectiveAlreadyInvoked = true;
     }
   } catch {
     // fail-open
   }
-  if (retrospectiveAlreadyInvoked) return null;
 
   const allMatches: TriggerMatch[] = [];
 
@@ -597,7 +609,9 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length > 0) {
       runAssistantText = extractAssistantText(turnLines);
-      if (runAssistantText) {
+      // Assistant-side R-family scan: suppressed when a recent
+      // `/retrospective` invocation covers this turn's output.
+      if (runAssistantText && !retrospectiveAlreadyInvoked) {
         allMatches.push(
           ...filterStopFlagged(input.session_id, lines, detectTriggerPhrases(runAssistantText))
         );
@@ -609,6 +623,10 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     );
   }
 
+  // User-side scans (correction + method-redirect) stay LIVE regardless of
+  // a recent `/retrospective` — user course-correction signals must not be
+  // suppressed by a completed retro (PR #2169 R1; mirrors mt#2672's
+  // policy that user-correction is not meta-suppressed).
   try {
     const userText = extractLastUserMessage(lines);
     if (userText) {
@@ -701,11 +719,13 @@ export async function main(): Promise<void> {
 
   const allMatches: TriggerMatch[] = [];
 
-  // Check if /retrospective was already invoked in any recent turn — suppress
-  // ALL detection. mt#3036: widened to a K-turn look-back so a multi-turn
-  // advisor-based retrospective (Skill invoked in turn N, structured output
-  // landing in turn N+2) doesn't false-fire on its own required taxonomy
-  // vocabulary once the output turn is scanned.
+  // Check if `/retrospective` was invoked in any of the last K completed
+  // turns. mt#3036: widened from same-turn-only to a K=5 turn look-back so
+  // multi-turn advisor retrospectives don't false-fire on the output turn's
+  // own required taxonomy vocabulary. Scope: ONLY the assistant-side
+  // R-family scan below is suppressed — user-correction and method-redirect
+  // families stay live (PR #2169 R1; mirrors the mt#2672 policy that
+  // user-correction is never meta-suppressed).
   let retrospectiveAlreadyInvoked = false;
   try {
     if (hasRecentRetrospectiveInvocation(lines)) {
@@ -715,17 +735,14 @@ export async function main(): Promise<void> {
     // fail-open
   }
 
-  if (retrospectiveAlreadyInvoked) {
-    process.exit(0);
-  }
-
-  // Surface 1: scan prior assistant turn for trigger phrases
+  // Surface 1: scan prior assistant turn for trigger phrases (SKIP when a
+  // recent /retrospective invocation covers this turn's output).
   let mainAssistantText = "";
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length > 0) {
       mainAssistantText = extractAssistantText(turnLines);
-      if (mainAssistantText) {
+      if (mainAssistantText && !retrospectiveAlreadyInvoked) {
         const triggerMatches = filterStopFlagged(
           input.session_id,
           lines,

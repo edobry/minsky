@@ -1099,16 +1099,12 @@ describe("mt#3036 — retro output-shape META markers suppress trigger phrases",
       "### Agent error (cognitive)\n\nAssumption Error — I should have caught the drift.",
     ],
     [
-      "### Failure mode header",
-      "### Failure mode: confabulated-strategic-frame\n\nI anchored on the label and missed the definition.",
-    ],
-    [
-      "### Root cause header",
-      "### Root cause\n\nOne level deeper: I conflated the presentation with the mechanism.",
-    ],
-    [
       "### Recurrence check header",
       "### Recurrence check\n\nR4 of this family. I should have caught the R3 pattern.",
+    ],
+    [
+      "### Recurrence-after-DONE header",
+      "### Recurrence-after-DONE\n\nContradiction: shipped mt#XXXX did not contain the class. I conflated scope with mechanism.",
     ],
     [
       "**Correction noted**: compressed format",
@@ -1124,10 +1120,11 @@ describe("mt#3036 — retro output-shape META markers suppress trigger phrases",
   }
 
   test("policy lock: retro-output-shape suppression does NOT reach user-correction", () => {
-    // A user turn saying "why did you do that?" AFTER a retro-output turn
-    // still fires — mirrors the mt#2672 policy (line 320 in the impl).
+    // A user turn saying "why did you do that?" while discussing a retro
+    // still fires — mirrors the mt#2672 policy (user-correction stays live
+    // in every meta context).
     const matches = detectUserCorrection(
-      "why did you do that when the retrospective ## Root cause section already covered it?"
+      "why did you do that when the retrospective ## Retrospective: section already covered it?"
     );
     expect(matches.length).toBeGreaterThanOrEqual(1);
     expect(matches[0]?.family).toBe("user-correction");
@@ -1141,13 +1138,34 @@ describe("mt#3036 — retro output-shape META markers suppress trigger phrases",
       false
     );
   });
+
+  // PR #2169 R1: generic RCA / design-doc headings must NOT trigger the
+  // retro META gate — they appear in ordinary specs, ADRs, and incident
+  // memos, and suppressing R-family scanning on that content would silence
+  // real admissions.
+  test("generic '### Root cause' heading (in an ADR or spec) is NOT retro-meta", () => {
+    expect(
+      isDetectorMetaDiscussion(
+        "## Context\n\n### Root cause\n\nThe migration ledger drifted when the baseline was stamped."
+      )
+    ).toBe(false);
+  });
+
+  test("generic '### Failure mode:' heading (in an incident memo) is NOT retro-meta", () => {
+    expect(
+      isDetectorMetaDiscussion(
+        "### Failure mode: race condition\n\nTwo writers contended for the same row."
+      )
+    ).toBe(false);
+  });
 });
 
-describe("mt#3036 — run() suppression: multi-turn retro invocation blocks scanner", () => {
+describe("mt#3036 — run() suppression: multi-turn retro invocation blocks R-family only", () => {
   test("R1 phrase in a later turn is suppressed when /retrospective was invoked 2 turns back", () => {
     // The originating incident: /retrospective invoked in turn N;
     // advisor's structured output lands in turn N+2 with "I conflated" in it.
-    // Under mt#3036 the widened look-back finds the invocation and suppresses.
+    // Under mt#3036 the widened look-back finds the invocation and suppresses
+    // the assistant-side R-family scan.
     const transcriptLines: TranscriptLine[] = [
       makeRunUserLine("run a retro on the last incident"),
       makeSkillRetrospectiveLine(),
@@ -1172,5 +1190,42 @@ describe("mt#3036 — run() suppression: multi-turn retro invocation blocks scan
     expect(outcome?.additionalContext).toContain("Retrospective trigger detected");
     const cal = outcome?.calibration as { matches: Array<{ family: string }> };
     expect(cal.matches.some((m) => m.family === "R1")).toBe(true);
+  });
+
+  // PR #2169 R1: the widened look-back must ONLY silence the assistant-side
+  // R-family scan. User-side signals (user-correction, method-redirect)
+  // remain live for the whole K-turn window — a course-correction 2-4 turns
+  // after a completed retrospective is not the same event and must fire.
+  test("user-correction in the current prompt STILL fires when /retrospective was invoked recently", () => {
+    const transcriptLines: TranscriptLine[] = [
+      makeRunUserLine("run a retro"),
+      makeSkillRetrospectiveLine(),
+      makeRunUserLine("continue"),
+      makeRunAssistantLine("Retrospective completed; fixes filed."),
+      makeRunUserLine("why did you do that when I told you not to?"),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    expect(outcome?.additionalContext).toContain("User correction signal detected");
+    const cal = outcome?.calibration as { matches: Array<{ family: string }> };
+    expect(cal.matches.some((m) => m.family === "user-correction")).toBe(true);
+  });
+
+  test("method-redirect STILL fires when /retrospective was invoked recently", () => {
+    // Prior assistant turn carries a design marker (Recommendation:) so
+    // the method-redirect context condition is satisfied; a recent
+    // `/retrospective` must not suppress this course-correction signal.
+    const transcriptLines: TranscriptLine[] = [
+      makeRunUserLine("run a retro on this"),
+      makeSkillRetrospectiveLine(),
+      makeRunUserLine("now propose the fix"),
+      makeRunAssistantLine("Recommendation: Option A — sweep the queue every 60s."),
+      makeRunUserLine(
+        "I think you should do some research on the appropriate way to handle this in drizzle"
+      ),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    expect(outcome?.additionalContext).toContain("redirected your method");
+    const cal = outcome?.calibration as { matches: Array<{ family: string }> };
+    expect(cal.matches.some((m) => m.family === "method-redirect")).toBe(true);
   });
 });
