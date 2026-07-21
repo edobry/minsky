@@ -27,7 +27,13 @@ import { readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-interface TestCase {
+// Exported (mt#2990): the sharded runner (scripts/run-tests-main-sharded.ts)
+// reuses this parser to derive per-file durations from each shard's own
+// `--reporter=junit` output, rather than re-deriving XML parsing (which this
+// file's own docstring-recorded history shows is easy to get subtly wrong --
+// see the two PR #2120 R1 fixes below for the self-closing-tag and
+// attribute-key-collision bugs this parser already had to fix once).
+export interface TestCase {
   file: string;
   classname: string;
   name: string;
@@ -46,7 +52,7 @@ interface TestCase {
  * for either form: we only need the attributes (name/classname/time/file), never
  * the body, so there is no need to also match through to `</testcase>`.
  */
-function parseTestcases(xml: string): TestCase[] {
+export function parseTestcases(xml: string): TestCase[] {
   const out: TestCase[] = [];
   const re = /<testcase\b([^>]*?)\/?>/g;
   let m: RegExpExecArray | null;
@@ -264,4 +270,12 @@ function main(): void {
   }
 }
 
-main();
+// mt#2990: guarded so `import { parseTestcases, type TestCase } from
+// "./analyze-test-timing"` (the sharded runner's duration-cache update) can
+// reuse the JUnit parser without triggering this CLI's own `main()` (which
+// expects argv / exits the process) as a side effect of the import -- mirrors
+// the same guard already applied to run-tests-main.ts's `import.meta.main`
+// block (mt#2932).
+if (import.meta.main) {
+  main();
+}
