@@ -5,6 +5,34 @@
 // index.lock file, and a real subprocess holding an open file descriptor to
 // verify liveness detection. None of this is mockable without hollowing out
 // the behavior under test. Cleaned up in afterAll.
+//
+// mt#2979 timing investigation (real-time-cost source, not staleness aging):
+// the two "staleness-threshold" tests flagged by mt#2933 (`acceptance: stale
+// zero-byte lock...`, ~2.5s; `ambiguous case: lock present...`, ~1.3s) do NOT
+// wait out real wall-clock time to age the lock past `LOCK_STALE_THRESHOLD_MS`
+// — they already backdate the lock's mtime via `utimes()` (see below), which
+// is the injectable-clock-equivalent this class of investigation looks for.
+// There is no `setTimeout`/sleep anywhere in either test.
+//
+// The measured per-test wall-clock cost instead comes from real `lsof`/`ps`
+// subprocess spawns inside `checkLockLiveness()` in ./lock-operations.ts —
+// empirically ~0.5-0.9s combined per invocation on this machine (`lsof -t --
+// <file>` ~0.5-0.65s, `ps -A -o pid=,command=` ~0.2-0.5s) — invoked 2-3x per
+// test: once by the initial `detectIndexLock()` probe, again inside
+// `repairIndexLock()`'s own re-detection, and (when the lock is genuinely
+// stale, i.e. the "acceptance" test) a THIRD time for the pre-unlink TOCTOU
+// re-verification (see `repairIndexLock`'s `finalLiveness` check). 2-3 ×
+// ~0.85s accounts for essentially all of the measured 1.3s/2.5s.
+//
+// This is real, unmockable OS-level process-liveness detection — exactly the
+// "busy vs. stale" distinction these acceptance tests exist to prove holds
+// against the REAL process table, not a fake one (a mocked `lsof`/`ps` can
+// only ever say what the test author already assumed, which is precisely
+// what the "checkLockLiveness hardening" `describe` block further down
+// exists for — deliberately mocking real-environment edge cases that don't
+// reliably reproduce on demand). Faking away the real subprocess calls here
+// would hollow out the actual acceptance value of these two tests.
+// Investigated per mt#2979; no change warranted.
 
 /**
  * mt#2820 — index.lock staleness detection + confirm-gated repair.
