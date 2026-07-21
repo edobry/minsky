@@ -19,14 +19,16 @@
 // with completely different titles/framing — zero cross-detection until a
 // human closed mt#2887 as subsumed.
 //
-// Mechanism: run `minsky tasks search` (the tasks.search CLI command) with a
+// Mechanism: run the tasks similarity search IN-PROCESS (mt#2958 — see
+// ./standalone-dup-probe.ts; through mt#2813 this shelled out a stateless
+// `minsky tasks search` CLI, paying a full second boot per probe) with a
 // query built from the new task's title + spec — the SAME
 // `title + "\n\n" + spec` content shape `TaskSimilarityService.
 // extractTaskContent` uses to build the embedding index
 // (packages/domain/src/tasks/task-similarity-service.ts), so the query
 // embedding lands in the same representation space as the indexed corpus —
-// against ALL tasks (`--all`), then apply the SAME terminal-status exclusion
-// discipline as the sibling matcher before thresholding.
+// against ALL tasks (no status filter), then apply the SAME terminal-status
+// exclusion discipline as the sibling matcher before thresholding.
 //
 // Calibration (mt#2813 PR body has the full replay-corpus table): `score` is
 // an embedding DISTANCE (lower = more similar — the tasks.search CLI's own
@@ -60,10 +62,11 @@
 //      this module's design mirrors, and the caller of runStandaloneDuplicateGuard
 // @see docs/architecture/hooks/parallel-work-guard.md — full mechanism + calibration writeup
 
-import { execWithPath, writeOutput, TERMINAL_TASK_STATUSES } from "./types";
+import { writeOutput, TERMINAL_TASK_STATUSES } from "./types";
 import type { ToolHookInput } from "./types";
 import { recordGuardError, recordGuardCheckSkip } from "./guard-health";
 import { safeTruncate } from "../../src/utils/safe-truncate";
+import { fetchSimilarActiveTasksInProcess, type ProbeFailure } from "./standalone-dup-probe";
 
 // TERMINAL_TASK_STATUSES (mt#2683 discipline — a DONE/CLOSED/COMPLETED task
 // cannot represent live duplicate work) is imported from ./types, shared
@@ -109,15 +112,6 @@ export const STANDALONE_DUP_CANDIDATE_CAP = 5;
 export const STANDALONE_DUP_SEARCH_LIMIT = 10;
 
 /**
- * Per-CLI-call timeout for the standalone-duplicate probe. Looser than the
- * sibling duplicate-child matcher's DUP_GUARD_CLI_TIMEOUT_MS (4s) because
- * this call embeds the query text (network round-trip to the embedding
- * provider) in addition to the vector search itself — the sibling's
- * `tasks.children` calls are pure DB reads.
- */
-export const STANDALONE_DUP_CLI_TIMEOUT_MS = 8_000;
-
-/**
  * Defensive cap on how much of `spec` is folded into the search query. Bounds
  * embedding cost/latency on a pathologically large spec; 6000 chars is well
  * above every spec observed during mt#2813 calibration (the largest,
@@ -144,55 +138,6 @@ export function buildStandaloneDuplicateQuery(title: string, spec?: string): str
       ? safeTruncate(spec, STANDALONE_DUP_SPEC_MAX_CHARS, "head")
       : spec;
   return `${title}\n\n${truncated}`;
-}
-
-/** CLI argv for the standalone-duplicate probe's `tasks.search` call. */
-export function buildTasksSearchArgv(query: string, limit: number): string[] {
-  return ["minsky", "tasks", "search", query, "--json", "--all", "--limit", String(limit)];
-}
-
-/**
- * Run `minsky tasks search` and parse its JSON output. Returns `null` on any
- * CLI failure or unparseable output (loud stderr "GUARD DEGRADED" line
- * written here, mirroring the sibling matcher's `fetchTaskChildren` posture)
- * — the caller treats `null` as "search unavailable, skip the probe for this
- * create."
- *
- * `degraded: true` in a successful response means `tasks.search` itself fell
- * back to lexical search (embeddings backend unavailable) — the returned
- * scores are on a DIFFERENT scale than STANDALONE_DUP_MAX_DISTANCE was
- * calibrated against, so the caller treats this the same as a hard failure
- * rather than risk misapplying the threshold.
- */
-export function fetchSimilarActiveTasks(
-  query: string,
-  limit: number = STANDALONE_DUP_SEARCH_LIMIT
-): { results: TaskSearchResult[]; degraded: boolean } | null {
-  const argv = buildTasksSearchArgv(query, limit);
-  const result = execWithPath(argv, { timeout: STANDALONE_DUP_CLI_TIMEOUT_MS });
-  if (result.exitCode !== 0) {
-    process.stderr.write(
-      `[parallel-work-guard] GUARD DEGRADED: standalone-duplicate probe's \`minsky tasks search\` ` +
-        `exited ${result.exitCode}: ${(result.stderr || result.stdout || "(no output)").trim()}\n`
-    );
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(result.stdout) as {
-      results?: TaskSearchResult[];
-      degraded?: boolean;
-    };
-    return {
-      results: Array.isArray(parsed.results) ? parsed.results : [],
-      degraded: Boolean(parsed.degraded),
-    };
-  } catch (err) {
-    process.stderr.write(
-      `[parallel-work-guard] GUARD DEGRADED: standalone-duplicate probe could not parse ` +
-        `\`minsky tasks search\` JSON output: ${err instanceof Error ? err.message : String(err)}\n`
-    );
-    return null;
-  }
 }
 
 /**
@@ -251,16 +196,23 @@ export type StandaloneDuplicateGuardDecision =
 
 /**
  * Pure decision for the standalone-duplicate probe. `deps.fetchSimilar` is
- * injected so this is hermetically testable without invoking the CLI.
+ * injected so this is hermetically testable without the in-process search
+ * stack (accepts a sync or async implementation).
  * NEVER returns a "block" action — this guard is advisory-only per the
  * mt#2813 spec ("base rates differ from the sibling case").
  */
-export function decideStandaloneDuplicateGuard(
+export async function decideStandaloneDuplicateGuard(
   toolInput: Record<string, unknown>,
   deps: {
-    fetchSimilar: (query: string) => { results: TaskSearchResult[]; degraded: boolean } | null;
+    fetchSimilar: (
+      query: string
+    ) =>
+      | Promise<{ results: TaskSearchResult[]; degraded: boolean } | ProbeFailure | null>
+      | { results: TaskSearchResult[]; degraded: boolean }
+      | ProbeFailure
+      | null;
   }
-): StandaloneDuplicateGuardDecision {
+): Promise<StandaloneDuplicateGuardDecision> {
   const title = typeof toolInput["title"] === "string" ? (toolInput["title"] as string) : "";
   if (!title) {
     return { action: "skip", reason: "tasks_create has no title" };
@@ -269,13 +221,22 @@ export function decideStandaloneDuplicateGuard(
   const spec = typeof toolInput["spec"] === "string" ? (toolInput["spec"] as string) : undefined;
   const query = buildStandaloneDuplicateQuery(title, spec);
 
-  const searchResult = deps.fetchSimilar(query);
+  const searchResult = await deps.fetchSimilar(query);
   if (searchResult === null) {
     return {
       action: "skip",
       reason:
-        "tasks_search failed or returned unparseable output — the standalone-duplicate probe is " +
-        "SKIPPED for this create (see stderr for the CLI failure detail)",
+        "in-process tasks search failed or timed out — the standalone-duplicate probe is " +
+        "SKIPPED for this create (see stderr for the probe failure detail)",
+      degraded: true,
+    };
+  }
+  if ("failed" in searchResult) {
+    // Carry the ACTUAL error message into the guard-health event (mt#2958
+    // SC2) — not just a generic pointer at stderr.
+    return {
+      action: "skip",
+      reason: `in-process tasks search failed — probe SKIPPED for this create: ${searchResult.failed}`,
       degraded: true,
     };
   }
@@ -307,13 +268,13 @@ export function decideStandaloneDuplicateGuard(
  * when a `tasks_create`/new-task-mode `tasks_dispatch` call has no
  * `parent`/`parentTaskId`.
  */
-export function runStandaloneDuplicateGuard(input: ToolHookInput): void {
+export async function runStandaloneDuplicateGuard(input: ToolHookInput): Promise<void> {
   // Observability parity with the sibling matcher's runTasksCreateGuard: any
   // unexpected throw is surfaced on stderr, recorded to the hook-health
   // tracker (mt#2812), and then fails OPEN (permit) — a silent crash here
   // must never block task creation.
   try {
-    runStandaloneDuplicateGuardInner(input);
+    await runStandaloneDuplicateGuardInner(input);
   } catch (err) {
     process.stderr.write(
       `[parallel-work-guard] standalone-duplicate probe errored — failing open (permit): ${
@@ -330,16 +291,18 @@ export function runStandaloneDuplicateGuard(input: ToolHookInput): void {
   }
 }
 
-function runStandaloneDuplicateGuardInner(input: ToolHookInput): void {
-  const decision = decideStandaloneDuplicateGuard(input.tool_input, {
-    fetchSimilar: (query) => fetchSimilarActiveTasks(query),
+async function runStandaloneDuplicateGuardInner(input: ToolHookInput): Promise<void> {
+  const decision = await decideStandaloneDuplicateGuard(input.tool_input, {
+    fetchSimilar: (query) => fetchSimilarActiveTasksInProcess(query, STANDALONE_DUP_SEARCH_LIMIT),
   });
 
   switch (decision.action) {
     case "skip":
       if (decision.degraded) {
         process.stderr.write(
-          `[parallel-work-guard] GUARD DEGRADED (standalone-duplicate probe skipped): ${decision.reason}\n`
+          `[parallel-work-guard] GUARD DEGRADED (standalone-duplicate probe skipped): ${
+            decision.reason
+          }\n`
         );
         recordGuardCheckSkip({
           guardName: STANDALONE_DUPLICATE_GUARD_NAME,

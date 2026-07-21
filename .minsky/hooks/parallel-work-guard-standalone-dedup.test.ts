@@ -1,16 +1,15 @@
 // Tests for the standalone (parentless) tasks_create duplicate probe (mt#2813).
 //
-// All pure / hermetic: the CLI-backed `fetchSimilarActiveTasks` is never
-// invoked — `decideStandaloneDuplicateGuard` takes an injected `fetchSimilar`
-// dependency, mirroring the sibling duplicate-CHILD matcher's
-// `decideTasksCreateGuard` / `fetchChildren` injection pattern
-// (parallel-work-guard-dedup.test.ts).
+// All pure / hermetic: the in-process search stack (`standalone-dup-probe.ts`,
+// mt#2958) is never invoked — `decideStandaloneDuplicateGuard` takes an
+// injected `fetchSimilar` dependency (sync or async), mirroring the sibling
+// duplicate-CHILD matcher's `decideTasksCreateGuard` / `fetchChildren`
+// injection pattern (parallel-work-guard-dedup.test.ts).
 
 import { describe, expect, it } from "bun:test";
 
 import {
   buildStandaloneDuplicateQuery,
-  buildTasksSearchArgv,
   detectStandaloneDuplicates,
   formatStandaloneDuplicateWarning,
   decideStandaloneDuplicateGuard,
@@ -56,21 +55,6 @@ describe("buildStandaloneDuplicateQuery (mt#2813)", () => {
     const spec = "y".repeat(STANDALONE_DUP_SPEC_MAX_CHARS);
     const query = buildStandaloneDuplicateQuery("Title", spec);
     expect(query).toBe(`Title\n\n${spec}`);
-  });
-});
-
-describe("buildTasksSearchArgv (mt#2813)", () => {
-  it("builds the exact CLI argv shape", () => {
-    expect(buildTasksSearchArgv("some query", 10)).toEqual([
-      "minsky",
-      "tasks",
-      "search",
-      "some query",
-      "--json",
-      "--all",
-      "--limit",
-      "10",
-    ]);
   });
 });
 
@@ -157,8 +141,8 @@ describe("formatStandaloneDuplicateWarning (mt#2813)", () => {
 });
 
 describe("decideStandaloneDuplicateGuard (mt#2813)", () => {
-  it("skips (no title) when tasks_create has no title", () => {
-    const decision = decideStandaloneDuplicateGuard(
+  it("skips (no title) when tasks_create has no title", async () => {
+    const decision = await decideStandaloneDuplicateGuard(
       {},
       { fetchSimilar: () => ({ results: [], degraded: false }) }
     );
@@ -168,20 +152,40 @@ describe("decideStandaloneDuplicateGuard (mt#2813)", () => {
     }
   });
 
-  it("degrades open with a loud skip when the search backend is unavailable (null)", () => {
-    const decision = decideStandaloneDuplicateGuard(
+  it("degrades open with a loud skip when the search backend is unavailable (null)", async () => {
+    const decision = await decideStandaloneDuplicateGuard(
       { title: "Some new task" },
       { fetchSimilar: () => null }
     );
     expect(decision.action).toBe("skip");
     if (decision.action === "skip") {
       expect(decision.degraded).toBe(true);
-      expect(decision.reason).toMatch(/failed|unparseable/);
+      expect(decision.reason).toMatch(/failed|timed out/);
     }
   });
 
-  it("degrades open when the search response reports lexical-fallback degradation", () => {
-    const decision = decideStandaloneDuplicateGuard(
+  it("threads the probe's ACTUAL error message into the skip reason (mt#2958 SC2)", async () => {
+    const decision = await decideStandaloneDuplicateGuard(
+      { title: "Some new task" },
+      { fetchSimilar: () => ({ failed: "write CONNECT_TIMEOUT 192.0.2.1:5432" }) }
+    );
+    expect(decision.action).toBe("skip");
+    if (decision.action === "skip") {
+      expect(decision.degraded).toBe(true);
+      expect(decision.reason).toContain("write CONNECT_TIMEOUT 192.0.2.1:5432");
+    }
+  });
+
+  it("accepts an ASYNC fetchSimilar (the in-process probe's shape)", async () => {
+    const decision = await decideStandaloneDuplicateGuard(
+      { title: "Some new task" },
+      { fetchSimilar: async () => ({ results: [result("mt#dup", 0.3, "TODO")], degraded: false }) }
+    );
+    expect(decision.action).toBe("warn");
+  });
+
+  it("degrades open when the search response reports lexical-fallback degradation", async () => {
+    const decision = await decideStandaloneDuplicateGuard(
       { title: "Some new task" },
       { fetchSimilar: () => ({ results: [result("mt#1", 0.1)], degraded: true }) }
     );
@@ -192,8 +196,8 @@ describe("decideStandaloneDuplicateGuard (mt#2813)", () => {
     }
   });
 
-  it("permits a clearly-novel task with no close matches", () => {
-    const decision = decideStandaloneDuplicateGuard(
+  it("permits a clearly-novel task with no close matches", async () => {
+    const decision = await decideStandaloneDuplicateGuard(
       { title: "Totally novel unrelated task" },
       {
         fetchSimilar: () => ({
@@ -205,8 +209,8 @@ describe("decideStandaloneDuplicateGuard (mt#2813)", () => {
     expect(decision.action).toBe("permit");
   });
 
-  it("warns naming the candidate when a high-similarity ACTIVE match is found", () => {
-    const decision = decideStandaloneDuplicateGuard(
+  it("warns naming the candidate when a high-similarity ACTIVE match is found", async () => {
+    const decision = await decideStandaloneDuplicateGuard(
       { title: "New task" },
       { fetchSimilar: () => ({ results: [result("mt#dup", 0.3, "TODO")], degraded: false }) }
     );
@@ -217,9 +221,9 @@ describe("decideStandaloneDuplicateGuard (mt#2813)", () => {
     }
   });
 
-  it("passes title+spec through to fetchSimilar as the query", () => {
+  it("passes title+spec through to fetchSimilar as the query", async () => {
     let receivedQuery = "";
-    decideStandaloneDuplicateGuard(
+    await decideStandaloneDuplicateGuard(
       { title: "T", spec: "S" },
       {
         fetchSimilar: (query) => {
@@ -238,9 +242,9 @@ describe("decideStandaloneDuplicateGuard (mt#2813)", () => {
   // live call.
   // -------------------------------------------------------------------------
 
-  it("replay: mt#2734/mt#2351 pair — warns naming mt#2351", () => {
+  it("replay: mt#2734/mt#2351 pair — warns naming mt#2351", async () => {
     // Live-probed distance (title+spec query): mt#2351 at 0.478.
-    const decision = decideStandaloneDuplicateGuard(
+    const decision = await decideStandaloneDuplicateGuard(
       {
         title:
           "Reconcile prod Pulumi drift: undeployed cockpit service + minsky-mcp/site variable drift",
@@ -272,7 +276,7 @@ describe("decideStandaloneDuplicateGuard (mt#2813)", () => {
     }
   });
 
-  it("replay: mt#2887/mt#2888 pair (fresh evidence, 2026-07-16) — warns naming mt#2888", () => {
+  it("replay: mt#2887/mt#2888 pair (fresh evidence, 2026-07-16) — warns naming mt#2888", async () => {
     // Live-probed distances (title+spec query, mt#2887's at-creation content):
     // mt#2892 at 0.579, mt#2888 at 0.632 — both ACTIVE at replay time. This is
     // the hard case: the two titles use completely different framing/vocabulary
@@ -281,7 +285,7 @@ describe("decideStandaloneDuplicateGuard (mt#2813)", () => {
     // convergence tooling: classify 503/rate-limit/HTML errors...") — a
     // title-only query does NOT separate this pair from calibration noise
     // (see the section doc comment in parallel-work-guard.ts); title+spec does.
-    const decision = decideStandaloneDuplicateGuard(
+    const decision = await decideStandaloneDuplicateGuard(
       {
         title:
           "session_pr_merge's internal gh api check_runs query fails with HTTP 503 while equivalent Octokit-based MCP calls succeed",
@@ -321,8 +325,8 @@ describe("decideStandaloneDuplicateGuard (mt#2813)", () => {
     }
   });
 
-  it("replay: a terminal-status near-duplicate (e.g. the original mt#2887, later CLOSED) is excluded", () => {
-    const decision = decideStandaloneDuplicateGuard(
+  it("replay: a terminal-status near-duplicate (e.g. the original mt#2887, later CLOSED) is excluded", async () => {
+    const decision = await decideStandaloneDuplicateGuard(
       { title: "New bug report" },
       {
         fetchSimilar: () => ({
@@ -347,10 +351,10 @@ describe("decideStandaloneDuplicateGuard (mt#2813)", () => {
     }
   });
 
-  it("replay: legitimately-distinct false-positive-corpus sample stays under threshold and permits", () => {
+  it("replay: legitimately-distinct false-positive-corpus sample stays under threshold and permits", async () => {
     // mt#2762 vs its nearest ACTIVE neighbor during calibration landed at
     // 0.797 (title+spec) — comfortably above STANDALONE_DUP_MAX_DISTANCE.
-    const decision = decideStandaloneDuplicateGuard(
+    const decision = await decideStandaloneDuplicateGuard(
       {
         title:
           'Add kind filter to tasks_list / tasks_search / tasks_available so "list open work streams" is one query',

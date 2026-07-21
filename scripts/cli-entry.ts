@@ -60,7 +60,7 @@ export interface FsDeps {
 export interface ExecDeps {
   /** Run `git rev-parse HEAD` in the given cwd. Returns stdout or "" on failure. */
   gitRevParseHead(cwd: string): string;
-  /** Run `bun build --target=bun --outdir=<dir> --entry-naming <name> --sourcemap=external <sourcePath>` in cwd. Returns exit code. */
+  /** Run `bun build --target=bun --outdir=<dir> --entry-naming <name> --sourcemap=external --minify <sourcePath>` in cwd. Returns exit code. */
   bunBuild(args: { cwd: string; bundlePath: string; sourcePath: string }): number;
 }
 
@@ -179,6 +179,7 @@ function makeProductionExecDeps(): ExecDeps {
           "--entry-naming",
           entryName,
           "--sourcemap=external",
+          "--minify",
           sourcePath,
         ],
         { cwd, stdio: "inherit" }

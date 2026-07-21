@@ -1,9 +1,11 @@
 /* eslint-disable custom/no-real-fs-in-tests -- test infrastructure: the corpus-fidelity test reads the repo's real .minsky/rules/*.mdc set to prove the reader parses the actual rule corpus; mocking fs would defeat that specific assertion. The remaining tests use an injected in-memory fs. */
 /**
- * Tests for the flat-`.mdc` + `rule.ts` rule source reader (mt#2994, Phase 2).
+ * Tests for the flat-`.mdc` + `rule.ts` rule source reader (mt#2994, Phase 2;
+ * updated mt#2995, Phase 3, for the `extractRuleDefinitionFromMdc` byte-parity
+ * signature change).
  *
  * Covers: source discovery (ts / mdc / both / empty), markdown parse+validate
- * (valid / malformed / schema-invalid / name-fallback / tag-normalize), and a
+ * (valid / malformed / schema-invalid / name-omitted / tag-normalize), and a
  * corpus-fidelity pass over the repo's real flat `.minsky/rules/*.mdc` rules
  * proving they round-trip into valid `RuleDefinition`s with no content loss.
  */
@@ -113,7 +115,7 @@ describe("extractRuleDefinitionFromMdc", () => {
   ].join("\n");
 
   it("parses frontmatter + body into a validated RuleDefinition", () => {
-    const result = extractRuleDefinitionFromMdc(validRaw, "/ws/.minsky/rules/x.mdc", "x");
+    const result = extractRuleDefinitionFromMdc(validRaw, "/ws/.minsky/rules/x.mdc");
     expect("rule" in result).toBe(true);
     if (!("rule" in result)) return;
     expect(result.rule.description).toBe("A test rule");
@@ -123,16 +125,33 @@ describe("extractRuleDefinitionFromMdc", () => {
     expect(result.rule.content).toContain("# Body content here");
   });
 
-  it("falls back to the file-derived name when frontmatter omits `name`", () => {
-    const result = extractRuleDefinitionFromMdc(validRaw, "/p/my-rule.mdc", "my-rule");
+  it("leaves name undefined when frontmatter omits `name` (byte-parity — no filename default)", () => {
+    const result = extractRuleDefinitionFromMdc(validRaw, "/p/my-rule.mdc");
     expect("rule" in result).toBe(true);
     if (!("rule" in result)) return;
-    expect(result.rule.name).toBe("my-rule");
+    expect(result.rule.name).toBeUndefined();
   });
 
-  it("prefers the frontmatter `name` over the file-derived name", () => {
+  it("strips the schema-defaulted alwaysApply when the source omits it (byte-parity)", () => {
+    const raw = ["---", "description: d", "---", "", "body"].join("\n");
+    const result = extractRuleDefinitionFromMdc(raw, "/p/no-always-apply.mdc");
+    expect("rule" in result).toBe(true);
+    if (!("rule" in result)) return;
+    expect(result.rule.alwaysApply).toBeUndefined();
+    expect("alwaysApply" in result.rule).toBe(false);
+  });
+
+  it("trims the content body (matches legacy RuleService's content.trim())", () => {
+    const raw = ["---", "description: d", "---", "", "  body with padding  ", ""].join("\n");
+    const result = extractRuleDefinitionFromMdc(raw, "/p/f.mdc");
+    expect("rule" in result).toBe(true);
+    if (!("rule" in result)) return;
+    expect(result.rule.content).toBe("body with padding");
+  });
+
+  it("prefers the frontmatter `name` over leaving it undefined", () => {
     const raw = ["---", "name: explicit-name", "description: d", "---", "", "body"].join("\n");
-    const result = extractRuleDefinitionFromMdc(raw, "/p/file.mdc", "file");
+    const result = extractRuleDefinitionFromMdc(raw, "/p/file.mdc");
     expect("rule" in result).toBe(true);
     if (!("rule" in result)) return;
     expect(result.rule.name).toBe("explicit-name");
@@ -140,7 +159,7 @@ describe("extractRuleDefinitionFromMdc", () => {
 
   it("normalizes a single-string `tags` value to an array", () => {
     const raw = ["---", "description: d", "tags: solo", "---", "", "body"].join("\n");
-    const result = extractRuleDefinitionFromMdc(raw, "/p/f.mdc", "f");
+    const result = extractRuleDefinitionFromMdc(raw, "/p/f.mdc");
     expect("rule" in result).toBe(true);
     if (!("rule" in result)) return;
     expect(result.rule.tags).toEqual(["solo"]);
@@ -148,7 +167,7 @@ describe("extractRuleDefinitionFromMdc", () => {
 
   it("returns an error (does not throw) for a schema-invalid rule with no description", () => {
     const raw = ["---", "alwaysApply: false", "tags:", "  - x", "---", "", "body"].join("\n");
-    const result = extractRuleDefinitionFromMdc(raw, "/p/nodesc.mdc", "nodesc");
+    const result = extractRuleDefinitionFromMdc(raw, "/p/nodesc.mdc");
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
     expect(result.error).toContain("Invalid rule markdown source");
@@ -156,16 +175,16 @@ describe("extractRuleDefinitionFromMdc", () => {
 
   it("returns an error (does not throw) for unparseable frontmatter", () => {
     const raw = ["---", "description: [unclosed", "---", "", "body"].join("\n");
-    const result = extractRuleDefinitionFromMdc(raw, "/p/bad.mdc", "bad");
+    const result = extractRuleDefinitionFromMdc(raw, "/p/bad.mdc");
     expect("error" in result).toBe(true);
   });
 });
 
-describe("corpus fidelity — real .minsky/rules/*.mdc round-trip (Phase 2 acceptance)", () => {
+describe("corpus fidelity — real .minsky/rules/*.mdc round-trip (Phase 2/3 acceptance)", () => {
   // repo root: packages/domain/src/compile → up 4 levels
   const repoRoot = join(import.meta.dir, "..", "..", "..", "..");
 
-  it("discovers the flat rule corpus and parses all but the description-less rule", async () => {
+  it("discovers the flat rule corpus and parses every rule with no skips (mt#2995)", async () => {
     const sources = await discoverRuleSources(repoRoot, realFs as unknown as MinskyCompileFsDeps);
     const mdcSources = sources.filter((s) => s.kind === "mdc");
 
@@ -174,14 +193,14 @@ describe("corpus fidelity — real .minsky/rules/*.mdc round-trip (Phase 2 accep
     // (the corpus grows over time).
     expect(mdcSources.length).toBeGreaterThanOrEqual(40);
 
-    const errors: Array<{ name: string; hadDescription: boolean }> = [];
+    const errors: Array<{ name: string; reason: string }> = [];
     let validCount = 0;
 
     for (const src of mdcSources) {
       const raw = await realFs.readFile(src.path, "utf-8");
-      const result = extractRuleDefinitionFromMdc(raw, src.path, src.name);
+      const result = extractRuleDefinitionFromMdc(raw, src.path);
       if ("error" in result) {
-        errors.push({ name: src.name, hadDescription: /^description:/m.test(raw) });
+        errors.push({ name: src.name, reason: result.error });
         continue;
       }
       validCount++;
@@ -190,14 +209,10 @@ describe("corpus fidelity — real .minsky/rules/*.mdc round-trip (Phase 2 accep
       expect(result.rule.content.length).toBeGreaterThan(0);
     }
 
-    // At most one rule fails to round-trip, and only ever because it genuinely
-    // lacks a `description` (the tracked convergence gap — the schema requires
-    // one). Any OTHER parse failure is a reader regression and fails here.
-    for (const e of errors) {
-      expect(e.hadDescription).toBe(false);
-    }
-    expect(errors.length).toBeLessThanOrEqual(1);
-    // The overwhelming majority must round-trip cleanly.
-    expect(validCount).toBeGreaterThanOrEqual(mdcSources.length - 1);
+    // mt#2995: `verification-checklist.mdc` gained a `description` (the one
+    // previously-skipped rule from Phase 2), so the full corpus now round-trips
+    // with zero skips. Any parse failure here is a reader regression.
+    expect(errors).toEqual([]);
+    expect(validCount).toBe(mdcSources.length);
   });
 });
