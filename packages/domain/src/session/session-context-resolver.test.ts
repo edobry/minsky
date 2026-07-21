@@ -12,6 +12,7 @@ import {
 import { ValidationError, ResourceNotFoundError } from "../errors/index";
 import { FakeSessionProvider } from "./fake-session-provider";
 import type { SessionProviderInterface } from "../session";
+import { makeDeferredFailurePlaceholder } from "../composition/container";
 
 describe("resolveSessionContext", () => {
   let mockSessionProvider: SessionProviderInterface;
@@ -109,6 +110,56 @@ describe("resolveSessionContext", () => {
 
       expect(result.sessionId).toBe("test-session");
       expect(result.resolvedBy).toBe("explicit-session");
+    });
+  });
+
+  // mt#2945: reproduces the post-reload failure mode where `sessionProvider`
+  // resolves to the DI container's deferred-failure placeholder (because
+  // persistence was unavailable when the provider was constructed) instead
+  // of a real SessionProviderInterface. Before the fix, the diagnostic
+  // `log.debug` call's `sessionProvider.constructor.name` read crashed with a
+  // raw "undefined is not an object" TypeError — this exercises that exact
+  // code path and asserts it now either resolves cleanly or fails with the
+  // deferred placeholder's clear, actionable "service unavailable" message,
+  // never the opaque null-deref.
+  describe("reload path — unwired sessionProvider (mt#2945)", () => {
+    test("a deferred-failure placeholder sessionProvider fails with a clear message, not a null-deref", async () => {
+      const placeholderSessionProvider = makeDeferredFailurePlaceholder(
+        "sessionProvider",
+        "Persistence is not configured: no Postgres connection configured"
+      ) as unknown as SessionProviderInterface;
+
+      await expect(
+        resolveSessionContext({
+          sessionId: "test-session",
+          sessionProvider: placeholderSessionProvider,
+          allowAutoDetection: false,
+        })
+      ).rejects.toThrow(/Service "sessionProvider" is unavailable/);
+    });
+
+    test("a genuinely undefined sessionProvider does not crash with a raw null-deref", async () => {
+      // Defensive case: even if a caller passes `undefined` directly (not
+      // routed through the DI container's placeholder), the diagnostic log
+      // line must not itself throw. The subsequent `sessionProvider.getSession`
+      // call surfaces its own (TypeError) failure, but NOT the opaque
+      // "evaluating 'sessionProvider.constructor.name'" crash.
+      const undefinedSessionProvider = undefined as unknown as SessionProviderInterface;
+
+      let caught: unknown;
+      try {
+        await resolveSessionContext({
+          sessionId: "test-session",
+          sessionProvider: undefinedSessionProvider,
+          allowAutoDetection: false,
+        });
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeDefined();
+      const message = caught instanceof Error ? caught.message : String(caught);
+      expect(message).not.toContain("sessionProvider.constructor.name");
     });
   });
 });

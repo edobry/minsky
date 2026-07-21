@@ -94,7 +94,18 @@ export async function resolveSessionContext(
     task,
     sessionId,
     repo,
-    sessionProviderType: sessionProvider.constructor.name,
+    // mt#2945: guard this diagnostic read with optional chaining. Right after
+    // a server reload, `sessionProvider` may be the DI container's deferred-
+    // failure placeholder (or, defensively, genuinely undefined) if a
+    // required resource (Postgres) was unavailable when the provider was
+    // constructed. A bare `sessionProvider.constructor.name` crashes the
+    // WHOLE call with an opaque "undefined is not an object (evaluating
+    // 'sessionProvider.constructor.name')" TypeError before the provider's
+    // own clear "service unavailable" error (thrown when it's actually used,
+    // a few lines below) ever gets a chance to fire. See
+    // `packages/domain/src/composition/container.ts`'s
+    // `makeDeferredFailurePlaceholder` for the companion fix.
+    sessionProviderType: sessionProvider?.constructor?.name ?? "unknown",
   });
 
   const workingDirectory = repo || cwd;

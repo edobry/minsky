@@ -84,39 +84,56 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     }
   };
   // Optional SubagentDispatchTracker factory — best-effort, returns null when unavailable (mt#1737)
+  //
+  // mt#2945: retries on every call while no attempt is in flight, instead of
+  // giving up permanently after the FIRST failed attempt. The original
+  // one-shot design (`_trackerInitAttempted` latched true before the async
+  // init even started) meant a single transient Postgres hiccup — exactly
+  // the kind that can happen right after a server reload while the
+  // connection pool is still warming up — wedged the tracker "unavailable"
+  // for the rest of the process's life, with tasks.dispatch-recover
+  // reporting "Subagent dispatch tracker unavailable" forever after. This is
+  // the sibling symptom to mt#2945's session_pr_* null-deref: both trace back
+  // to a reload-time persistence hiccup that the old code treated as
+  // permanent instead of retriable.
   let _cachedTracker: SubagentDispatchTracker | null = null;
-  let _trackerInitAttempted = false;
+  let _trackerInitInFlight = false;
   const getTracker = (): SubagentDispatchTracker | null => {
-    if (_trackerInitAttempted) return _cachedTracker;
-    _trackerInitAttempted = true;
+    if (_cachedTracker) return _cachedTracker;
+    if (_trackerInitInFlight) return null; // an attempt is already in flight
+    if (!container?.has("persistence")) return null;
+    let provider: SqlCapablePersistenceProvider;
     try {
-      if (!container?.has("persistence")) return null;
-      const provider = container.get("persistence") as SqlCapablePersistenceProvider;
-      if (!provider.getDatabaseConnection) return null;
-      // Tracker requires a PostgresJsDatabase. We kick off async init here;
-      // if it resolves before the first dispatch call the tracker is available.
-      // If not, the first dispatch will find null and skip silently.
-      (async () => {
-        try {
-          const db = await provider.getDatabaseConnection();
-          if (db) {
-            _cachedTracker = new SubagentDispatchTracker(
-              db as import("drizzle-orm/postgres-js").PostgresJsDatabase
-            );
-          }
-        } catch (err: unknown) {
-          log.debug("[tasks] Could not initialize SubagentDispatchTracker", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      })();
-      return null; // Async init; first call may not have the tracker yet
+      provider = container.get("persistence") as SqlCapablePersistenceProvider;
     } catch (err: unknown) {
       log.debug("[tasks] Could not initialize SubagentDispatchTracker (sync error)", {
         error: err instanceof Error ? err.message : String(err),
       });
       return null;
     }
+    if (!provider.getDatabaseConnection) return null;
+    _trackerInitInFlight = true;
+    // Tracker requires a PostgresJsDatabase. We kick off async init here;
+    // if it resolves before the next call, the tracker becomes available.
+    // A failed attempt resets `_trackerInitInFlight` in `finally` so the NEXT
+    // getTracker() call retries rather than staying permanently unavailable.
+    (async () => {
+      try {
+        const db = await provider.getDatabaseConnection();
+        if (db) {
+          _cachedTracker = new SubagentDispatchTracker(
+            db as import("drizzle-orm/postgres-js").PostgresJsDatabase
+          );
+        }
+      } catch (err: unknown) {
+        log.debug("[tasks] Could not initialize SubagentDispatchTracker", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      } finally {
+        _trackerInitInFlight = false;
+      }
+    })();
+    return null; // Async init; this call (and any concurrent ones) return null
   };
   // Import command creation functions locally to avoid top-level circular imports
   const { createTasksStatusGetCommand, createTasksStatusSetCommand } = require("./status-commands");
