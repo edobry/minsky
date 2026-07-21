@@ -36,16 +36,16 @@ function fakeFs(dirs: Record<string, string[]>, files: string[]): MinskyCompileF
     async access(path: string): Promise<void> {
       if (!fileSet.has(path)) throw new Error(`ENOENT: ${path}`);
     },
-    async readFile(): Promise<string> {
+    async readFile(_path: string, _enc: "utf-8"): Promise<string> {
       throw new Error("readFile not used in discovery");
     },
-    async writeFile(): Promise<void> {
+    async writeFile(_path: string, _data: string, _enc: "utf-8"): Promise<void> {
       throw new Error("writeFile not used");
     },
-    async mkdir(): Promise<undefined> {
+    async mkdir(_path: string, _opts: { recursive: boolean }): Promise<string | undefined> {
       return undefined;
     },
-    async chmod(): Promise<void> {},
+    async chmod(_path: string, _mode: number): Promise<void> {},
   };
 }
 

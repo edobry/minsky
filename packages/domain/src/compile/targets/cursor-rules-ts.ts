@@ -17,6 +17,7 @@ import matter from "gray-matter";
 import { ruleDefinitionSchema } from "../../definitions/schemas";
 import type { RuleDefinition } from "../../definitions/types";
 import { discoverRuleSources } from "../rule-sources";
+import { log } from "../../utils/logger";
 import type {
   MinskyCompileTarget,
   MinskyCompileResult,
@@ -32,6 +33,17 @@ import { GENERATED_BANNER } from "../../rules/compile/banner-constants";
 export type DynamicImportFn = (path: string) => Promise<unknown>;
 
 const realDynamicImport: DynamicImportFn = (path: string) => import(path);
+
+/**
+ * Injectable skip-warning sink — overridden in tests. Production default logs
+ * via the shared logger; a skipped rule (broken import, invalid definition,
+ * name mismatch, or an ambiguous `both` source) is NOT swallowed silently
+ * (mt#2182). Injected rather than spying on `log` to sidestep cross-package
+ * module-identity issues with the singleton logger.
+ */
+export type SkipLogFn = (message: string) => void;
+
+const defaultSkipLog: SkipLogFn = (message: string) => log.warn(message);
 
 /**
  * Root output directory for compiled cursor rules.
@@ -126,7 +138,8 @@ function extractRuleDefinition(
 
 /** Build the cursor-rules-ts target, injecting a dynamic-import function for tests. */
 function makeCursorRulesTsTarget(
-  dynamicImport: DynamicImportFn = realDynamicImport
+  dynamicImport: DynamicImportFn = realDynamicImport,
+  onSkip: SkipLogFn = defaultSkipLog
 ): MinskyCompileTarget {
   return {
     id: "cursor-rules-ts",
@@ -171,15 +184,23 @@ function makeCursorRulesTsTarget(
       const dryRunParts: string[] = [];
 
       for (const source of sources) {
-        // Phase 2 (mt#2994): emit only TS-sourced rules. Flat `.mdc` rules are
-        // discovered via the shared reader but their emission is Phase 3
-        // (mt#2995); an ambiguous `both` source (a rule.ts AND a flat .mdc for
-        // the same name) is skipped rather than silently preferring one format
-        // (mt#2279).
+        // Phase 2 (mt#2994): this target emits ONLY TS-sourced rules. Flat
+        // `.mdc` rules are discovered via the shared reader, but their emission
+        // is Phase 3 (mt#2995) — an `mdc` source is not this target's output yet.
         if (source.kind === "mdc") {
           continue;
         }
+        // Ambiguous `both` source (a `<name>/rule.ts` AND a flat `<name>.mdc`
+        // for the same name): skip + warn rather than silently preferring one
+        // format (the mt#2279-consistent policy). NOTE: this is the ONE semantic
+        // change vs. the pre-mt#2994 target, which was blind to flat `.mdc`
+        // files and would have emitted the TS side. No such collision exists
+        // today (0 `rule.ts` sources), so the change is latent until a rule is
+        // authored in both formats.
         if (source.kind === "both") {
+          onSkip(
+            `[compile:cursor-rules-ts] skipping "${source.name}": both ${source.tsPath} and ${source.mdcPath} exist — ambiguous canonical source; keep exactly one format`
+          );
           definitionsSkipped.push(source.name);
           continue;
         }
@@ -189,13 +210,19 @@ function makeCursorRulesTsTarget(
         let mod: unknown;
         try {
           mod = await dynamicImport(sourcePath);
-        } catch {
+        } catch (error) {
+          // Do NOT swallow silently (mt#2182): a broken import is surfaced.
+          const reason = error instanceof Error ? error.message : String(error);
+          onSkip(
+            `[compile:cursor-rules-ts] skipping "${dirName}": failed to import ${sourcePath}: ${reason}`
+          );
           definitionsSkipped.push(dirName);
           continue;
         }
 
         const extracted = extractRuleDefinition(mod, sourcePath);
         if ("error" in extracted) {
+          onSkip(`[compile:cursor-rules-ts] skipping "${dirName}": ${extracted.error}`);
           definitionsSkipped.push(dirName);
           continue;
         }
@@ -208,6 +235,11 @@ function makeCursorRulesTsTarget(
         // lockstep is simpler than making listOutputFiles load every definition
         // just to discover the real name.
         if (rule.name === undefined || dirName !== rule.name) {
+          onSkip(
+            `[compile:cursor-rules-ts] skipping "${dirName}": rule name ${
+              rule.name === undefined ? "is undefined" : `"${rule.name}"`
+            } does not match its directory name`
+          );
           definitionsSkipped.push(dirName);
           continue;
         }
