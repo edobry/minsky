@@ -30,6 +30,15 @@
  *     test` process, mirroring scripts/run-tests-mcp-isolated.ts -- per
  *     mt#2665, src/mcp test files are known to silently truncate when run
  *     in combination with other files.
+ *   - Any related test under `src/cockpit/web/**` runs with the
+ *     `tests/dom-setup.ts` preload instead of `tests/setup.ts` -- mirrors
+ *     bunfig.toml's `pathIgnorePatterns` exclusion of that directory from
+ *     the main (non-DOM) suite (see its comment for the happy-dom rationale).
+ *     Without this, a change to a widely-imported cockpit source file (e.g.
+ *     a shared widget or route payload type) pulls its DOM-dependent test
+ *     files into the related set and they fail fast with "document is not
+ *     defined" -- first surfaced by mt#2967's session-detail.ts /
+ *     RunDetail.tsx changes.
  *
  * Wired into pre-commit via src/hooks/pre-commit.ts's `runFastRelatedTests`
  * step (spawns this script and gates the commit on its exit code).
@@ -66,12 +75,17 @@ function getStagedFiles(): string[] {
   return new TextDecoder().decode(proc.stdout).trim().split("\n").filter(Boolean);
 }
 
-function runBunTest(files: string[]): { exitCode: number; combined: string } {
+function runBunTest(
+  files: string[],
+  preload: string = "./tests/setup.ts"
+): { exitCode: number; combined: string } {
   const decoder = new TextDecoder();
-  const proc = Bun.spawnSync(
-    ["bun", "test", "--preload", "./tests/setup.ts", "--timeout=15000", ...files],
-    { env: { ...process.env, AGENT: "1" }, stdout: "pipe", stderr: "pipe", timeout: 60000 }
-  );
+  const proc = Bun.spawnSync(["bun", "test", "--preload", preload, "--timeout=15000", ...files], {
+    env: { ...process.env, AGENT: "1" },
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: 60000,
+  });
   const out = decoder.decode(proc.stdout);
   const err = decoder.decode(proc.stderr);
   process.stdout.write(out);
@@ -117,7 +131,10 @@ export function runFastRelatedTestGate(
   }
 
   const mcpFiles = related.filter((f) => f.startsWith("src/mcp/"));
-  const regularFiles = related.filter((f) => !f.startsWith("src/mcp/"));
+  const cockpitDomFiles = related.filter((f) => f.startsWith("src/cockpit/web/"));
+  const regularFiles = related.filter(
+    (f) => !f.startsWith("src/mcp/") && !f.startsWith("src/cockpit/web/")
+  );
 
   if (regularFiles.length > 0) {
     const result = doRun(regularFiles.map(toBunTestPath));
@@ -126,6 +143,22 @@ export function runFastRelatedTestGate(
       return {
         ok: false,
         reason: `related tests FAILED (fail-closed): ${gate.reason}`,
+        relatedCount: related.length,
+        elapsedMs: Date.now() - startMs,
+      };
+    }
+  }
+
+  // mt#2967: cockpit-web tests need a DOM environment (happy-dom) via
+  // tests/dom-setup.ts, mirroring bunfig.toml's exclusion of this directory
+  // from the default (non-DOM) preload -- see this file's module doc.
+  if (cockpitDomFiles.length > 0) {
+    const result = doRun(cockpitDomFiles.map(toBunTestPath), "./tests/dom-setup.ts");
+    const gate = evaluateBunTestSummary(result.combined, result.exitCode);
+    if (!gate.ok) {
+      return {
+        ok: false,
+        reason: `related cockpit-web tests FAILED (fail-closed, DOM preload): ${gate.reason}`,
         relatedCount: related.length,
         elapsedMs: Date.now() - startMs,
       };

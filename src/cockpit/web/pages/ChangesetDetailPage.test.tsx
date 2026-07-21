@@ -74,6 +74,7 @@ const FOUND_PAYLOAD: ChangesetDetailPayload = {
   },
   session: {
     sessionId: "abc12345-1234-1234-1234-abc123456789",
+    shortId: "ws#42",
     taskId: "mt#2535",
     taskTitle: "Changeset detail page",
     status: "IN-PROGRESS",

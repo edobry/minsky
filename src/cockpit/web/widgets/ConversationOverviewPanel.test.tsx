@@ -254,6 +254,7 @@ describe("ConversationOverviewPanel — all-optional-fields-absent (acceptance t
     const workspace: WorkspaceOverviewFields = {
       session: {
         sessionId: "577bbf25-90e5-4229-bc6a-60bcd4083b38",
+        shortId: null,
         taskId: "mt#100",
         taskTitle: "Example task",
         status: "IN-PROGRESS",
