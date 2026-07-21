@@ -7,13 +7,32 @@
  * history entry and retargets the same memory tab path).
  */
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { MemoryDetailBody } from "../widgets/MemoryDetail";
+import { useQuery } from "@tanstack/react-query";
+import { MemoryDetailBody, type MemoriesDetailPayload } from "../widgets/MemoryDetail";
 import { CopyId } from "../components/CopyId";
+import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 
 export function MemoryPage() {
   const { id } = useParams<{ id: string }>();
   const memoryId = id ?? "";
   const navigate = useNavigate();
+
+  // displayId=memory.shortId (mt#2966): shares the SAME query key as
+  // MemoryDetailBody's own fetch below (["widget", "memories-detail",
+  // memoryId]) — TanStack Query dedupes identical keys under one QueryClient,
+  // so this does not trigger a second network request. The breadcrumb renders
+  // before the fetch settles, so this falls back to the raw uuid from the URL
+  // param (memoryId) while loading or for a legacy pre-backfill memory.
+  const detailQuery = useQuery<WidgetData, Error>({
+    queryKey: ["widget", "memories-detail", memoryId],
+    queryFn: () => fetchWidgetData("memories-detail", { id: memoryId }),
+    staleTime: 30_000,
+    enabled: memoryId !== "",
+  });
+  const shortId =
+    detailQuery.data?.state === "ok"
+      ? (detailQuery.data.payload as MemoriesDetailPayload).record.shortId
+      : undefined;
 
   return (
     <div className="p-4 w-full max-w-3xl mx-auto">
@@ -26,7 +45,7 @@ export function MemoryPage() {
           Memories
         </Link>
         <span aria-hidden="true">/</span>
-        <CopyId type="memory" id={memoryId} />
+        <CopyId type="memory" id={memoryId} displayId={shortId} />
       </nav>
 
       {memoryId ? (
