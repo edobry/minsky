@@ -4663,7 +4663,7 @@
           "subcommands": [
             {
               "name": "list",
-              "description": "List Asks with optional id, state, and kind filters. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965).",
+              "description": "List Asks with optional id, state, and kind filters. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965). Returns full ask records by default; pass `summary: true` for compact rows (id, kind, state, title, routingTarget, parentTaskId, createdAt, routedAt) with no question/options/contextRefs/metadata body — safe to page through at any store size (mt#2748). To inspect one specific Ask by id, `asks_get` returns exactly one full record with a bare (non-list-wrapped) shape.",
               "options": [
                 {
                   "flags": ["--id"],
@@ -4688,8 +4688,16 @@
                 {
                   "flags": ["--all-projects"],
                   "description": "Return asks from all projects (disable project-scope filtering; ADR-021, mt#2416)"
+                },
+                {
+                  "flags": ["--summary"],
+                  "description": "When true, return compact rows (id, kind, state, title, routingTarget, parentTaskId, createdAt, routedAt) with no question/options/contextRefs/metadata body (mt#2748). Default false preserves full ask records for back-compat — pass `summary: true` to browse/filter cheaply, or use `asks_get` to fetch one full record by id. The result echoes `summary` (mt#2748 R1 review) so callers can branch safely: `summary: true` on the result means `asks` is `AskSummaryRow[]`; absent/false means `asks` is the full `Ask[]`."
                 }
               ]
+            },
+            {
+              "name": "get",
+              "description": "Fetch a single full Ask record by id — the ergonomic path for inspecting a specific Ask without pulling a whole `asks_list` page (mt#2748). `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965). Use `asks_list` with `summary: true` to browse/filter across many Asks instead."
             },
             {
               "name": "reconcile",
