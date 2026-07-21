@@ -422,6 +422,9 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   return {
     calibration: {
+      // source: "live" — a real runtime fire (vs. a synthetic fixture/replay
+      // entry). Consumed by the coverage-receipt done-gate (mt#2554).
+      source: "live",
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
       matches: allMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
@@ -545,6 +548,8 @@ export async function main(): Promise<void> {
   }
 
   appendCalibrationRecord(input.cwd, {
+    // source: "live" — a real runtime fire (mt#2554 coverage-receipt gate).
+    source: "live",
     timestamp: new Date().toISOString(),
     session_id: input.session_id,
     matches: allMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),

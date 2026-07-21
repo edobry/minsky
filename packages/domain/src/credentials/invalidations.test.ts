@@ -20,6 +20,7 @@ import {
   consumeAndReportInvalidationNotice,
   listInvalidations,
   clearInvalidation,
+  __setCredentialInvalidationPersistenceProviderForTests,
 } from "./invalidations";
 
 let tempHome: string;
@@ -32,9 +33,15 @@ beforeEach(async () => {
   originalXdg = process.env["XDG_CONFIG_HOME"];
   process.env["HOME"] = tempHome;
   process.env["XDG_CONFIG_HOME"] = join(tempHome, ".config");
+  // mt#2978: this suite exercises `notifyCredentialInvalidated`, whose
+  // best-effort `emitPgNotify()` path would otherwise construct + initialize
+  // a real `PersistenceService` on every call. Return null so `emitPgNotify`
+  // no-ops without ever touching the real persistence layer.
+  __setCredentialInvalidationPersistenceProviderForTests(async () => null);
 });
 
 afterEach(async () => {
+  __setCredentialInvalidationPersistenceProviderForTests(null);
   if (originalHome === undefined) {
     delete process.env["HOME"];
   } else {

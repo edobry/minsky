@@ -24,16 +24,48 @@ import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
 const INIT_RETRY_DELAY_MS = 5_000;
 
 /**
+ * Test-only-seam guard (mt#2980 R2), same convention as
+ * `src/cockpit/routes/events.ts`'s `assertTestEnv`: throws when a test-only
+ * override is supplied outside `NODE_ENV=test` (set by `tests/setup.ts` for
+ * every `bun test` run). This is the concrete "test-only gate" the
+ * reviewer-bot requested for `initRetryDelayMs` — a caller that accidentally
+ * threads a tiny override into a production path now fails loudly at call
+ * time instead of silently shortening the real init-coordination delay.
+ */
+function assertTestEnv(seam: string): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(`${seam} is test-only (NODE_ENV=${process.env.NODE_ENV ?? "unset"})`);
+  }
+}
+
+/**
  * Triggers a background transcript ingest sweep for all discoverable sessions.
  *
  * @param persistenceProvider - The persistence provider from the DI container.
+ * @param options.initRetryDelayMs - mt#2980: overrides `INIT_RETRY_DELAY_MS` for
+ *   the single init-coordination retry in `resolveDb`. Defaults to the real
+ *   5s production delay; tests inject a near-zero value to exercise the
+ *   retry-once behavior without a real 5s sleep.
+ *
+ *   Test-only, structurally enforced: supplying `initRetryDelayMs` outside
+ *   `NODE_ENV=test` throws via `assertTestEnv` (mt#2980 R2) — the guardrail
+ *   the reviewer-bot requested, following the identical pattern already
+ *   established in `src/cockpit/routes/events.ts`. The sole production
+ *   caller (`src/commands/mcp/start-command.ts`) never passes `options`, so
+ *   it is unaffected. `resolveDb` additionally clamps the value to a
+ *   non-negative number as basic input validation.
  */
 export async function triggerStartupTranscriptIngest(
-  persistenceProvider: BasePersistenceProvider
+  persistenceProvider: BasePersistenceProvider,
+  options?: { initRetryDelayMs?: number }
 ): Promise<void> {
   if (!persistenceProvider.capabilities.sql) return;
 
-  const db = await resolveDb(persistenceProvider);
+  if (options?.initRetryDelayMs !== undefined) {
+    assertTestEnv("triggerStartupTranscriptIngest({ initRetryDelayMs })");
+  }
+
+  const db = await resolveDb(persistenceProvider, options?.initRetryDelayMs);
   if (!db) {
     // mt#2192: surface at warn — a skipped boot sweep means NO automatic
     // ingestion ran this boot, which is an operationally interesting signal
@@ -75,7 +107,10 @@ export async function triggerStartupTranscriptIngest(
   }
 }
 
-async function resolveDb(provider: BasePersistenceProvider): Promise<unknown> {
+async function resolveDb(
+  provider: BasePersistenceProvider,
+  retryDelayMs: number = INIT_RETRY_DELAY_MS
+): Promise<unknown> {
   const getDb =
     "getDatabaseConnection" in provider && typeof provider.getDatabaseConnection === "function"
       ? provider.getDatabaseConnection
@@ -85,6 +120,9 @@ async function resolveDb(provider: BasePersistenceProvider): Promise<unknown> {
   const first = await getDb.call(provider);
   if (first) return first;
 
-  await new Promise((r) => setTimeout(r, INIT_RETRY_DELAY_MS));
+  // mt#2980 R1: clamp to non-negative — a negative override (malformed input,
+  // not a real usage today) must not be passed to setTimeout as a signal that
+  // something is misconfigured; treat it as an immediate retry instead.
+  await new Promise((r) => setTimeout(r, Math.max(0, retryDelayMs)));
   return getDb.call(provider);
 }

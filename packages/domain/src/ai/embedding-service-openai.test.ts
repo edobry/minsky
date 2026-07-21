@@ -1,6 +1,21 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { OpenAIEmbeddingService, isRetryableAIError } from "./embedding-service-openai";
 import { RateLimitError } from "./enhanced-error-types";
+import { IntelligentRetryService } from "./intelligent-retry-service";
+
+// mt#2980: injected in place of the module's shared retry service for tests
+// that actually exercise the retry loop, following the
+// `postgres-channel-listener.test.ts` `FAST_RETRY` precedent. `jitterMaxMs: 0`
+// is required in addition to tiny `baseDelay`/`maxDelay` — the shared
+// service's jitter is a flat `Math.random() * jitterMaxMs` addition
+// independent of `baseDelay`, so omitting it would still leave up to 1000ms
+// of real sleep per retry.
+const FAST_RETRY = new IntelligentRetryService({
+  maxRetries: 3,
+  baseDelay: 1,
+  maxDelay: 5,
+  jitterMaxMs: 0,
+});
 
 const originalFetch = globalThis.fetch;
 
@@ -182,7 +197,10 @@ describe("OpenAIEmbeddingService rate limit handling", () => {
 
 describe("OpenAIEmbeddingService shouldRetry logic", () => {
   it("retries on 429 rate limit (RateLimitError) and eventually succeeds", async () => {
-    const svc = createService();
+    // mt#2980: inject FAST_RETRY so this test exercises the real retry loop
+    // (retryable-error detection + a genuine second attempt) without paying
+    // real backoff/jitter delay — previously ~1.12s per the mt#2933 baseline.
+    const svc = new OpenAIEmbeddingService(TEST_API_KEY, TEST_BASE_URL, TEST_MODEL, FAST_RETRY);
 
     let callCount = 0;
     // @ts-expect-error -- assigning mock to globalThis.fetch for test isolation
