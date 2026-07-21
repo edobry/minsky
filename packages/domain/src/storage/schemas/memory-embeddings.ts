@@ -23,6 +23,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { createEmbeddingsTable } from "./embeddings-schema-factory";
 import { MEMORY_TYPE_VALUES } from "../../memory/types";
+import { shortIdColumn, shortIdUniqueIndex } from "./short-id-column";
 
 // Postgres enums for memory type and scope
 // MEMORY_TYPE_VALUES is the single source of truth — adding a value there
@@ -38,6 +39,19 @@ export const memoriesTable = pgTable(
   "memories",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+
+    /**
+     * Numeric `mem#N` short id (mt#2966, ADR-029) — added alongside the
+     * canonical uuid PK above, never replacing it. Nullable text with a
+     * unique index (see `shortIdUniqueIndex` below); NULL until minted on
+     * create (new rows) or backfilled
+     * (`scripts/backfill-memory-short-ids.ts`, existing rows). See
+     * `../short-id-column.ts` for the full design rationale
+     * (nullable-not-backfilled-here, plain unique index safety with
+     * nullable columns, concurrency contract).
+     */
+    shortId: shortIdColumn(),
+
     type: memoryTypeEnum("type").notNull(),
     name: text("name").notNull(),
     description: text("description").notNull(),
@@ -65,6 +79,10 @@ export const memoriesTable = pgTable(
     index("idx_memories_superseded_by").on(table.supersededBy),
     // GIN index for JSONB containment queries (@>) on associations
     index("idx_memories_associations").using("gin", table.associations),
+    // Unique index on the mem#N short id (mt#2966/mt#2963, ADR-029). Plain
+    // (non-partial) unique index — safe with NULLs pre-backfill, see
+    // short-id-column.ts's design-decisions doc comment.
+    shortIdUniqueIndex("memories", table.shortId),
   ]
 );
 
