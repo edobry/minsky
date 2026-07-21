@@ -120,8 +120,8 @@ describe("resolveSessionContext", () => {
   // `log.debug` call's `sessionProvider.constructor.name` read crashed with a
   // raw "undefined is not an object" TypeError — this exercises that exact
   // code path and asserts it now either resolves cleanly or fails with the
-  // placeholder's clear, actionable "service unavailable" message, never the
-  // opaque null-deref.
+  // deferred placeholder's clear, actionable "service unavailable" message,
+  // never the opaque null-deref.
   describe("reload path — unwired sessionProvider (mt#2945)", () => {
     test("a deferred-failure placeholder sessionProvider fails with a clear message, not a null-deref", async () => {
       const placeholderSessionProvider = makeDeferredFailurePlaceholder(

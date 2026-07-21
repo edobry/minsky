@@ -84,8 +84,8 @@ describe("TsyringeContainer boot-tolerant deferral (mt#2349)", () => {
     // '...constructor.name')" TypeError, because `constructor` used to be
     // grouped with `then`/symbols and return `undefined`. That crashed
     // session_pr_* MCP tools whenever `sessionProvider` resolved to this
-    // placeholder after a reload (e.g. a transient Postgres hiccup right at
-    // container-init time), before the placeholder's own clear error could
+    // deferred-failure placeholder after a reload (a transient Postgres hiccup
+    // at container-init time), before the placeholder's own clear error could
     // ever fire.
     test("`.constructor.name` is a safe, informative read (mt#2945)", async () => {
       const svc = await makePlaceholder();
