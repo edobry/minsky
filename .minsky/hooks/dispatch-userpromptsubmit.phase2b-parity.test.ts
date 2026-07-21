@@ -64,6 +64,10 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       // mt#2870 — wall-of-text-detector, silent-stretch's over-signaling
       // sibling; same new-guard-appended-after-legacy-order rationale.
       "wall-of-text-detector",
+      // mt#2923 — build-claim-injection-detector, the mt#2707-RFC
+      // build/deploy-claim seam detector; same new-guard-appended-after-
+      // legacy-order rationale as its calibration-first siblings above.
+      "build-claim-injection-detector",
       // calibration-review-cadence-detector is relocated to stay the true
       // LAST entry across the mt#2812 x mt#2824 merge (2026-07-16) — see
       // registry.ts's comment on this registration.

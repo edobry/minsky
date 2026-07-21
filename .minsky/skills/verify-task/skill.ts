@@ -101,6 +101,12 @@ Surface:
 >
 > The reviewer subagent's review and the merge-commit audit message are the verification artifacts.
 
+**Completion-claim format (mt#2924).** DONE confirms the task-status transition, not that the deliverable is usable. When the task is a build/install deliverable (a CLI or the cockpit-tray app the principal must rebuild/reinstall) or touches a deploy surface, report the closeout claim in the claim-confidence format — \`[delivery state] — [evidential warrant + basis]\` — per \`.minsky/rules/claim-confidence.mdc\`. Per that rule's Axis A lattice: auto-usable deliverables may claim \`usable\` once deployed; build/install deliverables must name the remaining principal-side step and must NOT claim \`usable\` without a verified-1b (live-probe) basis.
+
+Worked example (the mt#2528 class — merged but not yet usable):
+
+> Merged (verified-1a: PR merged this turn) — to reach usable: rebuild + tray reinstall.
+
 ### 5. Audit bridge memories for retirement candidates
 
 After confirming DONE, search for bridge memories that cite this task as their retirement target. Run **both** queries below and merge the results, de-duplicating by memory \`id\`. Running only one path can miss candidates: the association query misses legacy memories without populated associations; the text-grep path misses memories that have associations but no body-text marker.
