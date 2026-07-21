@@ -57,7 +57,11 @@
 import "reflect-metadata";
 
 import type { TaskSearchResult } from "./parallel-work-guard-standalone";
-import type { BasePersistenceProvider } from "../../packages/domain/src/persistence/types";
+import type {
+  PersistenceProvider,
+  VectorCapablePersistenceProvider,
+  SqlCapablePersistenceProvider,
+} from "../../packages/domain/src/persistence/types";
 import type { ProjectScope } from "../../packages/domain/src/project/scope";
 
 /**
@@ -174,16 +178,18 @@ async function runProbe(
     const dimension = getEmbeddingDimension(model, 1536);
     const embedding = await createEmbeddingServiceFromConfig();
 
+    // Mirrors createTaskSimilarityService's vector-capability check: the
+    // capability flag plus a related-type cast (VectorCapablePersistenceProvider
+    // extends the base provider), keeping both the hooks tsconfig (no
+    // unrelated-type casts) and custom/no-excessive-as-unknown satisfied.
+    const vectorCapable = provider as VectorCapablePersistenceProvider;
     if (
       !provider.capabilities.vectorStorage ||
-      !("getVectorStorageForDomain" in provider) ||
-      typeof (provider as Record<string, unknown>).getVectorStorageForDomain !== "function"
+      typeof vectorCapable.getVectorStorageForDomain !== "function"
     ) {
       return degraded(`persistence provider ${provider.constructor.name} lacks vector storage`);
     }
-    const vectorStorage = (
-      provider as import("../../packages/domain/src/persistence/types").VectorCapablePersistenceProvider
-    ).getVectorStorageForDomain("tasks", dimension);
+    const vectorStorage = vectorCapable.getVectorStorageForDomain("tasks", dimension);
 
     const service = new TaskSimilarityService(
       embedding,
@@ -231,7 +237,7 @@ async function runProbe(
  * the SQL-capable provider; ALL_PROJECTS on any failure (fail-open, never
  * throws).
  */
-async function resolveProbeProjectScope(provider: BasePersistenceProvider): Promise<ProjectScope> {
+async function resolveProbeProjectScope(provider: PersistenceProvider): Promise<ProjectScope> {
   const { ALL_PROJECTS } = await import("../../packages/domain/src/project/scope");
   try {
     const { resolveProjectIdentity } = await import("../../packages/domain/src/project/identity");
@@ -244,7 +250,7 @@ async function resolveProbeProjectScope(provider: BasePersistenceProvider): Prom
       return ALL_PROJECTS;
     }
     const db = (await (
-      provider as import("../../packages/domain/src/persistence/types").SqlCapablePersistenceProvider
+      provider as SqlCapablePersistenceProvider
     ).getDatabaseConnection()) as Parameters<typeof resolveProjectScope>[1];
     if (!db) return ALL_PROJECTS;
     return await resolveProjectScope(identity, db);
