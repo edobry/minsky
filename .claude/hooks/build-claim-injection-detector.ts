@@ -21,8 +21,10 @@
 //   (b) the prior assistant turn makes a usability/delivery claim ("you can
 //       use it now", "ready to use", "it's live", "go ahead and test", ...);
 //   (c) NO rebuild/reinstall/deploy evidence anywhere in the session (no
-//       `install-local.sh`, `tauri build`, `deployment_wait-for-latest`, or
-//       an equivalent tool call).
+//       `install-local.sh`, `tauri build`, `deployment_wait-for-latest`, a
+//       package-manager build script (`npm`/`pnpm`/`yarn`/`bun` `[run] build`,
+//       including a `build:web`-style scoped script name), or an equivalent
+//       tool call).
 //
 // On fire, injects the claim-confidence format reminder (per the LIVE
 // `.minsky/rules/claim-confidence.mdc` — "[delivery state] — [evidential
@@ -136,9 +138,17 @@ export const USABILITY_CLAIM_PATTERNS: RegExp[] = [
 /** Tool NAMES whose invocation counts as rebuild/deploy evidence. */
 const REBUILD_TOOL_NAME_RE = /deployment_(?:wait-for-latest|status|logs)/i;
 
-/** Command-shaped TEXT (Bash / session_exec inputs) that counts as rebuild/deploy evidence. */
+/**
+ * Command-shaped TEXT (Bash / session_exec inputs) that counts as rebuild/deploy evidence.
+ *
+ * Package-manager build variants (mt#2923 R1 non-blocking #1): `(?:npm|pnpm|yarn|bun)\s+
+ * (?:run\s+)?build` covers `npm run build`, `npm run build:web` (no trailing anchor, so a
+ * `:web`-style script-name suffix still matches as a substring), `pnpm build`, `pnpm run build`,
+ * `yarn build`, `yarn run build`, and `bun run build` in one alternative — kept as a single
+ * maintainable group rather than one alternative per package manager.
+ */
 const REBUILD_COMMAND_RE =
-  /(install-local\.sh|tauri\s+(?:build|dev)|cargo\s+build|npm\s+run\s+build|bun\s+run\s+(?:build|dev)|railway\s+up)/i;
+  /(install-local\.sh|tauri\s+(?:build|dev)|cargo\s+build|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build|bun\s+run\s+dev|railway\s+up)/i;
 
 /** Tool names whose Bash-shaped command input is scanned against {@link REBUILD_COMMAND_RE}. */
 const COMMAND_TOOL_NAMES: readonly string[] = ["Bash", "mcp__minsky__session_exec"];
@@ -235,20 +245,32 @@ function hasRebuildEvidence(lines: TranscriptLine[]): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Markdown elision (fenced blocks + blockquotes; keep inline code)
+// Markdown elision (fenced blocks + inline code + blockquotes)
 // ---------------------------------------------------------------------------
 
 /**
- * Elide fenced code blocks and blockquotes (pasted output / a quote, not a
- * fresh claim) with same-length whitespace, preserving positions. Local
- * duplicate of the same small helper in `code-mechanism-assertion-detector.ts`
- * — see {@link collectStrings}'s doc comment for the duplication rationale.
+ * Elide fenced code blocks, inline code spans, and blockquotes (pasted output
+ * / a quote / a citation, not a fresh claim) with same-length whitespace,
+ * preserving positions.
+ *
+ * Unlike `code-mechanism-assertion-detector.ts`'s same-named helper — which
+ * deliberately KEEPS inline code because a backticked symbol IS the claim it
+ * detects — this detector's usability/delivery phrases are natural language,
+ * not code symbols: a phrase quoted inline (citing a prior message, a log
+ * line, a string literal) or inside a blockquote is not a fresh claim.
+ * Mirrors `causal-premise-detector.ts`'s `elideMarkdownContexts`, which elides
+ * inline code for the same reason (mt#2923 R1 non-blocking #2 — guards the
+ * overfire boundary on a quoted/backticked usability claim).
  */
 export function elideBlocksAndQuotes(text: string): string {
   let result = text;
+  // Fenced code blocks (``` or ~~~ fences, 3+ markers)
   result = result.replace(/^[ \t]{0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n[ \t]{0,3}\1[ \t]*$/gm, (m) =>
     " ".repeat(m.length)
   );
+  // Inline code spans (variable backtick run length)
+  result = result.replace(/(`+)([^`]|(?!`)[^`]*?)\1(?!`)/g, (m) => " ".repeat(m.length));
+  // Blockquote lines (up to 3 leading spaces + one or more > markers)
   result = result.replace(/^[ \t]{0,3}>+.*$/gm, (m) => " ".repeat(m.length));
   return result;
 }

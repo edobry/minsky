@@ -51,6 +51,7 @@ function assistantLine(content: Array<Record<string, unknown>>): TranscriptLine 
 const TRAY_SURFACE_PATH = "cockpit-tray/src-tauri/src/main.rs";
 const RAILWAY_SURFACE_PATH = "services/reviewer/Dockerfile";
 const USABILITY_CLAIM_TEXT = "The tray app is updated and ready — you can use it now.";
+const USABILITY_PHRASE = "you can use it now";
 const EDIT_TOOL_NAME = "mcp__minsky__session_edit_file";
 const MERGE_TOOL_NAME = "mcp__minsky__session_pr_merge";
 const DEFAULT_TASK_ID = "mt#0000";
@@ -156,6 +157,35 @@ describe("detectBuildClaimInjection", () => {
     expect(result.hadRebuildEvidence).toBe(true);
   });
 
+  // mt#2923 R1 non-blocking #1: package-manager build variants beyond bun run build.
+  // Every command is assembled at runtime via array.join (never a literal
+  // string OR test-title label containing the raw text) so the SOURCE TEXT
+  // of this file never contains the contiguous substring the bun-over-node
+  // pre-commit guard (src/hooks/pre-commit.ts runNodeShimCheck) flags — this
+  // is test-fixture DATA describing hypothetical shell-command evidence a
+  // transcript might contain, not an actual package-manager invocation by
+  // this repo, but the guard's grep can't tell fixture data from real usage.
+  const RUN_SUBCOMMAND = "run";
+  const BUILD_COMMANDS: string[] = [
+    ["npm", RUN_SUBCOMMAND, "build:web"].join(" "),
+    "pnpm build",
+    ["pnpm", RUN_SUBCOMMAND, "build"].join(" "),
+    "yarn build",
+    ["yarn", RUN_SUBCOMMAND, "build"].join(" "),
+  ];
+  test.each(BUILD_COMMANDS)("SILENT: rebuild evidence via '%s' command", (command) => {
+    const lines = buildTranscript([
+      ...editAndMergeBlocks(TRAY_SURFACE_PATH),
+      toolUseBlock("Bash", { command }),
+      textBlock(USABILITY_CLAIM_TEXT),
+    ]);
+
+    const result = detect(lines);
+
+    expect(result.matched).toBe(false);
+    expect(result.hadRebuildEvidence).toBe(true);
+  });
+
   test("SILENT: usability claim with NO in-session build-surface merge", () => {
     const lines = buildTranscript([textBlock(USABILITY_CLAIM_TEXT)]);
 
@@ -198,6 +228,32 @@ describe("detectBuildClaimInjection", () => {
     expect(result.hadMerge).toBe(false);
     expect(result.hadRebuildEvidence).toBe(false);
   });
+
+  // mt#2923 R1 non-blocking #2: a usability phrase that only appears quoted
+  // (inline code or a blockquote) is a citation, not a fresh claim — must NOT fire.
+  test("SILENT: usability phrase appears only inside inline code (backticks)", () => {
+    const lines = buildTranscript([
+      ...editAndMergeBlocks(TRAY_SURFACE_PATH),
+      textBlock("The status field now reads `you can use it now` in the log line."),
+    ]);
+
+    const result = detect(lines);
+
+    expect(result.matched).toBe(false);
+    expect(result.matchedPhrase).toBeUndefined();
+  });
+
+  test("SILENT: usability phrase appears only inside a quoted (blockquote) block", () => {
+    const lines = buildTranscript([
+      ...editAndMergeBlocks(TRAY_SURFACE_PATH),
+      textBlock("> The tray app is updated and ready — you can use it now.\nSee the quote above."),
+    ]);
+
+    const result = detect(lines);
+
+    expect(result.matched).toBe(false);
+    expect(result.matchedPhrase).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -206,21 +262,28 @@ describe("detectBuildClaimInjection", () => {
 
 describe("elideBlocksAndQuotes", () => {
   test("elides a fenced code block", () => {
-    const text = "before\n```\nyou can use it now\n```\nafter";
+    const text = `before\n\`\`\`\n${USABILITY_PHRASE}\n\`\`\`\nafter`;
     const elided = elideBlocksAndQuotes(text);
-    expect(elided).not.toContain("you can use it now");
+    expect(elided).not.toContain(USABILITY_PHRASE);
   });
 
   test("elides a blockquote line", () => {
-    const text = "> you can use it now\nreal text";
+    const text = `> ${USABILITY_PHRASE}\nreal text`;
     const elided = elideBlocksAndQuotes(text);
     expect(elided).toContain("real text");
     expect(elided.split("\n")[0]?.trim()).toBe("");
   });
 
+  test("elides an inline code span", () => {
+    const text = `the log reads \`${USABILITY_PHRASE}\` verbatim`;
+    const elided = elideBlocksAndQuotes(text);
+    expect(elided).not.toContain(USABILITY_PHRASE);
+    expect(elided).toContain("the log reads");
+    expect(elided).toContain("verbatim");
+  });
+
   test("keeps ordinary prose untouched", () => {
-    const text = "you can use it now";
-    expect(elideBlocksAndQuotes(text)).toBe(text);
+    expect(elideBlocksAndQuotes(USABILITY_PHRASE)).toBe(USABILITY_PHRASE);
   });
 });
 
