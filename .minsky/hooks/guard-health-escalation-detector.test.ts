@@ -117,6 +117,85 @@ describe("buildCriticalWarning", () => {
     expect(warning).toContain("guard-a");
     expect(warning).toContain("guard-b");
   });
+
+  test("de-alarms a stale-only critical escalation (mt#2969)", () => {
+    const guardName = "standalone-duplicate-matcher";
+    const summary: GuardHealthSummary = {
+      byGuard: {
+        [guardName]: {
+          failureCount24h: 1,
+          failureCount7d: 9,
+          consecutiveStreak: 9,
+          lastEvent: {
+            timestamp: "2026-07-20T01:51:00.000Z",
+            guardName,
+            event: "PreToolUse",
+            kind: "check-skip",
+            message: "tasks_search failed",
+          },
+          escalation: "critical",
+          lastFailureAgeMs: 19 * 60 * 60 * 1000,
+          stale: true,
+        },
+      },
+      criticalGuards: [guardName],
+      attentionGuards: [],
+      escalation: "critical",
+    };
+    const warning = buildCriticalWarning(summary) as string;
+    expect(warning).not.toBeNull();
+    expect(warning).toContain("likely stale");
+    expect(warning).toContain(guardName);
+    expect(warning).toContain("19h");
+    // De-alarmed: the active-incident "cannot currently be trusted" framing must NOT appear.
+    expect(warning).not.toContain("cannot currently be trusted");
+  });
+
+  test("keeps active CRITICAL framing for a live critical guard while listing a stale sibling separately (mt#2969)", () => {
+    const summary: GuardHealthSummary = {
+      byGuard: {
+        "live-guard": {
+          failureCount24h: 5,
+          failureCount7d: 5,
+          consecutiveStreak: 5,
+          lastEvent: {
+            timestamp: "2026-07-20T20:00:00.000Z",
+            guardName: "live-guard",
+            event: "PreToolUse",
+            kind: "error",
+            message: "boom",
+          },
+          escalation: "critical",
+          lastFailureAgeMs: 3 * 60 * 1000,
+          stale: false,
+        },
+        "stale-guard": {
+          failureCount24h: 3,
+          failureCount7d: 3,
+          consecutiveStreak: 3,
+          lastEvent: {
+            timestamp: "2026-07-20T01:00:00.000Z",
+            guardName: "stale-guard",
+            event: "PreToolUse",
+            kind: "check-skip",
+            message: "quiet",
+          },
+          escalation: "critical",
+          lastFailureAgeMs: 19 * 60 * 60 * 1000,
+          stale: true,
+        },
+      },
+      criticalGuards: ["live-guard", "stale-guard"],
+      attentionGuards: [],
+      escalation: "critical",
+    };
+    const warning = buildCriticalWarning(summary) as string;
+    expect(warning).toContain("cannot currently be trusted");
+    expect(warning).toContain("live-guard");
+    expect(warning).toContain("5 consecutive failures");
+    expect(warning).toContain("likely stale");
+    expect(warning).toContain("stale-guard");
+  });
 });
 
 describe("run (guard-dispatcher entry point)", () => {
