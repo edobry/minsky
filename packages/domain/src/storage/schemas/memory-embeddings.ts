@@ -18,9 +18,11 @@ import {
   timestamp,
   pgEnum,
   index,
+  uniqueIndex,
   uuid,
   jsonb,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createEmbeddingsTable } from "./embeddings-schema-factory";
 import { MEMORY_TYPE_VALUES } from "../../memory/types";
 import { shortIdColumn } from "./short-id-column";
@@ -48,21 +50,26 @@ export const memoriesTable = pgTable(
      * `../short-id-column.ts` for the general design rationale
      * (nullable-not-backfilled-here, concurrency contract).
      *
-     * NOTE (PR #2134 R1): the unique index on this column is PARTIAL
-     * (`WHERE short_id IS NOT NULL`) for explicit NULL semantics + planner
-     * clarity, hand-written directly in migration
-     * `0066_last_smasher.sql` (see that file). It is intentionally NOT declared here
-     * via `shortIdUniqueIndex()` — Drizzle ORM cannot express partial index
-     * predicates (mirrors `ask-schema.ts`'s `asks_window_idx` precedent,
-     * mt#1490/mt#1488). Declaring a non-partial Drizzle index with the same
-     * name here would conflict with the migration's partial definition,
-     * causing schema drift; ask's own `idx_asks_short_id_unique` (mt#2965,
-     * migration 0065) is still non-partial via the shared
-     * `shortIdUniqueIndex` helper — changing that SHARED helper to partial
-     * would make drizzle-kit want to re-migrate ask's already-merged index
-     * too, so this PR only makes memory's index partial and leaves the
-     * helper/ask untouched. Aligning ask (and session, mt#2967) to partial
-     * is a cheap follow-up.
+     * The unique index on this column (`idx_memories_short_id_unique`,
+     * declared below in the index-builder callback) is PARTIAL — `WHERE
+     * short_id IS NOT NULL` — for explicit NULL semantics + planner clarity
+     * (PR #2134 R2). Postgres unique indexes already treat NULLs as
+     * distinct from each other, so an all-NULL `short_id` column during the
+     * pre-backfill window is safe either way; the WHERE clause just makes
+     * that intent explicit and keeps the index small (entries only for
+     * backfilled/minted rows).
+     *
+     * Declared directly via `uniqueIndex(...).on(...).where(sql\`...\`)`
+     * (drizzle-orm's `IndexBuilder.where()`, confirmed supported by this
+     * project's drizzle-orm version — see `pr-watch-schema.ts`'s
+     * `idx_pr_watches_parent_session` for an existing partial-index
+     * precedent) rather than the shared `shortIdUniqueIndex()` foundation
+     * helper (`short-id-column.ts`), which produces a NON-partial index.
+     * Ask's `idx_asks_short_id_unique` (mt#2965, migration 0065) still uses
+     * that shared helper and stays non-partial — changing the SHARED helper
+     * to partial would make drizzle-kit want to re-migrate ask's
+     * already-merged index too. Aligning ask (and session, mt#2967) to
+     * partial via the shared helper is a cheap follow-up.
      */
     shortId: shortIdColumn(),
 
@@ -93,14 +100,13 @@ export const memoriesTable = pgTable(
     index("idx_memories_superseded_by").on(table.supersededBy),
     // GIN index for JSONB containment queries (@>) on associations
     index("idx_memories_associations").using("gin", table.associations),
-    // NOTE: The unique index on `short_id` (`idx_memories_short_id_unique`,
-    // PARTIAL — WHERE short_id IS NOT NULL) is declared in raw SQL migration
-    // `0066_last_smasher.sql` because Drizzle ORM cannot express partial index
-    // predicates. Do NOT re-declare it here — a non-partial Drizzle index
-    // with the same name would conflict with the migration's partial
-    // definition, causing schema drift. See the `shortId` field's doc
-    // comment above for the full rationale (mirrors ask-schema.ts's
-    // `asks_window_idx` precedent).
+    // Partial unique index on the mem#N short id (mt#2966/mt#2963, ADR-029,
+    // PR #2134 R2) — WHERE short_id IS NOT NULL. See the `shortId` field's
+    // doc comment above for the full rationale (partial vs. ask's
+    // non-partial shared-helper index, and why).
+    uniqueIndex("idx_memories_short_id_unique")
+      .on(table.shortId)
+      .where(sql`${table.shortId} IS NOT NULL`),
   ]
 );
 

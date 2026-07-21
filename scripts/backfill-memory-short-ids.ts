@@ -49,7 +49,7 @@
  *
  * @see mt#2966 — this script's originating task
  * @see mt#2963 — short-id.ts (nextShortId), short-id-column.ts (schema pattern)
- * @see packages/domain/src/storage/migrations/pg/0066_last_smasher.sql — the additive column+index migration
+ * @see packages/domain/src/storage/migrations/pg/0066_flippant_blizzard.sql — the additive column+index migration
  */
 
 import "reflect-metadata";
