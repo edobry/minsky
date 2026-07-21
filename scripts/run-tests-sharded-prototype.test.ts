@@ -202,7 +202,22 @@ describe("runShardsConcurrently (real Bun.spawn fan-out)", () => {
     expect(result.shardResults.find((r) => r.label === "shard-healthy")?.passed).toBe(true);
   });
 
-  it("runs shards genuinely concurrently, not sequentially (wall-clock evidence)", async () => {
+  it("runs shards genuinely concurrently, not sequentially (overlapping execution windows, not a wall-clock threshold)", async () => {
+    // R1 BLOCKING fix (mt#2981 PR #2131): the original version of this test asserted
+    // total elapsed time against an absolute threshold (shardCount * SLEEP_MS * 0.75),
+    // which is exactly the kind of environment-sensitive bound that is likely to flake
+    // under CI CPU contention/throttling. Proving concurrency should not depend on how
+    // fast or slow the machine happens to be.
+    //
+    // Instead, each shard subprocess reports its OWN start/end epoch-ms timestamps in
+    // its stdout (measured inside that subprocess, around its own sleep). The test then
+    // checks that at least one pair of DISTINCT shards has an OVERLAPPING execution
+    // window -- proof the underlying `Bun.spawn` calls ran concurrently, not one after
+    // another. This is robust to absolute timing: it holds regardless of how slow the
+    // host is, as long as spawn/process-start latency is smaller than the sleep
+    // duration (a generous 300ms here). It still correctly FAILS if concurrency
+    // regresses to sequential execution: a sequential run guarantees every shard's
+    // window ends before the next one's window starts, so zero pairs would overlap.
     const SLEEP_MS = 300;
     const shardCount = 4;
     const commands = Array.from({ length: shardCount }, (_, i) => ({
@@ -210,21 +225,39 @@ describe("runShardsConcurrently (real Bun.spawn fan-out)", () => {
       command: [
         "bun",
         "-e",
-        `await Bun.sleep(${SLEEP_MS}); console.log("1 pass\\n0 fail\\n1 expect() calls\\nRan 1 tests across 1 file. [${SLEEP_MS}.00ms]")`,
+        `const s = Date.now(); await Bun.sleep(${SLEEP_MS}); const e = Date.now(); ` +
+          `console.log("WINDOW start=" + s + " end=" + e); ` +
+          `console.log("1 pass\\n0 fail\\n1 expect() calls\\nRan 1 tests across 1 file. [${SLEEP_MS}.00ms]")`,
       ],
     }));
 
-    // performance.now() (monotonic, duration-measurement API), not Date.now() --
-    // this is a wall-clock elapsed-time measurement, not path/id generation.
-    const start = performance.now();
     const outcomes = await runShardsConcurrently(commands);
-    const elapsedMs = performance.now() - start;
 
     expect(outcomes).toHaveLength(shardCount);
     expect(aggregateShardResults(outcomes).passed).toBe(true);
-    // Sequential execution would take >= shardCount * SLEEP_MS (1200ms). Running
-    // concurrently should stay well under that -- generous headroom for
-    // process-spawn overhead / CI jitter.
-    expect(elapsedMs).toBeLessThan(shardCount * SLEEP_MS * 0.75);
+
+    const windows = outcomes.map((o) => {
+      const m = /WINDOW start=(\d+) end=(\d+)/.exec(o.stdout);
+      if (!m) {
+        throw new Error(`shard ${o.label}: no WINDOW marker found in stdout: ${o.stdout}`);
+      }
+      return { label: o.label, start: Number(m[1]), end: Number(m[2]) };
+    });
+
+    const overlaps = (
+      a: { start: number; end: number },
+      b: { start: number; end: number }
+    ): boolean => a.start < b.end && b.start < a.end;
+
+    let overlappingPairCount = 0;
+    for (let i = 0; i < windows.length; i++) {
+      for (let j = i + 1; j < windows.length; j++) {
+        if (overlaps(windows[i], windows[j])) {
+          overlappingPairCount++;
+        }
+      }
+    }
+
+    expect(overlappingPairCount).toBeGreaterThan(0);
   }, 10000);
 });
