@@ -13,12 +13,12 @@ import {
   text as pgText,
   integer as pgInteger,
   uuid,
-  uniqueIndex,
 } from "drizzle-orm/pg-core";
+
 import type { SessionRecord } from "../../session/session-db";
 import { projectsTable } from "./projects-schema";
 import type { WorkspaceId } from "../../ids";
-import { shortIdColumn } from "./short-id-column";
+import { shortIdColumn, shortIdUniqueIndex } from "./short-id-column";
 
 // PostgreSQL Schema
 export const postgresSessions = pgTable(
@@ -64,36 +64,23 @@ export const postgresSessions = pgTable(
 
     /**
      * Numeric `ws#N` short id (mt#2967, ADR-029) — added alongside the
-     * canonical uuid `sessionId` PK above, never replacing it. Nullable
-     * text; NULL until minted on create (new rows,
-     * `DrizzleSessionRepository.addSession`) or backfilled
-     * (`scripts/backfill-session-short-ids.ts`, existing rows). See
-     * `./short-id-column.ts` for the general design rationale
-     * (nullable-not-backfilled-here, concurrency contract).
-     *
-     * The unique index on this column (`idx_sessions_short_id_unique`,
-     * declared below in the index-builder callback) is a PLAIN (non-partial)
-     * unique index — matching ask's `idx_asks_short_id_unique` (mt#2965,
-     * migration 0065) and the shared `shortIdUniqueIndex()` foundation
-     * helper (`short-id-column.ts`). It was briefly declared PARTIAL (`WHERE
-     * short_id IS NOT NULL`, PR #2134 R2) on the theory that a partial index
-     * documents NULL semantics more explicitly; this broke in production
-     * (mt#3005, 2026-07-21): Postgres only lets `ON CONFLICT` infer a
-     * partial index when the conflict target's own `WHERE` clause matches,
-     * and the insert code (`DrizzleSessionRepository.addSession`) uses a
-     * bare `.onConflictDoNothing({ target: postgresSessions.shortId })` with
-     * no predicate — so every session insert failed with "no unique or
-     * exclusion constraint matching the ON CONFLICT specification." A plain
-     * unique index has identical NULL semantics for this use case (Postgres
-     * NULLS DISTINCT already lets unlimited NULL `short_id` rows coexist),
-     * so the partial predicate bought nothing and broke conflict inference.
-     * See mt#3005 for the incident; migration 0068 drops and recreates this
-     * index as plain.
+     * canonical session uuid, never replacing it. PLAIN unique index via the
+     * shared `shortIdUniqueIndex()` foundation helper (`short-id-column.ts`) —
+     * MUST stay non-partial (mt#2999): the create path's bare
+     * `.onConflictDoNothing({ target: shortId })` emits `ON CONFLICT
+     * ("short_id")`, and Postgres only infers a PARTIAL unique index as the
+     * arbiter when the conflict target repeats its predicate. The partial
+     * variant (mirrored from memories' PR #2134 R2 form, migration 0067)
+     * broke EVERY session_start with "no unique or exclusion constraint
+     * matching the ON CONFLICT specification". Plain unique is safe on this
+     * nullable column (NULLs are never equal under btree uniqueness) — see
+     * short-id-column.ts's design rationale, which ask's index also follows.
+     * Reverted to plain by migration 0068.
      */
     shortId: shortIdColumn(),
   },
   (table) => ({
-    shortIdUnique: uniqueIndex("idx_sessions_short_id_unique").on(table.shortId),
+    shortIdUnique: shortIdUniqueIndex("sessions", table.shortId),
   })
 );
 
