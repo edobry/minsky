@@ -305,8 +305,10 @@ Fail: open (unresolvable repo/PR/non-surface); PostToolUse always exits 0.
 **Gap A extension (mt#2545):** a SECOND, independent condition on the same PreToolUse hook — a
 build-surface PR (tray `src-tauri/**` only) whose body asserts altitude-4 usability ("you can use
 it now" / "ready to use" / "it's live", per `claim-confidence.mdc` Axis A) without an explicit
-rebuild + reinstall acknowledgment is hard-blocked. Override: `MINSKY_SKIP_USABILITY_CLAIM_CHECK=1`
-(independent of `MINSKY_SKIP_DEPLOY_VERIFY`); shares the `[no-deploy-impact]` title escape.
+rebuild + reinstall acknowledgment is hard-blocked. `[no-deploy-impact]` does NOT bypass this
+check (a tray build-surface file IS a deploy/build surface); the only escapes are adding the
+acknowledgment itself or `MINSKY_SKIP_USABILITY_CLAIM_CHECK=1` (independent of
+`MINSKY_SKIP_DEPLOY_VERIFY`).
 Doc: `deploy-verification-merge-gate.md`.
 
 ## Growth-Justification Merge Gate

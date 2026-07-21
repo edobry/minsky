@@ -248,47 +248,108 @@ export function checkDeployVerification(
  * Altitude-4 usability-claim patterns: PR-body language asserting the merged
  * change is immediately usable by the principal — claim-confidence.mdc's
  * `usable` delivery state. Deliberately narrow (a handful of high-precision
- * phrasings) rather than a broad "sounds positive" scan. Phrasing aligned with
- * the sibling chat-seam detector's `USABILITY_CLAIM_PATTERNS`
- * (`.minsky/hooks/build-claim-injection-detector.ts`, mt#2923) so the two
- * enforcement surfaces recognize the same vocabulary. Case-insensitive.
+ * phrasings) rather than a broad "sounds positive" scan — bare verbs like
+ * "test it" / "use it" are deliberately EXCLUDED on their own (too generic;
+ * "you should test it before merging" is a caveat, not a usability claim).
+ * Phrasing anchored to the canonical mt#2545 examples ("you can use it now" /
+ * "ready to use" / "it's live" / "go ahead and test") and aligned with the
+ * sibling chat-seam detector's `USABILITY_CLAIM_PATTERNS`
+ * (`.minsky/hooks/build-claim-injection-detector.ts`, mt#2923) for vocabulary
+ * consistency across the two enforcement surfaces. Case-insensitive.
  */
 export const USABILITY_CLAIM_PATTERNS: readonly RegExp[] = [
-  /\byou\s+can\s+(?:now\s+)?use\s+it\s+now\b/i,
-  /\byou\s+can\s+(?:now\s+)?(?:use|test)\s+it\b/i,
-  /\bready\s+(?:for\s+use|to\s+use)\b/i,
-  /\bit'?s\s+live\b/i,
+  // "you can use it now" / "you can now use it" / "you can use it"
+  /\byou\s+can\s+(?:now\s+)?use\s+it(?:\s+now)?\b/i,
+  // "ready to use" / "ready for use"
+  /\bready\s+(?:to\s+use|for\s+use)\b/i,
+  // "it's live" / "it is live"
+  /\bit(?:'s|\s+is)\s+live\b/i,
+  // "go ahead and test" (mt#2923 canonical phrasing) / "go ahead and use it"
+  /\bgo\s+ahead\s+and\s+(?:test\b|use\s+it\b)/i,
+  // "usable now"
   /\busable\s+now\b/i,
-  /\bgo\s+ahead\s+and\s+(?:use|test)\s+it\b/i,
+  // "feel free to use it" / "feel free to try it"
   /\bfeel\s+free\s+to\s+(?:use|try)\s+it\b/i,
-  /\bavailable\s+(?:for\s+use\s+)?now\b/i,
 ];
 
-/** Negation words that, immediately preceding a matched claim on the same line, void it. */
-const USABILITY_NEGATION_SUFFIX = /\b(?:not|isn'?t|n'?t|won'?t|will\s+not)\s*$/i;
+/**
+ * Negation words that void a usability claim when they appear ANYWHERE in the
+ * lookback window immediately preceding a claim match (mt#2545 R1 fix). The
+ * prior implementation required the negation word to be the LITERAL,
+ * whitespace-only-separated prefix on the SAME LINE — which missed "not YET
+ * ready to use" (the intervening word "yet" breaks an immediate-prefix
+ * match), any negation separated from the claim by punctuation ("NOT, in any
+ * sense, ready to use"), and a negation on the previous line of a wrapped
+ * sentence. This version scans a fixed-size character window for the
+ * PRESENCE of a negation word anywhere in it, independent of what's between
+ * the negation and the claim.
+ */
+const NEGATION_WORD =
+  /\b(?:not|isn'?t|aren'?t|ain'?t|wasn'?t|weren'?t|won'?t|wouldn'?t|can'?t|cannot|will\s+not|is\s+not|are\s+not|was\s+not|were\s+not)\b/i;
+
+/** Characters of lookback scanned before a claim match for a negation word. */
+const NEGATION_WINDOW_CHARS = 40;
+
+/**
+ * The text scanned for a negation word before a claim match at `matchIndex`
+ * in `flat` — a lookback of up to `NEGATION_WINDOW_CHARS`, further capped at
+ * the nearest preceding sentence-ending punctuation (`.`/`!`/`?`) within that
+ * span. The clause-boundary cap matters: without it, a negation in an
+ * EARLIER, unrelated sentence within `NEGATION_WINDOW_CHARS` characters would
+ * bleed into a LATER, genuinely non-negated claim's window and wrongly
+ * suppress it (e.g. "The old handler is not ready to use. The new one is
+ * ready to use." — the second, real claim sits well within 40 characters of
+ * the first sentence's "not"). Commas and other mid-clause punctuation are
+ * NOT boundaries — "NOT, in any real sense, ready to use" must still count
+ * as negated.
+ */
+function negationLookbackWindow(flat: string, matchIndex: number): string {
+  const hardStart = Math.max(0, matchIndex - NEGATION_WINDOW_CHARS);
+  const slice = flat.slice(hardStart, matchIndex);
+  const lastBoundary = Math.max(
+    slice.lastIndexOf("."),
+    slice.lastIndexOf("!"),
+    slice.lastIndexOf("?")
+  );
+  return lastBoundary === -1 ? slice : slice.slice(lastBoundary + 1);
+}
 
 /**
  * True when the PR body contains an altitude-4 usability claim (mt#2545). HTML
- * comments are stripped first (mirrors `hasDeployVerification`'s convention).
- * A claim preceded on the same line by a negation ("NOT ready to use") does not
- * count — mirrors the sibling `hasDeployVerification` negation guard.
+ * comments are stripped first (mirrors `hasDeployVerification`'s convention);
+ * newlines are then flattened to spaces so a negation word on the PREVIOUS
+ * line of a wrapped sentence is still visible in the lookback window (a
+ * single flat scan replaces the prior fragile per-line loop). A claim whose
+ * clause-capped lookback (see {@link negationLookbackWindow}) contains a
+ * negation word is not counted — this covers same-line, intervening-word,
+ * punctuation-separated, and line-wrapped negations alike, without
+ * suppressing a later, unrelated, genuinely non-negated claim.
  */
 export function hasUsabilityClaim(prBody: string): boolean {
   const stripped = prBody.replace(/<!--[\s\S]*?-->/g, "");
-  for (const line of stripped.split("\n")) {
-    for (const pattern of USABILITY_CLAIM_PATTERNS) {
-      const match = pattern.exec(line);
-      if (!match) continue;
-      const before = line.slice(0, match.index);
-      if (USABILITY_NEGATION_SUFFIX.test(before)) continue;
-      return true;
+  const flat = stripped.replace(/\n/g, " ");
+  for (const pattern of USABILITY_CLAIM_PATTERNS) {
+    const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+    const global = new RegExp(pattern.source, flags);
+    let match: RegExpExecArray | null;
+    while ((match = global.exec(flat)) !== null) {
+      const before = negationLookbackWindow(flat, match.index);
+      if (!NEGATION_WORD.test(before)) {
+        return true;
+      }
+      if (global.lastIndex === match.index) global.lastIndex += 1; // zero-width guard
     }
   }
   return false;
 }
 
-/** Rebuild-family term (rebuild/rebuilding/rebuilds/rebuilt, with or without a hyphen). */
-const REBUILD_TERM = /\bre-?build(?:ing|s|t)?\b/i;
+/**
+ * Rebuild-family term (rebuild/rebuilds/rebuilding/rebuilt, with or without a
+ * hyphen). Anchored on the "buil" stem rather than "build" + suffix: "rebuilt"
+ * is an irregular past tense (drops the trailing "d" — "built", not
+ * "buildt"), so a naive `build(?:ing|s|t)?` suffix never matches it.
+ */
+const REBUILD_TERM = /\bre-?buil(?:d(?:s|ing)?|t)\b/i;
 /** Reinstall-family term (reinstall/reinstalling/reinstalls/reinstalled, with or without a hyphen). */
 const REINSTALL_TERM = /\bre-?install(?:ing|s|ed)?\b/i;
 
@@ -334,14 +395,15 @@ export function checkUsabilityClaim(
     return { blocked: false, buildSurfaceFiles: [], bypassDetected: false, warnings };
   }
 
-  // Title bypass for false-positive surface matches (shared with the Railway check).
-  if (hasNoDeployImpactTag(prTitle)) {
-    warnings.push(
-      `[no-deploy-impact] bypass: usability-claim check skipped for ${buildSurfaceFiles.length} ` +
-        `build-surface file(s). Confirm the change truly has no usability implications.`
-    );
-    return { blocked: false, buildSurfaceFiles, bypassDetected: true, warnings };
-  }
+  // No `[no-deploy-impact]` title bypass here (mt#2545 R1 — deliberate, NOT an
+  // oversight): a tray build-surface file IS a deploy/build surface by
+  // definition (`isLocalAppDeploySurfaceFile`), so a title tag claiming "no
+  // deploy impact" would be semantically wrong on this surface and would let
+  // this HARD block be trivially skipped. The `[no-deploy-impact]` tag stays
+  // scoped to the Railway `checkDeployVerification` check above ONLY. The two
+  // intended escapes for this check are (a) adding the explicit rebuild +
+  // reinstall acknowledgment (the spec's own escape — see the block below),
+  // and (b) the dedicated audited `USABILITY_CLAIM_OVERRIDE_ENV_VAR` override.
 
   // No usability claim asserted → nothing to enforce.
   if (!hasUsabilityClaim(prBody)) {
@@ -367,15 +429,14 @@ export function checkUsabilityClaim(
     `incident) — state delivery at the altitude the class supports and name the crossing step ` +
     `instead.\n\n` +
     `Build-surface files:\n${fileList}\n\n` +
-    `To unblock, choose one of:\n` +
+    `This is a HARD block — \`[no-deploy-impact]\` does NOT bypass it (a tray build-surface file ` +
+    `IS a deploy/build surface). To unblock, choose one of:\n` +
     `  1. Add an explicit rebuild + reinstall acknowledgment to the PR body (e.g. "Merged — not ` +
     `yet usable; requires a tray rebuild + reinstall via cockpit-tray/scripts/install-local.sh ` +
     `before this is usable").\n` +
     `  2. Reword the claim to the correct delivery altitude instead of asserting usability ` +
     `(e.g. "Merged (verified-1a: cargo test green) — usable after tray rebuild + reinstall").\n` +
-    `  3. If this really has no usability implication (e.g. a comment-only edit), prefix the PR ` +
-    `title with \`[no-deploy-impact]\`.\n` +
-    `  4. Operator override: set \`${USABILITY_CLAIM_OVERRIDE_ENV_VAR}=1\` (audit-logged).`;
+    `  3. Operator override: set \`${USABILITY_CLAIM_OVERRIDE_ENV_VAR}=1\` (audit-logged).`;
 
   return { blocked: true, reason, buildSurfaceFiles, bypassDetected: false, warnings };
 }

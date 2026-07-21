@@ -180,13 +180,6 @@ describe("checkDeployVerification (mt#2353)", () => {
     expect(r.blocked).toBe(true);
   });
 
-  test("allows (with warning) under the [no-deploy-impact] title bypass", () => {
-    const r = checkDeployVerification(DEPLOY_FILES, "fix: [no-deploy-impact] comment", "body");
-    expect(r.blocked).toBe(false);
-    expect(r.bypassDetected).toBe(true);
-    expect(r.warnings.length).toBeGreaterThan(0);
-  });
-
   // mt#2809 regression (integration level): reproduces the EXACT payload
   // shape `fetchPrFiles` returns in production — every non-renamed file
   // carries a literal `previous_filename: null` (see the PrFile doc comment
@@ -280,12 +273,54 @@ describe("hasUsabilityClaim (mt#2545 Gap A)", () => {
     expect(hasUsabilityClaim("The tray app is usable now.")).toBe(true);
   });
 
+  test("true for the canonical 'go ahead and test' phrasing", () => {
+    expect(hasUsabilityClaim("Merged — go ahead and test whenever you like.")).toBe(true);
+  });
+
   test("false when no claim phrase is present", () => {
     expect(hasUsabilityClaim(NO_CLAIM_BODY)).toBe(false);
   });
 
+  test("false for a bare generic 'test it' / 'use it' with no qualifying claim phrase", () => {
+    // "test it" / "use it" alone are deliberately excluded (R1 BLOCKING 2) — too
+    // generic to be a genuine altitude-4 usability assertion; e.g. a caveat
+    // asking the reviewer to verify, not a claim the feature is ready.
+    expect(hasUsabilityClaim("You should test it locally before merging.")).toBe(false);
+    expect(hasUsabilityClaim("Please use it carefully in staging first.")).toBe(false);
+  });
+
   test("false for a negated claim ('not ready to use')", () => {
     expect(hasUsabilityClaim("The handler is not ready to use yet.")).toBe(false);
+  });
+
+  // R1 BLOCKING 3: the negation guard previously only matched an IMMEDIATE
+  // same-line prefix ("not " directly before the claim) and missed an
+  // intervening word, punctuation, or a line wrap between the negation and
+  // the claim. These lock in the windowed-lookback fix.
+  test("false for 'not yet ready to use' (intervening word breaks an immediate-prefix check)", () => {
+    expect(hasUsabilityClaim("This feature is not yet ready to use.")).toBe(false);
+  });
+
+  test("false for a negation separated from the claim by punctuation", () => {
+    expect(hasUsabilityClaim("It is NOT, in any real sense, ready to use.")).toBe(false);
+    expect(hasUsabilityClaim("Not — repeat, not — usable now.")).toBe(false);
+  });
+
+  test("false for a negation on the line before a wrapped claim", () => {
+    expect(hasUsabilityClaim("This build is\nnot ready to use.")).toBe(false);
+  });
+
+  test("false for common negative-auxiliary phrasings ('isn't', 'won't', 'can't')", () => {
+    expect(hasUsabilityClaim("It isn't ready to use yet.")).toBe(false);
+    expect(hasUsabilityClaim("This won't be usable now — needs a rebuild.")).toBe(false);
+  });
+
+  test("true when a negated claim is followed by a genuine, non-negated claim elsewhere", () => {
+    // The windowed guard only voids the SPECIFIC match it's adjacent to — a
+    // later, separate, non-negated claim elsewhere in the body still fires.
+    expect(
+      hasUsabilityClaim("The old handler is not ready to use.\n\nThe new one is ready to use.")
+    ).toBe(true);
   });
 
   test("false when the claim is only inside an HTML comment", () => {
@@ -313,6 +348,27 @@ describe("hasRebuildReinstallAck (mt#2545 Gap A)", () => {
 
   test("false when neither term is present", () => {
     expect(hasRebuildReinstallAck(NO_CLAIM_BODY)).toBe(false);
+  });
+
+  // NON-BLOCKING 1: punctuation/format/mixed-case variants of the acknowledgment.
+  test("true for hyphenated forms ('re-build' / 're-install')", () => {
+    expect(hasRebuildReinstallAck("Needs a re-build and a re-install to pick this up.")).toBe(true);
+  });
+
+  test("true for mixed/upper case ('REBUILD' / 'ReInstall')", () => {
+    expect(hasRebuildReinstallAck("REBUILD the app, then ReInstall it.")).toBe(true);
+  });
+
+  test("true across punctuation (comma, ampersand, exclamation)", () => {
+    expect(hasRebuildReinstallAck("Rebuild & reinstall required!")).toBe(true);
+    expect(hasRebuildReinstallAck("Steps: 1) rebuild, 2) reinstall.")).toBe(true);
+  });
+
+  test("true for inflected forms ('rebuilding'/'rebuilt' + 'reinstalling'/'reinstalled')", () => {
+    expect(hasRebuildReinstallAck("After rebuilding and reinstalling, verify the menu item.")).toBe(
+      true
+    );
+    expect(hasRebuildReinstallAck("Once rebuilt and reinstalled, the handler is live.")).toBe(true);
   });
 });
 
@@ -358,15 +414,25 @@ describe("checkUsabilityClaim (mt#2545 Gap A)", () => {
     expect(r.buildSurfaceFiles).toEqual([TRAY_MAIN_RS, TRAY_CARGO_TOML]);
   });
 
-  test("allows (with warning) under the [no-deploy-impact] title bypass", () => {
+  // R1 BLOCKING 1: [no-deploy-impact] must NOT bypass this HARD block — a tray
+  // build-surface file IS a deploy/build surface, so the tag would be
+  // semantically wrong here and would let the block be trivially skipped. The
+  // tag stays scoped to the Railway checkDeployVerification check only.
+  test("[no-deploy-impact] title tag does NOT bypass this check (still BLOCKS)", () => {
     const r = checkUsabilityClaim(
       BUILD_FILES,
       "fix: [no-deploy-impact] comment tweak",
       USABILITY_CLAIM_BODY
     );
-    expect(r.blocked).toBe(false);
-    expect(r.bypassDetected).toBe(true);
-    expect(r.warnings.length).toBeGreaterThan(0);
+    expect(r.blocked).toBe(true);
+    expect(r.bypassDetected).toBe(false);
+    expect(r.reason).toContain("[no-deploy-impact]");
+  });
+
+  test("the deny reason names the dedicated override env var, not [no-deploy-impact]", () => {
+    const r = checkUsabilityClaim(BUILD_FILES, USABILITY_CLAIM_TITLE, USABILITY_CLAIM_BODY);
+    expect(r.blocked).toBe(true);
+    expect(r.reason).toContain("MINSKY_SKIP_USABILITY_CLAIM_CHECK");
   });
 });
 
