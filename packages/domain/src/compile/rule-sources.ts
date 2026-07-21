@@ -185,10 +185,14 @@ export function extractRuleDefinitionFromMdc(
   const rule = parsed.data as RuleDefinition;
   // `ruleDefinitionSchema` defaults `alwaysApply` to `false`, but the legacy
   // `RuleService` leaves it undefined when the source omits it (`alwaysApply:
-  // data.alwaysApply`), so the legacy writer emitted no `alwaysApply:` line for
-  // those rules. Strip the default when the source had none, preserving source
-  // fidelity and byte-parity. (undefined and false are equivalent to every
-  // consumer — both mean "not always-applied".)
+  // data.alwaysApply`, no default), so the legacy writer emitted no
+  // `alwaysApply:` line for those rules. Strip the schema default here when
+  // the source had none, so this reader matches that legacy RuleService
+  // behavior exactly and keeps `.cursor/rules/` byte-for-byte identical.
+  // Assumption this relies on: `undefined` and `false` are equivalent to
+  // every consumer of `RuleDefinition.alwaysApply` — both mean
+  // "not always-applied" — so stripping the value changes no observable
+  // behavior, only the serialized output shape.
   if (fm["alwaysApply"] === undefined) {
     delete (rule as { alwaysApply?: boolean }).alwaysApply;
   }

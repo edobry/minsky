@@ -15,6 +15,7 @@ import { claudeMdTarget } from "./targets/claude-md";
 import { claudeRulesTarget } from "./targets/claude-rules";
 import { resolveActiveRules } from "../rule-selection";
 import { evaluateSizeBudget, DEFAULT_PER_RULE_CEILING_CHARS } from "./size-budget";
+import { unknownCompileTargetMessage } from "./target-error-hint";
 
 @injectable()
 export class CompileService {
@@ -43,9 +44,7 @@ export class CompileService {
   ): Promise<CompileResult & { content?: string }> {
     const target = this.targets.get(targetId);
     if (!target) {
-      throw new Error(
-        `Unknown compile target: "${targetId}". Available targets: ${this.getAvailableTargets().join(", ")}`
-      );
+      throw new Error(unknownCompileTargetMessage(targetId, this.getAvailableTargets()));
     }
 
     const { workspacePath, dryRun, selectionConfig, ...targetOptions } = options;

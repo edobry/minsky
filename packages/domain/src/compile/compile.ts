@@ -11,6 +11,7 @@ import { resolveWorkspacePath } from "../workspace";
 import { createMinskyCompileService, type MinskyCompileService } from "./compile-service";
 import type { MinskyCompileServiceResult, MinskyCompileTargetOutcome } from "./compile-service";
 import type { MinskyCompileFsDeps } from "./types";
+import { unknownCompileTargetMessage } from "../rules/compile/target-error-hint";
 
 export interface RunMinskyCompileOptions {
   /** Target to compile. When omitted, all applicable targets are probed and compiled (mt#2803). */
@@ -89,9 +90,7 @@ async function compileSingleMinskyTarget(
   workspacePath: string
 ): Promise<MinskyCompileServiceResult> {
   if (!compileService.getTarget(targetId)) {
-    throw new Error(
-      `Unknown compile target: "${targetId}". Available targets: ${compileService.getAvailableTargets().join(", ")}`
-    );
+    throw new Error(unknownCompileTargetMessage(targetId, compileService.getAvailableTargets()));
   }
 
   return compileService.compile(

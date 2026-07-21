@@ -9,8 +9,6 @@ import { makeCursorRulesTsTarget, buildRuleMdc } from "./cursor-rules-ts";
 import type { MinskyCompileFsDeps } from "../types";
 import type { RuleDefinition } from "../../definitions/types";
 import { GENERATED_BANNER, GENERATION_BANNER_PATTERNS } from "../../rules/compile/banner-constants";
-import { serializeRuleToMdc } from "../../rules/compile/targets/cursor-rules";
-import type { Rule } from "../../rules/types";
 
 // ─── Fake fs ─────────────────────────────────────────────────────────────────
 
@@ -229,55 +227,68 @@ describe("buildRuleMdc", () => {
   });
 });
 
-// ─── byte-parity with the legacy serializeRuleToMdc (mt#2995) ─────────────────
+// ─── golden-output fixed points (mt#2995, decoupled from legacy in R1) ────────
 //
 // The unified writer must reproduce the legacy `.cursor/rules/*.mdc` output
-// byte-for-byte (Success Criterion "no content loss vs current"). Rather than
-// re-deriving the legacy jsYaml options independently, these tests assert
-// equality directly against `serializeRuleToMdc` (the legacy target's own
-// serializer) for representative inputs spanning the fields that differ
-// across rules in the corpus (name present/absent, globs, alwaysApply,
-// tags, empty tags).
+// byte-for-byte (Success Criterion "no content loss vs current"). These tests
+// pin the exact expected `.mdc` output for representative `RuleDefinition`
+// inputs spanning the fields that differ across rules in the corpus (name
+// present/absent, alwaysApply present/absent, tags, empty tags, globs,
+// special-character quoting). The golden strings are hardcoded literals, NOT
+// derived from the legacy `serializeRuleToMdc` — this test has no import
+// dependency on the legacy `cursor-rules` module, which Phase 5 (mt#2996)
+// deletes. If the output format legitimately changes, update the golden
+// string deliberately as part of that change, rather than re-deriving it from
+// a module that may no longer exist.
 
-/** Build a legacy `Rule` from a RuleDefinition-shaped input for serializeRuleToMdc. */
-function toLegacyRule(def: Partial<RuleDefinition> & { content: string }): Rule {
-  return {
-    id: def.name ?? "unnamed",
-    name: def.name,
-    description: def.description,
-    globs: def.globs as string[] | undefined,
-    alwaysApply: def.alwaysApply,
-    tags: def.tags,
-    content: def.content,
-    format: "cursor",
-    path: `/unused/${def.name ?? "unnamed"}.mdc`,
-  };
-}
+describe("buildRuleMdc golden output (fixed points, no legacy-module dependency)", () => {
+  // Shared fragments across the golden strings below — extracted to satisfy
+  // custom/no-magic-string-duplication, not a behavior change.
+  const DESCRIPTION_LINE = "description: A sample rule for testing.\n";
+  const ALWAYS_APPLY_FALSE_LINE = "alwaysApply: false\n";
+  const CONTENT_TAIL = "# My Rule\n\nDo something consistently.\n";
 
-describe("buildRuleMdc byte-parity with legacy serializeRuleToMdc", () => {
-  it("matches legacy output for a full rule (name, description, globs, alwaysApply, tags)", () => {
-    const def = sampleRule;
-    expect(buildRuleMdc(def)).toBe(serializeRuleToMdc(toLegacyRule(def)));
+  it("full rule (name, description, alwaysApply: false, tags)", () => {
+    const golden =
+      `---\n` +
+      `${GENERATED_BANNER}\n` +
+      `name: my-rule\n${DESCRIPTION_LINE}${ALWAYS_APPLY_FALSE_LINE}tags:\n` +
+      `  - testing\n` +
+      `---\n${CONTENT_TAIL}`;
+    expect(buildRuleMdc(sampleRule)).toBe(golden);
   });
 
-  it("matches legacy output when name is absent (21/54 corpus rules have no name:)", () => {
+  it("name absent (21/54 corpus rules have no name:)", () => {
     const { name: _name, ...withoutName } = sampleRule;
-    const def = withoutName as RuleDefinition;
-    expect(buildRuleMdc(def)).toBe(serializeRuleToMdc(toLegacyRule(def)));
+    const golden =
+      `---\n` +
+      `${GENERATED_BANNER}\n${DESCRIPTION_LINE}${ALWAYS_APPLY_FALSE_LINE}tags:\n` +
+      `  - testing\n` +
+      `---\n${CONTENT_TAIL}`;
+    expect(buildRuleMdc(withoutName as RuleDefinition)).toBe(golden);
   });
 
-  it("matches legacy output when alwaysApply is absent (no default line emitted)", () => {
+  it("alwaysApply absent (no default line emitted)", () => {
     const { alwaysApply: _alwaysApply, ...withoutAlwaysApply } = sampleRule;
-    const def = withoutAlwaysApply as RuleDefinition;
-    expect(buildRuleMdc(def)).toBe(serializeRuleToMdc(toLegacyRule(def)));
+    const golden =
+      `---\n` +
+      `${GENERATED_BANNER}\n` +
+      `name: my-rule\n${DESCRIPTION_LINE}tags:\n` +
+      `  - testing\n` +
+      `---\n${CONTENT_TAIL}`;
+    expect(buildRuleMdc(withoutAlwaysApply as RuleDefinition)).toBe(golden);
   });
 
-  it("matches legacy output when tags is an empty array (not normalized away)", () => {
-    const def = { ...sampleRule, tags: [] };
-    expect(buildRuleMdc(def)).toBe(serializeRuleToMdc(toLegacyRule(def)));
+  it("tags is an empty array (not normalized away)", () => {
+    const golden =
+      `---\n` +
+      `${GENERATED_BANNER}\n` +
+      `name: my-rule\n${DESCRIPTION_LINE}${ALWAYS_APPLY_FALSE_LINE}tags: []\n` +
+      `---\n${CONTENT_TAIL}`;
+    expect(buildRuleMdc({ ...sampleRule, tags: [] })).toBe(golden);
   });
 
-  it("matches legacy output with complex globs/tags/alwaysApply combinations", () => {
+  it("complex globs/tags/alwaysApply combinations (quoting, arrays)", () => {
     const def = {
       name: "complex-rule",
       description: `A description that contains : a colon and "quotes"`,
@@ -286,7 +297,23 @@ describe("buildRuleMdc byte-parity with legacy serializeRuleToMdc", () => {
       tags: ["a-tag-with-dashes", "another_tag", "tag with spaces"],
       content: "Body content",
     } as RuleDefinition;
-    expect(buildRuleMdc(def)).toBe(serializeRuleToMdc(toLegacyRule(def)));
+    const golden =
+      "---\n" +
+      `${GENERATED_BANNER}\n` +
+      "name: complex-rule\n" +
+      `description: 'A description that contains : a colon and "quotes"'\n` +
+      "globs:\n" +
+      "  - '**/*.ts'\n" +
+      "  - '**/*.tsx'\n" +
+      "  - 'src/**/*.{js,jsx}'\n" +
+      "alwaysApply: true\n" +
+      "tags:\n" +
+      "  - a-tag-with-dashes\n" +
+      "  - another_tag\n" +
+      "  - tag with spaces\n" +
+      "---\n" +
+      "Body content";
+    expect(buildRuleMdc(def)).toBe(golden);
   });
 });
 

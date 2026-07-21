@@ -11,6 +11,7 @@ import { createRuleTemplateService } from "../rule-template-service";
 import { type RuleGenerationConfig } from "../template-system";
 import { readContentFromFileIfExists, parseGlobs } from "../../utils/rules-helpers";
 import type { CompileService } from "../compile/compile-service";
+import { unknownCompileTargetMessage } from "../compile/target-error-hint";
 import type {
   ListRulesOptions,
   ListRulesResult,
@@ -180,7 +181,7 @@ async function compileSingleTarget(
     // Get the registered target so we can call listOutputFiles (generalized target map)
     const target = compileService.getTarget(targetId);
     if (!target) {
-      throw new Error(`Unknown compile target: "${targetId}"`);
+      throw new Error(unknownCompileTargetMessage(targetId));
     }
 
     // Get the rule set once — used for listOutputFiles and claude-rules per-file content
