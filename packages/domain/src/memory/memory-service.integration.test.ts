@@ -94,7 +94,15 @@ function createTestDb(): { db: MemoryServiceDb; rows: Map<string, Record<string,
             tags: data["tags"] ?? [],
           };
           rows.set(id, row);
-          return {
+          // mt#2966: onConflictDoNothing is a no-op passthrough in this fake
+          // (it always inserts — the fake never simulates a short_id
+          // collision), matching drizzle's chainable builder shape so
+          // MemoryService.create()/supersede()'s
+          // `.onConflictDoNothing({...}).returning()` chain works.
+          const result = {
+            onConflictDoNothing(_opts?: unknown) {
+              return result;
+            },
             returning() {
               return {
                 then(
@@ -106,6 +114,7 @@ function createTestDb(): { db: MemoryServiceDb; rows: Map<string, Record<string,
               };
             },
           };
+          return result;
         },
       };
     },

@@ -23,6 +23,7 @@ import { memoriesTable } from "../storage/schemas/memory-embeddings";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
 import { MEMORY_SCOPES } from "./types";
+import { nextShortId } from "../utils/short-id";
 import type {
   MemoryRecord,
   MemoryCreateInput,
@@ -112,6 +113,8 @@ export interface MemoryServiceDeps {
 function rowToRecord(row: Record<string, any>): MemoryRecord {
   return {
     id: String(row["id"]),
+    // mem#N short id (mt#2966) — undefined for legacy rows pre-backfill.
+    shortId: (row["short_id"] ?? row["shortId"] ?? undefined) as string | undefined,
     type: row["type"],
     name: String(row["name"]),
     description: String(row["description"]),
@@ -141,43 +144,115 @@ export class MemoryService implements MemoryServiceSurface {
   constructor(private readonly deps: MemoryServiceDeps) {}
 
   // -------------------------------------------------------------------------
+  // Short-id minting (mt#2966, generalizing mt#2205's `computeNextTaskId`
+  // pattern via the shared `nextShortId` util — mirrors
+  // `DrizzleAskRepository.nextAskShortId`, mt#2965).
+  // -------------------------------------------------------------------------
+
+  /**
+   * Compute the next `mem#N` short id via a targeted query: select ONLY the
+   * `short_id` column — never the full row — rather than a `SELECT *` over
+   * the whole `memories` table. `nextShortId` (the shared mt#2963
+   * foundation util) folds over whatever candidate ids come back to
+   * compute the max — it internally filters to `mem#<n>`-shaped values via
+   * `parseShortId`, so a server-side WHERE filter is not required for
+   * correctness (nulls and non-`mem#`-shaped values are simply ignored by
+   * the fold).
+   *
+   * Deliberately no `WHERE`/`ORDER BY`/`LIMIT` beyond the column
+   * projection: `MemoryServiceDb` is the narrow interface
+   * (`select`/`insert`/`update`/`delete`/`transaction`) this service uses
+   * specifically so it stays testable against simple fakes without a real
+   * Drizzle client, and this codebase's several ad-hoc `MemoryServiceDb`
+   * test fakes vary in which raw-SQL WHERE shapes they can evaluate — one
+   * throws on any pattern it doesn't recognize. A single-column, unfiltered
+   * select is the query shape every existing fake already supports
+   * unconditionally. Unlike `DrizzleAskRepository.nextAskShortId` (mt#2965
+   * PR #2110 R1), this does not add the `ORDER BY ... LIMIT 1`
+   * single-row-fetch optimization on top — a future perf pass can add a
+   * WHERE-filtered + LIMIT 1 variant (behind a real-Drizzle-only code path,
+   * or after updating every fake in lockstep) without changing this
+   * method's contract.
+   *
+   * `db` defaults to `this.deps.db` but accepts an explicit `tx` so
+   * `supersede()` can mint within its own transaction for read/write
+   * consistency.
+   *
+   * Memories have no tombstone table analogous to tasks' `deleted_task_ids`
+   * (mt#2205) — the max is computed over live short ids only, so a deleted
+   * memory's short id MAY be reissued to a new memory. Acceptable for v1
+   * per the mt#2966 spec; a future task can add a `deleted_memory_short_ids`
+   * tombstone table mirroring the tasks pattern if reuse proves undesirable.
+   */
+  private async nextMemoryShortId(db: MemoryServiceDb = this.deps.db): Promise<string> {
+    const rows = (await db
+      .select({ shortId: memoriesTable.shortId })
+      .from(memoriesTable)) as Array<{
+      shortId: string | null;
+    }>;
+    const liveIds = (Array.isArray(rows) ? rows : [])
+      .map((r) => r.shortId)
+      .filter((s): s is string => typeof s === "string");
+    return nextShortId("mem", liveIds, []);
+  }
+
+  // -------------------------------------------------------------------------
   // Create
   // -------------------------------------------------------------------------
 
   /**
    * Insert a new memory row and compute + store its embedding.
    * Embedding failure is non-fatal: the row is still inserted and returned.
+   *
+   * Mints the next `mem#N` short id (mt#2966) and retries on a short_id
+   * collision — the short-id proposal (SELECT max) and the INSERT are not
+   * atomic, so a concurrent writer may claim the proposed id between the
+   * two. The unique index on `short_id` turns that race into a clean
+   * onConflictDoNothing no-op we detect and retry against, mirroring
+   * `DrizzleAskRepository.create` (mt#2965) and
+   * `MinskyTaskBackend.tryInsertTask` (mt#2205).
    */
   async create(input: MemoryCreateInput): Promise<MemoryRecord> {
-    const rows = await this.deps.db
-      .insert(memoriesTable)
-      .values({
-        type: input.type,
-        name: input.name,
-        description: input.description,
-        content: input.content,
-        // mt#2663: last-line-of-defense default. `MemoryCreateInput.scope` is
-        // typed as required, but callers that bypass TypeScript (raw MCP/CLI
-        // args, `as any` casts) could still hand us `undefined`, which would
-        // otherwise hit the `memories.scope` NOT NULL constraint at the DB.
-        scope: input.scope ?? MEMORY_SCOPES.project,
-        projectId: input.projectId ?? null,
-        tags: input.tags ?? [],
-        sourceAgentId: input.sourceAgentId ?? null,
-        sourceSessionId: input.sourceSessionId ?? null,
-        confidence: input.confidence ?? null,
-        supersededBy: null,
-        associations: input.associations ?? {},
-      })
-      .returning();
+    const MAX_RETRIES = 5;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const shortId = await this.nextMemoryShortId();
+      const rows = await this.deps.db
+        .insert(memoriesTable)
+        .values({
+          shortId,
+          type: input.type,
+          name: input.name,
+          description: input.description,
+          content: input.content,
+          // mt#2663: last-line-of-defense default. `MemoryCreateInput.scope` is
+          // typed as required, but callers that bypass TypeScript (raw MCP/CLI
+          // args, `as any` casts) could still hand us `undefined`, which would
+          // otherwise hit the `memories.scope` NOT NULL constraint at the DB.
+          scope: input.scope ?? MEMORY_SCOPES.project,
+          projectId: input.projectId ?? null,
+          tags: input.tags ?? [],
+          sourceAgentId: input.sourceAgentId ?? null,
+          sourceSessionId: input.sourceSessionId ?? null,
+          confidence: input.confidence ?? null,
+          supersededBy: null,
+          associations: input.associations ?? {},
+        })
+        .onConflictDoNothing({ target: memoriesTable.shortId })
+        .returning();
 
-    const row = rows[0] as Record<string, unknown>;
-    const record = rowToRecord(row);
-
-    // Attempt to store embedding; degrade gracefully on failure.
-    await this.tryStoreEmbedding(record.id, input.content);
-
-    return record;
+      const row = rows?.[0] as Record<string, unknown> | undefined;
+      if (row) {
+        const record = rowToRecord(row);
+        // Attempt to store embedding; degrade gracefully on failure.
+        await this.tryStoreEmbedding(record.id, input.content);
+        return record;
+      }
+      // short_id collision — another writer took it; loop and re-propose.
+    }
+    throw new Error(
+      `Failed to allocate a unique memory short id after ${MAX_RETRIES} attempts. ` +
+        "This indicates extremely high concurrent memory creation — please retry."
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -474,6 +549,15 @@ export class MemoryService implements MemoryServiceSurface {
    * Atomically create a replacement memory and mark the old one as superseded.
    * The old memory remains in the database but is excluded from
    * `list({ excludeSuperseded: true })`.
+   *
+   * Mints a `mem#N` short id (mt#2966) for the replacement row, computed
+   * within the same transaction (`tx`, not `this.deps.db`) for read/write
+   * consistency. Unlike `create()`, this is a single-attempt mint with no
+   * onConflictDoNothing/retry loop — supersede is a much lower-frequency
+   * path than create, so the same collision-retry ceremony was judged not
+   * worth the added transaction complexity for v1; a genuine collision here
+   * (extremely rare) surfaces as a raw unique-constraint error, matching
+   * pre-mt#2966 behavior for any other constraint violation on this insert.
    */
   async supersede(
     oldId: string,
@@ -481,10 +565,12 @@ export class MemoryService implements MemoryServiceSurface {
     reason?: string
   ): Promise<{ old: MemoryRecord; replacement: MemoryRecord }> {
     const { oldRecord, newRecord } = await this.deps.db.transaction(async (tx: MemoryServiceDb) => {
+      const shortId = await this.nextMemoryShortId(tx);
       // Insert new memory inside the transaction.
       const newRows = await tx
         .insert(memoriesTable)
         .values({
+          shortId,
           type: newInput.type,
           name: newInput.name,
           description: newInput.description,
