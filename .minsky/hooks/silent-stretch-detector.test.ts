@@ -175,7 +175,8 @@ describe("measureSilentStretch", () => {
   test("an early genuine stretch is detected even when a short run follows it", () => {
     // 20 tool calls (crosses the count threshold), then narration, then only
     // 2 more tool calls. `matched` must reflect the EARLY run, not just the
-    // final (small) trailing run.
+    // final (small) trailing run — and the reported stats must describe
+    // WHY it matched (the early run), never the unrelated small trailing run.
     const genuineStretch = toolCallChain(0, 20);
     const textOffset = 20 * 5 + 2;
     const narration = assistantTextLine(textOffset, "Wrapping up with a quick check.");
@@ -185,8 +186,24 @@ describe("measureSilentStretch", () => {
     const measurement = measureSilentStretch(turnLines, ts(0));
 
     expect(measurement.matched).toBe(true);
-    // Reported counters describe the FINAL (small) run, per the reporting contract.
-    expect(measurement.toolCallCount).toBe(2);
+    expect(measurement.toolCallCount).toBe(20);
+  });
+
+  test("turn ends in narration with no trailing tool calls -> never matches, regardless of earlier activity", () => {
+    // Some quick early tool calls (well under either threshold), then
+    // narration that closes out the turn with nothing after it. The final
+    // run has zero tool calls, so it can never match — reviewed in PR #2166
+    // as the unit-level counterpart of the mt#3027 FP-shape tests below,
+    // which only exercised this through the full run() dispatcher path.
+    const turnLines = [
+      ...toolCallChain(0, 3),
+      assistantTextLine(20, "Done — summary of findings."),
+    ];
+    const measurement = measureSilentStretch(turnLines, ts(-5));
+
+    expect(measurement.hadTextInTurn).toBe(true);
+    expect(measurement.toolCallCount).toBe(0);
+    expect(measurement.matched).toBe(false);
   });
 });
 

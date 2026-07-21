@@ -157,9 +157,18 @@ export interface SilentStretchMeasurement {
  * `hadTextInTurn: true, toolCallCount: 0` false-positive shape structurally
  * impossible rather than merely filtered.
  *
- * The returned `gapMinutes`/`toolCallCount` describe the FINAL run only
- * (matching the pre-mt#3027 reporting contract that callers/tests rely on
- * for the trailing-run case); `matched` reflects the whole turn.
+ * The returned `gapMinutes`/`toolCallCount` describe the run that actually
+ * MATCHED (the most severe one, when more than one run crosses a
+ * threshold) — never an unrelated trailing run. This matters for
+ * calibration-log triage (PR #2166 review): reporting the FINAL run's stats
+ * unconditionally would let a genuine early-run match surface as
+ * `toolCallCount: 0` whenever the turn later closes on more narration with
+ * nothing after it — reintroducing the exact `hadTextInTurn: true` +
+ * `toolCallCount: 0` shape operators were told marks a false positive, even
+ * though `matched` was correctly `true`. When NO run matches, the returned
+ * stats describe the final run instead (even if 0/small), preserving the
+ * "what did the trailing activity look like" reporting contract callers
+ * already rely on for the non-matching case.
  *
  * Reuses `extractAssistantText`/`extractToolUseNames` (both already handle
  * the tool_result-is-user-role hazard and the string-vs-content-array
@@ -172,23 +181,34 @@ export function measureSilentStretch(
 ): SilentStretchMeasurement {
   let hadTextInTurn = false;
   let matched = false;
+  let reportedToolCallCount = 0;
+  let reportedGapMinutes = 0;
 
   // Bounds of the CURRENT (possibly still-open) tool-only run.
   let runStartTimestamp = turnStartTimestamp;
   let runToolCallCount = 0;
   let runLastToolTimestamp: string | undefined;
 
-  const runCrossesThreshold = (): boolean => {
-    if (runToolCallCount === 0) return false;
+  const evaluateRun = (): void => {
+    if (runToolCallCount === 0) return;
     const gapMinutes = computeGapMinutes(runStartTimestamp, runLastToolTimestamp);
-    return gapMinutes >= GAP_MINUTES_THRESHOLD || runToolCallCount >= TOOL_CALL_THRESHOLD;
+    const crosses = gapMinutes >= GAP_MINUTES_THRESHOLD || runToolCallCount >= TOOL_CALL_THRESHOLD;
+    if (!crosses) return;
+    matched = true;
+    // Keep the most severe matching run's stats — a `matched: true` record
+    // must always carry evidence of WHY, never the shape of a smaller
+    // unrelated run that happened to run last.
+    if (runToolCallCount > reportedToolCallCount || gapMinutes > reportedGapMinutes) {
+      reportedToolCallCount = runToolCallCount;
+      reportedGapMinutes = gapMinutes;
+    }
   };
 
   for (const line of turnLines) {
     const text = extractAssistantText([line]);
     if (text.trim().length > 0) {
       hadTextInTurn = true;
-      if (runCrossesThreshold()) matched = true;
+      evaluateRun();
       // A new run starts at this narration — the tool-only clock resets.
       runStartTimestamp = line.timestamp ?? runStartTimestamp;
       runToolCallCount = 0;
@@ -202,12 +222,20 @@ export function measureSilentStretch(
     }
   }
 
-  if (runCrossesThreshold()) matched = true;
+  evaluateRun();
+
+  if (!matched) {
+    // Nothing crossed a threshold — report the FINAL run's own stats (even
+    // when 0/small) so callers can still see what the trailing activity
+    // looked like.
+    reportedToolCallCount = runToolCallCount;
+    reportedGapMinutes = computeGapMinutes(runStartTimestamp, runLastToolTimestamp);
+  }
 
   return {
     matched,
-    gapMinutes: computeGapMinutes(runStartTimestamp, runLastToolTimestamp),
-    toolCallCount: runToolCallCount,
+    gapMinutes: reportedGapMinutes,
+    toolCallCount: reportedToolCallCount,
     hadTextInTurn,
   };
 }
