@@ -25,7 +25,7 @@ import {
   type TaskDeleteParams,
 } from "../../schemas/tasks";
 import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
-import { isKnownKind, isTerminalTaskStatus, WORKFLOWS } from "../workflows";
+import { isKnownKind, isTerminal, WORKFLOWS } from "../workflows";
 import {
   validateStatusTransition,
   hasCloseoutEvidence,
@@ -59,7 +59,7 @@ type InjectedTaskServiceFactory = (
 
 /**
  * Read a task's children via the injected `taskGraphService` and return the
- * subset that are NOT terminal (per `isTerminalTaskStatus` — DONE/CLOSED),
+ * subset that are NOT terminal (per `isTerminal` — DONE/CLOSED),
  * formatted as `id (STATUS)` strings. A child id the task service
  * cannot resolve to a readable record is also treated as incomplete
  * (`id (unreadable)`), since it can't be verified complete. Returns `[]` when
@@ -107,7 +107,7 @@ async function findIncompleteChildren(args: {
   }
   const foundIds = new Set(children.map((c) => c.id));
   return [
-    ...children.filter((c) => !isTerminalTaskStatus(c.status)).map((c) => `${c.id} (${c.status})`),
+    ...children.filter((c) => !isTerminal(c.status)).map((c) => `${c.id} (${c.status})`),
     // A child id with no readable task record cannot be verified complete.
     ...childIds.filter((id) => !foundIds.has(id)).map((id) => `${id} (unreadable)`),
   ];
