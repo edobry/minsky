@@ -136,6 +136,32 @@ export function convertIssueToTaskData(
 }
 
 /**
+ * Map a Minsky task status to the GitHub issue `state` + `state_reason` pair
+ * per the projection contract defined by the mt#2310 RFC (GitHub Issues
+ * backend section, Notion `3a4937f0-3cb4-81f2-8953-d148a63eba1a`):
+ *
+ * - DONE   -> closed, state_reason "completed"
+ * - CLOSED -> closed, state_reason "not_planned"
+ * - every non-terminal status -> open, state_reason null
+ *
+ * Both terminal statuses close the mirrored GitHub issue. Previously only
+ * DONE did — a task cancelled/superseded via CLOSED left its GitHub issue
+ * open indefinitely (mt#3012).
+ */
+export function getIssueStateForTaskStatus(status: TaskStatus | string): {
+  state: "open" | "closed";
+  state_reason: "completed" | "not_planned" | null;
+} {
+  if (status === TASK_STATUS.DONE) {
+    return { state: "closed", state_reason: "completed" };
+  }
+  if (status === TASK_STATUS.CLOSED) {
+    return { state: "closed", state_reason: "not_planned" };
+  }
+  return { state: "open", state_reason: null };
+}
+
+/**
  * Convert a TaskData object into the shape used to update/create a GitHub issue.
  */
 export function convertTaskDataToIssueFormat(
@@ -146,7 +172,7 @@ export function convertTaskDataToIssueFormat(
     title: task.title,
     body: task.spec || "",
     labels: getLabelsForTaskStatus(task.status, statusLabels),
-    state: task.status === "DONE" ? "closed" : "open",
+    ...getIssueStateForTaskStatus(task.status),
   };
 }
 
@@ -175,9 +201,22 @@ export function extractTaskIdFromIssue(issue: {
 
 /**
  * Derive a Minsky TaskStatus from the labels attached to a GitHub issue.
+ *
+ * Status labels take priority when present. When no configured status label
+ * matches — e.g. an issue closed directly on GitHub without a corresponding
+ * Minsky label update — a closed issue falls back to its native
+ * `state_reason` rather than silently reverting to TODO: "completed" maps to
+ * DONE, and any other value maps to CLOSED (the safe "closed, but not
+ * specifically DONE" bucket). This includes `state_reason` values GitHub
+ * adds later (e.g. `duplicate`, added Dec 2024) or a missing/null reason —
+ * this function never throws on an unrecognized `state_reason` (mt#3012).
  */
 export function getTaskStatusFromIssue(
-  issue: { labels: Array<string | { name?: string | null }> },
+  issue: {
+    labels: Array<string | { name?: string | null }>;
+    state?: string;
+    state_reason?: string | null;
+  },
   statusLabels: Record<string, string>
 ): TaskStatus {
   for (const [status, label] of Object.entries(statusLabels)) {
@@ -185,6 +224,13 @@ export function getTaskStatusFromIssue(
       return status as TaskStatus;
     }
   }
+
+  if (issue.state === "closed") {
+    return issue.state_reason === "completed"
+      ? (TASK_STATUS.DONE as TaskStatus)
+      : (TASK_STATUS.CLOSED as TaskStatus);
+  }
+
   return TASK_STATUS.TODO as TaskStatus;
 }
 
