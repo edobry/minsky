@@ -41,6 +41,7 @@ import {
   isMigrationCollisionOverrideTruthy,
   MIGRATION_COLLISION_CHECK_OVERRIDE_ENV,
 } from "./migration-collision-detector";
+import { runRelatedTestsCheck } from "./related-tests-check";
 import {
   recordPreCommitFireLogEntry,
   classifyOverride as classifyPreCommitOverride,
@@ -79,6 +80,16 @@ import type { RecordPreCommitFireLogInput } from "./pre-commit-fire-log";
  * DELIVERY MECHANISM for the same env var, not a new bypass.
  */
 const SIZE_BUDGET_CHECK_OVERRIDE_ENV = "MINSKY_SKIP_SIZE_BUDGET";
+
+/**
+ * Override env var for the fast changed-file-scoped related-test gate
+ * (mt#2932, Step 7 in `run()`). Escape hatch for the rare case where the
+ * related-test mapping/runner itself is misbehaving and blocking an
+ * unrelated commit -- the full-suite gate at push time (.husky/pre-push)
+ * and CI remain the authoritative backstop regardless of this override.
+ * Registered in `HOOK_ONLY_ENV_VARS` per the mt#1788 ESLint rule contract.
+ */
+const RELATED_TESTS_CHECK_OVERRIDE_ENV = "MINSKY_SKIP_RELATED_TESTS";
 
 export interface ESLintResult {
   filePath: string;
@@ -397,8 +408,26 @@ export class PreCommitHook {
       // than the honest suite, and `bun test` 1.2.21 silently truncated it —
       // mt#2665). The truncation-safe, fail-closed full-suite gate now lives in
       // .husky/pre-push (scripts/run-tests-gated.ts, "before you share") + CI
-      // (authoritative). Pre-commit keeps only fast static checks plus the niche
-      // eslint-rule tooling tests below. See docs/testing-patterns.md + mt#2716.
+      // (authoritative). See docs/testing-patterns.md + mt#2716.
+      //
+      // mt#2932: that left a real gap -- ZERO automated test signal at commit
+      // time. This step is the fast middle ground (jest --findRelatedTests /
+      // vitest related / lint-staged, per mt#2716's research pass): map
+      // staged files to the tests related to them (scripts/find-related-tests.ts)
+      // and run ONLY those (scripts/run-related-tests.ts), well under the
+      // 60-90s bypass-risk threshold. Fail-closed gating REUSES
+      // evaluateBunTestSummary from scripts/run-tests-gated.ts (the mt#2716
+      // gate), not a reimplementation.
+
+      // Step 7: Fast changed-file-scoped related-test gate (mt#2932)
+      const relatedTestsResult = await this.instrumented(
+        "fast-related-tests",
+        () => this.runFastRelatedTests(),
+        RELATED_TESTS_CHECK_OVERRIDE_ENV
+      );
+      if (!relatedTestsResult.success) {
+        return relatedTestsResult;
+      }
 
       // Step 8: ESLint rule tooling tests (niche)
       const ruleTestsResult = await this.instrumented("eslint-rule-tests", () =>
@@ -634,6 +663,48 @@ export class PreCommitHook {
         "💡 Real credentials detected in: PostgreSQL, MySQL, MongoDB, Redis URLs, or API keys"
       );
       return { success: false, message: "Secret scanning failed", exitCode: 1 };
+    }
+  }
+
+  /**
+   * Fast, changed-file-scoped local test gate (mt#2932). Delegates the
+   * spawn+capture to runRelatedTestsCheck (./related-tests-check.ts), which
+   * runs scripts/run-related-tests.ts -- itself mapping staged files to
+   * their related tests (scripts/find-related-tests.ts) and gating
+   * fail-closed via scripts/run-tests-gated.ts's evaluateBunTestSummary
+   * (reused, not reimplemented). See the "Runtime checks (tests)" comment
+   * block in `run()` for the full rationale.
+   */
+  private async runFastRelatedTests(): Promise<HookResult> {
+    log.cli("🧪 Running fast changed-file-scoped test gate...");
+
+    if (isOverrideTruthy(process.env[RELATED_TESTS_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:fast-related-tests] override ${RELATED_TESTS_CHECK_OVERRIDE_ENV}=` +
+          `${process.env[RELATED_TESTS_CHECK_OVERRIDE_ENV]} at ${ts} — fast related-test gate skipped`
+      );
+      return {
+        success: true,
+        message: "Fast related-test gate skipped via override",
+        exitCode: 0,
+        overridden: true,
+      };
+    }
+
+    try {
+      const result = runRelatedTestsCheck(this.projectRoot);
+      if (result.stdout) log.cli(result.stdout);
+      if (result.stderr) log.cli(result.stderr);
+      return { success: result.success, message: result.message, exitCode: result.exitCode };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`❌ Fast related-test gate failed to run: ${errorMsg}`);
+      return {
+        success: false,
+        message: `Fast related-test gate failed to run: ${errorMsg}`,
+        exitCode: 1,
+      };
     }
   }
 

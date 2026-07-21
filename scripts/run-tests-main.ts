@@ -27,7 +27,7 @@
 import { readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
-const ROOTS = [
+export const ROOTS = [
   "./src",
   "./tests/adapters",
   "./tests/domain",
@@ -42,9 +42,15 @@ const ROOTS = [
 
 // Mirrors bunfig.toml's pathIgnorePatterns, plus the src/mcp exclusion this
 // script exists to enforce reliably.
-const EXCLUDE_DIR_PREFIXES = ["src/mcp", "src/cockpit/web", "services", "node_modules", ".git"];
+export const EXCLUDE_DIR_PREFIXES = [
+  "src/mcp",
+  "src/cockpit/web",
+  "services",
+  "node_modules",
+  ".git",
+];
 
-function shouldExclude(relPath: string): boolean {
+export function shouldExclude(relPath: string): boolean {
   return EXCLUDE_DIR_PREFIXES.some(
     (prefix) => relPath === prefix || relPath.startsWith(`${prefix}/`)
   );
@@ -79,24 +85,30 @@ function walk(dir: string, out: string[]): void {
   }
 }
 
-const files: string[] = [];
-for (const root of ROOTS) {
-  walk(root, files);
-}
-files.sort();
+// mt#2932: guarded so `import { ROOTS, EXCLUDE_DIR_PREFIXES, shouldExclude }
+// from "./run-tests-main"` (the changed-file -> related-test mapping layer)
+// can reuse this script's scope/exclusion list without triggering a full
+// `bun test` spawn + process.exit as a side effect of the import.
+if (import.meta.main) {
+  const files: string[] = [];
+  for (const root of ROOTS) {
+    walk(root, files);
+  }
+  files.sort();
 
-if (files.length === 0) {
-  console.error(
-    "run-tests-main.ts: found zero test files -- this is almost certainly a bug " +
-      "in this script's ROOTS/exclusion list, not a legitimately empty suite. Refusing to " +
-      "report a false-green result."
+  if (files.length === 0) {
+    console.error(
+      "run-tests-main.ts: found zero test files -- this is almost certainly a bug " +
+        "in this script's ROOTS/exclusion list, not a legitimately empty suite. Refusing to " +
+        "report a false-green result."
+    );
+    process.exit(1);
+  }
+
+  const extraArgs = process.argv.slice(2);
+  const proc = Bun.spawnSync(
+    ["bun", "test", "--preload", "./tests/setup.ts", "--timeout=15000", ...extraArgs, ...files],
+    { stdio: ["ignore", "inherit", "inherit"] }
   );
-  process.exit(1);
+  process.exit(proc.exitCode ?? 1);
 }
-
-const extraArgs = process.argv.slice(2);
-const proc = Bun.spawnSync(
-  ["bun", "test", "--preload", "./tests/setup.ts", "--timeout=15000", ...extraArgs, ...files],
-  { stdio: ["inherit", "inherit", "inherit"] }
-);
-process.exit(proc.exitCode ?? 1);

@@ -418,6 +418,12 @@ mt#2662 incident.
   discovered via the same CI-log-fetching path
 - `.github/workflows/ci.yml` — the `build` job, `Test` step (hardened) and the new
   `Test (src/mcp, isolated per file)` step (both mt#2665)
+- mt#2716 — moved the full-suite gate from pre-commit to `.husky/pre-push` + CI
+  (`scripts/run-tests-gated.ts`), reusing this investigation's fail-closed
+  `evaluateBunTestSummary` completion-summary check
+- mt#2932 — the fast changed-file-scoped pre-commit gate
+  (`scripts/run-related-tests.ts`) that REUSES mt#2716's `evaluateBunTestSummary`
+  for its own fail-closed gating, per `docs/architecture/hooks/fast-related-test-gate.md`
 - `package.json` — the `"test"` script now runs `scripts/run-tests-main.ts`; the new
   `"test:mcp-isolated"` script runs `scripts/run-tests-mcp-isolated.ts` (mt#2665)
 - `scripts/run-tests-main.ts` / `scripts/run-tests-mcp-isolated.ts` — the mt#2665
