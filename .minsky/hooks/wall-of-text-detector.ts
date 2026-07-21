@@ -64,8 +64,12 @@
 // thread genuinely produces the identical measured report across back-to-back
 // prompts (e.g. a task-notification firing with zero new parent-thread
 // content) should still log at most once. `run()`/`main()` now hash the
-// measured final text and skip logging when the immediately-prior record for
-// this `session_id` in the calibration log carries the same hash.
+// measured final text and skip logging when ANY record for this `session_id`
+// within a bounded tail of the calibration log (`MAX_DEDUPE_READ_BYTES`)
+// already carries the same hash — not just the single most-recent record, so
+// an A -> B -> A sequence still dedupes the repeat A (PR #2165 R1 BLOCKING #1),
+// while the bounded tail keeps the lookback window finite rather than
+// "forever" (PR #2165 R1 BLOCKING #2).
 //
 // @see .minsky/hooks/silent-stretch-detector.ts — the under-signaling sibling this file mirrors structurally
 // @see .minsky/rules/communication-contract.mdc — the Tier-1 contract shape being measured
@@ -80,7 +84,16 @@ import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import { parseTranscript, extractLastAssistantTurn, extractAssistantText } from "./transcript";
 import type { TranscriptLine } from "./transcript";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  openSync,
+  readSync,
+  closeSync,
+} from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import type { DispatchContext, GuardOutcome } from "./registry";
@@ -247,8 +260,13 @@ export function resolveTurnLines(
   parseTranscriptFn: (path: string) => TranscriptLine[] = parseTranscript
 ): TranscriptLine[] {
   const candidates = ctx.transcriptCandidates;
-  if (Array.isArray(candidates) && candidates.length > 1 && input.transcript_path) {
-    return parseTranscriptFn(input.transcript_path);
+  if (Array.isArray(candidates) && candidates.length > 1) {
+    // PR #2165 R1 non-blocking: don't ASSUME candidates[0] === input.transcript_path
+    // (true by construction in `resolveTranscriptCandidates`, but a synthetic/test
+    // `ctx` could disagree) — prefer the resolved candidate, fall back to the
+    // input's own path.
+    const parentPath = candidates[0] ?? input.transcript_path;
+    if (parentPath) return parseTranscriptFn(parentPath);
   }
   return ctx.transcriptLines;
 }
@@ -257,46 +275,87 @@ export function resolveTurnLines(
 // mt#3028 fix (2) — dedupe: an unchanged report logs at most once per session
 // ---------------------------------------------------------------------------
 
-/** Stable content hash for dedupe keying — not a security digest. */
+/**
+ * Stable content hash for dedupe keying — not a security digest. Truncated
+ * to 16 hex chars (64 bits): dedupe only ever compares hashes WITHIN one
+ * session's own recent history (see `MAX_DEDUPE_READ_BYTES` below, which
+ * bounds that history to a few hundred records at most), so the collision
+ * space is tiny relative to a 64-bit digest — an accidental collision here
+ * would require two DIFFERENT reports for the same session, within the same
+ * bounded window, sharing a hash purely by chance (PR #2165 R1 non-blocking).
+ */
 export function hashText(text: string): string {
   return createHash("sha256").update(text).digest("hex").slice(0, 16);
 }
 
 /**
- * Find the most recent calibration record for `sessionId` in `logText`
- * (the raw JSONL file contents) and return its `textHash`, or `undefined`
- * when there is no prior record for this session or it predates the
- * `textHash` field. Pure — operates on a string, not a file path, so tests
- * exercise it with an in-memory fixture (`custom/no-real-fs-in-tests`).
+ * Bounds how much of the calibration log the dedupe check reads, regardless
+ * of how large the file grows over time (PR #2165 R1 BLOCKING #2 — the log
+ * has no rotation, so an unbounded read would grow with it). 256 KiB is
+ * generously many hundreds of JSONL records at this log's typical line size
+ * (~150-250 bytes) — comfortably more history than any realistic
+ * same-session dedupe window needs.
  */
-export function findLastHashForSession(
+export const MAX_DEDUPE_READ_BYTES = 262144;
+
+/**
+ * True iff `sessionId` has a calibration record in `logText` (the raw JSONL
+ * file contents, or a bounded TAIL of it — see `readCalibrationLogText`)
+ * carrying exactly `hash`. Scans EVERY record for this session, not just the
+ * most recent one (PR #2165 R1 BLOCKING #1 — a prior version compared only
+ * against the last record, so an A -> B -> A sequence re-logged the second
+ * A even though it was a repeat within the same short window; this correctly
+ * catches that shape while the `MAX_DEDUPE_READ_BYTES` tail bound keeps the
+ * lookback window finite rather than "forever"). Pure — operates on a
+ * string, not a file path, so tests exercise it with an in-memory fixture
+ * (`custom/no-real-fs-in-tests`).
+ */
+export function sessionHasLoggedHash(
   logText: string | undefined,
-  sessionId: string | undefined
-): string | undefined {
-  if (!logText || !sessionId) return undefined;
-  const lines = logText.split("\n");
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const raw = lines[i]?.trim();
-    if (!raw) continue;
+  sessionId: string | undefined,
+  hash: string
+): boolean {
+  if (!logText || !sessionId) return false;
+  for (const raw of logText.split("\n")) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
     let rec: Record<string, unknown>;
     try {
-      rec = JSON.parse(raw) as Record<string, unknown>;
+      rec = JSON.parse(trimmed) as Record<string, unknown>;
     } catch {
       continue;
     }
-    if (rec["session_id"] === sessionId) {
-      return typeof rec["textHash"] === "string" ? (rec["textHash"] as string) : undefined;
+    if (rec["session_id"] === sessionId && rec["textHash"] === hash) {
+      return true;
     }
   }
-  return undefined;
+  return false;
 }
 
-/** Real on-disk read of the calibration log, resolved against the repo root (never throws). */
-function readCalibrationLogText(cwd: string): string | undefined {
+/**
+ * Real on-disk read of (at most) the last `MAX_DEDUPE_READ_BYTES` of the
+ * calibration log, resolved against the repo root (never throws). Bounded
+ * per-invocation cost regardless of total log size (PR #2165 R1 BLOCKING #2).
+ * Exported (rather than module-private) so the bounded-tail behavior itself
+ * has direct test coverage against a real temp file, not just the pure
+ * `sessionHasLoggedHash` string-parsing logic downstream of it.
+ */
+export function readCalibrationLogText(cwd: string): string | undefined {
   try {
     const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
     if (!existsSync(logPath)) return undefined;
-    return readFileSync(logPath, "utf-8");
+    const size = statSync(logPath).size;
+    if (size <= MAX_DEDUPE_READ_BYTES) {
+      return readFileSync(logPath, "utf-8");
+    }
+    const fd = openSync(logPath, "r");
+    try {
+      const buf = Buffer.alloc(MAX_DEDUPE_READ_BYTES);
+      readSync(fd, buf, 0, MAX_DEDUPE_READ_BYTES, size - MAX_DEDUPE_READ_BYTES);
+      return buf.toString("utf-8");
+    } finally {
+      closeSync(fd);
+    }
   } catch {
     return undefined;
   }
@@ -338,9 +397,9 @@ function buildCalibrationRecord(
     leadLabelHits: m.leadLabelHits,
     deeplinkCount: m.deeplinkCount,
     namedRefCount: m.namedRefCount,
-    // mt#3028: dedupe key (fix (2)) — the immediately-prior record for this
-    // session_id carrying the same hash means an unchanged report is being
-    // re-measured, not a genuinely new turn.
+    // mt#3028: dedupe key (fix (2)) — any prior record for this session_id
+    // (within the bounded lookback) carrying the same hash means an
+    // unchanged report is being re-measured, not a genuinely new turn.
     textHash,
   };
 }
@@ -418,11 +477,10 @@ export function run(
   if (!measurement.matched) return null;
 
   const textHash = hashText(finalText);
-  const priorHash = findLastHashForSession(readCalibrationLogTextFn(input.cwd), input.session_id);
-  if (priorHash === textHash) {
-    // mt#3028 fix (2): the immediately-prior logged record for this session
-    // carries the identical measured text — an unchanged report already
-    // logged once; skip re-logging.
+  if (sessionHasLoggedHash(readCalibrationLogTextFn(input.cwd), input.session_id, textHash)) {
+    // mt#3028 fix (2): a record for this session already carries this exact
+    // measured text (within the bounded lookback window) — an unchanged
+    // report already logged; skip re-logging.
     return null;
   }
 
@@ -544,8 +602,12 @@ export async function main(): Promise<void> {
   if (Date.now() < overallDeadline) {
     // mt#3028 fix (2): skip re-logging an unchanged report already recorded
     // for this session (see the header comment + run()'s equivalent check).
-    const priorHash = findLastHashForSession(readCalibrationLogText(input.cwd), input.session_id);
-    if (priorHash !== textHash) {
+    const alreadyLogged = sessionHasLoggedHash(
+      readCalibrationLogText(input.cwd),
+      input.session_id,
+      textHash
+    );
+    if (!alreadyLogged) {
       appendCalibrationRecord(input.cwd, buildCalibrationRecord(input, measurement, textHash));
     }
   }

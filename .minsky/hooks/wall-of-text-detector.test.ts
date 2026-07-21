@@ -17,22 +17,32 @@
  *   is present (the empirically-confirmed subagent-contamination bug)
  * - `resolveTurnLines` trusts `ctx.transcriptLines` as-is when <=1 candidate
  *   (the common case — no gratuitous re-parse)
- * - `hashText` / `findLastHashForSession` dedupe-key primitives
+ * - `hashText` / `sessionHasLoggedHash` dedupe-key primitives
  * - `run()`: five 100-word interstitial notes + a 150-word final report does NOT fire
  * - `run()`: the same over-budget report logged across 3 successive turns logs ONCE
  * - `run()`: a genuine 1,500-word final report still fires despite the dedupe check
+ *
+ * Covers (PR #2165 R1 review-response tests):
+ * - `sessionHasLoggedHash` catches an A -> B -> A repeat, not just the
+ *   single most-recent record (BLOCKING #1)
+ * - `readCalibrationLogText` bounds its read to the last `MAX_DEDUPE_READ_BYTES`
+ *   of the log regardless of total file size (BLOCKING #2)
+ * - the compiled `.claude/hooks/` copy stays byte-identical (modulo the
+ *   generated-file banner) to this file's `.minsky/hooks/` source
  *
  * @see mt#2870
  * @see mt#3028
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   measureWallOfText,
   extractFinalAssistantText,
   resolveTurnLines,
   hashText,
-  findLastHashForSession,
+  sessionHasLoggedHash,
+  readCalibrationLogText,
+  MAX_DEDUPE_READ_BYTES,
   WORD_COUNT_THRESHOLD,
   LEAD_WINDOW_WORDS,
   INJECTION_ENABLED,
@@ -363,7 +373,7 @@ describe("resolveTurnLines", () => {
 });
 
 // ---------------------------------------------------------------------------
-// hashText / findLastHashForSession — mt#3028 fix (2): dedupe primitives
+// hashText / sessionHasLoggedHash — mt#3028 fix (2): dedupe primitives
 // ---------------------------------------------------------------------------
 
 describe("hashText", () => {
@@ -376,29 +386,35 @@ describe("hashText", () => {
   });
 });
 
-describe("findLastHashForSession", () => {
-  test("undefined log text -> undefined", () => {
-    expect(findLastHashForSession(undefined, "session-a")).toBeUndefined();
+describe("sessionHasLoggedHash", () => {
+  test("undefined log text -> false", () => {
+    expect(sessionHasLoggedHash(undefined, "session-a", "abc123")).toBe(false);
   });
 
-  test("undefined session id -> undefined", () => {
+  test("undefined session id -> false", () => {
     const log = `${JSON.stringify({ session_id: "session-a", textHash: "abc123" })}\n`;
-    expect(findLastHashForSession(log, undefined)).toBeUndefined();
+    expect(sessionHasLoggedHash(log, undefined, "abc123")).toBe(false);
   });
 
-  test("no record for this session -> undefined", () => {
+  test("no record for this session -> false", () => {
     const log = `${JSON.stringify({ session_id: "session-a", textHash: "abc123" })}\n`;
-    expect(findLastHashForSession(log, "session-b")).toBeUndefined();
+    expect(sessionHasLoggedHash(log, "session-b", "abc123")).toBe(false);
   });
 
-  test("returns the MOST RECENT record's hash for this session, ignoring other sessions", () => {
+  test("matches the hash regardless of position in the log, ignoring other sessions (PR #2165 R1 BLOCKING #1: A -> B -> A)", () => {
     const lines = [
-      { session_id: "session-a", textHash: "first" },
+      { session_id: "session-a", textHash: "hash-A" },
       { session_id: "session-b", textHash: "other-session" },
-      { session_id: "session-a", textHash: "second" },
+      { session_id: "session-a", textHash: "hash-B" },
     ];
     const log = `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
-    expect(findLastHashForSession(log, "session-a")).toBe("second");
+    // The MOST RECENT record for session-a carries hash-B, not hash-A — a
+    // naive "compare against the last record only" check would miss that
+    // hash-A already occurred for this session and re-log it. Scanning every
+    // record for the session catches the repeat.
+    expect(sessionHasLoggedHash(log, "session-a", "hash-A")).toBe(true);
+    expect(sessionHasLoggedHash(log, "session-a", "hash-B")).toBe(true);
+    expect(sessionHasLoggedHash(log, "session-a", "hash-C")).toBe(false);
   });
 
   test("tolerates blank lines and malformed JSON lines", () => {
@@ -408,12 +424,12 @@ describe("findLastHashForSession", () => {
       JSON.stringify({ session_id: "session-a", textHash: "ok" }),
       "",
     ].join("\n");
-    expect(findLastHashForSession(log, "session-a")).toBe("ok");
+    expect(sessionHasLoggedHash(log, "session-a", "ok")).toBe(true);
   });
 
-  test("most recent record lacking textHash (pre-mt#3028 record) -> undefined", () => {
+  test("record lacking textHash (pre-mt#3028 record) never matches", () => {
     const log = `${JSON.stringify({ session_id: "session-a" })}\n`;
-    expect(findLastHashForSession(log, "session-a")).toBeUndefined();
+    expect(sessionHasLoggedHash(log, "session-a", "anything")).toBe(false);
   });
 });
 
@@ -495,6 +511,28 @@ describe("run — mt#3028 regressions", () => {
     expect(outcome2?.calibration).toBeDefined();
   });
 
+  test("A -> B -> A sequence: the repeat A is deduped even though B is the most recent record (PR #2165 R1 BLOCKING #1)", () => {
+    const input = makeInput();
+    const reportA = labelHeavyReport();
+    const reportB = `Gate (l) verdict and premise audit (iii), revised: ${words(950)}`;
+    // `transcriptWithFinalReport` puts the report text in a single text-only
+    // assistant line, so run()'s internal textHash is exactly hashText(reportText).
+    const hashA = hashText(reportA);
+    const hashB = hashText(reportB);
+    const logWithBothPriorTurns = [
+      JSON.stringify({ session_id: input.session_id, textHash: hashA }),
+      JSON.stringify({ session_id: input.session_id, textHash: hashB }),
+    ].join("\n");
+
+    // Turn 3 re-observes report A. The MOST RECENT log record is B's hash,
+    // not A's — a "compare only the last record" dedupe would miss this and
+    // re-log A. Scanning the session's full (bounded) history catches it.
+    const outcome3 = run(input, makeCtx(transcriptWithFinalReport(reportA)), {
+      readCalibrationLogTextFn: () => logWithBothPriorTurns,
+    });
+    expect(outcome3).toBeNull();
+  });
+
   test("subagent-contaminated ctx (>1 candidates) does NOT fire on the subagent's report when the parent's own report is conforming", () => {
     // End-to-end version of the resolveTurnLines contamination test, run
     // through run() itself. The naive ctx.transcriptLines (parent + a
@@ -517,3 +555,96 @@ describe("run — mt#3028 regressions", () => {
     expect(run(makeInput(), ctx, deps)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// readCalibrationLogText — mt#3028 / PR #2165 R1 BLOCKING #2: bounded tail read
+// ---------------------------------------------------------------------------
+
+/* eslint-disable custom/no-real-fs-in-tests -- this block specifically
+   verifies readCalibrationLogText's bounded-tail-read behavior against a
+   real file (the whole point is proving the byte-offset seek actually
+   bounds disk I/O regardless of file size); every OTHER test in this file
+   uses in-memory fixtures / injected fakes. A throwaway mkdtempSync
+   directory (removed in afterEach) keeps this isolated from any real
+   .minsky/wall-of-text-calibration.jsonl. */
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+describe("readCalibrationLogText", () => {
+  let tmpDir: string;
+  let logPath: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "wall-of-text-detector-test-"));
+    mkdirSync(join(tmpDir, ".minsky"), { recursive: true });
+    logPath = join(tmpDir, ".minsky", "wall-of-text-calibration.jsonl");
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("missing log file -> undefined", () => {
+    expect(readCalibrationLogText(tmpDir)).toBeUndefined();
+  });
+
+  test("file at or under the byte cap is returned in full", () => {
+    const content = `${JSON.stringify({ session_id: "s", textHash: "abc" })}\n`;
+    writeFileSync(logPath, content);
+    expect(readCalibrationLogText(tmpDir)).toBe(content);
+  });
+
+  test("file over the byte cap returns only a bounded tail, excluding early content (BLOCKING #2)", () => {
+    const startRecord = `${JSON.stringify({ session_id: "session-at-start", textHash: "start-hash" })}\n`;
+    const filler = `${JSON.stringify({ session_id: "filler", textHash: "f" })}\n`;
+    const fillerCount = Math.ceil((MAX_DEDUPE_READ_BYTES * 3) / filler.length);
+    const endRecord = `${JSON.stringify({ session_id: "session-at-end", textHash: "end-hash" })}\n`;
+    writeFileSync(logPath, startRecord + filler.repeat(fillerCount) + endRecord);
+
+    const result = readCalibrationLogText(tmpDir);
+    expect(result).toBeDefined();
+    expect((result as string).length).toBeLessThanOrEqual(MAX_DEDUPE_READ_BYTES);
+    // The tail record (at end-of-file) is inside the bounded read...
+    expect(sessionHasLoggedHash(result, "session-at-end", "end-hash")).toBe(true);
+    // ...but the start-of-file record fell outside it and is invisible —
+    // proving the read is genuinely BOUNDED, not a full-file read that
+    // happens to still find everything.
+    expect(sessionHasLoggedHash(result, "session-at-start", "start-hash")).toBe(false);
+  });
+});
+/* eslint-enable custom/no-real-fs-in-tests */
+
+// ---------------------------------------------------------------------------
+// Compiled-copy parity — PR #2165 R1 non-blocking (compile-drift risk)
+// ---------------------------------------------------------------------------
+
+/* eslint-disable custom/no-real-fs-in-tests -- reads two committed repo
+   files (this source + its compiled .claude/hooks/ counterpart) to assert
+   they stay in sync; not a mock/fixture concern. */
+import { readFileSync as readFileSyncForParityCheck } from "node:fs";
+import { resolve as resolvePathForParityCheck } from "node:path";
+
+describe("compiled .claude/hooks/ copy stays in sync with this source file", () => {
+  test("identical modulo the generated-file banner", () => {
+    const sourcePath = resolvePathForParityCheck(import.meta.dir, "wall-of-text-detector.ts");
+    const compiledPath = resolvePathForParityCheck(
+      import.meta.dir,
+      "..",
+      "..",
+      ".claude",
+      "hooks",
+      "wall-of-text-detector.ts"
+    );
+    const source = readFileSyncForParityCheck(sourcePath, "utf-8");
+    const compiled = readFileSyncForParityCheck(compiledPath, "utf-8");
+    // The compile step (mt#2304) inserts a fixed generation banner right
+    // after the shebang line and otherwise copies the source verbatim.
+    const bannerStripped = compiled.replace(
+      /^#!\/usr\/bin\/env bun\n\/\/ Generated by minsky compile\. Do not edit directly\.\n\/\/ Source: \.minsky\/hooks\/wall-of-text-detector\.ts\n\n/,
+      "#!/usr/bin/env bun\n"
+    );
+    expect(bannerStripped).toBe(source);
+  });
+});
+/* eslint-enable custom/no-real-fs-in-tests */
