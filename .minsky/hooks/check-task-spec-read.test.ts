@@ -29,6 +29,7 @@ import {
   TASKS_CREATE_TOOL,
   SPEC_PATCH_TOOL,
   SPEC_SEARCH_REPLACE_TOOL,
+  TASKS_EDIT_TOOL,
   STATUS_SET_TOOL,
   SESSION_START_TOOL,
   DISPATCH_TOOL,
@@ -533,6 +534,49 @@ describe("specWasAuthored", () => {
     expect(specWasAuthored(lines, "mt2814")).toBe(false);
   });
 
+  // mt#2558: a same-transcript tasks_edit that rewrites the spec is authorship.
+  test("tasks_edit with specContent targeting the task -> true (mt#2558)", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUse(TASKS_EDIT_TOOL, {
+        taskId: "mt#2814",
+        specContent: "## Summary\n\nFull rewritten spec body.",
+      }),
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(true);
+  });
+
+  test("tasks_edit with the spec / specFile aliases also counts (mt#2558)", () => {
+    const viaSpec: TranscriptLine[] = [
+      assistantToolUse(TASKS_EDIT_TOOL, { taskId: "mt#2814", spec: "## Summary\n\nbody" }),
+    ];
+    const viaSpecFile: TranscriptLine[] = [
+      assistantToolUse(TASKS_EDIT_TOOL, { taskId: "mt#2814", specFile: "specs/mt-2814.md" }),
+    ];
+    expect(specWasAuthored(viaSpec, "mt2814")).toBe(true);
+    expect(specWasAuthored(viaSpecFile, "mt2814")).toBe(true);
+  });
+
+  test("tasks_edit WITHOUT a spec-writing field (metadata-only) -> false (mt#2558)", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUse(TASKS_EDIT_TOOL, { taskId: "mt#2814", status: "READY" }),
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(false);
+  });
+
+  test("tasks_edit with an EMPTY-string specContent -> false (mt#2558)", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUse(TASKS_EDIT_TOOL, { taskId: "mt#2814", specContent: "   " }),
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(false);
+  });
+
+  test("tasks_edit with specContent for a DIFFERENT task -> false (mt#2558)", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUse(TASKS_EDIT_TOOL, { taskId: "mt#9999", specContent: "## Summary" }),
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(false);
+  });
+
   test("no authorship action anywhere -> false (regression: reads are NOT authorship)", () => {
     const lines: TranscriptLine[] = [assistantToolUse(SPEC_GET_TOOL, { taskId: "mt#2814" })];
     expect(specWasAuthored(lines, "mt2814")).toBe(false);
@@ -775,6 +819,21 @@ describe("specWasSurfacedInAnyTranscript — same-transcript authorship credit (
           content: "// ... existing code ...\nfixed typo\n// ... existing code ...",
         }),
         userPrompt("now advance it"),
+      ],
+      {}
+    );
+    expect(specWasSurfacedInAnyTranscript(parentPath, undefined, "mt2814")).toBe(true);
+  });
+
+  test("mt#2558: tasks_edit rewriting the spec (specContent) in this transcript, then advance -> allowed", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        userPrompt("rewrite mt#2814's spec"),
+        assistantToolUse(TASKS_EDIT_TOOL, {
+          taskId: "mt#2814",
+          specContent: "## Summary\n\nFull rewritten spec body.",
+        }),
+        userPrompt("now bring it to READY"),
       ],
       {}
     );

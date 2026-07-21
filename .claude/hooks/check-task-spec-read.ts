@@ -98,6 +98,16 @@ export const TASKS_CREATE_TOOL = "mcp__minsky__tasks_create";
 export const SPEC_PATCH_TOOL = "mcp__minsky__tasks_spec_patch";
 export const SPEC_SEARCH_REPLACE_TOOL = "mcp__minsky__tasks_spec_search_replace";
 
+/**
+ * A `tasks_edit` carrying a spec-writing operation — `specContent`, `spec`, or
+ * `specFile` (the set `edit-commands.ts` treats as `hasSpecOperation`) — is the
+ * full-spec-replacement authoring path (`tasks_spec_patch`'s fail-closed
+ * message points callers here). Credited as read-equivalent (mt#2558), gated on
+ * a non-empty spec-writing field so a status/kind/title/tags-only edit is NOT
+ * counted.
+ */
+export const TASKS_EDIT_TOOL = "mcp__minsky__tasks_edit";
+
 /** Guarded tools. */
 export const STATUS_SET_TOOL = "mcp__minsky__tasks_status_set";
 export const SESSION_START_TOOL = "mcp__minsky__session_start";
@@ -160,6 +170,18 @@ export function specWasSurfaced(lines: TranscriptLine[], targetId: string): bool
 }
 
 /**
+ * True iff a `tasks_edit` input carries a non-empty spec-writing operation
+ * (`specContent` / `spec` / `specFile`) — the same set `edit-commands.ts`'s
+ * `hasSpecOperation` recognizes. A status/kind/title/tags-only edit carries
+ * none of these and is not spec authorship (mt#2558).
+ */
+function editHasSpecContent(input: Record<string, unknown>): boolean {
+  return [input["specContent"], input["spec"], input["specFile"]].some(
+    (v) => typeof v === "string" && v.trim() !== ""
+  );
+}
+
+/**
  * True iff `targetId` was AUTHORED in this transcript — a same-transcript
  * spec-WRITING action credited as read-equivalent (mt#2814): a
  * {@link TASKS_CREATE_TOOL} call that supplied a non-empty `spec` body AND
@@ -203,6 +225,14 @@ export function specWasAuthored(lines: TranscriptLine[], targetId: string): bool
   }
   for (const input of findToolUseInputs(lines, SPEC_SEARCH_REPLACE_TOOL)) {
     if (normalizeTaskId(input["taskId"]) === targetId) return true;
+  }
+
+  // A same-transcript tasks_edit that rewrites the spec (specContent / spec /
+  // specFile) is authorship too — the full-replacement path spec_patch points
+  // to (mt#2558). Gated on a spec-writing field so a metadata-only edit
+  // (status/kind/title/tags) does not count.
+  for (const input of findToolUseInputs(lines, TASKS_EDIT_TOOL)) {
+    if (normalizeTaskId(input["taskId"]) === targetId && editHasSpecContent(input)) return true;
   }
 
   for (const { input, createdId, result } of findCreatedResourceIds(
@@ -256,7 +286,8 @@ export function buildDenialReason(toolName: string, rawTaskId: unknown): string 
   return [
     `You are ${action}, but this session has never read or authored ${id}'s spec`,
     `(no tasks_spec_get / tasks_get includeSpec, and no same-transcript tasks_create-with-spec /`,
-    `tasks_spec_patch / tasks_spec_search_replace, for it anywhere in the session's conversation`,
+    `tasks_spec_patch / tasks_spec_search_replace / tasks_edit-with-specContent, for it anywhere in`,
+    `the session's conversation`,
     `tree — parent and dispatched-agent transcripts). This is`,
     `the "task-hijack" bind/advance seam (mt#2511 / mt#2191): advancing or binding a task you`,
     `never engaged risks shipping unrelated work under its number and auto-completing it.`,
