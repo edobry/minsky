@@ -291,7 +291,7 @@ Run all three:
      duplicate-decomposition recurrences slipped through (mt#1423/1424/1425 duplicated DONE
      mt#1188/1189; mt#2403-2406 duplicated mt#2397/2398/2399).
    - For **each** child surface its `(taskId, status, title)` — **including children in a
-     terminal status** (DONE / CLOSED / COMPLETED are all valid Minsky task statuses; see
+     terminal status** (DONE / CLOSED are both valid Minsky terminal task statuses; see
      CLAUDE.md §Task Lifecycle), not just active/in-flight ones. A sibling that already SHIPPED
      or was closed-as-redundant is just as much a duplicate as one in flight; the time-windowed
      open-PR/recent-merge checks above do not catch a terminal-status sibling outside the

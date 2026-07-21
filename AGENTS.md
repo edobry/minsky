@@ -1126,8 +1126,12 @@ Rationale: in a guard-dense repo, mid-pipeline interruption is the norm. A batch
 All `.claude/hooks/*.ts` files must have execute permission (`chmod +x` — the `Write` tool
 creates `644` by default; pre-commit enforces).
 
-**Per-hook detail lives in `docs/architecture/hooks/<name>.md`** — each `Doc:` pointer below names
-that file. Entries stay a terse index; narration lives in the linked doc.
+**Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620)** — each `Doc:` pointer
+below is a file there. Entries are a terse index; narration lives in the linked doc.
+**This rule indexes the PERMISSION GATES** (PreToolUse deny/allow, merge gates, pre-commit steps)
+plus the shared framework; the non-blocking observer hooks (detectors, per-turn injection,
+reminders, trackers, SessionEnd ingest) are indexed in the sibling `hook-observers` rule
+(split mt#2987 — the combined index exceeded the per-rule compile ceiling three times in one day).
 
 ## Guard-Dispatcher Framework (ADR-028)
 
@@ -1139,11 +1143,13 @@ Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all` (migrated only). Doc: `guard-
 
 ## Parallel-Work Guard
 
-PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create`: blocks session-binding on open-PR
-file overlap; blocks duplicate-child titles vs an ACTIVE sibling (terminal WARN); parent-less
-creates get a WARN-only similarity probe. Hook: `parallel-work-guard.ts`. Overrides:
-`MINSKY_FORCE_PARALLEL=1` / `MINSKY_FORCE_DUPLICATE_OK=1` + mid-session grant `--guard
-parallel-work-open-pr` / `duplicate-child-matcher`. Fail: closed (open-PR) / open (duplicate).
+PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create` (parent set): blocks session-binding
+on open-PR file overlap (advisory for recently-merged); blocks duplicate-child titles vs an
+ACTIVE sibling (terminal WARN, mt#2683); parent-less creates get a WARN-only similarity probe
+(mt#2813, in-process since mt#2958). Tier-3 ceiling (mt#1362); Tier-2 floor: `/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
+`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time-env-only) + the mid-session grant channel (mt#2658):
+`--guard parallel-work-open-pr` / `--guard duplicate-child-matcher`; probe has none. Fail: closed
+(open-PR) / open (duplicate checks warn+permit on unreadable data).
 Doc: `parallel-work-guard.md`.
 
 ## Bypass-Merge Guard
@@ -1158,12 +1164,6 @@ default-deny. Doc: `bypass-merge-guard.md`.
 PreToolUse on `session_pr_merge`/`gh api PUT merge`: blocks a merge whose PR body documents a
 coupled out-of-band step never confirmed. Hook: `block-out-of-band-merge.ts`. Override:
 `MINSKY_ACK_OOB_MERGE=1`. Fail: open (`gh` failure warns). Doc: `out-of-band-merge-guard.md`.
-
-## Skill/Agent/Rule Staleness Detector
-
-UserPromptSubmit: warns when `.claude/skills/**` / `.claude/agents/**` / `.minsky/rules/**`
-changed since session baseline mtime. Hook: `skill-staleness-detector.ts`. Override:
-`MINSKY_SKIP_SKILL_STALENESS=1`. Fail: silent-informational. Doc: `skill-staleness-detector.md`.
 
 ## Generated File Edit Guard
 
@@ -1240,51 +1240,6 @@ Doc: `growth-justification-merge-gate.md`.
 - **Fast related-test gate** — maps staged files to related tests (sibling + bounded dependency
   walk), fail-closed. Override `MINSKY_SKIP_RELATED_TESTS=1`. Doc: `fast-related-test-gate.md`.
 
-## Drive-PR-To-Convergence Reminder
-
-PostToolUse on successful `session_pr_create`: injects a convergence reminder naming
-`session_pr_wait-for-review` as next action. Hook: `drive-pr-to-convergence.ts`. No override.
-Fail: always exits 0. Doc: `drive-pr-to-convergence-reminder.md`.
-
-## Substrate-Bypass Detector
-
-UserPromptSubmit: detects verbal commitments with no same-turn encoding, inline-retrospective
-prose without `/retrospective`, DB-substrate-bypass phrasing, and (log-only)
-`operator-instruction-after-merge` (reinstall/rebuild/edit-config instructions for a merged
-change). Hook: `substrate-bypass-detector.ts`. Overrides:
-`MINSKY_ACK_SUBSTRATE_BYPASS=1`, `MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER=1`. Fail: open on
-transcript error; silent on first turn. Doc: `substrate-bypass-detector.md`.
-
-## Retrospective-Trigger Scanner
-
-UserPromptSubmit: scans the prior turn for retrospective-trigger phrases + user-correction
-signals; reminds to invoke `/retrospective` (suppressed if already invoked). Hook:
-`retrospective-trigger-scanner.ts`. Override: `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1`. Fail: open on
-transcript error. Doc: `retrospective-trigger-scanner.md`. Stop-event sibling
-`turn-end-retro-scan.ts` runs the same scan advisory, dedup capped at one beat.
-Doc: `turn-end-retro-scan.md`.
-
-## Code-Mechanism-Assertion Detector
-
-UserPromptSubmit: flags an asserted-but-unread code-symbol behavior claim (excludes file-name/
-hex-id symbol false-positives; calibration-only injection). Hook:
-`code-mechanism-assertion-detector.ts`. Override: `MINSKY_ACK_CODE_MECHANISM_ASSERTION=1`. Fail:
-open. Doc: `code-mechanism-assertion-detector.md`.
-
-## Injection Hooks (UserPromptSubmit)
-
-- **Current time** — date/day/local/UTC every turn. `inject-current-time.ts`; override
-  `MINSKY_SKIP_TIME_INJECTION=1`. Doc: `current-time-injection-hook.md`.
-- **Git state** — branch, tree status, ahead/behind, 5 recent commits; no per-turn fetch.
-  `inject-git-state.ts`; override `MINSKY_SKIP_GIT_STATE_INJECTION=1`.
-  Doc: `git-state-injection-hook.md`.
-- **Prod state** — migration-ledger snapshot, fresh/stale/unknown (never assert from memory when
-  unknown). `inject-prod-state.ts`; override `MINSKY_SKIP_PROD_STATE_INJECTION=1`.
-  Doc: `prod-state-injection-hook.md`.
-- **Dispatch watchdog** — warns when a subagent dispatch is silent ≥30m; recovery:
-  `tasks.dispatch-recover` → `/orchestrate`. `inject-dispatch-watchdog.ts`; override
-  `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`. Doc: `dispatch-watchdog-injection-hook.md`.
-
 ## Guessed-Session-Path Guard
 
 PreToolUse on `Bash`/`session_exec`: denies a command referencing an absolute `sessions/<id>/...`
@@ -1298,34 +1253,6 @@ PreToolUse on `tasks_status_set` (READY) / `session_start` / `tasks_dispatch`: b
 spec was never surfaced (`tasks_spec_get` / `tasks_get includeSpec:true`). Hook:
 `check-task-spec-read.ts`. Override: `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error.
 Doc: `bind-advance-spec-read-guard.md`.
-
-## Session-End Transcript Ingest Hook
-
-`SessionEnd` hook: synchronously ingests the finished transcript into `agent_transcripts`
-(crash-terminated: MCP boot sweep). Hook: `transcript-ingest-on-session-end.ts`. Overrides:
-`MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK=1`; `MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED=1` (opt-in embed).
-Fail: always exits 0. Doc: `session-end-transcript-ingest-hook.md`.
-
-## Calibration Detectors (UserPromptSubmit, log-only)
-
-- **Causal-premise** — logs volunteered causal claims lacking same-turn verification. Companion
-  `/check-premise`. `causal-premise-detector.ts`; override `MINSKY_ACK_CAUSAL_PREMISE=1`.
-  Doc: `causal-premise-detector.md`.
-- **Ask-routing deferral** — logs decision deferrals routed via chat prose instead of the Ask
-  substrate (suppressed once the turn calls `asks_create`). `ask-routing-deferral-detector.ts`;
-  override `MINSKY_ACK_ASK_ROUTING_DEFERRAL=1`. Doc: `ask-routing-deferral-detector.md`.
-- **Calibration-review cadence** — warns when a log crosses its review threshold (>=10 fires,
-  >=3 phrases) or goes stale; run `/calibration-review` unless a disposition Ask is open.
-  `calibration-review-cadence-detector.ts`; override `MINSKY_SKIP_CALIBRATION_CADENCE=1`.
-  Doc: `calibration-review-cadence-detector.md`.
-- **Silent-stretch** — flags a tool-only stretch crossing 10 min OR 15 consecutive tool calls.
-  `silent-stretch-detector.ts`; override `MINSKY_SKIP_SILENT_STRETCH=1`.
-  Doc: `silent-stretch-detector.md`.
-- **Wall-of-text** — flags a turn-end report >2x the ~200-word Tier-1 budget or label-led.
-  `wall-of-text-detector.ts`; override `MINSKY_SKIP_WALL_OF_TEXT=1`. Doc:
-  `wall-of-text-detector.md`.
-
-All five fail open on transcript/read error.
 
 ## Subagent Merge Capability Guard
 
@@ -1345,13 +1272,6 @@ operator-approved, emits `permissionDecision: allow` with an audit reason. Issue
 silent defer on no-grant/store-error/unavailable; DENY only on grant-present-but-unverified.
 Doc: `ask-permission-bridge.md`.
 
-## Guard-Health Tracker + Escalation Detector
-
-Not a permission gate — surfaces guard-layer failures: dispatcher errors land in the guard-health
-log; `debug_systemInfo.guardHealth` reports counts/streaks/tier (critical = 3+ consecutive); the
-escalation guard warns every turn while critical. Hooks: `guard-health.ts` +
-`guard-health-escalation-detector.ts`. No override; fail-safe. Doc: `guard-health-tracker.md`.
-
 ## Dispatch-Intent Write Gate
 
 PreToolUse on 6 session/PR-mutating tools (`session_pr_merge` excluded): denies a subagent call
@@ -1359,6 +1279,116 @@ when a live `"read-only"` dispatch-intent covers the target session (forks inclu
 `intent` param (default `"implementation"`, no-op). Default-ALLOW. Hooks:
 `dispatch-intent-write-gate.ts` + `dispatch-intent-store.ts`. No override; fail-open on
 store-read errors only. Doc: `dispatch-intent-write-gate.md`.
+
+# Hook Observers
+
+Index of the NON-BLOCKING hook layer: UserPromptSubmit detectors, per-turn context injection,
+PostToolUse reminders, health trackers, and the SessionEnd ingest. None of these emit a
+permission decision. The permission gates (PreToolUse deny/allow, merge gates, pre-commit
+steps), the shared guard-dispatcher framework, the compile workflow
+(`.claude/hooks/*` GENERATED from `.minsky/hooks/`, `bun run minsky compile --target
+claude-hooks`, commit both), and the execute-permission requirement are indexed in the sibling
+`hook-files` rule — this rule was split from it (mt#2987: the combined index exceeded the
+per-rule compile ceiling three times in one day). Entries stay a terse index; per-hook
+narration lives in `docs/architecture/hooks/<name>.md` (mt#2620), each `Doc:` pointer a file
+there.
+
+## Skill/Agent/Rule Staleness Detector
+
+UserPromptSubmit: warns when `.claude/skills/**` / `.claude/agents/**` / `.minsky/rules/**`
+changed since session baseline mtime. Hook: `skill-staleness-detector.ts`. Override:
+`MINSKY_SKIP_SKILL_STALENESS=1`. Fail: silent-informational.
+Doc: `skill-staleness-detector.md`.
+
+## Drive-PR-To-Convergence Reminder
+
+PostToolUse on successful `session_pr_create`: injects a convergence reminder naming
+`session_pr_wait-for-review` as next action. Hook: `drive-pr-to-convergence.ts`. No override.
+Fail: always exits 0. Doc: `drive-pr-to-convergence-reminder.md`.
+
+## Substrate-Bypass Detector
+
+UserPromptSubmit: detects verbal commitments with no same-turn encoding, inline-retrospective
+prose without `/retrospective`, DB-substrate-bypass phrasing, and (log-only, mt#2263 ladder)
+`operator-instruction-after-merge` — telling the user to reinstall/rebuild/edit-config to
+activate a merged change (`§Turnkey, not portal`, mt#2303). Hook:
+`substrate-bypass-detector.ts`. Overrides: `MINSKY_ACK_SUBSTRATE_BYPASS=1`,
+`MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER=1`. Fail: open on transcript error; silent on first
+turn. Doc: `substrate-bypass-detector.md`.
+
+## Retrospective-Trigger Scanner
+
+UserPromptSubmit: scans the prior turn for retrospective-trigger phrases + user-correction
+signals; reminds to invoke `/retrospective` (suppressed if already invoked). Hook:
+`retrospective-trigger-scanner.ts`. Log: `.minsky/retrospective-trigger-calibration.jsonl`.
+Override: `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1`. Fail: open on transcript error.
+Doc: `retrospective-trigger-scanner.md`.
+Stop-event sibling (mt#2357): `turn-end-retro-scan.ts` — advisory turn-end scan (registry,
+via `dispatch-stop.ts`); dedup caps phrases at one beat; same override/log (`channel:"stop"`).
+Doc: `turn-end-retro-scan.md`.
+
+## Code-Mechanism-Assertion Detector
+
+UserPromptSubmit: flags an asserted-but-unread code-symbol behavior claim.
+mt#3002 excludes file-name/hex-id symbol FPs and flips
+`INJECTION_ENABLED=true` (calibration-only since mt#2486). Hook:
+`code-mechanism-assertion-detector.ts`. Override:
+`MINSKY_ACK_CODE_MECHANISM_ASSERTION=1`. Fail: open. Doc: same-name `.md`.
+
+## Injection Hooks (UserPromptSubmit)
+
+- **Current time** — date/day/local/UTC every turn. `inject-current-time.ts`; override
+  `MINSKY_SKIP_TIME_INJECTION=1`. Doc: `current-time-injection-hook.md`.
+- **Git state** — branch, tree status, ahead/behind, 5 recent commits; no per-turn fetch.
+  `inject-git-state.ts`; override `MINSKY_SKIP_GIT_STATE_INJECTION=1`; silent bail on
+  non-repo/detached/timeout. Doc: `git-state-injection-hook.md`.
+- **Prod state** — migration-ledger snapshot;
+  fresh/stale/unknown shapes (never assert from memory when unknown). `inject-prod-state.ts`;
+  override `MINSKY_SKIP_PROD_STATE_INJECTION=1`; never crashes.
+  Doc: `prod-state-injection-hook.md`.
+- **Dispatch watchdog** — warns when an in-flight subagent dispatch is silent ≥30m; recovery:
+  `tasks.dispatch-recover` → `/orchestrate`. `inject-dispatch-watchdog.ts`; override
+  `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`; silent on empty cache.
+  Doc: `dispatch-watchdog-injection-hook.md`.
+
+## Session-End Transcript Ingest Hook
+
+`SessionEnd` hook: synchronously ingests the finished transcript into `agent_transcripts`
+(crash-terminated: MCP boot sweep). Hook: `transcript-ingest-on-session-end.ts`. Overrides:
+`MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK=1`; `MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED=1` (opt-in embed).
+Fail: always exits 0.
+Doc: `session-end-transcript-ingest-hook.md`.
+
+## Calibration Detectors (UserPromptSubmit, log-only)
+
+- **Causal-premise** — logs volunteered causal claims lacking same-turn verification.
+  `causal-premise-detector.ts`; log `.minsky/causal-premise-calibration.jsonl`; companion
+  `/check-premise`; override `MINSKY_ACK_CAUSAL_PREMISE=1`. Doc: `causal-premise-detector.md`.
+- **Ask-routing deferral** — logs decision deferrals routed via chat prose instead of the Ask
+  substrate (suppressed once the turn calls `asks_create`). `ask-routing-deferral-detector.ts`;
+  log `.minsky/ask-routing-deferral-calibration.jsonl`; override
+  `MINSKY_ACK_ASK_ROUTING_DEFERRAL=1`. Doc: `ask-routing-deferral-detector.md`.
+- **Calibration-review cadence** — warns when a calibration log crosses its review threshold
+  (≥10 fires, ≥3 phrases) or goes stale; run `/calibration-review` unless a disposition Ask is
+  open (mt#2659). `calibration-review-cadence-detector.ts`; override
+  `MINSKY_SKIP_CALIBRATION_CADENCE=1`. Doc: `calibration-review-cadence-detector.md`.
+- **Silent-stretch** — flags a tool-only stretch (no assistant text) crossing 10 min OR 15
+  consecutive tool calls (mt#2824). `silent-stretch-detector.ts`; log
+  `.minsky/silent-stretch-calibration.jsonl`; override `MINSKY_SKIP_SILENT_STRETCH=1`.
+  Doc: `silent-stretch-detector.md`.
+- **Wall-of-text** — flags a turn-end report >2x the ~200-word Tier-1 budget or label-led
+  (mt#2870). `wall-of-text-detector.ts`; log `.minsky/wall-of-text-calibration.jsonl`;
+  override `MINSKY_SKIP_WALL_OF_TEXT=1`. Doc: `wall-of-text-detector.md`.
+
+All five: fail open on transcript/read error.
+
+## Guard-Health Tracker + Escalation Detector
+
+Not a permission gate — surfaces guard-layer failures (mt#2812): dispatcher errors land in the
+guard-health log; `debug_systemInfo.guardHealth` reports counts/streaks/tier (critical = 3+
+consecutive); the escalation guard (+ cockpit widget) warns every turn while any guard is
+critical. Hooks: `guard-health.ts` + `guard-health-escalation-detector.ts`. No override; fail-safe.
+Doc: `guard-health-tracker.md`.
 
 # Principal Communication Contract
 

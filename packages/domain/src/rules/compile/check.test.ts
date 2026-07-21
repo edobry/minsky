@@ -5,8 +5,12 @@
  *   (a) fresh output not stale
  *   (b) modified output stale
  *   (c) missing output stale
- *   (d) cursor-rules multi-file — one of many files modified → stale
- *   (e) cursor-rules with orphan .mdc → stale
+ *
+ * The legacy `cursor-rules` target's multi-file / orphan-.mdc check-mode
+ * cases were removed in mt#2995 — that target was retired (unregistered
+ * from `createCompileService()`); `.cursor/rules/` is now written solely by
+ * `cursor-rules-ts` (packages/domain/src/compile/targets/cursor-rules-ts.ts),
+ * which has its own test coverage.
  *
  * Uses in-memory fs (createMockFs) injected via compileRules' `deps` seam.
  */
@@ -17,11 +21,10 @@ import { RuleService } from "../rule-service";
 import { createMockFs } from "../../interfaces/mock-fs";
 import { buildContent, DEFAULT_AGENTS_MD_SECTIONS } from "./targets/agents-md";
 import { buildClaudeMdContent } from "./targets/claude-md";
-import { buildCursorRulesContent, serializeRuleToMdc } from "./targets/cursor-rules";
+import { serializeRuleToMdc } from "./targets/cursor-rules";
 import { makeRule } from "./test-utils";
 
 const WORKSPACE = "/mock/workspace";
-const OUTPUT_DIR = `${WORKSPACE}/compiled-rules`;
 
 function setupMockFs(
   initialFiles: Record<string, string> = {},
@@ -115,86 +118,6 @@ describe("compileRules --check staleness detection", () => {
       expect(result.check).toBe(true);
       expect(result.stale).toBe(true);
     });
-  });
-
-  describe("cursor-rules target", () => {
-    it("(a) fresh output — empty workspace, empty output dir — not stale", async () => {
-      const { fs, ruleService } = setupMockFs({}, new Set([OUTPUT_DIR]));
-
-      const result = await compileRules(
-        {
-          workspacePath: WORKSPACE,
-          target: "cursor-rules",
-          output: OUTPUT_DIR,
-          check: true,
-        },
-        { fs, ruleService }
-      );
-
-      expect(result.check).toBe(true);
-      expect(result.stale).toBe(false);
-    });
-
-    it("(e) orphan .mdc file in output dir — stale", async () => {
-      // Empty workspace → expectedFiles = []. Output dir has an old .mdc → orphan → stale.
-      const { fs, ruleService } = setupMockFs({
-        [`${OUTPUT_DIR}/old-rule.mdc`]: "---\nalwaysApply: false\n---\nOld rule content",
-      });
-
-      const result = await compileRules(
-        {
-          workspacePath: WORKSPACE,
-          target: "cursor-rules",
-          output: OUTPUT_DIR,
-          check: true,
-        },
-        { fs, ruleService }
-      );
-
-      expect(result.check).toBe(true);
-      expect(result.stale).toBe(true);
-      expect(result.staleFile).toContain("old-rule.mdc");
-    });
-  });
-});
-
-// ─── cursor-rules multi-file check scenario (d) ─────────────────────────────
-// One of many files is modified → stale. Exercises the full compileRules
-// orchestration for the multi-file cursor-rules target via the DI seam.
-
-describe("cursor-rules multi-file staleness (d)", () => {
-  it("one of many files modified → compileRules identifies the stale file", async () => {
-    const rules = [
-      makeRule("rule-a", "Content A"),
-      makeRule("rule-b", "Content B"),
-      makeRule("rule-c", "Content C"),
-    ];
-    const sourceDir = `${WORKSPACE}/.cursor/rules`;
-
-    const initialFiles: Record<string, string> = {};
-    for (const rule of rules) {
-      initialFiles[`${sourceDir}/${rule.id}.mdc`] = serializeRuleToMdc(rule);
-    }
-    const { files: expected } = buildCursorRulesContent(rules, OUTPUT_DIR);
-    for (const { path: filePath, content } of expected) {
-      initialFiles[filePath] = filePath.endsWith("rule-b.mdc") ? "WRONG CONTENT" : content;
-    }
-
-    const { fs, ruleService } = setupMockFs(initialFiles);
-
-    const result = await compileRules(
-      {
-        workspacePath: WORKSPACE,
-        target: "cursor-rules",
-        output: OUTPUT_DIR,
-        check: true,
-      },
-      { fs, ruleService }
-    );
-
-    expect(result.check).toBe(true);
-    expect(result.stale).toBe(true);
-    expect(result.staleFile).toContain("rule-b.mdc");
   });
 });
 
@@ -296,27 +219,6 @@ describe("compileRules --check size budget (mt#2802)", () => {
       expect(result.stale).toBe(false);
       expect(result.sizeBudgetStatus).toBe("warn");
       expect(result.topContributors?.[0]?.id).toBe("mid-rule");
-    });
-  });
-
-  describe("cursor-rules target (no size budget enforced)", () => {
-    it("does not populate size-budget fields for the multi-file target", async () => {
-      const { fs, ruleService } = setupMockFs({}, new Set([OUTPUT_DIR]));
-
-      const result = await compileRules(
-        {
-          workspacePath: WORKSPACE,
-          target: "cursor-rules",
-          output: OUTPUT_DIR,
-          check: true,
-        },
-        { fs, ruleService }
-      );
-
-      expect(result.stale).toBe(false);
-      expect(result.sizeChars).toBeUndefined();
-      expect(result.sizeBudgetStatus).toBeUndefined();
-      expect(result.topContributors).toBeUndefined();
     });
   });
 });

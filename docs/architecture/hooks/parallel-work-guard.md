@@ -220,10 +220,17 @@ different titles — zero cross-detection until a human closed mt#2887 as subsum
    (`packages/domain/src/tasks/task-similarity-service.ts`), so the query embedding lands in
    the same representation space the corpus was indexed with. Falls back to title-only when no
    `spec` was supplied.
-2. Run `minsky tasks search <query> --json --all --limit 10` (the `tasks.search` CLI command)
-   and parse the results. `--all` disables the command's own default DONE/CLOSED exclusion so
-   the guard can apply the SAME `TERMINAL_TASK_STATUSES` discipline as the duplicate-child
-   matcher itself.
+2. Run the tasks similarity search **in-process** (`standalone-dup-probe.ts`, mt#2958 — through
+   mt#2813 this shelled out `minsky tasks search <query> --json --all --limit 10`, paying a full
+   second CLI boot per probe against an 8s spawn-kill whose only failure signature was empty
+   stdout). The probe mirrors the CLI path piece by piece: service assembly per
+   `createTaskSimilarityService`, project scoping per `resolveTaskSimilarityProjectScope`
+   (ADR-021/mt#2939), NO status filter (the CLI's `--all`) so the guard can apply the SAME
+   `TERMINAL_TASK_STATUSES` discipline as the duplicate-child matcher itself, and {title, status}
+   hydration per `enhanceSearchResults`. Failures are caught Error objects whose message lands in
+   the GUARD DEGRADED stderr line and the guard-health event; the deadline
+   (`STANDALONE_DUP_PROBE_TIMEOUT_MS`, 8s) is a Promise race, and a hanging-DB connect fails in
+   ~2s via the mt#2982 connect timeout (applied programmatically, operator env wins).
 3. Exclude TERMINAL-status (DONE/CLOSED/COMPLETED) hits, keep only results at or under
    `STANDALONE_DUP_MAX_DISTANCE = 0.65` (an embedding DISTANCE — lower is closer), sort
    closest-first, cap at `STANDALONE_DUP_CANDIDATE_CAP = 5`.

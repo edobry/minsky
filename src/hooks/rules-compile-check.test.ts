@@ -102,7 +102,7 @@ describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
         message: "spawn ENOENT",
       });
 
-      const result = classifyCompileCheckError(error, "cursor-rules");
+      const result = classifyCompileCheckError(error, "claude.md");
 
       const allOutput = result.logLines.join("\n");
       expect(allOutput).toContain("spawn ENOENT");
@@ -207,7 +207,7 @@ describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
         stderr: "",
       });
 
-      const result = classifyCompileCheckError(error, "cursor-rules");
+      const result = classifyCompileCheckError(error, "claude.md");
       const allOutput = result.logLines.join("\n");
 
       expect(allOutput).toContain("setup --client");

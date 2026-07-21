@@ -608,7 +608,7 @@ describe("mt#1637 acceptance: fresh sweep grant permits, expired grant denies", 
 
 describe("decideTasksCreateGuard (mt#1435)", () => {
   // ACTIVE status: since mt#2683 the block path requires a non-terminal
-  // sibling — terminal (DONE/CLOSED/COMPLETED) siblings warn instead.
+  // sibling — terminal (DONE/CLOSED) siblings warn instead.
   const children = [child("mt#2397", RAIL_TITLE, "TODO")];
   const fetchOk = () => children;
   const fetchNull = () => null;
@@ -741,14 +741,17 @@ describe("decideTasksCreateGuard terminal-sibling WARN (mt#2683)", () => {
     if (d.action === "block") expect(d.message).toContain("mt#2399");
   });
 
-  it("CLOSED and COMPLETED are terminal too", () => {
-    for (const status of ["CLOSED", "COMPLETED"]) {
-      const d = decideTasksCreateGuard(
-        { parent: "mt#2370", title: RAIL_VARIANT_TITLE },
-        { fetchChildren: () => [child("mt#2397", RAIL_TITLE, status)], overrideActive: false }
-      );
-      expect(d.action).toBe("warn");
-    }
+  it("CLOSED is terminal too", () => {
+    // COMPLETED used to be covered here too (mt#2683 discipline predates
+    // mt#2311's single-DONE-terminal collapse), but COMPLETED was removed
+    // entirely as a valid TaskStatus by mt#2311 — no live sibling can ever
+    // carry it, so the case was dropped rather than kept as a dead-status
+    // regression fixture (mt#3013 residue sweep).
+    const d = decideTasksCreateGuard(
+      { parent: "mt#2370", title: RAIL_VARIANT_TITLE },
+      { fetchChildren: () => [child("mt#2397", RAIL_TITLE, "CLOSED")], overrideActive: false }
+    );
+    expect(d.action).toBe("warn");
   });
 });
 

@@ -73,26 +73,6 @@ describe("probeLegacyCompileTargets (mt#2803)", () => {
     expect(targets).toEqual(["claude.md"]);
   });
 
-  it("detects cursor-rules when .cursor/rules/ has at least one .mdc file", async () => {
-    const workspacePath = await withScratchDir();
-    await mkdir(join(workspacePath, ".cursor", "rules"), { recursive: true });
-    await writeFile(
-      join(workspacePath, ".cursor", "rules", "some-rule.mdc"),
-      "---\nname: Some Rule\n---\ncontent\n",
-      "utf-8"
-    );
-    const targets = await probeLegacyCompileTargets(workspacePath, realFs as RuleServiceFs);
-    expect(targets).toEqual(["cursor-rules"]);
-  });
-
-  it("does not detect cursor-rules when .cursor/rules/ exists but has no .mdc files", async () => {
-    const workspacePath = await withScratchDir();
-    await mkdir(join(workspacePath, ".cursor", "rules"), { recursive: true });
-    await writeFile(join(workspacePath, ".cursor", "rules", "README.txt"), "not a rule", "utf-8");
-    const targets = await probeLegacyCompileTargets(workspacePath, realFs as RuleServiceFs);
-    expect(targets).toEqual([]);
-  });
-
   it("detects claude-rules when .claude/rules/ has at least one .md file (mt#2868)", async () => {
     const workspacePath = await withScratchDir();
     await mkdir(join(workspacePath, ".claude", "rules"), { recursive: true });
@@ -125,16 +105,10 @@ describe("probeLegacyCompileTargets (mt#2803)", () => {
     expect(targets).toEqual([]);
   });
 
-  it("detects all four targets together, in agents.md/claude.md/cursor-rules/claude-rules order", async () => {
+  it("detects all three targets together, in agents.md/claude.md/claude-rules order", async () => {
     const workspacePath = await withScratchDir();
     await writeFile(join(workspacePath, "AGENTS.md"), `${GENERATED_BANNER}\ncontent\n`, "utf-8");
     await writeFile(join(workspacePath, "CLAUDE.md"), `${GENERATED_BANNER}\ncontent\n`, "utf-8");
-    await mkdir(join(workspacePath, ".cursor", "rules"), { recursive: true });
-    await writeFile(
-      join(workspacePath, ".cursor", "rules", "some-rule.mdc"),
-      "---\nname: Some Rule\n---\ncontent\n",
-      "utf-8"
-    );
     await mkdir(join(workspacePath, ".claude", "rules"), { recursive: true });
     await writeFile(
       join(workspacePath, ".claude", "rules", "some-rule.md"),
@@ -142,7 +116,7 @@ describe("probeLegacyCompileTargets (mt#2803)", () => {
       "utf-8"
     );
     const targets = await probeLegacyCompileTargets(workspacePath, realFs as RuleServiceFs);
-    expect(targets).toEqual(["agents.md", "claude.md", "cursor-rules", "claude-rules"]);
+    expect(targets).toEqual(["agents.md", "claude.md", "claude-rules"]);
   });
 });
 

@@ -87,6 +87,15 @@ describe("CompileService", () => {
       ).rejects.toThrow(/Unknown compile target/);
     });
 
+    it('throws a migration hint for the retired "cursor-rules" target (mt#2995)', async () => {
+      const service = new CompileService();
+      const ruleService = createMockRuleService([]);
+
+      await expect(
+        service.compile(ruleService, "cursor-rules", { workspacePath: WORKSPACE_PATH })
+      ).rejects.toThrow(/cursor-rules-ts/);
+    });
+
     it("delegates to the correct target", async () => {
       const service = new CompileService();
       const mockTarget = createMockTarget("test-target");
