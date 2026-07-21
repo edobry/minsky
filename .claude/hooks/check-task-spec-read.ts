@@ -286,8 +286,8 @@ export function buildDenialReason(toolName: string, rawTaskId: unknown): string 
   return [
     `You are ${action}, but this session has never read or authored ${id}'s spec`,
     `(no tasks_spec_get / tasks_get includeSpec, and no same-transcript tasks_create-with-spec /`,
-    `tasks_spec_patch / tasks_spec_search_replace / tasks_edit-with-specContent, for it anywhere in`,
-    `the session's conversation`,
+    `tasks_spec_patch / tasks_spec_search_replace / tasks_edit-with-specContent/spec/specFile, for it`,
+    `anywhere in the session's conversation`,
     `tree — parent and dispatched-agent transcripts). This is`,
     `the "task-hijack" bind/advance seam (mt#2511 / mt#2191): advancing or binding a task you`,
     `never engaged risks shipping unrelated work under its number and auto-completing it.`,
