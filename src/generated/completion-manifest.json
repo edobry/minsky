@@ -2812,7 +2812,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Filter PRs by specific session ID",
+                  "description": "Filter PRs by specific session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -3087,7 +3087,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID (positional)",
+                  "description": "Session ID (positional) — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -3226,7 +3226,7 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID (positional)",
+                  "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
                   "takesValue": true
                 },
                 {
@@ -3435,7 +3435,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID",
+              "description": "Session ID — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {
@@ -3552,7 +3552,7 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID to sync (resolved from task if omitted)",
+              "description": "Session ID to sync (resolved from task if omitted) — accepts the uuid, a `ws#N` short id (mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
               "takesValue": true
             },
             {

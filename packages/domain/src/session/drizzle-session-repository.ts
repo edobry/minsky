@@ -92,8 +92,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
   async getSession(sessionId: string): Promise<SessionRecord | null> {
     log.debug(`Getting session: ${sessionId}`);
     return withPgPoolRetry(async () => {
-      const resolvedId = await this.resolveSessionIdInput(sessionId);
-      if (resolvedId === null) return null;
+      const resolvedId = await this.resolveToCanonicalSessionId(sessionId);
       const result = await this.db
         .select()
         .from(postgresSessions)
@@ -104,47 +103,58 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
   }
 
   /**
-   * Resolve raw session-id input (mt#2967) to the canonical uuid `sessionId`
-   * used by the exact-match query above, OR pass the input through
-   * UNCHANGED for legacy custom-name lookups.
+   * Resolve raw session-id input (mt#2967) to the canonical uuid `sessionId`,
+   * for use by `getSession`/`updateSession`/`deleteSession` alike (PR #2140
+   * R1: `updateSession`/`deleteSession` must resolve too — reusing a raw
+   * `ws#N`/prefix input that only `getSession` resolved internally silently
+   * no-ops the subsequent write).
    *
-   * Sessions, unlike ask/memory, are NOT purely uuid-keyed: `session.start
-   * <name>` can create a session with an arbitrary custom sessionId, which
-   * must keep resolving by exact string match with no behavior change. So
-   * this layers a raw-name fallback UNDER the generic short-id/uuid/hex-prefix
-   * classification (`classifyEntityIdInput`, `../utils/id-prefix-resolver.ts`):
+   * Two steps, in order:
    *
-   *  - full, well-formed uuid -> passthrough, no query (identical to
-   *    pre-mt#2967 behavior).
-   *  - `ws#N` short id -> resolved via an exact match against the
-   *    `short_id` column; not-found returns `null` immediately (a
-   *    `ws#N`-shaped input can only ever mean "short id" — it never falls
-   *    through to a raw-name lookup).
-   *  - an 8+ char hex fragment -> resolved via a `sessionId::text LIKE
-   *    '<prefix>%'` query. Prefix matching is inclusive of an exact match,
-   *    so a legitimate custom session NAME that happens to be a pure-hex
-   *    string of 8+ chars (e.g. "deadbeef1234") still resolves correctly.
-   *  - anything else (too short, or containing a non-hex character — the
-   *    shape of a typical custom session NAME like "my-session") ->
-   *    classified "invalid" by `classifyEntityIdInput`. For sessions this
-   *    means "not uuid/hex-prefix/short-id shaped" — fall through to the
-   *    raw input UNCHANGED so the caller's exact-match query runs exactly
-   *    as it did before this task (100% backward compatible with custom
-   *    session names).
+   *  1. **Exact match FIRST, unconditionally**, regardless of input shape.
+   *     This is the pre-mt#2967 behavior and must never regress for any
+   *     existing uuid or custom session NAME — including a legacy
+   *     hex-shaped custom name. (PR #2140 R1 BLOCKING: an earlier version of
+   *     this method routed anything 8+ hex chars through short-id/prefix
+   *     resolution FIRST; a hex-like legacy session NAME that happened to
+   *     share its prefix with an unrelated uuid or `ws#N` row could then
+   *     throw an ambiguity error instead of exact-matching the name it
+   *     actually is. Trying the exact match first means a real row named
+   *     exactly that string is found immediately and prefix resolution is
+   *     never reached for it.)
+   *  2. **If no exact match**, try `ws#N` short-id / 8+ char hex-prefix
+   *     resolution (mt#2967 net-new capability) via the shared
+   *     `resolveEntityIdPrefix` (`../utils/id-prefix-resolver.ts`).
+   *
+   * Returns the raw input UNCHANGED when neither step finds a match, so the
+   * caller's own not-found handling (`getSession` returning null,
+   * `updateSession`/`deleteSession` finding zero rows) behaves exactly as it
+   * did before this task for a genuinely nonexistent id.
    *
    * Throws only on a genuine ambiguity (two+ rows sharing the same
-   * short-id/hex-prefix) — mirrors the ask/memory resolver contract.
+   * short-id/hex-prefix, with no row exactly named the input) — mirrors the
+   * ask/memory resolver contract.
    */
-  private async resolveSessionIdInput(input: string): Promise<string | null> {
-    const classification = classifyEntityIdInput(input);
-    if (classification.kind === "invalid") {
+  private async resolveToCanonicalSessionId(input: string): Promise<string> {
+    const exactMatch = await this.db
+      .select({ sessionId: postgresSessions.sessionId })
+      .from(postgresSessions)
+      .where(eq(postgresSessions.sessionId, input as WorkspaceId))
+      .limit(1);
+    if (exactMatch.length > 0) {
       return input;
     }
-    if (classification.kind === "resolved") {
-      return classification.id;
+
+    const classification = classifyEntityIdInput(input);
+    if (classification.kind === "invalid" || classification.kind === "resolved") {
+      // "invalid": not short-id/hex-prefix shaped — no further resolution
+      // possible. "resolved" (a full uuid): the exact match above already
+      // covers this shape and just failed — also genuinely not found.
+      return input;
     }
 
-    // "short_id" (ws#N) or "prefix" (8+ char hex fragment).
+    // "short_id" (ws#N) or "prefix" (8+ char hex fragment) with no exact
+    // name match — try short-id/prefix resolution.
     const resolution = await resolveEntityIdPrefix({
       db: this.db,
       table: postgresSessions,
@@ -155,7 +165,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
       entityName: "session",
     });
     if (resolution.kind === "resolved") return resolution.id;
-    if (resolution.kind === "not_found") return null;
+    if (resolution.kind === "not_found") return input;
     throw idPrefixResolutionError("session", resolution);
   }
 
@@ -352,6 +362,14 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
     }
   }
 
+  /**
+   * mt#2967 PR #2140 R1: resolves a `ws#N`/hex-prefix/legacy-name input to
+   * the canonical `sessionId` BEFORE the update, then uses that resolved id
+   * for both the existence read and the write. Without this, a caller that
+   * only validated existence via a raw `getSession(rawInput)` call (which
+   * resolves internally) and then reused `rawInput` here would silently
+   * match zero rows — `updateSession` did no resolution of its own.
+   */
   async updateSession(
     sessionId: string,
     updates: Partial<Omit<SessionRecord, "sessionId">>
@@ -359,7 +377,8 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
     log.debug(`Updating session: ${sessionId}`);
     try {
       const updated = await withPgPoolRetry(async () => {
-        const existing = await this.getSessionInternal(sessionId);
+        const resolvedId = await this.resolveToCanonicalSessionId(sessionId);
+        const existing = await this.getSessionInternal(resolvedId);
         if (!existing) {
           return null;
         }
@@ -368,7 +387,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
         await this.db
           .update(postgresSessions)
           .set(toPostgresInsert(merged as SessionRecord))
-          .where(eq(postgresSessions.sessionId, sessionId as WorkspaceId));
+          .where(eq(postgresSessions.sessionId, resolvedId as WorkspaceId));
         return merged;
       }, "drizzle-session-repository.updateSession");
       if (!updated) {
@@ -381,20 +400,30 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
     }
   }
 
+  /**
+   * mt#2967 PR #2140 R1: same resolve-before-write fix as `updateSession` —
+   * a raw `ws#N`/hex-prefix input must resolve to the canonical id before
+   * the delete AND before the attachment-teardown call below, or an
+   * already-resolved-elsewhere caller's delete silently matches zero rows.
+   */
   async deleteSession(sessionId: string): Promise<boolean> {
     log.debug(`Deleting session: ${sessionId}`);
+    const resolvedId = await withPgPoolRetry(
+      () => this.resolveToCanonicalSessionId(sessionId),
+      "drizzle-session-repository.deleteSession.resolve"
+    );
     // Storage errors (permission denied, corruption, etc.) propagate so callers
     // can surface them. `false` is only "session not found" — a legitimate
     // idempotent-delete outcome.
     const deleted = await withPgPoolRetry(async () => {
       const rows = await this.db
         .delete(postgresSessions)
-        .where(eq(postgresSessions.sessionId, sessionId as WorkspaceId))
+        .where(eq(postgresSessions.sessionId, resolvedId as WorkspaceId))
         .returning({ sessionId: postgresSessions.sessionId });
       return rows.length > 0;
     }, "drizzle-session-repository.deleteSession");
     log.debug(
-      deleted ? `Session deleted: ${sessionId}` : `Session not found for deletion: ${sessionId}`
+      deleted ? `Session deleted: ${resolvedId}` : `Session not found for deletion: ${resolvedId}`
     );
 
     // mt#2284: teardown — clear any runtime-attachment records for this
@@ -410,11 +439,11 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
         const { clearSessionAttachments } = await import("./attachment");
         const presenceRepo = buildPresenceClaimRepository(this.db);
         if (presenceRepo) {
-          await clearSessionAttachments(presenceRepo, sessionId);
+          await clearSessionAttachments(presenceRepo, resolvedId);
         }
       } catch (err) {
         log.debug("Failed to clear session attachment records on delete (non-blocking)", {
-          sessionId,
+          sessionId: resolvedId,
           error: getErrorMessage(err),
         });
       }

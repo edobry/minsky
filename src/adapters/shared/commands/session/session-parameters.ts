@@ -140,7 +140,11 @@ export const sessionGetCommandParams = {
 export const sessionStartCommandParams = {
   sessionId: {
     schema: z.string(),
-    description: "Session ID",
+    description:
+      "Session ID — a custom identifier for the new session (optional; a uuid is " +
+      "generated when omitted). Also accepted for the existing-session-collision check " +
+      "against the same ws#N short id / uuid / hex-prefix / legacy-name forms " +
+      "commonSessionParams.sessionId documents (mt#2967).",
     required: false,
   },
   task: commonSessionParams.task,
@@ -610,7 +614,9 @@ export const sessionPrCloseCommandParams = {
 export const sessionPrListCommandParams = {
   sessionId: {
     schema: z.string(),
-    description: "Filter PRs by specific session ID",
+    description:
+      "Filter PRs by specific session ID — accepts the uuid, a `ws#N` short id " +
+      "(mt#2967), an 8+ char hex prefix of the uuid, or a legacy custom session name.",
     required: false,
   },
   task: commonSessionParams.task,
@@ -784,7 +790,9 @@ export const sessionPrChecksCommandParams = {
 export const sessionPrWaitForReviewCommandParams = {
   sessionId: {
     schema: z.string(),
-    description: "Session ID (positional)",
+    description:
+      "Session ID (positional) — accepts the uuid, a `ws#N` short id (mt#2967), an " +
+      "8+ char hex prefix of the uuid, or a legacy custom session name.",
     required: false,
   },
   task: commonSessionParams.task,

@@ -226,31 +226,37 @@ describe("DrizzleSessionRepository — ws#N short id minting (mt#2967)", () => {
 // ---------------------------------------------------------------------------
 
 /**
- * A fake db supporting exactly the two call SHAPES `getSession()` can issue:
+ * A fake db modeling `getSession()`'s query sequence (PR #2140 R1: exact
+ * match is now always tried FIRST, before any short-id/prefix resolution):
  *
- *  - resolveEntityIdPrefix's candidate query: `.select(shape).from(table)
- *    .where(cond)`, AWAITED DIRECTLY (no `.limit()`) — used for the ws#N /
- *    hex-prefix resolution paths only.
- *  - the final full-row fetch: `.select().from(table).where(eq(...))
- *    .limit(1)` — always issued once resolution (or passthrough) yields a
- *    canonical id.
+ *  1. `resolveToCanonicalSessionId`'s exact-match probe: `.select({sessionId})
+ *     .from(table).where(eq(...)).limit(1)` — ALWAYS the first call.
+ *  2. IF the probe misses AND the input is `ws#N`/hex-prefix shaped:
+ *     `resolveEntityIdPrefix`'s candidate query — `.select(shape).from(table)
+ *     .where(cond)`, AWAITED DIRECTLY (no `.limit()`).
+ *  3. `getSession()`'s own final full-row fetch: `.select().from(table)
+ *     .where(eq(resolvedId)).limit(1)` — always the LAST call, once a
+ *     canonical id is known (whether from step 1's immediate hit, or step
+ *     2's resolution).
  *
- * Distinguishing them by USAGE (whether `.limit()` gets called) rather than
- * by interpreting the opaque drizzle `cond`/`shape` values lets this fake
- * stay simple: each test supplies exactly the candidate row(s) and the
- * canonical full row it expects for its scenario — `classifyEntityIdInput` /
- * `resolveEntityIdPrefix` themselves are exhaustively covered elsewhere
- * (`../utils/id-prefix-resolver.test.ts`).
+ * Distinguishing these by CALL ORDER (the 1st `.limit()`-using call is
+ * always the exact-match probe; any later one is the final fetch; a
+ * `.then()`-direct-await use is always the candidate query) rather than by
+ * interpreting the opaque drizzle `cond`/`shape` values lets this fake stay
+ * simple. `classifyEntityIdInput`/`resolveEntityIdPrefix` themselves are
+ * exhaustively covered elsewhere (`../utils/id-prefix-resolver.test.ts`).
  */
 function createFakeGetSessionDb(opts: {
-  /** Rows returned by the FIRST (candidate) select call, when one occurs. */
+  /** Does the exact-match probe (always call #1) find a row? */
+  exactMatchHits: boolean;
+  /** Rows returned by the candidate query, only reached if exactMatchHits=false. */
   candidates?: Array<{ id: string }>;
-  /** The full row returned by the final full-row fetch. */
+  /** The full row returned by getSession's own final fetch. */
   fullRow: Record<string, unknown> | null;
 }) {
+  let limitCallCount = 0;
   const db = {
-    select(shape?: unknown) {
-      const isFullRowSelect = shape === undefined;
+    select(_shape?: unknown) {
       return {
         from(_table: unknown) {
           return {
@@ -261,8 +267,14 @@ function createFakeGetSessionDb(opts: {
                   Promise.resolve(opts.candidates ?? []).then(resolve, reject);
                 },
                 limit(_n: number) {
-                  // getSession's final full-row fetch.
-                  void isFullRowSelect;
+                  limitCallCount += 1;
+                  if (limitCallCount === 1) {
+                    // Always the exact-match probe.
+                    return Promise.resolve(
+                      opts.exactMatchHits ? [{ sessionId: "matched-by-exact-probe" }] : []
+                    );
+                  }
+                  // Any subsequent .limit() call is getSession's final fetch.
                   return Promise.resolve(opts.fullRow ? [opts.fullRow] : []);
                 },
               };
@@ -304,6 +316,7 @@ describe("DrizzleSessionRepository — ws#N / uuid / hex-prefix / name resolutio
 
   it("resolves ws#7 to the row carrying that short id", async () => {
     const db = createFakeGetSessionDb({
+      exactMatchHits: false, // no session is literally named "ws#7"
       candidates: [{ id: CANONICAL_UUID }],
       fullRow: fullRowFor(CANONICAL_UUID, "ws#7"),
     });
@@ -315,8 +328,9 @@ describe("DrizzleSessionRepository — ws#N / uuid / hex-prefix / name resolutio
     expect(session?.shortId).toBe("ws#7");
   });
 
-  it("passes a full uuid straight through (no resolution query, identical to pre-mt#2967 behavior)", async () => {
+  it("passes a full uuid straight through via the exact-match probe (identical to pre-mt#2967 behavior)", async () => {
     const db = createFakeGetSessionDb({
+      exactMatchHits: true, // a real uuid row is found by the probe immediately
       fullRow: fullRowFor(CANONICAL_UUID, "ws#7"),
     });
     const repo = new DrizzleSessionRepository(db);
@@ -328,6 +342,7 @@ describe("DrizzleSessionRepository — ws#N / uuid / hex-prefix / name resolutio
 
   it("resolves an 8+ char hex prefix of the uuid to the same row", async () => {
     const db = createFakeGetSessionDb({
+      exactMatchHits: false, // no row is literally named just the 8-char prefix
       candidates: [{ id: CANONICAL_UUID }],
       fullRow: fullRowFor(CANONICAL_UUID, "ws#7"),
     });
@@ -341,10 +356,12 @@ describe("DrizzleSessionRepository — ws#N / uuid / hex-prefix / name resolutio
   it("falls through UNCHANGED for a legacy custom session name (regression)", async () => {
     // "my-session" is neither uuid-shaped, ws#N-shaped, nor an 8+ char hex
     // fragment -- classifyEntityIdInput reports "invalid", and
-    // resolveSessionIdInput falls through to the raw exact-match query
-    // exactly as it did before mt#2967 (no resolveEntityIdPrefix call, no
-    // candidate query at all).
+    // resolveToCanonicalSessionId falls through to the raw exact-match
+    // query exactly as it did before mt#2967 (no resolveEntityIdPrefix
+    // call, no candidate query at all -- the exact-match probe itself
+    // finds the row and short-circuits).
     const db = createFakeGetSessionDb({
+      exactMatchHits: true,
       fullRow: fullRowFor("my-session", null),
     });
     const repo = new DrizzleSessionRepository(db);
@@ -354,8 +371,30 @@ describe("DrizzleSessionRepository — ws#N / uuid / hex-prefix / name resolutio
     expect(session?.sessionId).toBe("my-session");
   });
 
+  it("REGRESSION (PR #2140 R1 BLOCKING): a hex-like legacy session name exact-matches instead of throwing an ambiguity error", async () => {
+    // "deadbeef12" is 8+ hex chars -- classifyEntityIdInput would classify
+    // it as a "prefix" candidate for short-id/uuid-prefix resolution. If
+    // that resolution ran FIRST (the pre-fix bug), and some UNRELATED row
+    // (a different uuid or ws#N) happened to share this same prefix, the
+    // candidate query would return 2+ rows and throw an ambiguity error --
+    // even though there IS a row literally named exactly "deadbeef12".
+    // Trying the exact-match probe FIRST means this case resolves
+    // immediately and NEVER reaches the (would-be-ambiguous) candidate
+    // query at all -- candidates is deliberately left undefined/unused here
+    // to prove it's never consulted.
+    const db = createFakeGetSessionDb({
+      exactMatchHits: true,
+      fullRow: fullRowFor("deadbeef12", null),
+    });
+    const repo = new DrizzleSessionRepository(db);
+
+    const session = await repo.getSession("deadbeef12");
+
+    expect(session?.sessionId).toBe("deadbeef12");
+  });
+
   it("returns null for a ws#N input with no matching row (never falls through to a name lookup)", async () => {
-    const db = createFakeGetSessionDb({ candidates: [], fullRow: null });
+    const db = createFakeGetSessionDb({ exactMatchHits: false, candidates: [], fullRow: null });
     const repo = new DrizzleSessionRepository(db);
 
     const session = await repo.getSession("ws#999");

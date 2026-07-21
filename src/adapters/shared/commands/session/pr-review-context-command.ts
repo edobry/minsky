@@ -10,15 +10,12 @@ import { CommandCategory, type CommandDefinition } from "../../command-registry"
 import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrReviewContext } from "@minsky/domain/session/commands/pr-review-context-subcommand";
+import { commonSessionParams } from "./session-parameters";
 
 // ── Parameter definitions ────────────────────────────────────────────────
 
 export const sessionPrReviewContextCommandParams = {
-  sessionId: {
-    schema: z.string(),
-    description: "Session ID (positional)",
-    required: false,
-  },
+  sessionId: commonSessionParams.sessionId,
   task: {
     schema: z.string(),
     description: "Task ID to resolve session from",
