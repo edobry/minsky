@@ -36,19 +36,56 @@
 // report (severity legitimately pierces the register; calibration data will
 // show how often that happens) — OR on any lead-label hit.
 //
+// **mt#3028 — two measurement-integrity fixes (2026-07-21 calibration review,
+// ask 8bf53c54, tune-both disposition).**
+//
+// (1) Cross-transcript contamination, not in-turn summing. The 3,117/3,557-
+// word fires (session e1a0c941) matched NO rendered final message because
+// `ctx.transcriptLines` (D6) is `transcriptCandidates.flatMap(parse)` —
+// the PARENT transcript concatenated with EVERY sibling subagent transcript
+// under the session's `subagents/` dir (`resolveTranscriptCandidates`'s
+// unconditional "every sibling" fallback, mt#2637), with no per-line
+// file-origin marker. Turn-boundary extraction over that flattened array
+// can land inside a SUBAGENT's own transcript, misattributing ITS final
+// report as this session's turn-end report. Empirically reproduced against
+// the live e1a0c941 transcript + its `subagents/*.jsonl` siblings: the
+// "final text" resolved to an "Adversarial Review — RFC:..." report that
+// belongs to a dispatched review subagent, never rendered to the principal
+// in the parent conversation. This is ALSO what produced session 820a6f06's
+// identical 1,497-word record logged 6x — reparsing that session's PARENT
+// transcript alone at each of the six firing timestamps yields six
+// DIFFERENT small (27-337 word) reports, none matching 1,497 or each
+// other — proving the duplication was an artifact of the same contaminated
+// multi-file read, not a genuinely-unchanged report. Fix: `resolveTurnLines`
+// below re-parses the PARENT candidate alone (registry.ts's own D6 doc
+// comment sanctions exactly this: "a guard that needs per-candidate
+// short-circuit scanning... can still walk `transcriptCandidates` itself and
+// re-parse") whenever more than one candidate is present, instead of
+// trusting the merged array.
+//
+// (2) Defense-in-depth dedupe. Even with (1) fixed, a session whose parent
+// thread genuinely produces the identical measured report across back-to-back
+// prompts (e.g. a task-notification firing with zero new parent-thread
+// content) should still log at most once. `run()`/`main()` now hash the
+// measured final text and skip logging when the immediately-prior record for
+// this `session_id` in the calibration log carries the same hash.
+//
 // @see .minsky/hooks/silent-stretch-detector.ts — the under-signaling sibling this file mirrors structurally
 // @see .minsky/rules/communication-contract.mdc — the Tier-1 contract shape being measured
 // @see mt#2263 — detector ladder (calibration before injection)
 // @see mt#2713 — the contract this measures against
-// @see mt#2870 — this task
-// @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard
+// @see mt#2870 — this task (origin)
+// @see mt#3003 — sibling investigation this task's disposition narrowed/superseded for wall-of-text
+// @see mt#3028 — this task (the two fixes above)
+// @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard; D6 `DispatchContext` doc comment sanctions the per-candidate re-parse pattern used here
 
 import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import { parseTranscript, extractLastAssistantTurn, extractAssistantText } from "./transcript";
 import type { TranscriptLine } from "./transcript";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
@@ -188,6 +225,87 @@ export function measureWallOfText(finalText: string): WallOfTextMeasurement {
 }
 
 // ---------------------------------------------------------------------------
+// mt#3028 fix (1) — scope turn extraction to the PARENT transcript alone
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the transcript lines to measure THIS session's turn-end report
+ * against. `ctx.transcriptLines` (D6) is safe to use as-is when there is at
+ * most one resolved candidate (the common case — no subagents dispatched
+ * this session). When `ctx.transcriptCandidates` names MORE than one file,
+ * `ctx.transcriptLines` is a flat concatenation of the parent transcript
+ * with every sibling subagent transcript (see the header comment's mt#3028
+ * fix (1)) — re-parse the parent candidate (`input.transcript_path`, always
+ * `transcriptCandidates[0]` per `resolveTranscriptCandidates`) alone instead,
+ * so a subagent's own final report can never be measured as if it were the
+ * principal-facing turn-end report of the live conversation.
+ *
+ * `parseTranscriptFn` is injectable (defaults to the real `parseTranscript`)
+ * so tests can exercise the multi-candidate branch with an in-memory fixture
+ * instead of a real file (`custom/no-real-fs-in-tests`).
+ */
+export function resolveTurnLines(
+  input: ClaudeHookInput,
+  ctx: DispatchContext,
+  parseTranscriptFn: (path: string) => TranscriptLine[] = parseTranscript
+): TranscriptLine[] {
+  const candidates = ctx.transcriptCandidates;
+  if (Array.isArray(candidates) && candidates.length > 1 && input.transcript_path) {
+    return parseTranscriptFn(input.transcript_path);
+  }
+  return ctx.transcriptLines;
+}
+
+// ---------------------------------------------------------------------------
+// mt#3028 fix (2) — dedupe: an unchanged report logs at most once per session
+// ---------------------------------------------------------------------------
+
+/** Stable content hash for dedupe keying — not a security digest. */
+export function hashText(text: string): string {
+  return createHash("sha256").update(text).digest("hex").slice(0, 16);
+}
+
+/**
+ * Find the most recent calibration record for `sessionId` in `logText`
+ * (the raw JSONL file contents) and return its `textHash`, or `undefined`
+ * when there is no prior record for this session or it predates the
+ * `textHash` field. Pure — operates on a string, not a file path, so tests
+ * exercise it with an in-memory fixture (`custom/no-real-fs-in-tests`).
+ */
+export function findLastHashForSession(
+  logText: string | undefined,
+  sessionId: string | undefined
+): string | undefined {
+  if (!logText || !sessionId) return undefined;
+  const lines = logText.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const raw = lines[i]?.trim();
+    if (!raw) continue;
+    let rec: Record<string, unknown>;
+    try {
+      rec = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (rec["session_id"] === sessionId) {
+      return typeof rec["textHash"] === "string" ? (rec["textHash"] as string) : undefined;
+    }
+  }
+  return undefined;
+}
+
+/** Real on-disk read of the calibration log, resolved against the repo root (never throws). */
+function readCalibrationLogText(cwd: string): string | undefined {
+  try {
+    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
+    if (!existsSync(logPath)) return undefined;
+    return readFileSync(logPath, "utf-8");
+  } catch {
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Calibration logging (standalone CLI path only — dispatcher path uses D4
 // `logCalibrationRecord` via the registry's `calibrationLog` wiring)
 // ---------------------------------------------------------------------------
@@ -211,7 +329,8 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 
 function buildCalibrationRecord(
   input: ClaudeHookInput,
-  m: WallOfTextMeasurement
+  m: WallOfTextMeasurement,
+  textHash: string
 ): Record<string, unknown> {
   return {
     timestamp: new Date().toISOString(),
@@ -222,6 +341,10 @@ function buildCalibrationRecord(
     leadLabelHits: m.leadLabelHits,
     deeplinkCount: m.deeplinkCount,
     namedRefCount: m.namedRefCount,
+    // mt#3028: dedupe key (fix (2)) — the immediately-prior record for this
+    // session_id carrying the same hash means an unchanged report is being
+    // re-measured, not a genuinely new turn.
+    textHash,
   };
 }
 
@@ -229,14 +352,31 @@ function buildCalibrationRecord(
 // Dispatcher-compatible pure function (ADR-028 D1/D2)
 // ---------------------------------------------------------------------------
 
+/** Injectable overrides for `run()` — tests substitute in-memory fakes for both real-IO seams (`custom/no-real-fs-in-tests`). */
+export interface RunDeps {
+  /** Defaults to the real `parseTranscript`. Used by `resolveTurnLines`'s multi-candidate branch. */
+  parseTranscriptFn?: (path: string) => TranscriptLine[];
+  /** Defaults to the real `readCalibrationLogText`. Used by the dedupe check. */
+  readCalibrationLogTextFn?: (cwd: string) => string | undefined;
+}
+
 /**
- * Guard-dispatcher entry point. Reuses `ctx.transcriptLines` (D6) instead of
- * re-parsing the transcript itself. Only calibration logging happens here
- * (via the returned `calibration` field, forwarded to `logCalibrationRecord`
- * per this guard's `calibrationLog: "wall-of-text"` registration) —
- * `additionalContext` is never set while `INJECTION_ENABLED` is false.
+ * Guard-dispatcher entry point. Uses `resolveTurnLines` (mt#3028 fix (1)) —
+ * `ctx.transcriptLines` (D6) as-is when there is at most one transcript
+ * candidate, otherwise a fresh parse of the parent candidate alone, so a
+ * dispatched subagent's own final report is never measured as this
+ * session's turn-end report. Before logging, checks the dedupe hash
+ * (mt#3028 fix (2)) so an unchanged report already logged for this session
+ * is not re-logged. Only calibration logging happens here (via the returned
+ * `calibration` field, forwarded to `logCalibrationRecord` per this guard's
+ * `calibrationLog: "wall-of-text"` registration) — `additionalContext` is
+ * never set while `INJECTION_ENABLED` is false.
  */
-export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+export function run(
+  input: ClaudeHookInput,
+  ctx: DispatchContext,
+  deps: RunDeps = {}
+): GuardOutcome | null {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -251,7 +391,10 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   }
 
   if (!input.transcript_path) return null;
-  const lines = ctx.transcriptLines;
+  const parseTranscriptFn = deps.parseTranscriptFn ?? parseTranscript;
+  const readCalibrationLogTextFn = deps.readCalibrationLogTextFn ?? readCalibrationLogText;
+
+  const lines = resolveTurnLines(input, ctx, parseTranscriptFn);
   if (lines.length === 0) return null;
 
   let turnLines: TranscriptLine[];
@@ -263,8 +406,9 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   if (turnLines.length === 0) return null;
 
   let measurement: WallOfTextMeasurement;
+  let finalText: string;
   try {
-    const finalText = extractFinalAssistantText(turnLines);
+    finalText = extractFinalAssistantText(turnLines);
     if (finalText.length === 0) return null;
     measurement = measureWallOfText(finalText);
   } catch (err) {
@@ -276,8 +420,17 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   if (!measurement.matched) return null;
 
+  const textHash = hashText(finalText);
+  const priorHash = findLastHashForSession(readCalibrationLogTextFn(input.cwd), input.session_id);
+  if (priorHash === textHash) {
+    // mt#3028 fix (2): the immediately-prior logged record for this session
+    // carries the identical measured text — an unchanged report already
+    // logged once; skip re-logging.
+    return null;
+  }
+
   const outcome: GuardOutcome = {
-    calibration: buildCalibrationRecord(input, measurement),
+    calibration: buildCalibrationRecord(input, measurement, textHash),
   };
 
   if (INJECTION_ENABLED) {
@@ -372,8 +525,9 @@ export async function main(): Promise<void> {
   }
 
   let measurement: WallOfTextMeasurement;
+  let finalText = "";
   try {
-    const finalText = extractFinalAssistantText(turnLines);
+    finalText = extractFinalAssistantText(turnLines);
     if (finalText.length === 0) {
       process.exit(0);
     }
@@ -389,8 +543,14 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
+  const textHash = hashText(finalText);
   if (Date.now() < overallDeadline) {
-    appendCalibrationRecord(input.cwd, buildCalibrationRecord(input, measurement));
+    // mt#3028 fix (2): skip re-logging an unchanged report already recorded
+    // for this session (see the header comment + run()'s equivalent check).
+    const priorHash = findLastHashForSession(readCalibrationLogText(input.cwd), input.session_id);
+    if (priorHash !== textHash) {
+      appendCalibrationRecord(input.cwd, buildCalibrationRecord(input, measurement, textHash));
+    }
   }
 
   if (!INJECTION_ENABLED) {
