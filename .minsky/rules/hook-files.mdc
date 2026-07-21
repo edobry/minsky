@@ -139,6 +139,10 @@ Doc: `growth-justification-merge-gate.md`.
 - **Immutable-migration** — blocks a staged modification/rename of a journaled migration `.sql`
   (drifts its ledger hash); additions/unjournaled edits allowed; override
   `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1`. Doc: `immutable-migration-precommit-guard.md`.
+- **Fast related-test gate** (mt#2932) — maps staged files to related tests (sibling + bounded
+  dependency-graph walk) and runs only those, fail-closed via the mt#2716 gate's
+  `evaluateBunTestSummary` (reused). Override `MINSKY_SKIP_RELATED_TESTS=1`.
+  Doc: `fast-related-test-gate.md`.
 
 ## Drive-PR-To-Convergence Reminder
 
