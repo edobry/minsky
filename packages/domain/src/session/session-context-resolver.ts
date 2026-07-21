@@ -127,7 +127,10 @@ export async function resolveSessionContext(
       // not the raw input — the raw input may have been a `ws#N` short id or
       // hex prefix, and downstream consumers (filesystem path construction,
       // updateSession/deleteSession calls) require the real uuid/name.
-      sessionId: sessionRecord.sessionId,
+      // Falls back to the raw `sessionId` when the returned record has no
+      // `.sessionId` (defends against malformed records — every real
+      // persisted row always has one).
+      sessionId: sessionRecord.sessionId ?? sessionId,
       taskId: sessionRecord.taskId,
       resolvedBy: "explicit-session",
       workingDirectory,
@@ -328,7 +331,7 @@ export async function resolveSessionIdForCommand(options: {
     // fall back to the raw input unchanged so the caller's own not-found
     // error message/path is unaffected.
     const record = await sessionProvider.getSession(sessionId);
-    return record ? record.sessionId : sessionId;
+    return record?.sessionId ?? sessionId;
   }
 
   if (!task) {
