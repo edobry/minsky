@@ -5295,7 +5295,7 @@
         },
         {
           "name": "get",
-          "description": "Fetch a single memory record by its identifier. Accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696) — e.g. an id cited in a handoff."
+          "description": "Fetch a single memory record by its identifier. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696) — e.g. an id cited in a handoff — or a mem#N short id (mt#2966)."
         },
         {
           "name": "list",
@@ -5496,7 +5496,7 @@
         },
         {
           "name": "similar",
-          "description": "Find memory records semantically similar to an existing one. Excludes the source memory from results. Accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696) for `id`.",
+          "description": "Find memory records semantically similar to an existing one. Excludes the source memory from results. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966) for `id`.",
           "options": [
             {
               "flags": ["--limit"],
@@ -5579,7 +5579,7 @@
         },
         {
           "name": "lineage",
-          "description": "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. Each step carries the supersession_reason in its metadata. Accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696) for `id`."
+          "description": "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. Each step carries the supersession_reason in its metadata. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966) for `id`."
         }
       ]
     },

@@ -42,6 +42,10 @@ This matches the established direction: mt#800's `.minsky/`-canonical authoring,
 - The `claude-agents` drift carried out of mt#2252 (excluded from the new staleness check; tracked by mt#1654) should be reconciled as part of, or before, phase 4.
 - Retiring the `rules compile` command is a **contract change** — phase 5 must enumerate consumers (CLAUDE.md `§Build & Test`, `docs/*`, any `scripts/` or `.github/` invocations) per the contract-propagation discipline.
 
+### Rule-source ambiguity policy (Phase 2, mt#2994)
+
+The new pipeline's rule reader (`packages/domain/src/compile/rule-sources.ts`) discovers two authoring forms under `.minsky/rules/`: a flat `<name>.mdc` file and a `<name>/rule.ts` module. When BOTH exist for the same rule name the source is **ambiguous** and is **skipped with a `log.warn`** (`[compile:cursor-rules-ts] skipping "<name>": ... ambiguous canonical source; keep exactly one format`) rather than silently preferring one format — mirroring the mt#2279 skills-reader policy for a directory that carries both a `skill.ts` and a `SKILL.md`. This is a (currently latent — 0 `rule.ts` sources exist yet) behavior change from the pre-mt#2994 `cursor-rules-ts` target, which was blind to flat `.mdc` files and would have emitted the TS side. The same warn-on-skip discipline covers a broken `rule.ts` import, a schema-invalid definition, and a `dirName`≠`rule.name` mismatch (mt#2182: never swallow a skipped source silently). The `cursor-rules-ts` target still EMITS only TS-sourced rules in Phase 2; emitting the flat-`.mdc` rules (and deduplicating against the legacy writer) is Phase 3 (mt#2995).
+
 ## References
 
 - mt#2280 — this decision (two-compile-systems convergence)

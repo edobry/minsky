@@ -39,6 +39,45 @@ function getLoggerConfig(): LoggerConfig {
 }
 
 /**
+ * globalThis flag set ONLY by the in-process test preload (`tests/setup.ts`) to
+ * request Console silencing (mt#2975). Exported so the preload and this module
+ * share one source of truth for the key.
+ */
+export const TEST_LOGGER_SILENCED_FLAG = "__MINSKY_TEST_LOGGER_SILENCED__";
+
+/**
+ * Whether winston Console transports should be silenced (mt#2975).
+ *
+ * Under the in-process test harness the real winston logger would otherwise
+ * write error-path output — full JSON stack traces — to stdout, because most
+ * code imports this canonical `@minsky/shared/logger` directly rather than the
+ * `src/utils/logger` re-export that the harness mocks. That flooded CI build
+ * logs (mt#2975: one 2026-07-20 `build` log was 5.4 MB, dominated by ~120
+ * `Failed to initialize PersistenceService` stack traces).
+ *
+ * Gated on a globalThis flag that ONLY `tests/setup.ts` sets — deliberately NOT
+ * on `NODE_ENV=test`. Integration tests spawn the real CLI as a subprocess with
+ * `env: { ...process.env }`, so `NODE_ENV=test` INHERITS into that child; a
+ * NODE_ENV gate would then silence the child's own startup logs — e.g. the
+ * `"Ready to receive MCP requests via HTTP"` readiness marker in
+ * `src/commands/mcp/start-command.ts` that `start-command.test.ts` waits for on
+ * the child's stdout — hanging the test. A globalThis flag does NOT cross the
+ * process boundary: a spawned child never runs the preload, so it keeps its
+ * console output while the in-process harness stays quiet. `DEBUG_TESTS=1` /
+ * `DEBUG=1` make the preload skip setting the flag (the same escape hatch it
+ * uses to un-mock console), restoring console output for local debugging.
+ *
+ * Silencing ONLY the Console transports keeps the logger fully functional
+ * (levels, the `log.*` API, and File transports) — the cockpit daemon rotating
+ * File-transport test (`src/cockpit/daemon-file-log.test.ts`) is unaffected
+ * because it asserts on File content. Prod/Railway/CLI never run the preload, so
+ * their console output is unchanged.
+ */
+function isTestHarnessConsoleSilent(): boolean {
+  return (globalThis as Record<string, unknown>)[TEST_LOGGER_SILENCED_FLAG] === true;
+}
+
+/**
  * Determine the current logging mode based on configuration
  *
  * Default behavior:
@@ -74,6 +113,9 @@ export function createLogger(configOverride?: LoggerConfig) {
   const logLevel = loggerConfig.level;
   const currentLogMode = getLogMode(loggerConfig);
   const enableAgentLogs = loggerConfig.enableAgentLogs;
+  // mt#2975: silence winston Console output under the test harness (see
+  // isTestHarnessConsoleSilent). File transports and the log.* API stay live.
+  const silentConsole = isTestHarnessConsoleSilent();
 
   // Common format for agent logs (JSON)
   const agentLogFormat = format.combine(
@@ -129,12 +171,12 @@ export function createLogger(configOverride?: LoggerConfig) {
 
   // Only add stdout transport if in STRUCTURED mode or explicitly enabled in HUMAN mode
   if (currentLogMode === LogMode.STRUCTURED || enableAgentLogs) {
-    agentLogger.add(new transports.Console({ stderrLevels: [] })); // Ensure only stdout
+    agentLogger.add(new transports.Console({ stderrLevels: [], silent: silentConsole })); // Ensure only stdout
     agentLogger.exceptions.handle(
-      new transports.Console({ format: agentLogFormat, stderrLevels: [] })
+      new transports.Console({ format: agentLogFormat, stderrLevels: [], silent: silentConsole })
     );
     agentLogger.rejections.handle(
-      new transports.Console({ format: agentLogFormat, stderrLevels: [] })
+      new transports.Console({ format: agentLogFormat, stderrLevels: [], silent: silentConsole })
     );
   }
 
@@ -146,14 +188,19 @@ export function createLogger(configOverride?: LoggerConfig) {
       new transports.Console({
         // Send only non-normal levels to stderr; keep info on stdout
         stderrLevels: ["error", "warn", "debug", "http", "verbose", "silly"],
+        silent: silentConsole,
       }),
     ], // Ensure only stderr for non-info levels
     exitOnError: false,
   });
 
   // Always setup exception handlers for programLogger
-  programLogger.exceptions.handle(new transports.Console({ format: programLogFormat }));
-  programLogger.rejections.handle(new transports.Console({ format: programLogFormat }));
+  programLogger.exceptions.handle(
+    new transports.Console({ format: programLogFormat, silent: silentConsole })
+  );
+  programLogger.rejections.handle(
+    new transports.Console({ format: programLogFormat, silent: silentConsole })
+  );
 
   // Check if we're in structured mode
   const isStructuredMode = () => currentLogMode === LogMode.STRUCTURED;

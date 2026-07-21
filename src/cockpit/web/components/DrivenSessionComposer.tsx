@@ -18,6 +18,12 @@ export interface DrivenSessionComposerProps {
   onSend: (text: string) => void;
   onStop: () => void;
   className?: string;
+  /**
+   * Pre-fill the composer input (mt#2986) — e.g. "/plan-task mt#X" from the
+   * TaskDetail plan action's ?compose= param. Seed only; never auto-sent —
+   * the operator reviews and presses Enter themselves.
+   */
+  initialText?: string;
 }
 
 const PLACEHOLDER_BY_STATE: Record<DrivenSessionInteractionState, string> = {
@@ -31,8 +37,9 @@ export function DrivenSessionComposer({
   onSend,
   onStop,
   className,
+  initialText,
 }: DrivenSessionComposerProps) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText ?? "");
   const inputDisabled = interactionState !== "awaiting-input";
   const canSend = !inputDisabled && text.trim().length > 0;
   const canStop = interactionState !== "exited";

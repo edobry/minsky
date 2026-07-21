@@ -22,3 +22,5 @@ config:
   minsky-infra:reviewer-telegram-chat-id: "167346572"
   secrets:braintrust-api-key:
     secure: AAABAOXZlIpJSRiI3M4WB7SuB2UjDocVM9ufoIzfrwF2y8IkhGlk8KqX+EPQul6i8k82+GJB0sfKt5HAHDgb+USzHE7wGV6Zb0ACQIQAVlcnc9w=
+  secrets:minsky-app-postgres-url:
+    secure: AAABAOiEYQ1B2FRnKQIR0hTe4cVnmDkT6UGzyCGO+NvdrwTPKYqgxz1/x9d+KCtludsUacECi1qyapb7xiJLKrJ3e+huknr576AmndBsQ4Ok1aPlDDs7zYNYHyr8Qz0yzEMei2mXScKkbxXLL3Zr0gjFnojbAOttRFlJUHX3jqoK669/7Cn6dfEJvbsxQjNhKD98J2ZA0a9TV+vpCkuuxc+6aCObXs8Zb138QmwOlQ==

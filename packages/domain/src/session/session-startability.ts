@@ -15,6 +15,25 @@
 import { TASK_STATUS } from "../tasks";
 
 /**
+ * Who is driving the session being launched (mt#2986).
+ *
+ * - "autonomous" — the agent-lifecycle path (implement-task chain, tasks_dispatch).
+ *   The kind-aware planning gate applies in full: implementation-kind requires
+ *   READY, umbrella requires PLANNING.
+ * - "principal-driven" — the principal live-driving a session from the cockpit
+ *   (mt#2750's invariant: genuine binary + the operator's own credentials + the
+ *   operator's own machine). The planning gate encodes "no unplanned AUTONOMOUS
+ *   implementation" — the principal driving IS the engagement the gate's other
+ *   exceptions (existing-workspace reuse, umbrella) already honor — so the
+ *   TODO/PLANNING gate is exempted. Terminal statuses still refuse.
+ *
+ * Deliberately NOT part of the zod SessionStartParameters schema: the MCP
+ * boundary rejects undeclared params (mt#2778), so only direct domain callers
+ * (the cockpit daemon's launch path) can assert principal-driven intent.
+ */
+export type SessionLaunchIntent = "autonomous" | "principal-driven";
+
+/**
  * Reason a FRESH session-start (no existing workspace to reuse) would be blocked
  * for a task at `status` of `kind`, or `null` when a fresh create would pass the
  * gate.
@@ -27,8 +46,16 @@ import { TASK_STATUS } from "../tasks";
  */
 export function sessionStartBlockedReason(
   status: string | undefined,
-  kind: string | undefined
+  kind: string | undefined,
+  intent: SessionLaunchIntent = "autonomous"
 ): string | null {
+  // Principal-driven launches are not autonomous implementation — the planning
+  // gate does not apply (mt#2986). Terminal-status refusal is handled by
+  // computeSessionStartability / the surface, matching prior behavior.
+  if (intent === "principal-driven") {
+    return null;
+  }
+
   const normalizedStatus = (status || "").toUpperCase();
   const normalizedKind = (kind || "implementation").toLowerCase();
 
@@ -74,7 +101,8 @@ const TERMINAL_STATUSES: ReadonlySet<string> = new Set([TASK_STATUS.DONE, TASK_S
 export function computeSessionStartability(
   status: string | undefined,
   kind: string | undefined,
-  hasExistingWorkspace: boolean
+  hasExistingWorkspace: boolean,
+  intent: SessionLaunchIntent = "autonomous"
 ): SessionStartability {
   const normalizedStatus = (status || "").toUpperCase();
 
@@ -84,6 +112,6 @@ export function computeSessionStartability(
   if (hasExistingWorkspace) {
     return { startable: true, startBlockedReason: null };
   }
-  const reason = sessionStartBlockedReason(normalizedStatus, kind);
+  const reason = sessionStartBlockedReason(normalizedStatus, kind, intent);
   return { startable: reason === null, startBlockedReason: reason };
 }

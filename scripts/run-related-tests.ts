@@ -40,6 +40,24 @@ import { findRelatedTestFiles, type FsLike } from "./find-related-tests";
 /** Above this many related test files, skip the local run (see doc comment). */
 export const RELATED_TEST_CAP = 40;
 
+/**
+ * Bun treats a CLI argument as a test-file PATH only when it starts with
+ * "./" or "/" — a bare repo-relative path whose first segment is a
+ * dot-directory (e.g. ".minsky/hooks/foo.test.ts") is treated as a NAME
+ * filter instead, matches no test file, and the run emits no completion
+ * summary — which the fail-closed gate then counts as a failure. First
+ * live hit: the mt#2446 commit (2026-07-21), whose related tests live
+ * under .minsky/hooks/. Prefix explicitly so every related path is
+ * passed as a path.
+ */
+export function toBunTestPath(file: string): string {
+  // NOTE: a bare leading dot (".minsky/hooks/foo.test.ts") is NOT anchored —
+  // that is the original bug — so only "/", "./", and "../" pass through.
+  return file.startsWith("/") || file.startsWith("./") || file.startsWith("../")
+    ? file
+    : `./${file}`;
+}
+
 function getStagedFiles(): string[] {
   const proc = Bun.spawnSync(["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"], {
     stdout: "pipe",
@@ -102,7 +120,7 @@ export function runFastRelatedTestGate(
   const regularFiles = related.filter((f) => !f.startsWith("src/mcp/"));
 
   if (regularFiles.length > 0) {
-    const result = doRun(regularFiles);
+    const result = doRun(regularFiles.map(toBunTestPath));
     const gate = evaluateBunTestSummary(result.combined, result.exitCode);
     if (!gate.ok) {
       return {
@@ -116,7 +134,7 @@ export function runFastRelatedTestGate(
 
   // mt#2665: any related src/mcp test runs isolated, one file per process.
   for (const file of mcpFiles) {
-    const result = doRun([file]);
+    const result = doRun([toBunTestPath(file)]);
     const gate = evaluateBunTestSummary(result.combined, result.exitCode);
     if (!gate.ok) {
       return {

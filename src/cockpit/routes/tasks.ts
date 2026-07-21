@@ -168,33 +168,92 @@ export function mountTaskRoutes(app: express.Express): void {
         incoming: incomingIds.map(taskRef),
       };
 
-      // Startability for the cockpit "Start session" affordance (mt#2959). A task
-      // with an existing workspace is startable from ANY non-terminal status via
-      // reuse (driven-session-launch.ts resolveTaskWorkspace), so status + kind
-      // alone can't decide — probe for a bound workspace too. The probe degrades
-      // to "no workspace" on any error rather than failing the whole detail read.
-      let hasExistingWorkspace = false;
+      // Stage-appropriate actions for the cockpit act-here region (mt#2986,
+      // superseding mt#2959's button-shaped `startability` boolean). Every
+      // non-terminal stage maps to at least one action that can actually
+      // succeed (the mt#2959 honesty invariant, kept): a principal-driven
+      // launch is exempt from the planning gate (session-startability.ts), so
+      // pre-READY stages offer "plan" (a driven session primed to plan) rather
+      // than a dead-end explanation. The workspace probe degrades to
+      // "no workspace" on any error rather than failing the detail read.
+      interface TaskAction {
+        kind: "plan" | "start" | "resume" | "view-pr";
+        /** Workspace session id — set on "resume". */
+        sessionId?: string;
+        /** PR number — set on "view-pr" when known. */
+        prNumber?: number;
+        /** Secondary explanation rendered under the control (honesty layer). */
+        note?: string;
+      }
+
+      let existingWorkspace: { sessionId: string; prNumber: number | null } | null = null;
       try {
         const sessionProvider = await getServerSessionProvider();
         if (sessionProvider) {
           const existing = await sessionProvider.getSessionByTaskId(taskId);
-          hasExistingWorkspace = Boolean(existing);
+          if (existing) {
+            existingWorkspace = {
+              sessionId: existing.sessionId,
+              prNumber: existing.pullRequest?.number ?? null,
+            };
+          }
         }
       } catch (workspaceErr) {
         log.warn(
-          `[tasks] startability workspace probe failed for ${taskId}: ${
+          `[tasks] actions workspace probe failed for ${taskId}: ${
             workspaceErr instanceof Error ? workspaceErr.message : String(workspaceErr)
           }`
         );
       }
-      const { computeSessionStartability } = await import(
+
+      const { sessionStartBlockedReason } = await import(
         "@minsky/domain/session/session-startability"
       );
-      const startability = computeSessionStartability(
-        (task.status ?? "TODO").toUpperCase(),
-        task.kind ?? "implementation",
-        hasExistingWorkspace
-      );
+
+      const status = (task.status ?? "TODO").toUpperCase();
+      const kind = task.kind ?? "implementation";
+      const isTerminal = status === "DONE" || status === "CLOSED";
+      const actions: TaskAction[] = [];
+
+      if (!isTerminal) {
+        const resumeAction: TaskAction | null = existingWorkspace
+          ? { kind: "resume", sessionId: existingWorkspace.sessionId }
+          : null;
+
+        const preReady = status === "TODO" || (status === "PLANNING" && kind !== "umbrella");
+        if (preReady) {
+          // The autonomous gate's reason doubles as the honest explanation of
+          // WHY this is a plan launch rather than a plain start.
+          actions.push({
+            kind: "plan",
+            note: sessionStartBlockedReason(status, kind) ?? undefined,
+          });
+        } else if (status === "READY" || (status === "PLANNING" && kind === "umbrella")) {
+          actions.push({ kind: "start" });
+        } else if (status === "IN-PROGRESS") {
+          if (resumeAction) {
+            actions.push(resumeAction);
+          } else {
+            actions.push({ kind: "start" });
+          }
+        } else if (status === "IN-REVIEW") {
+          actions.push({
+            kind: "view-pr",
+            prNumber: existingWorkspace?.prNumber ?? undefined,
+          });
+        } else if (status === "BLOCKED") {
+          actions.push({
+            ...(resumeAction ?? { kind: "start" }),
+            note: "Task is BLOCKED — review its dependencies below before driving it.",
+          });
+        }
+
+        // Resume is always reachable as a secondary action when a workspace
+        // exists and isn't already the primary.
+        if (resumeAction && !actions.some((a) => a.kind === "resume")) {
+          actions.push(resumeAction);
+        }
+      }
 
       res.json({
         task: {
@@ -208,7 +267,7 @@ export function mountTaskRoutes(app: express.Express): void {
         parent,
         children,
         deps: taskDeps,
-        startability,
+        actions,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

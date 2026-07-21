@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mock } from "bun:test";
 import { mockLogger } from "../src/utils/test-utils/mock-logger";
+import { TEST_LOGGER_SILENCED_FLAG } from "@minsky/shared/logger";
 
 // State-dir isolation (mt#2872): any code path that resolves the Minsky state
 // dir (guard-health log, disconnect log, caches) must NEVER touch the
@@ -106,6 +107,14 @@ if (isDebugMode) {
   process.stdout.write(
     "🔇 Global test setup: Logger and console mocked to prevent output during tests\n"
   );
+
+  // mt#2975: request the shared logger silence its winston Console transports
+  // for THIS in-process harness only. A globalThis flag (unlike an env var) does
+  // not cross into subprocesses that tests spawn via child_process — those run
+  // the real CLI without this preload, so their startup logs (e.g. the MCP
+  // "Ready to receive MCP requests via HTTP" readiness marker that
+  // start-command.test.ts waits for) still reach stdout.
+  (globalThis as Record<string, unknown>)[TEST_LOGGER_SILENCED_FLAG] = true;
 
   // Mock the console methods globally to prevent any console output during tests
   const _originalConsole = { ...console };
