@@ -120,7 +120,10 @@ export function AskPage() {
           Asks
         </Link>
         <span aria-hidden="true">/</span>
-        <CopyId type="ask" id={askId} />
+        {/* displayId=ask.shortId (mt#2965): the breadcrumb renders before the
+            per-id fetch settles, so this falls back to the raw uuid from the
+            URL param (askId) while loading or for a legacy pre-backfill ask. */}
+        <CopyId type="ask" id={askId} displayId={ask?.shortId} />
       </nav>
 
       {query.isPending ? (

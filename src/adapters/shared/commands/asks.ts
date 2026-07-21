@@ -77,7 +77,7 @@ import { emitSystemEventBestEffort } from "./system-event-emit";
 import { getServiceWindowDefault } from "@minsky/domain/ask/service-window-defaults";
 import { createEventEmitter } from "@minsky/domain/events/emitter";
 import { asksTable } from "@minsky/domain/storage/schemas/ask-schema";
-import { resolveIdPrefixOrThrow } from "@minsky/domain/utils/id-prefix-resolver";
+import { resolveEntityIdPrefixOrThrow } from "@minsky/domain/utils/id-prefix-resolver";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { computeFormLintMatches, type FormLintMatch } from "@minsky/domain/ask/form-lint";
 import { appendAskFormLintCalibrationRecord } from "./ask-form-lint-calibration";
@@ -184,30 +184,37 @@ export async function buildAskRepository(
 }
 
 /**
- * Resolve a caller-supplied ask id (full UUID or unambiguous prefix, mt#2696)
- * to the full UUID `asks.id` before it reaches any `eq(asksTable.id, ...)`
- * comparison in the repository. A full UUID passes through unchanged with no
- * query. A short/no-match/ambiguous prefix throws a clean tool-level error
- * (never a raw Postgres "invalid input syntax for type uuid" error).
+ * Resolve a caller-supplied ask id — a full UUID, an unambiguous 8-char hex
+ * prefix (mt#2696), or an `ask#N` short id (mt#2965/mt#2963) — to the full
+ * UUID `asks.id` before it reaches any `eq(asksTable.id, ...)` comparison in
+ * the repository. A full UUID passes through unchanged with no query. A
+ * short/no-match/ambiguous prefix, or an `ask#N` with no matching row, throws
+ * a clean tool-level error (never a raw Postgres "invalid input syntax for
+ * type uuid" error).
  *
  * When no DB connection is resolvable here, the raw input passes through —
  * the immediately-following `buildAskRepository` call in every command
  * surfaces the "AskRepository unavailable" error instead.
+ *
+ * Exported for unit testing (asks.test.ts) — not part of the public command
+ * surface.
  */
-async function resolveAskIdInput(
+export async function resolveAskIdInput(
   id: string,
   container: AppContainerInterface | undefined
 ): Promise<string> {
   const db = await getAskDb(container);
   if (!db) return id;
 
-  return resolveIdPrefixOrThrow({
+  return resolveEntityIdPrefixOrThrow({
     db,
     table: asksTable,
     idColumn: asksTable.id,
     labelColumn: asksTable.title,
     input: id,
     entityName: "ask",
+    shortIdColumn: asksTable.shortId,
+    shortIdPrefix: "ask",
   });
 }
 
@@ -216,6 +223,15 @@ async function resolveAskIdInput(
 // ---------------------------------------------------------------------------
 
 const asksListParams = {
+  id: {
+    schema: z.string().trim().min(1).optional(),
+    description:
+      "Filter to a single Ask by id — accepts a full UUID, an unambiguous prefix " +
+      "(>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965). Resolved via the " +
+      "same generalized resolver used by asks.respond/edit/wait-for-response; throws " +
+      "if the id does not resolve to exactly one Ask.",
+    required: false,
+  },
   state: {
     schema: z.enum(ALL_STATES as [AskState, ...AskState[]]).optional(),
     description: "Filter by Ask state (detected | classified | routed | ...)",
@@ -240,7 +256,7 @@ const asksListParams = {
   },
 };
 
-interface AsksListResult {
+export interface AsksListResult {
   asks: Ask[];
   /** True count of everything matching the filters, before the `limit` slice. */
   total: number;
@@ -268,6 +284,53 @@ async function gatherAsks(
     all.push(...subset);
   }
   return kind ? all.filter((a) => a.kind === kind) : all;
+}
+
+/**
+ * Filter params accepted by `listAsksFiltered` — mirrors `asks.list`'s
+ * `asksListParams` shape (already-narrowed types, not raw MCP params).
+ */
+export interface ListAsksFilters {
+  /** Raw id/prefix/short-id input — resolved via the injected `resolveId`. */
+  id?: string;
+  state?: AskState;
+  kind?: AskKind;
+  limit?: number;
+  projectScope?: import("@minsky/domain/project/scope").ProjectScope;
+}
+
+/**
+ * Core `asks.list` filtering logic (mt#2965 R1 — PR #2110), extracted from
+ * the command's `execute` handler so it's directly unit-testable without a
+ * live DB. `resolveId` is injected: production wires the real
+ * `resolveAskIdInput` (uuid / 8-char hex prefix / `ask#N` short id, all
+ * resolved via the SAME generalized resolver `asks.respond`/`edit`/
+ * `wait-for-response` use — mt#2696 / mt#2965); tests can supply a trivial
+ * stand-in since `resolveAskIdInput`'s own resolution correctness is
+ * covered separately (see the `resolveAskIdInput` describe block).
+ *
+ * When `params.id` is supplied, the resolved uuid is applied as an
+ * additional AND-filter on top of any `state`/`kind`/`projectScope`
+ * filters — an id that resolves successfully but whose Ask does not match
+ * the other filters yields an empty result, not an error.
+ */
+export async function listAsksFiltered(
+  repo: AskRepository,
+  resolveId: (id: string) => Promise<string>,
+  params: ListAsksFilters
+): Promise<AsksListResult> {
+  const resolvedId = params.id ? await resolveId(params.id) : undefined;
+  const gathered = await gatherAsks(repo, params.state, params.kind, params.projectScope);
+  const asks = resolvedId ? gathered.filter((a) => a.id === resolvedId) : gathered;
+  const limit = params.limit ?? 50;
+  const returnedAsks = asks.slice(0, limit);
+  return {
+    asks: returnedAsks,
+    total: asks.length,
+    limit,
+    returned: returnedAsks.length,
+    truncated: returnedAsks.length < asks.length,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -968,7 +1031,9 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       id: "asks.list",
       category: CommandCategory.TOOLS,
       name: "list",
-      description: "List Asks with optional state and kind filters",
+      description:
+        "List Asks with optional id, state, and kind filters. `id` accepts a full UUID, " +
+        "an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965).",
       requiresSetup: true,
       parameters: asksListParams,
       execute: async (params): Promise<AsksListResult> => {
@@ -979,9 +1044,6 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
-        const state = params.state as AskState | undefined;
-        const kind = params.kind as AskKind | undefined;
-        const limit = (params.limit as number | undefined) ?? 50;
         const allProjects = params.allProjects as boolean | undefined;
 
         // ADR-021 / mt#2416: resolve project scope so list returns only this
@@ -992,15 +1054,16 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           ? undefined
           : await resolveCurrentProjectScope(container, "asks.list");
 
-        const asks = await gatherAsks(repo, state, kind, projectScope);
-        const returnedAsks = asks.slice(0, limit);
-        return {
-          asks: returnedAsks,
-          total: asks.length,
-          limit,
-          returned: returnedAsks.length,
-          truncated: returnedAsks.length < asks.length,
-        };
+        // mt#2965: id resolution (uuid / 8-char hex prefix / ask#N short id)
+        // is delegated to resolveAskIdInput — the SAME generalized resolver
+        // asks.respond/edit/wait-for-response use — via listAsksFiltered.
+        return listAsksFiltered(repo, (id) => resolveAskIdInput(id, container), {
+          id: params.id as string | undefined,
+          state: params.state as AskState | undefined,
+          kind: params.kind as AskKind | undefined,
+          limit: (params.limit as number | undefined) ?? 50,
+          projectScope,
+        });
       },
     })
   );
@@ -1063,7 +1126,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. " +
         "Pre-suspended (detected/classified/routed) and terminal " +
         "(closed/cancelled/expired) states are rejected with a clear error. " +
-        "`id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
+        "`id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+        "or an `ask#N` short id (mt#2965).",
       // requiresSetup: false — asks.respond depends only on the persistence
       // provider, not on global Minsky configuration. The execute() closure
       // surfaces a clear "AskRepository unavailable" error if persistence
@@ -1261,7 +1325,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "or a cancelled/expired terminal state, or the timeout elapses. " +
         "Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). " +
         "Caller-managed gating: does NOT mutate task status. " +
-        "`id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
+        "`id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+        "or an `ask#N` short id (mt#2965).",
       // requiresSetup: false — depends only on the persistence provider
       // (like asks.respond), not on global Minsky configuration.
       requiresSetup: false,
@@ -1300,7 +1365,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended " +
         "and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. " +
         "Every edit appends an editHistory provenance note (editor + timestamp + touched fields) " +
-        "to metadata. `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
+        "to metadata. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+        "or an `ask#N` short id (mt#2965).",
       // requiresSetup: false — asks.edit depends only on the persistence
       // provider, not on global Minsky configuration (same posture as
       // asks.respond / asks.wait-for-response).
