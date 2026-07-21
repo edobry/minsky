@@ -24,7 +24,14 @@ export function shouldIncludeTaskStatus(
   const desiredStatus = options.status?.trim();
   const includeAll = Boolean(options.all);
 
-  if (desiredStatus) {
+  // "all" is a sentinel meaning "no specific status filter" (both
+  // minskyTaskBackend.ts and githubIssuesTaskBackend.ts's pre-mt#3010
+  // listTasks() implementations special-cased it this way — a bare
+  // desiredStatus === status comparison would instead filter OUT every task,
+  // since none literally has status "all"; caught by reviewer at mt#3010
+  // PR #2171 R1 when githubIssuesTaskBackend.ts was wired onto this shared
+  // predicate for the first time, exposing the gap).
+  if (desiredStatus && desiredStatus !== "all") {
     return status === desiredStatus;
   }
 
