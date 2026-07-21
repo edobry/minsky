@@ -220,3 +220,30 @@ aggregation, streaks, and escalation tiering; operator/agent-facing surfacing vi
   `~/.local/state/`): mt#2872 purged the original 4 fixture rows; the one additional row
   leaked during this task's own pre-fix test run was purged from the main-agent context
   2026-07-16T22:12Z, verified via `debug_systemInfo` (`guardHealth.escalation: "none"`)
+
+## Stale-escalation de-alarming (mt#2969)
+
+`guard-health.ts` records only FAILURES — there is no success event, so a guard that recovers
+cannot reset its own streak. Between a streak's last failure and the 24h age-out
+(`STREAK_RESET_GAP_MS`), the escalation therefore stays `critical` even though the guard may have
+recovered (or simply stopped firing). A ~19h-old stale streak once read as a live incident and
+drove a multi-hour misdiagnosis.
+
+To distinguish stale from live without adding a write on every guard run:
+
+- `computeGuardHealthSummary` (both copies — `.minsky/hooks/guard-health.ts` and
+  `src/mcp/guard-health-tracker.ts`, kept in sync) stamps each `GuardHealthEntry` with
+  `lastFailureAgeMs` (ms since the most recent recorded failure) and `stale` — true when
+  `escalation !== "none"` AND the last failure is older than `STALE_ESCALATION_WINDOW_MS` (1h,
+  shorter than the 24h age-out so it fills the recovered-but-not-yet-aged-out gap; long enough not
+  to flap during a brief pause between a guard's fires). `escalation`/`consecutiveStreak` are left
+  unchanged, so no information is lost.
+- The escalation banner (`guard-health-escalation-detector.ts`) partitions the critical guards into
+  LIVE (a failure within the window → the active "cannot be trusted" framing) and STALE. A
+  stale-only escalation is DE-ALARMED — rendered as "likely recovered/dormant — verify" rather than
+  the active-incident framing — and it still clears entirely once its last failure ages past 24h.
+
+`lastFailureAgeMs` being large means "no failure seen recently," NOT "recovered" (the guard may not
+have fired); the banner's "verify" wording reflects that. A structural clear-on-success would remove
+the ambiguity but requires a write on every guard run (guard-health deliberately logs only failures)
+— deferred as a heavier follow-up.

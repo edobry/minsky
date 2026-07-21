@@ -80,6 +80,15 @@ export const ATTENTION_STREAK_THRESHOLD = 1;
 /** Streak > this threshold (i.e. 3+ consecutive failures) -> "critical". */
 export const CRITICAL_STREAK_THRESHOLD = 2;
 
+/**
+ * Freshness window (ms) after a guard's most recent failure beyond which its
+ * escalation is flagged `stale`. MUST stay in sync with
+ * .minsky/hooks/guard-health.ts (mt#2969): guard-health records only failures,
+ * so a recovered guard cannot reset its own streak before the 24h age-out — a
+ * quiet-but-not-yet-aged-out streak otherwise reads as an active incident.
+ */
+export const STALE_ESCALATION_WINDOW_MS = 60 * 60 * 1000;
+
 export type GuardEscalation = "none" | "attention" | "critical";
 
 export interface GuardHealthEntry {
@@ -88,6 +97,15 @@ export interface GuardHealthEntry {
   consecutiveStreak: number;
   lastEvent: GuardHealthEvent | null;
   escalation: GuardEscalation;
+  /** ms since the most recent recorded failure (null if none). Optional: always set by
+   * computeGuardHealthSummary, omittable by hand-built entries. mt#2969. */
+  lastFailureAgeMs?: number | null;
+  /**
+   * True when `escalation` is non-"none" but the most recent failure is older
+   * than STALE_ESCALATION_WINDOW_MS — likely recovered/dormant, not active.
+   * Optional (always set by computeGuardHealthSummary). mt#2969.
+   */
+  stale?: boolean;
 }
 
 export interface GuardHealthSummary {
@@ -160,12 +178,22 @@ export function computeGuardHealthSummary(
 
     const escalation = guardEscalationFor(streak);
 
+    // mt#2969: stale-escalation flag — see .minsky/hooks/guard-health.ts's
+    // matching computation (kept in sync manually) for the full rationale.
+    const lastFailureAgeMs = lastEvent ? nowMs - new Date(lastEvent.timestamp).getTime() : null;
+    const stale =
+      escalation !== "none" &&
+      lastFailureAgeMs !== null &&
+      lastFailureAgeMs > STALE_ESCALATION_WINDOW_MS;
+
     byGuard[guardName] = {
       failureCount24h,
       failureCount7d,
       consecutiveStreak: streak,
       lastEvent,
       escalation,
+      lastFailureAgeMs,
+      stale,
     };
 
     if (escalation === "critical") criticalGuards.push(guardName);
