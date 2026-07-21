@@ -469,6 +469,23 @@ export function createTasksDispatchRecoverCommand(
       // (`/orchestrate`'s "Dispatch watchdog and resume protocol" section,
       // `.minsky/hooks/inject-dispatch-watchdog.ts`) is unexecutable — the
       // guard denies it outright (mt#2947's originating incident).
+      //
+      // `workspacePath` is passed explicitly as `sessionDir` (PR #2119 R1
+      // BLOCKING #1): on the "standalone" harness path, `generateSubagentPrompt`
+      // reads `.claude/agents/<type>.md` / `.claude/skills/<name>/SKILL.md`
+      // from `workspacePath`, which defaults to the CALLING PROCESS's
+      // `process.cwd()` when omitted. This command runs server-side inside
+      // the MCP server process — its cwd has no necessary relationship to
+      // the SESSION workspace the resumed agent will actually operate in
+      // (`sessionDir`, resolved above). Omitting `workspacePath` would read
+      // skill/agent definitions from wherever the server happens to be
+      // running, not from the session branch's own checkout — a correctness
+      // risk (stale/divergent skill content) this recovery path should not
+      // carry, even though the sibling `session.generate_prompt` command
+      // (`prompt-command.ts`) currently has the same omission on its own
+      // callsite (a pre-existing gap out of scope for this fix, since that
+      // command is invoked BY the same session's own agent, not server-side
+      // on its behalf).
       const { generateSubagentPrompt, PROMPT_TYPE_TO_AGENT_TYPE } = await import(
         "@minsky/domain/session/prompt-generation"
       );
@@ -481,6 +498,7 @@ export function createTasksDispatchRecoverCommand(
         taskId,
         type: promptTypeForRecovery(latest.agentType, agentTypeToPromptType),
         instructions: recoveryInstructions,
+        workspacePath: sessionDir,
       }).prompt;
 
       // Close out the ORIGINAL row: it has now been classified as died/stalled. The

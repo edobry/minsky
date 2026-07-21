@@ -37,6 +37,7 @@ import type {
 import { DISPATCH_RECOVERY_STALE_MS } from "@minsky/domain/session/dispatch-recovery-classifier";
 import {
   PROMPT_TYPE_TO_AGENT_TYPE,
+  PROMPT_WATERMARK,
   type PromptType,
 } from "@minsky/domain/session/prompt-generation";
 
@@ -315,7 +316,11 @@ describe("tasks.dispatch-recover", () => {
 
     expect(result.status).toBe("recover");
     const prompt = result.continuationPrompt as string;
-    expect(prompt).toContain("<!-- minsky:prompt:v1 -->");
+    // Assert against the ACTUAL constant `generateSubagentPrompt` emits (rather than a
+    // hand-duplicated literal) so this test can't silently drift from the real marker if
+    // it's ever renamed — and against the exact predicate the dispatch guard's
+    // `hasWatermark()` (`.minsky/hooks/check-prompt-watermark.ts`) uses: `includes()`.
+    expect(prompt.includes(PROMPT_WATERMARK)).toBe(true);
     // The recovery-specific narrative is still present, embedded as the
     // generated prompt's instructions body — this proves the wrap is
     // additive (header + envelope + watermark), not a replacement of the
