@@ -111,6 +111,53 @@ export async function notifyCredentialInvalidated(provider: string, reason: stri
 }
 
 /**
+ * Test-only persistence-provider factory override (mt#2978). Same seam
+ * convention as the cockpit SSE-broker's `__setSseBrokerProviderFactoryForTests`
+ * (`src/cockpit/routes/events.ts`) — a module-level override, not
+ * `mock.module()` (banned; `eslint-rules/no-global-module-mocks.js` — it
+ * persists across bun:test files and would poison other suites). Null means
+ * "use the real `PersistenceService` init path" (production default).
+ *
+ * Without this seam, every `notifyCredentialInvalidated()` call pays for a
+ * real, uncached `PersistenceService` construction + `initialize()` even in
+ * tests that never touch Postgres — the root cause tracked by mt#2978
+ * (filed from mt#2933's test-suite timing investigation).
+ */
+let _persistenceProviderFactoryOverride: (() => Promise<unknown>) | null = null;
+
+/** Throw when a test-only seam is called outside bun:test. */
+function assertTestEnv(seam: string): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(`${seam} is test-only (NODE_ENV=${process.env.NODE_ENV ?? "unset"})`);
+  }
+}
+
+/**
+ * Test-only: override the persistence-provider factory used by
+ * `emitPgNotify()`'s best-effort `pg_notify` path. Pass `null` to restore the
+ * real `PersistenceService` init path. Never call outside tests.
+ *
+ * The factory's return value is treated exactly like `PersistenceService`'s
+ * `getProvider()` result — return `null` (or any object lacking
+ * `getRawSqlConnection`) to make `emitPgNotify` no-op without ever
+ * constructing a real `PersistenceService`.
+ */
+export function __setCredentialInvalidationPersistenceProviderForTests(
+  factory: (() => Promise<unknown>) | null
+): void {
+  assertTestEnv("__setCredentialInvalidationPersistenceProviderForTests");
+  _persistenceProviderFactoryOverride = factory;
+}
+
+/** Real production path: construct + initialize a `PersistenceService`. */
+async function getRealPersistenceProvider(): Promise<unknown> {
+  const { PersistenceService } = await import("../persistence/service");
+  const svc = new PersistenceService();
+  await svc.initialize();
+  return svc.getProvider();
+}
+
+/**
  * Emit `pg_notify('minsky.credential.invalidated', payload)` if a Postgres
  * SQL connection is available. Best-effort — failures (no DB, no
  * pg_notify support, network) are logged-and-swallowed.
@@ -121,11 +168,12 @@ export async function notifyCredentialInvalidated(provider: string, reason: stri
  */
 async function emitPgNotify(provider: string, observedAt: string, reason: string): Promise<void> {
   try {
-    const { PersistenceService } = await import("../persistence/service");
-    const svc = new PersistenceService();
-    await svc.initialize();
-    const persistence = svc.getProvider();
+    const persistence = _persistenceProviderFactoryOverride
+      ? await _persistenceProviderFactoryOverride()
+      : await getRealPersistenceProvider();
     if (
+      persistence === null ||
+      typeof persistence !== "object" ||
       !("getRawSqlConnection" in persistence) ||
       typeof (persistence as { getRawSqlConnection?: unknown }).getRawSqlConnection !== "function"
     ) {
