@@ -132,7 +132,7 @@ export interface CompileRulesResult {
   success: boolean;
   /**
    * The target id this result is for (mt#2803). Populated on every return
-   * path: a single target id (`"agents.md"`, `"claude.md"`, `"cursor-rules"`)
+   * path: a single target id (`"agents.md"`, `"claude.md"`, `"claude-rules"`)
    * for explicit-`--target` and single-probed-target invocations, or a
    * comma-joined list of ids for the multi-target aggregate (see `targets`).
    */

@@ -1,22 +1,27 @@
 /**
- * Cursor Rules TS Compile Target
+ * Cursor Rules Compile Target (unified — mt#2995)
  *
- * Reads .minsky/rules/<name>/rule.ts TypeScript definition modules,
- * validates them via ruleDefinitionSchema, and emits
- * .cursor/rules/<name>.mdc with YAML frontmatter + content body.
+ * The SINGLE writer of `.cursor/rules/<name>.mdc`. Reads rule sources under
+ * `.minsky/rules/` in EITHER form via the shared reader (`../rule-sources`):
+ *   - a flat `<name>.mdc` markdown file, OR
+ *   - a `<name>/rule.ts` TypeScript definition module.
+ * Validates each via `ruleDefinitionSchema` and emits `.cursor/rules/<name>.mdc`
+ * with YAML frontmatter + content body.
  *
- * This target coexists with the legacy cursor-rules target in
- * src/domain/rules/compile/targets/cursor-rules.ts which reads flat
- * .minsky/rules/*.mdc files. Both may write to .cursor/rules/ but to
- * different files (legacy: from .mdc sources; this: from .ts sources).
+ * Phase 3 of the compile-pipeline convergence (mt#2293 / ADR-016): this target
+ * replaces the legacy `cursor-rules` writer (`packages/domain/src/rules/compile/
+ * targets/cursor-rules.ts`), which is unregistered as of this change. To keep the
+ * 54 flat-rule outputs byte-identical across the switchover, `buildRuleMdc`
+ * reproduces the legacy `serializeRuleToMdc` serialization exactly (same
+ * `jsYaml.dump` options, same key order, same banner-as-line-2, same tail).
  */
 
 import { join } from "path";
 import realFs from "fs/promises";
-import matter from "gray-matter";
+import * as jsYaml from "js-yaml";
 import { ruleDefinitionSchema } from "../../definitions/schemas";
 import type { RuleDefinition } from "../../definitions/types";
-import { discoverRuleSources } from "../rule-sources";
+import { discoverRuleSources, extractRuleDefinitionFromMdc } from "../rule-sources";
 import { log } from "../../utils/logger";
 import type {
   MinskyCompileTarget,
@@ -24,8 +29,7 @@ import type {
   MinskyTargetOptions,
   MinskyCompileFsDeps,
 } from "../types";
-// Single-source-of-truth banner constant; the same import is used by the
-// legacy writer (`src/domain/rules/compile/targets/cursor-rules.ts`) and by
+// Single-source-of-truth banner constant; the same import is used by
 // `.claude/hooks/check-generated-file-edit.ts`'s detection patterns.
 import { GENERATED_BANNER } from "../../rules/compile/banner-constants";
 
@@ -37,9 +41,9 @@ const realDynamicImport: DynamicImportFn = (path: string) => import(path);
 /**
  * Injectable skip-warning sink — overridden in tests. Production default logs
  * via the shared logger; a skipped rule (broken import, invalid definition,
- * name mismatch, or an ambiguous `both` source) is NOT swallowed silently
- * (mt#2182). Injected rather than spying on `log` to sidestep cross-package
- * module-identity issues with the singleton logger.
+ * name mismatch, unparseable/invalid `.mdc`, or an ambiguous `both` source) is
+ * NOT swallowed silently (mt#2182). Injected rather than spying on `log` to
+ * sidestep cross-package module-identity issues with the singleton logger.
  */
 export type SkipLogFn = (message: string) => void;
 
@@ -59,54 +63,38 @@ function ruleOutputPath(workspacePath: string, ruleName: string): string {
 }
 
 /**
- * Build <name>.mdc content from a validated RuleDefinition.
+ * Build `<name>.mdc` content from a validated RuleDefinition.
  *
- * Emits YAML frontmatter (description, globs, alwaysApply, tags, name if
- * present) followed by the content body. Uses gray-matter's matter.stringify
- * for consistency with the other TS targets. Output canonicalization matches
- * what the legacy cursor-rules target produces. A generated-file banner
- * (mt#1798) is injected as a YAML comment immediately after the opening
- * `---` delimiter so the file remains a valid Cursor `.mdc` while the
- * `check-generated-file-edit` hook can detect it as a compiled output.
+ * **Byte-parity contract (mt#2995):** this reproduces the legacy
+ * `serializeRuleToMdc` output exactly so the 54 flat-rule `.cursor/rules/`
+ * outputs do not change when the writer switches over — same `jsYaml.dump`
+ * options, same frontmatter key order (name → description → globs → alwaysApply
+ * → tags), the generated-file banner (mt#1798) as line 2, and the content body
+ * appended directly after the closing `---\n`. `globs` and `tags` are emitted
+ * as-is (not normalized) to match the legacy serializer. The
+ * `cursor-rules-ts.parity` test asserts equality against `serializeRuleToMdc`.
  */
 export function buildRuleMdc(rule: RuleDefinition): string {
-  const frontmatterData: Record<string, unknown> = {};
+  const frontmatter: Record<string, unknown> = {};
 
-  if (rule.description) {
-    frontmatterData["description"] = rule.description;
-  }
+  if (rule.name) frontmatter["name"] = rule.name;
+  if (rule.description) frontmatter["description"] = rule.description;
+  if (rule.globs) frontmatter["globs"] = rule.globs;
+  if (rule.alwaysApply !== undefined) frontmatter["alwaysApply"] = rule.alwaysApply;
+  if (rule.tags) frontmatter["tags"] = rule.tags;
 
-  if (rule.globs !== undefined) {
-    // Normalize to array for block-style YAML output (matching legacy target).
-    frontmatterData["globs"] = Array.isArray(rule.globs) ? rule.globs : [rule.globs];
-  }
+  const yamlStr = jsYaml.dump(frontmatter, {
+    lineWidth: -1,
+    noCompatMode: true,
+    quotingType: '"',
+    forceQuotes: false,
+  });
 
-  if (rule.alwaysApply !== undefined) {
-    frontmatterData["alwaysApply"] = rule.alwaysApply;
-  }
-
-  if (rule.tags !== undefined && rule.tags.length > 0) {
-    frontmatterData["tags"] = rule.tags;
-  }
-
-  if (rule.name !== undefined) {
-    frontmatterData["name"] = rule.name;
-  }
-
-  // Ensure a blank line between frontmatter closing delimiter and content body.
-  // gray-matter.stringify places content immediately after "---\n" unless the
-  // content starts with "\n". This matches the format of existing .mdc files.
-  const body = rule.content.startsWith("\n") ? rule.content : `\n${rule.content}`;
-  const raw = matter.stringify(body, frontmatterData);
-  // Inject the generated-file banner as the first frontmatter line. The
-  // opener is `---\n` (or `---\r\n` on a hypothetical CRLF-emitting build of
-  // gray-matter); the regex is tolerant of both. The injected newline matches
-  // the original opener's line-ending so the file stays internally consistent.
-  return raw.replace(/^---(\r?\n)/, `---$1${GENERATED_BANNER}$1`);
+  return `---\n${GENERATED_BANNER}\n${yamlStr}---\n${rule.content}`;
 }
 
 /**
- * Load and validate a rule definition from an imported module.
+ * Load and validate a rule definition from an imported TS module.
  * Accepts both `export default defineRule(...)` and named `export { rule }`.
  */
 function extractRuleDefinition(
@@ -143,11 +131,10 @@ function makeCursorRulesTsTarget(
 ): MinskyCompileTarget {
   return {
     id: "cursor-rules-ts",
-    displayName: "Cursor Rules TS (.cursor/rules/)",
-    // .cursor/rules/ contains outputs from BOTH the legacy cursor-rules target
-    // (which reads .minsky/rules/*.mdc) and this target (which reads
-    // .minsky/rules/<name>/rule.ts). Skip orphan detection so --check doesn't
-    // falsely flag legacy-produced .mdc files as stale.
+    displayName: "Cursor Rules (.cursor/rules/)",
+    // `.cursor/rules/` may also contain hand-authored `.mdc` files that have no
+    // `.minsky/rules/` source; skip orphan detection so `--check` does not flag
+    // those as stale. (Every source-backed rule IS emitted by this target.)
     sharedOutputDirectory: true,
 
     defaultOutputPath(workspacePath: string): string {
@@ -161,11 +148,11 @@ function makeCursorRulesTsTarget(
     ): Promise<string[]> {
       const fs = fsDeps ?? (realFs as MinskyCompileFsDeps);
       const sources = await discoverRuleSources(workspacePath, fs);
-      // Phase 2 (mt#2994): cursor-rules-ts still emits ONLY TS-sourced rules.
-      // Flat `.mdc` rules are discovered via the shared reader, but their
-      // emission — and byte-parity with the legacy writer — is Phase 3 (mt#2995).
+      // Every non-ambiguous source (TS or flat `.mdc`) produces one output file,
+      // named for the discovered source name. Ambiguous `both` sources are
+      // skipped (see compile()) and never produce an output.
       return sources
-        .filter((s) => s.kind === "ts")
+        .filter((s) => s.kind !== "both")
         .map((s) => ruleOutputPath(workspacePath, s.name));
     },
 
@@ -183,20 +170,24 @@ function makeCursorRulesTsTarget(
       const contentsByPath = new Map<string, string>();
       const dryRunParts: string[] = [];
 
-      for (const source of sources) {
-        // Phase 2 (mt#2994): this target emits ONLY TS-sourced rules. Flat
-        // `.mdc` rules are discovered via the shared reader, but their emission
-        // is Phase 3 (mt#2995) — an `mdc` source is not this target's output yet.
-        if (source.kind === "mdc") {
-          continue;
+      const emit = async (name: string, rule: RuleDefinition): Promise<void> => {
+        const outputPath = ruleOutputPath(workspacePath, name);
+        const content = buildRuleMdc(rule);
+        if (options.dryRun) {
+          contentsByPath.set(outputPath, content);
+          dryRunParts.push(`// ${outputPath}\n${content}`);
+        } else {
+          await fs.mkdir(ruleOutputDir(workspacePath), { recursive: true });
+          await fs.writeFile(outputPath, content, "utf-8");
         }
+        filesWritten.push(outputPath);
+        definitionsIncluded.push(name);
+      };
+
+      for (const source of sources) {
         // Ambiguous `both` source (a `<name>/rule.ts` AND a flat `<name>.mdc`
         // for the same name): skip + warn rather than silently preferring one
-        // format (the mt#2279-consistent policy). NOTE: this is the ONE semantic
-        // change vs. the pre-mt#2994 target, which was blind to flat `.mdc`
-        // files and would have emitted the TS side. No such collision exists
-        // today (0 `rule.ts` sources), so the change is latent until a rule is
-        // authored in both formats.
+        // format (the mt#2279-consistent policy).
         if (source.kind === "both") {
           onSkip(
             `[compile:cursor-rules-ts] skipping "${source.name}": both ${source.tsPath} and ${source.mdcPath} exist — ambiguous canonical source; keep exactly one format`
@@ -205,6 +196,32 @@ function makeCursorRulesTsTarget(
           continue;
         }
 
+        if (source.kind === "mdc") {
+          let raw: string;
+          try {
+            raw = await fs.readFile(source.path, "utf-8");
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            onSkip(
+              `[compile:cursor-rules-ts] skipping "${source.name}": failed to read ${source.path}: ${reason}`
+            );
+            definitionsSkipped.push(source.name);
+            continue;
+          }
+          const extracted = extractRuleDefinitionFromMdc(raw, source.path);
+          if ("error" in extracted) {
+            onSkip(`[compile:cursor-rules-ts] skipping "${source.name}": ${extracted.error}`);
+            definitionsSkipped.push(source.name);
+            continue;
+          }
+          // The output filename is the discovered source name (the `.mdc`
+          // basename), NOT the optional frontmatter `name` — matching the legacy
+          // writer, which keyed `.cursor/rules/<id>.mdc` off the source id.
+          await emit(source.name, extracted.rule);
+          continue;
+        }
+
+        // source.kind === "ts"
         const { name: dirName, path: sourcePath } = source;
 
         let mod: unknown;
@@ -228,12 +245,10 @@ function makeCursorRulesTsTarget(
         }
 
         const { rule } = extracted;
-        // Enforce dirName === rule.name. Without this invariant, compile output
-        // would live at `.cursor/rules/<rule.name>.mdc` but `listOutputFiles`
-        // (which only sees dirNames) would expect `.cursor/rules/<dirName>.mdc`,
-        // causing `--check` to always flag the target as stale. Keeping them in
-        // lockstep is simpler than making listOutputFiles load every definition
-        // just to discover the real name.
+        // For a TS source, enforce dirName === rule.name so the output path
+        // (`<name>.mdc`) that `listOutputFiles` predicts from the dir name and
+        // the one `compile` writes stay in lockstep — otherwise `--check` would
+        // always flag the target stale.
         if (rule.name === undefined || dirName !== rule.name) {
           onSkip(
             `[compile:cursor-rules-ts] skipping "${dirName}": rule name ${
@@ -244,19 +259,7 @@ function makeCursorRulesTsTarget(
           continue;
         }
 
-        const outputPath = ruleOutputPath(workspacePath, rule.name);
-        const content = buildRuleMdc(rule);
-
-        if (options.dryRun) {
-          contentsByPath.set(outputPath, content);
-          dryRunParts.push(`// ${outputPath}\n${content}`);
-        } else {
-          await fs.mkdir(ruleOutputDir(workspacePath), { recursive: true });
-          await fs.writeFile(outputPath, content, "utf-8");
-        }
-
-        filesWritten.push(outputPath);
-        definitionsIncluded.push(rule.name);
+        await emit(dirName, rule);
       }
 
       return {

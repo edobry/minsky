@@ -202,4 +202,11 @@ describe("runMinskyCompile — bare-invocation default-target resolution (mt#280
       runMinskyCompile({ workspacePath: WS, target: "not-a-real-target", fsDeps: fs })
     ).rejects.toThrow('Unknown compile target: "not-a-real-target"');
   });
+
+  it('throws a migration hint for the retired "cursor-rules" target (mt#2995)', async () => {
+    const { fs } = makeFakeFs();
+    await expect(
+      runMinskyCompile({ workspacePath: WS, target: "cursor-rules", fsDeps: fs })
+    ).rejects.toThrow(/cursor-rules-ts/);
+  });
 });

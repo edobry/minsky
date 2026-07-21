@@ -18,6 +18,7 @@ import { claudeSkillsTarget } from "./targets/claude-skills";
 import { claudeAgentsTarget } from "./targets/claude-agents";
 import { cursorRulesTsTarget } from "./targets/cursor-rules-ts";
 import { claudeHooksTarget } from "./targets/claude-hooks";
+import { unknownCompileTargetMessage } from "../rules/compile/target-error-hint";
 
 export interface MinskyCompileOptions extends MinskyTargetOptions {
   workspacePath: string;
@@ -72,9 +73,7 @@ export class MinskyCompileService {
   ): Promise<MinskyCompileServiceResult> {
     const target = this.targets.get(targetId);
     if (!target) {
-      throw new Error(
-        `Unknown compile target: "${targetId}". Available targets: ${this.getAvailableTargets().join(", ")}`
-      );
+      throw new Error(unknownCompileTargetMessage(targetId, this.getAvailableTargets()));
     }
 
     const fs = fsDeps ?? (realFs as MinskyCompileFsDeps);
