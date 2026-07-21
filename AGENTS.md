@@ -1224,9 +1224,9 @@ follow-up task. Fail: open on unresolvable repo/PR or `gh` failure. Siblings: `/
 ## Deploy-Verification Merge Gate + Post-Merge Reminder
 
 PreToolUse on `session_pr_merge`: blocks a deploy-surface PR (`infra/**`, `services/*/Dockerfile`,
-`services/*/railway.json`, `services/*/deploy.config.ts`, `.github/workflows/deploy-*.yml`)
+`services/*/railway.json`, `.github/workflows/deploy-*.yml`)
 lacking a `Deploy verification:` commitment; paired PostToolUse injects a
-`deployment_wait-for-latest` reminder. Hooks: `deploy-surface-detector.ts` +
+`deployment_wait-for-latest` reminder (+tray `src-tauri/**` local-app surface, mt#2976). Hooks: `deploy-surface-detector.ts` +
 `require-deploy-verification-before-merge.ts` + `deploy-verification-after-merge.ts`. Escapes:
 `[no-deploy-impact]` title; a `Deploy verification:` section; `MINSKY_SKIP_DEPLOY_VERIFY=1`.
 Marker forms (mt#2648, shared by all `session_pr_merge` gates): label+colon, or any-level heading
