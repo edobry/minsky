@@ -15,7 +15,6 @@ import {
   uuid,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
 import type { SessionRecord } from "../../session/session-db";
 import { projectsTable } from "./projects-schema";
 import type { WorkspaceId } from "../../ids";
@@ -73,20 +72,28 @@ export const postgresSessions = pgTable(
      * (nullable-not-backfilled-here, concurrency contract).
      *
      * The unique index on this column (`idx_sessions_short_id_unique`,
-     * declared below in the index-builder callback) is PARTIAL — `WHERE
-     * short_id IS NOT NULL` — declared NATIVELY via drizzle-orm's
-     * `IndexBuilder.where()` (mirrors memory's `idx_memories_short_id_unique`,
-     * `memory-embeddings.ts`, PR #2134 R2) rather than the shared
-     * `shortIdUniqueIndex()` foundation helper (`short-id-column.ts`, which
-     * produces a NON-partial index — ask's `idx_asks_short_id_unique`,
-     * mt#2965, still uses that shared helper and stays non-partial).
+     * declared below in the index-builder callback) is a PLAIN (non-partial)
+     * unique index — matching ask's `idx_asks_short_id_unique` (mt#2965,
+     * migration 0065) and the shared `shortIdUniqueIndex()` foundation
+     * helper (`short-id-column.ts`). It was briefly declared PARTIAL (`WHERE
+     * short_id IS NOT NULL`, PR #2134 R2) on the theory that a partial index
+     * documents NULL semantics more explicitly; this broke in production
+     * (mt#3005, 2026-07-21): Postgres only lets `ON CONFLICT` infer a
+     * partial index when the conflict target's own `WHERE` clause matches,
+     * and the insert code (`DrizzleSessionRepository.addSession`) uses a
+     * bare `.onConflictDoNothing({ target: postgresSessions.shortId })` with
+     * no predicate — so every session insert failed with "no unique or
+     * exclusion constraint matching the ON CONFLICT specification." A plain
+     * unique index has identical NULL semantics for this use case (Postgres
+     * NULLS DISTINCT already lets unlimited NULL `short_id` rows coexist),
+     * so the partial predicate bought nothing and broke conflict inference.
+     * See mt#3005 for the incident; migration 0068 drops and recreates this
+     * index as plain.
      */
     shortId: shortIdColumn(),
   },
   (table) => ({
-    shortIdUnique: uniqueIndex("idx_sessions_short_id_unique")
-      .on(table.shortId)
-      .where(sql`${table.shortId} IS NOT NULL`),
+    shortIdUnique: uniqueIndex("idx_sessions_short_id_unique").on(table.shortId),
   })
 );
 

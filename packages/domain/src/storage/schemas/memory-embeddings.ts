@@ -22,7 +22,6 @@ import {
   uuid,
   jsonb,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
 import { createEmbeddingsTable } from "./embeddings-schema-factory";
 import { MEMORY_TYPE_VALUES } from "../../memory/types";
 import { shortIdColumn } from "./short-id-column";
@@ -51,25 +50,23 @@ export const memoriesTable = pgTable(
      * (nullable-not-backfilled-here, concurrency contract).
      *
      * The unique index on this column (`idx_memories_short_id_unique`,
-     * declared below in the index-builder callback) is PARTIAL — `WHERE
-     * short_id IS NOT NULL` — for explicit NULL semantics + planner clarity
-     * (PR #2134 R2). Postgres unique indexes already treat NULLs as
-     * distinct from each other, so an all-NULL `short_id` column during the
-     * pre-backfill window is safe either way; the WHERE clause just makes
-     * that intent explicit and keeps the index small (entries only for
-     * backfilled/minted rows).
-     *
-     * Declared directly via `uniqueIndex(...).on(...).where(sql\`...\`)`
-     * (drizzle-orm's `IndexBuilder.where()`, confirmed supported by this
-     * project's drizzle-orm version — see `pr-watch-schema.ts`'s
-     * `idx_pr_watches_parent_session` for an existing partial-index
-     * precedent) rather than the shared `shortIdUniqueIndex()` foundation
-     * helper (`short-id-column.ts`), which produces a NON-partial index.
-     * Ask's `idx_asks_short_id_unique` (mt#2965, migration 0065) still uses
-     * that shared helper and stays non-partial — changing the SHARED helper
-     * to partial would make drizzle-kit want to re-migrate ask's
-     * already-merged index too. Aligning ask (and session, mt#2967) to
-     * partial via the shared helper is a cheap follow-up.
+     * declared below in the index-builder callback) is a PLAIN (non-partial)
+     * unique index — matching ask's `idx_asks_short_id_unique` (mt#2965,
+     * migration 0065) and the shared `shortIdUniqueIndex()` foundation
+     * helper (`short-id-column.ts`). It was briefly declared PARTIAL (`WHERE
+     * short_id IS NOT NULL`, PR #2134 R2) on the theory that this documents
+     * NULL semantics more explicitly and keeps the index small; this broke
+     * in production (mt#3005, 2026-07-21): Postgres only lets `ON CONFLICT`
+     * infer a partial index when the conflict target's own `WHERE` clause
+     * matches, and the insert code (`memory/memory-service.ts`'s `create`)
+     * uses a bare `.onConflictDoNothing({ target: memoriesTable.shortId })`
+     * with no predicate — so every memory insert failed with "no unique or
+     * exclusion constraint matching the ON CONFLICT specification." A plain
+     * unique index has identical NULL semantics for this use case (Postgres
+     * NULLS DISTINCT already lets unlimited NULL `short_id` rows coexist),
+     * so the partial predicate bought nothing and broke conflict inference.
+     * See mt#3005 for the incident; migration 0068 drops and recreates this
+     * index as plain.
      */
     shortId: shortIdColumn(),
 
@@ -100,13 +97,11 @@ export const memoriesTable = pgTable(
     index("idx_memories_superseded_by").on(table.supersededBy),
     // GIN index for JSONB containment queries (@>) on associations
     index("idx_memories_associations").using("gin", table.associations),
-    // Partial unique index on the mem#N short id (mt#2966/mt#2963, ADR-029,
-    // PR #2134 R2) — WHERE short_id IS NOT NULL. See the `shortId` field's
-    // doc comment above for the full rationale (partial vs. ask's
-    // non-partial shared-helper index, and why).
-    uniqueIndex("idx_memories_short_id_unique")
-      .on(table.shortId)
-      .where(sql`${table.shortId} IS NOT NULL`),
+    // Plain (non-partial) unique index on the mem#N short id
+    // (mt#2966/mt#2963, ADR-029; fixed to plain in mt#3005). See the
+    // `shortId` field's doc comment above for the full rationale (why the
+    // earlier partial form broke ON CONFLICT inference in production).
+    uniqueIndex("idx_memories_short_id_unique").on(table.shortId),
   ]
 );
 
