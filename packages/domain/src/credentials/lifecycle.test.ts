@@ -25,7 +25,10 @@ import { join } from "path";
 import { parse as parseYaml } from "yaml";
 
 import { addCredential, listCredentials, recheckCredential, removeCredential } from "./lifecycle";
-import { listInvalidations } from "./invalidations";
+import {
+  listInvalidations,
+  __setCredentialInvalidationPersistenceProviderForTests,
+} from "./invalidations";
 
 let tempHome: string;
 let originalHome: string | undefined;
@@ -79,9 +82,15 @@ beforeEach(async () => {
   process.env["HOME"] = tempHome;
   process.env["XDG_CONFIG_HOME"] = join(tempHome, ".config");
   originalFetch = globalThis.fetch;
+  // mt#2978: recheckCredential/addCredential can call notifyCredentialInvalidated
+  // on a 401, whose best-effort emitPgNotify() path would otherwise construct
+  // + initialize a real PersistenceService on every call. Return null so
+  // emitPgNotify no-ops without ever touching the real persistence layer.
+  __setCredentialInvalidationPersistenceProviderForTests(async () => null);
 });
 
 afterEach(async () => {
+  __setCredentialInvalidationPersistenceProviderForTests(null);
   globalThis.fetch = originalFetch;
   if (originalHome === undefined) {
     delete process.env["HOME"];
