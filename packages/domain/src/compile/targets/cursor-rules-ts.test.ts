@@ -9,6 +9,8 @@ import { makeCursorRulesTsTarget, buildRuleMdc } from "./cursor-rules-ts";
 import type { MinskyCompileFsDeps } from "../types";
 import type { RuleDefinition } from "../../definitions/types";
 import { GENERATED_BANNER, GENERATION_BANNER_PATTERNS } from "../../rules/compile/banner-constants";
+import { serializeRuleToMdc } from "../../rules/compile/targets/cursor-rules";
+import type { Rule } from "../../rules/types";
 
 // ─── Fake fs ─────────────────────────────────────────────────────────────────
 
@@ -131,9 +133,9 @@ describe("buildRuleMdc", () => {
     expect(mdc).not.toContain("tags:");
   });
 
-  it("omits tags when array is empty", () => {
+  it("includes tags: [] when array is empty (byte-parity: not normalized away, matches legacy)", () => {
     const mdc = buildRuleMdc({ ...sampleRule, tags: [] });
-    expect(mdc).not.toContain("tags:");
+    expect(mdc).toContain("tags: []");
   });
 
   it("includes globs as array when provided as string", () => {
@@ -227,6 +229,67 @@ describe("buildRuleMdc", () => {
   });
 });
 
+// ─── byte-parity with the legacy serializeRuleToMdc (mt#2995) ─────────────────
+//
+// The unified writer must reproduce the legacy `.cursor/rules/*.mdc` output
+// byte-for-byte (Success Criterion "no content loss vs current"). Rather than
+// re-deriving the legacy jsYaml options independently, these tests assert
+// equality directly against `serializeRuleToMdc` (the legacy target's own
+// serializer) for representative inputs spanning the fields that differ
+// across rules in the corpus (name present/absent, globs, alwaysApply,
+// tags, empty tags).
+
+/** Build a legacy `Rule` from a RuleDefinition-shaped input for serializeRuleToMdc. */
+function toLegacyRule(def: Partial<RuleDefinition> & { content: string }): Rule {
+  return {
+    id: def.name ?? "unnamed",
+    name: def.name,
+    description: def.description,
+    globs: def.globs as string[] | undefined,
+    alwaysApply: def.alwaysApply,
+    tags: def.tags,
+    content: def.content,
+    format: "cursor",
+    path: `/unused/${def.name ?? "unnamed"}.mdc`,
+  };
+}
+
+describe("buildRuleMdc byte-parity with legacy serializeRuleToMdc", () => {
+  it("matches legacy output for a full rule (name, description, globs, alwaysApply, tags)", () => {
+    const def = sampleRule;
+    expect(buildRuleMdc(def)).toBe(serializeRuleToMdc(toLegacyRule(def)));
+  });
+
+  it("matches legacy output when name is absent (21/54 corpus rules have no name:)", () => {
+    const { name: _name, ...withoutName } = sampleRule;
+    const def = withoutName as RuleDefinition;
+    expect(buildRuleMdc(def)).toBe(serializeRuleToMdc(toLegacyRule(def)));
+  });
+
+  it("matches legacy output when alwaysApply is absent (no default line emitted)", () => {
+    const { alwaysApply: _alwaysApply, ...withoutAlwaysApply } = sampleRule;
+    const def = withoutAlwaysApply as RuleDefinition;
+    expect(buildRuleMdc(def)).toBe(serializeRuleToMdc(toLegacyRule(def)));
+  });
+
+  it("matches legacy output when tags is an empty array (not normalized away)", () => {
+    const def = { ...sampleRule, tags: [] };
+    expect(buildRuleMdc(def)).toBe(serializeRuleToMdc(toLegacyRule(def)));
+  });
+
+  it("matches legacy output with complex globs/tags/alwaysApply combinations", () => {
+    const def = {
+      name: "complex-rule",
+      description: `A description that contains : a colon and "quotes"`,
+      globs: ["**/*.ts", "**/*.tsx", "src/**/*.{js,jsx}"],
+      alwaysApply: true,
+      tags: ["a-tag-with-dashes", "another_tag", "tag with spaces"],
+      content: "Body content",
+    } as RuleDefinition;
+    expect(buildRuleMdc(def)).toBe(serializeRuleToMdc(toLegacyRule(def)));
+  });
+});
+
 // ─── listOutputFiles ──────────────────────────────────────────────────────────
 
 describe("cursorRulesTsTarget.listOutputFiles", () => {
@@ -258,18 +321,18 @@ describe("cursorRulesTsTarget.listOutputFiles", () => {
     expect(files[0]).toMatch(/\.cursor\/rules\/my-rule\.mdc$/);
   });
 
-  it("skips .mdc files in the rules source directory (legacy coexistence)", async () => {
+  it("discovers both a TS-sourced rule and a flat-.mdc-sourced rule (mt#2995)", async () => {
     const target = makeCursorRulesTsTarget();
-    // Simulate a legacy .mdc file alongside a subdir rule.ts
+    // A subdir rule.ts and a flat .mdc for a DIFFERENT name both produce output.
     const fakeFs = makeFakeFs({
       [`${WORKSPACE}/.minsky/rules/my-rule/rule.ts`]: "// sentinel",
-      [`${WORKSPACE}/.minsky/rules/legacy.mdc`]: "---\ndescription: legacy\n---\ncontent\n",
+      [`${WORKSPACE}/.minsky/rules/flat-rule.mdc`]: "---\ndescription: flat\n---\ncontent\n",
     });
 
     const files = await target.listOutputFiles({}, WORKSPACE, fakeFs);
-    // Only the subdir rule.ts is discovered; legacy.mdc is skipped
-    expect(files).toHaveLength(1);
-    expect(files[0]).toMatch(/my-rule\.mdc$/);
+    expect(files).toHaveLength(2);
+    expect(files.some((f) => /my-rule\.mdc$/.test(f))).toBe(true);
+    expect(files.some((f) => /flat-rule\.mdc$/.test(f))).toBe(true);
   });
 });
 
@@ -404,6 +467,32 @@ describe("cursorRulesTsTarget.compile (normal)", () => {
     expect(result.definitionsIncluded).toHaveLength(2);
     expect(result.filesWritten).toHaveLength(2);
     expect(result.definitionsSkipped).toEqual([]);
+  });
+
+  it("emits a flat-.mdc-sourced rule through compile() (mt#2995 — no longer skipped)", async () => {
+    const written: Record<string, string> = {};
+    const fakeFs: MinskyCompileFsDeps = {
+      ...makeFakeFs({
+        [`${WORKSPACE}/.minsky/rules/flat-rule.mdc`]:
+          "---\ndescription: A flat rule.\nalwaysApply: true\n---\nFlat rule body content.\n",
+      }),
+      async writeFile(path: string, data: string): Promise<void> {
+        written[path] = data;
+      },
+    };
+    const target = makeCursorRulesTsTarget();
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.definitionsIncluded).toEqual(["flat-rule"]);
+    expect(result.definitionsSkipped).toEqual([]);
+    expect(result.filesWritten).toHaveLength(1);
+
+    const outPath = result.filesWritten[0];
+    if (outPath === undefined) throw new Error("expected filesWritten[0] to be defined");
+    expect(outPath).toMatch(/\.cursor\/rules\/flat-rule\.mdc$/);
+    expect(written[outPath]).toContain("Flat rule body content.");
+    expect(written[outPath]).toContain("description: A flat rule.");
   });
 
   it("skips + warns an ambiguous 'both' source (flat .mdc + rule.ts for the same name)", async () => {

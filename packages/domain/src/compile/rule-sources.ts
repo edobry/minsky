@@ -138,20 +138,21 @@ export async function discoverRuleSources(
  * `tags`, and an optional `name`); the markdown body is the rule content. Maps
  * frontmatter → `RuleDefinition` and validates via `ruleDefinitionSchema` — the
  * SAME schema the TypeScript (`rule.ts`) path uses — so both formats produce
- * identical, validated output. `name` falls back to the file-derived `ruleName`
- * when frontmatter omits it (legacy rules key off the filename).
+ * identical, validated output.
+ *
+ * `name` is taken ONLY from the frontmatter (left undefined when absent) — the
+ * rule's identity/output-filename comes from the discovered source name
+ * (`RuleSource.name`), NOT from a `name` field. This mirrors the legacy writer,
+ * which emits a `name:` line only when the source frontmatter carried one (21 of
+ * 54 current rules have no `name:`); defaulting it here would add a spurious
+ * `name:` line to those files and break `.cursor/rules/` byte-parity.
  *
  * Returns `{ error }` (never throws) on unparseable frontmatter or a
- * schema-invalid definition, so callers skip+warn rather than crash. One current
- * rule (`verification-checklist.mdc`) has no `description` and fails the schema —
- * that is the intended skip-with-warning path, and a tracked convergence gap
- * (the rule needs a `description`, or the schema must relax it) surfaced by this
- * reader rather than swallowed.
+ * schema-invalid definition, so callers skip+warn rather than crash.
  */
 export function extractRuleDefinitionFromMdc(
   raw: string,
-  sourcePath: string,
-  ruleName: string
+  sourcePath: string
 ): { rule: RuleDefinition } | { error: string } {
   let fm: Record<string, unknown>;
   let body: string;
@@ -165,9 +166,13 @@ export function extractRuleDefinitionFromMdc(
   }
 
   // Map frontmatter → RuleDefinition. Omit undefined keys so schema defaults
-  // (alwaysApply=false) apply rather than being overridden with undefined.
-  const candidate: Record<string, unknown> = { content: body };
-  candidate["name"] = fm["name"] !== undefined ? fm["name"] : ruleName;
+  // apply predictably; then reconcile to the legacy RuleService parse (below).
+  // `content` is trimmed to match `RuleService` (`content: ruleContent.trim()`),
+  // which is what the legacy `.cursor/rules/` output was serialized from —
+  // keeping the unified writer byte-identical. (The trimmed trailing newline is
+  // the mt#1288/mt#1620 behavior, fixed separately on this unified writer.)
+  const candidate: Record<string, unknown> = { content: body.trim() };
+  if (fm["name"] !== undefined) candidate["name"] = fm["name"];
   if (fm["description"] !== undefined) candidate["description"] = fm["description"];
   if (fm["globs"] !== undefined) candidate["globs"] = fm["globs"];
   if (fm["alwaysApply"] !== undefined) candidate["alwaysApply"] = fm["alwaysApply"];
@@ -177,5 +182,15 @@ export function extractRuleDefinitionFromMdc(
   if (!parsed.success) {
     return { error: `Invalid rule markdown source at ${sourcePath}: ${parsed.error.message}` };
   }
-  return { rule: parsed.data as RuleDefinition };
+  const rule = parsed.data as RuleDefinition;
+  // `ruleDefinitionSchema` defaults `alwaysApply` to `false`, but the legacy
+  // `RuleService` leaves it undefined when the source omits it (`alwaysApply:
+  // data.alwaysApply`), so the legacy writer emitted no `alwaysApply:` line for
+  // those rules. Strip the default when the source had none, preserving source
+  // fidelity and byte-parity. (undefined and false are equivalent to every
+  // consumer — both mean "not always-applied".)
+  if (fm["alwaysApply"] === undefined) {
+    delete (rule as { alwaysApply?: boolean }).alwaysApply;
+  }
+  return { rule };
 }

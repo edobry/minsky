@@ -1875,8 +1875,12 @@ export class PreCommitHook {
    * Only checks targets that the project has already opted into:
    * - agents.md: if AGENTS.md exists and starts with the generation header
    * - claude.md: if CLAUDE.md exists and starts with the generation header
-   * - cursor-rules: if .cursor/rules/ directory exists with .mdc files
    * - claude-rules: if .claude/rules/ directory exists with .md files (mt#2868)
+   *
+   * `.cursor/rules/` staleness is NOT checked here — the legacy `cursor-rules`
+   * target was retired (mt#2995); it is covered by the new-system compile
+   * pipeline's own staleness check (`compile --check --target cursor-rules-ts`,
+   * see runCompileCheck below).
    */
   private async runRulesCompileCheck(): Promise<HookResult> {
     log.cli("📋 Checking rules compile outputs are up-to-date...");
@@ -1908,17 +1912,6 @@ export class PreCommitHook {
       }
     } catch {
       // File doesn't exist or isn't readable — skip
-    }
-
-    // Check cursor-rules (if .cursor/rules/ has any .mdc files)
-    try {
-      const fsp = await import("fs/promises");
-      const entries = await fsp.readdir(`${this.projectRoot}/.cursor/rules`);
-      if (entries.some((e) => e.endsWith(".mdc"))) {
-        targetsToCheck.push("cursor-rules");
-      }
-    } catch {
-      // Directory doesn't exist — skip
     }
 
     // Check claude-rules (mt#2868; only when .claude/rules/ holds a GENERATED
@@ -1961,9 +1954,11 @@ export class PreCommitHook {
       try {
         // mt#1829: `target` is from the locally-built `targetsToCheck` array
         // which contains only the hardcoded values "claude.md", "agents.md",
-        // and "cursor-rules" (set earlier in this function from
-        // existsSync/readdir checks). Bounded enum, no shell metacharacters
-        // possible — no safeShellQuote needed.
+        // and "claude-rules" (set earlier in this function from existsSync/
+        // readdir checks; the legacy "cursor-rules" target was retired in
+        // mt#2995 — `.cursor/rules/` staleness is now covered by the new-system
+        // `compile --check --target cursor-rules-ts`). Bounded enum, no shell
+        // metacharacters possible — no safeShellQuote needed.
         await execAsync(`bun run src/cli.ts rules compile --check --target ${target}`, {
           cwd: this.projectRoot,
           timeout: 30000,
