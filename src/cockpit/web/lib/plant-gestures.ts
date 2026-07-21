@@ -85,6 +85,14 @@ function statusGesture(newStatus: string): GestureSet {
     // COMPLETED is a legacy value from pre-mt#2311 event payloads; render like
     // DONE. Safe to remove once the events feed no longer contains pre-2026-07
     // task events.
+    //
+    // Budget (CLAUDE.md §Work Completion > Temporary mechanism budget): tracking
+    // task mt#3031 (mt#2310 RFC Phase 2 — retiring the orphaned COMPLETED value
+    // from the Postgres enum) owns confirming this case is dead and removing it.
+    // Escalate if mt#3031 is still open 30 days after this note lands, or if a
+    // real (non-test) COMPLETED payload is observed hitting this case in that
+    // window — either signal means the "legacy events age out" assumption has
+    // failed.
     case "DONE":
     case "COMPLETED":
       return {
