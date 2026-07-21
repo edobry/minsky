@@ -30,7 +30,7 @@ export interface ToolHookInput extends ClaudeHookInput {
  * the standalone-duplicate probe both exclude these statuses from their
  * respective candidate pools before thresholding).
  */
-export const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(["DONE", "CLOSED", "COMPLETED"]);
+export const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(["DONE", "CLOSED"]);
 
 export interface StopHookInput extends ClaudeHookInput {
   reason?: string;

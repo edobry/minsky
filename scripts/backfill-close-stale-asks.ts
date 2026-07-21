@@ -8,7 +8,7 @@
  * before that wiring, or into unscoped project state — remains `suspended`. Most
  * of it is UNSCOPED (`projectId = null`) and points at `mt#` tasks in the one
  * minsky task backend. This script closes the asks whose triggering task has
- * since reached a terminal state (DONE / CLOSED / COMPLETED), via the mt#2593
+ * since reached a terminal state (DONE / CLOSED), via the mt#2593
  * `closeAskAsResolved` primitive.
  *
  * Usage:
@@ -44,7 +44,7 @@ const TARGET_KINDS = new Set<string>(["authorization.approve", "quality.review"]
 /** Non-terminal states a stale ask may occupy (terminal states are already done). */
 const OPEN_STATES: AskState[] = ["suspended", "routed"];
 /** Task statuses that mean the ask's triggering event has resolved. */
-const TERMINAL_TASK_STATUSES = new Set<string>(["DONE", "CLOSED", "COMPLETED"]);
+const TERMINAL_TASK_STATUSES = new Set<string>(["DONE", "CLOSED"]);
 /** Responder recorded on asks this backfill closes (audit trail). */
 const RESPONDER = "system:backfill-parent-terminal";
 
