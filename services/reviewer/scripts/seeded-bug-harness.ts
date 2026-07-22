@@ -66,7 +66,7 @@ function getEnv(): {
  * with the known flaw. `injectedLine` is the 1-based line number of the
  * principal defect (the line the reviewer should cite ±5).
  */
-interface BugPattern {
+export interface BugPattern {
   readonly name: string;
   readonly description: string;
   readonly code: string;
@@ -78,8 +78,13 @@ interface BugPattern {
  * Fixed catalog of bug patterns. Deterministic — pattern 0 is always
  * off-by-one, 1 is null-deref, 2 is unhandled-promise. The harness cycles
  * through them in order so successive runs exercise all three.
+ *
+ * Exported (additive, mt#2726 Milestone A): `mine-ground-truth-corpus.ts`
+ * reuses this catalog as the injected-bug slice's unambiguous-location
+ * ground truth — the bug locations here are known exactly, unlike the
+ * noisy-by-construction git-diff-mined labels.
  */
-const BUG_CATALOG: ReadonlyArray<BugPattern> = [
+export const BUG_CATALOG: ReadonlyArray<BugPattern> = [
   {
     name: "off-by-one",
     description: "Off-by-one error in array bounds check",
