@@ -399,6 +399,23 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
    * reaching here, but this is the last line of defense for the restart
    * mechanism itself, and it's what the meta-watchdog's restart call also
    * goes through).
+   *
+   * mt#3060: MUST fire an immediate tick (mirroring the boot sequence's
+   * `void runTick(); startInterval();`), not just re-arm the timer. Without
+   * this, a restart only schedules the NEXT natural tick `intervalMs` in the
+   * future — and for every real sweep, `intervalMs` (minutes) is far larger
+   * than the meta-watchdog's own scan cadence (`DEFAULT_META_WATCHDOG_INTERVAL_MS`,
+   * 60s). Since a re-armed-but-not-yet-fired interval never advances
+   * `entry.lastAttemptAtMs`, the NEXT watchdog scan (60s later) still sees a
+   * stale sweep and force-restarts AGAIN — clearing the freshly-armed
+   * interval before its own cadence ever elapses. That produces an infinite
+   * "restart storm": force-restarting is logged every scan, `staleMs` never
+   * resets, and no domain tick ever actually runs — exactly the runtime-log
+   * signature from the 2026-07-22 incident (mt#3051/mt#3060). Firing the
+   * tick here breaks the storm: `entry.lastAttemptAtMs` is stamped at the
+   * TOP of `runTick`, before any guard, so even a single successful restart
+   * resets staleness immediately, regardless of how long the DOMAIN tick
+   * itself takes to complete.
    */
   const restartInterval = (reason: SweepRestartReason): void => {
     if (stopped) return;
@@ -412,6 +429,10 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
       entry.reinits++;
     }
     startInterval();
+    // mt#3060: see the doc comment above — a restart that doesn't ALSO fire
+    // an immediate tick can never outrun a watchdog scanning faster than
+    // this sweep's own cadence.
+    void runTick();
   };
   entry.restart = restartInterval;
 
