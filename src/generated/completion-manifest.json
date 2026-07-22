@@ -7481,6 +7481,16 @@
         {
           "flags": ["--check"],
           "description": "Check whether output files are up-to-date. Exits non-zero when stale."
+        },
+        {
+          "flags": ["--warn-chars"],
+          "description": "Override the target's default WARN size-budget threshold (chars). mt#2992 — only claude.md and agents.md enforce a size budget; other targets ignore this.",
+          "takesValue": true
+        },
+        {
+          "flags": ["--fail-chars"],
+          "description": "Override the target's default FAIL size-budget threshold (chars, --check mode hard-fails on it). mt#2992 — only claude.md and agents.md enforce a size budget; other targets ignore this.",
+          "takesValue": true
         }
       ]
     },

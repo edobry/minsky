@@ -3,12 +3,36 @@
  *
  * Exposes `minsky compile [options]` as a top-level command.
  * Delegates to the domain operation via runMinskyCompile.
+ *
+ * **mt#2992 note on duplicate registration.** `compile` is ALSO registered in
+ * the shared command registry (`src/adapters/shared/commands/compile/
+ * compile-commands.ts`), which serves the MCP tool surface; that
+ * registration is hidden from CLI auto-generation (see
+ * `src/adapters/cli/customizations/compile-customizations.ts`) specifically
+ * so this direct Commander.js command is the one that actually runs for
+ * `bun run src/cli.ts compile ...`. The two implementations are independent
+ * — this file was NOT in mt#2992's originally scoped file list, but is a
+ * necessary consumer for that task's own CLI-level acceptance criteria
+ * (`compile --target claude.md --check` hard-failing on a size-budget/
+ * per-rule-ceiling violation only works if THIS file emits the check). The
+ * `warnChars`/`failChars` params were added to `compile-commands.ts`'s param
+ * map per the spec; this file's `--warn-chars`/`--fail-chars` options thread
+ * into the SAME `runMinskyCompile()` domain call, and both files share the
+ * SAME `reportMonolithicSizeBudget()` reporter (`packages/domain/src/
+ * compile/size-budget-report.ts`) so the exact marker strings
+ * `classifyCompileCheckError` string-matches are emitted from one place,
+ * not duplicated a third time.
  */
 
 import { Command } from "commander";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import { runMinskyCompile } from "@minsky/domain/compile/compile";
+import type { MemoryLoadingMode } from "@minsky/domain/configuration/schemas/memory";
+import {
+  hasSizeBudgetFields,
+  reportMonolithicSizeBudget,
+} from "@minsky/domain/compile/size-budget-report";
 
 export function createCompileCommand(): Command {
   const compile = new Command("compile")
@@ -27,21 +51,56 @@ export function createCompileCommand(): Command {
       "Check whether output files are up-to-date. Exits non-zero when stale.",
       false
     )
+    .option(
+      "--warn-chars <n>",
+      "Override the target's default WARN size-budget threshold (chars). mt#2992 — only " +
+        "claude.md and agents.md enforce a size budget; other targets ignore this."
+    )
+    .option(
+      "--fail-chars <n>",
+      "Override the target's default FAIL size-budget threshold (chars, --check mode hard-fails " +
+        "on it). mt#2992 — only claude.md and agents.md enforce a size budget; other targets ignore this."
+    )
     .action(async (opts) => {
       try {
+        // Read memory.loadingMode from config; fall back gracefully if
+        // config unavailable (mt#2992 — only the claude.md target reads
+        // this).
+        let memoryLoadingMode: MemoryLoadingMode | undefined;
+        try {
+          const { getConfigurationProvider } = await import("@minsky/domain/configuration/index");
+          const config = getConfigurationProvider().getConfig();
+          memoryLoadingMode = config.memory?.loadingMode;
+        } catch {
+          // Config not yet initialized or unavailable — target default (on_demand) applies.
+        }
+
+        const warnChars = opts.warnChars !== undefined ? Number(opts.warnChars) : undefined;
+        const failChars = opts.failChars !== undefined ? Number(opts.failChars) : undefined;
+        const sizeBudgetOverride: { warnChars?: number; failChars?: number } = {};
+        if (warnChars !== undefined) sizeBudgetOverride.warnChars = warnChars;
+        if (failChars !== undefined) sizeBudgetOverride.failChars = failChars;
+        const sizeBudget =
+          Object.keys(sizeBudgetOverride).length > 0 ? sizeBudgetOverride : undefined;
+
         const result = await runMinskyCompile({
           target: opts.target as string | undefined,
           output: opts.output as string | undefined,
           dryRun: opts.dryRun as boolean,
           check: opts.check as boolean,
+          sizeBudget,
+          memoryLoadingMode,
         });
 
         // mt#2803: bare invocation compiled multiple targets — render one
         // line (+ dry-run content, if requested) per target so a partial
         // regen is visible, and aggregate --check failures across ALL
-        // probed targets rather than stopping at the first.
+        // probed targets rather than stopping at the first. mt#2992 adds
+        // size-budget reporting per target, using the same "fix staleness
+        // first" precedence classifyCompileCheckError encodes.
         if (result.targets && result.targets.length > 0) {
           let anyStale = false;
+          let anyBudgetFailure = false;
           for (const targetResult of result.targets) {
             log.cli(
               `[compile] Target "${targetResult.target}": ` +
@@ -56,16 +115,25 @@ export function createCompileCommand(): Command {
               log.cli(`  Stale file: ${staleFile}`);
               log.cli(`  Run "minsky compile --target ${targetResult.target}" to regenerate.`);
               anyStale = true;
+              continue;
+            }
+            if (hasSizeBudgetFields(targetResult)) {
+              const failure = reportMonolithicSizeBudget(
+                targetResult.target,
+                targetResult,
+                log.cli
+              );
+              if (failure) anyBudgetFailure = true;
             }
           }
-          if (anyStale) {
+          if (anyStale || anyBudgetFailure) {
             process.exit(1);
           }
           return;
         }
 
         // Single-target path (explicit --target, or a bare invocation that
-        // probed to exactly one applicable target) — unchanged behavior.
+        // probed to exactly one applicable target).
         if (result.check && result.stale) {
           const target = (opts.target as string | undefined) ?? result.target ?? "claude-skills";
           const staleFile = result.staleFile ?? "(unknown file)";
@@ -73,6 +141,14 @@ export function createCompileCommand(): Command {
           log.cli(`  Stale file: ${staleFile}`);
           log.cli(`  Run "minsky compile --target ${target}" to regenerate.`);
           process.exit(1);
+        }
+
+        if (hasSizeBudgetFields(result)) {
+          const target = (opts.target as string | undefined) ?? result.target ?? "claude-skills";
+          const failure = reportMonolithicSizeBudget(target, result, log.cli);
+          if (failure) {
+            process.exit(1);
+          }
         }
 
         if (opts.dryRun && result.content) {
