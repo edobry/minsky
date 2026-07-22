@@ -15,6 +15,11 @@ import {
 } from "../../command-registry";
 import { log } from "@minsky/shared/logger";
 import { runMinskyCompile } from "@minsky/domain/compile/compile";
+import {
+  hasSizeBudgetFields,
+  reportMonolithicSizeBudget,
+} from "@minsky/domain/compile/size-budget-report";
+import { resolveMemoryLoadingMode, buildSizeBudgetOverride } from "./cli-options";
 
 const compileCommandParams = {
   target: {
@@ -43,6 +48,20 @@ const compileCommandParams = {
     required: false,
     defaultValue: false,
   },
+  warnChars: {
+    schema: z.number().int().positive().optional(),
+    description:
+      "Override the target's default WARN size-budget threshold (chars). mt#2992 — only " +
+      "claude.md and agents.md enforce a size budget; other targets ignore this.",
+    required: false,
+  },
+  failChars: {
+    schema: z.number().int().positive().optional(),
+    description:
+      "Override the target's default FAIL size-budget threshold (chars, --check mode hard-fails " +
+      "on it). mt#2992 — only claude.md and agents.md enforce a size budget; other targets ignore this.",
+    required: false,
+  },
 } satisfies CommandParameterMap;
 
 export function registerCompileCommands(targetRegistry: {
@@ -57,19 +76,37 @@ export function registerCompileCommands(targetRegistry: {
     execute: async (params, _ctx?: CommandExecutionContext) => {
       log.debug("Executing compile command", { params });
       try {
+        // mt#2992 review R1 (non-blocking 1): both compile entry points share
+        // this config-read + override-construction logic via cli-options.ts
+        // so they can't drift. params.warnChars/params.failChars are already
+        // validated numbers here (the zod schema above is enforced at the
+        // parameter-parsing boundary — schema-bridge.ts's
+        // parseOptionsToParameters / the MCP tool-call validator) — no
+        // additional parsing needed on this surface, unlike the raw-Commander
+        // direct-CLI entry point (src/commands/compile/index.ts).
+        const memoryLoadingMode = await resolveMemoryLoadingMode();
+        const sizeBudget = buildSizeBudgetOverride(params.warnChars, params.failChars);
+
         const result = await runMinskyCompile({
           target: params.target,
           output: params.output,
           dryRun: params.dryRun,
           check: params.check,
+          sizeBudget,
+          memoryLoadingMode,
         });
 
         // mt#2803: bare invocation compiled multiple targets — render one
         // line per target so a partial regen is visible, and aggregate
         // --check failures across ALL probed targets rather than stopping
-        // at the first.
+        // at the first. mt#2992 adds size-budget reporting per target,
+        // using the SAME "fix staleness first" precedence
+        // classifyCompileCheckError encodes: a stale target's budget is not
+        // evaluated (its dry-run content may not reflect what a regenerate
+        // would produce).
         if (result.targets && result.targets.length > 0) {
           const staleTargets: string[] = [];
+          const budgetFailures: string[] = [];
           for (const targetResult of result.targets) {
             log.cli(
               `[compile] Target "${targetResult.target}": ` +
@@ -81,6 +118,15 @@ export function registerCompileCommands(targetRegistry: {
               log.cli(`  Stale file: ${staleFile}`);
               log.cli(`  Run "minsky compile --target ${targetResult.target}" to regenerate.`);
               staleTargets.push(targetResult.target);
+              continue;
+            }
+            if (hasSizeBudgetFields(targetResult)) {
+              const failure = reportMonolithicSizeBudget(
+                targetResult.target,
+                targetResult,
+                log.cli
+              );
+              if (failure) budgetFailures.push(failure);
             }
           }
           if (staleTargets.length > 0) {
@@ -88,11 +134,16 @@ export function registerCompileCommands(targetRegistry: {
               `compile --check: ${staleTargets.length} target(s) stale: ${staleTargets.join(", ")}`
             );
           }
+          if (budgetFailures.length > 0) {
+            throw new Error(
+              `compile --check: ${budgetFailures.length} target(s) failed: ${budgetFailures.join("; ")}`
+            );
+          }
           return result;
         }
 
         // Single-target path (explicit --target, or a bare invocation that
-        // probed to exactly one applicable target) — unchanged behavior.
+        // probed to exactly one applicable target).
         if (result.check && result.stale) {
           const target = params.target ?? result.target ?? "claude-skills";
           const staleFile = result.staleFile ?? "(unknown file)";
@@ -100,6 +151,14 @@ export function registerCompileCommands(targetRegistry: {
           log.cli(`  Stale file: ${staleFile}`);
           log.cli(`  Run "minsky compile --target ${target}" to regenerate.`);
           throw new Error(`compile --check: target "${target}" is stale (${staleFile})`);
+        }
+
+        if (hasSizeBudgetFields(result)) {
+          const target = params.target ?? result.target ?? "claude-skills";
+          const failure = reportMonolithicSizeBudget(target, result, log.cli);
+          if (failure) {
+            throw new Error(`compile --check: ${failure}`);
+          }
         }
 
         return result;
