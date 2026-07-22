@@ -182,11 +182,51 @@ export class SubagentDispatchTracker {
   private static _instance: SubagentDispatchTracker | null = null;
 
   /**
+   * Whether `_instance` is backed by a REAL DB via `setInstance` (mt#3044).
+   * `false` covers both "never attempted" and "attempted and failed" —
+   * `getInstance()` doesn't need a finer-grained distinction to decide
+   * whether a retry is worth triggering; either way the singleton is still
+   * on the no-op null-DB tracker and a retry can only help.
+   */
+  private static _wired = false;
+
+  /**
+   * Callback registered once by the MCP server's startup path
+   * (`start-command.ts`'s call site, after the DI container is available)
+   * that (re)attempts wiring the singleton to a real DB. `getInstance()`
+   * invokes this — fire-and-forget — whenever the singleton hasn't been
+   * successfully wired yet (mt#3044).
+   *
+   * The callback itself (`wireSubagentDispatchTrackerWithRetry` in
+   * start-command.ts) is promise-memoized and bounded by a timeout, so
+   * repeated invocations from repeated `getInstance()` calls collapse into
+   * the SAME in-flight attempt rather than piling up duplicate DB-connection
+   * attempts — mirrors the pattern mt#3017 added to registry-setup.ts's
+   * `getTracker()` for the sibling (closure-cached) tracker path.
+   */
+  private static _wireAttempt: (() => Promise<boolean>) | null = null;
+
+  /**
    * Return the process-lifetime singleton.
    *
    * If no instance has been set via `setInstance`, returns a no-op tracker
    * whose DB always returns empty result sets. This matches the
    * `DisconnectTracker.getInstance` contract — callers never receive null.
+   *
+   * mt#3044: the ORIGINAL one-shot startup wiring (`buildSubagentDispatchTracker`
+   * in start-command.ts) ran exactly once, fire-and-forget, at MCP server
+   * startup. If that single attempt failed or hadn't completed yet — e.g. a
+   * transient Postgres hiccup right after a deploy-triggered restart, while
+   * the connection pool is still warming up (the exact scenario mt#2945
+   * fixed for the sibling closure-cached tracker) — the singleton stayed on
+   * the no-op null-DB tracker for the REST OF THE PROCESS'S LIFE, with no
+   * retry mechanism at all. Whenever the singleton isn't wired yet, this
+   * method now triggers the registered retry callback (see
+   * `registerWireAttempt`) in the background: `getInstance()` stays
+   * synchronous (many callers — `debug.systemInfo`, `session.generate_prompt`
+   * — depend on that), so the retry updates `_instance`/`_wired` for a LATER
+   * `getInstance()` call to observe, exactly mirroring `getTracker()`'s
+   * "next external call retries" contract.
    */
   static getInstance(): SubagentDispatchTracker {
     if (!SubagentDispatchTracker._instance) {
@@ -195,6 +235,12 @@ export class SubagentDispatchTracker {
       // hasn't been called yet. The fail-safe methods in getCadence/
       // getEscalation catch any DB errors and return safe defaults.
       SubagentDispatchTracker._instance = new SubagentDispatchTracker(createNullDatabase());
+    }
+    if (!SubagentDispatchTracker._wired && SubagentDispatchTracker._wireAttempt) {
+      // Fire-and-forget. The registered callback never rejects (every
+      // branch of `wireSubagentDispatchTrackerWithRetry` resolves to a
+      // boolean); this catch is defense-in-depth only.
+      void SubagentDispatchTracker._wireAttempt().catch(() => {});
     }
     return SubagentDispatchTracker._instance;
   }
@@ -206,7 +252,27 @@ export class SubagentDispatchTracker {
    */
   static setInstance(db: PostgresJsDatabase, eventEmitter?: EventEmitter): SubagentDispatchTracker {
     SubagentDispatchTracker._instance = new SubagentDispatchTracker(db, eventEmitter);
+    SubagentDispatchTracker._wired = true;
     return SubagentDispatchTracker._instance;
+  }
+
+  /**
+   * Whether the singleton has been successfully wired to a real DB via
+   * `setInstance` (mt#3044). See `_wired`'s docstring for why this is a
+   * single boolean rather than a three-state enum.
+   */
+  static isWired(): boolean {
+    return SubagentDispatchTracker._wired;
+  }
+
+  /**
+   * Register the callback `getInstance()` invokes to (re)attempt wiring the
+   * singleton whenever it isn't wired yet (mt#3044). Called once by the MCP
+   * server's startup path. Pass `null` to clear the registration — tests use
+   * this (via `resetUnwiredForTest`) to isolate from any prior registration.
+   */
+  static registerWireAttempt(fn: (() => Promise<boolean>) | null): void {
+    SubagentDispatchTracker._wireAttempt = fn;
   }
 
   /**
@@ -215,7 +281,22 @@ export class SubagentDispatchTracker {
    */
   static resetForTest(db: PostgresJsDatabase): SubagentDispatchTracker {
     SubagentDispatchTracker._instance = new SubagentDispatchTracker(db);
+    SubagentDispatchTracker._wired = true;
+    SubagentDispatchTracker._wireAttempt = null;
     return SubagentDispatchTracker._instance;
+  }
+
+  /**
+   * Reset ALL static state to the pristine "never attempted" boot state —
+   * for tests only (mt#3044). Unlike `resetForTest`, this does NOT wire a
+   * real tracker: it reproduces process state right after startup, before
+   * `buildSubagentDispatchTracker`'s first attempt has run, so tests can
+   * exercise the `getInstance()`-triggered retry path from a clean slate.
+   */
+  static resetUnwiredForTest(): void {
+    SubagentDispatchTracker._instance = null;
+    SubagentDispatchTracker._wired = false;
+    SubagentDispatchTracker._wireAttempt = null;
   }
 
   constructor(
