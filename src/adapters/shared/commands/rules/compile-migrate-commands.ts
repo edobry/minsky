@@ -14,7 +14,7 @@ import { compileRules, migrateRules } from "@minsky/domain/rules/rules-command-o
 import type { CompileRulesResult } from "@minsky/domain/rules/rules-command-operations";
 import { rulesCompileCommandParams, rulesMigrateCommandParams } from "./rules-parameters";
 import type { MemoryLoadingMode } from "@minsky/domain/configuration/schemas/memory";
-import { formatTopContributors } from "@minsky/domain/rules/compile/size-budget";
+import { formatTopContributors } from "@minsky/domain/compile/size-budget";
 
 /**
  * Log per-target compile diagnostics (size report, staleness, and mt#2802
