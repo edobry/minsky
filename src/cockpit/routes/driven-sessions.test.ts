@@ -159,6 +159,37 @@ describe("POST /api/driven-session — body validation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Model selection (mt#3040)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/driven-session — model selection (mt#3040)", () => {
+  test("threads a valid model into the spawn argv as --model <alias>", async () => {
+    const h = await makeHarness({ scratchCwd: "/repo/checkout" });
+    const res = await post(h.url, { model: "fable" });
+    expect(res.status).toBe(201);
+    const args = first(h.calls).args;
+    const i = args.indexOf("--model");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(args[i + 1]).toBe("fable");
+  });
+
+  test("omits --model when no model is provided", async () => {
+    const h = await makeHarness({ scratchCwd: "/repo/checkout" });
+    const res = await post(h.url, {});
+    expect(res.status).toBe(201);
+    expect(first(h.calls).args).not.toContain("--model");
+  });
+
+  test("rejects an unknown model id with 400 and does not spawn", async () => {
+    const h = await makeHarness({ scratchCwd: "/repo/checkout" });
+    const res = await post(h.url, { model: "gpt-4o" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("model");
+    expect(h.calls.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Scratch launch (mt#2752 SC3)
 // ---------------------------------------------------------------------------
 
