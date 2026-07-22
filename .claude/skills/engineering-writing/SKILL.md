@@ -28,6 +28,8 @@ Guide for writing long-form engineering prose that reads like a person wrote it,
 
 Skip for: task specs, rule files, code comments, short internal-only docs (a few paragraphs don't warrant this apparatus).
 
+**If the artifact's function is to get a decision from the principal** (an RFC or ADR opened in order to approve, reject, or redirect), this skill governs the body but NOT the opening — see §Decision artifacts lead with the decision below before applying the stakes-first pattern.
+
 ## Structure serves content, not the other way around
 
 This is the most common way essays go wrong: the writer picks up a structure that worked for some other essay — often a sibling piece in the same corpus — and applies it section by section to different content. The content doesn't fit. Sections get forced. Claims get invented to fill slots. The resulting essay is structurally correct and rhetorically hollow.
@@ -79,6 +81,16 @@ Inventory of moves engineering essays draw on. A given essay uses some subset, i
 - Don't put the position in section 1 either, for a counter-intuitive thesis. Readers dismiss it without context.
 - Section 3 (right after stakes) is the sweet spot for persuasive thesis placement.
 - Very skimmable-first readers who want the thesis upfront can see the hint in the exordium and skip to the position if they want.
+
+### Decision artifacts lead with the decision
+
+Everything above governs prose whose job is to **persuade a reader who is free to walk away**. It does not govern an artifact whose job is to **get a decision from someone with the authority to make it**. When an RFC or ADR is the surface a principal opens _in order to decide_, they are not being brought along — they are approving, rejecting, or redirecting on scarce attention, and burying the call behind stakes forces them to do the compression themselves.
+
+For those artifacts a decision-grade summary sits ABOVE the structure on this page: the call in one bolded directive sentence, three to five one-line consequences, and an explicit "accepting this = agreeing with the call." The stakes-first body then follows unchanged, for the reader who wants the reasoning.
+
+The two compose rather than conflict. Stakes-first governs where the _argument_ begins; the summary block governs where the _decision_ is legible. A reader who wants persuading reads past the block into the body exactly as prescribed above.
+
+**This reconciliation is load-bearing.** Without it the two sets of instructions contradict, and this page wins silently because it is the more specific writing advice — which is exactly what happened on 2026-07-21 and again on 2026-07-22, when RFCs serving as decision surfaces were published stakes-first and the principal bounced both ("way too long... not decisionable"). The required block shapes live in `/draft-rfc` step 7 and `/draft-adr` step 5.
 
 ### Handling forward references in the position section
 

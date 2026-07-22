@@ -1556,6 +1556,23 @@ This exists because agent silence is self-assessed — unlike a dark cockpit's i
 silence — so the executive register cannot rely purely on the agent's own judgment that nothing
 warrants reporting.
 
+## Decision artifacts lead with the decision (surface-general)
+
+The Tier-1 contract above governs chat. The same discipline governs **every principal-facing
+deliverable whose function is to obtain a decision** — an RFC, an ADR, a position paper, a PR body
+or cockpit digest used as a decision surface: **it opens with a decision-grade block** (the call in
+one bolded directive sentence, 3–5 one-line consequences, an explicit "accepting this = agreeing
+with the call"), with all reasoning beneath. A principal opening an artifact *to decide* is not
+being persuaded; making them compress a long argument themselves is the same defect as a
+multi-screen chat report, relocated.
+
+Stated surface-generally on purpose: this family recurred four times in 14 days (2026-07-08 chat
+reports, 07-15 planning-gate output, 07-21 and 07-22 RFCs), each time on a surface whose own fix
+did not exist yet, because the norm had only ever been written per-surface. A new surface is
+covered by this clause the first time, not the second. Enforcement lives in the authoring skills
+(`/draft-rfc` step 7, `/draft-adr` step 5, `engineering-writing §Decision artifacts lead with the
+decision` — which otherwise silently overrides this rule, being the more specific writing advice).
+
 ## Judgment calls are load-bearing (RFC Position 3)
 
 **Summaries carry judgment calls, not receipts** — contestable decisions the agent made on the

@@ -123,6 +123,23 @@ Required call shape:
   - `content`: the revised body in Notion-flavored Markdown, starting with `**Status:** Draft (<date>)` on the first line
   - `icon` (optional): distinctive emoji (`🔭` observability, `🧠` memory, `🪢` mesh, `📐` architecture)
 
+**Required — the executive-summary block.** The `content` opens with the `**Status:**` line and then, BEFORE the hook and stakes narrative, an executive summary. An RFC is a _decision surface_: the principal opens it to make a call, not to read an argument. Without this block the decision sits pages deep and the principal has to do the compression themselves.
+
+```markdown
+## Executive summary (the decision in 60 seconds)
+
+**The call: <the one decision that is genuinely the principal's, stated as a directive>.**
+
+- <what changes>
+- <what it costs / how long>
+- <the main risk, and whether it is accepted or mitigated>
+- <what it unlocks that is otherwise impossible>
+
+Accepting this RFC = agreeing with the bolded call. Everything below is the reasoning.
+```
+
+Three to five bullets, one line each, no nested detail — if a bullet needs a sub-clause, that clause belongs in the body. The stakes-first structure from `engineering-writing` governs everything BELOW this block; the two compose (see that skill's §Decision artifacts lead with the decision).
+
 For updates to an existing RFC (status transitions, content revisions): use `notion-update-page` with `command: "update_properties"` to rename or change properties, or `command: "replace_content"` to rewrite the body. Title updates require `properties: { "title": "<new title>" }`; body updates require the full new content as `new_str`.
 
 After publish, the returned page ID becomes the canonical reference. Save a memory anchor linking back to the page (via `mcp__minsky__memory_create`) so future agents pick it up automatically via memory search.
@@ -145,6 +162,7 @@ When the skill completes, verify:
 
 - [ ] Notion page exists under Minsky home with `RFC:` prefix
 - [ ] Status header reads `**Status:** Draft (<date>)` (or Accepted / etc.)
+- [ ] **Executive-summary block immediately after the Status line** — the principal's call in bold, 3–5 one-line consequence bullets, and the "Accepting = agreeing with the bolded call" closer
 - [ ] Body has a concrete hook, stakes section, position section, framework / contribution, validation, roadmap, open questions, references
 - [ ] Expert review was dispatched and findings were addressed (or explicitly deferred)
 - [ ] "Origin and review" section near the end records the review lifecycle
@@ -155,6 +173,7 @@ If any of these are missing, the skill hasn't finished — return to the relevan
 
 ## Common failure modes
 
+- **Publishing without a decisionable summary.** The RFC is where the principal makes the call; if the first screen is narrative, they cannot. Originating incident (2026-07-21): a ~3,500-word RFC opened to answer a Draft-vs-Accepted ask was bounced — "way too long... not decisionable." It recurred the next day on a freshly published RFC, which is why the block is a hard checklist item and not optional polish.
 - **Skipping the expert-review subagent.** This is the highest-leverage step; skipping it forfeits the quality lever. Don't shortcut even for "small" RFCs — if it's worth an RFC, it's worth a review pass.
 - **Drafting before research.** Producing prose without prior memory / task / web search produces shallow proposals. Research first, draft second.
 - **Burying the position in section 8 of 12.** Readers stop reading before they reach it. Stakes section ends with the position teased; position section follows directly after stakes.
