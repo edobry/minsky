@@ -965,22 +965,28 @@ export async function buildSubagentDispatchTracker(
 
     const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
     const { SubagentDispatchTracker } = await import("../../mcp/subagent-dispatch-tracker");
-    // mt#3044 R1 BLOCKING #1: `wireSubagentDispatchTrackerWithRetry` clears its
-    // memo and returns `false` once `SUBAGENT_TRACKER_WIRE_TIMEOUT_MS` elapses,
-    // but the `getDatabaseConnection()` call THIS function is awaiting keeps
-    // running in the background — it is not cancelable. If it later resolves
-    // successfully, without this guard it would call `setInstance` even
-    // though a NEWER attempt (triggered by a subsequent retry) may have
-    // already wired the singleton first. Re-check immediately before the
-    // side effect (no `await` between the check and `setInstance` below, so
-    // this is race-free — nothing else can run between them on Node/Bun's
-    // single-threaded event loop) and skip entirely when already wired,
-    // rather than replacing a working instance with a stale one and leaking
-    // the discarded EventEmitter this attempt would otherwise construct.
+    const { createEventEmitter } = await import("@minsky/domain/events/emitter");
+    // mt#3044 R1 BLOCKING #1 (R3: import moved above this check — an
+    // awaited dynamic import BETWEEN the check and `setInstance` would
+    // reopen the exact race this guard exists to close, since another
+    // concurrent attempt could pass its own `isWired()` check during that
+    // yield): `wireSubagentDispatchTrackerWithRetry` clears its memo and
+    // returns `false` once `SUBAGENT_TRACKER_WIRE_TIMEOUT_MS` elapses, but
+    // the `getDatabaseConnection()` call THIS function is awaiting keeps
+    // running in the background — it is not cancelable. If it later
+    // resolves successfully, without this guard it would call `setInstance`
+    // even though a NEWER attempt (triggered by a subsequent retry) may
+    // have already wired the singleton first. Re-check immediately before
+    // the side effect: NO `await` sits between this check and `setInstance`
+    // below (only the synchronous `createEventEmitter(db)` call), so this
+    // is genuinely race-free — nothing else can run between them on
+    // Node/Bun's single-threaded event loop. Skip entirely when already
+    // wired, rather than replacing a working instance with a stale one and
+    // leaking the discarded EventEmitter this attempt would otherwise
+    // construct.
     if (SubagentDispatchTracker.isWired()) {
       return true;
     }
-    const { createEventEmitter } = await import("@minsky/domain/events/emitter");
     SubagentDispatchTracker.setInstance(db, createEventEmitter(db));
     return true;
   } catch (err) {
