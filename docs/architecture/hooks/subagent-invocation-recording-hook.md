@@ -63,6 +63,15 @@ pending row keyed on it.
   UPDATE path drops the sentinel so the real dispatch-time `task_id` survives. Same treatment
   `UNKNOWN_AGENT_TYPE` gets for `agent_type` (mt#2653). Before mt#3019 the hook dropped the
   whole write here, contradicting its own comment (mt#2315, subsumed).
+
+  The sentinel only ever _persists_ on an orphan INSERT (a Stop with no matching dispatch row).
+  It is safe to persist: `task_id` has no FK and no CHECK constraint (verified against the live
+  schema), consumers query it by equality against a real task id so a sentinel row simply never
+  matches, and it cannot collide with a real id (`<backend>#<number>`). Emitted events are
+  guarded separately — they carry the _resolved_ task id, and omit `relatedTaskId` entirely
+  rather than publishing the sentinel as a related-entity key, since the dispatch watchdog reads
+  `related_task_id` as a real task id.
+
 - **Neither key** — the only case where the write is genuinely skipped: an INSERT would create
   an orphan row keyed on nothing.
 
@@ -72,6 +81,17 @@ pending row keyed on it.
 `STANDALONE_DUP_PROBE_TIMEOUT_MS`. Before mt#3019 the hook was fast only by accident — it died
 at its first domain import. With the DB path live, a slow Postgres is a real hang risk against
 the harness host cap, so the deadline is load-bearing, not decorative.
+
+`Promise.race` does not cancel the losing promise, so the deadline is paired with cooperative
+cancellation: a shared flag is checked at each phase boundary (before opening the DB connection,
+and again immediately before the write) so no NEW work starts after the deadline, and the
+resolved provider is registered so the entrypoint can close it on the timeout path — the cleanup
+the abandoned `finally` would never reach before `process.exit`. A write already in flight is
+still abandoned; that single statement is rolled back server-side when the connection drops.
+
+The stdin read is inside the fail-safe guard: `readInput` is `Bun.stdin.json()`, which throws on
+a malformed payload, and a non-zero hook exit is precisely what blocks the event the hook is
+supposed to only observe.
 
 ## Verification
 

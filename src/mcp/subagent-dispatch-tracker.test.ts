@@ -1734,4 +1734,55 @@ describe("SubagentDispatchTracker — system event emission (mt#2487)", () => {
     expect(failed.length).toBe(1);
     expect(failed[0]?.payload).toMatchObject({ agentType: "refactorer" });
   });
+
+  // ─── mt#3019 / PR #2178 R1 BLOCKING #2: the same divergence, for taskId.
+  // The DB row preserves the dispatch-time task_id when the caller sends the
+  // sentinel; the emitted event must not report "unknown" for that same
+  // upsert, and must never publish the sentinel as a related-entity key —
+  // consumers (the dispatch watchdog's `WHERE related_task_id = $1`) read it
+  // as a real task id. ───
+  test("emitted event carries the dispatch-time taskId after a sentinel upsert", async () => {
+    await tracker.recordSubagentInvocation(
+      makeInput({
+        subagentSessionId: "event-task-id-preserve-test",
+        taskId: "mt#3019",
+        agentType: "implementer",
+        outcome: OUTCOME_CRASHED,
+        parentSessionId: "ps-3",
+      })
+    );
+
+    await tracker.recordSubagentInvocation(
+      makeInput({
+        subagentSessionId: "event-task-id-preserve-test",
+        taskId: UNKNOWN_TASK_ID,
+        agentType: UNKNOWN_AGENT_TYPE,
+        outcome: OUTCOME_COMPLETED_WITH_PR,
+        parentSessionId: "ps-3",
+      })
+    );
+
+    const completed = emitter.emitted.filter((e) => e.eventType === SUBAGENT_COMPLETED_EVENT);
+    expect(completed.length).toBe(1);
+    expect(completed[0]?.payload).toMatchObject({ taskId: "mt#3019" });
+    expect(completed[0]?.relatedTaskId).toBe("mt#3019");
+  });
+
+  test("an orphan-INSERT sentinel row emits no relatedTaskId at all", async () => {
+    // No prior dispatch row to recover a real task id from, so the sentinel is
+    // all there is. Publishing it as `related_task_id` would put a row keyed
+    // on the literal string "unknown" into the events table.
+    await tracker.recordSubagentInvocation(
+      makeInput({
+        subagentSessionId: "event-task-id-orphan-test",
+        taskId: UNKNOWN_TASK_ID,
+        agentType: UNKNOWN_AGENT_TYPE,
+        outcome: OUTCOME_CRASHED,
+      })
+    );
+
+    const failed = emitter.emitted.filter((e) => e.eventType === SUBAGENT_FAILED_EVENT);
+    expect(failed.length).toBe(1);
+    expect(failed[0]?.relatedTaskId).toBeUndefined();
+  });
 });

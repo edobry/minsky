@@ -269,9 +269,15 @@ export class SubagentDispatchTracker {
     // INSERT paths, where "persisted" and "input" are the same value by
     // construction; reassigned below on the UPDATE path.
     let resolvedAgentType: string = input.agentType;
+    // mt#3019 (PR #2178 R1 BLOCKING #2): same treatment for taskId. When the
+    // caller sends UNKNOWN_TASK_ID the row keeps its real dispatch-time value,
+    // so events must carry THAT, not the sentinel — otherwise an event lands
+    // with `related_task_id = 'unknown'`, which the dispatch watchdog's
+    // `WHERE related_task_id = $1` lookup would treat as a real task key.
+    let resolvedTaskId: string = input.taskId;
     let persistedId: string | null = null;
     try {
-      let targetRow: { id: string; agentType: string } | undefined;
+      let targetRow: { id: string; agentType: string; taskId: string } | undefined;
 
       // Strong binding: an exact id the caller supplied. Only trust it if the row
       // genuinely exists — a stale/missing marker must fall through to the
@@ -281,6 +287,7 @@ export class SubagentDispatchTracker {
           .select({
             id: subagentInvocationsTable.id,
             agentType: subagentInvocationsTable.agentType,
+            taskId: subagentInvocationsTable.taskId,
           })
           .from(subagentInvocationsTable)
           .where(eq(subagentInvocationsTable.id, input.id))
@@ -295,8 +302,13 @@ export class SubagentDispatchTracker {
       if (targetRow) {
         // UPDATE the resolved row by primary key (never by subagentSessionId —
         // see class docstring on why subagentSessionId alone is not a safe target).
-        const { updateFields, resolvedAgentType: ra } = this._buildUpdateFields(input, targetRow);
+        const {
+          updateFields,
+          resolvedAgentType: ra,
+          resolvedTaskId: rt,
+        } = this._buildUpdateFields(input, targetRow);
         resolvedAgentType = ra;
+        resolvedTaskId = rt;
         await this.db
           .update(subagentInvocationsTable)
           .set(updateFields)
@@ -321,12 +333,14 @@ export class SubagentDispatchTracker {
         await this.eventEmitter.emit({
           eventType: "subagent.failed",
           payload: {
-            taskId: input.taskId,
+            taskId: resolvedTaskId,
             agentType: resolvedAgentType,
             outcome: input.outcome,
             errorSummary: input.errorSummary,
           },
-          relatedTaskId: input.taskId ?? undefined,
+          // Never emit the sentinel as a related-entity key: consumers treat
+          // `related_task_id` as a real task id (mt#3019 / PR #2178 R1).
+          relatedTaskId: resolvedTaskId === UNKNOWN_TASK_ID ? undefined : resolvedTaskId,
           relatedSessionId: input.parentSessionId ?? undefined,
         });
       }
@@ -344,11 +358,12 @@ export class SubagentDispatchTracker {
         await this.eventEmitter.emit({
           eventType: "subagent.completed",
           payload: {
-            taskId: input.taskId,
+            taskId: resolvedTaskId,
             agentType: resolvedAgentType,
             outcome: input.outcome,
           },
-          relatedTaskId: input.taskId ?? undefined,
+          // See the subagent.failed branch above — same sentinel guard.
+          relatedTaskId: resolvedTaskId === UNKNOWN_TASK_ID ? undefined : resolvedTaskId,
           relatedSessionId: input.parentSessionId ?? undefined,
         });
       }
@@ -382,11 +397,12 @@ export class SubagentDispatchTracker {
    */
   private async _selectHeuristicUpsertTarget(
     subagentSessionId: string
-  ): Promise<{ id: string; agentType: string } | undefined> {
+  ): Promise<{ id: string; agentType: string; taskId: string } | undefined> {
     const open = await this.db
       .select({
         id: subagentInvocationsTable.id,
         agentType: subagentInvocationsTable.agentType,
+        taskId: subagentInvocationsTable.taskId,
       })
       .from(subagentInvocationsTable)
       .where(
@@ -403,6 +419,7 @@ export class SubagentDispatchTracker {
       .select({
         id: subagentInvocationsTable.id,
         agentType: subagentInvocationsTable.agentType,
+        taskId: subagentInvocationsTable.taskId,
       })
       .from(subagentInvocationsTable)
       .where(eq(subagentInvocationsTable.subagentSessionId, subagentSessionId))
@@ -427,15 +444,20 @@ export class SubagentDispatchTracker {
    */
   private _buildUpdateFields(
     input: SubagentInvocationInput,
-    target: { id: string; agentType: string }
-  ): { updateFields: Partial<SubagentInvocationInput>; resolvedAgentType: string } {
+    target: { id: string; agentType: string; taskId: string }
+  ): {
+    updateFields: Partial<SubagentInvocationInput>;
+    resolvedAgentType: string;
+    resolvedTaskId: string;
+  } {
     const { id: _id, startedAt: _startedAt, agentType, taskId, ...restFields } = input;
     const withAgentType: Partial<SubagentInvocationInput> =
       agentType === UNKNOWN_AGENT_TYPE ? restFields : { ...restFields, agentType };
     const updateFields: Partial<SubagentInvocationInput> =
       taskId === UNKNOWN_TASK_ID ? withAgentType : { ...withAgentType, taskId };
     const resolvedAgentType = agentType === UNKNOWN_AGENT_TYPE ? target.agentType : agentType;
-    return { updateFields, resolvedAgentType };
+    const resolvedTaskId = taskId === UNKNOWN_TASK_ID ? target.taskId : taskId;
+    return { updateFields, resolvedAgentType, resolvedTaskId };
   }
 
   /**

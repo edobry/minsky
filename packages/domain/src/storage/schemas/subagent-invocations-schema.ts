@@ -63,7 +63,29 @@ export const subagentInvocationsTable = pgTable(
     /** Surrogate primary key. */
     id: uuid("id").defaultRandom().primaryKey(),
 
-    /** Minsky task ID this invocation is associated with (e.g., "mt#1735"). */
+    /**
+     * Minsky task ID this invocation is associated with (e.g., "mt#1735").
+     *
+     * NOT NULL and deliberately unconstrained beyond that — no FK to `tasks`,
+     * no CHECK, no format constraint (verified against the live schema
+     * 2026-07-22: this table's only constraint is its primary key). Rows can
+     * legitimately outlive or precede the task they name, so referential
+     * integrity is intentionally not enforced here.
+     *
+     * Two writers, two shapes:
+     *  - `tasks.dispatch` writes the real task id at dispatch time.
+     *  - The SubagentStop hook writes `UNKNOWN_TASK_ID` ("unknown") when it
+     *    could not resolve one (mt#3019). The tracker drops that sentinel on
+     *    the UPDATE path so the dispatch-time value survives, so it only ever
+     *    PERSISTS on an orphan INSERT — a Stop with no matching dispatch row.
+     *    Same mechanism `agent_type` uses with `UNKNOWN_AGENT_TYPE` (mt#2653).
+     *
+     * Consumers query this column by equality against a real task id
+     * (`getLatestInvocationForTask`, `getInvocationChainForTask`), so a
+     * sentinel row simply never matches — which is the correct outcome for a
+     * row that names no task. The sentinel cannot collide with a real id:
+     * task ids are `<backend>#<number>` (`mt#3019`, `md#416`, `gh#491`).
+     */
     taskId: text("task_id").notNull(),
 
     /** Minsky session ID of the parent/calling session. */

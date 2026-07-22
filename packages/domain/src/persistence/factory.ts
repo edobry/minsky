@@ -37,8 +37,16 @@ export async function resolvePersistenceProvider(): Promise<PersistenceProvider 
     await service.initialize();
     return service.getProvider();
   } catch (err) {
+    // PR #2178 R1 NON-BLOCKING: a driver/initialization error message can embed
+    // the connection string, and a DSN carries a password. Log the error CLASS
+    // unconditionally (that alone distinguishes the two cases this log exists
+    // to separate) and run the message through the credential scrubber before
+    // it reaches any sink.
+    const { scrubText } = await import("../transcripts/credential-scrubber");
+    const rawMessage = err instanceof Error ? err.message : String(err);
     log.debug("resolvePersistenceProvider: returning null after initialization error", {
-      error: err instanceof Error ? err.message : String(err),
+      errorClass: err instanceof Error ? err.constructor.name : typeof err,
+      error: scrubText(rawMessage).text,
     });
     return null;
   }
