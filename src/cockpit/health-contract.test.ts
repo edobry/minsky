@@ -24,6 +24,14 @@ import { createCockpitServer } from "./server";
 // the contract under test, so no fs access is needed (and the
 // custom/no-real-fs-in-tests rule stays satisfied without an exception).
 import healthShapeFixtureJson from "../../contract/cockpit-health-shape.json";
+import { refreshProdStateCache, type UnsafeSql } from "./prod-state-cache";
+import { ProdStateSweepTracker } from "./prod-state-sweep-tracker";
+/* eslint-disable custom/no-real-fs-in-tests -- the acceptance-test-2 case below writes to an
+   explicit tmp path (never the real default cache path) to prove refreshProdStateCache's
+   write-then-read round trip through the live /api/health route; mirrors prod-state-cache.test.ts */
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 
 interface HealthShapeFixture {
   fields: Record<string, string>;
@@ -107,6 +115,40 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
     };
     for (const field of parsed.rustConsumedFields) {
       expect(Object.keys(parsed.fields)).toContain(field);
+    }
+  });
+
+  test("prodStateSweep block reflects real sweep outcomes under normal operation (mt#3039 acceptance test 2)", async () => {
+    ProdStateSweepTracker.resetForTest();
+    const okSql: UnsafeSql = {
+      unsafe: async () => [{ total: 7, latest_at: "1718500000000" }],
+    };
+    // Explicit tmp cachePath — must NOT touch the real default state-dir
+    // cache file that a live cockpit daemon reads/writes.
+    const tmpPath = path.join(
+      os.tmpdir(),
+      `minsky-health-contract-prod-state-${process.pid}-${crypto.randomUUID()}.json`
+    );
+    try {
+      // Run the real producer function once (as the sweep tick does) so the
+      // process-lifetime tracker singleton — the same one health.ts reads —
+      // carries a genuine outcome, not just its zero-filled default.
+      await refreshProdStateCache(okSql, new Date().toISOString(), tmpPath);
+
+      const { url, close } = await startTestServer();
+      closeList.push(close);
+      const res = await fetch(`${url}/api/health`);
+      const body = (await res.json()) as { prodStateSweep: Record<string, unknown> };
+
+      expect(body.prodStateSweep.runsCount).toBe(1);
+      expect(body.prodStateSweep.lastSuccessAt).not.toBeNull();
+      expect(body.prodStateSweep.consecutiveFailures).toBe(0);
+    } finally {
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch {
+        /* ignore */
+      }
     }
   });
 });

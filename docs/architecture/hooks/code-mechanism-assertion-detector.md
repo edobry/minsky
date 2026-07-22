@@ -36,8 +36,8 @@ was asserted, not verified.
   fresh assertion), or when the extracted token fails the symbol-plausibility
   filter (see below).
 
-**Symbol-plausibility filter (`isPlausibleSymbol`) — two FP-class exclusions
-(mt#3002, 2026-07-21):**
+**Symbol-plausibility filter (`isPlausibleSymbol`) — three FP-class exclusions
+(mt#3002, 2026-07-21; mt#3042, 2026-07-22):**
 
 - **File-name-shaped tokens** (`FILE_EXTENSION_RE`): a token ending in a
   doc/config extension (`.md`, `.mdc`, `.json`, `.yml`/`.yaml`, `.txt`) is
@@ -52,6 +52,13 @@ was asserted, not verified.
   because it starts with a hex letter and is backticked. Genuine
   identifiers (env vars, `snake_case`/`camelCase` function names) do not
   consist entirely of hex digits with no case-mixing or separators.
+- **UPPERCASE SQL/DDL keywords** (`SQL_KEYWORDS_UPPER`, mt#3042): backticked
+  `ALTER`/`DROP`/`CREATE`/... in a migration/DDL discussion extracted as
+  "symbols" near the `drops?` predicate (the 2026-07-21T16:12Z calibration
+  record). UPPERCASE-exact matching only — lowercase same-spelled identifiers
+  (`create`, `drop` as real method names) still count, and predicates are
+  untouched (`drops?` also matches genuine "X drops Y" claims). `postgres`
+  joined the prose stoplist in the same change.
 
 **Calibration history:** shipped mt#2486 (tier-2 of the mt#2485 stakes-tiered
 reframe) with `INJECTION_ENABLED = false` — logging matches to
@@ -64,6 +71,15 @@ detector graduates from calibration-only logging to live reminder injection.
 The calibration log continues to be written on every match (matched or not
 injected is not a distinction the log makes); it remains the audit trail for
 future FP review.
+
+A second review round (2026-07-21/22, ask `31eba1bd` / `ask#5343`,
+operator-confirmed TUNE) added the SQL-keyword exclusion above (mt#3042). That
+review's other proposed tune — suppressing records with
+`hadSameTurnRead: true` — was found at implementation time to rest on the
+documented mt#2673 field-semantics misreading (the logged claims are
+definitionally unbacked; the flag is a turn-level aggregate) and was correctly
+NOT implemented; a regression test now pins the claim-level exclusion
+semantics instead.
 
 **On match (now live):** the hook emits a `HookOutput` /
 `GuardOutcome.additionalContext` naming each unbacked (symbol, predicate)
@@ -86,6 +102,8 @@ back to the harness.
   unaffected by the mt#3002 symbol-class exclusions.
 - mt#3002 — the file-name/hex-id exclusion + injection-flip change this doc
   primarily describes.
+- mt#3042 — the SQL/DDL-keyword exclusion + the ask#5343 tune-1 correction
+  (regression test pinning claim-level backed-claim semantics).
 - `.claude/hooks/causal-premise-detector.ts` — sibling pattern (mt#2216) for
   the broader, harder-precision causal-claim family this detector's
   code-symbol slice was carved out of.

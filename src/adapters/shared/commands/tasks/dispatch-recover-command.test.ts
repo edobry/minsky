@@ -22,6 +22,7 @@ import { describe, test, expect } from "bun:test";
 import {
   createTasksDispatchRecoverCommand,
   promptTypeForRecovery,
+  buildTrackerUnavailableResponse,
 } from "./dispatch-recover-command";
 import type { DispatchRecoveryGitOps } from "./dispatch-recover-command";
 import { FakeSessionProvider } from "@minsky/domain/session/fake-session-provider";
@@ -43,6 +44,9 @@ import {
 
 const NOW = new Date("2026-07-17T12:00:00.000Z");
 const CRASHED_NO_OUTPUT: SubagentInvocationOutcome = "crashed-no-output";
+const PARTIAL_UNCOMMITTED_NO_HANDOFF: SubagentInvocationOutcome = "partial-uncommitted-no-handoff";
+/** mt#3017: the dispatch-recover command's degraded-response status when the tracker is unavailable. */
+const TRACKER_UNAVAILABLE_STATUS = "tracker-unavailable";
 
 // ---------------------------------------------------------------------------
 // Fake tracker — duck-typed, implements only what the command calls.
@@ -194,7 +198,7 @@ function makeSessionRecord(overrides: Partial<SessionRecord> = {}): SessionRecor
 }
 
 function makeCommand(opts: {
-  tracker: FakeTracker;
+  tracker: FakeTracker | null;
   sessionProvider: FakeSessionProvider;
   gitOps?: DispatchRecoveryGitOps;
   staleMs?: number;
@@ -203,7 +207,7 @@ function makeCommand(opts: {
   return createTasksDispatchRecoverCommand(
     async () => opts.sessionProvider,
     () => opts.taskService ?? throwingTaskService,
-    () => opts.tracker as never,
+    async () => opts.tracker as never,
     { gitOps: opts.gitOps ?? makeGitOps(), now: () => NOW, staleMs: opts.staleMs }
   );
 }
@@ -350,11 +354,11 @@ describe("tasks.dispatch-recover", () => {
     expect(tracker.recordedInvocationCalls).toHaveLength(1);
     const closeoutCall = tracker.recordedInvocationCalls[0];
     expect(closeoutCall?.id).toBe(original.id);
-    expect(closeoutCall?.outcome).toBe("partial-uncommitted-no-handoff");
+    expect(closeoutCall?.outcome).toBe(PARTIAL_UNCOMMITTED_NO_HANDOFF);
     expect(closeoutCall?.endedAt).toBeInstanceOf(Date);
 
     // The NEW row is untouched by the classification — it keeps the pessimistic
-    // default, not "partial-uncommitted-no-handoff".
+    // default, not PARTIAL_UNCOMMITTED_NO_HANDOFF.
     expect(tracker.recordedAttempts).toHaveLength(1);
     expect(tracker.recordedAttempts[0]?.outcome).toBe(CRASHED_NO_OUTPUT);
   });
@@ -374,7 +378,7 @@ describe("tasks.dispatch-recover", () => {
 
     const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
 
-    expect(result.classification).toBe("partial-uncommitted-no-handoff");
+    expect(result.classification).toBe(PARTIAL_UNCOMMITTED_NO_HANDOFF);
     expect(result.continuationPrompt as string).toContain("do NOT discard them");
   });
 
@@ -537,6 +541,82 @@ describe("tasks.dispatch-recover", () => {
 
     expect(result.success).toBe(true);
     expect(result.status).toBe("recover");
+  });
+
+  // ---------------------------------------------------------------------------
+  // mt#3017: tracker-unavailable degraded response (SC3/SC4)
+  // ---------------------------------------------------------------------------
+
+  test("tracker unavailable -> structured tracker-unavailable response with manual fallback steps (mt#3017 SC3)", async () => {
+    const sessionProvider = new FakeSessionProvider({
+      initialSessions: [makeSessionRecord({ taskId: "mt#2831" })],
+    });
+    const cmd = makeCommand({ tracker: null, sessionProvider });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe(TRACKER_UNAVAILABLE_STATUS);
+    expect(result.error as string).toContain("tracker unavailable");
+    expect(result.taskId).toBe("mt#2831");
+
+    const manualFallback = result.manualFallback as {
+      message: string;
+      steps: string[];
+      classificationGuide: string;
+      retryGuidance: string;
+    };
+    expect(manualFallback).toBeDefined();
+    expect(manualFallback.steps.length).toBeGreaterThan(0);
+    // Each named manual step must map to a concrete, runnable command an
+    // operator can execute by hand — not a vague description.
+    expect(manualFallback.steps.some((s) => s.includes("git status"))).toBe(true);
+    expect(manualFallback.steps.some((s) => s.includes("handoff.md"))).toBe(true);
+    expect(manualFallback.steps.some((s) => s.includes("git rev-list"))).toBe(true);
+    expect(manualFallback.classificationGuide).toContain(PARTIAL_UNCOMMITTED_NO_HANDOFF);
+    expect(manualFallback.retryGuidance.length).toBeGreaterThan(0);
+
+    // Session lookup is best-effort and independent of the tracker — since a
+    // session IS seeded for this task, the response should name it concretely
+    // rather than falling back to fully generic guidance.
+    expect(result.sessionId).toBe("sess-1");
+    expect(result.sessionDir).toBeTruthy();
+  });
+
+  test("tracker unavailable + no session found for the task -> generic guidance, sessionId/sessionDir null", async () => {
+    const sessionProvider = new FakeSessionProvider(); // no seeded sessions
+    const cmd = makeCommand({ tracker: null, sessionProvider });
+
+    const result = (await cmd.execute({ taskId: "mt#404" } as never)) as Record<string, unknown>;
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe(TRACKER_UNAVAILABLE_STATUS);
+    expect(result.sessionId).toBeNull();
+    expect(result.sessionDir).toBeNull();
+
+    const manualFallback = result.manualFallback as { message: string };
+    expect(manualFallback.message).toContain("session_get");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildTrackerUnavailableResponse (mt#3017) — direct unit coverage of the
+// helper, including its own best-effort session-provider failure handling.
+// ---------------------------------------------------------------------------
+
+describe("buildTrackerUnavailableResponse", () => {
+  test("session provider throws -> falls back to generic guidance instead of propagating", async () => {
+    const throwingSessionProvider = async () => {
+      throw new Error("session provider unavailable — exercises the best-effort fallback");
+    };
+
+    const response = await buildTrackerUnavailableResponse("mt#2831", throwingSessionProvider);
+
+    expect(response.success).toBe(false);
+    expect(response.status).toBe(TRACKER_UNAVAILABLE_STATUS);
+    expect(response.sessionId).toBeNull();
+    expect(response.sessionDir).toBeNull();
+    expect(response.manualFallback.steps.length).toBeGreaterThan(0);
   });
 });
 

@@ -14,7 +14,7 @@
  * harness-detection could leak into sibling test files that rely on the real implementation.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { createTasksDispatchCommand } from "./dispatch-command";
+import { createTasksDispatchCommand, getTrackerForDispatch } from "./dispatch-command";
 import { ValidationError } from "@minsky/domain/errors";
 import { FakeTaskService } from "@minsky/domain/tasks/fake-task-service";
 import { FakeSessionProvider } from "@minsky/domain/session/fake-session-provider";
@@ -372,5 +372,59 @@ describe("tasks_dispatch existing-task mode: type default + crash-safety resume 
     const error = result.error as string;
     expect(error).toMatch(/via PLANNING/);
     expect(error).toMatch(/IN-PROGRESS -> READY is NOT a valid/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getTrackerForDispatch (mt#3017 R1 BLOCKING #2) — Step 5's best-effort
+// telemetry write must never let a slow/hung tracker stall the dispatch
+// pipeline; a timeout degrades to "skip the write" (tracker: null).
+// ---------------------------------------------------------------------------
+
+describe("getTrackerForDispatch", () => {
+  test("no getTracker supplied -> null, no error", async () => {
+    const result = await getTrackerForDispatch(undefined);
+    expect(result).toBeNull();
+  });
+
+  test("getTracker resolves before the timeout -> returns the tracker", async () => {
+    const fakeTracker = { marker: "fake-tracker" };
+    const result = await getTrackerForDispatch(
+      async () => fakeTracker as never,
+      50 // generous relative to the instant-resolving fake
+    );
+    expect(result).toBe(fakeTracker as never);
+  });
+
+  test("getTracker resolves to null -> returns null (tracker genuinely unavailable)", async () => {
+    const result = await getTrackerForDispatch(async () => null, 50);
+    expect(result).toBeNull();
+  });
+
+  test("getTracker hangs past the bound -> degrades to null instead of blocking the pipeline", async () => {
+    const neverResolves = new Promise<never>(() => {
+      // Intentionally never settles — simulates a hung DB-connection attempt.
+    });
+    const start = performance.now();
+    const result = await getTrackerForDispatch(() => neverResolves as never, 20);
+    const elapsedMs = performance.now() - start;
+
+    expect(result).toBeNull();
+    // The call must return close to the injected bound, not hang indefinitely.
+    expect(elapsedMs).toBeLessThan(500);
+  });
+
+  test("getTracker throws synchronously -> degrades to null instead of propagating", async () => {
+    const result = await getTrackerForDispatch(() => {
+      throw new Error("getTracker threw — exercises the catch branch");
+    }, 50);
+    expect(result).toBeNull();
+  });
+
+  test("getTracker returns a rejecting promise -> degrades to null instead of propagating", async () => {
+    const result = await getTrackerForDispatch(async () => {
+      throw new Error("tracker factory rejected");
+    }, 50);
+    expect(result).toBeNull();
   });
 });
