@@ -33,8 +33,19 @@
  *   direct-construction consumer of SessionService.start this mirrors
  */
 
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
-import type { DrivenSessionRecord, DrivenSessionCostSummary } from "./driven-session-host";
+import {
+  CLAUDE_BINARY,
+  drivenSessionRegistry,
+  resumeDrivenSession,
+  buildReconnectingDrivenSessionRecord,
+  type DrivenSessionRecord,
+  type DrivenSessionCostSummary,
+  type DrivenSessionRegistry,
+  type PermissionMode,
+  type SpawnFn,
+} from "./driven-session-host";
 import {
   getServerSessionProvider,
   getServerTaskService,
@@ -140,7 +151,10 @@ export async function resolveTaskWorkspace(taskId: string): Promise<ResolvedTask
  * `overrideToken`/`spawnFn` injection convention used across the cockpit.
  */
 export interface DrivenInitLinkObserverDeps {
-  getDb?: typeof getContextInspectorDb;
+  /** Simplified test-seam signature (deliberately NOT `typeof getContextInspectorDb`
+   * — that type also requires the production-only `__resetForTests` method,
+   * which a plain test fake shouldn't need to implement). */
+  getDb?: () => Promise<PostgresJsDatabase | null>;
   writeLink?: (
     db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
     input: {
@@ -198,7 +212,10 @@ export function createDrivenInitLinkObserver(
  * {@link DrivenInitLinkObserverDeps}.
  */
 export interface DrivenResultObserverDeps {
-  getDb?: typeof getContextInspectorDb;
+  /** Simplified test-seam signature (deliberately NOT `typeof getContextInspectorDb`
+   * — that type also requires the production-only `__resetForTests` method,
+   * which a plain test fake shouldn't need to implement). */
+  getDb?: () => Promise<PostgresJsDatabase | null>;
   writeCost?: (
     db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
     input: import("@minsky/domain/transcripts/driven-session-cost-writer").DrivenSessionCostWriteInput
@@ -257,4 +274,251 @@ export function createDrivenResultObserver(
       }
     })();
   };
+}
+
+// ---------------------------------------------------------------------------
+// Durable driven-session persistence (mt#3038, RFC "Conversation-first drive"
+// Phase 1). Three pieces, all fire-and-forget / never-throw (matching the
+// two observers above): (1) the onStateChange persist observer, wired into
+// EVERY launch shape (task-bound, explicit-cwd, and scratch alike — same
+// "every driven session" scope as createDrivenResultObserver, unlike the
+// task-bound-only createDrivenInitLinkObserver); (2) boot-time
+// reconciliation; (3) the restart-recovery resume orchestration the WS route
+// (./driven-session-ws.ts) calls on a registry miss.
+// ---------------------------------------------------------------------------
+
+/** Test seam for {@link createDrivenSessionPersistObserver} — mirrors the sibling observers' deps convention. */
+export interface DrivenSessionPersistObserverDeps {
+  /** Simplified test-seam signature (deliberately NOT `typeof getContextInspectorDb`
+   * — that type also requires the production-only `__resetForTests` method,
+   * which a plain test fake shouldn't need to implement). */
+  getDb?: () => Promise<PostgresJsDatabase | null>;
+  upsert?: (
+    db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
+    input: import("@minsky/domain/transcripts/driven-session-registry-store").UpsertDrivenSessionInput
+  ) => Promise<unknown>;
+}
+
+/**
+ * Build the `onStateChange` observer: fire-and-forget upsert the
+ * `driven_sessions` row every time the host reports a meaningful transition
+ * (spawn, harness-link, exit/crash/error, resume-respawn). This is what
+ * makes the in-memory registry a REHYDRATABLE record (RFC minimal-first-slice
+ * step 1) — without this wired, a daemon restart has nothing to reconcile
+ * from at boot.
+ */
+export function createDrivenSessionPersistObserver(
+  deps: DrivenSessionPersistObserverDeps = {}
+): (record: DrivenSessionRecord) => void {
+  return (record) => {
+    void (async () => {
+      try {
+        const db = await (deps.getDb ?? getContextInspectorDb)();
+        if (!db) {
+          log.warn(
+            `[driven-session] no SQL persistence available — driven_sessions row for ${record.localId} not recorded`
+          );
+          return;
+        }
+        const upsert =
+          deps.upsert ??
+          (await import("@minsky/domain/transcripts/driven-session-registry-store"))
+            .upsertDrivenSessionRecord;
+        await upsert(db, {
+          localId: record.localId,
+          harnessSessionId: record.harnessSessionId,
+          cwd: record.cwd,
+          permissionMode: record.permissionMode,
+          taskId: record.taskId,
+          minskySessionId: record.minskySessionId,
+          status: record.status,
+          unrecoverableReason: record.unrecoverableReason,
+          pid: record.pid ?? null,
+          // R1 delta #4 — the orphan-cleanup identity pair. Recorded as
+          // "<binary> <argv...>" so process-identity.ts's substring check
+          // against the live `ps` command line has something meaningful to
+          // compare (the live command line always begins with the binary
+          // name/path, never the raw argv alone).
+          pidCmdline: record.pid ? `${CLAUDE_BINARY} ${record.argv.join(" ")}` : null,
+          actuatorGeneration: record.actuatorGeneration,
+          startedAt: record.startedAt,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(
+          `[driven-session] driven_sessions persist failed for ${record.localId}: ${message}`
+        );
+      }
+    })();
+  };
+}
+
+/** Test seam for {@link loadPersistedDrivenSessions}. */
+export interface LoadPersistedDrivenSessionsDeps {
+  /** Simplified test-seam signature (deliberately NOT `typeof getContextInspectorDb`
+   * — that type also requires the production-only `__resetForTests` method,
+   * which a plain test fake shouldn't need to implement). */
+  getDb?: () => Promise<PostgresJsDatabase | null>;
+  listNonTerminal?: (
+    db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>
+  ) => Promise<import("@minsky/domain/storage/schemas/driven-sessions-schema").DrivenSessionRow[]>;
+  registry?: DrivenSessionRegistry;
+}
+
+/**
+ * Boot-time reconciliation (RFC minimal-first-slice step 2): load every
+ * non-terminal persisted `driven_sessions` row and register it in the
+ * in-memory registry as `"reconnecting"` (or `"unrecoverable"` for a row that
+ * never got a harness session id linked — spawn-died-before-init, R1 delta
+ * #2) — WITHOUT spawning anything (R1 delta #6, lazy-resume-only: a respawn
+ * only happens later, via {@link orchestrateDrivenSessionResume} on an
+ * operator action or client reconnect). Call once at daemon startup, after
+ * persistence is confirmed ready. Never throws; a failure here means the
+ * daemon boots with an empty registry (the pre-mt#3038 behavior), not a
+ * crashed boot.
+ */
+export async function loadPersistedDrivenSessions(
+  deps: LoadPersistedDrivenSessionsDeps = {}
+): Promise<number> {
+  try {
+    const db = await (deps.getDb ?? getContextInspectorDb)();
+    if (!db) {
+      log.warn("[driven-session] no SQL persistence available at boot — skipping reconciliation");
+      return 0;
+    }
+    const listNonTerminal =
+      deps.listNonTerminal ??
+      (await import("@minsky/domain/transcripts/driven-session-registry-store"))
+        .listNonTerminalDrivenSessions;
+    const rows = await listNonTerminal(db);
+    const registry = deps.registry ?? drivenSessionRegistry;
+
+    for (const row of rows) {
+      const resumable = row.harnessSessionId !== null;
+      const record = buildReconnectingDrivenSessionRecord({
+        localId: row.localId,
+        harnessSessionId: row.harnessSessionId,
+        cwd: row.cwd,
+        permissionMode: row.permissionMode as PermissionMode,
+        taskId: row.taskId,
+        minskySessionId: row.minskySessionId,
+        status: resumable ? "reconnecting" : "unrecoverable",
+        unrecoverableReason: resumable
+          ? null
+          : "spawn-died-before-init — no harness session id was ever linked; there is no transcript to resume",
+        actuatorGeneration: row.actuatorGeneration,
+        startedAt: row.startedAt.toISOString(),
+      });
+      registry.register(record);
+    }
+
+    if (rows.length > 0) {
+      log.info(
+        `[driven-session] boot reconciliation: loaded ${rows.length} persisted session(s) (reconnecting/unrecoverable)`
+      );
+    }
+    return rows.length;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(`[driven-session] boot reconciliation failed: ${message}`);
+    return 0;
+  }
+}
+
+/** Discriminated outcome of {@link orchestrateDrivenSessionResume}. */
+export type DrivenSessionResumeOutcome =
+  | { outcome: "resumed"; record: DrivenSessionRecord }
+  | { outcome: "locked" }
+  | { outcome: "unrecoverable"; reason: string }
+  | { outcome: "not-found" };
+
+/** Test seam for {@link orchestrateDrivenSessionResume}. */
+export interface OrchestrateDrivenSessionResumeDeps {
+  /** Simplified test-seam signature (deliberately NOT `typeof getContextInspectorDb`
+   * — that type also requires the production-only `__resetForTests` method,
+   * which a plain test fake shouldn't need to implement). */
+  getDb?: () => Promise<PostgresJsDatabase | null>;
+  getPersisted?: (
+    db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
+    localId: string
+  ) => Promise<
+    import("@minsky/domain/storage/schemas/driven-sessions-schema").DrivenSessionRow | null
+  >;
+  withResumeLock?: typeof import("@minsky/domain/transcripts/driven-session-registry-store").withDrivenSessionResumeLock;
+  registry?: DrivenSessionRegistry;
+  spawnFn?: SpawnFn;
+  command?: string;
+}
+
+/**
+ * The restart-recovery orchestration (RFC minimal-first-slice step 3): given
+ * a `localId` the in-memory registry has no LIVE record for (a boot-loaded
+ * `"reconnecting"` placeholder, or a genuinely unknown id the WS route
+ * checks persistence for), look up the persisted row and — if resumable —
+ * acquire the cross-process resume lock (R1 delta #1, BINDING) before
+ * calling `resumeDrivenSession`. The lock is what makes this SAFE to call
+ * from two daemons racing the same conversation id (routine in this
+ * project's dev loop — see src/cockpit/CLAUDE.md §Operator dev loop).
+ *
+ * Wires the SAME init-link/result/persist observers a fresh task-bound
+ * launch would (../routes/driven-sessions.ts) so a resumed session keeps
+ * recording driven_spawn links, cost rows, and its own driven_sessions row
+ * exactly like an original spawn.
+ */
+export async function orchestrateDrivenSessionResume(
+  localId: string,
+  deps: OrchestrateDrivenSessionResumeDeps = {}
+): Promise<DrivenSessionResumeOutcome> {
+  const db = await (deps.getDb ?? getContextInspectorDb)();
+  if (!db) return { outcome: "not-found" };
+
+  const getPersisted =
+    deps.getPersisted ??
+    (await import("@minsky/domain/transcripts/driven-session-registry-store"))
+      .getDrivenSessionRecord;
+  const row = await getPersisted(db, localId);
+  if (!row) return { outcome: "not-found" };
+
+  if (!row.harnessSessionId) {
+    return {
+      outcome: "unrecoverable",
+      reason:
+        "spawn-died-before-init — no harness session id was ever linked; there is no transcript to resume",
+    };
+  }
+  if (row.status === "unrecoverable") {
+    return { outcome: "unrecoverable", reason: row.unrecoverableReason ?? "unrecoverable" };
+  }
+
+  const withResumeLock =
+    deps.withResumeLock ??
+    (await import("@minsky/domain/transcripts/driven-session-registry-store"))
+      .withDrivenSessionResumeLock;
+  const registry = deps.registry ?? drivenSessionRegistry;
+  const harnessSessionId = row.harnessSessionId;
+
+  const lockOutcome = await withResumeLock(db, harnessSessionId, async () => {
+    const { record } = resumeDrivenSession({
+      previous: {
+        localId: row.localId,
+        cwd: row.cwd,
+        permissionMode: row.permissionMode as PermissionMode,
+        harnessSessionId,
+        taskId: row.taskId,
+        minskySessionId: row.minskySessionId,
+        startedAt: row.startedAt.toISOString(),
+        actuatorGeneration: row.actuatorGeneration,
+      },
+      onHarnessSessionLinked: createDrivenInitLinkObserver(),
+      onResultSummary: createDrivenResultObserver(),
+      onStateChange: createDrivenSessionPersistObserver(),
+      registry,
+      spawnFn: deps.spawnFn,
+      command: deps.command,
+    });
+    return record;
+  });
+
+  if (!lockOutcome.acquired) return { outcome: "locked" };
+  return { outcome: "resumed", record: lockOutcome.result };
 }
