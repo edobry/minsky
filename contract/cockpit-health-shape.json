@@ -17,7 +17,8 @@
     "consecutiveDegraded": "number",
     "transcriptWatcher": "object",
     "transcriptSweep": "object",
-    "dispatchWatchdogSweep": "object"
+    "dispatchWatchdogSweep": "object",
+    "prodStateSweep": "object"
   },
   "rustConsumedFields": ["db", "processStartedAtMs"],
   "sample": {
@@ -30,6 +31,13 @@
     "consecutiveDegraded": 0,
     "transcriptWatcher": { "activeSessionCount": 0 },
     "transcriptSweep": { "totalRuns": 0 },
-    "dispatchWatchdogSweep": { "ticksRun": 0, "flagsWritten": 0 }
+    "dispatchWatchdogSweep": { "ticksRun": 0, "flagsWritten": 0 },
+    "prodStateSweep": {
+      "runsCount": 0,
+      "lastRunAt": null,
+      "lastSuccessAt": null,
+      "lastErrorAt": null,
+      "consecutiveFailures": 0
+    }
   }
 }
