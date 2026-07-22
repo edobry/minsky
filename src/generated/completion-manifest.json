@@ -4055,6 +4055,10 @@
               "description": "Override the marker-less fail-closed guard (mt#2400) to intentionally replace an existing file's entire content"
             },
             {
+              "flags": ["--allow-shrink"],
+              "description": "Override the marker-spanning-collapse guard (mt#2577). When false (default), a marker-based edit whose apply result is dramatically smaller than the original is REFUSED (the apply model likely mis-resolved a marker and dropped content). Set true only for an intentional large deletion."
+            },
+            {
               "flags": ["--json"],
               "description": "Output in JSON format"
             },

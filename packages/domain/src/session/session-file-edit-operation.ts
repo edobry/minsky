@@ -34,6 +34,52 @@ import { applyEditPattern as defaultApplyEditPattern } from "../ai/edit-pattern-
 import { SessionPathResolver, type SessionProviderInput } from "./session-path-resolver";
 
 /**
+ * Line-count floor below which the mt#2577 collapse guard's shrink-ratio check
+ * is not applied — a ratio is too noisy on tiny files, and an accidental large
+ * drop is only meaningful on a non-trivial file.
+ */
+export const COLLAPSE_GUARD_MIN_ORIGINAL_LINES = 40;
+
+/**
+ * A marker-based apply that retains FEWER than this fraction of the original's
+ * lines is treated as a suspicious collapse (mt#2577). Tuned to fire on the
+ * observed 999->517 (~52% retained) incident with margin, while leaving normal
+ * marker edits — which change size by a small delta — untouched.
+ */
+export const COLLAPSE_GUARD_SHRINK_RATIO = 0.6;
+
+/**
+ * Count lines in a string, ignoring a single trailing newline so a file with
+ * and without a trailing "\n" count the same.
+ */
+function countLines(content: string): number {
+  if (content === "") return 0;
+  const parts = content.split("\n");
+  if (parts[parts.length - 1] === "") parts.pop();
+  return parts.length;
+}
+
+/**
+ * Pure predicate for the mt#2577 marker-spanning-collapse guard: did a
+ * marker-based apply shrink the file far more than a normal edit would? Returns
+ * the before/after line counts when the drop is suspicious, else null. Only
+ * meaningful for the marker-apply path — the caller gates on
+ * `hasMarkers && fileExisted` before calling this.
+ */
+export function detectSuspiciousCollapse(
+  originalContent: string,
+  finalContent: string
+): { originalLines: number; finalLines: number } | null {
+  const originalLines = countLines(originalContent);
+  if (originalLines < COLLAPSE_GUARD_MIN_ORIGINAL_LINES) return null;
+  const finalLines = countLines(finalContent);
+  if (finalLines < originalLines * COLLAPSE_GUARD_SHRINK_RATIO) {
+    return { originalLines, finalLines };
+  }
+  return null;
+}
+
+/**
  * Input arguments for {@link applySessionFileEditOperation}.
  */
 export interface SessionFileEditOperationArgs {
@@ -54,6 +100,12 @@ export interface SessionFileEditOperationArgs {
    * intentionally replace an existing file's content in full. Defaults to false.
    */
   fullReplace?: boolean;
+  /**
+   * Override the mt#2577 collapse guard: allow a marker-based edit whose apply
+   * result is dramatically smaller than the original (an intentional large
+   * deletion). Defaults to false.
+   */
+  allowShrink?: boolean;
   /** Optional session-provider input threaded through to `SessionPathResolver`. */
   sessionProvider?: SessionProviderInput;
 }
@@ -89,9 +141,10 @@ export interface SessionFileEditOperationResult {
 /**
  * Apply the canonical session file-edit apply-model operation.
  *
- * @throws Error when marker content targets a non-existent file, or when
+ * @throws Error when marker content targets a non-existent file, when
  *   marker-less content targets an existing file without `fullReplace: true`
- *   (mt#2400 FAIL-CLOSED guard).
+ *   (mt#2400 FAIL-CLOSED guard), or when a marker-based apply collapses the file
+ *   far below the original line count without `allowShrink: true` (mt#2577).
  */
 export async function applySessionFileEditOperation(
   args: SessionFileEditOperationArgs,
@@ -143,6 +196,28 @@ export async function applySessionFileEditOperation(
   } else {
     // Direct write for new files, or an explicit full replacement (fullReplace=true).
     finalContent = args.content;
+  }
+
+  // mt#2577 collapse guard: a marker-based apply is supposed to PRESERVE the
+  // bulk of the original. When the fast-apply model mis-resolves a
+  // `// ... existing code ...` marker it can silently drop content it should
+  // have kept (observed: 999->517 lines, 11 tests deleted, mt#2572 PR #1769).
+  // Fail closed — like the mt#2400 marker-less guard — unless the caller opts
+  // into an intentional large deletion via allowShrink. Runs before the dry-run
+  // return so a preview surfaces the collapse too.
+  if (fileExisted && hasMarkers && !args.allowShrink) {
+    const collapse = detectSuspiciousCollapse(originalContent, finalContent);
+    if (collapse) {
+      const dropPct = Math.round((1 - collapse.finalLines / collapse.originalLines) * 100);
+      throw new Error(
+        `Refusing to apply marker-based edit to "${args.path}": the apply result is dramatically ` +
+          `smaller than the original (${collapse.originalLines} -> ${collapse.finalLines} lines, a ` +
+          `${dropPct}% drop). This is the marker-spanning-collapse failure (mt#2577): the apply model ` +
+          `likely mis-resolved a '// ... existing code ...' marker and dropped content it should have ` +
+          `preserved. Re-issue with tighter, smaller marker regions (or use session_write_file), or ` +
+          `pass allowShrink=true if this large deletion is intentional.`
+      );
+    }
   }
 
   if (args.dryRun) {

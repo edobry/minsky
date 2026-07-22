@@ -123,6 +123,7 @@ async function runSessionEditFileOperation(args: {
   dryRun: boolean;
   createDirs: boolean;
   fullReplace: boolean;
+  allowShrink: boolean;
   sessionProvider?: import("@minsky/domain/session/index").SessionProviderInterface;
 }): Promise<Record<string, unknown>> {
   const { generateUnifiedDiff, generateDiffSummary } = await import("../../../../utils/diff");
@@ -139,6 +140,7 @@ async function runSessionEditFileOperation(args: {
     dryRun: args.dryRun,
     createDirs: args.createDirs,
     fullReplace: args.fullReplace,
+    allowShrink: args.allowShrink,
     sessionProvider: args.sessionProvider,
   });
 
@@ -257,6 +259,7 @@ export function createSessionEditFileCommand(
           dryRun: typedParams.dryRun || false,
           createDirs: typedParams.createDirs !== false,
           fullReplace: typedParams.fullReplace || false,
+          allowShrink: typedParams.allowShrink || false,
           sessionProvider: deps.sessionProvider,
         });
 

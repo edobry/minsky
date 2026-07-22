@@ -93,6 +93,7 @@ async function runCliEdit(
         dryRun: params.dryRun ?? false,
         createDirs: params.createDirs ?? false,
         fullReplace: params.fullReplace ?? false,
+        allowShrink: false,
         json: true,
         debug: false,
       },
