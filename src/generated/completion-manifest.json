@@ -2267,6 +2267,11 @@
               "values": ["read-only", "implementation"]
             },
             {
+              "flags": ["--model"],
+              "description": "Dispatch model (mt#3043) — which model the subagent should run on. One of the dispatch-model registry ids (sonnet | opus | haiku | fable; see packages/domain/src/ai/dispatch-models.ts, the same registry the cockpit launch picker uses). Returned to the caller as `suggestedModel` so it can be passed as the harness Agent-spawn `model` arg. Omitted → the registry default. An unrecognized id is REJECTED rather than silently defaulting, so a typo never quietly downgrades the dispatch.",
+              "takesValue": true
+            },
+            {
               "flags": ["--description"],
               "description": "Task description/spec content for a NEW task. Only valid in new-task (`title`) mode — rejected when passed together with `taskId` (existing-task mode).",
               "takesValue": true

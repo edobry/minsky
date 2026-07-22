@@ -19,7 +19,7 @@ import { Prose } from "../components/Prose";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { useStartDrivenSession } from "../hooks/useStartDrivenSession";
 import { statusStyle } from "../lib/status-colors";
-import { DISPATCH_MODELS, DEFAULT_DISPATCH_MODEL_ID } from "../lib/dispatch-models";
+import { DISPATCH_MODELS, DEFAULT_DISPATCH_MODEL_ID } from "@minsky/domain/ai/dispatch-models";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the /api/tasks/:id response shape

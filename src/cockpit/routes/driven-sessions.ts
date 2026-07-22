@@ -46,7 +46,7 @@ import {
   createDrivenSessionPersistObserver,
   type ResolvedTaskWorkspace,
 } from "../driven-session-launch";
-import { isDispatchModelId, resolveDispatchModelArg } from "../web/lib/dispatch-models";
+import { isDispatchModelId, resolveDispatchModelArg } from "@minsky/domain/ai/dispatch-models";
 
 /**
  * Options accepted by {@link mountDrivenSessionRoutes}. Every field here is a

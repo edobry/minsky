@@ -215,6 +215,60 @@ describe("tasks_dispatch mode selection (mt#2657)", () => {
 });
 
 /**
+ * Model-selection tests (mt#3043). Like the mode-selection tests above, the model check runs
+ * inside `validateDispatchMode` at module scope — before the harness check — so these
+ * assertions are deterministic regardless of `hasNativeSubagentSupport()`.
+ */
+describe("tasks_dispatch model selection (mt#3043)", () => {
+  test("rejects an unrecognized model id before dispatching", async () => {
+    const cmd = makeCommand();
+    await expect(
+      cmd.execute({
+        taskId: "mt#3043",
+        instructions: "i",
+        type: "implementation",
+        model: "gpt-4o",
+        ...validPremise,
+      } as never)
+    ).rejects.toThrow(/Unknown dispatch model/);
+  });
+
+  test("the rejection names the valid registry ids so the caller can correct it", async () => {
+    const cmd = makeCommand();
+    await expect(
+      cmd.execute({
+        taskId: "mt#3043",
+        instructions: "i",
+        type: "implementation",
+        model: "sonnet-4",
+        ...validPremise,
+      } as never)
+    ).rejects.toThrow(/fable/);
+  });
+
+  test("a registry model id is never rejected as unknown", async () => {
+    const cmd = makeCommand();
+    let caught: unknown;
+    try {
+      await cmd.execute({
+        taskId: "mt#3043",
+        instructions: "i",
+        type: "implementation",
+        model: "fable",
+        ...validPremise,
+      } as never);
+    } catch (e) {
+      caught = e;
+    }
+    // Dispatch may still fail downstream on the harness/session stubs in this environment —
+    // what must NOT happen is a model-validation rejection for a valid registry id.
+    if (caught !== undefined) {
+      expect(String((caught as Error).message)).not.toMatch(/Unknown dispatch model/);
+    }
+  });
+});
+
+/**
  * Type-default and crash-safety (resume) tests for tasks_dispatch existing-task mode (mt#2695).
  *
  * Root cause 1 (type default): the MCP/CLI parameter layers only apply a default from the

@@ -44,6 +44,7 @@ import {
 } from "@minsky/domain/runtime/harness-detection";
 import { log } from "@minsky/shared/logger";
 import { ValidationError } from "@minsky/domain/errors";
+import { isDispatchModelId, DISPATCH_MODELS } from "@minsky/domain/ai/dispatch-models";
 import type { SubagentDispatchTracker } from "../../../../mcp/subagent-dispatch-tracker";
 import {
   validateEvidenceArgument,
@@ -120,6 +121,17 @@ const tasksDispatchParams = {
       "lookups, never for a task expected to write code.",
     required: false,
   },
+  model: {
+    schema: z.string().optional(),
+    description:
+      "Dispatch model (mt#3043) — which model the subagent should run on. One of the " +
+      "dispatch-model registry ids (sonnet | opus | haiku | fable; see " +
+      "packages/domain/src/ai/dispatch-models.ts, the same registry the cockpit launch picker " +
+      "uses). Returned to the caller as `suggestedModel` so it can be passed as the harness " +
+      "Agent-spawn `model` arg. Omitted → the registry default. An unrecognized id is REJECTED " +
+      "rather than silently defaulting, so a typo never quietly downgrades the dispatch.",
+    required: false,
+  },
   description: {
     schema: z.string().optional(),
     description:
@@ -191,6 +203,14 @@ function validateDispatchMode(p: DispatchParams): void {
         "content; existing-task dispatch (`taskId`) targets a task whose spec already exists. " +
         "Passing `description` alongside `taskId` would be silently ignored, which risks " +
         "operator confusion — omit `description` when dispatching an existing task."
+    );
+  }
+  if (p.model !== undefined && !isDispatchModelId(p.model)) {
+    throw new ValidationError(
+      `Unknown dispatch model "${p.model}". Valid ids: ` +
+        `${DISPATCH_MODELS.map((m) => m.id).join(" | ")}. The dispatch-model registry is the ` +
+        "single source of truth — an unrecognized id is rejected rather than silently falling " +
+        "back to the default, so a typo'd model never quietly downgrades the dispatch."
     );
   }
 }
@@ -554,6 +574,7 @@ export function createTasksDispatchCommand(
         instructions: p.instructions,
         scope,
         intent: p.intent,
+        model: p.model,
       });
 
       // mt#2865: write the dispatch-intent declaration BEFORE returning the
