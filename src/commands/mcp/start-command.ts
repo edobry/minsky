@@ -1050,8 +1050,9 @@ export function wireSubagentDispatchTrackerWithRetry(
   }
 
   const TIMEOUT_SENTINEL = Symbol("subagent-tracker-wire-timeout");
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
-    setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
+    timeoutHandle = setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
   });
 
   // Assigns directly to the outer `subagentTrackerWireAttemptInFlight` — no
@@ -1072,6 +1073,11 @@ export function wireSubagentDispatchTrackerWithRetry(
       });
       return false;
     } finally {
+      // mt#3044 R2 NON-BLOCKING: clear the timer when buildSubagentDispatchTracker
+      // wins the race — otherwise it stays pending and fires later, resolving
+      // the now-unused `timeout` promise. A tiny leak on its own, but one that
+      // can accumulate across many quick retries with a short timeoutMs.
+      clearTimeout(timeoutHandle);
       subagentTrackerWireAttemptInFlight = null;
     }
   })();
