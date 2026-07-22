@@ -96,11 +96,36 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
   // the sibling symptom to mt#2945's session_pr_* null-deref: both trace back
   // to a reload-time persistence hiccup that the old code treated as
   // permanent instead of retriable.
+  //
+  // mt#3017: mt#2945 fixed the PERMANENT-latch symptom but left the
+  // underlying race intact — `getTracker()` was still a SYNCHRONOUS function
+  // that returned `null` immediately on the very first call after every
+  // process restart (i.e. every deploy) and on every call that raced an
+  // in-flight init, even though the DB connection was healthy and typically
+  // resolved within milliseconds. A caller that only gets ONE synchronous
+  // chance — `tasks.dispatch-recover`'s "Subagent dispatch tracker
+  // unavailable" error, or `tasks.dispatch`'s Step 5 invocation-row write —
+  // had no way to wait for that resolution. Confirmed live (mt#3017
+  // investigation, 2026-07-22): immediately after a process restart
+  // (`debug_systemInfo` `nodejs.uptime` in the hundreds of seconds),
+  // `tasks.dispatch-recover` against a task with real dispatch history
+  // (mt#3017 itself) succeeded once the tracker had warmed — the DB and the
+  // write path were both healthy; the bug was purely the read-side timing
+  // window between "process started" and "first caller happens to warm the
+  // cache."
+  //
+  // This version memoizes the IN-FLIGHT PROMISE (not just a boolean flag) so
+  // every caller during initialization AWAITS the SAME resolution instead of
+  // racing a premature null return. Bounded by `TRACKER_INIT_TIMEOUT_MS` so a
+  // genuinely-down DB still resolves to null promptly rather than hanging the
+  // caller indefinitely — the SC3 degraded-response path in
+  // `tasks.dispatch-recover` is what a caller falls back to when this timeout
+  // is hit.
+  const TRACKER_INIT_TIMEOUT_MS = 5000;
   let _cachedTracker: SubagentDispatchTracker | null = null;
-  let _trackerInitInFlight = false;
-  const getTracker = (): SubagentDispatchTracker | null => {
+  let _trackerInitPromise: Promise<SubagentDispatchTracker | null> | null = null;
+  const getTracker = async (): Promise<SubagentDispatchTracker | null> => {
     if (_cachedTracker) return _cachedTracker;
-    if (_trackerInitInFlight) return null; // an attempt is already in flight
     if (!container?.has("persistence")) return null;
     let provider: SqlCapablePersistenceProvider;
     try {
@@ -112,28 +137,41 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
       return null;
     }
     if (!provider.getDatabaseConnection) return null;
-    _trackerInitInFlight = true;
-    // Tracker requires a PostgresJsDatabase. We kick off async init here;
-    // if it resolves before the next call, the tracker becomes available.
-    // A failed attempt resets `_trackerInitInFlight` in `finally` so the NEXT
-    // getTracker() call retries rather than staying permanently unavailable.
-    (async () => {
-      try {
-        const db = await provider.getDatabaseConnection();
-        if (db) {
-          _cachedTracker = new SubagentDispatchTracker(
-            db as import("drizzle-orm/postgres-js").PostgresJsDatabase
-          );
+
+    if (!_trackerInitPromise) {
+      // Tracker requires a PostgresJsDatabase. Every caller that arrives
+      // while this promise is in flight awaits the SAME resolution (they all
+      // read the local `_trackerInitPromise` reference below), rather than
+      // each independently kicking off — or short-circuiting past — their
+      // own attempt. On failure the promise resets to null in `finally` so
+      // the NEXT getTracker() call retries (mt#2945's contract, preserved).
+      // On success `_cachedTracker` is set, so future calls short-circuit at
+      // the top of this function before ever consulting the promise again.
+      _trackerInitPromise = (async () => {
+        try {
+          const db = await provider.getDatabaseConnection();
+          if (db) {
+            _cachedTracker = new SubagentDispatchTracker(
+              db as import("drizzle-orm/postgres-js").PostgresJsDatabase
+            );
+          }
+          return _cachedTracker;
+        } catch (err: unknown) {
+          log.debug("[tasks] Could not initialize SubagentDispatchTracker", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return null;
+        } finally {
+          _trackerInitPromise = null;
         }
-      } catch (err: unknown) {
-        log.debug("[tasks] Could not initialize SubagentDispatchTracker", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      } finally {
-        _trackerInitInFlight = false;
-      }
-    })();
-    return null; // Async init; this call (and any concurrent ones) return null
+      })();
+    }
+
+    const initPromise = _trackerInitPromise;
+    const timeout = new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), TRACKER_INIT_TIMEOUT_MS);
+    });
+    return Promise.race([initPromise, timeout]);
   };
   // Import command creation functions locally to avoid top-level circular imports
   const { createTasksStatusGetCommand, createTasksStatusSetCommand } = require("./status-commands");

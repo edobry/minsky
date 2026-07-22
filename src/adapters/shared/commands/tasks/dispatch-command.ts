@@ -207,8 +207,15 @@ export function createTasksDispatchCommand(
    * When provided, a pending row is written at dispatch time so that
    * crashed subagents leave a stale-pending row that is classifiable later.
    * When absent (e.g., DB unavailable at startup), the write is skipped silently.
+   *
+   * Async (mt#3017) — `registry-setup.ts`'s `getTracker` now AWAITS an
+   * in-flight DB-connection resolution (bounded by a timeout) instead of
+   * returning null immediately on every call that races the async init.
+   * Without awaiting here, the very first `tasks.dispatch` call after every
+   * process restart would silently skip writing the invocation row even
+   * though the DB was healthy and about to become available.
    */
-  getTracker?: () => SubagentDispatchTracker | null
+  getTracker?: () => Promise<SubagentDispatchTracker | null>
 ) {
   return {
     id: "tasks.dispatch",
@@ -553,7 +560,7 @@ export function createTasksDispatchCommand(
       // separately in `agentSessionId` at Stop time. Without this correlation
       // the upsert would fail and the dispatch row would orphan as a duplicate.
       try {
-        const tracker = getTracker?.();
+        const tracker = await getTracker?.();
         if (tracker) {
           const invocationId = await tracker.recordSubagentInvocation({
             taskId,
