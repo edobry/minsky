@@ -50,6 +50,7 @@ import {
   type DrivenSessionRegistry,
   type DrivenSessionSubscriber,
 } from "./driven-session-host";
+import { orchestrateDrivenSessionResume } from "./driven-session-launch";
 
 /** Matches `/api/driven-session/<id>/ws` (id is a path segment — no further slashes). */
 const WS_PATH_PATTERN = /^\/api\/driven-session\/([^/]+)\/ws$/;
@@ -114,19 +115,77 @@ export function attachDrivenSessionWebSocket(
     }
 
     const sessionId = decodeURIComponent(match[1] ?? "");
-    const record = registry.get(sessionId);
-    if (!record) {
-      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wireDrivenSessionSocket(ws, record);
+    void resolveDrivenSessionForUpgrade(sessionId, registry).then((resolution) => {
+      if (resolution.kind === "gone") {
+        socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      if (resolution.kind === "locked") {
+        // Another process is already resuming this conversation (R1 delta
+        // #1's cross-process lock lost the race) — a transient condition,
+        // NOT "gone forever". 503 + Retry-After tells the client to retry
+        // shortly rather than treating this as a dead session.
+        socket.write("HTTP/1.1 503 Service Unavailable\r\nRetry-After: 2\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wireDrivenSessionSocket(ws, resolution.record);
+      });
     });
   });
 
   return wss;
+}
+
+type UpgradeResolution =
+  | { kind: "attach"; record: DrivenSessionRecord }
+  | { kind: "locked" }
+  | { kind: "gone" };
+
+/**
+ * Resolve what to attach the incoming WS upgrade to (mt#3038 restart
+ * recovery — RFC minimal-first-slice step 3). Three cases:
+ *
+ *   - The in-memory registry already has a LIVE (non-`"reconnecting"`)
+ *     record — the common case, attach directly, no persistence lookup.
+ *   - The registry has no record, OR a `"reconnecting"` placeholder loaded
+ *     at boot (R1 delta #6) — consult persistence via
+ *     `orchestrateDrivenSessionResume`, which acquires the cross-process
+ *     resume lock (R1 delta #1) before spawning `claude --resume`.
+ *   - The persisted row is `"unrecoverable"` (R1 delta #2 — deleted cwd,
+ *     spawn-died-before-init, policy-blocked respawn) — attach anyway so the
+ *     client gets the buffered transcript history, but mark/keep the
+ *     in-memory record `"unrecoverable"` with its reason instead of ever
+ *     spawning; the client (useDrivenSession) renders this read-only, never
+ *     the crash card.
+ */
+async function resolveDrivenSessionForUpgrade(
+  sessionId: string,
+  registry: DrivenSessionRegistry
+): Promise<UpgradeResolution> {
+  const existing = registry.get(sessionId);
+  if (existing && existing.status !== "reconnecting") {
+    return { kind: "attach", record: existing };
+  }
+
+  const outcome = await orchestrateDrivenSessionResume(sessionId, { registry });
+  switch (outcome.outcome) {
+    case "resumed":
+      return { kind: "attach", record: outcome.record };
+    case "locked":
+      return { kind: "locked" };
+    case "unrecoverable": {
+      const record = existing ?? registry.get(sessionId);
+      if (!record) return { kind: "gone" };
+      record.status = "unrecoverable";
+      record.unrecoverableReason = outcome.reason;
+      return { kind: "attach", record };
+    }
+    case "not-found":
+      return existing ? { kind: "attach", record: existing } : { kind: "gone" };
+  }
 }
 
 /**
