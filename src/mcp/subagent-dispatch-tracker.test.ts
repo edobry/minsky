@@ -36,6 +36,7 @@ import {
   DAILY_PARTIAL_UNCOMMITTED_THRESHOLD,
   DAILY_RATE_LIMITED_THRESHOLD,
   UNKNOWN_AGENT_TYPE,
+  UNKNOWN_TASK_ID,
   type SubagentInvocationInput,
 } from "./subagent-dispatch-tracker";
 import type { SubagentInvocationOutcome } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
@@ -724,6 +725,72 @@ describe("SubagentDispatchTracker", () => {
       // Other fields DID update, proving this isn't a no-op UPDATE.
       expect(row?.outcome).toBe(OUTCOME_COMPLETED_WITH_PR);
       expect(row?.prUrl).toBe("https://example.com/pr/2");
+    });
+
+    // ─── mt#3019 regression: SubagentStop upsert must not clobber the real
+    // dispatch-time taskId with the "unknown" sentinel ───
+    test("upsert UPDATE preserves dispatch-time taskId when the caller sends the unknown sentinel", async () => {
+      // Dispatch-time INSERT carries the real task ID.
+      await tracker.recordSubagentInvocation(
+        makeInput({
+          subagentSessionId: "task-id-preserve-test",
+          taskId: "mt#3019",
+          agentType: "implementer",
+          outcome: OUTCOME_CRASHED,
+        })
+      );
+      expect(store.size).toBe(1);
+      expect(Array.from(store.values())[0]?.taskId).toBe("mt#3019");
+
+      // SubagentStop-style upsert from a hook that could NOT resolve the task
+      // ID (workspace gone, branch unreadable, session lookup failed). Before
+      // mt#3019 the hook's only options were to invent a placeholder — which
+      // this UPDATE path would have written over "mt#3019" — or to drop the
+      // write entirely, which is what it did (the mt#2315 bug).
+      await tracker.recordSubagentInvocation(
+        makeInput({
+          subagentSessionId: "task-id-preserve-test",
+          taskId: UNKNOWN_TASK_ID,
+          agentType: UNKNOWN_AGENT_TYPE,
+          outcome: OUTCOME_COMPLETED_WITH_PR,
+          prUrl: "https://example.com/pr/3",
+        })
+      );
+
+      expect(store.size).toBe(1);
+      const row = Array.from(store.values())[0];
+      // The dispatch-time taskId MUST survive the upsert.
+      expect(row?.taskId).toBe("mt#3019");
+      // Other fields DID update, proving this isn't a no-op UPDATE — this is
+      // the whole point: the Stop event's real information still lands.
+      expect(row?.outcome).toBe(OUTCOME_COMPLETED_WITH_PR);
+      expect(row?.prUrl).toBe("https://example.com/pr/3");
+    });
+
+    test("upsert UPDATE still applies a real (non-sentinel) taskId", async () => {
+      // The fix special-cases ONLY the sentinel: a caller that genuinely knows
+      // a corrected task ID at update time must still be able to write it.
+      await tracker.recordSubagentInvocation(
+        makeInput({ subagentSessionId: "task-id-real-update-test", taskId: "mt#1000" })
+      );
+      await tracker.recordSubagentInvocation(
+        makeInput({ subagentSessionId: "task-id-real-update-test", taskId: "mt#2000" })
+      );
+
+      expect(store.size).toBe(1);
+      expect(Array.from(store.values())[0]?.taskId).toBe("mt#2000");
+    });
+
+    test("INSERT path writes the sentinel taskId (satisfies the NOT NULL column)", async () => {
+      // An orphan Stop with no matching dispatch row still has to insert
+      // SOMETHING for task_id — the column is NOT NULL. The sentinel is that
+      // something, and it must reach the row rather than being dropped.
+      await tracker.recordSubagentInvocation(
+        makeInput({ subagentSessionId: "task-id-orphan-insert-test", taskId: UNKNOWN_TASK_ID })
+      );
+
+      expect(store.size).toBe(1);
+      expect(Array.from(store.values())[0]?.taskId).toBe(UNKNOWN_TASK_ID);
     });
 
     test("upsert UPDATE still applies a real (non-sentinel) agentType", async () => {

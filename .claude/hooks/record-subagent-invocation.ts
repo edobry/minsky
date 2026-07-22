@@ -18,12 +18,34 @@
 // @see mt#2649 — metrics read the wrong file for background-dispatched subagents
 // @see .claude/hooks/transcript.ts — resolveTranscriptCandidates (mt#2637 / PR #1806)
 // @see mt#2796 — actual_model writer (extractActualModel, transcript-metrics.ts)
+// @see mt#3019 — domain bootstrap (this hook's DB path had never executed), the
+//      unresolved-taskId fix (subsumed mt#2315), and the fail-safe deadline
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { readInput } from "./types";
 import type { StopHookInput } from "./types";
 import { resolveTranscriptCandidates } from "./transcript";
+// mt#3019: STATIC — importing this module installs the tsyringe reflect
+// polyfill, which must be resolved before ANY domain module loads. Every
+// domain import below stays dynamic; this one cannot be.
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+
+/**
+ * Overall deadline for the whole Stop-time recording path (mt#3019).
+ *
+ * The fail-safe contract above says this hook must never block a subagent stop.
+ * Until mt#3019 that was true by accident: the DB path died at its first domain
+ * import, so nothing could hang. With the path live, a slow or unreachable
+ * Postgres becomes a real hang risk against the harness's host cap. The
+ * mt#2982 connect timeout (2s, applied in `ensureHookDomainBootstrap`) bounds
+ * the connect specifically; this deadline is the backstop for the
+ * slow-but-not-hanging tail — same role, and same 8s value, as
+ * `STANDALONE_DUP_PROBE_TIMEOUT_MS` in standalone-dup-probe.ts (mt#2958).
+ */
+export const RECORD_INVOCATION_TIMEOUT_MS = 8_000;
+
+const TIMED_OUT = Symbol("record-subagent-invocation-timeout");
 
 // ---------------------------------------------------------------------------
 // Main entrypoint
@@ -32,12 +54,23 @@ import { resolveTranscriptCandidates } from "./transcript";
 if (import.meta.main) {
   const input = await readInput<StopHookInput>();
 
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await recordInvocation(input);
+    const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => resolve(TIMED_OUT), RECORD_INVOCATION_TIMEOUT_MS);
+    });
+    const outcome = await Promise.race([recordInvocation(input), deadline]);
+    if (outcome === TIMED_OUT) {
+      process.stderr.write(
+        `[record-subagent-invocation] warn: exceeded the ${RECORD_INVOCATION_TIMEOUT_MS}ms deadline — invocation not recorded\n`
+      );
+    }
   } catch (err) {
     process.stderr.write(
       `[record-subagent-invocation] warn: unexpected top-level error: ${err instanceof Error ? err.message : String(err)}\n`
     );
+  } finally {
+    clearTimeout(timer);
   }
 
   process.exit(0);
@@ -99,24 +132,67 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
     return;
   }
 
-  // 1. Derive task ID from the workspace path.
-  //    Session directories are named after the session ID, not the task ID.
-  //    We query the Minsky DB via the session record to get the task ID.
-  const taskId = await resolveTaskId(cwd);
-  if (!taskId) {
+  // 0. Bootstrap the domain layer (mt#3019). A hook is its own entry point:
+  //    nothing else in this process installs the tsyringe reflect polyfill or
+  //    initializes the process-global configuration system, and EVERY domain
+  //    import below fails without them. This must precede the first such
+  //    import — including `resolveTaskId`'s.
+  const bootstrap = await ensureHookDomainBootstrap();
+  if (!bootstrap.ok) {
     process.stderr.write(
-      `[record-subagent-invocation] warn: could not resolve taskId for cwd=${cwd}\n`
+      `[record-subagent-invocation] warn: domain bootstrap failed: ${bootstrap.error}\n`
     );
-    // Still record with a placeholder — the dispatch row was written at dispatch
-    // time with the real taskId; we upsert on subagentSessionId so we need it.
     return;
   }
 
-  // 2. Classify workspace outcome.
+  // 1. Derive the upsert correlation key and the task ID.
+  //
+  //    The correlation key is the SUBAGENT's Minsky session id (NOT the harness
+  //    agent_id), encoded in the last segment of the cwd path — dispatch wrote
+  //    the pending row keyed on it (PR #1053 R1 BLOCKING #1). It is resolved
+  //    FIRST (mt#3019) because it, not the task ID, is what makes a Stop-time
+  //    write land on the right row.
+  const subagentSessionId = extractMinskySessionId(cwd);
+
+  //    Session directories are named after the session ID, not the task ID, so
+  //    the task ID comes from the session record (or the git branch).
+  const taskId = await resolveTaskId(cwd);
+
+  if (!taskId && !subagentSessionId) {
+    // Neither correlation key NOR task ID: an INSERT here would create an
+    // orphan row keyed on nothing, attributed to no task — strictly worse than
+    // recording nothing. This is the ONE case where dropping the write is
+    // correct, and unlike the pre-mt#3019 code (which dropped on a missing
+    // taskId alone, contradicting its own comment — mt#2315) the comment and
+    // the behavior now agree.
+    process.stderr.write(
+      `[record-subagent-invocation] warn: no taskId and no session correlation key for cwd=${cwd} — skipping DB write\n`
+    );
+    return;
+  }
+
+  if (!taskId) {
+    // Recoverable: the dispatch-time row already carries the real task ID, and
+    // `subagentSessionId` is enough to find it. Send the sentinel so the
+    // tracker's UPDATE path leaves `task_id` alone (mt#3019) instead of
+    // clobbering it with a placeholder.
+    process.stderr.write(
+      `[record-subagent-invocation] warn: could not resolve taskId for cwd=${cwd} — recording against session ${subagentSessionId} with the unknown-task sentinel\n`
+    );
+  }
+
+  // 2. Classify workspace outcome. The classifier uses taskId only to locate a
+  //    handoff file and to look up a PR by branch name; with the sentinel both
+  //    degrade to "not found" while the commit/handoff classification — the
+  //    part that matters — still works.
   const { classifyWorkspaceOutcome } = await import(
     "../../packages/domain/src/subagent/workspace-classifier"
   );
-  const classification = await classifyWorkspaceOutcome(cwd, taskId);
+  const { SubagentDispatchTracker, UNKNOWN_AGENT_TYPE, UNKNOWN_TASK_ID } = await import(
+    "../../src/mcp/subagent-dispatch-tracker"
+  );
+  const effectiveTaskId = taskId ?? UNKNOWN_TASK_ID;
+  const classification = await classifyWorkspaceOutcome(cwd, effectiveTaskId);
 
   // 3. Read transcript metrics (best-effort).
   const { readTranscriptMetrics, extractActualModel, readTranscriptLines } = await import(
@@ -170,9 +246,8 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
     return;
   }
 
-  const { SubagentDispatchTracker, UNKNOWN_AGENT_TYPE } = await import(
-    "../../src/mcp/subagent-dispatch-tracker"
-  );
+  // SubagentDispatchTracker / UNKNOWN_AGENT_TYPE / UNKNOWN_TASK_ID were all
+  // imported together at step 2 (the sentinel is needed before the connect).
   const tracker = new SubagentDispatchTracker(db);
 
   const now = new Date();
@@ -192,9 +267,9 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   // (mt#2653) is responsible for NOT clobbering the real dispatch-time value
   // on the UPDATE path when it sees that sentinel. On the INSERT path (orphan
   // Stop without a matching dispatch row) the sentinel satisfies the schema's
-  // NOT NULL constraint on `agent_type`.
-  const subagentSessionId = extractMinskySessionId(cwd);
-
+  // NOT NULL constraint on `agent_type`. `UNKNOWN_TASK_ID` above works the
+  // same way for `task_id` (mt#3019).
+  //
   // mt#2831 R1 BLOCKING #1: strong-binding read. When the current-invocation
   // marker file names an exact row, pass it through as `id` — the tracker's
   // strong-binding path then updates THAT row directly, immune to the
@@ -205,20 +280,6 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   // unreadable marker (pre-mt#2831 session, or a write that never landed) falls
   // through to `undefined`, and the tracker uses its heuristic fallback —
   // unchanged behavior from before this mechanism existed.
-  // mt#2831 R3 NB #4: kept as a DYNAMIC import deliberately, matching every other
-  // packages/domain/src/mcp import already in this file (workspace-classifier,
-  // transcript-metrics, persistence/factory, drizzle-session-repository,
-  // subagent-dispatch-tracker, all above). This hook is a documented, deliberate
-  // EXCEPTION to the SPEC.md self-containment invariant the original six
-  // typecheck/workflow hooks hold to ("self-contained — no imports from src/, so
-  // they work even when the main codebase has type errors") — see
-  // docs/architecture/hooks/subagent-merge-capability-guard.md, which explicitly
-  // calls out this file's DB-backed resolution strategy as the invariant OTHER
-  // guards must not replicate. Even as an exception, the imports stay DYNAMIC so
-  // the domain-module load cost is paid only when a SubagentStop actually fires
-  // and this code path is reached — not at hook-registration time for every
-  // Claude Code event this hook (or the dispatcher framework) touches. A static
-  // import here would front-load that cost unconditionally.
   let markerInvocationId: string | undefined;
   if (subagentSessionId) {
     const { readCurrentInvocationMarker } = await import(
@@ -229,7 +290,7 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
 
   await tracker.recordSubagentInvocation({
     id: markerInvocationId,
-    taskId,
+    taskId: effectiveTaskId,
     subagentSessionId,
     agentSessionId: agentId, // harness-native conversation UUID
     outcome: classification.outcome,
