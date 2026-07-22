@@ -771,6 +771,10 @@ export class PreCommitHook {
           lower.endsWith(".yaml") ||
           lower.endsWith(".yml") ||
           lower.endsWith(".toml") ||
+          // mt#2726: the reviewer benchmark corpus is verbatim-mined PR data
+          // (findings + code context windows) that legitimately quotes idioms
+          // like `npx`/`npm run`; it is data, not source, so exempt the dir.
+          lower.startsWith("services/reviewer/eval/corpus/") ||
           // The bun-over-node enforcement check itself contains "npm run"/"npx" in
           // help-message string literals; exempt the file that runs this check.
           lower === "src/hooks/pre-commit.ts"
