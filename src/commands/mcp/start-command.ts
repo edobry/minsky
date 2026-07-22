@@ -1150,9 +1150,9 @@ export function createStartCommand(
         // express/persistence/memory above, and mt#1719's lazy command-group loading) keeps loading
         // the mcp command SDK-free until `mcp start` actually runs. The top-level `import type` keeps
         // the MinskyMCPServer type annotation (used below) erased at build time.
-        profileCheckpoint("before_mcp_server_load");
+        profileCheckpoint("before_sdk_load");
         const { MinskyMCPServer } = await import("../../mcp/server");
-        profileCheckpoint("after_mcp_server_load");
+        profileCheckpoint("after_sdk_load");
         const server = new MinskyMCPServer(serverConfig);
         profileCheckpoint("server_constructed");
 
