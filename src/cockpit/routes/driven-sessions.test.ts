@@ -306,3 +306,55 @@ describe("GET /api/driven-session", () => {
     expect(Array.isArray(row.argv)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Turn-active signal (mt#3048 — cockpit-tray watcher's pre-restart gate)
+// ---------------------------------------------------------------------------
+
+describe("GET /api/driven-session/turn-active", () => {
+  test("reports active: false with no driven sessions at all", async () => {
+    const h = await makeHarness();
+    const res = await fetch(`${h.url}/api/driven-session/turn-active`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { active: boolean; activeSessionIds: string[] };
+    expect(body.active).toBe(false);
+    expect(body.activeSessionIds).toEqual([]);
+  });
+
+  test("reports active: false while every session is idle between turns", async () => {
+    const h = await makeHarness();
+    const created = await post(h.url, { cwd: "/tmp/idle" });
+    first(h.calls).proc.emitLine({ type: "result", subtype: "success", total_cost_usd: 0.01 });
+
+    const res = await fetch(`${h.url}/api/driven-session/turn-active`);
+    const body = (await res.json()) as { active: boolean; activeSessionIds: string[] };
+    expect(body.active).toBe(false);
+    expect(body.activeSessionIds).not.toContain(created.body.sessionId);
+  });
+
+  test("reports active: true with the session id once a turn is streaming", async () => {
+    const h = await makeHarness();
+    const created = await post(h.url, { cwd: "/tmp/active" });
+    first(h.calls).proc.emitLine({ type: "assistant", message: { content: [] } });
+
+    const res = await fetch(`${h.url}/api/driven-session/turn-active`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { active: boolean; activeSessionIds: string[] };
+    expect(body.active).toBe(true);
+    expect(body.activeSessionIds).toEqual([created.body.sessionId]);
+  });
+
+  test("one active + one idle session: reports true, lists only the active one", async () => {
+    const h = await makeHarness();
+    const idle = await post(h.url, { cwd: "/tmp/idle-2" });
+    const active = await post(h.url, { cwd: "/tmp/active-2" });
+    h.calls[0]?.proc.emitLine({ type: "result", subtype: "success", total_cost_usd: 0.01 });
+    h.calls[1]?.proc.emitLine({ type: "assistant", message: { content: [] } });
+
+    const res = await fetch(`${h.url}/api/driven-session/turn-active`);
+    const body = (await res.json()) as { active: boolean; activeSessionIds: string[] };
+    expect(body.active).toBe(true);
+    expect(body.activeSessionIds).toEqual([active.body.sessionId]);
+    expect(body.activeSessionIds).not.toContain(idle.body.sessionId);
+  });
+});
