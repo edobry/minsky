@@ -25,7 +25,7 @@ import {
   type TaskDeleteParams,
 } from "../../schemas/tasks";
 import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
-import { isKnownKind, isTerminalTaskStatus, WORKFLOWS } from "../workflows";
+import { assertKnownKind, isTerminal } from "../workflows";
 import {
   validateStatusTransition,
   hasCloseoutEvidence,
@@ -59,7 +59,7 @@ type InjectedTaskServiceFactory = (
 
 /**
  * Read a task's children via the injected `taskGraphService` and return the
- * subset that are NOT terminal (per `isTerminalTaskStatus` — DONE/CLOSED),
+ * subset that are NOT terminal (per `isTerminal` — DONE/CLOSED),
  * formatted as `id (STATUS)` strings. A child id the task service
  * cannot resolve to a readable record is also treated as incomplete
  * (`id (unreadable)`), since it can't be verified complete. Returns `[]` when
@@ -107,7 +107,7 @@ async function findIncompleteChildren(args: {
   }
   const foundIds = new Set(children.map((c) => c.id));
   return [
-    ...children.filter((c) => !isTerminalTaskStatus(c.status)).map((c) => `${c.id} (${c.status})`),
+    ...children.filter((c) => !isTerminal(c.status)).map((c) => `${c.id} (${c.status})`),
     // A child id with no readable task record cannot be verified complete.
     ...childIds.filter((id) => !foundIds.has(id)).map((id) => `${id} (unreadable)`),
   ];
@@ -398,10 +398,7 @@ export async function createTaskFromParams(
     // Validate kind against the workflow registry when provided. Invalid kinds are
     // rejected up front rather than allowed to silently default at the backend layer
     // (which would mask a typo as a successful default-to-implementation create).
-    if (validParams.kind !== undefined && !isKnownKind(validParams.kind)) {
-      const known = Object.keys(WORKFLOWS).join(", ");
-      throw new ValidationError(`Unknown task kind: "${validParams.kind}". Valid kinds: ${known}.`);
-    }
+    assertKnownKind(validParams.kind);
 
     // Create the task from title and spec content
     const specContent = validParams.spec || validParams.description || "";
@@ -468,10 +465,7 @@ export async function createTaskFromTitleAndSpec(
   }
 
   // Validate kind against the workflow registry when provided.
-  if (validParams.kind !== undefined && !isKnownKind(validParams.kind)) {
-    const known = Object.keys(WORKFLOWS).join(", ");
-    throw new ValidationError(`Unknown task kind: "${validParams.kind}". Valid kinds: ${known}.`);
-  }
+  assertKnownKind(validParams.kind);
 
   // Handle spec content - from spec string only
   const specContent = validParams.spec || "";

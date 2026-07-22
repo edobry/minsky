@@ -2334,14 +2334,9 @@ export function decideTasksCreateGuard(
 // ---------------------------------------------------------------------------
 
 /** Entrypoint wrapper: resolve the decision and map it to hook output. */
-function runTasksCreateGuard(input: ToolHookInput): void {
-  // Observability (PR #1660 R1 BLOCKING): any unexpected throw is surfaced on
-  // stderr and then fails OPEN (permit). A silent crash on the deny path would
-  // otherwise create block/allow ambiguity. The latency-bound budget above
-  // means the host should not SIGTERM us mid-run; this catch covers logic
-  // exceptions, not the host timeout.
+async function runTasksCreateGuard(input: ToolHookInput): Promise<void> {
   try {
-    runTasksCreateGuardInner(input);
+    await runTasksCreateGuardInner(input);
   } catch (err) {
     process.stderr.write(
       `[parallel-work-guard] tasks_create dup-guard errored — failing open (permit): ${
@@ -2351,7 +2346,7 @@ function runTasksCreateGuard(input: ToolHookInput): void {
   }
 }
 
-function runTasksCreateGuardInner(input: ToolHookInput): void {
+async function runTasksCreateGuardInner(input: ToolHookInput): Promise<void> {
   const parentForScope = resolveDuplicateGuardParent(input.tool_input) || undefined;
 
   if (!parentForScope) {
@@ -2359,7 +2354,7 @@ function runTasksCreateGuardInner(input: ToolHookInput): void {
     // below needs a parent to enumerate a sibling pool; a standalone create
     // has none, so it falls through to the STANDALONE-duplicate probe
     // instead (embeddings search against ACTIVE tasks repo-wide).
-    runStandaloneDuplicateGuard(input);
+    await runStandaloneDuplicateGuard(input);
     return;
   }
 
@@ -2482,7 +2477,7 @@ if (import.meta.main) {
   // tasks_create with a parent → duplicate-child guard (mt#1435). Fires at the
   // mutating action, upstream of where session_start would catch it.
   if (input.tool_name === "mcp__minsky__tasks_create") {
-    runTasksCreateGuard(input);
+    await runTasksCreateGuard(input);
     process.exit(0);
   }
 
@@ -2493,7 +2488,7 @@ if (import.meta.main) {
   // `parentTaskId`; without it the guard skips (root create, nothing to dedup).
   // Existing-task mode falls through to the open-PR sweep below.
   if (input.tool_name === DISPATCH_TOOL_NAME && isNewTaskModeDispatch(input.tool_input)) {
-    runTasksCreateGuard(input);
+    await runTasksCreateGuard(input);
     process.exit(0);
   }
 

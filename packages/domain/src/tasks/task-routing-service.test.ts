@@ -78,3 +78,62 @@ describe("TaskRoutingService.findAvailableTasks kind filter (mt#2762)", () => {
     expect(result.map((t) => t.taskId).sort()).toEqual(["mt#1552", "mt#2230"]);
   });
 });
+
+/**
+ * Regression tests for mt#3011: the dependency-completeness checks previously treated a
+ * dependency as satisfied only when its status was "DONE" or the nonexistent "CANCELLED"
+ * status. "CANCELLED" has never been a valid Minsky task status — the cancellation/terminal
+ * state is "CLOSED". As a result, a CLOSED dependency was (incorrectly) still treated as an
+ * active blocker by both findAvailableTasks (tasks_available) and generateRoute (tasks_route).
+ *
+ * These tests fail on the pre-fix code (CLOSED dependencies block) and pass once the checks
+ * treat DONE and CLOSED as the two non-blocking terminal statuses.
+ */
+describe("TaskRoutingService dependency-completeness treats CLOSED as terminal (mt#3011)", () => {
+  test("findAvailableTasks: a task whose sole dependency is CLOSED is available (not blocked)", async () => {
+    const dependent: Task = { id: "mt#100", title: "Dependent task", status: "TODO" };
+    const closedDep: Task = { id: "mt#99", title: "Closed dependency", status: "CLOSED" };
+
+    const taskGraphService = {
+      getRelationshipsForTasks: async () => [{ fromTaskId: "mt#100", toTaskId: "mt#99" }],
+    } as unknown as TaskGraphService;
+
+    const taskService = {
+      listTasks: async () => [dependent],
+      getTask: async (id: string) => (id === closedDep.id ? closedDep : null),
+    } as unknown as TaskServiceInterface;
+
+    const service = new TaskRoutingService(taskGraphService, taskService);
+
+    const result = await service.findAvailableTasks({ statusFilter: ["TODO"] });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].blockedBy).toEqual([]);
+    expect(result[0].readinessScore).toBe(1.0);
+  });
+
+  test("generateRoute: a task whose sole dependency is CLOSED is routable (not blocked)", async () => {
+    const target: Task = { id: "mt#200", title: "Target task", status: "TODO" };
+    const closedDep: Task = { id: "mt#199", title: "Closed dependency", status: "CLOSED" };
+
+    const taskGraphService = {
+      listDependencies: async (taskId: string) => (taskId === target.id ? [closedDep.id] : []),
+    } as unknown as TaskGraphService;
+
+    const taskService = {
+      getTask: async (id: string) => {
+        if (id === target.id) return target;
+        if (id === closedDep.id) return closedDep;
+        return null;
+      },
+    } as unknown as TaskServiceInterface;
+
+    const service = new TaskRoutingService(taskGraphService, taskService);
+
+    const route = await service.generateRoute(target.id);
+
+    expect(route.totalTasks).toBe(2);
+    expect(route.blockedTasks).toBe(0);
+    expect(route.readyTasks).toBe(2);
+  });
+});

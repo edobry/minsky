@@ -7,9 +7,11 @@ import {
   checkTaskState,
   runLoopPreflightCheck,
   formatBlockMessage,
-  TERMINAL_TASK_STATUSES,
   type TaskCheckOutcome,
 } from "./loop-preflight-pr-merge-check";
+// mt#3010: TERMINAL_TASK_STATUSES moved to the shared ./types (itself sourced
+// from the domain registry) — this hook no longer declares its own copy.
+import { TERMINAL_TASK_STATUSES } from "./types";
 
 // ---------------------------------------------------------------------------
 // extractPrNumbers

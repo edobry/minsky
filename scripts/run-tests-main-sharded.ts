@@ -385,8 +385,12 @@ export async function runShardsConcurrently(
 
 // Mirrors run-tests-mcp-isolated.ts / scripts/run-tests-gated.ts exactly:
 // bun prints singular "1 file" (no trailing "s") for a single-file run -- the
-// "s?" is load-bearing.
-const SUMMARY_PATTERN = /Ran (\d+) tests across (\d+) files?/;
+// "s?" is load-bearing. "tests?" (mt#3014 finding) is equally load-bearing:
+// bun independently pluralizes the test count too -- a shard whose combined
+// output happens to have exactly one test prints "Ran 1 test across ..."
+// (singular), confirmed empirically against the pinned bun 1.2.21; without
+// the "?" this would fail-close a genuinely-passing shard.
+const SUMMARY_PATTERN = /Ran (\d+) tests? across (\d+) files?/;
 
 // Mirrors .github/workflows/ci.yml's / scripts/run-tests-gated.ts's outer
 // gate exactly.

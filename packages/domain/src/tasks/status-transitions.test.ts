@@ -1,30 +1,36 @@
 import { describe, test, expect } from "bun:test";
 import { TaskStatus } from "./taskConstants";
+import { getWorkflow } from "./workflows";
 import {
   validateStatusTransition,
-  VALID_TRANSITIONS,
   hasCloseoutEvidence,
   CLOSEOUT_EVIDENCE_HEADING,
   READY_TO_DONE_MISSING_EVIDENCE_MESSAGE,
 } from "./status-transitions";
 
 describe("status-transitions", () => {
-  describe("VALID_TRANSITIONS map (implementation kind backward-compat)", () => {
+  // mt#3010: the legacy VALID_TRANSITIONS backward-compat export was removed —
+  // "implementation" workflow transitions are now asserted directly against the
+  // registry (getWorkflow), the single source of truth.
+  describe("implementation workflow transitions (registry)", () => {
     test("every TaskStatus has a transitions entry", () => {
+      const { transitions } = getWorkflow("implementation");
       for (const status of Object.values(TaskStatus)) {
-        expect(VALID_TRANSITIONS).toHaveProperty(status);
+        expect(transitions).toHaveProperty(status);
       }
     });
 
     test("CLOSED is reachable from every non-CLOSED status (implementation kind)", () => {
+      const { transitions } = getWorkflow("implementation");
       for (const status of Object.values(TaskStatus)) {
         if (status === TaskStatus.CLOSED) continue;
-        expect(VALID_TRANSITIONS[status]).toContain(TaskStatus.CLOSED);
+        expect(transitions[status]).toContain(TaskStatus.CLOSED);
       }
     });
 
-    test("READY → DONE is listed in VALID_TRANSITIONS (guarded by spec check in setTaskStatusFromParams)", () => {
-      expect(VALID_TRANSITIONS[TaskStatus.READY]).toContain(TaskStatus.DONE);
+    test("READY → DONE is listed (guarded by spec check in setTaskStatusFromParams)", () => {
+      const { transitions } = getWorkflow("implementation");
+      expect(transitions[TaskStatus.READY]).toContain(TaskStatus.DONE);
     });
   });
 

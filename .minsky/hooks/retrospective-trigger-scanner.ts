@@ -37,6 +37,22 @@ import {
   findRealPromptIndices,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
+
+/**
+ * Widened suppression look-back (mt#3036).
+ *
+ * The original suppression scanned only the just-completed assistant turn for
+ * a `/retrospective` Skill invocation. A multi-turn retrospective — the skill
+ * dispatches an advisor subagent and the structured output lands 1-3 turns
+ * later — escapes that same-turn check: the output turn itself contains R1
+ * vocabulary ("I conflated", "I should have caught") because the skill's
+ * Step 2a taxonomy REQUIRES those phrases in the report. Widening to a small
+ * fixed window of prior turns catches the invocation regardless of where in
+ * that window the advisor returned. K=5 comfortably covers observed advisor
+ * turnaround (typically 2-3 turns) with slack; larger windows risk
+ * suppressing a genuinely fresh admission in a long conversation.
+ */
+const RETRO_INVOCATION_LOOKBACK_TURNS = 5;
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
@@ -221,6 +237,43 @@ const FAMILY_PATTERNS: Array<{ family: TriggerFamily; patterns: RegExp[] }> = [
 // Skill-invocation helper (retrospective-specific)
 // ---------------------------------------------------------------------------
 
+/**
+ * Widened `/retrospective` suppression check (mt#3036).
+ *
+ * Scans the last `lookbackTurns` completed assistant turns (bounded by real
+ * user prompts) for a `Skill(skill: "retrospective")` invocation. Returns
+ * true if found — the caller should then suppress the R-family scan for
+ * the current turn.
+ *
+ * Rationale: the /retrospective skill often dispatches an advisor subagent
+ * whose structured output lands 1-3 turns after the invocation. Scoping the
+ * "already invoked" check to only the just-completed turn misses the
+ * invocation and lets the output turn's own R-family taxonomy vocabulary
+ * (required by the skill's Step 2a) fire the scanner — the tautology that
+ * motivated this task.
+ *
+ * Fail-open: returns false on any structural error (empty transcript,
+ * unexpected shape). The caller treats false as "not yet invoked" and lets
+ * detection run — safe default.
+ */
+export function hasRecentRetrospectiveInvocation(
+  lines: TranscriptLine[],
+  lookbackTurns: number = RETRO_INVOCATION_LOOKBACK_TURNS
+): boolean {
+  const promptIndices = findRealPromptIndices(lines);
+  if (promptIndices.length === 0) return false;
+
+  // Walk back up to `lookbackTurns` real-prompt boundaries from the current
+  // (in-flight) prompt. When the transcript has fewer prompts than the
+  // window, we scan everything from the first prompt.
+  const startPromptSlot = Math.max(0, promptIndices.length - 1 - lookbackTurns);
+  const startIdx = promptIndices[startPromptSlot] as number;
+  const endIdx = promptIndices[promptIndices.length - 1] as number;
+  if (endIdx <= startIdx) return false;
+
+  return hasRetrospectiveSkillInvocation(lines.slice(startIdx, endIdx));
+}
+
 export function hasRetrospectiveSkillInvocation(turnLines: TranscriptLine[]): boolean {
   const checkBlock = (block: Record<string, unknown>): boolean => {
     if (block["type"] !== "tool_use") return false;
@@ -278,6 +331,29 @@ export const META_CONTEXT_PATTERNS: RegExp[] = [
   /\bcalibration\b/i,
   /\bfalse[- ]positives?\b/i,
   /\/calibration-review\b/,
+  // mt#3036: retrospective structured-output shape. The `/retrospective`
+  // skill's own output format REQUIRES the R-family taxonomy vocabulary
+  // (`### Agent error (cognitive)` → "Assumption Error", "I conflated",
+  // "I should have caught"), which the scanner would then match on. When
+  // the assistant turn IS that output — recognizable by these headings —
+  // trigger phrases in it are describing the analyzed failure, not asserting
+  // a fresh one. Whole-turn suppression here mirrors the existing
+  // meta-discussion tradeoff (a live admission mixed into a retro-output
+  // turn is a documented FN; the widened invocation look-back is the
+  // primary defense, this pattern set is defense-in-depth).
+  //
+  // PR #2169 R1 (narrowed): patterns are limited to headings distinctive
+  // to `/retrospective`'s Step 2a output. Generic RCA/design-doc headings
+  // (`### Root cause`, `### Failure mode:`) were dropped — they appear in
+  // ordinary specs, ADRs, and incident memos, and their broad match risks
+  // suppressing R-family scanning on unrelated content. The retained set
+  // requires the retro-specific `## Retrospective:` header OR one of the
+  // taxonomy sub-headings that is essentially a retro-only phrase.
+  /^##\s+Retrospective:/m,
+  /^###\s+Agent error\s*\(cognitive\)/m,
+  /^###\s+Recurrence check\b/m,
+  /^###\s+Recurrence-after-DONE\b/m,
+  /^\*\*Correction noted\*\*\s*:/m,
 ];
 
 /** True when the raw turn text is meta-discussion of the detector/calibration system. */
@@ -507,16 +583,24 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   const lines = ctx.transcriptLines;
   if (lines.length === 0) return null;
 
+  // mt#3036: widened `/retrospective` invocation look-back (K=5 turns), so
+  // multi-turn advisor retrospectives don't false-fire on the output turn's
+  // own required taxonomy vocabulary. Scope: ONLY the assistant-side
+  // R-family scan is suppressed — user-correction and method-redirect
+  // families stay live (PR #2169 R1). A 5-turn window is far too long to
+  // silence user-side signals: an operator complaint or method redirect
+  // arriving 2-4 turns after a completed retrospective is not the same
+  // event as the retrospective, and losing it would suppress critical
+  // course-correction signals during exactly the phase (mid-fix / post-fix
+  // work) where they are most likely.
   let retrospectiveAlreadyInvoked = false;
   try {
-    const turnLines = extractLastAssistantTurn(lines);
-    if (turnLines.length > 0 && hasRetrospectiveSkillInvocation(turnLines)) {
+    if (hasRecentRetrospectiveInvocation(lines)) {
       retrospectiveAlreadyInvoked = true;
     }
   } catch {
     // fail-open
   }
-  if (retrospectiveAlreadyInvoked) return null;
 
   const allMatches: TriggerMatch[] = [];
 
@@ -525,7 +609,9 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length > 0) {
       runAssistantText = extractAssistantText(turnLines);
-      if (runAssistantText) {
+      // Assistant-side R-family scan: suppressed when a recent
+      // `/retrospective` invocation covers this turn's output.
+      if (runAssistantText && !retrospectiveAlreadyInvoked) {
         allMatches.push(
           ...filterStopFlagged(input.session_id, lines, detectTriggerPhrases(runAssistantText))
         );
@@ -537,6 +623,10 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     );
   }
 
+  // User-side scans (correction + method-redirect) stay LIVE regardless of
+  // a recent `/retrospective` — user course-correction signals must not be
+  // suppressed by a completed retro (PR #2169 R1; mirrors mt#2672's
+  // policy that user-correction is not meta-suppressed).
   try {
     const userText = extractLastUserMessage(lines);
     if (userText) {
@@ -629,28 +719,30 @@ export async function main(): Promise<void> {
 
   const allMatches: TriggerMatch[] = [];
 
-  // Check if /retrospective was already invoked in the prior turn — suppress ALL detection
+  // Check if `/retrospective` was invoked in any of the last K completed
+  // turns. mt#3036: widened from same-turn-only to a K=5 turn look-back so
+  // multi-turn advisor retrospectives don't false-fire on the output turn's
+  // own required taxonomy vocabulary. Scope: ONLY the assistant-side
+  // R-family scan below is suppressed — user-correction and method-redirect
+  // families stay live (PR #2169 R1; mirrors the mt#2672 policy that
+  // user-correction is never meta-suppressed).
   let retrospectiveAlreadyInvoked = false;
   try {
-    const turnLines = extractLastAssistantTurn(lines);
-    if (turnLines.length > 0 && hasRetrospectiveSkillInvocation(turnLines)) {
+    if (hasRecentRetrospectiveInvocation(lines)) {
       retrospectiveAlreadyInvoked = true;
     }
   } catch {
     // fail-open
   }
 
-  if (retrospectiveAlreadyInvoked) {
-    process.exit(0);
-  }
-
-  // Surface 1: scan prior assistant turn for trigger phrases
+  // Surface 1: scan prior assistant turn for trigger phrases (SKIP when a
+  // recent /retrospective invocation covers this turn's output).
   let mainAssistantText = "";
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length > 0) {
       mainAssistantText = extractAssistantText(turnLines);
-      if (mainAssistantText) {
+      if (mainAssistantText && !retrospectiveAlreadyInvoked) {
         const triggerMatches = filterStopFlagged(
           input.session_id,
           lines,

@@ -60,6 +60,10 @@ export interface CalibrationLogEntry {
    *   distinct `session_id` (conversation) values instead of distinct
    *   phrases — the signal is "how many different conversations hit the
    *   cadence threshold," mirroring policy-coverage's non-phrase axis.
+   * "build-claim-injection"    → record.matchedPhrases: string[] (mt#2923) —
+   *   the matched usability/delivery claim phrase(s), same shape family as
+   *   causal-premise. `deploySurfaceFiles: string[]` is carried as extra
+   *   context (not consulted by diversity/threshold logic).
    */
   kind:
     | "causal-premise"
@@ -69,7 +73,17 @@ export interface CalibrationLogEntry {
     | "pre-narration"
     | "policy-coverage"
     | "silent-stretch"
-    | "wall-of-text";
+    | "wall-of-text"
+    | "build-claim-injection";
+  /**
+   * Optional per-entry override (mt#2896) for the never-reviewed-aging review
+   * trigger: the number of days a NEVER-reviewed log may accumulate fires
+   * before `computeReviewDueLogs` flags it review-due (reason "never-reviewed").
+   * Omit to use the registry-wide default `NEVER_REVIEWED_DAYS`. A detector that
+   * declares a tighter graduation contract (e.g. "dispose at <= 30 days") sets
+   * this so the cadence loop can enforce that contract's time leg.
+   */
+  reviewByDays?: number;
 }
 
 /**
@@ -104,6 +118,12 @@ export interface CalibrationLogEntry {
  *     sibling of silent-stretch. Also NOT a matched-phrase log: a per-turn
  *     report-shape measurement (wordCount/trigger/leadLabelHits); diversity
  *     is measured over distinct `session_id` values, like silent-stretch.
+ *
+ * V5 entry (mt#2923):
+ *   - build-claim-injection-calibration.jsonl (mt#2923 detector, the
+ *     mt#2707-RFC build/deploy-claim seam) — a matched-phrase log (same
+ *     shape family as causal-premise). Declares `reviewByDays: 30` (the
+ *     mt#2896 never-reviewed-aging leg) as its graduation contract.
  *
  * To add another log: append one CalibrationLogEntry here.
  */
@@ -148,6 +168,15 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     name: "wall-of-text",
     kind: "wall-of-text",
   },
+  {
+    path: ".minsky/build-claim-injection-calibration.jsonl",
+    name: "build-claim-injection",
+    kind: "build-claim-injection",
+    // mt#2923 graduation contract: dispose within 30 days even at low fire
+    // volume (per the mt#2923 spec's Planning notes; enforced via the
+    // mt#2896 never-reviewed-aging leg in computeReviewDueLogs below).
+    reviewByDays: 30,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -176,6 +205,36 @@ export const FIRES_THRESHOLD = 10;
  * the "keep collecting" state.
  */
 export const DIVERSITY_THRESHOLD = 3;
+
+/**
+ * Time-based staleness bar for a REVIEWED log with new-but-below-count-bar
+ * fires (moved here from `calibration-review-cadence-detector.ts` by mt#2896 so
+ * every cadence constant lives in ONE place alongside FIRES_THRESHOLD /
+ * DIVERSITY_THRESHOLD). Grounded in CLAUDE.md `decision-defaults.mdc
+ * §Thresholds` — "10 days for lynchpin tracking" is the nearest anchor; a
+ * calibration log with unreviewed new fires is a "tracking" concern (watching
+ * detector calibration drift), not active in-flight work (which uses the
+ * tighter 5-day bar).
+ */
+export const STALE_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
+
+/**
+ * Default number of days a NEVER-reviewed log may accumulate fires before it is
+ * flagged review-due (mt#2896's third trigger leg, reason "never-reviewed").
+ * Closes the "under-threshold-forever" blind spot: a low-volume log that has
+ * never been reviewed and accrues fires slowly satisfies NEITHER `pastThreshold`
+ * (needs count + diversity) NOR the time-stale leg (needs an existing
+ * watermark), so absent this leg it stays invisible to the review loop forever
+ * (causal-premise sat at 1 fire for ~6 weeks — mt#2832 audit).
+ *
+ * 30 = 3x the existing 10-day STALE_DAYS bar. Provisional per
+ * `decision-defaults.mdc §Thresholds` (ground in observed cadence, not a round
+ * number) until calibration data grounds it; overridable per-entry via
+ * `CalibrationLogEntry.reviewByDays` so a detector can declare a tighter
+ * graduation contract (the learn-capture detector, mt#2708, will declare 30).
+ */
+export const NEVER_REVIEWED_DAYS = 30;
+export const NEVER_REVIEWED_DAYS_MS = NEVER_REVIEWED_DAYS * 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Watermark store types
@@ -295,6 +354,23 @@ export interface WallOfTextRecord {
   namedRefCount?: number;
 }
 
+/**
+ * Parsed build-claim-injection calibration record (mt#2923).
+ *
+ * Same matched-phrase shape family as `CausalPremiseRecord` — the matched
+ * usability/delivery claim phrase(s) go in `matchedPhrases`.
+ * `deploySurfaceFiles` is carried as extra context (the deploy/build-surface
+ * paths edited in the session) and is not consulted by diversity/threshold
+ * logic. Mirrors the exact fields the detector writes in
+ * `.minsky/hooks/build-claim-injection-detector.ts`.
+ */
+export interface BuildClaimInjectionRecord {
+  timestamp: string;
+  session_id?: string;
+  matchedPhrases: string[];
+  deploySurfaceFiles: string[];
+}
+
 /** Union of all record types. */
 export type CalibrationRecord =
   | CausalPremiseRecord
@@ -302,7 +378,8 @@ export type CalibrationRecord =
   | CodeMechanismAssertionRecord
   | PolicyCoverageRecord
   | SilentStretchRecord
-  | WallOfTextRecord;
+  | WallOfTextRecord
+  | BuildClaimInjectionRecord;
 
 // ---------------------------------------------------------------------------
 // Per-log result
@@ -340,6 +417,13 @@ export interface CalibrationLogResult {
    * `openAskId`. Undefined when no ask is on file or it has been cleared.
    */
   openAskId?: string;
+  /**
+   * ISO-8601 timestamp of the EARLIEST record in the log (mt#2896), or undefined
+   * when the log is empty/absent. Threaded through so `computeReviewDueLogs`'s
+   * never-reviewed-aging leg can measure days-since-first-fire for a log that
+   * has no watermark to date from.
+   */
+  firstRecordTimestamp?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -433,6 +517,21 @@ export function parseCalibrationRecord(
         hadTextInTurn:
           raw["hadTextInTurn"] !== undefined ? Boolean(raw["hadTextInTurn"]) : undefined,
       } satisfies SilentStretchRecord;
+    }
+
+    if (kind === "build-claim-injection") {
+      // Shape: { timestamp, session_id?, matchedPhrases: string[], deploySurfaceFiles: string[] }
+      // Mirrors the exact record `.minsky/hooks/build-claim-injection-detector.ts`
+      // appends (mt#2923). Same matched-phrase shape family as causal-premise.
+      if (!Array.isArray(raw["matchedPhrases"])) return null;
+      return {
+        timestamp: String(raw["timestamp"] ?? ""),
+        session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
+        matchedPhrases: (raw["matchedPhrases"] as unknown[]).map(String),
+        deploySurfaceFiles: Array.isArray(raw["deploySurfaceFiles"])
+          ? (raw["deploySurfaceFiles"] as unknown[]).map(String)
+          : [],
+      } satisfies BuildClaimInjectionRecord;
     }
 
     if (kind === "wall-of-text") {
@@ -606,6 +705,12 @@ export function computeLogResult(
     newRecords: atCountThreshold ? newRecords : [],
     watermarkCount,
     openAskId: watermark?.openAskId,
+    // Calibration logs are APPEND-ONLY (records appended as events fire, never
+    // reordered), so the first record IS the earliest — mt#2896 review NB1. A
+    // naive chronological min would be LESS safe here: a later record with an
+    // empty/malformed timestamp (parseCalibrationRecord tolerates `""`) would
+    // poison the min and silently disable the never-reviewed leg.
+    firstRecordTimestamp: allRecords[0]?.timestamp,
   };
 }
 
@@ -629,6 +734,121 @@ export async function runSweep(
     results.push(computeLogResult(entry, content ?? "", exists, watermark));
   }
   return results;
+}
+
+// ---------------------------------------------------------------------------
+// Review-due determination (mt#2896)
+// ---------------------------------------------------------------------------
+//
+// Moved here from `.minsky/hooks/calibration-review-cadence-detector.ts` so
+// BOTH the cadence hook AND the `observability.calibration-review` command
+// consume ONE source of truth for "which logs are review-due." Previously the
+// command reported only per-log `pastThreshold` while the never-reviewed /
+// time-stale legs lived hook-only, so `observability_calibration-review` could
+// never surface a time-based review-due log (mt#2896 acceptance test #2).
+
+/** A calibration log flagged as review-due, tagged with the leg that flagged it. */
+export interface ReviewDueLog {
+  name: string;
+  path: string;
+  /** Registry kind (mt#2659) — drives the fire-count-vs-time-only re-warn split in the hook's `shouldReWarn`. */
+  kind: CalibrationLogEntry["kind"];
+  firesSinceLastReview: number;
+  totalFires: number;
+  distinctPhrases: number;
+  reason: "past-threshold" | "time-stale" | "never-reviewed";
+  /** Forwarded from the watermark's `openAskId` (mt#2659); undefined for never-reviewed (no watermark). */
+  openAskId?: string;
+  /**
+   * For the never-reviewed leg only (mt#2896 review): the EFFECTIVE review-by
+   * window in days used for this log's decision (per-entry `reviewByDays`, else
+   * `NEVER_REVIEWED_DAYS`). Undefined for past-threshold / time-stale. Lets the
+   * cadence warning name the log's ACTUAL window instead of the hardcoded
+   * default (which would misreport an overridden entry).
+   */
+  reviewByDays?: number;
+}
+
+function toReviewDueLog(
+  r: CalibrationLogResult,
+  reason: ReviewDueLog["reason"],
+  openAskId: string | undefined,
+  reviewByDays?: number
+): ReviewDueLog {
+  return {
+    name: r.entry.name,
+    path: r.entry.path,
+    kind: r.entry.kind,
+    firesSinceLastReview: r.firesSinceLastReview,
+    totalFires: r.totalFires,
+    distinctPhrases: r.distinctPhrases,
+    reason,
+    openAskId,
+    reviewByDays,
+  };
+}
+
+/**
+ * Determine which logs are review-due, per THREE independent conditions:
+ *   1. past-threshold — fires-since-review >= FIRES_THRESHOLD AND
+ *      distinctPhrases >= DIVERSITY_THRESHOLD (the diversity-aware count bar).
+ *   2. time-stale     — the log HAS a watermark (reviewed before), has >= 1 new
+ *      fire since, AND that review is >= `staleMs` old.
+ *   3. never-reviewed — the log has NO watermark (never reviewed, ever), has
+ *      >= 1 fire, AND its EARLIEST fire is >= the log's review-by window old
+ *      (per-entry `reviewByDays`, else `NEVER_REVIEWED_DAYS`). mt#2896 — closes
+ *      the "under-threshold-forever" blind spot where a slow, low-volume log
+ *      satisfied neither (1) (needs diversity) nor (2) (needs a watermark).
+ *
+ * Pure over already-computed sweep results + the watermark store. `nowMs` and
+ * both windows are injected for deterministic testing.
+ */
+export function computeReviewDueLogs(
+  results: CalibrationLogResult[],
+  watermarks: WatermarkStore,
+  nowMs: number,
+  staleMs: number = STALE_DAYS_MS,
+  neverReviewedMsDefault: number = NEVER_REVIEWED_DAYS_MS
+): ReviewDueLog[] {
+  const due: ReviewDueLog[] = [];
+  for (const r of results) {
+    const wm = watermarks[r.entry.path];
+
+    if (r.pastThreshold) {
+      due.push(toReviewDueLog(r, "past-threshold", wm?.openAskId));
+      continue;
+    }
+
+    // never-reviewed-aging (mt#2896): no watermark at all, but the log has been
+    // accumulating fires since its first record for longer than its review-by
+    // window. Dates from the earliest record's timestamp (there is no watermark
+    // to date from here).
+    if (!wm) {
+      if (r.totalFires <= 0 || !r.firstRecordTimestamp) continue;
+      const firstMs = Date.parse(r.firstRecordTimestamp);
+      if (Number.isNaN(firstMs)) continue;
+      const windowMs =
+        r.entry.reviewByDays !== undefined
+          ? r.entry.reviewByDays * 24 * 60 * 60 * 1000
+          : neverReviewedMsDefault;
+      if (nowMs - firstMs >= windowMs) {
+        const windowDays = Math.round(windowMs / (24 * 60 * 60 * 1000));
+        due.push(toReviewDueLog(r, "never-reviewed", undefined, windowDays));
+      }
+      continue;
+    }
+
+    // time-stale: reviewed before, >= 1 new fire, review is >= staleMs old. A
+    // reviewed log that hasn't accrued a new fire is "keep collecting," not
+    // "forgotten."
+    if (r.firesSinceLastReview <= 0) continue;
+    const reviewedMs = Date.parse(wm.lastReviewedAt);
+    if (Number.isNaN(reviewedMs)) continue;
+    if (nowMs - reviewedMs >= staleMs) {
+      due.push(toReviewDueLog(r, "time-stale", wm.openAskId));
+    }
+  }
+  return due;
 }
 
 /**
@@ -845,6 +1065,7 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "policy-coverage": "policy-coverage-detector",
   "silent-stretch": "silent-stretch-detector",
   "wall-of-text": "wall-of-text-detector",
+  "build-claim-injection": "build-claim-injection-detector",
 };
 
 /**

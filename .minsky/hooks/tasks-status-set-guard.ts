@@ -25,7 +25,11 @@
 import { execWithPath, readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 import { validateStatusTransition } from "../../packages/domain/src/tasks/status-transitions";
-import { TaskStatus, isValidTaskStatus } from "../../packages/domain/src/tasks/taskConstants";
+import {
+  TaskStatus,
+  TASK_STATUS_VALUES,
+  isValidTaskStatus,
+} from "../../packages/domain/src/tasks/taskConstants";
 import { recordFireLogEntry } from "./fire-log";
 
 const TARGET_TOOL = "mcp__minsky__tasks_status_set";
@@ -89,7 +93,7 @@ export function checkTransition(
       decision: "deny",
       reason:
         `Refused tasks_status_set on ${taskId}: requested status "${requested}" is not a valid TaskStatus. ` +
-        `Valid: TODO, PLANNING, READY, IN-PROGRESS, IN-REVIEW, DONE, COMPLETED, BLOCKED, CLOSED.`,
+        `Valid: ${TASK_STATUS_VALUES.join(", ")}.`,
     };
   }
 

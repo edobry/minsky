@@ -24,6 +24,7 @@ import type {
 import type { TaskBackend } from "./types";
 import { log } from "@minsky/shared/logger";
 import type { Task, TaskListOptions, CreateTaskOptions, DeleteTaskOptions } from "../tasks";
+import { shouldIncludeTaskStatus } from "./task-filters";
 
 // API operations
 import {
@@ -224,14 +225,11 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
         tags: taskData.tags || [],
       }));
 
-      if (options?.status && options.status !== "all") {
-        tasks = tasks.filter((task) => task.status === options.status);
-      } else if (!options?.all) {
-        // Hide terminal statuses by default (DONE + CLOSED; single success
-        // terminal since mt#2311). Kept in sync with
-        // TASK_STATUSES_HIDDEN_BY_DEFAULT in task-filters.ts.
-        tasks = tasks.filter((task) => task.status !== "DONE" && task.status !== "CLOSED");
-      }
+      // Status filter/hide-by-default (mt#3010 — single-authority consolidation:
+      // was three hand-rolled branches ending in a literal `!== "DONE" && !== "CLOSED"`
+      // hide-by-default comparison; now the same registry-backed predicate every
+      // other backend's listTasks uses).
+      tasks = tasks.filter((task) => shouldIncludeTaskStatus(task.status, options));
 
       // Filter by tags if specified
       if (options?.tags && options.tags.length > 0) {

@@ -256,7 +256,7 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
 4. **Guard/rule documentation (mt#2208).** If this PR adds or modifies a pre-commit guard, a Claude Code hook (\`.claude/hooks/*\`), an ESLint rule, or any mechanism whose siblings are documented in a \`.minsky/rules/*.mdc\` section (e.g., the pre-commit guards documented in \`hook-files.mdc\`), document the new mechanism in the SOURCE rule and recompile IN THIS PR — before \`session_pr_create\`. Skipping this means the reviewer-bot's \`## Documentation impact\` check returns BLOCKING at review time, costing a full extra round.
 
    - Edit the canonical source — \`.minsky/rules/<file>.mdc\` — NOT the generated \`CLAUDE.md\` / \`AGENTS.md\` / \`.cursor/rules/\` outputs. Then run \`bun run src/cli.ts rules compile\`.
-   - **Verify each target regenerated.** The no-\`--target\` \`rules compile\` does not reliably regenerate every output — \`grep\` for the new section in \`CLAUDE.md\` specifically; if it is absent, run \`rules compile --target claude.md\` (and \`--target cursor-rules\`) explicitly.
+   - **Verify each target regenerated.** The no-\`--target\` \`rules compile\` does not reliably regenerate every output — \`grep\` for the new section in \`CLAUDE.md\` specifically; if it is absent, run \`rules compile --target claude.md\` explicitly. If the change touches \`.cursor/rules/\`, run \`bun run minsky compile --target cursor-rules-ts\` (the sole \`.cursor/rules/\` writer as of mt#2995 — the legacy \`rules compile --target cursor-rules\` is retired).
    - Register any new \`MINSKY_*\` override env var in \`HOOK_ONLY_ENV_VARS\` (mt#1788).
 
    Origin: mt#2208 / PR #1453 (2026-05-31) — the deploy-domain ownership guard shipped without its \`hook-files.mdc\` section (every sibling guard there is documented). The reviewer-bot's Documentation-impact check returned BLOCKING, costing an extra round + a recompile gotcha (the no-\`--target\` invocation regenerated \`AGENTS.md\` but not \`CLAUDE.md\`). See \`feedback_new_guard_needs_source_rule_doc_at_authoring_time\`.
@@ -465,6 +465,14 @@ If the named condition, once checked against its definition, does not actually h
 **Subagent carve-out.** Subagents STOP at §8 (Create PR). Convergence-driving is the **main agent's** responsibility. \`.claude/hooks/block-subagent-bypass-merge.ts\` structurally enforces this for the \`gh api PUT /merge\` sub-case by detecting non-empty \`agent_id\` on the tool input and denying the call. Subagents must report the PR URL + bot-review status back to the parent and exit; the main agent then drives convergence per this step.
 
 **Post-merge:** §10 (Post-merge deploy verification) takes over when the merged PR touches a deployed service. Otherwise the at-merge handler sets DONE and the lifecycle is complete.
+
+**Completion-claim format (mt#2924).** For build/install deliverables (a CLI or the cockpit-tray app the principal must rebuild/reinstall) and deploy-surface deliverables (§10's deploy surface), report the completion claim in the claim-confidence format — \`[delivery state] — [evidential warrant + basis]\` — per \`.minsky/rules/claim-confidence.mdc\`. Bind that rule's Axis A class-conditional lattice: **auto-usable** deliverables (a running service that picks up the merge; config takes effect on deploy) may claim \`usable\` once \`deployed\`. **Build/install** deliverables (cockpit-tray, CLI) must name the remaining principal-side step and must NOT claim \`usable\` without a **verified-1b** (live-probe) basis — a merge or a healthy deploy alone is not evidence of \`usable\` for this class.
+
+Worked example (the mt#2528 class — merged but not yet usable):
+
+> Merged (verified-1a: PR merged this turn) — to reach usable: rebuild + tray reinstall.
+
+When §9/§10 touches shared/prod state, the claim-confidence rule's risk-and-evidence ledger may also apply — see \`.minsky/rules/claim-confidence.mdc §The risk-and-evidence ledger\` for the trigger and mechanics (not restated here).
 
 **Cross-references:**
 

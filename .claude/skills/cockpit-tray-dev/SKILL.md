@@ -75,6 +75,49 @@ cockpit-tray/scripts/verify-deeplink-coldstart.sh    # automated cold-boot check
 
 Do NOT use the full `bun run build` (DMG-producing) path below for deep-link verification.
 
+## Environment-mutating verification: the end-state contract (mt#2545 Gap B)
+
+`install-local.sh` and the release-install path below both **mutate the principal's live
+environment**: they install/replace the running `/Applications/Minsky Cockpit.app` and cause
+macOS Launch Services to (re-)register the `minsky://` scheme against whichever bundle you just
+installed. This is an **observer-gap closure**, not a courtesy step: the agent cannot observe the
+principal's machine, so it cannot itself decide whether the newly-verified build should stay
+installed or the prior one should come back — that decision belongs to the principal, not to a
+default.
+
+**Originating incident (mt#2528, 2026-06-24):** a verification session installed a throwaway
+test build, confirmed the deep-link handler worked, then **defaulted to restoring the principal's
+prior app** — which silently un-delivered the just-verified feature AND left Launch Services'
+`minsky://` registration pointing at a bundle that no longer existed. "Leave no trace" is the
+wrong default for a feature-delivery verification: the trace IS the delivery.
+
+Any verification that installs/replaces the running tray app or churns Launch Services
+registration (`install-local.sh`, the release-install path, an ad hoc rebuild+reinstall to test a
+fix) follows this sequence — do not skip a step or substitute a default:
+
+1. **Backup.** Before installing the build under test, note (or copy aside) what is currently
+   installed — at minimum, know that a prior `/Applications/Minsky Cockpit.app` exists and could
+   be restored if asked to.
+2. **Verify.** Install the build under test and run the actual check (`bun run dev`, the
+   `verify-deeplink-*.sh` scripts, a manual click). Confirm the specific behavior you set out to
+   verify.
+3. **Explicit end-state decision — WITH the principal, not a default.** Once verified, STOP and
+   ask: does the principal want to (a) **keep** the just-verified build installed (the normal case
+   — the feature is now delivered), or (b) **restore** the prior build (only when the test build
+   is genuinely disposable / not meant to ship yet)? Do **not** default to restore, and do not
+   default to keep, without saying so — state the decision and its basis explicitly. This is the
+   one step a hook cannot supply: detecting "an install happened" is mechanical, but the
+   keep-vs-restore call needs principal input.
+4. **Clean-environment assertion.** Whichever way the decision goes, confirm — don't assume — the
+   environment is left consistent: the installed `/Applications/Minsky Cockpit.app` matches what
+   was decided, and the `minsky://` Launch Services registration resolves to that SAME bundle (not
+   a deleted test build). State this confirmation explicitly rather than silently trusting the
+   install script exited 0.
+
+Scope: this applies to install/replace of the running artifact plus its OS-registration
+consequences — NOT every daemon restart or port change during ordinary `bun run dev` iteration,
+which is transient and reversible by construction and carries none of this footgun.
+
 ## Release install (rare — testing the packaged DMG experience, not iterating)
 
 ```bash
@@ -103,3 +146,4 @@ There is no auto-update yet, so a merged tray-binary change won't reach an insta
 - `docs/architecture/adr-014-cockpit-daemon-lifecycle-ownership.md` — the daemon supervisor model.
 - `cockpit-design` skill + `src/cockpit/CLAUDE.md` — the cockpit **web UI** layer (the other half of the system).
 - mt#2230 — harness-host ladder (the tray is its native vehicle); mt#2201 — signing / distribution (fold in auto-update); mt#2219 — the "Open Cockpit" window (the originating "why don't I see it" incident).
+- mt#2545 / mt#2528 — the environment-mutating-verification end-state contract above (Backup → Verify → decide → assert); `.minsky/rules/claim-confidence.mdc` — the delivery-state vocabulary (`merged`/`deployed`/`usable`) this contract's "restore un-delivers the feature" framing draws on.

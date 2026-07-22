@@ -78,7 +78,11 @@ describe("checkTransition — read-failure fail-open", () => {
 });
 
 describe("checkTransition — allowed transitions", () => {
-  // Mirror src/domain/tasks/status-transitions.ts:VALID_TRANSITIONS
+  // Mirror the "implementation" workflow's transitions in
+  // packages/domain/src/tasks/workflows.ts (VALID_TRANSITIONS, the legacy
+  // duplicate export, was removed mt#3010 — this list intentionally still
+  // lives here as an independent behavioral assertion, not read from the
+  // registry, since the guard exercises validateStatusTransition end-to-end).
   const allowed: Array<[string, string]> = [
     ["TODO", "PLANNING"],
     ["TODO", "CLOSED"],

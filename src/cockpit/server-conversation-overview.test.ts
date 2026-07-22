@@ -4,11 +4,31 @@
  * `GET /api/agents/:id`).
  *
  * Covers the HTTP-layer contract: response structure for missing services
- * (503 when no DB/provider in the test environment), and that the endpoint
- * is registered ahead of the SPA catch-all. Full reverse-join resolution
- * (`pickBestWorkspaceLink`, `buildWorkspaceOverview`) is covered by pure
- * unit tests in `session-detail.test.ts` and by live verification against a
- * real database (see the task's PR body).
+ * (503, via an EXPLICITLY injected `getDb: async () => null` override —
+ * mt#3016, see below), and that the endpoint is registered ahead of the SPA
+ * catch-all. Full reverse-join resolution (`pickBestWorkspaceLink`,
+ * `buildWorkspaceOverview`) is covered by pure unit tests in
+ * `session-detail.test.ts` and by live verification against a real database
+ * (see the task's PR body).
+ *
+ * ## mt#3016 — explicit `getDb` injection, not ambient "no live db"
+ *
+ * `getContextInspectorDb()` (the real db getter this route falls back to
+ * when no override is supplied) is a module-level singleton shared across
+ * every test file in the same `bun test` process. Confirmed empirically
+ * that `packages/domain/src/session-auto-task-creation.test.ts` running
+ * first in the same process (its `beforeEach` calls
+ * `@minsky/domain/configuration`'s equally global, equally un-reset
+ * `initializeConfiguration()`, which still merges in the real user-level
+ * `~/.config/minsky/config.yaml`) makes `getContextInspectorDb()` resolve a
+ * REAL, non-null connection — flipping this endpoint's expected 503 to a
+ * 404 (a genuine "conversation not found" result against the live
+ * transcripts table, since this file's fake conversation ids have no
+ * matching row). `startTestServer` below now defaults every test's server
+ * to `overrideConversationLiveTail: { getDb: async () => null }` so this
+ * file's behavior no longer depends on cross-file process state (see
+ * `src/cockpit/widgets/task-list.test.ts`'s file-header docstring for the
+ * full writeup).
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { createServer } from "http";
@@ -20,7 +40,11 @@ const TEST_TOKEN = "test-conversation-overview-token";
 async function startTestServer(
   opts?: Parameters<typeof createCockpitServer>[0]
 ): Promise<{ url: string; close: () => Promise<void> }> {
-  const app = createCockpitServer({ overrideToken: TEST_TOKEN, ...opts });
+  const app = createCockpitServer({
+    overrideToken: TEST_TOKEN,
+    overrideConversationLiveTail: { getDb: async () => null },
+    ...opts,
+  });
   const server: Server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const addr = server.address();
@@ -46,7 +70,7 @@ describe("GET /api/conversation/:agentSessionId/overview", () => {
     return s.url;
   }
 
-  test("returns a JSON 503 when the DB is unavailable (no Postgres in the test environment)", async () => {
+  test("returns a JSON 503 when the DB is unavailable (injected getDb: null)", async () => {
     const url = await server();
     const res = await fetch(`${url}/api/conversation/some-conversation-id/overview`);
 

@@ -15,6 +15,14 @@ import {
   isKnownKind,
   assertKnownKind,
   DEFAULT_KIND,
+  isTerminal,
+  isActiveWork,
+  isAwaitingReview,
+  DEFAULT_HIDDEN_STATUSES,
+  isHiddenByDefaultStatus,
+  BIND_ADVANCE_SEAM_STATUS,
+  TERMINAL_TASK_STATUS_VALUES,
+  computeStatusWalkPath,
   type TaskKind,
 } from "./workflows";
 import { ValidationError } from "../errors/index";
@@ -318,5 +326,186 @@ describe("assertKnownKind() helper (mt#2762)", () => {
       expect(message).toContain("umbrella");
       expect(message).toContain("state-ops");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3010 — semantic predicates + constants (single-authority consolidation)
+// ---------------------------------------------------------------------------
+
+describe("isTerminal() predicate", () => {
+  test("is true for DONE and CLOSED", () => {
+    expect(isTerminal("DONE")).toBe(true);
+    expect(isTerminal("CLOSED")).toBe(true);
+  });
+
+  test("is false for every non-terminal status", () => {
+    for (const status of ["TODO", "PLANNING", "READY", "IN-PROGRESS", "IN-REVIEW", "BLOCKED"]) {
+      expect(isTerminal(status)).toBe(false);
+    }
+  });
+
+  test("is false for undefined and empty string", () => {
+    expect(isTerminal(undefined)).toBe(false);
+    expect(isTerminal("")).toBe(false);
+  });
+
+  test("is false for an unknown/orphaned status (e.g. the retired COMPLETED)", () => {
+    expect(isTerminal("COMPLETED")).toBe(false);
+  });
+});
+
+describe("isActiveWork() predicate", () => {
+  test("is true only for IN-PROGRESS", () => {
+    expect(isActiveWork("IN-PROGRESS")).toBe(true);
+  });
+
+  test("is false for every other status, including the adjacent IN-REVIEW", () => {
+    for (const status of ["TODO", "PLANNING", "READY", "IN-REVIEW", "DONE", "BLOCKED", "CLOSED"]) {
+      expect(isActiveWork(status)).toBe(false);
+    }
+  });
+});
+
+describe("isAwaitingReview() predicate", () => {
+  test("is true only for IN-REVIEW", () => {
+    expect(isAwaitingReview("IN-REVIEW")).toBe(true);
+  });
+
+  test("is false for every other status, including the adjacent IN-PROGRESS", () => {
+    for (const status of [
+      "TODO",
+      "PLANNING",
+      "READY",
+      "IN-PROGRESS",
+      "DONE",
+      "BLOCKED",
+      "CLOSED",
+    ]) {
+      expect(isAwaitingReview(status)).toBe(false);
+    }
+  });
+});
+
+describe("DEFAULT_HIDDEN_STATUSES / isHiddenByDefaultStatus", () => {
+  test("DEFAULT_HIDDEN_STATUSES is exactly {DONE, CLOSED}", () => {
+    expect([...DEFAULT_HIDDEN_STATUSES].sort()).toEqual(["CLOSED", "DONE"]);
+  });
+
+  test("isHiddenByDefaultStatus matches DEFAULT_HIDDEN_STATUSES membership", () => {
+    for (const status of DEFAULT_HIDDEN_STATUSES) {
+      expect(isHiddenByDefaultStatus(status)).toBe(true);
+    }
+    for (const status of ["TODO", "PLANNING", "READY", "IN-PROGRESS", "IN-REVIEW", "BLOCKED"]) {
+      expect(isHiddenByDefaultStatus(status)).toBe(false);
+    }
+  });
+
+  test("isHiddenByDefaultStatus is false for undefined", () => {
+    expect(isHiddenByDefaultStatus(undefined)).toBe(false);
+  });
+});
+
+describe("BIND_ADVANCE_SEAM_STATUS", () => {
+  test("is READY", () => {
+    expect(BIND_ADVANCE_SEAM_STATUS).toBe("READY");
+  });
+
+  test("is a member of the implementation workflow's states", () => {
+    expect(WORKFLOWS.implementation.states).toContain(BIND_ADVANCE_SEAM_STATUS);
+  });
+});
+
+describe("TERMINAL_TASK_STATUS_VALUES", () => {
+  test("is exactly {DONE, CLOSED}, matching isTerminal's semantics", () => {
+    expect([...TERMINAL_TASK_STATUS_VALUES].sort()).toEqual(["CLOSED", "DONE"]);
+  });
+
+  test("every value in the tuple is terminal per isTerminal()", () => {
+    for (const status of TERMINAL_TASK_STATUS_VALUES) {
+      expect(isTerminal(status)).toBe(true);
+    }
+  });
+
+  test("has no duplicate values across the registry's per-kind terminal arrays", () => {
+    expect(TERMINAL_TASK_STATUS_VALUES.length).toBe(new Set(TERMINAL_TASK_STATUS_VALUES).size);
+  });
+});
+
+describe("Workflow.restrictedTransitions (mt#3010 — data-driven session_start special cases)", () => {
+  test("implementation workflow reserves READY -> IN-PROGRESS for session_start", () => {
+    const restricted = WORKFLOWS.implementation.restrictedTransitions ?? [];
+    const entry = restricted.find((r) => r.from === "READY" && r.to === "IN-PROGRESS");
+    expect(entry).toBeDefined();
+    expect(entry?.message).toContain("session_start");
+  });
+
+  test("implementation workflow gives a READY-first hint for PLANNING -> IN-PROGRESS", () => {
+    const restricted = WORKFLOWS.implementation.restrictedTransitions ?? [];
+    const entry = restricted.find((r) => r.from === "PLANNING" && r.to === "IN-PROGRESS");
+    expect(entry).toBeDefined();
+    expect(entry?.message).toContain("READY");
+  });
+
+  test("umbrella and state-ops workflows declare no restrictedTransitions", () => {
+    expect(WORKFLOWS.umbrella.restrictedTransitions).toBeUndefined();
+    expect(WORKFLOWS["state-ops"].restrictedTransitions).toBeUndefined();
+  });
+});
+
+describe("computeStatusWalkPath() (mt#3010 — tasks.dispatch's registry-derived walk)", () => {
+  test("returns [] when already at the target", () => {
+    expect(computeStatusWalkPath("READY", "READY", "implementation")).toEqual([]);
+  });
+
+  test("TODO -> READY walks through PLANNING (implementation kind, default)", () => {
+    expect(computeStatusWalkPath("TODO", "READY")).toEqual(["PLANNING", "READY"]);
+  });
+
+  test("PLANNING -> READY is a single-step walk (implementation kind)", () => {
+    expect(computeStatusWalkPath("PLANNING", "READY", "implementation")).toEqual(["READY"]);
+  });
+
+  // The critical regression this function's design guards against: a naive
+  // graph-reachability search would find BLOCKED -> READY (a legal DIRECT
+  // transition in the implementation workflow, meant for OPERATOR recovery)
+  // and silently auto-walk a blocked task to READY. That must never happen —
+  // BLOCKED sits AFTER READY in the workflow's states list, so the prefix
+  // check refuses it.
+  test("does NOT auto-walk from BLOCKED, even though BLOCKED -> READY is a legal direct transition", () => {
+    expect(computeStatusWalkPath("BLOCKED", "READY", "implementation")).toBeNull();
+  });
+
+  // Same hazard, multi-hop: IN-REVIEW -> IN-PROGRESS -> PLANNING -> READY is a
+  // legal (if unusual) manual recovery path, but dispatch must never silently
+  // regress a task that's mid-review.
+  test("does NOT auto-walk from IN-REVIEW, even though a multi-hop path to READY exists", () => {
+    expect(computeStatusWalkPath("IN-REVIEW", "READY", "implementation")).toBeNull();
+  });
+
+  test("does NOT auto-walk from IN-PROGRESS, DONE, or CLOSED", () => {
+    expect(computeStatusWalkPath("IN-PROGRESS", "READY", "implementation")).toBeNull();
+    expect(computeStatusWalkPath("DONE", "READY", "implementation")).toBeNull();
+    expect(computeStatusWalkPath("CLOSED", "READY", "implementation")).toBeNull();
+  });
+
+  test("returns null for a status unknown to the workflow", () => {
+    expect(computeStatusWalkPath("NOT-A-STATUS", "READY", "implementation")).toBeNull();
+    expect(computeStatusWalkPath("TODO", "NOT-A-STATUS", "implementation")).toBeNull();
+  });
+
+  test("state-ops kind: TODO -> READY walks through PLANNING", () => {
+    expect(computeStatusWalkPath("TODO", "READY", "state-ops")).toEqual(["PLANNING", "READY"]);
+  });
+
+  test("umbrella kind: no READY state, so any walk targeting it is null", () => {
+    expect(computeStatusWalkPath("TODO", "READY", "umbrella")).toBeNull();
+  });
+
+  test("unknown kind falls back to implementation semantics", () => {
+    expect(computeStatusWalkPath("TODO", "READY", "some-unknown-kind")).toEqual([
+      "PLANNING",
+      "READY",
+    ]);
   });
 });

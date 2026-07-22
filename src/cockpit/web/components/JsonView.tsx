@@ -26,7 +26,6 @@ const STATUS_COLORS: Record<string, string> = {
   "IN-PROGRESS": "text-blue-400",
   "IN-REVIEW": "text-violet-400",
   DONE: "text-emerald-400",
-  COMPLETED: "text-emerald-400",
   CLOSED: "text-muted-foreground",
   BLOCKED: "text-destructive",
 };

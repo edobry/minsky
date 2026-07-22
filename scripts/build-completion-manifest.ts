@@ -60,11 +60,28 @@ interface ManifestOption {
   values?: string[];
 }
 
+/**
+ * A Commander positional argument (`cmd.registeredArguments`), distinct from
+ * flag-style `Option`s. Commander tracks these separately (`command.argument(...)`)
+ * and they never appear in `cmd.options` — see mt#2984.
+ */
+interface ManifestArgument {
+  /** Argument name as declared, e.g. "id" (without the <>/[] wrapper). */
+  name: string;
+  description?: string;
+  /** True for `<name>` (required); false for `[name]` (optional). */
+  required: boolean;
+  /** True for a variadic argument (`<name...>` / `[name...]`). */
+  variadic?: boolean;
+}
+
 interface ManifestCommand {
   name: string;
   description?: string;
   subcommands?: ManifestCommand[];
   options?: ManifestOption[];
+  /** Positional arguments declared via `command.argument(...)`. */
+  arguments?: ManifestArgument[];
 }
 
 /**
@@ -97,6 +114,20 @@ function walkCommand(cmd: Command): ManifestCommand {
       // `Option.optional` = "option takes an optional argument". Either ⇒ takes value.
       if (o.required || o.optional) opt.takesValue = true;
       return opt;
+    });
+  }
+
+  // Positional arguments (`command.argument("<id>", ...)`) are tracked by
+  // Commander separately from flag-style options (`cmd.registeredArguments`,
+  // not `cmd.options`). Required positional args (e.g. the `<id>` arg on the
+  // 4 asks.* commands: respond/edit/wait-for-response/get) previously had no
+  // completion-manifest representation at all. See mt#2984.
+  if (cmd.registeredArguments.length > 0) {
+    node.arguments = cmd.registeredArguments.map((a) => {
+      const arg: ManifestArgument = { name: a.name(), required: a.required };
+      if (a.description) arg.description = a.description;
+      if (a.variadic) arg.variadic = true;
+      return arg;
     });
   }
 

@@ -10,6 +10,7 @@
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 
 // ---------------------------------------------------------------------------
 // Public shapes — mirrored in TaskList.tsx (no server imports on frontend)
@@ -34,6 +35,33 @@ export interface TaskListPayload {
 
 export interface TaskListDeps {
   taskService: TaskServiceInterface;
+  /**
+   * Optional test seam (mt#3016): overrides `resolveCockpitProjectScope`'s
+   * own db-fetch. Production callers never set this — the default factory
+   * omits it, so `resolveCockpitProjectScope` falls back to its own
+   * `defaultGetDb` (the real `getContextInspectorDb()` singleton), exactly
+   * matching pre-mt#3016 behavior.
+   *
+   * Exists because the widget's own unit tests previously relied on
+   * `getContextInspectorDb()` resolving to `null` as an AMBIENT property of
+   * the test environment (no live SQL persistence provider configured) —
+   * an assumption that is NOT actually guaranteed: `getContextInspectorDb`
+   * is a module-level singleton shared across every test file that runs in
+   * the same `bun test` process, and its result depends on whatever OTHER
+   * test happened to initialize `@minsky/domain/configuration`'s own
+   * (equally global, equally un-reset) provider singleton first. Confirmed
+   * empirically: `packages/domain/src/session-auto-task-creation.test.ts`'s
+   * `beforeEach` calls `initializeConfiguration()`, which (independent of
+   * the `workingDirectory` override it passes) still merges in the real
+   * user-level `~/.config/minsky/config.yaml` — in an environment where that
+   * file names a live Postgres connection string, this unlocks
+   * `getContextInspectorDb()` to resolve a REAL, non-null db for the rest of
+   * that process, breaking any later widget test's "no live db" assumption
+   * whenever that file lands in the same shard/process ahead of this one.
+   * Explicitly injecting `getDb: async () => null` removes the dependency on
+   * that ambient, cross-file, load-order-sensitive state entirely.
+   */
+  getDb?: () => Promise<ScopeResolverDb | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,15 +76,18 @@ export function createTaskListWidget(getDeps: () => Promise<TaskListDeps>): Widg
 
     async fetch(ctx: WidgetContext): Promise<WidgetData> {
       try {
-        const { taskService } = await getDeps();
+        const { taskService, getDb } = await getDeps();
         // Project scope (mt#2418): ?project=<slug> resolved to a project
         // uuid, defaulting to ALL_PROJECTS when omitted/"all" — same
         // resolution rules as every other cockpit project-scoped read.
         // resolveCockpitProjectScope owns its own db-fetch and never throws
         // (fail-open to ALL_PROJECTS on any resolution failure — PR #2056 R1)
-        // so a scoping problem can never take this widget down.
+        // so a scoping problem can never take this widget down. `getDb` is
+        // the mt#3016 test seam (see TaskListDeps) — undefined in
+        // production, so resolveCockpitProjectScope falls back to its own
+        // defaultGetDb (the real getContextInspectorDb() singleton).
         const { resolveCockpitProjectScope } = await import("../project-scope");
-        const projectScope = await resolveCockpitProjectScope(ctx.query?.project);
+        const projectScope = await resolveCockpitProjectScope(ctx.query?.project, { getDb });
         const tasks = await taskService.listTasks({ projectScope });
 
         const items: TaskListItem[] = tasks.map((t) => ({

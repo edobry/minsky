@@ -21,6 +21,7 @@
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
+import { isTerminal } from "@minsky/domain/tasks/workflows";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 
@@ -135,18 +136,14 @@ function normaliseStatus(raw: string): TaskStatus {
   return "TODO";
 }
 
-/** Non-terminal statuses — a child in any of these keeps the workstream "active" */
-const NON_TERMINAL_STATUSES: Set<TaskStatus> = new Set([
-  "TODO",
-  "READY",
-  "IN-PROGRESS",
-  "IN-REVIEW",
-  "PLANNING",
-  "BLOCKED",
-]);
-
+/**
+ * A child in a non-terminal status keeps the workstream "active" (mt#3010:
+ * delegates to the domain registry's isTerminal instead of a hand-maintained
+ * NON_TERMINAL_STATUSES Set — this file runs server-side, unlike its frontend
+ * twin Workstreams.tsx, so importing the registry here is safe).
+ */
 function isActive(status: TaskStatus): boolean {
-  return NON_TERMINAL_STATUSES.has(status);
+  return !isTerminal(status);
 }
 
 /**

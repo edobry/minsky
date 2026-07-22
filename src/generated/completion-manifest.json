@@ -35,7 +35,14 @@
         },
         {
           "name": "ci_run_view_log",
-          "description": "Download and decode the logs for a specific CI workflow run. Returns the log content as text (ZIP entries are extracted inline). Falls back to base64 if DEFLATE-compressed entries cannot be inflated without a native ZIP library."
+          "description": "Download and decode the logs for a specific CI workflow run. Returns the log content as text (ZIP entries are extracted inline). Falls back to base64 if DEFLATE-compressed entries cannot be inflated without a native ZIP library.",
+          "arguments": [
+            {
+              "name": "runId",
+              "required": true,
+              "description": "Numeric workflow run ID (from forge.ci_run_list)."
+            }
+          ]
         },
         {
           "name": "ci_run_rerun",
@@ -45,15 +52,36 @@
               "flags": ["--full-rerun"],
               "description": "If true, re-run the entire workflow (every job). Default false: re-run only the jobs that failed on the prior attempt."
             }
+          ],
+          "arguments": [
+            {
+              "name": "runId",
+              "required": true,
+              "description": "Numeric workflow run ID to re-run (from forge.ci_run_list)."
+            }
           ]
         },
         {
           "name": "check_runs_list",
-          "description": "List check-runs for an arbitrary commit SHA. Exposes the existing ci.getChecksForRef capability at the MCP surface, complementing session.pr.checks (which requires a PR context)."
+          "description": "List check-runs for an arbitrary commit SHA. Exposes the existing ci.getChecksForRef capability at the MCP surface, complementing session.pr.checks (which requires a PR context).",
+          "arguments": [
+            {
+              "name": "sha",
+              "required": true,
+              "description": "The full or abbreviated commit SHA to query check-runs for."
+            }
+          ]
         },
         {
           "name": "branch_protection_get",
-          "description": "Get branch protection settings for a branch (e.g. 'main')."
+          "description": "Get branch protection settings for a branch (e.g. 'main').",
+          "arguments": [
+            {
+              "name": "branch",
+              "required": true,
+              "description": "Branch name (e.g. 'main', 'develop')."
+            }
+          ]
         },
         {
           "name": "branch_protection_set",
@@ -63,6 +91,13 @@
               "flags": ["--config"],
               "description": "Branch protection configuration as a JSON object. See BranchProtection interface for all fields. Example: {required_status_checks: {strict: true, contexts: ['build']}, enforce_admins: true}",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "branch",
+              "required": true,
+              "description": "Branch name to protect (e.g. 'main')."
             }
           ]
         },
@@ -79,6 +114,13 @@
               "flags": ["--description"],
               "description": "Optional label description (up to 100 characters).",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "name",
+              "required": true,
+              "description": "Label name (must be unique within the repo)."
             }
           ]
         },
@@ -112,11 +154,25 @@
               "description": "New description (up to 100 characters).",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "currentName",
+              "required": true,
+              "description": "Current name of the label to update."
+            }
           ]
         },
         {
           "name": "label_delete",
-          "description": "Delete a label from the repository by name."
+          "description": "Delete a label from the repository by name.",
+          "arguments": [
+            {
+              "name": "name",
+              "required": true,
+              "description": "Label name to delete."
+            }
+          ]
         }
       ]
     },
@@ -154,6 +210,13 @@
               "flags": ["--files"],
               "description": "Specific file paths to stage before committing. Prefer omitting this: work should happen in a session dedicated to a single task, where all dirty files belong to that task and `all: true` is the right default. Selective commits on main indicate a workflow deviation — the correct fix is usually to move the work into a session. Use this parameter only for genuine exceptions (e.g., small harness/config tweaks on main that can't reasonably be sessionized).",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "message",
+              "required": true,
+              "description": "Commit message"
             }
           ]
         },
@@ -205,6 +268,13 @@
               "description": "Target directory for the clone",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "url",
+              "required": true,
+              "description": "URL of the Git repository to clone"
+            }
           ]
         },
         {
@@ -223,6 +293,13 @@
               "flags": ["--name"],
               "description": "Name of the branch to create",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "session",
+              "required": true,
+              "description": "Name of the session to use"
             }
           ]
         },
@@ -254,6 +331,13 @@
               "takesValue": true,
               "values": ["automatic", "guided", "manual"]
             }
+          ],
+          "arguments": [
+            {
+              "name": "branch",
+              "required": true,
+              "description": "Branch to merge"
+            }
           ]
         },
         {
@@ -281,6 +365,13 @@
             {
               "flags": ["--auto-stash"],
               "description": "Automatically stash uncommitted changes before checkout"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "branch",
+              "required": true,
+              "description": "Branch to checkout"
             }
           ]
         },
@@ -311,6 +402,13 @@
               "description": "Choose conflict resolution strategy",
               "takesValue": true,
               "values": ["automatic", "guided", "manual"]
+            }
+          ],
+          "arguments": [
+            {
+              "name": "baseBranch",
+              "required": true,
+              "description": "Base branch to rebase onto"
             }
           ]
         },
@@ -422,6 +520,13 @@
               "flags": ["--ignore-case"],
               "description": "Perform case-insensitive search"
             }
+          ],
+          "arguments": [
+            {
+              "name": "pattern",
+              "required": true,
+              "description": "Search pattern"
+            }
           ]
         },
         {
@@ -481,6 +586,13 @@
               "flags": ["--end-line"],
               "description": "End of line range",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "path",
+              "required": true,
+              "description": "File to blame"
             }
           ]
         },
@@ -625,6 +737,13 @@
               "takesValue": true,
               "values": ["true"]
             }
+          ],
+          "arguments": [
+            {
+              "name": "ref",
+              "required": true,
+              "description": "Stash ref to drop (required). E.g. stash@{0}."
+            }
           ]
         },
         {
@@ -644,6 +763,13 @@
             {
               "flags": ["--repair-lock"],
               "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
+            }
+          ],
+          "arguments": [
+            {
+              "name": "paths",
+              "required": true,
+              "description": "Paths to restore (discard unstaged working-tree changes). At least one required."
             }
           ]
         },
@@ -675,6 +801,13 @@
             {
               "flags": ["--repair-lock"],
               "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
+            }
+          ],
+          "arguments": [
+            {
+              "name": "mode",
+              "required": true,
+              "description": "Reset mode: soft (HEAD only), mixed (HEAD + index), hard (HEAD + index + working tree, DESTRUCTIVE)."
             }
           ]
         },
@@ -807,6 +940,13 @@
               "description": "Maximum number of lines to return",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "path",
+              "required": true,
+              "description": "File path relative to workspace root"
+            }
           ]
         },
         {
@@ -821,6 +961,13 @@
             {
               "flags": ["--ignore-case"],
               "description": "Perform case-insensitive search"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "pattern",
+              "required": true,
+              "description": "Search pattern (regex)"
             }
           ]
         },
@@ -920,6 +1067,12 @@
                 {
                   "flags": ["--search-commits"]
                 }
+              ],
+              "arguments": [
+                {
+                  "name": "query",
+                  "required": true
+                }
               ]
             },
             {
@@ -937,6 +1090,12 @@
                 },
                 {
                   "flags": ["--details"]
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true
                 }
               ]
             },
@@ -995,6 +1154,13 @@
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": true,
+                  "description": "ID of the task to get status for"
+                }
               ]
             },
             {
@@ -1024,6 +1190,18 @@
                 {
                   "flags": ["--json"],
                   "description": "Output in JSON format"
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": true,
+                  "description": "ID of the task to update"
+                },
+                {
+                  "name": "status",
+                  "required": false,
+                  "description": "New status for the task (optional, will prompt if omitted)"
                 }
               ]
             }
@@ -1066,6 +1244,13 @@
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": true,
+                  "description": "ID of the task to retrieve specification content for"
+                }
               ]
             },
             {
@@ -1095,6 +1280,13 @@
                 {
                   "flags": ["--json"],
                   "description": "Output in JSON format"
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": true,
+                  "description": "Task identifier (supports md#123, gh#456)"
                 }
               ]
             }
@@ -1236,6 +1428,13 @@
               "flags": ["--include-session"],
               "description": "Include associated session info (status, liveness) in the response"
             }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Task identifier (supports md#123, gh#456)"
+            }
           ]
         },
         {
@@ -1278,8 +1477,9 @@
             },
             {
               "flags": ["--kind"],
-              "description": "Workflow kind for the task (e.g., 'implementation', 'umbrella'). Defaults to 'implementation'.",
-              "takesValue": true
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "takesValue": true,
+              "values": ["implementation", "umbrella", "state-ops"]
             },
             {
               "flags": ["--repo"],
@@ -1369,6 +1569,13 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "ID of the task to edit"
+            }
           ]
         },
         {
@@ -1424,6 +1631,13 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "ids",
+              "required": true,
+              "description": "Explicit task ids to edit (array, or comma-separated string). Backend-qualified ids (e.g. mt#123, md#456), same format as taskId elsewhere; bare numbers are not accepted."
+            }
           ]
         },
         {
@@ -1457,6 +1671,13 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "ID of the task to delete"
             }
           ]
         },
@@ -1509,6 +1730,13 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Task identifier (supports md#123, gh#456)"
             }
           ]
         },
@@ -1586,6 +1814,13 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Natural language query"
             }
           ]
         },
@@ -1713,6 +1948,13 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "to",
+              "required": true,
+              "description": "Target backend"
+            }
           ]
         },
         {
@@ -1733,6 +1975,13 @@
                   "description": "Task that is the dependency",
                   "takesValue": true
                 }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": false,
+                  "description": "The dependent task (the task that will depend on another)"
+                }
               ]
             },
             {
@@ -1749,6 +1998,13 @@
                   "description": "Task that is the dependency",
                   "takesValue": true
                 }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": false,
+                  "description": "The dependent task (the task that depends on another)"
+                }
               ]
             },
             {
@@ -1763,6 +2019,13 @@
                 {
                   "flags": ["--verbose"],
                   "description": "Use more detailed output format"
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": false,
+                  "description": "ID of the task to list dependencies for"
                 }
               ]
             },
@@ -1779,6 +2042,13 @@
                   "flags": ["--max-depth"],
                   "description": "Maximum depth to show in the tree",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": false,
+                  "description": "ID of the task to show dependency tree for"
                 }
               ]
             },
@@ -1879,6 +2149,13 @@
               "description": "New parent task ID (e.g. mt#456), or omit with --no-parent to orphan",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "ID of the task to reparent (e.g. mt#123)"
+            }
           ]
         },
         {
@@ -1938,6 +2215,13 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "target",
+              "required": true,
+              "description": "Target task ID to generate route for"
             }
           ]
         },
@@ -2006,7 +2290,14 @@
         },
         {
           "name": "dispatch-recover",
-          "description": "Server-side detect/classify/prepare for a died/stalled subagent dispatch (mt#2831): captures session state, classifies the outcome, and returns a ready-to-dispatch continuation prompt. Does NOT dispatch anything — the caller must redispatch the returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched (returns status: \"healthy\"). Refuses a 3rd attempt for the same dispatch chain (returns status: \"escalate\")."
+          "description": "Server-side detect/classify/prepare for a died/stalled subagent dispatch (mt#2831): captures session state, classifies the outcome, and returns a ready-to-dispatch continuation prompt. Does NOT dispatch anything — the caller must redispatch the returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched (returns status: \"healthy\"). Refuses a 3rd attempt for the same dispatch chain (returns status: \"escalate\"). If the dispatch tracker itself is unavailable, degrades to actionable manual-recovery guidance instead of a bare error (returns status: \"tracker-unavailable\").",
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Task ID whose most recent subagent dispatch should be probed for recovery (e.g. \"mt#2831\")."
+            }
+          ]
         },
         {
           "name": "orchestrate",
@@ -2016,6 +2307,13 @@
               "flags": ["--status"],
               "description": "Subtask statuses to include (comma-separated, default: TODO)",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Parent task ID to find dispatchable subtasks for"
             }
           ]
         },
@@ -2028,6 +2326,13 @@
               "description": "Maximum number of similar tasks to include",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Task ID to gather context for"
+            }
           ]
         },
         {
@@ -2039,6 +2344,13 @@
               "description": "Maximum number of similar tasks to include",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Task ID to gather context for"
+            }
           ]
         },
         {
@@ -2049,6 +2361,13 @@
               "flags": ["--similar-limit"],
               "description": "Maximum number of similar tasks to include",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Task ID to gather context for"
             }
           ]
         },
@@ -2068,6 +2387,13 @@
                 {
                   "flags": ["--include-stale"],
                   "description": "Include stale claims in the result (default: false)"
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": true,
+                  "description": "Task identifier (e.g. \"mt#2562\" or \"2562\")"
                 }
               ]
             }
@@ -2155,6 +2481,13 @@
               "description": "Only match if session created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "sessionId",
+              "required": false,
+              "description": "Session ID (optional, alternative to --task)"
+            }
           ]
         },
         {
@@ -2207,6 +2540,13 @@
               "flags": ["--recover"],
               "description": "Recover abandoned session: if existing session for this task is stale/orphaned, delete it and create a fresh one"
             }
+          ],
+          "arguments": [
+            {
+              "name": "sessionId",
+              "required": false,
+              "description": "Session ID (optional, alternative to --task)"
+            }
           ]
         },
         {
@@ -2227,6 +2567,13 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "sessionId",
+              "required": false,
+              "description": "Session ID"
+            }
           ]
         },
         {
@@ -2237,6 +2584,13 @@
               "flags": ["--limit"],
               "description": "Maximum number of results to return",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Search query (searches in session ID, repo name, branch, task ID)"
             }
           ]
         },
@@ -2263,6 +2617,13 @@
               "flags": ["--timeout"],
               "description": "Timeout in milliseconds (default: 30000, max: 120000)",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "command",
+              "required": true,
+              "description": "Shell command to execute"
             }
           ]
         },
@@ -2408,6 +2769,13 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "sessionId",
+              "required": false,
+              "description": "Session ID"
+            }
           ]
         },
         {
@@ -2460,6 +2828,13 @@
             {
               "flags": ["--skip-if-already-merged"],
               "description": "Skip if changes already merged"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "sessionId",
+              "required": false,
+              "description": "Session ID"
             }
           ]
         },
@@ -2570,6 +2945,13 @@
             {
               "flags": ["--no-files"],
               "description": "Allow committing without staged file changes (uses --allow-empty when tree is clean) — used to wake webhooks or produce audit-trail commits"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "message",
+              "required": true,
+              "description": "Commit message"
             }
           ]
         },
@@ -3287,6 +3669,13 @@
                           "flags": ["--json"],
                           "description": "Output in JSON format"
                         }
+                      ],
+                      "arguments": [
+                        {
+                          "name": "body",
+                          "required": true,
+                          "description": "Review body text (overall comment)"
+                        }
                       ]
                     }
                   ]
@@ -3322,6 +3711,13 @@
                         {
                           "flags": ["--json"],
                           "description": "Output in JSON format"
+                        }
+                      ],
+                      "arguments": [
+                        {
+                          "name": "reviewId",
+                          "required": true,
+                          "description": "GitHub review ID to dismiss (numeric — see PR review URLs)"
                         }
                       ]
                     }
@@ -3362,6 +3758,13 @@
                             {
                               "flags": ["--json"],
                               "description": "Output in JSON format"
+                            }
+                          ],
+                          "arguments": [
+                            {
+                              "name": "threadId",
+                              "required": true,
+                              "description": "GraphQL node ID of a PullRequestReviewThread. Obtain from one of: (1) session_pr_review_context.reviewThreads[].id, (2) GraphQL pullRequest.reviewThreads.nodes[].id, or (3) REST GET /repos/{owner}/{repo}/pulls/{pull_number}/threads (each item's node_id). Do NOT pass a review comment's node_id (from /pulls/{n}/comments or /pulls/{n}/reviews) — comment IDs and thread IDs are distinct objects; the GraphQL mutation will reject the wrong type."
                             }
                           ]
                         }
@@ -3406,6 +3809,13 @@
                         {
                           "flags": ["--json"],
                           "description": "Output in JSON format"
+                        }
+                      ],
+                      "arguments": [
+                        {
+                          "name": "findings",
+                          "required": true,
+                          "description": "List of reviewer findings to compile into check-run annotations. severity: 'BLOCKING' → failure, 'NON-BLOCKING' → warning, other → notice. An empty list produces a check run with conclusion 'success' and no annotations."
                         }
                       ]
                     }
@@ -3543,6 +3953,13 @@
               "description": "Dispatch intent (mt#2865). Defaults to \"implementation\" — no behavior change from before this param existed. \"read-only\" adds an explicit read-only-bound section to the generated prompt AND writes a TTL-bound declaration to the dispatch-intent store for this session — the PreToolUse write-gate guard (dispatch-intent-write-gate.ts) then DENIES session_commit/session_edit_file/session_write_file/session_search_replace/session_pr_create/session_pr_edit for ANY subagent operating in this session while the declaration is live, regardless of which specific agent_id makes the call (covers a context-inheriting `fork`, not just the dispatched agent itself). IMPORTANT: on \"read-only\" the generated prompt also SILENTLY OMITS the commit/PR instructions (the `session_commit`/`session_pr_create` sections present in an `implementation`-intent prompt) and forces the read-only Operating Envelope regardless of `type` — since those tools are structurally denied for this dispatch, the prompt never tells the agent to use them. Use this for bounded lookups (memory search, code investigation, review) dispatched from inside an active implementation context — never fork for those; see subagent-routing.mdc.",
               "takesValue": true,
               "values": ["read-only", "implementation"]
+            }
+          ],
+          "arguments": [
+            {
+              "name": "task",
+              "required": true,
+              "description": "Task ID (required)"
             }
           ]
         },
@@ -3756,6 +4173,13 @@
               "flags": ["--debug"],
               "description": "Enable debug output"
             }
+          ],
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Rule ID"
+            }
           ]
         },
         {
@@ -3854,6 +4278,13 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Rule ID"
+            }
           ]
         },
         {
@@ -3897,6 +4328,13 @@
             {
               "flags": ["--debug"],
               "description": "Enable debug output"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Rule ID"
             }
           ]
         },
@@ -4072,6 +4510,13 @@
               "flags": ["--sources"],
               "description": "Show configuration sources and precedence"
             }
+          ],
+          "arguments": [
+            {
+              "name": "key",
+              "required": true,
+              "description": "Configuration key path"
+            }
           ]
         },
         {
@@ -4106,6 +4551,18 @@
               "takesValue": true,
               "values": ["yaml", "json"]
             }
+          ],
+          "arguments": [
+            {
+              "name": "key",
+              "required": true,
+              "description": "Configuration key path"
+            },
+            {
+              "name": "value",
+              "required": true,
+              "description": "Value to set"
+            }
           ]
         },
         {
@@ -4139,6 +4596,13 @@
               "description": "File format to use",
               "takesValue": true,
               "values": ["yaml", "json"]
+            }
+          ],
+          "arguments": [
+            {
+              "name": "key",
+              "required": true,
+              "description": "Configuration key path"
             }
           ]
         },
@@ -4223,6 +4687,13 @@
                       "description": "Token value (MCP / scripted path). Omit on CLI to get a masked interactive prompt.",
                       "takesValue": true
                     }
+                  ],
+                  "arguments": [
+                    {
+                      "name": "provider",
+                      "required": true,
+                      "description": "Credential provider id (supabase | github | anthropic | railway | google | telegram)"
+                    }
                   ]
                 }
               ]
@@ -4254,6 +4725,13 @@
                     {
                       "flags": ["--json"],
                       "description": "Output in JSON format"
+                    }
+                  ],
+                  "arguments": [
+                    {
+                      "name": "provider",
+                      "required": true,
+                      "description": "Credential provider id (supabase | github | anthropic | railway | google | telegram)"
                     }
                   ]
                 }
@@ -4338,6 +4816,13 @@
               "flags": ["--debug"],
               "description": "Enable debug mode for detailed output"
             }
+          ],
+          "arguments": [
+            {
+              "name": "to",
+              "required": false,
+              "description": "Target backend (postgres)"
+            }
           ]
         },
         {
@@ -4404,6 +4889,13 @@
               "description": "Timeout in milliseconds for the provider call (default 60000). The call fails fast with an actionable error instead of hanging when exceeded.",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "prompt",
+              "required": true,
+              "description": "The prompt to complete"
+            }
           ]
         },
         {
@@ -4433,6 +4925,13 @@
             {
               "flags": ["--dry-run"],
               "description": "Show the proposed changes without applying them"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "filePath",
+              "required": true,
+              "description": "Path to the file to edit"
             }
           ]
         },
@@ -4634,6 +5133,12 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true
+            }
           ]
         },
         {
@@ -4654,6 +5159,12 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "toolId",
+              "required": true
             }
           ]
         },
@@ -4697,7 +5208,14 @@
             },
             {
               "name": "get",
-              "description": "Fetch a single full Ask record by id — the ergonomic path for inspecting a specific Ask without pulling a whole `asks_list` page (mt#2748). `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965). Use `asks_list` with `summary: true` to browse/filter across many Asks instead."
+              "description": "Fetch a single full Ask record by id — the ergonomic path for inspecting a specific Ask without pulling a whole `asks_list` page (mt#2748). `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965). Use `asks_list` with `summary: true` to browse/filter across many Asks instead.",
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Ask ID to fetch. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965) — resolved via the same generalized resolver asks.list/respond/edit/wait-for-response use."
+                }
+              ]
             },
             {
               "name": "reconcile",
@@ -4716,6 +5234,13 @@
                   "flags": ["--responder"],
                   "description": "AgentId or 'operator' identifier; defaults to 'operator'",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Ask ID (UUID) to respond to"
                 }
               ]
             },
@@ -4787,6 +5312,13 @@
                   "flags": ["--force-immediate"],
                   "description": "When true, bypass the window check and route immediately. Use only for critical-path unblocking."
                 }
+              ],
+              "arguments": [
+                {
+                  "name": "kind",
+                  "required": true,
+                  "description": "Ask kind (one of the 7 ADR-008 taxonomy values)"
+                }
               ]
             },
             {
@@ -4802,6 +5334,13 @@
                   "flags": ["--interval-seconds"],
                   "description": "Polling interval in seconds (default 15; clamped to [5, 60])",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Ask ID (UUID) to wait on until it reaches responded/closed"
                 }
               ]
             },
@@ -4838,6 +5377,13 @@
                   "flags": ["--editor"],
                   "description": "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Ask ID (UUID) to edit"
                 }
               ]
             }
@@ -4889,6 +5435,13 @@
                       "description": "Alias for session. The first non-empty value of session/sessionId is used.",
                       "takesValue": true
                     }
+                  ],
+                  "arguments": [
+                    {
+                      "name": "owner",
+                      "required": true,
+                      "description": "GitHub repository owner (user or org)"
+                    }
                   ]
                 },
                 {
@@ -4909,7 +5462,14 @@
                 },
                 {
                   "name": "cancel",
-                  "description": "Cancel (delete) a PR watch by ID"
+                  "description": "Cancel (delete) a PR watch by ID",
+                  "arguments": [
+                    {
+                      "name": "id",
+                      "required": true,
+                      "description": "Watch ID to cancel (from pr.watch.list output)"
+                    }
+                  ]
                 },
                 {
                   "name": "run",
@@ -5000,6 +5560,13 @@
                   "description": "GitHub repo name",
                   "takesValue": true
                 }
+              ],
+              "arguments": [
+                {
+                  "name": "pr",
+                  "required": true,
+                  "description": "PR number to retrigger review on"
+                }
               ]
             }
           ]
@@ -5084,11 +5651,25 @@
             },
             {
               "name": "open",
-              "description": "Explicitly open a named attention window. Emits a Postgres NOTIFY event."
+              "description": "Explicitly open a named attention window. Emits a Postgres NOTIFY event.",
+              "arguments": [
+                {
+                  "name": "key",
+                  "required": true,
+                  "description": "Window key (e.g. ask-hours, weekly-review)"
+                }
+              ]
             },
             {
               "name": "close",
-              "description": "Explicitly close a named attention window. Emits a Postgres NOTIFY event."
+              "description": "Explicitly close a named attention window. Emits a Postgres NOTIFY event.",
+              "arguments": [
+                {
+                  "name": "key",
+                  "required": true,
+                  "description": "Window key to close (e.g. ask-hours)"
+                }
+              ]
             },
             {
               "name": "status",
@@ -5096,7 +5677,14 @@
             },
             {
               "name": "service",
-              "description": "Load the pending-ask cohort for a window, render a terminal digest, and accept operator responses"
+              "description": "Load the pending-ask cohort for a window, render a terminal digest, and accept operator responses",
+              "arguments": [
+                {
+                  "name": "key",
+                  "required": true,
+                  "description": "Window key to service (e.g. ask-hours)"
+                }
+              ]
             }
           ]
         },
@@ -5154,6 +5742,13 @@
                   "flags": ["--service"],
                   "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "deploymentId",
+                  "required": true,
+                  "description": "Platform-specific deployment ID (e.g., from deployment_status.id)."
                 }
               ]
             }
@@ -5219,6 +5814,13 @@
               "description": "Maximum number of results to return (default 5)",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Search query"
+            }
           ]
         },
         {
@@ -5229,6 +5831,13 @@
               "flags": ["--document-id"],
               "description": "ID of the document to fetch",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "source",
+              "required": true,
+              "description": "Name of the knowledge source"
             }
           ]
         },
@@ -5291,11 +5900,25 @@
               "flags": ["--all-projects"],
               "description": "Return memories from all projects (disable project-scope filtering; ADR-021, mt#2416)"
             }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Semantic search query"
+            }
           ]
         },
         {
           "name": "get",
-          "description": "Fetch a single memory record by its identifier. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696) — e.g. an id cited in a handoff — or a mem#N short id (mt#2966)."
+          "description": "Fetch a single memory record by its identifier. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696) — e.g. an id cited in a handoff — or a mem#N short id (mt#2966).",
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Memory record identifier — full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966)"
+            }
+          ]
         },
         {
           "name": "list",
@@ -5425,6 +6048,13 @@
               "flags": ["--force"],
               "description": "Bypass the derivation-discipline validator"
             }
+          ],
+          "arguments": [
+            {
+              "name": "type",
+              "required": true,
+              "description": "Memory type"
+            }
           ]
         },
         {
@@ -5488,11 +6118,25 @@
               "description": "Merge associations: new keys added, existing keys replaced, keys set to [] removed.",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Memory record identifier to update"
+            }
           ]
         },
         {
           "name": "delete",
-          "description": "Delete a memory record by its identifier."
+          "description": "Delete a memory record by its identifier.",
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Memory record identifier to delete"
+            }
+          ]
         },
         {
           "name": "similar",
@@ -5511,6 +6155,13 @@
             {
               "flags": ["--all-projects"],
               "description": "Return similar memories from all projects (disable project-scope filtering; ADR-021, mt#2939)"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "ID of the source memory to find neighbours for"
             }
           ]
         },
@@ -5575,11 +6226,25 @@
               "description": "Reason the old memory is being superseded",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "oldId",
+              "required": true,
+              "description": "ID of the memory to supersede"
+            }
           ]
         },
         {
           "name": "lineage",
-          "description": "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. Each step carries the supersession_reason in its metadata. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966) for `id`."
+          "description": "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. Each step carries the supersession_reason in its metadata. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966) for `id`.",
+          "arguments": [
+            {
+              "name": "id",
+              "required": true,
+              "description": "Memory record identifier to trace lineage for"
+            }
+          ]
         }
       ]
     },
@@ -5596,6 +6261,13 @@
               "description": "Type of artifact. One of: commit, pr, review, issue_comment",
               "takesValue": true,
               "values": ["commit", "pr", "review", "issue_comment"]
+            }
+          ],
+          "arguments": [
+            {
+              "name": "artifactId",
+              "required": true,
+              "description": "The artifact identifier (e.g. PR number as string, commit SHA)"
             }
           ]
         },
@@ -5624,6 +6296,13 @@
               "description": "Type of artifact. One of: commit, pr, review, issue_comment",
               "takesValue": true,
               "values": ["commit", "pr", "review", "issue_comment"]
+            }
+          ],
+          "arguments": [
+            {
+              "name": "artifactId",
+              "required": true,
+              "description": "The artifact identifier (e.g. PR number as string, commit SHA)"
             }
           ]
         },
@@ -5748,6 +6427,13 @@
               "flags": ["--all-projects"],
               "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
             }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Natural-language search query to embed and match against transcript turns"
+            }
           ]
         },
         {
@@ -5834,6 +6520,13 @@
               "flags": ["--session"],
               "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of session.",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Natural-language search query for full-text matching against transcript turns"
             }
           ]
         },
@@ -5924,6 +6617,13 @@
                   "description": "Optional operator note attached to the verdict",
                   "takesValue": true
                 }
+              ],
+              "arguments": [
+                {
+                  "name": "sessionId",
+                  "required": true,
+                  "description": "Session whose finding is being verdicted"
+                }
               ]
             },
             {
@@ -5939,6 +6639,13 @@
                   "flags": ["--note"],
                   "description": "Optional operator note attached to the verdict",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "sessionId",
+                  "required": true,
+                  "description": "Session whose finding is being verdicted"
                 }
               ]
             }
@@ -5961,6 +6668,13 @@
                   "flags": ["--min-overlap-signals"],
                   "description": "Minimum signal types that must overlap (1-3, default 1: any of file/identifier/keyword)",
                   "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "epic",
+                  "required": true,
+                  "description": "Epic task ID (e.g., mt#1552) whose children to audit for Sprint-A-superseded TODOs"
                 }
               ]
             }
@@ -5985,6 +6699,13 @@
               "flags": ["--json"],
               "description": "Output in JSON format"
             }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Natural-language query (semantic search)"
+            }
           ]
         },
         {
@@ -5999,6 +6720,13 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "tweetId",
+              "required": true,
+              "description": "Tweet ID to find similar tweets for"
             }
           ]
         },
@@ -6038,6 +6766,13 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "archivePath",
+              "required": true,
+              "description": "Path to the Twitter archive ZIP"
             }
           ]
         }
@@ -6133,6 +6868,13 @@
               "description": "Related Minsky session ID",
               "takesValue": true
             }
+          ],
+          "arguments": [
+            {
+              "name": "eventType",
+              "required": true,
+              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed)"
+            }
           ]
         }
       ]
@@ -6153,6 +6895,13 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "refs",
+              "required": true,
+              "description": "Entity refs to resolve (array, or comma-separated string): task ids (mt#123), PR numbers (123 / #123 / PR #123), ask uuids"
             }
           ]
         }
@@ -6242,6 +6991,13 @@
             {
               "flags": ["--inspector"],
               "description": "Use MCP inspector CLI (legacy, slower)"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "tool-name",
+              "required": true,
+              "description": "Name of the tool to call"
             }
           ]
         },
@@ -6379,6 +7135,13 @@
               "flags": ["--workspace-path"],
               "description": "Workspace path for context",
               "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "query",
+              "required": true,
+              "description": "Natural language description of what you want to accomplish"
             }
           ]
         },

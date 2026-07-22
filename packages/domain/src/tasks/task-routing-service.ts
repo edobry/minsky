@@ -1,6 +1,7 @@
 import { injectable } from "tsyringe";
 import type { TaskGraphService } from "./task-graph-service";
 import type { TaskServiceInterface } from "./taskService";
+import { isTerminal } from "./workflows";
 
 export interface AvailableTask {
   taskId: string;
@@ -116,10 +117,12 @@ export class TaskRoutingService {
         })
       );
 
-      // Filter out non-existent dependencies and completed ones
+      // Filter out non-existent dependencies and completed ones (mt#3010:
+      // migrated off the mt#3011 interim TASK_STATUS.DONE/.CLOSED comparison
+      // to the registry's terminal predicate).
       const actualBlockingTasks = blockingTasks
         .filter((dep): dep is { id: string; status: string } => dep !== null)
-        .filter((dep) => dep.status !== "DONE" && dep.status !== "CANCELLED");
+        .filter((dep) => !isTerminal(dep.status));
 
       // Calculate readiness score (1.0 = no blockers, 0.0 = all blockers pending)
       const totalDeps = blockedBy.length;
@@ -206,11 +209,11 @@ export class TaskRoutingService {
         // Prioritize tasks with all dependencies completed
         const aReady = a.dependencies.every((depId) => {
           const depTask = validTasks.find((t) => t.id === depId);
-          return depTask?.status === "DONE" || depTask?.status === "CANCELLED";
+          return isTerminal(depTask?.status);
         });
         const bReady = b.dependencies.every((depId) => {
           const depTask = validTasks.find((t) => t.id === depId);
-          return depTask?.status === "DONE" || depTask?.status === "CANCELLED";
+          return isTerminal(depTask?.status);
         });
 
         if (aReady !== bReady) return bReady ? 1 : -1;
@@ -224,7 +227,7 @@ export class TaskRoutingService {
     const readyTasks = steps.filter((step) =>
       step.dependencies.every((depId) => {
         const depTask = validTasks.find((t) => t.id === depId);
-        return depTask?.status === "DONE" || depTask?.status === "CANCELLED";
+        return isTerminal(depTask?.status);
       })
     ).length;
 

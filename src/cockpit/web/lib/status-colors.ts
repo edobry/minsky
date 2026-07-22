@@ -23,6 +23,21 @@
  * only — it does NOT change which status maps to which token family.
  */
 
+/**
+ * Mirrors `TaskStatus` / `TASK_STATUS_VALUES` in
+ * `packages/domain/src/tasks/taskConstants.ts` (mt#3010 investigation).
+ * Deliberately NOT imported from `@minsky/domain` here: this module is part of
+ * the Vite-bundled cockpit web client (`vite.config.ts` roots at
+ * `src/cockpit/web`), and `taskConstants.ts` transitively imports
+ * `task-id.ts`'s `randomUUID` from node's `crypto` — confirmed via a build
+ * probe to break `vite build` ("crypto" externalized, `randomUUID` not
+ * exported by the browser stub). Even the dependency-free `workflows.ts`
+ * builds but drags its full GitHub/Linear/Jira tool-mapping tables into the
+ * client bundle (a probed +85KB / +23KB gzip on the tasks-list page chunk)
+ * for a single predicate — not worth it for a status list that only changes
+ * when the state machine itself changes. If a new status is ever added,
+ * update BOTH this list and the domain enum.
+ */
 export type TaskStatus =
   | "TODO"
   | "PLANNING"

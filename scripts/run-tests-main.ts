@@ -22,10 +22,41 @@
  * script for why per-file isolation (not just moving mcp into its own single
  * invocation) is necessary.
  *
+ * Cross-file substring-collision hardening (mt#3014): `bun test <path>` does
+ * NOT treat a positional argument as an exact single-file target. It performs
+ * its own default repo-wide file discovery (subject only to bun's HARD-CODED
+ * node_modules/.git exclusion -- confirmed empirically that bunfig.toml's
+ * `pathIgnorePatterns` has NO effect at all once ANY positional arg is
+ * supplied to `bun test`, e.g. `bun test services` still discovers and runs
+ * every services/**.test.ts file despite `pathIgnorePatterns = ["services/**"]`
+ * in bunfig.toml -- so this script's own EXCLUDE_DIR_PREFIXES is the ONLY
+ * thing keeping src/mcp/**, src/cockpit/web/**, and services/** out of a run
+ * that passes explicit file args), then matches each discovered candidate
+ * file against the given args via literal SUBSTRING containment (not a
+ * path-segment-aware or anchored match -- confirmed via
+ * `bun test sub/foo.test.ts` also running an unrelated
+ * `sub/foo.test.ts.extra.test.ts`). An un-prefixed included-file path could,
+ * in principle, be a literal substring of an EXCLUDED file's path elsewhere
+ * in the repo, silently pulling it back into this invocation and
+ * reintroducing the exact multi-MCP-file truncation risk mt#2665 fixed --
+ * completely undetected, since this script trusts bun's own exit code with no
+ * output inspection. No such collision exists in the CURRENT file tree
+ * (verified during mt#3014's investigation), but the exposure is structural,
+ * not merely historical. Every file arg is prefixed with `./` via
+ * `toBunTestArgs` below (reusing scripts/run-related-tests.ts's already-idempotent
+ * `toBunTestPath` -- R1 review, mt#3014: it's a no-op for a path that already
+ * starts with `./`/`../`/`/`, avoiding a `././`-prefixed arg that would fail
+ * to substring-match ANY discovered path, per that file's own docstring for
+ * why it must be idempotent), mirroring the already-validated fix in
+ * scripts/run-tests-main-sharded.ts (see that file's header docstring for the
+ * full empirical repro) -- anchoring the match and eliminating this
+ * collision class.
+ *
  * Any extra CLI args (e.g. --coverage, --watch) are forwarded to `bun test`.
  */
 import { readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { toBunTestPath } from "./run-related-tests";
 
 export const ROOTS = [
   "./src",
@@ -54,6 +85,22 @@ export function shouldExclude(relPath: string): boolean {
   return EXCLUDE_DIR_PREFIXES.some(
     (prefix) => relPath === prefix || relPath.startsWith(`${prefix}/`)
   );
+}
+
+/**
+ * Prefixes each file path with `./` before it is passed to `bun test` as a
+ * positional arg (mt#3014 hardening). See this file's header docstring
+ * ("Cross-file substring-collision hardening") for why: an un-prefixed path
+ * can be a literal substring of an unrelated (and possibly EXCLUDED) file's
+ * path elsewhere in the repo, causing bun's own substring-based positional-arg
+ * matching to silently pull that other file into this invocation too. The
+ * leading `./` anchors the match to the start of the argument; no real
+ * discovered file path in this repo contains a literal "./" substring
+ * mid-path, so this empirically eliminates the collision (verified in
+ * run-tests-main.test.ts and scripts/run-tests-main-sharded.test.ts).
+ */
+export function toBunTestArgs(files: string[]): string[] {
+  return files.map((f) => toBunTestPath(f));
 }
 
 function walk(dir: string, out: string[]): void {
@@ -122,7 +169,15 @@ if (import.meta.main) {
 
   const extraArgs = process.argv.slice(2);
   const proc = Bun.spawnSync(
-    ["bun", "test", "--preload", "./tests/setup.ts", "--timeout=15000", ...extraArgs, ...files],
+    [
+      "bun",
+      "test",
+      "--preload",
+      "./tests/setup.ts",
+      "--timeout=15000",
+      ...extraArgs,
+      ...toBunTestArgs(files),
+    ],
     { stdio: ["ignore", "inherit", "inherit"] }
   );
   process.exit(proc.exitCode ?? 1);

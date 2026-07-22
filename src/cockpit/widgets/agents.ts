@@ -23,6 +23,7 @@
  */
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
+import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import type { SessionProviderInterface, SessionRecord } from "@minsky/domain/session/types";
 import { SessionStatus } from "@minsky/domain/session/types";
@@ -285,6 +286,21 @@ export function spliceDrivenSessions(
  *   pre-mt#2767 behavior. Every pre-existing test in this repo omits this
  *   parameter, so their assertions are unaffected by the merge.
  *
+ * @param getProjectScopeDb  Optional test seam (mt#3016): overrides
+ *   `resolveCockpitProjectScope`'s own db-fetch for the `?project=` query
+ *   param resolution. Production callers never set this — `agentsWidget`
+ *   below omits it, so `resolveCockpitProjectScope` falls back to its own
+ *   `defaultGetDb` (the real `getContextInspectorDb()` singleton), exactly
+ *   matching pre-mt#3016 behavior. Exists because `getContextInspectorDb()`
+ *   is a module-level singleton shared across every test file in the same
+ *   `bun test` process, and its result depends on whatever OTHER test
+ *   happened to initialize `@minsky/domain/configuration`'s own (equally
+ *   global, equally un-reset) provider singleton first — confirmed
+ *   empirically to make this resolve a REAL, non-null connection when
+ *   `packages/domain/src/session-auto-task-creation.test.ts` runs earlier in
+ *   the same process. Injecting `getProjectScopeDb` removes the dependency
+ *   on that ambient, cross-file, load-order-sensitive state entirely.
+ *
  * @example
  *   // Production use (cockpit default):
  *   export const agentsWidget = createAgentsWidget(
@@ -313,7 +329,8 @@ export function createAgentsWidget(
    * row's `attachState` stays `null` (exact pre-mt#2286 behavior) — every
    * pre-existing test in this repo omits this parameter.
    */
-  getLiveAttachments?: () => Promise<SessionAttachment[]>
+  getLiveAttachments?: () => Promise<SessionAttachment[]>,
+  getProjectScopeDb?: () => Promise<ScopeResolverDb | null>
 ): WidgetModule {
   const titleCache = getTaskProvider ? new TaskTitleCache(getTaskProvider) : null;
   // mt#2767 latency follow-up — short-TTL cache in front of the conversation
@@ -348,9 +365,14 @@ export function createAgentsWidget(
         // resolution rules as every other cockpit project-scoped read.
         // resolveCockpitProjectScope owns its own db-fetch and never throws
         // (fail-open to ALL_PROJECTS on any resolution failure — PR #2056 R1)
-        // so a scoping problem can never take this widget down.
+        // so a scoping problem can never take this widget down. `getProjectScopeDb`
+        // is the mt#3016 test seam above — undefined in production, so
+        // resolveCockpitProjectScope falls back to its own defaultGetDb (the
+        // real getContextInspectorDb() singleton).
         const { resolveCockpitProjectScope } = await import("../project-scope");
-        const projectScope = await resolveCockpitProjectScope(ctx.query?.project);
+        const projectScope = await resolveCockpitProjectScope(ctx.query?.project, {
+          getDb: getProjectScopeDb,
+        });
 
         // Filter terminal statuses at DB level; orphaned liveness is derived
         // in JS (no DB column) so it stays as a post-fetch filter.

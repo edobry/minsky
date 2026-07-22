@@ -17,6 +17,18 @@ const failingSummary = [" 510 pass", " 2 fail", " 1198 expect() calls", ranLine]
 
 const singleFileSummary = ["1 pass", "0 fail", "Ran 1 tests across 1 file. [0.10s]"].join("\n");
 
+// mt#3014 finding: real bun 1.2.21 output singularizes "test" independently of
+// "file" -- a run with exactly ONE test prints "Ran 1 test across 1 file."
+// (verified empirically), NOT "Ran 1 tests across 1 file." as the fixture
+// above (pre-existing, kept for regression coverage of the broader pattern)
+// assumed. That mismatch meant the "singular file" test above was accidentally
+// passing without ever exercising bun's real singular-test text -- a format-
+// alignment gap (see .claude/rules/bun-test-patterns.md's "Format Alignment
+// Pattern"). This fixture reproduces the REAL singular form.
+const singleTestSingleFileSummary = ["1 pass", "0 fail", "Ran 1 test across 1 file. [0.10s]"].join(
+  "\n"
+);
+
 // The exact failure this gate exists to catch: a run that exits 0 but never
 // prints the completion summary (silent truncation).
 const truncatedOutput = [
@@ -32,6 +44,10 @@ describe("evaluateBunTestSummary (mt#2716 fail-closed pre-push gate)", () => {
 
   test('passes a single-file run (singular "1 file", no trailing s)', () => {
     expect(evaluateBunTestSummary(singleFileSummary, 0).ok).toBe(true);
+  });
+
+  test('passes a REAL single-test single-file run (singular "1 test", no trailing s, mt#3014)', () => {
+    expect(evaluateBunTestSummary(singleTestSingleFileSummary, 0).ok).toBe(true);
   });
 
   test("FAILS a truncated run (no completion summary) even on exit 0 — the core mt#2716 fix", () => {

@@ -58,6 +58,36 @@ export async function getCachedPersistenceProvider() {
 // createCachedSqlDbGetter — shared lazy-cached SQL-db-handle factory
 // ---------------------------------------------------------------------------
 
+/** A lazy-cached SQL-db getter, plus a test-only reset of its private cache. */
+export interface CachedSqlDbGetter {
+  (): Promise<PostgresJsDatabase | null>;
+  /**
+   * @internal Test-only. Clears this getter's private `cachedDb` /
+   * `probedAndFailed` state so the NEXT call re-probes from scratch, instead
+   * of returning whatever this getter resolved to earlier in the process
+   * (mt#3016). Production code must never call this — it would force a
+   * redundant re-probe on the very next request.
+   */
+  __resetForTests(): void;
+}
+
+/**
+ * Guard for the test-only reset surface: `bun test` sets NODE_ENV to "test",
+ * so any other environment reaching a reset API is production misuse — throw
+ * instead of silently corrupting the live singleton caches. (Reviewer-bot
+ * non-blocking finding, PR #2159.)
+ */
+function assertTestEnvironment(api: string): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(
+      `${api} is test-only (NODE_ENV must be "test"; got ${JSON.stringify(process.env.NODE_ENV)})`
+    );
+  }
+}
+
+/** @internal Test-only registry of every getter this factory has produced, so `__resetDbProvidersForTests()` (below) can reset all of them without needing to name each one individually. */
+const _allCachedSqlDbGetters: CachedSqlDbGetter[] = [];
+
 /**
  * Build a lazy-cached SQL-capable-provider database getter.
  *
@@ -76,12 +106,12 @@ export async function getCachedPersistenceProvider() {
 export function createCachedSqlDbGetter(options: {
   cacheNegative: boolean;
   getProvider?: () => Promise<unknown>;
-}): () => Promise<PostgresJsDatabase | null> {
+}): CachedSqlDbGetter {
   const getProvider = options.getProvider ?? getCachedPersistenceProvider;
   let cachedDb: PostgresJsDatabase | null = null;
   let probedAndFailed = false;
 
-  return async function getCachedSqlDb(): Promise<PostgresJsDatabase | null> {
+  const getCachedSqlDb = async function getCachedSqlDb(): Promise<PostgresJsDatabase | null> {
     if (cachedDb) return cachedDb;
     if (options.cacheNegative && probedAndFailed) return null;
     try {
@@ -110,7 +140,16 @@ export function createCachedSqlDbGetter(options: {
       probedAndFailed = true;
       return null;
     }
+  } as CachedSqlDbGetter;
+
+  getCachedSqlDb.__resetForTests = () => {
+    assertTestEnvironment("__resetForTests");
+    cachedDb = null;
+    probedAndFailed = false;
   };
+
+  _allCachedSqlDbGetters.push(getCachedSqlDb);
+  return getCachedSqlDb;
 }
 
 // ---------------------------------------------------------------------------
@@ -263,4 +302,46 @@ export async function getServerSessionProvider(): Promise<SessionProviderInterfa
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Test-only reset (mt#3016) — mirrors shared-persistence.ts's
+// __resetSharedPersistenceForTests(), same rationale: this module's caches
+// are all module-level state, and bun shares module state across every test
+// file that runs in one process. Confirmed empirically (mt#3016): running
+// packages/domain/src/session-auto-task-creation.test.ts (whose beforeEach
+// calls @minsky/domain/configuration's own equally global, equally un-reset
+// initializeConfiguration()) before a cockpit widget/route test in the same
+// process let getContextInspectorDb() resolve a REAL, non-null connection
+// where the consuming test expected null — breaking a "no live db"
+// assumption none of these getters had any way to guard against.
+//
+// This alone is NOT sufficient to fix that specific bug (a genuinely FRESH
+// call to getContextInspectorDb() also resolves non-null once configuration
+// has been initialized anywhere in-process — the actual mt#3016 fix is the
+// getDb/getProjectScopeDb DI seams threaded through task-list.ts, agents.ts,
+// routes/conversation-search.ts, and routes/conversations.ts). This reset
+// is still exported as general test hygiene for this module's OWN cache
+// state, matching the established shared-persistence.ts precedent, for any
+// future test that needs a guaranteed-fresh probe.
+// ---------------------------------------------------------------------------
+
+/**
+ * Reset every cached SQL-db getter this module has produced (via
+ * `createCachedSqlDbGetter`, including `getContextInspectorDb` and the
+ * private `getAskDb`/`getFollowUpDb` instances) plus every module-level
+ * singleton cache below it, so each starts fresh on its next call.
+ *
+ * @internal Test-only. Production code must never call this.
+ */
+export function __resetDbProvidersForTests(): void {
+  assertTestEnvironment("__resetDbProvidersForTests");
+  for (const getter of _allCachedSqlDbGetters) {
+    getter.__resetForTests();
+  }
+  _cachedServerAskRepo = null;
+  _cachedFollowUpService = null;
+  _cachedTaskService = null;
+  _cachedTaskDetailDeps = null;
+  _cachedServerSessionProvider = null;
 }

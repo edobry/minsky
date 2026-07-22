@@ -10,6 +10,17 @@
  * session-merge-operations.ts's mergeSessionPr(). cleanupLocalBranches(),
  * which used to live in this same file and IS on the live merge call path,
  * has moved to session-branch-cleanup.ts.
+ *
+ * mt#3010 investigation note: this module's direct `setTaskStatus(...,
+ * TASK_STATUS.DONE)` call (no validateStatusTransition gate) was flagged as a
+ * CAUTION during the status-machine single-authority consolidation —
+ * "routing it through the validated path is BEHAVIOR-CHANGING; investigate
+ * live callers first." Investigation reconfirmed the finding already
+ * documented above: zero production callers (repo-wide grep for
+ * `approveSessionImpl` matches only this file and its own two test files).
+ * Deliberately left UNMIGRATED here — consolidating a predicate onto
+ * unreachable code is pointless and reintroduces exactly the risk the
+ * caution warns about for no benefit. Tracked for deletion: mt#3037.
  */
 
 import {
