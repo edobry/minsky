@@ -19,6 +19,9 @@ import {
   sendDrivenSessionInput,
   stopDrivenSession,
   buildDrivenSessionArgs,
+  buildResumeSessionArgs,
+  resumeDrivenSession,
+  INTERRUPTION_NOTICE_TEXT,
   parseStreamJsonLine,
   extractResultSummary,
   NewlineSplitter,
@@ -29,6 +32,7 @@ import {
   type SpawnOptions,
   type DrivenSessionCostSummary,
   type DrivenSessionRecord,
+  type DrivenSessionSubscriber,
 } from "./driven-session-host";
 
 // ---------------------------------------------------------------------------
@@ -102,6 +106,8 @@ function first<T>(arr: T[]): T {
 const SCRATCH_CWD = "/tmp/scratch-workspace";
 const SKIP_PERMISSIONS_FLAG = "--dangerously-skip-permissions";
 const PARSE_ERROR_TYPE = "minsky_parse_error";
+const BYPASS_PERMISSIONS_MODE = "bypassPermissions";
+const RESUME_HARNESS_SESSION_ID = "harness-resume-1";
 
 // ---------------------------------------------------------------------------
 // 1. Spawns with the documented flags
@@ -146,7 +152,7 @@ describe("startDrivenSession — spawns with the documented flags", () => {
   });
 
   test("buildDrivenSessionArgs is the same function argv is derived from (no drift)", () => {
-    expect(buildDrivenSessionArgs("bypassPermissions")).toContain(SKIP_PERMISSIONS_FLAG);
+    expect(buildDrivenSessionArgs(BYPASS_PERMISSIONS_MODE)).toContain(SKIP_PERMISSIONS_FLAG);
     expect(buildDrivenSessionArgs("default")).not.toContain(SKIP_PERMISSIONS_FLAG);
   });
 
@@ -551,5 +557,197 @@ describe("no Agent SDK on the drive path", () => {
     // self-defeatingly flag).
     const importStatementPattern = /(?:from|require\()\s*["']@anthropic-ai/;
     expect(source).not.toMatch(importStatementPattern);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Actuator swap / resume-respawn (mt#3038 R1 deltas #2/#3/#5)
+// ---------------------------------------------------------------------------
+
+describe("buildResumeSessionArgs", () => {
+  test("inserts --resume <harnessSessionId> right after -p", () => {
+    const args = buildResumeSessionArgs(BYPASS_PERMISSIONS_MODE, "harness-xyz");
+    expect(args.slice(0, 3)).toEqual(["-p", "--resume", "harness-xyz"]);
+    expect(args).toContain(SKIP_PERMISSIONS_FLAG);
+  });
+
+  test("omits the skip-permissions flag under default permission mode", () => {
+    const args = buildResumeSessionArgs("default", "harness-xyz");
+    expect(args).not.toContain(SKIP_PERMISSIONS_FLAG);
+  });
+});
+
+describe("resumeDrivenSession — replaces the dead record for the SAME localId", () => {
+  test("spawns claude --resume with the previous cwd/permissionMode and a fresh proc", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const registry = new DrivenSessionRegistry();
+    const { record: original } = startDrivenSession({ cwd: SCRATCH_CWD, spawnFn, registry });
+    const originalProc = original.proc as unknown as FakeClaudeProcess;
+    originalProc.emitLine({
+      type: "system",
+      subtype: "init",
+      session_id: RESUME_HARNESS_SESSION_ID,
+    });
+    originalProc.exit(1, null); // simulate the daemon-restart kill
+
+    const { record: resumed } = resumeDrivenSession({
+      previous: {
+        localId: original.localId,
+        cwd: original.cwd,
+        permissionMode: original.permissionMode,
+        harnessSessionId: RESUME_HARNESS_SESSION_ID,
+        taskId: original.taskId,
+        minskySessionId: original.minskySessionId,
+        startedAt: original.startedAt,
+        actuatorGeneration: original.actuatorGeneration,
+      },
+      spawnFn,
+      registry,
+    });
+
+    expect(resumed.localId).toBe(original.localId);
+    expect(resumed.harnessSessionId).toBe(RESUME_HARNESS_SESSION_ID);
+    expect(resumed.actuatorGeneration).toBe(1);
+    expect(resumed.status).toBe("spawned");
+    expect(registry.get(original.localId)).toBe(resumed);
+
+    const resumeCall = calls[1];
+    expect(resumeCall).toBeDefined();
+    expect(resumeCall?.args.slice(0, 3)).toEqual(["-p", "--resume", RESUME_HARNESS_SESSION_ID]);
+    expect(resumeCall?.options.cwd).toBe(SCRATCH_CWD);
+  });
+
+  test("injects INTERRUPTION_NOTICE_TEXT as the first stdin write by default", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const registry = new DrivenSessionRegistry();
+    const { record: resumed } = resumeDrivenSession({
+      previous: {
+        localId: "local-fixed-id",
+        cwd: SCRATCH_CWD,
+        permissionMode: BYPASS_PERMISSIONS_MODE,
+        harnessSessionId: "harness-abc",
+        taskId: null,
+        minskySessionId: null,
+        startedAt: new Date().toISOString(),
+        actuatorGeneration: 0,
+      },
+      spawnFn,
+      registry,
+    });
+    const proc = resumed.proc as unknown as FakeClaudeProcess;
+    const written = readStdinWrites(proc);
+    const parsed = JSON.parse(written.trim());
+    expect(parsed.message.content[0].text).toBe(INTERRUPTION_NOTICE_TEXT);
+  });
+
+  test("skipInterruptionNotice suppresses the injected notice (test seam)", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const registry = new DrivenSessionRegistry();
+    const { record: resumed } = resumeDrivenSession({
+      previous: {
+        localId: "local-fixed-id-2",
+        cwd: SCRATCH_CWD,
+        permissionMode: BYPASS_PERMISSIONS_MODE,
+        harnessSessionId: "harness-def",
+        taskId: null,
+        minskySessionId: null,
+        startedAt: new Date().toISOString(),
+        actuatorGeneration: 3,
+      },
+      spawnFn,
+      registry,
+      skipInterruptionNotice: true,
+    });
+    expect(resumed.actuatorGeneration).toBe(4);
+    const proc = resumed.proc as unknown as FakeClaudeProcess;
+    expect(readStdinWrites(proc)).toBe("");
+  });
+});
+
+describe("DrivenSessionRegistry.replace — forces existing subscribers to swap", () => {
+  test("calls onSwap on every subscriber of the OLD record, never onEvent", () => {
+    const registry = new DrivenSessionRegistry();
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record: original } = startDrivenSession({
+      cwd: SCRATCH_CWD,
+      spawnFn,
+      registry,
+    });
+
+    let swapped = 0;
+    let eventsAfterSwap = 0;
+    const subscriber: DrivenSessionSubscriber = {
+      onEvent: () => {
+        eventsAfterSwap += 1;
+      },
+      onSwap: () => {
+        swapped += 1;
+      },
+    };
+    original.subscribers.add(subscriber);
+
+    const replacement: DrivenSessionRecord = {
+      ...original,
+      status: "spawned",
+      actuatorGeneration: original.actuatorGeneration + 1,
+      subscribers: new Set(),
+    };
+    registry.replace(original.localId, replacement);
+
+    expect(swapped).toBe(1);
+    expect(eventsAfterSwap).toBe(0);
+    expect(registry.get(original.localId)).toBe(replacement);
+  });
+
+  test("a subscriber's throwing onSwap does not stop the swap or affect other subscribers", () => {
+    const registry = new DrivenSessionRegistry();
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record: original } = startDrivenSession({
+      cwd: SCRATCH_CWD,
+      spawnFn,
+      registry,
+    });
+
+    let secondSwapped = false;
+    original.subscribers.add({
+      onEvent: () => {},
+      onSwap: () => {
+        throw new Error("boom");
+      },
+    });
+    original.subscribers.add({
+      onEvent: () => {},
+      onSwap: () => {
+        secondSwapped = true;
+      },
+    });
+
+    const replacement: DrivenSessionRecord = {
+      ...original,
+      subscribers: new Set(),
+    };
+    registry.replace(original.localId, replacement);
+
+    expect(secondSwapped).toBe(true);
+    expect(registry.get(original.localId)).toBe(replacement);
+  });
+});
+
+describe("sendDrivenSessionInput / stopDrivenSession treat 'unrecoverable' as terminal", () => {
+  test("sendDrivenSessionInput returns false against an unrecoverable record", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
+    record.status = "unrecoverable";
+    record.unrecoverableReason = "deleted cwd";
+    expect(sendDrivenSessionInput(record, "hello")).toBe(false);
+  });
+
+  test("stopDrivenSession is a no-op against an unrecoverable record", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+    record.status = "unrecoverable";
+    stopDrivenSession(record);
+    expect(proc.killSignals.length).toBe(0);
   });
 });
