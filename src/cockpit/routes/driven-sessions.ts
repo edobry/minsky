@@ -45,6 +45,7 @@ import {
   createDrivenResultObserver,
   type ResolvedTaskWorkspace,
 } from "../driven-session-launch";
+import { isDispatchModelId, resolveDispatchModelArg } from "../web/lib/dispatch-models";
 
 /**
  * Options accepted by {@link mountDrivenSessionRoutes}. Every field here is a
@@ -156,6 +157,22 @@ export function mountDrivenSessionRoutes(
       ? permissionModeRaw
       : DEFAULT_PERMISSION_MODE;
 
+    // mt#3040: optional principal-selected model. Reject a present-but-unknown
+    // model id rather than silently launching on the default (mirrors the
+    // cwd/taskId malformed-field rejections above). The wire value is a
+    // registry id (e.g. "fable"); resolve it to the `--model` alias.
+    const modelRaw = body["model"];
+    let model: string | undefined;
+    if (modelRaw !== undefined) {
+      if (!isDispatchModelId(modelRaw)) {
+        res
+          .status(400)
+          .json({ error: "model must be one of the known dispatch models when provided" });
+        return;
+      }
+      model = resolveDispatchModelArg(modelRaw);
+    }
+
     try {
       let cwd: string;
       let taskId: string | null = null;
@@ -183,6 +200,7 @@ export function mountDrivenSessionRoutes(
       const { record } = startDrivenSession({
         cwd,
         permissionMode,
+        model,
         taskId,
         minskySessionId,
         onHarnessSessionLinked,

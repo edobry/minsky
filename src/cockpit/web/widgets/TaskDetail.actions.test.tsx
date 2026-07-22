@@ -12,7 +12,7 @@
  * Run via: bun run test:components
  */
 import { describe, test, expect, afterEach } from "bun:test";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TaskActions, type TaskAction } from "./TaskDetail";
@@ -73,5 +73,34 @@ describe("TaskActions (mt#2986)", () => {
     renderActions([{ kind: "plan" }, { kind: "resume", sessionId: "ws-1" }]);
     expect(screen.getByRole("button", { name: /Plan mt#9999/ })).toBeDefined();
     expect(screen.getByRole("link", { name: /Open session/ })).toBeDefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Model selection (mt#3040) — defaulted-with-visible-override
+  // -------------------------------------------------------------------------
+
+  test("launch action renders a model picker defaulting to Sonnet, with Fable available", () => {
+    renderActions([{ kind: "start" }]);
+    const picker = screen.getByRole("combobox", {
+      name: /Model for start session/i,
+    }) as HTMLSelectElement;
+    expect(picker.value).toBe("sonnet");
+    const options = Array.from(picker.options).map((o) => o.value);
+    expect(options).toContain("fable");
+    expect(options).toContain("opus");
+  });
+
+  test("the principal can override the launch model to Fable", () => {
+    renderActions([{ kind: "start" }]);
+    const picker = screen.getByRole("combobox", {
+      name: /Model for start session/i,
+    }) as HTMLSelectElement;
+    fireEvent.change(picker, { target: { value: "fable" } });
+    expect(picker.value).toBe("fable");
+  });
+
+  test("non-launch actions render no model picker", () => {
+    renderActions([{ kind: "resume", sessionId: "abc-123" }]);
+    expect(screen.queryByRole("combobox")).toBeNull();
   });
 });
