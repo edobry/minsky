@@ -1,4 +1,13 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- the `runAtCoverageCalibration` /
+   `appendAtCoverageCalibration` regression tests below exercise the real, unmocked
+   calibration-log write path (mirrors `guard-health-write-isolation.test.ts`'s
+   rationale) against a real mkdtemp scratch directory — a real-fs round-trip is the
+   point of that suite, not something injectable-fs mocking can substitute for. */
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+/* eslint-enable custom/no-real-fs-in-tests */
+import { join } from "node:path";
 
 import {
   isTestFile,
@@ -13,6 +22,23 @@ import {
   type PrFile,
   type FetchPrFilesResult,
   type ExecFn,
+  // mt#3033: AT-cross-reference (calibration-first)
+  extractAcceptanceTestsSection,
+  parseAcceptanceTests,
+  isFindingsShapedAcceptanceTest,
+  isExecutableAcceptanceTest,
+  extractExecutionEvidenceText,
+  isAtReferencedByNumber,
+  isAtReferencedByKeyword,
+  extractAtDeferralMarker,
+  isAtDeferred,
+  checkAcceptanceTestCoverage,
+  isAtCoverageSkipped,
+  AT_COVERAGE_SKIP_ENV_VAR,
+  fetchTaskSpecForAtCoverage,
+  runAtCoverageCalibration,
+  type AcceptanceTestItem,
+  type AtCoverageResult,
 } from "./require-execution-evidence-before-merge";
 
 // ---------------------------------------------------------------------------
@@ -903,5 +929,454 @@ describe("checkExecutionEvidence — operational scripts (mt#2776)", () => {
     expect(result.blocked).toBe(true);
     expect(result.reason).toContain("test file");
     expect(result.reason).toContain("operational script");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3033: Acceptance-test cross-reference (CALIBRATION-FIRST, log-only)
+// ---------------------------------------------------------------------------
+
+/** AT3 text fixture (mt#2542's literal, unaddressed acceptance test) — hoisted once. */
+const AT3_TEXT = "All deployed services boot and operate on the DML-only role.";
+/** Distinctive keyword fragment shared by every AT3-related assertion below. */
+const AT3_KEYWORD_FRAGMENT = "services boot and operate";
+
+/** mt#2542 incident-shaped fixture: 3 ATs, AT3 is the literal, unaddressed test. */
+const SPEC_MT2542_3_AT = `## Summary
+Adds a DML-only Postgres role.
+
+## Acceptance Tests
+
+1. CREATE TABLE is denied for the DML-only role.
+2. All 37 tables are granted DML privileges to the role.
+3. ${AT3_TEXT}
+`;
+
+/** Proxy-only evidence — covers AT1/AT2 but never exercises AT3 (the mt#2542 gap). */
+const PROXY_EVIDENCE_BODY = `## Summary
+Adds a DML-only Postgres role.
+
+## Execution evidence:
+CREATE TABLE denied: confirmed.
+37/37 tables granted DML privileges.
+`;
+
+const SPEC_FINDINGS_ONLY = `## Acceptance Tests
+
+1. Audit produces a list of affected records.
+2. Decision recorded in the task spec.
+`;
+
+const SPEC_NO_AT_SECTION = `## Summary
+Docs-only change.
+
+## Testing
+N/A.
+`;
+
+describe("extractAcceptanceTestsSection", () => {
+  it("extracts content between the heading and the next heading", () => {
+    const section = extractAcceptanceTestsSection(SPEC_MT2542_3_AT);
+    expect(section).not.toBeNull();
+    expect(section).toContain("CREATE TABLE is denied");
+    expect(section).toContain(AT3_KEYWORD_FRAGMENT);
+  });
+
+  it("returns null when no Acceptance Tests section exists", () => {
+    expect(extractAcceptanceTestsSection(SPEC_NO_AT_SECTION)).toBeNull();
+  });
+
+  it("stops at the next ## heading", () => {
+    const spec = `## Acceptance Tests\n\n1. First test.\n\n## Context\n\nUnrelated.`;
+    const section = extractAcceptanceTestsSection(spec) ?? "";
+    expect(section).toContain("First test");
+    expect(section).not.toContain("Unrelated");
+  });
+
+  it("stops at a --- divider", () => {
+    const spec = `## Acceptance Tests\n\n1. First test.\n\n---\n\nFooter.`;
+    const section = extractAcceptanceTestsSection(spec) ?? "";
+    expect(section).toContain("First test");
+    expect(section).not.toContain("Footer");
+  });
+});
+
+describe("parseAcceptanceTests", () => {
+  it("parses a numbered list into items", () => {
+    const items = parseAcceptanceTests(SPEC_MT2542_3_AT);
+    expect(items).toHaveLength(3);
+    expect(items[0]).toEqual({ number: 1, text: "CREATE TABLE is denied for the DML-only role." });
+    expect(items[2]?.number).toBe(3);
+    expect(items[2]?.text).toContain(AT3_KEYWORD_FRAGMENT);
+  });
+
+  it("joins multi-line continuation onto the preceding item", () => {
+    const spec = `## Acceptance Tests\n\n1. First line of item one\n   continues here.\n2. Second item.\n`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(2);
+    expect(items[0]?.text).toBe("First line of item one continues here.");
+    expect(items[1]?.text).toBe("Second item.");
+  });
+
+  it("returns an empty array when there is no Acceptance Tests section", () => {
+    expect(parseAcceptanceTests(SPEC_NO_AT_SECTION)).toHaveLength(0);
+  });
+
+  it("returns an empty array when the section has no numbered items", () => {
+    const spec = `## Acceptance Tests\n\nSee above.\n`;
+    expect(parseAcceptanceTests(spec)).toHaveLength(0);
+  });
+});
+
+describe("isFindingsShapedAcceptanceTest", () => {
+  it("matches 'audit produces' phrasing", () => {
+    expect(isFindingsShapedAcceptanceTest("Audit produces a list of affected records.")).toBe(true);
+  });
+
+  it("matches 'decision recorded' phrasing", () => {
+    expect(isFindingsShapedAcceptanceTest("Decision recorded in the task spec.")).toBe(true);
+  });
+
+  it("matches 'documented in/as' phrasing", () => {
+    expect(isFindingsShapedAcceptanceTest("Findings documented in the memory entry.")).toBe(true);
+  });
+
+  it("does not match a normal executable AT", () => {
+    expect(isFindingsShapedAcceptanceTest(AT3_TEXT)).toBe(false);
+  });
+});
+
+describe("isExecutableAcceptanceTest", () => {
+  it("returns false for a state-ops task regardless of text", () => {
+    expect(isExecutableAcceptanceTest("The gate blocks the merge.", "state-ops")).toBe(false);
+  });
+
+  it("returns false for findings-shaped text", () => {
+    expect(
+      isExecutableAcceptanceTest("Decision recorded in the task spec.", "implementation")
+    ).toBe(false);
+  });
+
+  it("returns false for empty text", () => {
+    expect(isExecutableAcceptanceTest("   ", "implementation")).toBe(false);
+  });
+
+  it("returns true for a normal executable AT under a non-state-ops kind", () => {
+    expect(isExecutableAcceptanceTest(AT3_TEXT, "implementation")).toBe(true);
+  });
+
+  it("returns true when taskKind is undefined and text is executable", () => {
+    expect(
+      isExecutableAcceptanceTest("The gate blocks the merge, naming the unaddressed AT.")
+    ).toBe(true);
+  });
+});
+
+describe("extractExecutionEvidenceText", () => {
+  it("extracts content following the Execution evidence marker", () => {
+    const text = extractExecutionEvidenceText(PROXY_EVIDENCE_BODY);
+    expect(text).toContain("CREATE TABLE denied");
+    expect(text).toContain("37/37 tables granted");
+  });
+
+  it("returns an empty string when no marker is present", () => {
+    expect(extractExecutionEvidenceText(BODY_NO_EVIDENCE)).toBe("");
+  });
+
+  it("ignores a negated 'No Execution evidence:' marker", () => {
+    expect(extractExecutionEvidenceText("No Execution evidence: nothing was run.")).toBe("");
+  });
+});
+
+describe("isAtReferencedByNumber", () => {
+  const at3: AcceptanceTestItem = { number: 3, text: AT3_KEYWORD_FRAGMENT };
+
+  it("matches 'AT3'", () => {
+    expect(isAtReferencedByNumber(at3, "Verified AT3 by booting the reviewer service.")).toBe(true);
+  });
+
+  it("matches 'AT#3'", () => {
+    expect(isAtReferencedByNumber(at3, "See AT#3 for the boot verification.")).toBe(true);
+  });
+
+  it("matches 'acceptance test 3'", () => {
+    expect(isAtReferencedByNumber(at3, "Acceptance test 3 was exercised live.")).toBe(true);
+  });
+
+  it("matches 'at-3'", () => {
+    expect(isAtReferencedByNumber(at3, "Covered by at-3 verification.")).toBe(true);
+  });
+
+  it("does not match an unrelated AT number", () => {
+    expect(isAtReferencedByNumber(at3, "AT1 and AT2 were verified.")).toBe(false);
+  });
+
+  it("does not false-positive-match AT30 against AT3", () => {
+    expect(isAtReferencedByNumber(at3, "AT30 was exercised.")).toBe(false);
+  });
+});
+
+describe("isAtReferencedByKeyword", () => {
+  const at3: AcceptanceTestItem = { number: 3, text: AT3_TEXT };
+
+  it("matches when the evidence shares a distinctive keyword", () => {
+    expect(isAtReferencedByKeyword(at3, "Confirmed all services booted successfully.")).toBe(true);
+  });
+
+  it("does not match when there is no keyword overlap", () => {
+    expect(isAtReferencedByKeyword(at3, "CREATE TABLE denied: confirmed.")).toBe(false);
+  });
+});
+
+describe("extractAtDeferralMarker / isAtDeferred", () => {
+  it("extracts the deferral target for the given AT number", () => {
+    const body = `${PROXY_EVIDENCE_BODY}\n[at3-deferred: mt#9999]`;
+    expect(extractAtDeferralMarker(body, 3)).toBe("mt#9999");
+    expect(isAtDeferred(body, 3)).toBe(true);
+  });
+
+  it("is case-insensitive", () => {
+    const body = "[AT3-DEFERRED: mt#9999]";
+    expect(isAtDeferred(body, 3)).toBe(true);
+  });
+
+  it("returns null/false when no marker exists for this AT number", () => {
+    expect(extractAtDeferralMarker(PROXY_EVIDENCE_BODY, 3)).toBeNull();
+    expect(isAtDeferred(PROXY_EVIDENCE_BODY, 3)).toBe(false);
+  });
+
+  it("does not match a marker for a different AT number", () => {
+    const body = "[at1-deferred: mt#1234]";
+    expect(isAtDeferred(body, 3)).toBe(false);
+  });
+});
+
+describe("checkAcceptanceTestCoverage", () => {
+  it("reproduces the mt#2542 scenario: AT3 unaddressed by proxy-only evidence", () => {
+    const result: AtCoverageResult = checkAcceptanceTestCoverage(
+      SPEC_MT2542_3_AT,
+      "implementation",
+      PROXY_EVIDENCE_BODY
+    );
+    expect(result.applicable).toBe(true);
+    expect(result.executableAts).toHaveLength(3);
+    expect(result.unaddressedAts).toHaveLength(1);
+    expect(result.unaddressedAts[0]?.number).toBe(3);
+  });
+
+  it("allows when a per-AT deferral marker addresses the unaddressed AT", () => {
+    const bodyWithDeferral = `${PROXY_EVIDENCE_BODY}\n[at3-deferred: mt#9999]`;
+    const result = checkAcceptanceTestCoverage(
+      SPEC_MT2542_3_AT,
+      "implementation",
+      bodyWithDeferral
+    );
+    expect(result.applicable).toBe(true);
+    expect(result.unaddressedAts).toHaveLength(0);
+  });
+
+  it("is not applicable when the task kind is state-ops", () => {
+    const result = checkAcceptanceTestCoverage(SPEC_MT2542_3_AT, "state-ops", BODY_NO_EVIDENCE);
+    expect(result.applicable).toBe(false);
+    expect(result.unaddressedAts).toHaveLength(0);
+  });
+
+  it("is not applicable when all ATs are findings-shaped", () => {
+    const result = checkAcceptanceTestCoverage(
+      SPEC_FINDINGS_ONLY,
+      "implementation",
+      BODY_NO_EVIDENCE
+    );
+    expect(result.applicable).toBe(false);
+  });
+
+  it("is not applicable when the spec has no Acceptance Tests section (docs-only)", () => {
+    const result = checkAcceptanceTestCoverage(
+      SPEC_NO_AT_SECTION,
+      "implementation",
+      BODY_NO_EVIDENCE
+    );
+    expect(result.applicable).toBe(false);
+  });
+
+  it("allows when every executable AT is referenced by number in the evidence block", () => {
+    const body = `## Execution evidence:\nAT1 verified. AT2 verified. AT3 verified live boot.\n`;
+    const result = checkAcceptanceTestCoverage(SPEC_MT2542_3_AT, "implementation", body);
+    expect(result.unaddressedAts).toHaveLength(0);
+  });
+});
+
+describe("isAtCoverageSkipped", () => {
+  const ORIGINAL = process.env[AT_COVERAGE_SKIP_ENV_VAR];
+
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env[AT_COVERAGE_SKIP_ENV_VAR];
+    else process.env[AT_COVERAGE_SKIP_ENV_VAR] = ORIGINAL;
+  });
+
+  it("is false by default", () => {
+    delete process.env[AT_COVERAGE_SKIP_ENV_VAR];
+    expect(isAtCoverageSkipped()).toBe(false);
+  });
+
+  it("is true when set to '1'", () => {
+    process.env[AT_COVERAGE_SKIP_ENV_VAR] = "1";
+    expect(isAtCoverageSkipped()).toBe(true);
+  });
+
+  it("is true when set to 'true' (case-insensitive)", () => {
+    process.env[AT_COVERAGE_SKIP_ENV_VAR] = "TRUE";
+    expect(isAtCoverageSkipped()).toBe(true);
+  });
+});
+
+describe("fetchTaskSpecForAtCoverage", () => {
+  it("parses a successful CLI response", () => {
+    const exec: ExecFn = () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({
+        success: true,
+        task: { kind: "implementation" },
+        content: SPEC_MT2542_3_AT,
+      }),
+      stderr: "",
+    });
+    const result = fetchTaskSpecForAtCoverage("mt#2542", "/tmp", exec);
+    expect(result.ok).toBe(true);
+    expect(result.kind).toBe("implementation");
+    expect(result.content).toContain(AT3_KEYWORD_FRAGMENT);
+  });
+
+  it("fails open (ok: false) on non-zero exit", () => {
+    const exec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "not found" });
+    expect(fetchTaskSpecForAtCoverage("mt#9999999", "/tmp", exec).ok).toBe(false);
+  });
+
+  it("fails open (ok: false) on unparseable JSON", () => {
+    const exec: ExecFn = () => ({ exitCode: 0, stdout: "not json", stderr: "" });
+    expect(fetchTaskSpecForAtCoverage("mt#1", "/tmp", exec).ok).toBe(false);
+  });
+
+  it("fails open (ok: false) when the content field is missing", () => {
+    const exec: ExecFn = () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ success: true, task: { kind: "implementation" } }),
+      stderr: "",
+    });
+    expect(fetchTaskSpecForAtCoverage("mt#1", "/tmp", exec).ok).toBe(false);
+  });
+
+  it("fails open (ok: false) when exec itself throws", () => {
+    const exec: ExecFn = () => {
+      throw new Error("spawn failed");
+    };
+    expect(fetchTaskSpecForAtCoverage("mt#1", "/tmp", exec).ok).toBe(false);
+  });
+});
+
+describe("runAtCoverageCalibration — never emits deny, only warns/logs", () => {
+  const ORIGINAL_SKIP = process.env[AT_COVERAGE_SKIP_ENV_VAR];
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "at-coverage-calibration-"));
+    delete process.env[AT_COVERAGE_SKIP_ENV_VAR];
+  });
+
+  afterEach(() => {
+    if (ORIGINAL_SKIP === undefined) delete process.env[AT_COVERAGE_SKIP_ENV_VAR];
+    else process.env[AT_COVERAGE_SKIP_ENV_VAR] = ORIGINAL_SKIP;
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- cleans up the real mkdtemp scratch directory created in beforeEach above.
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function execFor(specContent: string, kind = "implementation"): ExecFn {
+    return () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ success: true, task: { kind }, content: specContent }),
+      stderr: "",
+    });
+  }
+
+  it("returns a warning (never a block-shaped result) for the mt#2542 scenario, naming AT3", () => {
+    const result = runAtCoverageCalibration(
+      "mt#2542",
+      2136,
+      PROXY_EVIDENCE_BODY,
+      "/tmp",
+      tmpDir,
+      execFor(SPEC_MT2542_3_AT)
+    );
+    expect(result.ranCheck).toBe(true);
+    expect(result.warning).toBeDefined();
+    expect(result.warning).toContain("AT3");
+    expect(result.warning).toContain("CALIBRATION");
+    // Structural guarantee: the result shape has no field resembling a deny/block signal.
+    expect(Object.keys(result).sort()).toEqual(["ranCheck", "warning"]);
+    expect(JSON.stringify(result)).not.toContain("permissionDecision");
+    expect(JSON.stringify(result).toLowerCase()).not.toContain('"blocked"');
+
+    // A calibration record was appended to the log under the given repo root.
+    const logPath = join(tmpDir, ".minsky/execution-evidence-at-coverage-calibration.jsonl");
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- reads back the real calibration-log file `runAtCoverageCalibration` just wrote, to verify the on-disk record shape.
+    const written = readFileSync(logPath, "utf-8");
+    const record = JSON.parse(written.trim().split("\n")[0] ?? "{}");
+    expect(record.task).toBe("mt#2542");
+    expect(record.unaddressedAts?.[0]?.number).toBe(3);
+  });
+
+  it("returns no warning when every executable AT is deferred or covered", () => {
+    const bodyWithDeferral = `${PROXY_EVIDENCE_BODY}\n[at3-deferred: mt#9999]`;
+    const result = runAtCoverageCalibration(
+      "mt#2542",
+      2136,
+      bodyWithDeferral,
+      "/tmp",
+      tmpDir,
+      execFor(SPEC_MT2542_3_AT)
+    );
+    expect(result.ranCheck).toBe(true);
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("returns no warning for a docs-only PR bound to a task with no executable ATs", () => {
+    const result = runAtCoverageCalibration(
+      "mt#1",
+      1,
+      BODY_NO_EVIDENCE,
+      "/tmp",
+      tmpDir,
+      execFor(SPEC_NO_AT_SECTION)
+    );
+    expect(result.ranCheck).toBe(true);
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("is silent (ranCheck: false) when the spec fetch fails — fail-open, no noise", () => {
+    const failingExec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "not found" });
+    const result = runAtCoverageCalibration(
+      "mt#nonexistent",
+      1,
+      PROXY_EVIDENCE_BODY,
+      "/tmp",
+      tmpDir,
+      failingExec
+    );
+    expect(result.ranCheck).toBe(false);
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("is skipped entirely when MINSKY_SKIP_AT_COVERAGE is set", () => {
+    process.env[AT_COVERAGE_SKIP_ENV_VAR] = "1";
+    const result = runAtCoverageCalibration(
+      "mt#2542",
+      2136,
+      PROXY_EVIDENCE_BODY,
+      "/tmp",
+      tmpDir,
+      execFor(SPEC_MT2542_3_AT)
+    );
+    expect(result.ranCheck).toBe(false);
+    expect(result.warning).toBeUndefined();
   });
 });

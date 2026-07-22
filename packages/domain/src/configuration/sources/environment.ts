@@ -304,6 +304,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_SIZE_JUSTIFICATION", // .claude/hooks/require-growth-justification-before-merge.ts (mt#2874) — override for the growth-justification merge gate (rules-touching PR that grows CLAUDE.md beyond the threshold without a Size-budget justification: marker)
   "MINSKY_ACK_BUILD_CLAIM_INJECTION", // .claude/hooks/build-claim-injection-detector.ts (mt#2923) — override for the build/deploy-claim-seam warning injection
   "MINSKY_SKIP_USABILITY_CLAIM_CHECK", // .claude/hooks/require-deploy-verification-before-merge.ts (mt#2545 Gap A) — override for the build-surface altitude-4 usability-claim merge gate
+  "MINSKY_SKIP_AT_COVERAGE", // .claude/hooks/require-execution-evidence-before-merge.ts (mt#3033) — override for the calibration-first acceptance-test cross-reference check (log-only; skips both detection and calibration-log write)
 ]);
 
 /**
