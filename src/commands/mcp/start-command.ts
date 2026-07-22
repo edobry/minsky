@@ -965,6 +965,21 @@ export async function buildSubagentDispatchTracker(
 
     const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
     const { SubagentDispatchTracker } = await import("../../mcp/subagent-dispatch-tracker");
+    // mt#3044 R1 BLOCKING #1: `wireSubagentDispatchTrackerWithRetry` clears its
+    // memo and returns `false` once `SUBAGENT_TRACKER_WIRE_TIMEOUT_MS` elapses,
+    // but the `getDatabaseConnection()` call THIS function is awaiting keeps
+    // running in the background — it is not cancelable. If it later resolves
+    // successfully, without this guard it would call `setInstance` even
+    // though a NEWER attempt (triggered by a subsequent retry) may have
+    // already wired the singleton first. Re-check immediately before the
+    // side effect (no `await` between the check and `setInstance` below, so
+    // this is race-free — nothing else can run between them on Node/Bun's
+    // single-threaded event loop) and skip entirely when already wired,
+    // rather than replacing a working instance with a stale one and leaking
+    // the discarded EventEmitter this attempt would otherwise construct.
+    if (SubagentDispatchTracker.isWired()) {
+      return true;
+    }
     const { createEventEmitter } = await import("@minsky/domain/events/emitter");
     SubagentDispatchTracker.setInstance(db, createEventEmitter(db));
     return true;
@@ -1416,25 +1431,31 @@ export function createStartCommand(
         // call while the singleton is unwired — see subagent-dispatch-tracker.ts)
         // so a LATER `debug.systemInfo` or `session.generate_prompt` call
         // retries the wiring instead of the failure latching for the rest of
-        // the process's life. Registration is fire-and-forget too — it only
-        // needs to land before some FUTURE getInstance() call, not before the
-        // eager attempt below (which shares the same promise-memoized state
-        // regardless of registration timing).
+        // the process's life.
+        //
+        // R1 BLOCKING #2 fix: registration is AWAITED (not fire-and-forget)
+        // so it completes deterministically before this function reaches
+        // `server.start()` further down — mirrors the mt#1625 bundle-
+        // composition pattern elsewhere in this file ("this MUST be awaited
+        // before server.start() so [it] is in place when the first
+        // ... handshake arrives"). Without this, a consumer that manages to
+        // call `getInstance()` before the dynamic import resolves would see
+        // no registered retry callback and get no retry until some LATER
+        // call happened to land after registration — a timing-dependent
+        // blind window undermining SC#2's "eventually reflects real data"
+        // guarantee. The eager wire attempt below stays fire-and-forget
+        // (unchanged) — only the REGISTRATION needed the ordering guarantee.
         if (container) {
-          import("../../mcp/subagent-dispatch-tracker")
-            .then(({ SubagentDispatchTracker }) => {
-              SubagentDispatchTracker.registerWireAttempt(() =>
-                wireSubagentDispatchTrackerWithRetry(container)
-              );
-            })
-            .catch((err) => {
-              log.debug(
-                "[mt#3044] Could not register SubagentDispatchTracker wire-retry callback",
-                {
-                  error: getErrorMessage(err),
-                }
-              );
+          try {
+            const { SubagentDispatchTracker } = await import("../../mcp/subagent-dispatch-tracker");
+            SubagentDispatchTracker.registerWireAttempt(() =>
+              wireSubagentDispatchTrackerWithRetry(container)
+            );
+          } catch (err) {
+            log.debug("[mt#3044] Could not register SubagentDispatchTracker wire-retry callback", {
+              error: getErrorMessage(err),
             });
+          }
 
           wireSubagentDispatchTrackerWithRetry(container)
             .then((wired) => {

@@ -1614,6 +1614,25 @@ class ScriptedPersistenceProvider extends PersistenceProvider {
   }
 }
 
+/**
+ * Poll `SubagentDispatchTracker.isWired()` until it reports `true` (or
+ * `timeoutMs` elapses) instead of a fixed-duration sleep. Used to wait for a
+ * `getInstance()`-triggered background retry to settle deterministically
+ * rather than hoping a fixed sleep was long enough — a fixed sleep risks
+ * flakiness on a contended CI runner or slower environment (mt#3044 R1
+ * NON-BLOCKING).
+ */
+async function waitForWired(timeoutMs = 1000, intervalMs = 5): Promise<void> {
+  // performance.now() (monotonic) rather than Date.now() (wall-clock) --
+  // also avoids custom/no-real-fs-in-tests' timestamp-uniqueness heuristic,
+  // which flags `Date.now()` inside a BinaryExpression (a false positive
+  // here — this is a deadline computation, not path/id uniqueness).
+  const deadline = performance.now() + timeoutMs;
+  while (!SubagentDispatchTracker.isWired() && performance.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
 /** Minimal AppContainerInterface fake binding only "persistence". */
 function makeContainer(
   persistence: PersistenceProvider
@@ -1677,8 +1696,9 @@ describe("SubagentDispatchTracker singleton wiring retry (mt#3044)", () => {
     );
     SubagentDispatchTracker.getInstance();
 
-    // Wait for the background retry (fire-and-forget from getInstance()) to settle.
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Wait for the background retry (fire-and-forget from getInstance()) to
+    // settle -- polls isWired() rather than sleeping a fixed duration.
+    await waitForWired();
 
     expect(persistence.calls).toBe(2);
     expect(SubagentDispatchTracker.isWired()).toBe(true);
@@ -1687,15 +1707,13 @@ describe("SubagentDispatchTracker singleton wiring retry (mt#3044)", () => {
   test("wireSubagentDispatchTrackerWithRetry: concurrent callers during an in-flight attempt share the SAME promise (no duplicate DB-connection attempts)", async () => {
     SubagentDispatchTracker.resetUnwiredForTest();
 
-    // A short REAL delay (rather than a manually-captured resolve callback)
-    // avoids racing the dynamic imports inside buildSubagentDispatchTracker
-    // (persistence/types, subagent-dispatch-tracker, events/emitter) that
-    // run before getDatabaseConnection() is ever called -- a synchronous
-    // capture-and-resolve-immediately approach fires before the callback is
-    // assigned and never resolves the connection at all.
-    const persistence = new ScriptedPersistenceProvider([
-      () => new Promise((resolve) => setTimeout(() => resolve({} as unknown), 30)),
-    ]);
+    // No artificial delay needed: wireSubagentDispatchTrackerWithRetry's
+    // dedup check ("if in-flight, return the existing promise") happens
+    // SYNCHRONOUSLY on the second call, before either attempt's async work
+    // has a chance to resolve -- correctness here doesn't depend on how
+    // fast/slow getDatabaseConnection() resolves (mt#3044 R1 NON-BLOCKING:
+    // removes the timing dependency entirely rather than tuning a sleep).
+    const persistence = new ScriptedPersistenceProvider([async () => ({}) as unknown]);
     const container = makeContainer(persistence) as AppContainerInterface;
 
     const first = wireSubagentDispatchTrackerWithRetry(container);
@@ -1728,5 +1746,50 @@ describe("SubagentDispatchTracker singleton wiring retry (mt#3044)", () => {
     const retryResult = await wireSubagentDispatchTrackerWithRetry(container, 20);
     expect(retryResult).toBe(true);
     expect(SubagentDispatchTracker.isWired()).toBe(true);
+  });
+
+  test("mt#3044 R1 BLOCKING #1 regression: a late-resolving timed-out attempt does not clobber a newer already-wired singleton", async () => {
+    SubagentDispatchTracker.resetUnwiredForTest();
+
+    // A "stale" attempt whose underlying getDatabaseConnection() call we
+    // control manually, so we can resolve it AFTER a newer attempt has
+    // already wired the singleton -- reproducing the exact race the
+    // reviewer flagged: wireSubagentDispatchTrackerWithRetry's timeout
+    // bound doesn't cancel the underlying buildSubagentDispatchTracker
+    // call, so it keeps running in the background and could, without the
+    // guard, call setInstance a second time once it finally resolves.
+    let resolveStale: ((value: unknown) => void) | undefined;
+    const stalePersistence = new ScriptedPersistenceProvider([
+      () =>
+        new Promise((resolve) => {
+          resolveStale = resolve;
+        }),
+    ]);
+    const staleContainer = makeContainer(stalePersistence) as AppContainerInterface;
+
+    const timedOut = await wireSubagentDispatchTrackerWithRetry(staleContainer, 20);
+    expect(timedOut).toBe(false);
+    expect(SubagentDispatchTracker.isWired()).toBe(false);
+
+    // A second, independent (newer) attempt succeeds and wires the
+    // singleton -- simulating a subsequent retry winning the race while the
+    // stale attempt above is still silently pending.
+    const freshPersistence = new ScriptedPersistenceProvider([async () => ({}) as unknown]);
+    const freshContainer = makeContainer(freshPersistence) as AppContainerInterface;
+    const freshResult = await wireSubagentDispatchTrackerWithRetry(freshContainer);
+    expect(freshResult).toBe(true);
+    expect(SubagentDispatchTracker.isWired()).toBe(true);
+
+    const wiredAfterFreshAttempt = SubagentDispatchTracker.getInstance();
+
+    // Now let the STALE attempt (from before the timeout) finally resolve.
+    // Without the R1 BLOCKING #1 guard in buildSubagentDispatchTracker, this
+    // would call setInstance again and silently replace the newer,
+    // already-wired instance with a redundant one.
+    resolveStale?.({} as unknown);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(SubagentDispatchTracker.isWired()).toBe(true);
+    expect(SubagentDispatchTracker.getInstance()).toBe(wiredAfterFreshAttempt);
   });
 });
