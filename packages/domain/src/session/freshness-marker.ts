@@ -207,6 +207,14 @@ export interface FreshnessCasResult {
   currentSha?: string;
   /** When the check was bypassed: the reason class. */
   bypass?: FreshnessCasBypass;
+  /**
+   * The marker's `mainRef` (e.g. "origin/main") — set whenever a marker was
+   * found (every branch past the `no-marker` bypass). mt#3049 review R1:
+   * threaded through so callers constructing a diagnostic error (e.g.
+   * `FreshnessCasError`) don't have to re-read the marker themselves or
+   * fall back to an empty string.
+   */
+  mainRef?: string;
 }
 
 /**
@@ -233,16 +241,21 @@ export async function checkFreshnessCas(
 
   const fetched = await deps.fetchOrigin(workdir);
   if (!fetched) {
-    return { ok: true, bypass: "fetch-failed", capturedSha: marker.sha };
+    return { ok: true, bypass: "fetch-failed", capturedSha: marker.sha, mainRef: marker.mainRef };
   }
 
   const currentSha = await deps.resolveRefSha(workdir, marker.mainRef);
   if (currentSha === null) {
-    return { ok: true, bypass: "ref-unresolvable", capturedSha: marker.sha };
+    return {
+      ok: true,
+      bypass: "ref-unresolvable",
+      capturedSha: marker.sha,
+      mainRef: marker.mainRef,
+    };
   }
 
   if (currentSha === marker.sha) {
-    return { ok: true, capturedSha: marker.sha, currentSha };
+    return { ok: true, capturedSha: marker.sha, currentSha, mainRef: marker.mainRef };
   }
 
   return {
@@ -254,5 +267,6 @@ export async function checkFreshnessCas(
       `SHA or block with a list of new commits to review).`,
     capturedSha: marker.sha,
     currentSha,
+    mainRef: marker.mainRef,
   };
 }

@@ -13,6 +13,7 @@ import { isActionCovered, loadAllPolicySources } from "../ask/policy";
 import { emitSystemEventFromProvider } from "../events/emit-best-effort";
 import type { PersistenceProvider } from "../persistence/types";
 import type { TokenProvider } from "../auth/token-provider";
+import type { GitServiceInterface } from "../git/types";
 import { checkFreshnessCas, cleanupFreshnessMarker } from "./freshness-marker";
 
 /**
@@ -37,6 +38,112 @@ export class FreshnessCasError extends MinskyError {
   ) {
     super(message);
   }
+}
+
+/**
+ * Thrown when the COMMIT phase of `sessionCommit` (staging + `git commit`,
+ * which synchronously runs the `.husky/pre-commit` hook chain) exceeds its
+ * wall-clock bound (mt#3049).
+ *
+ * Root cause (mt#3049 spec Outcome, investigated 2026-07-22): NEITHER
+ * `commitImpl` (git-core-operations.ts, `git commit`) NOR `pushImpl`
+ * (push-operations.ts, `git push`) — the two subprocess calls this file's
+ * `sessionCommit` drives — ever carried a wall-clock timeout. Every
+ * INDIVIDUAL step inside `src/hooks/pre-commit.ts`'s ~14-step pipeline IS
+ * individually bounded (5s-120s each via `execAsync`'s own `timeout` option
+ * or `Bun.spawnSync`'s `timeout`), but there was no bound on the pipeline AS
+ * A WHOLE, and the `git commit` subprocess call that runs it had no bound of
+ * its own — so the pipeline's aggregate cost (ordinarily well under a few
+ * minutes, per a step-by-step reading of every timeout in that file) had no
+ * ceiling below the MCP transport's own last-resort client-side abort
+ * (~1800s / 30 minutes — the exact duration observed in the mt#3003
+ * incident this task originated from, and previously reported as a bare
+ * "1800s client abort" by mt#2711, still open/TODO at the time this class
+ * shipped). This class turns that silent, opaque 1800s hang into an
+ * immediate, structured, phase-named error.
+ *
+ * Deliberate limitation: this does NOT kill the underlying git/hook
+ * subprocess. `commitChangesFromParams` -> `commitImpl` -> `execAsync`
+ * (`child_process.exec`) has no abort/cancellation hook threaded through
+ * this call chain, so an abandoned commit attempt keeps running in the
+ * background after this error is thrown — bounding the CALLER's wait, not
+ * terminating the underlying work. Forcibly killing it would require
+ * migrating that chain to `Bun.spawn` (as `gitShowStagedBytes`/`runGitArgv`
+ * in pre-commit.ts already do for a couple of call sites), which is a
+ * larger, more invasive change than this task's scope covers — tracked as
+ * possible follow-up if silent background completion proves to cause real
+ * problems (e.g. a retried commit racing the abandoned one over
+ * `.git/index.lock`).
+ */
+export class SessionCommitPhaseTimeoutError extends MinskyError {
+  readonly code: "SESSION_COMMIT_PHASE_TIMEOUT" = "SESSION_COMMIT_PHASE_TIMEOUT";
+  constructor(
+    message: string,
+    public readonly phase: "commit" | "push",
+    public readonly timeoutMs: number
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Default wall-clock bound for the COMMIT phase (staging + `git commit` +
+ * the synchronous `.husky/pre-commit` hook chain it runs) — mt#3049.
+ *
+ * Grounded in a step-by-step reading of every individual timeout in
+ * `src/hooks/pre-commit.ts` (the file this phase ultimately blocks on):
+ * summing every step's own bound (typecheck 60s x2 targets, eslint 120s,
+ * gitleaks 30s, related-tests 75s, rules/compile-check 30s x N targets,
+ * variable-naming 30s, dockerfile-copy-regen 15s, completion-manifest 15s,
+ * plus several 5s checks) comes to roughly 6-7 minutes in the worst case
+ * where EVERY step ran close to its own ceiling — which would be unusual in
+ * a passing run (near-timeout usually means near-FAILURE, which returns
+ * immediately). 10 minutes gives comfortable headroom above that worst-case
+ * sum while still firing an order of magnitude faster than the 1800s (30m)
+ * MCP-transport abort this class replaces, so a genuinely stuck commit is
+ * diagnosable within the same call instead of only after the client gives up.
+ */
+export const DEFAULT_COMMIT_PHASE_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
+ * Default wall-clock bound for the PUSH phase (`git push` — no hooks fire on
+ * this side, so cost is dominated by network round-trip) — mt#3049. 2
+ * minutes is generous for a push (typically seconds) while still bounding
+ * the caller's wait well below the 30-minute incident duration; a push that
+ * genuinely needs longer than 2 minutes on a healthy network is itself
+ * diagnostic-worthy.
+ */
+export const DEFAULT_PUSH_PHASE_TIMEOUT_MS = 2 * 60 * 1000;
+
+/** Real `setTimeout`-backed timeout signal — the non-test default for `raceAgainstTimeout`. */
+function defaultTimeoutSignal(ms: number): Promise<{ timedOut: true }> {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve({ timedOut: true }), ms);
+  });
+}
+
+/**
+ * Generic bounded race between a real async operation and a timeout signal
+ * (mt#3049). Returns a discriminated result so callers never need to infer
+ * "timed out" from an operation's own return shape.
+ *
+ * `timeoutSignal` is injectable (mirrors the `sleep`-injection pattern
+ * already established by `LockAwareExecOptions` in `git/lock-operations.ts`,
+ * mt#2886/mt#2980) so tests can simulate an instantly-elapsed timeout without
+ * any real wall-clock wait — pair an injected `timeoutSignal` that resolves
+ * immediately with an `operation` that never resolves on its own (e.g.
+ * `new Promise(() => {})`) to deterministically exercise the "timeout wins"
+ * branch in well under a millisecond.
+ */
+export function raceAgainstTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  timeoutSignal: (ms: number) => Promise<{ timedOut: true }> = defaultTimeoutSignal
+): Promise<{ timedOut: false; value: T } | { timedOut: true }> {
+  return Promise.race([
+    operation.then((value) => ({ timedOut: false as const, value })),
+    timeoutSignal(timeoutMs),
+  ]);
 }
 
 /**
@@ -181,26 +288,27 @@ export async function pureSessionApprove(
 }
 
 /**
- * Session commit command - commits and pushes changes within a specific session
- *
- * Note: Always pushes after commit - in session context these operations should be atomic
+ * Structured result of a `sessionCommit` call (mt#3049). Carries `pushed` as
+ * its own boolean specifically so a caller can distinguish "committed but
+ * push failed/timed out" (`success: true, commitHash: <sha>, pushed: false,
+ * pushError/pushTimedOut set`) from a genuine end-to-end success
+ * (`pushed: true`) or a hard failure (thrown, not returned) — instead of an
+ * opaque timeout that reveals neither outcome. See the mt#3049 spec Outcome
+ * for the root-cause investigation this shape closes the gap for.
  */
-export async function sessionCommit(
-  params: {
-    session: string;
-    message: string;
-    all?: boolean;
-    amend?: boolean;
-    noStage?: boolean;
-    noFiles?: boolean;
-  },
-  sessionProvider: import("./types").SessionProviderInterface,
-  askRepository?: AskRepository,
-  tokenProvider?: TokenProvider,
-  persistenceProvider?: PersistenceProvider
-): Promise<{
+export interface SessionCommitResult {
   success: boolean;
   nothingToCommit?: boolean;
+  /**
+   * Pre-existing convention (unchanged by mt#3049, documented here per
+   * review R1): SHORT hash, parsed from `git commit`'s own stdout banner
+   * (`extractCommitHash` in git-with-deps.ts prefers the `[branch abc1234]`
+   * form). `shortHash` below is the same value via a different derivation
+   * path (`git log -1 --format=%h`) and is redundant with this field for
+   * every current caller — kept for backward compatibility rather than
+   * removed. If a caller needs the unambiguous FULL 40-char SHA, resolve it
+   * separately (e.g. `git rev-parse <commitHash>`); this field is not it.
+   */
   commitHash: string | null;
   shortHash?: string;
   subject?: string;
@@ -215,7 +323,54 @@ export async function sessionCommit(
   files?: Array<{ path: string; status: string }>;
   pushed: boolean;
   credentialPath?: PushCredentialPath;
-}> {
+  /**
+   * mt#3049: set (with `pushed: false`) when the commit itself succeeded but
+   * the push phase failed with a thrown error — the underlying error's
+   * message, so the caller can see WHY without the exception itself having
+   * discarded the commit sha (the pre-fix behavior: a thrown push error
+   * propagated raw, losing the fact the commit had already landed locally).
+   */
+  pushError?: string;
+  /**
+   * mt#3049: set (with `pushed: false`, no `pushError`) when the push phase
+   * exceeded `DEFAULT_PUSH_PHASE_TIMEOUT_MS` (or an injected override)
+   * rather than failing outright — distinguishes "push is still running in
+   * the background, outcome unknown" from "push actively failed."
+   */
+  pushTimedOut?: boolean;
+  /**
+   * mt#3049: true when this call found an existing LOCAL commit already
+   * ahead of `origin/<branch>` on an otherwise-clean tree (the resumable
+   * path — a prior call's push phase failed/timed out after its commit
+   * landed) and completed the pending push, rather than creating a NEW
+   * commit. `commitHash`/metadata describe that pre-existing HEAD commit.
+   */
+  resumedPush?: boolean;
+}
+
+/**
+ * Session commit command - commits and pushes changes within a specific session
+ *
+ * Note: Always pushes after commit - in session context these operations should be atomic
+ */
+export async function sessionCommit(
+  params: {
+    session: string;
+    message: string;
+    all?: boolean;
+    amend?: boolean;
+    noStage?: boolean;
+    noFiles?: boolean;
+    /** mt#3049: internal override for tests — see DEFAULT_COMMIT_PHASE_TIMEOUT_MS. */
+    commitTimeoutMs?: number;
+    /** mt#3049: internal override for tests — see DEFAULT_PUSH_PHASE_TIMEOUT_MS. */
+    pushTimeoutMs?: number;
+  },
+  sessionProvider: import("./types").SessionProviderInterface,
+  askRepository?: AskRepository,
+  tokenProvider?: TokenProvider,
+  persistenceProvider?: PersistenceProvider
+): Promise<SessionCommitResult> {
   if (!params.session) {
     throw new MinskyError("Session parameter is required", "VALIDATION_ERROR");
   }
@@ -282,8 +437,25 @@ export async function sessionCommit(
     if (!params.amend && isCleanTree) {
       // When noFiles is true, the caller wants an empty commit to wake a webhook
       // or produce an audit-trail commit. Use --allow-empty and proceed to push.
-      // When noFiles is false (default), return the existing no-op result.
+      // When noFiles is false (default), return the existing no-op result —
+      // UNLESS (mt#3049) the local branch already carries a commit that never
+      // reached origin (a prior call's push phase failed/timed out after its
+      // commit landed). That's the resumable path: a repeat session_commit
+      // call on an otherwise-clean tree should complete the pending push
+      // instead of silently reporting "nothing to commit" forever.
       if (!params.noFiles) {
+        const resumed = await tryResumePendingPush(workdir, {
+          session: params.session,
+          tokenProvider,
+          pushTimeoutMs: params.pushTimeoutMs ?? DEFAULT_PUSH_PHASE_TIMEOUT_MS,
+        });
+        if (resumed) {
+          log.debug("Resumed a pending push on an otherwise-clean tree", {
+            session: params.session,
+            pushed: resumed.pushed,
+          });
+          return resumed;
+        }
         log.debug("Nothing to commit in session (clean working tree)", { session: params.session });
         return {
           success: true,
@@ -380,6 +552,7 @@ export async function sessionCommit(
     try {
       // Commit changes using session-scoped git command
       let commitResult!: { commitHash: string; message: string };
+      const commitTimeoutMs = params.commitTimeoutMs ?? DEFAULT_COMMIT_PHASE_TIMEOUT_MS;
       try {
         // When noFiles is true and tree is clean, use --allow-empty so that a real
         // commit is created even without staged changes. This is the webhook-wake
@@ -399,16 +572,35 @@ export async function sessionCommit(
         // re-throws the ORIGINAL execAsync error unmodified on failure, so
         // routing through it here restores full hook-output propagation for
         // the allow-empty path — same as the real-commit path already had.
-        commitResult = await commitChangesFromParams({
-          message: params.message,
-          repo: workdir,
-          all: params.all,
-          amend: params.amend,
-          // A clean tree has nothing to stage; skip the staging step outright
-          // rather than let it run as a (harmless but pointless) no-op.
-          noStage: allowEmpty ? true : params.noStage,
-          allowEmpty,
-        });
+        //
+        // mt#3049: bounded via raceAgainstTimeout — see
+        // SessionCommitPhaseTimeoutError's doc comment for the root-cause
+        // investigation this closes (NEITHER this call NOR the push call
+        // below previously carried any wall-clock bound at all).
+        const raced = await raceAgainstTimeout(
+          commitChangesFromParams({
+            message: params.message,
+            repo: workdir,
+            all: params.all,
+            amend: params.amend,
+            // A clean tree has nothing to stage; skip the staging step outright
+            // rather than let it run as a (harmless but pointless) no-op.
+            noStage: allowEmpty ? true : params.noStage,
+            allowEmpty,
+          }),
+          commitTimeoutMs
+        );
+        if (raced.timedOut) {
+          throw new SessionCommitPhaseTimeoutError(
+            `session_commit: commit phase (staging + pre-commit hooks) exceeded ${commitTimeoutMs}ms ` +
+              `without completing. The underlying git commit process may still be running in the ` +
+              `background — check \`git log\` / working-tree state before retrying to avoid a ` +
+              `duplicate commit attempt.`,
+            "commit",
+            commitTimeoutMs
+          );
+        }
+        commitResult = raced.value;
       } catch (commitErr: unknown) {
         // Handle "nothing to commit" gracefully — not an error condition
         if (commitErr instanceof NothingToCommitError) {
@@ -460,18 +652,35 @@ export async function sessionCommit(
         },
         resolveRefSha: async (dir, ref) => {
           try {
-            // Defense-in-depth (PR #963 R2 BLOCKING #1): `--` separator
-            // prevents git from interpreting `ref` as an option even if
-            // a future regex regression were to admit a leading-`-`
-            // value. SAFE_REF_RE already forbids leading `-`; this
-            // keeps the call safe under any validator drift.
+            // Defense-in-depth (PR #963 R2 BLOCKING #1, corrected mt#3049):
+            // `--verify --end-of-options` prevents git from interpreting
+            // `ref` as an option even if a future regex regression were to
+            // admit a leading-`-` value (SAFE_REF_RE already forbids
+            // leading `-`; this keeps the call safe under any validator
+            // drift), WITHOUT the bug the original `--` separator had:
+            // `git rev-parse -- <ref>` treats `--`-terminated arguments as
+            // PATHSPECS, not revisions, so it never actually resolved `ref`
+            // to a SHA — it echoed the literal string back, which always
+            // failed the SHA regex below and made `resolveRefSha` return
+            // `null` on every call. `checkFreshnessCas` (freshness-marker.ts)
+            // treats a `null` resolution as `bypass: "ref-unresolvable"` —
+            // meaning the mt#1522 branch-freshness CAS check was silently
+            // bypassing on every single session_commit push since it
+            // shipped. `--end-of-options` (git >=2.24) blocks a leading-`-`
+            // string from being parsed as an option WITHOUT the pathspec
+            // reinterpretation `--` causes, verified empirically (git
+            // 2.49): `git rev-parse --verify --end-of-options origin/main`
+            // resolves to a real SHA; `git rev-parse --verify
+            // --end-of-options -- <ref>` (both together) or `-1` /
+            // `--upload-pack=x` as `ref` all still fail cleanly with "fatal:
+            // Needed a single revision" (exit 128), not option injection.
             // mt#1742 R1: wrap `ref` with safeShellQuote rather than relying on
             // the doc-asserted SAFE_REF_RE validation at this call site. Same
             // shell-safety class as the commit-message fix; consistency at
             // every interpolation in this file's git templates.
             const out = await casGitService.execInRepository(
               dir,
-              `git rev-parse -- ${safeShellQuote(ref)}`
+              `git rev-parse --verify --end-of-options ${safeShellQuote(ref)}`
             );
             const sha = out.trim();
             return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
@@ -488,31 +697,24 @@ export async function sessionCommit(
           `Branch-freshness CAS check failed: ${casResult.reason ?? "(no reason)"}`,
           casResult.capturedSha ?? "(unknown)",
           casResult.currentSha ?? "(unknown)",
-          // marker.mainRef captured here would require re-reading the marker;
-          // skip in favor of the reason field which already names the ref.
-          ""
+          // mt#3049 review R1: checkFreshnessCas now threads `mainRef` back
+          // (it already had the marker in scope) instead of forcing the
+          // caller to re-read the marker or lose the ref entirely.
+          casResult.mainRef ?? "(unknown)"
         );
       }
 
-      // Always push changes in session context - commit and push should be atomic
-      // mt#1477: when a token provider is available, use the App installation
-      // token for push authentication so pull_request workflows trigger.
-      // mt#2897: credential resolution is loud + surfaced — the silent
-      // fallback here was the leading root-cause hypothesis for the
-      // intermittent "push delivered but zero workflow runs" class.
-      const pushCredential = await resolvePushCredential(tokenProvider, {
-        session: params.session,
-      });
-
-      const pushResult = await pushFromParams({
-        repo: workdir,
-        authToken: pushCredential.authToken,
-      });
-
-      // mt#2593: the commit (and push) succeeded, so the commit-authorization
-      // Ask emitted above is resolved — close it best-effort so it never lingers
-      // in the operator's suspended queue. On commit FAILURE we throw before
-      // reaching here, leaving the Ask open (the genuine attention-worthy case).
+      // mt#2593: the commit succeeded (CAS passed too), so the commit-
+      // authorization Ask emitted above is resolved — close it best-effort so
+      // it never lingers in the operator's suspended queue. On commit FAILURE
+      // we throw before reaching here, leaving the Ask open (the genuine
+      // attention-worthy case).
+      //
+      // mt#3049: moved up from AFTER a successful push (see git blame) — the
+      // Ask authorizes the COMMIT, which has already landed at this point
+      // regardless of whether the push below succeeds. The previous ordering
+      // left the Ask open forever whenever push failed, even though the
+      // authorized action (the commit) had already completed.
       if (askRepository && commitAuthAskId) {
         try {
           await closeAskAsResolved(askRepository, commitAuthAskId, {
@@ -527,102 +729,14 @@ export async function sessionCommit(
         }
       }
 
-      // Collect commit metadata and changed files
+      // Collect commit metadata and changed files — independent of push
+      // outcome below, since the commit itself already landed locally.
       const gitService = createGitService();
+      const metadata = await collectCommitMetadata(gitService, workdir);
 
-      // Branch name
-      let branch: string | undefined;
-      try {
-        branch = await gitService.getCurrentBranch(workdir);
-      } catch (err) {
-        log.debug("Failed to get branch name", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-
-      // Author, subject, timestamp, short hash
-      let shortHash: string | undefined;
-      let subject: string | undefined;
-      let authorName: string | undefined;
-      let authorEmail: string | undefined;
-      let timestamp: string | undefined;
-      try {
-        const pretty = await gitService.execInRepository(
-          workdir,
-          "git log -1 --pretty=format:%h|%s|%an|%ae|%aI"
-        );
-        const parts = pretty.trim().split("|");
-        if (parts.length >= 5) {
-          shortHash = parts[0];
-          subject = parts[1];
-          authorName = parts[2];
-          authorEmail = parts[3];
-          timestamp = parts[4];
-        }
-      } catch (err) {
-        log.debug("Failed to read commit metadata", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-
-      // Diffstat summary
-      let filesChanged: number | undefined;
-      let insertions: number | undefined;
-      let deletions: number | undefined;
-      try {
-        const shortstat = await gitService.execInRepository(
-          workdir,
-          "git show -1 --shortstat --pretty=format:"
-        );
-        const line = shortstat
-          .split("\n")
-          .map((l) => l.trim())
-          .filter(Boolean)
-          .pop();
-        if (line) {
-          const match =
-            /(\d+)\s+files? changed(?:,\s+(\d+)\s+insertions?\(\+\))?(?:,\s+(\d+)\s+deletions?\(-\))?/.exec(
-              line
-            );
-          if (match) {
-            filesChanged = parseInt(match[1] || "0", 10);
-            insertions = parseInt(match[2] || "0", 10);
-            deletions = parseInt(match[3] || "0", 10);
-          }
-        }
-      } catch (err) {
-        log.debug("Failed to parse diffstat", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-
-      // Changed files list with status
-      let files: Array<{ path: string; status: string }> | undefined;
-      try {
-        const nameStatus = await gitService.execInRepository(
-          workdir,
-          "git show -1 -M -C --name-status --pretty=format:"
-        );
-        const lines = nameStatus
-          .split("\n")
-          .map((l) => l.trim())
-          .filter(Boolean);
-        files = lines.map((line) => {
-          const parts = line.split("\t");
-          const status = parts[0] ?? "";
-          let path = parts[1] || "";
-          if (status.startsWith("R") || status.startsWith("C")) {
-            path = parts[2] || parts[1] || "";
-          }
-          return { status, path };
-        });
-      } catch (err) {
-        log.debug("Failed to list changed files", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-
-      // Update session activity state after successful commit+push
+      // Update session activity state after a successful LOCAL commit —
+      // independent of push outcome (mt#3049): the local git state changed
+      // regardless of whether the push below succeeds.
       try {
         const { SessionStatus } = await import("./types");
         const currentSession = await sessionProvider.getSession(params.session);
@@ -641,21 +755,81 @@ export async function sessionCommit(
         log.debug("Failed to update session activity state", { error: e });
       }
 
+      // Always push changes in session context - commit and push should be atomic
+      // mt#1477: when a token provider is available, use the App installation
+      // token for push authentication so pull_request workflows trigger.
+      // mt#2897: credential resolution is loud + surfaced — the silent
+      // fallback here was the leading root-cause hypothesis for the
+      // intermittent "push delivered but zero workflow runs" class.
+      const pushCredential = await resolvePushCredential(tokenProvider, {
+        session: params.session,
+      });
+
+      // mt#3049: bounded AND non-throwing on failure/timeout. A push problem
+      // after a successful commit now returns a STRUCTURED partial outcome
+      // (commitHash set, pushed:false, pushError/pushTimedOut named) instead
+      // of propagating a raw exception that discards the fact the commit
+      // already landed locally — the core fix for the originating mt#3003
+      // incident (session_commit hung ~30 minutes with no result, then the
+      // commit turned out to have landed but never pushed).
+      //
+      // Same non-cancellation caveat as the commit phase (review R1, see
+      // SessionCommitPhaseTimeoutError's doc comment for the full
+      // explanation): on a `pushTimedOut` outcome, the underlying `git push`
+      // is NOT killed — it may still complete in the background after this
+      // function returns `pushed:false`. A caller that retries immediately
+      // (including this file's own `tryResumePendingPush` on a later call)
+      // could in principle race a still-running abandoned push; the CAS
+      // check above and git's own atomicity around ref updates bound the
+      // damage (worst case: a harmless redundant push of the same content),
+      // but this is not a fully closed race. True cancellation would need
+      // `Bun.spawn` + an `AbortSignal` threaded through `pushFromParams`.
+      const pushTimeoutMs = params.pushTimeoutMs ?? DEFAULT_PUSH_PHASE_TIMEOUT_MS;
+      let pushed = false;
+      let pushTimedOut = false;
+      let pushError: string | undefined;
+      try {
+        const raced = await raceAgainstTimeout(
+          pushFromParams({ repo: workdir, authToken: pushCredential.authToken }),
+          pushTimeoutMs
+        );
+        if (raced.timedOut) {
+          pushTimedOut = true;
+        } else {
+          pushed = raced.value.pushed;
+        }
+      } catch (err: unknown) {
+        pushError = err instanceof Error ? err.message : String(err);
+      }
+
+      if (!pushed) {
+        log.warn(
+          "[session.commit] commit succeeded but push did not — returning structured partial outcome (mt#3049)",
+          {
+            session: params.session,
+            commitHash: commitResult.commitHash,
+            pushTimedOut,
+            pushError,
+          }
+        );
+        return {
+          success: true,
+          commitHash: commitResult.commitHash,
+          ...metadata,
+          message: commitResult.message,
+          pushed: false,
+          ...(pushError !== undefined ? { pushError } : {}),
+          ...(pushTimedOut ? { pushTimedOut: true } : {}),
+          credentialPath: pushCredential.credentialPath,
+        };
+      }
+
       return {
         success: true,
         commitHash: commitResult.commitHash,
-        shortHash,
-        subject,
-        branch,
-        authorName,
-        authorEmail,
-        timestamp,
+        ...metadata,
         message: commitResult.message,
-        filesChanged,
-        insertions,
-        deletions,
-        files,
-        pushed: pushResult.pushed,
+        pushed: true,
         credentialPath: pushCredential.credentialPath,
       };
     } catch (error) {
@@ -672,4 +846,302 @@ export async function sessionCommit(
     // run will write a fresh marker if needed.
     cleanupFreshnessMarker(workdir);
   }
+}
+
+/**
+ * Collect commit metadata (branch, author/subject/timestamp/short-hash,
+ * diffstat, changed-files list) for the CURRENT HEAD commit. Extracted
+ * (mt#3049) from `sessionCommit`'s inline success-path block so it can be
+ * reused by the success path, the push-failure/timeout partial-outcome path,
+ * and the resumable-push path (`tryResumePendingPush`) below — the commit
+ * itself has already landed locally in all three cases, so all three deserve
+ * the same metadata. Every field is independently best-effort (mirrors the
+ * original inline behavior): a failure to read ANY one field degrades that
+ * field to `undefined` rather than failing the whole call.
+ */
+async function collectCommitMetadata(
+  gitService: Pick<GitServiceInterface, "getCurrentBranch" | "execInRepository">,
+  workdir: string
+): Promise<{
+  branch?: string;
+  shortHash?: string;
+  subject?: string;
+  authorName?: string;
+  authorEmail?: string;
+  timestamp?: string;
+  filesChanged?: number;
+  insertions?: number;
+  deletions?: number;
+  files?: Array<{ path: string; status: string }>;
+}> {
+  // Branch name
+  let branch: string | undefined;
+  try {
+    branch = await gitService.getCurrentBranch(workdir);
+  } catch (err) {
+    log.debug("Failed to get branch name", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Author, subject, timestamp, short hash
+  let shortHash: string | undefined;
+  let subject: string | undefined;
+  let authorName: string | undefined;
+  let authorEmail: string | undefined;
+  let timestamp: string | undefined;
+  try {
+    // mt#3049: the format string MUST be quoted. `execInRepository` shells
+    // out via `/bin/sh -c` (Node's `child_process.exec` under
+    // `@minsky/shared/exec`'s `execAsync`), so an UNQUOTED `|` in the
+    // command string is interpreted as an actual shell pipe, not passed
+    // through to git — verified empirically: the unquoted form always threw
+    // ("%s: command not found", etc.), meaning this whole try block has been
+    // silently failing on EVERY session_commit call (caught below, logged at
+    // debug level, degrading shortHash/subject/authorName/authorEmail/
+    // timestamp to undefined) since it shipped. No prior test asserted these
+    // fields were populated, so the failure was invisible.
+    //
+    // Delimiter is `%x00` (a literal NUL byte git emits for this format
+    // placeholder), NOT `|` (review R1, mt#3049 PR #2183): a commit SUBJECT
+    // can legitimately contain a `|` character, which would silently shift
+    // every field after it when splitting on `|` — a real, if rarer,
+    // corruption distinct from the shell-quoting bug above. NUL cannot
+    // appear in a git pretty-format field's rendered text (author name/
+    // email/subject/timestamp are all plain text), so splitting on it is
+    // unambiguous. Single-quoting the whole format string is still required
+    // and still safe (the format string is a static literal, not
+    // user-controlled input).
+    const pretty = await gitService.execInRepository(
+      workdir,
+      "git log -1 --pretty=format:'%h%x00%s%x00%an%x00%ae%x00%aI'"
+    );
+    const parts = pretty.trim().split("\u0000");
+    if (parts.length >= 5) {
+      shortHash = parts[0];
+      subject = parts[1];
+      authorName = parts[2];
+      authorEmail = parts[3];
+      timestamp = parts[4];
+    }
+  } catch (err) {
+    log.debug("Failed to read commit metadata", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Diffstat summary
+  let filesChanged: number | undefined;
+  let insertions: number | undefined;
+  let deletions: number | undefined;
+  try {
+    const shortstat = await gitService.execInRepository(
+      workdir,
+      "git show -1 --shortstat --pretty=format:"
+    );
+    const line = shortstat
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .pop();
+    if (line) {
+      const match =
+        /(\d+)\s+files? changed(?:,\s+(\d+)\s+insertions?\(\+\))?(?:,\s+(\d+)\s+deletions?\(-\))?/.exec(
+          line
+        );
+      if (match) {
+        filesChanged = parseInt(match[1] || "0", 10);
+        insertions = parseInt(match[2] || "0", 10);
+        deletions = parseInt(match[3] || "0", 10);
+      }
+    }
+  } catch (err) {
+    log.debug("Failed to parse diffstat", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Changed files list with status
+  let files: Array<{ path: string; status: string }> | undefined;
+  try {
+    const nameStatus = await gitService.execInRepository(
+      workdir,
+      "git show -1 -M -C --name-status --pretty=format:"
+    );
+    const lines = nameStatus
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    files = lines.map((line) => {
+      const parts = line.split("\t");
+      const status = parts[0] ?? "";
+      let path = parts[1] || "";
+      if (status.startsWith("R") || status.startsWith("C")) {
+        path = parts[2] || parts[1] || "";
+      }
+      return { status, path };
+    });
+  } catch (err) {
+    log.debug("Failed to list changed files", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  return {
+    branch,
+    shortHash,
+    subject,
+    authorName,
+    authorEmail,
+    timestamp,
+    filesChanged,
+    insertions,
+    deletions,
+    files,
+  };
+}
+
+/**
+ * mt#3049 resumable-push path: on an otherwise-clean tree, check whether the
+ * LOCAL branch already carries a commit that never reached `origin` — the
+ * "committed but push omitted" gap this task closes (a prior `sessionCommit`
+ * call's push phase may have failed or timed out AFTER its commit landed).
+ * When such a gap exists, complete the pending push and report the ACTUAL
+ * existing HEAD commit + push outcome, instead of the historical
+ * unconditional "nothing to commit" no-op that never even looked at the
+ * remote.
+ *
+ * Fails OPEN (returns `undefined`, meaning "fall back to the legacy no-op")
+ * on any ambiguity: no `origin` remote configured, a failed fetch, an
+ * undeterminable branch/HEAD, or HEAD already matching `origin/<branch>`
+ * (genuinely nothing pending). This must never turn a routine "nothing to
+ * commit" call into an unexpected push attempt when there is nothing to
+ * resume — the existing `session-commit-no-files.test.ts` "noFiles=false on
+ * clean tree" test (a repo with NO remote at all) pins this fallback.
+ */
+async function tryResumePendingPush(
+  workdir: string,
+  deps: {
+    session: string;
+    tokenProvider?: TokenProvider;
+    pushTimeoutMs: number;
+  }
+): Promise<SessionCommitResult | undefined> {
+  const { createGitService, pushFromParams } = await import("../git");
+  const gitService = createGitService();
+
+  let branch: string;
+  try {
+    branch = await gitService.getCurrentBranch(workdir);
+  } catch {
+    return undefined;
+  }
+  if (!branch) return undefined;
+
+  try {
+    const remotesOut = await gitService.execInRepository(workdir, "git remote");
+    const remotes = remotesOut
+      .split("\n")
+      .map((r) => r.trim())
+      .filter(Boolean);
+    if (!remotes.includes("origin")) {
+      // No remote configured at all — the legacy "nothing to commit" no-op
+      // is correct as-is (nothing CAN be pushed).
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+
+  try {
+    await gitService.execInRepository(workdir, "git fetch origin --prune --no-tags --quiet");
+  } catch {
+    // Fetch failure is ambiguous (network, auth, transient) — fail open
+    // rather than risk a false "nothing pending" verdict or an unwanted push
+    // attempt against a stale view of origin.
+    return undefined;
+  }
+
+  let headSha: string;
+  try {
+    headSha = (await gitService.execInRepository(workdir, "git rev-parse HEAD")).trim();
+  } catch {
+    return undefined;
+  }
+
+  let remoteSha: string | null = null;
+  try {
+    // `--verify --end-of-options`, NOT a trailing `--` — see the identical
+    // fix + full explanation on the CAS check's `resolveRefSha` above in
+    // this file: `git rev-parse -- <ref>` treats `--`-terminated arguments
+    // as pathspecs and never actually resolves the ref to a SHA.
+    remoteSha = (
+      await gitService.execInRepository(
+        workdir,
+        `git rev-parse --verify --end-of-options ${safeShellQuote(`origin/${branch}`)}`
+      )
+    ).trim();
+  } catch {
+    // origin/<branch> doesn't exist yet — the branch was never pushed at
+    // all, which is itself a pending-push condition, not an error.
+    remoteSha = null;
+  }
+
+  if (remoteSha === headSha) {
+    // Local and remote already agree — genuinely nothing to resume.
+    return undefined;
+  }
+
+  log.debug("[session.commit] resumable-push: local HEAD is ahead of origin on a clean tree", {
+    session: deps.session,
+    branch,
+    headSha,
+    remoteSha,
+  });
+
+  const pushCredential = await resolvePushCredential(deps.tokenProvider, {
+    session: deps.session,
+  });
+
+  let pushed = false;
+  let pushTimedOut = false;
+  let pushError: string | undefined;
+  try {
+    const raced = await raceAgainstTimeout(
+      pushFromParams({ repo: workdir, authToken: pushCredential.authToken }),
+      deps.pushTimeoutMs
+    );
+    if (raced.timedOut) {
+      pushTimedOut = true;
+    } else {
+      pushed = raced.value.pushed;
+    }
+  } catch (err: unknown) {
+    pushError = err instanceof Error ? err.message : String(err);
+  }
+
+  const metadata = await collectCommitMetadata(gitService, workdir);
+
+  return {
+    success: true,
+    nothingToCommit: true,
+    resumedPush: true,
+    // mt#3049: `commitHash` matches the SHORT-hash convention every other
+    // sessionCommit return path uses (`commitResult.commitHash`, parsed from
+    // `git commit`'s own stdout banner, is short — see extractCommitHash in
+    // git-with-deps.ts). `metadata.shortHash` (from `git log -1 --format=%h`)
+    // is the same short form for this pre-existing HEAD commit; `headSha`
+    // (full 40-char, used above for the actual origin-vs-HEAD comparison,
+    // which wants the unambiguous full form) is the fallback only if
+    // metadata collection somehow failed to read it.
+    commitHash: metadata.shortHash ?? headSha,
+    ...metadata,
+    message: pushed
+      ? "Nothing new to commit; completed a previously pending push"
+      : "Nothing new to commit; a previously pending push is still outstanding",
+    pushed,
+    ...(pushError !== undefined ? { pushError } : {}),
+    ...(pushTimedOut ? { pushTimedOut: true } : {}),
+    credentialPath: pushCredential.credentialPath,
+  };
 }
