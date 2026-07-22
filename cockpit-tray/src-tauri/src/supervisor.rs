@@ -110,7 +110,19 @@ pub(crate) type SpawnedPgid = Arc<Mutex<Option<u32>>>;
 pub(crate) enum SupervisorCmd {
     Start,
     Stop,
+    /// Operator-explicit restart (tray menu "Restart Daemon"), plus the
+    /// internal port-conflict retry paths above. Never gated on driven-session
+    /// turn activity — an explicit operator action always restarts
+    /// immediately. Contrast `AutoRestart` below.
     Restart,
+    /// Automatic restart triggered by a backend-source change
+    /// (`watcher_backend::start_backend_watcher`, mt#2299). Gated by the
+    /// mt#3048 turn-active check (RFC "Conversation-first drive" Phase 1
+    /// slice 6): if a driven session's turn is actively streaming, the
+    /// restart is deferred for a bounded grace period
+    /// (`watcher_backend::wait_for_turn_idle_or_grace_expiry`) before
+    /// proceeding anyway — never indefinitely.
+    AutoRestart,
     Shutdown,
     /// A cockpit-web source file changed at runtime — rebuild the bundle
     /// without disturbing the running daemon (mt#2297).
@@ -943,6 +955,25 @@ fn run_supervisor(
                         clear_uptime(&app, &mut sup);
                     }
                     Some(SupervisorCmd::Restart) => {
+                        let h = health_ok(&client).await;
+                        if sup.child.is_none() && !h && port_in_use(DAEMON_PORT, &path) {
+                            // Foreign listener owns the port — refuse to restart over it.
+                            set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                        } else {
+                            do_stop(&mut sup, &spawned, &path, h);
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                            do_spawn(&app, &mut sup, &spawned, &path);
+                        }
+                    }
+                    Some(SupervisorCmd::AutoRestart) => {
+                        // mt#3048: defer (bounded) while a driven session's turn is
+                        // actively streaming, then fall through to IDENTICAL logic
+                        // to the operator-explicit Restart arm above. In the common
+                        // (no active turn) case this await returns immediately, so
+                        // behavior here is unchanged from pre-mt#3048 Restart
+                        // handling — no added latency, no change to the conflict
+                        // check or the stop/spawn sequence.
+                        crate::watcher_backend::wait_for_turn_idle_or_grace_expiry(&client).await;
                         let h = health_ok(&client).await;
                         if sup.child.is_none() && !h && port_in_use(DAEMON_PORT, &path) {
                             // Foreign listener owns the port — refuse to restart over it.

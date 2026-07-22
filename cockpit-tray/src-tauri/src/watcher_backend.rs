@@ -8,14 +8,27 @@
 // (`bun run src/cli.ts`), so a plain restart picks up backend changes with NO
 // build step (unlike the web bundle). These helpers detect backend staleness
 // (startup, for an ADOPTED daemon, via `supervisor::adopt_decision`) and watch
-// backend source at runtime, dispatching the existing `SupervisorCmd::Restart`.
-// All gated on BACKEND source presence via `cockpit_backend_root` (NOT
+// backend source at runtime, dispatching `SupervisorCmd::AutoRestart`. All
+// gated on BACKEND source presence via `cockpit_backend_root` (NOT
 // `watcher_web::cockpit_source_root`, which requires the web tree — reviewer
 // R1 B1), like mt#2297 gates the rebuild on web presence.
 // Split out of main.rs (mt#2628).
+//
+// mt#3048 (RFC "Conversation-first drive" Phase 1 slice 6) adds a turn-active
+// pre-restart gate: `SupervisorCmd::AutoRestart` (dispatched below, distinct
+// from the operator-explicit `SupervisorCmd::Restart`) is handled in
+// `supervisor::run_supervisor` by first awaiting
+// `wait_for_turn_idle_or_grace_expiry` (this module) — a cheap query against
+// the daemon's `GET /api/driven-session/turn-active` signal
+// (src/cockpit/routes/driven-sessions.ts) that defers the restart for a
+// BOUNDED grace period while a driven session's turn is actively streaming,
+// then proceeds anyway regardless of outcome. The watcher's OWN trigger
+// conditions (`is_relevant_backend_change` etc. below) are unchanged by this
+// — the gate sits between "a relevant change was detected" and "the restart
+// actually happens", not in the detection logic itself.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
@@ -23,6 +36,87 @@ use tauri::{AppHandle, Manager};
 
 use crate::supervisor::{resolve_repo_root, SupervisorCmd, SupervisorHandle};
 use crate::watcher_web::is_editor_temp_file;
+
+// ---------------------------------------------------------------------------
+// mt#3048 — turn-active pre-restart gate.
+// ---------------------------------------------------------------------------
+
+/// The mt#3048 "is any driven session mid-turn" signal endpoint. Same
+/// host:port convention as `supervisor::HEALTH_URL` (both address the local
+/// cockpit daemon on its fixed dev port).
+const TURN_ACTIVE_URL: &str = "http://localhost:3737/api/driven-session/turn-active";
+
+/// Bounded grace period an `AutoRestart` waits for a driven session's
+/// in-flight turn to finish before proceeding with the restart anyway. NOT
+/// indefinite — the RFC's "Hard cases (a)" explicitly rejects an unbounded
+/// deferral (a driven session can sit idle between turns for hours-days, so
+/// "no active turn" must never become "never restart"). Once this elapses
+/// with a turn apparently still active, the restart proceeds regardless: the
+/// mt#3038 resume machinery (cross-process advisory lock, `claude --resume`,
+/// interruption-notice injection) is the designed recovery path for that
+/// case, not a failure this gate exists to prevent.
+const TURN_ACTIVE_GRACE: Duration = Duration::from_secs(60);
+
+/// Poll cadence while waiting out `TURN_ACTIVE_GRACE` above.
+const TURN_ACTIVE_POLL_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Pure JSON-shape parse for the `GET /api/driven-session/turn-active`
+/// response body (`{ active: boolean, activeSessionIds: string[] }` — see
+/// src/cockpit/routes/driven-sessions.ts) — split out of `turn_active` so
+/// this logic is unit-testable without a live HTTP fetch (mirrors
+/// `poll_health_detail`'s `DbStatus` decode, tested the same way against a
+/// fixture sample below). A missing or non-boolean `active` field parses as
+/// `false` — the same "fail open" posture as every other failure branch in
+/// `turn_active`.
+fn parse_turn_active_body(json: &serde_json::Value) -> bool {
+    json.get("active")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+/// Query `TURN_ACTIVE_URL`. Fails OPEN on ANY failure — connection error,
+/// non-2xx status, or an unparseable/malformed body all count as "not
+/// active" (`false`) — so a broken, slow, or not-yet-listening daemon never
+/// blocks the watcher's restart (mirrors `supervisor::poll_health_detail`'s
+/// defensive-parse posture: fail open on any network or parse failure). The
+/// shared `client` already carries a bounded per-request timeout
+/// (`run_supervisor`'s `reqwest::Client::builder().timeout(...)`), so the
+/// common (no active turn) case costs one fast local HTTP round trip with no
+/// perceptible added latency, and a hung/absent daemon costs no more than
+/// that same bound before falling open.
+async fn turn_active(client: &reqwest::Client) -> bool {
+    let resp = match client.get(TURN_ACTIVE_URL).send().await {
+        Ok(r) if r.status().is_success() => r,
+        _ => return false,
+    };
+    let json: serde_json::Value = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    parse_turn_active_body(&json)
+}
+
+/// Called by `supervisor::run_supervisor`'s `SupervisorCmd::AutoRestart`
+/// handler, BEFORE it stops/respawns the daemon. Returns immediately (no
+/// added latency) when the first check finds no active turn — the routine
+/// common case. Otherwise polls at `TURN_ACTIVE_POLL_INTERVAL` until either
+/// the signal reports idle or `TURN_ACTIVE_GRACE` elapses, whichever comes
+/// first, then returns unconditionally — the caller always proceeds with the
+/// restart after this returns, regardless of the last observed value.
+pub(crate) async fn wait_for_turn_idle_or_grace_expiry(client: &reqwest::Client) {
+    if !turn_active(client).await {
+        return;
+    }
+    let deadline = Instant::now() + TURN_ACTIVE_GRACE;
+    while Instant::now() < deadline {
+        tokio::time::sleep(TURN_ACTIVE_POLL_INTERVAL).await;
+        if !turn_active(client).await {
+            return;
+        }
+    }
+    // Grace period elapsed with a turn (apparently) still active — proceed
+    // with the restart anyway; the mt#3038 resume machinery recovers it.
+}
 
 /// Debounce window for the backend-source watcher (mt#2299). Larger than
 /// `watcher_web::BUILD_DEBOUNCE` because a process restart is more disruptive
@@ -131,10 +225,12 @@ pub(crate) fn newest_backend_mtime(root: &Path) -> Option<SystemTime> {
 }
 
 /// Start the runtime backend-source watcher on `src/cockpit`. Mirrors
-/// `watcher_web::start_web_watcher` but dispatches `SupervisorCmd::Restart`
-/// (not `Rebuild`) on a larger debounce. `web/**` events are filtered out
-/// (mt#2297 owns them), so a frontend edit never triggers a backend restart.
-/// Hold the returned `Debouncer` alive for the watch to persist.
+/// `watcher_web::start_web_watcher` but dispatches `SupervisorCmd::AutoRestart`
+/// (not `Rebuild`) on a larger debounce — `AutoRestart`, not the operator-explicit
+/// `Restart`, so the mt#3048 turn-active gate applies (see this module's
+/// top-of-file doc comment). `web/**` events are filtered out (mt#2297 owns
+/// them), so a frontend edit never triggers a backend restart. Hold the
+/// returned `Debouncer` alive for the watch to persist.
 pub(crate) fn start_backend_watcher(
     app: &AppHandle,
     backend_src: &Path,
@@ -150,7 +246,7 @@ pub(crate) fn start_backend_watcher(
                     .unwrap_or(false)
             });
             if relevant {
-                let _ = tx.send(SupervisorCmd::Restart);
+                let _ = tx.send(SupervisorCmd::AutoRestart);
             }
         }
     })
@@ -235,5 +331,47 @@ mod tests {
             Some(base + Duration::from_secs(10))
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // -----------------------------------------------------------------------
+    // mt#3048 — turn-active signal parsing (pure logic; no live HTTP fetch).
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_turn_active_body_true_when_active_is_true() {
+        let json: serde_json::Value = serde_json::json!({
+            "active": true,
+            "activeSessionIds": ["a-1"],
+        });
+        assert!(parse_turn_active_body(&json));
+    }
+
+    #[test]
+    fn parse_turn_active_body_false_when_active_is_false() {
+        let json: serde_json::Value = serde_json::json!({
+            "active": false,
+            "activeSessionIds": [],
+        });
+        assert!(!parse_turn_active_body(&json));
+    }
+
+    #[test]
+    fn parse_turn_active_body_fails_open_when_active_is_missing() {
+        // Malformed/older/mismatched response shape — never crash, never
+        // block the watcher: treat as "not active".
+        let json: serde_json::Value = serde_json::json!({ "activeSessionIds": [] });
+        assert!(!parse_turn_active_body(&json));
+    }
+
+    #[test]
+    fn parse_turn_active_body_fails_open_when_active_is_the_wrong_type() {
+        let json: serde_json::Value = serde_json::json!({ "active": "yes" });
+        assert!(!parse_turn_active_body(&json));
+    }
+
+    #[test]
+    fn parse_turn_active_body_fails_open_on_a_non_object_body() {
+        let json: serde_json::Value = serde_json::json!([1, 2, 3]);
+        assert!(!parse_turn_active_body(&json));
     }
 }
