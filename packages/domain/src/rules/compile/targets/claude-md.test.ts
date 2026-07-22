@@ -171,8 +171,18 @@ describe("claude-md target: buildClaudeMdContent()", () => {
 // "compileRules --check size budget" suite. `./size-budget.test.ts` covers
 // the evaluation logic itself in isolation.
 describe("claude-md target: DEFAULT_CLAUDE_MD_SIZE_BUDGET (mt#2802)", () => {
-  it("current-corpus defaults are grounded: warn=115000, fail=140000", () => {
-    expect(DEFAULT_CLAUDE_MD_SIZE_BUDGET).toEqual({ warnChars: 115_000, failChars: 140_000 });
+  it("current-corpus defaults are grounded: warn=115000, fail=145000", () => {
+    // fail raised 140k -> 145k on 2026-07-22 (mt#3061, operator-decided) after
+    // the corpus hit 141,178 and the gate began blocking every rule commit,
+    // including size-REDUCING ones. warn deliberately UNCHANGED at 115k so the
+    // standing over-budget warning keeps firing — mt#3052 still owns the trim.
+    expect(DEFAULT_CLAUDE_MD_SIZE_BUDGET).toEqual({ warnChars: 115_000, failChars: 145_000 });
+  });
+
+  it("fail stays under the ~150k harness advisory ceiling", () => {
+    // The raise consumed most of the margin the original 140k preserved; this
+    // pins the real constraint so a future bump cannot silently cross it.
+    expect(DEFAULT_CLAUDE_MD_SIZE_BUDGET.failChars).toBeLessThan(150_000);
   });
 
   it("fail sits strictly above warn", () => {

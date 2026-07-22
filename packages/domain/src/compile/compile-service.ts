@@ -18,6 +18,9 @@ import { claudeSkillsTarget } from "./targets/claude-skills";
 import { claudeAgentsTarget } from "./targets/claude-agents";
 import { cursorRulesTsTarget } from "./targets/cursor-rules-ts";
 import { claudeHooksTarget } from "./targets/claude-hooks";
+import { claudeMdTarget } from "./targets/claude-md";
+import { agentsMdTarget } from "./targets/agents-md";
+import { claudeRulesTarget } from "./targets/claude-rules";
 import { unknownCompileTargetMessage } from "../rules/compile/target-error-hint";
 
 export interface MinskyCompileOptions extends MinskyTargetOptions {
@@ -140,6 +143,15 @@ function buildExpectedContents(result: MinskyCompileResult): Map<string, string>
 
 /**
  * Factory that returns a MinskyCompileService with the default targets pre-registered.
+ *
+ * `claude.md` / `agents.md` / `claude-rules` (mt#2992, Phase 1 of ADR-016
+ * convergence) are registered here — reachable via explicit
+ * `compile --target <id>` — but land DORMANT: they are deliberately NOT
+ * added to `minskyCompileTargetsFromPresence` (`./compile.ts`) or
+ * `compileCheckTargets` (`src/hooks/pre-commit.ts`), so a bare `minsky
+ * compile` and pre-commit's staleness check are unaffected by this task.
+ * Legacy (`rules compile`) remains the authoritative writer for all three
+ * until the cutover task (mt#3058) flips them atomically.
  */
 export function createMinskyCompileService(): MinskyCompileService {
   const service = new MinskyCompileService();
@@ -147,5 +159,8 @@ export function createMinskyCompileService(): MinskyCompileService {
   service.registerTarget(claudeAgentsTarget);
   service.registerTarget(cursorRulesTsTarget);
   service.registerTarget(claudeHooksTarget);
+  service.registerTarget(claudeMdTarget);
+  service.registerTarget(agentsMdTarget);
+  service.registerTarget(claudeRulesTarget);
   return service;
 }

@@ -1,5 +1,6 @@
 /**
- * Unit tests for the compiled-output size budget (mt#2802).
+ * Unit tests for the compiled-output size budget (mt#2802; moved +
+ * decoupled from the legacy `Rule` type in mt#2992).
  *
  * Covers: threshold resolution/override merging, threshold-comparison
  * classification (ok/warn/fail boundaries), per-rule contribution
@@ -17,10 +18,15 @@ import {
   TOP_CONTRIBUTOR_COUNT,
   DEFAULT_PER_RULE_CEILING_CHARS,
   type SizeBudget,
+  type SizeBudgetRule,
 } from "./size-budget";
-import { makeRule } from "./test-utils";
 
 const DEFAULT_BUDGET: SizeBudget = { warnChars: 1000, failChars: 2000 };
+
+/** Create a minimal SizeBudgetRule fixture for tests. */
+function makeRule(id: string, content: string, opts: Partial<SizeBudgetRule> = {}): SizeBudgetRule {
+  return { id, content, alwaysApply: false, ...opts };
+}
 
 describe("resolveSizeBudget()", () => {
   it("returns the default budget when no override is supplied", () => {
@@ -273,9 +279,7 @@ describe("findPerRuleCeilingViolations() (mt#2874)", () => {
   });
 
   it("ignores a NON-alwaysApply rule even when it exceeds the ceiling", () => {
-    const rules = [
-      makeRule("glob-scoped-huge", "b".repeat(20_000), { alwaysApply: false, globs: ["**/*.ts"] }),
-    ];
+    const rules = [makeRule("glob-scoped-huge", "b".repeat(20_000), { alwaysApply: false })];
     const violations = findPerRuleCeilingViolations(rules, ["glob-scoped-huge"], 15_000);
     expect(violations).toEqual([]);
   });

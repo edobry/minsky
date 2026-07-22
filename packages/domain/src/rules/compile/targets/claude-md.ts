@@ -17,7 +17,7 @@ import {
   evaluateSizeBudget,
   DEFAULT_PER_RULE_CEILING_CHARS,
   type SizeBudget,
-} from "../size-budget";
+} from "../../../compile/size-budget";
 
 /** The canonical rule ID for the memory-usage directive. */
 const MEMORY_USAGE_RULE_ID = "memory-usage";
@@ -30,10 +30,27 @@ const MEMORY_USAGE_RULE_ID = "memory-usage";
  * 1M-context models; `warnChars` sits ~13% above the post-mt#1876/mt#1877
  * baseline (~101.7k chars) so it fires after a few rule additions, not
  * immediately (observed growth increment: ~3.3k/rule-addition, mt#2801).
+ *
+ * `failChars` raised 140k -> 145k on 2026-07-22 (mt#3061), operator-decided.
+ * The corpus reached 141,178 chars that day and the fail gate began blocking
+ * EVERY rule commit — including size-REDUCING ones, which is how it surfaced:
+ * mt#3061 is a net -14 change and could not land. Blocking the changes that
+ * shrink the corpus is the one outcome the gate should never produce.
+ *
+ * This is explicitly the second of the two dispositions mt#3052 sanctions
+ * ("trim toward 115K, or raise the threshold with a recorded rationale") and
+ * is NOT a substitute for the trim. `warnChars` is deliberately left at 115k
+ * so the standing warning keeps firing on every compile — the corpus is still
+ * ~23% over where it should be (141,178 vs the 115,000 warn line), and mt#3052
+ * still owns bringing it down.
+ *
+ * The ~150k harness advisory remains the real ceiling: this leaves ~5k of
+ * headroom, which is roughly ONE more rule addition. The next change to hit
+ * this gate should trim rather than raise again.
  */
 export const DEFAULT_CLAUDE_MD_SIZE_BUDGET: SizeBudget = {
   warnChars: 115_000,
-  failChars: 140_000,
+  failChars: 145_000,
 };
 
 /**

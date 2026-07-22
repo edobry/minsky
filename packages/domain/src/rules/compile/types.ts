@@ -7,7 +7,7 @@
 import type { Rule } from "../types";
 import type { RuleType } from "../rule-classifier";
 import type { MemoryLoadingMode } from "../../configuration/schemas/memory";
-import type { SizeBudget, SizeBudgetStatus, RuleContribution } from "./size-budget";
+import type { SizeBudget, SizeBudgetStatus, RuleContribution } from "../../compile/size-budget";
 
 export interface TargetOptions {
   outputPath?: string;

@@ -7,7 +7,7 @@
 
 import type { RuleFormat } from "../../rules";
 import type { MemoryLoadingMode } from "../../configuration/schemas/memory";
-import type { SizeBudget, SizeBudgetStatus, RuleContribution } from "../compile/size-budget";
+import type { SizeBudget, SizeBudgetStatus, RuleContribution } from "../../compile/size-budget";
 
 // ─── Rules Selection Config ──────────────────────────────────────────────────
 
