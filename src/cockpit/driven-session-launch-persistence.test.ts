@@ -258,4 +258,58 @@ describe("orchestrateDrivenSessionResume", () => {
       expect(registry.get("local-1")).toBe(outcome.record);
     }
   });
+
+  // Reviewer round 1 (PR #2179) BLOCKING finding — R1 delta #4's orphan-PID
+  // cleanup was implemented (process-identity.ts) but never WIRED into the
+  // resume path. Fixed: orchestrateDrivenSessionResume calls it, inside the
+  // lock, before resumeDrivenSession.
+  test("calls the orphan-cleanup kill for the persisted pid before resuming", async () => {
+    const registry = new DrivenSessionRegistry();
+    const killCalls: unknown[] = [];
+    const outcome = await orchestrateDrivenSessionResume("local-1", {
+      getDb: async () => FAKE_DB,
+      getPersisted: async () => ({ ...BASE_ROW, pid: 42424 }),
+      withResumeLock: async (_db, _conversationId, fn) => ({ acquired: true, result: await fn() }),
+      registry,
+      spawnFn: () => new FakeClaudeProcess(),
+      killOrphan: async (pid, expectedCmdSubstring, signal) => {
+        killCalls.push({ pid, expectedCmdSubstring, signal });
+        return true;
+      },
+    });
+    expect(outcome.outcome).toBe("resumed");
+    expect(killCalls).toEqual([{ pid: 42424, expectedCmdSubstring: "claude", signal: "SIGKILL" }]);
+  });
+
+  test("skips the orphan-cleanup kill when no pid was persisted", async () => {
+    const registry = new DrivenSessionRegistry();
+    let killCalled = false;
+    await orchestrateDrivenSessionResume("local-1", {
+      getDb: async () => FAKE_DB,
+      getPersisted: async () => ({ ...BASE_ROW, pid: null }),
+      withResumeLock: async (_db, _conversationId, fn) => ({ acquired: true, result: await fn() }),
+      registry,
+      spawnFn: () => new FakeClaudeProcess(),
+      killOrphan: async () => {
+        killCalled = true;
+        return true;
+      },
+    });
+    expect(killCalled).toBe(false);
+  });
+
+  test("proceeds with the resume even when the orphan-cleanup kill attempt throws", async () => {
+    const registry = new DrivenSessionRegistry();
+    const outcome = await orchestrateDrivenSessionResume("local-1", {
+      getDb: async () => FAKE_DB,
+      getPersisted: async () => ({ ...BASE_ROW, pid: 42424 }),
+      withResumeLock: async (_db, _conversationId, fn) => ({ acquired: true, result: await fn() }),
+      registry,
+      spawnFn: () => new FakeClaudeProcess(),
+      killOrphan: async () => {
+        throw new Error("simulated ps failure");
+      },
+    });
+    expect(outcome.outcome).toBe("resumed");
+  });
 });

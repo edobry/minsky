@@ -165,6 +165,27 @@ describe("upsertDrivenSessionRecord", () => {
     expect(stores.rows.length).toBe(0);
   });
 
+  // Reviewer round 1 (PR #2179) — the schema's `updated_at` has no DB-level
+  // on-update trigger (unlike every other table in this schema directory);
+  // the guarantee is application-level instead: `upsertDrivenSessionRecord`
+  // is the SOLE write path to this table and sets `updatedAt: new Date()`
+  // explicitly on every call, insert AND conflict-update alike. Proven here,
+  // not just asserted in a comment.
+  test("refreshes updatedAt to a strictly later value on a second upsert", async () => {
+    const stores = makeStores();
+    const db = asPg(makeDb(stores));
+    await upsertDrivenSessionRecord(db, BASE_INPUT);
+    const firstUpdatedAt = stores.rows[0]?.updatedAt;
+    expect(firstUpdatedAt).toBeInstanceOf(Date);
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await upsertDrivenSessionRecord(db, { ...BASE_INPUT, status: "running" });
+    const secondUpdatedAt = stores.rows[0]?.updatedAt;
+
+    expect(secondUpdatedAt).toBeInstanceOf(Date);
+    expect((secondUpdatedAt as Date).getTime()).toBeGreaterThan((firstUpdatedAt as Date).getTime());
+  });
+
   test("defaults actuatorGeneration to 0 when omitted", async () => {
     const stores = makeStores();
     await upsertDrivenSessionRecord(asPg(makeDb(stores)), BASE_INPUT);

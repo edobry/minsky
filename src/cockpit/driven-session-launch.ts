@@ -35,6 +35,7 @@
 
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
+import { killIfIdentityMatches, type ExecFileFn } from "./process-identity";
 import {
   CLAUDE_BINARY,
   drivenSessionRegistry,
@@ -461,6 +462,11 @@ export interface OrchestrateDrivenSessionResumeDeps {
   registry?: DrivenSessionRegistry;
   spawnFn?: SpawnFn;
   command?: string;
+  /** Test seam for the orphan-cleanup identity check (R1 delta #4) — overrides `ps`. */
+  execFileFn?: ExecFileFn;
+  /** Test seam — overrides the orphan-cleanup kill call itself (bypasses `killIfIdentityMatches`
+   * entirely; asserts call args instead of shelling out to a fake `ps`). */
+  killOrphan?: typeof killIfIdentityMatches;
 }
 
 /**
@@ -511,6 +517,28 @@ export async function orchestrateDrivenSessionResume(
   const harnessSessionId = row.harnessSessionId;
 
   const lockOutcome = await withResumeLock(db, harnessSessionId, async () => {
+    // R1 expert-review delta #4 (BINDING) — orphan cleanup: the persisted
+    // `pid` may belong to a process from the PRIOR daemon lifetime that is
+    // somehow still alive (e.g. a detached-but-not-yet-reaped child) at the
+    // exact moment of this resume. Verify PID+command-line IDENTITY before
+    // ever killing it — never a bare `kill(pid)` (PID reuse over a
+    // multi-day idle gap). Best-effort: a failed/skipped kill does NOT
+    // block the resume itself — `--resume` against a still-live prior
+    // actuator races the SAME transcript file, which is exactly the
+    // scenario this cleanup exists to prevent, but a kill that can't be
+    // confirmed safe must still let a genuinely-dead PID's resume proceed.
+    if (row.pid) {
+      const killOrphan = deps.killOrphan ?? killIfIdentityMatches;
+      try {
+        await killOrphan(row.pid, CLAUDE_BINARY, "SIGKILL", deps.execFileFn);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn(
+          `[driven-session] orphan-cleanup kill attempt failed for pid ${row.pid} (localId=${row.localId}): ${message}`
+        );
+      }
+    }
+
     const { record } = resumeDrivenSession({
       previous: {
         localId: row.localId,

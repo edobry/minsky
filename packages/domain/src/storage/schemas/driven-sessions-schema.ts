@@ -98,6 +98,22 @@ export const drivenSessionsTable = pgTable(
     actuatorGeneration: integer("actuator_generation").notNull().default(0),
 
     startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    /**
+     * `defaultNow()` covers the INSERT case only — this column intentionally
+     * has NO Postgres trigger to refresh it on UPDATE (reviewer round 1,
+     * PR #2179: flagged as a potential staleness risk). Consistent with
+     * every other timestamped table in this schema directory (none use
+     * update triggers), the refresh guarantee lives at the APPLICATION
+     * layer instead: `upsertDrivenSessionRecord`
+     * (../../transcripts/driven-session-registry-store.ts) is the SOLE
+     * write path to this table and explicitly sets `updatedAt: new Date()`
+     * in the same `values` object used for BOTH the insert arm and the
+     * `onConflictDoUpdate` arm — proven by
+     * driven-session-registry-store.test.ts's "refreshes updatedAt to a
+     * strictly later value on a second upsert" test, not just asserted here.
+     * A future raw-SQL write path bypassing that function would need its
+     * own explicit `updated_at` set — there is no DB-level backstop.
+     */
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({

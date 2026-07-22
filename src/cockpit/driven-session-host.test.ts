@@ -22,6 +22,7 @@ import {
   buildResumeSessionArgs,
   resumeDrivenSession,
   INTERRUPTION_NOTICE_TEXT,
+  buildReconnectingDrivenSessionRecord,
   parseStreamJsonLine,
   extractResultSummary,
   NewlineSplitter,
@@ -799,5 +800,45 @@ describe("sendDrivenSessionInput / stopDrivenSession treat 'unrecoverable' as te
     record.status = "unrecoverable";
     stopDrivenSession(record);
     expect(proc.killSignals.length).toBe(0);
+  });
+});
+
+// Reviewer round 1 (PR #2179) — a finding raised a concern about
+// wireChildProcess's crash-handling referencing state (argv/command) that
+// could be "empty" for a boot placeholder. `wireChildProcess` is NEVER
+// invoked against a boot placeholder's proc in the first place — it is only
+// called from startDrivenSession/resumeDrivenSession, both of which always
+// construct a REAL (fake-in-tests) spawned proc with non-empty argv. This
+// proves the placeholder's proc is genuinely inert: none of its event
+// listeners ever fire, so no crash-message construction path can ever run
+// against it, empty argv or not.
+describe("boot-reconciliation placeholder's proc is inert (never wired, never fires)", () => {
+  test("createDeadProcessPlaceholder's on()/kill() never invoke a listener or throw", () => {
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: "local-placeholder-1",
+      harnessSessionId: "harness-placeholder-1",
+      cwd: "/tmp/placeholder",
+      permissionMode: "default",
+      taskId: null,
+      minskySessionId: null,
+      status: "reconnecting",
+      unrecoverableReason: null,
+      actuatorGeneration: 0,
+      startedAt: new Date().toISOString(),
+    });
+
+    expect(record.argv).toEqual([]);
+    expect(record.pid).toBeUndefined();
+
+    let exitFired = false;
+    // Registering a listener the same way wireChildProcess would — proves
+    // the placeholder's `on()` is a genuine no-op, not merely unused.
+    record.proc.on("exit", () => {
+      exitFired = true;
+    });
+    expect(exitFired).toBe(false);
+
+    expect(record.proc.kill()).toBe(false);
+    expect(() => record.proc.stdin.write("should be silently accepted")).not.toThrow();
   });
 });

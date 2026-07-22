@@ -46,6 +46,7 @@ import {
   drivenSessionRegistry,
   sendDrivenSessionInput,
   stopDrivenSession,
+  buildReconnectingDrivenSessionRecord,
   type DrivenSessionRecord,
   type DrivenSessionRegistry,
   type DrivenSessionSubscriber,
@@ -62,6 +63,8 @@ export interface AttachDrivenSessionWebSocketOptions {
   allowedHosts: Set<string>;
   /** Override the registry (tests use a hermetic instance; production uses the shared singleton). */
   registry?: DrivenSessionRegistry;
+  /** Override the restart-recovery orchestration (tests avoid a real Postgres round-trip). */
+  orchestrateResume?: typeof orchestrateDrivenSessionResume;
 }
 
 /**
@@ -80,6 +83,7 @@ export function attachDrivenSessionWebSocket(
   opts: AttachDrivenSessionWebSocketOptions
 ): WebSocketServer {
   const registry = opts.registry ?? drivenSessionRegistry;
+  const orchestrateResume = opts.orchestrateResume ?? orchestrateDrivenSessionResume;
   const wss = new WebSocketServer({ noServer: true });
 
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -115,25 +119,27 @@ export function attachDrivenSessionWebSocket(
     }
 
     const sessionId = decodeURIComponent(match[1] ?? "");
-    void resolveDrivenSessionForUpgrade(sessionId, registry).then((resolution) => {
-      if (resolution.kind === "gone") {
-        socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-        socket.destroy();
-        return;
+    void resolveDrivenSessionForUpgrade(sessionId, registry, orchestrateResume).then(
+      (resolution) => {
+        if (resolution.kind === "gone") {
+          socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        if (resolution.kind === "locked") {
+          // Another process is already resuming this conversation (R1 delta
+          // #1's cross-process lock lost the race) — a transient condition,
+          // NOT "gone forever". 503 + Retry-After tells the client to retry
+          // shortly rather than treating this as a dead session.
+          socket.write("HTTP/1.1 503 Service Unavailable\r\nRetry-After: 2\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          wireDrivenSessionSocket(ws, resolution.record);
+        });
       }
-      if (resolution.kind === "locked") {
-        // Another process is already resuming this conversation (R1 delta
-        // #1's cross-process lock lost the race) — a transient condition,
-        // NOT "gone forever". 503 + Retry-After tells the client to retry
-        // shortly rather than treating this as a dead session.
-        socket.write("HTTP/1.1 503 Service Unavailable\r\nRetry-After: 2\r\n\r\n");
-        socket.destroy();
-        return;
-      }
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        wireDrivenSessionSocket(ws, resolution.record);
-      });
-    });
+    );
   });
 
   return wss;
@@ -163,24 +169,48 @@ type UpgradeResolution =
  */
 async function resolveDrivenSessionForUpgrade(
   sessionId: string,
-  registry: DrivenSessionRegistry
+  registry: DrivenSessionRegistry,
+  orchestrateResume: typeof orchestrateDrivenSessionResume = orchestrateDrivenSessionResume
 ): Promise<UpgradeResolution> {
   const existing = registry.get(sessionId);
   if (existing && existing.status !== "reconnecting") {
     return { kind: "attach", record: existing };
   }
 
-  const outcome = await orchestrateDrivenSessionResume(sessionId, { registry });
+  const outcome = await orchestrateResume(sessionId, { registry });
   switch (outcome.outcome) {
     case "resumed":
       return { kind: "attach", record: outcome.record };
     case "locked":
       return { kind: "locked" };
     case "unrecoverable": {
-      const record = existing ?? registry.get(sessionId);
-      if (!record) return { kind: "gone" };
+      // A persisted row genuinely IS unrecoverable — but there may be no
+      // in-memory record at all yet (boot reconciliation never loaded this
+      // ROW specifically — e.g. persistence was transiently unreachable at
+      // boot and recovered by the time this request arrived). Falling
+      // through to "gone"/404 here would be exactly the bug this whole
+      // mechanism exists to fix: a session that DOES have a durable, known
+      // reason gets the generic "may not exist" crash instead of its reason.
+      // Construct the placeholder now rather than requiring it to have
+      // already existed.
+      const record =
+        existing ??
+        registry.get(sessionId) ??
+        buildReconnectingDrivenSessionRecord({
+          localId: sessionId,
+          harnessSessionId: null,
+          cwd: "",
+          permissionMode: "default",
+          taskId: null,
+          minskySessionId: null,
+          status: "unrecoverable",
+          unrecoverableReason: outcome.reason,
+          actuatorGeneration: 0,
+          startedAt: new Date().toISOString(),
+        });
       record.status = "unrecoverable";
       record.unrecoverableReason = outcome.reason;
+      registry.register(record);
       return { kind: "attach", record };
     }
     case "not-found":
@@ -290,7 +320,14 @@ function wireDrivenSessionSocket(ws: WebSocket, record: DrivenSessionRecord): vo
     record.subscribers.delete(subscriber);
   });
 
+  // Defense-in-depth: also unsubscribe on "error" (not just "close"). The
+  // `ws` package always follows a socket error with a close event in
+  // practice, so this is normally redundant with the handler above — but
+  // `Set.delete` on an already-removed entry is a harmless no-op, and this
+  // removes any dependency on that ordering guarantee holding across every
+  // runtime/transport this channel might ever run over.
   ws.on("error", (err: Error) => {
+    record.subscribers.delete(subscriber);
     log.error(`[driven-session-ws] socket error for ${record.localId}: ${err.message}`);
   });
 }
