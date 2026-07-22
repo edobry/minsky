@@ -62,6 +62,9 @@ export interface UpsertDrivenSessionInput {
   pid?: number | null;
   pidCmdline?: string | null;
   actuatorGeneration?: number;
+  /** The principal-selected model alias (mt#3040), e.g. "fable" — persisted
+   * so a restart-recovery resume (mt#3038) preserves it. */
+  model?: string | null;
   /** ISO timestamp of the ORIGINAL spawn (stable across an actuator swap — see schema docblock). */
   startedAt: string;
 }
@@ -93,6 +96,7 @@ export async function upsertDrivenSessionRecord(
       unrecoverableReason: input.unrecoverableReason ?? null,
       pid: input.pid ?? null,
       pidCmdline: input.pidCmdline ?? null,
+      model: input.model ?? null,
       actuatorGeneration: input.actuatorGeneration ?? 0,
       startedAt: new Date(input.startedAt),
       updatedAt: new Date(),
@@ -126,6 +130,7 @@ interface RawDrivenSessionRow {
   unrecoverable_reason: string | null;
   pid: number | null;
   pid_cmdline: string | null;
+  model: string | null;
   actuator_generation: number;
   started_at: Date | string;
   updated_at: Date | string;
@@ -144,6 +149,7 @@ export function mapRawDrivenSessionRow(raw: RawDrivenSessionRow): DrivenSessionR
     unrecoverableReason: raw.unrecoverable_reason,
     pid: raw.pid,
     pidCmdline: raw.pid_cmdline,
+    model: raw.model,
     actuatorGeneration: raw.actuator_generation,
     startedAt: raw.started_at instanceof Date ? raw.started_at : new Date(raw.started_at),
     updatedAt: raw.updated_at instanceof Date ? raw.updated_at : new Date(raw.updated_at),

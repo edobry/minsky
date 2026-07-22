@@ -166,7 +166,8 @@ export function buildDrivenSessionArgs(permissionMode: PermissionMode, model?: s
  */
 export function buildResumeSessionArgs(
   permissionMode: PermissionMode,
-  harnessSessionId: string
+  harnessSessionId: string,
+  model?: string | null
 ): string[] {
   return [
     "-p",
@@ -178,6 +179,9 @@ export function buildResumeSessionArgs(
     "stream-json",
     "--verbose",
     "--include-partial-messages",
+    // mt#3040 preservation: a resume must keep the ORIGINALLY-selected model
+    // rather than silently falling back to the CLI's default.
+    ...(model ? ["--model", model] : []),
     ...permissionModeArgs(permissionMode),
   ];
 }
@@ -857,6 +861,9 @@ export interface DrivenSessionResumeSource {
   startedAt: string;
   /** The PRE-swap generation counter; the new record's is `previous.actuatorGeneration + 1`. */
   actuatorGeneration: number;
+  /** The principal-selected model alias (mt#3040) from the original launch — preserved
+   * across the resume so it doesn't silently fall back to the CLI's default. */
+  model?: string | null;
 }
 
 export interface ResumeDrivenSessionOptions {
@@ -901,7 +908,11 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
   const command = opts.command ?? CLAUDE_BINARY;
   const spawnFn = opts.spawnFn ?? prodSpawnFn;
   const registry = opts.registry ?? drivenSessionRegistry;
-  const argv = buildResumeSessionArgs(previous.permissionMode, previous.harnessSessionId);
+  const argv = buildResumeSessionArgs(
+    previous.permissionMode,
+    previous.harnessSessionId,
+    previous.model
+  );
 
   log.info(
     `[driven-session] resuming ${command} ${argv.join(" ")} (localId=${previous.localId}, ` +

@@ -300,6 +300,18 @@ export interface DrivenSessionPersistObserverDeps {
 }
 
 /**
+ * Recover the `--model <alias>` value (mt#3040) from a record's `argv`, if
+ * present. `DrivenSessionRecord` has no separate `model` field — the model
+ * choice is baked directly into `argv` at spawn time
+ * (`buildDrivenSessionArgs`) — so this is the only way to read it back for
+ * persistence without adding a redundant field to the host's record shape.
+ */
+function extractModelFromArgv(argv: readonly string[]): string | null {
+  const i = argv.indexOf("--model");
+  return i >= 0 ? (argv[i + 1] ?? null) : null;
+}
+
+/**
  * Build the `onStateChange` observer: fire-and-forget upsert the
  * `driven_sessions` row every time the host reports a meaningful transition
  * (spawn, harness-link, exit/crash/error, resume-respawn). This is what
@@ -340,6 +352,7 @@ export function createDrivenSessionPersistObserver(
           // compare (the live command line always begins with the binary
           // name/path, never the raw argv alone).
           pidCmdline: record.pid ? `${CLAUDE_BINARY} ${record.argv.join(" ")}` : null,
+          model: extractModelFromArgv(record.argv),
           actuatorGeneration: record.actuatorGeneration,
           startedAt: record.startedAt,
         });
@@ -508,6 +521,7 @@ export async function orchestrateDrivenSessionResume(
         minskySessionId: row.minskySessionId,
         startedAt: row.startedAt.toISOString(),
         actuatorGeneration: row.actuatorGeneration,
+        model: row.model,
       },
       onHarnessSessionLinked: createDrivenInitLinkObserver(),
       onResultSummary: createDrivenResultObserver(),

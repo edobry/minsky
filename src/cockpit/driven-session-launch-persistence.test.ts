@@ -53,6 +53,7 @@ const BASE_ROW: DrivenSessionRow = {
   unrecoverableReason: null,
   pid: null,
   pidCmdline: null,
+  model: null,
   actuatorGeneration: 0,
   startedAt: new Date("2026-07-22T18:00:00.000Z"),
   updatedAt: new Date("2026-07-22T18:05:00.000Z"),
@@ -84,6 +85,46 @@ describe("createDrivenSessionPersistObserver", () => {
     expect(call.cwd).toBe("/tmp/x");
     expect(call.status).toBe("spawned");
     expect(call.pidCmdline).toContain("claude");
+  });
+
+  // mt#3040 preservation (interaction fix) — the model isn't a separate
+  // DrivenSessionRecord field; it's recovered from argv for persistence.
+  test("extracts model from argv (mt#3040) for the persisted row", async () => {
+    const upsertCalls: unknown[] = [];
+    const observer = createDrivenSessionPersistObserver({
+      getDb: async () => FAKE_DB,
+      upsert: async (_db, input) => {
+        upsertCalls.push(input);
+        return "written";
+      },
+    });
+    startDrivenSession({
+      cwd: "/tmp/x",
+      model: "fable",
+      spawnFn: () => new FakeClaudeProcess(),
+      onStateChange: observer,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(upsertCalls.length).toBe(1);
+    expect((upsertCalls[0] as Record<string, unknown>).model).toBe("fable");
+  });
+
+  test("persists a null model when none was selected", async () => {
+    const upsertCalls: unknown[] = [];
+    const observer = createDrivenSessionPersistObserver({
+      getDb: async () => FAKE_DB,
+      upsert: async (_db, input) => {
+        upsertCalls.push(input);
+        return "written";
+      },
+    });
+    startDrivenSession({
+      cwd: "/tmp/x",
+      spawnFn: () => new FakeClaudeProcess(),
+      onStateChange: observer,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((upsertCalls[0] as Record<string, unknown>).model).toBeNull();
   });
 
   test("logs and no-ops (never throws) when persistence is unavailable", async () => {

@@ -586,6 +586,19 @@ describe("buildResumeSessionArgs", () => {
     const args = buildResumeSessionArgs("default", "harness-xyz");
     expect(args).not.toContain(SKIP_PERMISSIONS_FLAG);
   });
+
+  // mt#3040 preservation (interaction fix) — a resume must keep the
+  // originally-selected model, not silently fall back to default.
+  test("embeds --model <alias> when a model is provided", () => {
+    const args = buildResumeSessionArgs("default", "harness-xyz", "fable");
+    const i = args.indexOf("--model");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(args[i + 1]).toBe("fable");
+  });
+
+  test("omits --model when none is provided", () => {
+    expect(buildResumeSessionArgs("default", "harness-xyz")).not.toContain("--model");
+  });
 });
 
 describe("resumeDrivenSession — replaces the dead record for the SAME localId", () => {
@@ -626,6 +639,32 @@ describe("resumeDrivenSession — replaces the dead record for the SAME localId"
     expect(resumeCall).toBeDefined();
     expect(resumeCall?.args.slice(0, 3)).toEqual(["-p", "--resume", RESUME_HARNESS_SESSION_ID]);
     expect(resumeCall?.options.cwd).toBe(SCRATCH_CWD);
+  });
+
+  // mt#3040 preservation (interaction fix) — the originally-selected model
+  // must survive a resume, not silently fall back to the CLI's default.
+  test("preserves the previously-selected model in the resume argv", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const registry = new DrivenSessionRegistry();
+    resumeDrivenSession({
+      previous: {
+        localId: "local-model-preserve",
+        cwd: SCRATCH_CWD,
+        permissionMode: "default",
+        harnessSessionId: "harness-model-1",
+        taskId: null,
+        minskySessionId: null,
+        startedAt: new Date().toISOString(),
+        actuatorGeneration: 0,
+        model: "fable",
+      },
+      spawnFn,
+      registry,
+    });
+    const call = first(calls);
+    const i = call.args.indexOf("--model");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(call.args[i + 1]).toBe("fable");
   });
 
   test("injects INTERRUPTION_NOTICE_TEXT as the first stdin write by default", () => {

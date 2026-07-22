@@ -80,6 +80,11 @@ export const drivenSessionsTable = pgTable(
     permissionMode: text("permission_mode").notNull(),
     taskId: text("task_id"),
     minskySessionId: text("minsky_session_id"),
+    /** The principal-selected model alias (mt#3040), e.g. "fable" — nullable
+     * (the CLI resolves its own default when omitted). Persisted so a
+     * restart-recovery resume (mt#3038) preserves the original launch's
+     * model choice instead of silently falling back to default. */
+    model: text("model"),
 
     status: text("status").notNull(),
     unrecoverableReason: text("unrecoverable_reason"),
