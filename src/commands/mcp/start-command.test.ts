@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, afterEach } from "bun:test";
 import { spawn } from "child_process";
 import path from "path";
 import { JSONRPCMessageSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -10,9 +10,17 @@ import {
   extractBearer,
   validateOAuthBearer,
   injectAgentIdMeta,
+  buildSubagentDispatchTracker,
+  wireSubagentDispatchTrackerWithRetry,
 } from "./start-command";
 import type { OAuthIdentityProvider, OAuthValidationResult } from "@minsky/domain/oauth/types";
 import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
+import { SubagentDispatchTracker } from "../../mcp/subagent-dispatch-tracker";
+import {
+  PersistenceProvider,
+  type PersistenceCapabilities,
+} from "@minsky/domain/persistence/types";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 // ---------------------------------------------------------------------------
 // Helpers for integration tests
@@ -1541,5 +1549,184 @@ describe("OAuth _meta injection — JSONRPCMessageSchema compatibility (mt#1765)
         ._meta as Record<string, unknown>;
       expect(meta[AGENT_ID_META_KEY]).toBe(MT1765_TEST_AGENT_ID);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SubagentDispatchTracker singleton wiring retry (mt#3044)
+//
+// buildSubagentDispatchTracker() previously ran EXACTLY ONCE, fire-and-forget,
+// at MCP server startup. A failed/incomplete first attempt (e.g. a transient
+// Postgres hiccup right after a restart) permanently latched
+// debug_systemInfo.subagentDispatches to the zero-filled no-op tracker for
+// the rest of the process's life. These tests exercise the promise-memoized,
+// bounded-timeout retry wrapper (`wireSubagentDispatchTrackerWithRetry`) and
+// its `getInstance()`-triggered retry driver (registered via
+// `SubagentDispatchTracker.registerWireAttempt`).
+//
+// @see mt#3017 — reference implementation this mirrors (registry-setup.ts's getTracker)
+// @see mt#3044 — this task
+// ---------------------------------------------------------------------------
+
+/**
+ * PersistenceProvider fake whose `getDatabaseConnection()` behavior is
+ * scripted per call — call N uses `behaviors[min(N, behaviors.length - 1)]`,
+ * so a single-element array repeats forever and a multi-element array lets a
+ * test script "first call fails, second call succeeds" (or "first call hangs
+ * forever, second call succeeds").
+ */
+class ScriptedPersistenceProvider extends PersistenceProvider {
+  readonly capabilities: PersistenceCapabilities = {
+    sql: true,
+    vectorStorage: false,
+    transactions: true,
+    jsonb: true,
+    migrations: true,
+  };
+  private callCount = 0;
+
+  constructor(private readonly behaviors: Array<() => Promise<unknown>>) {
+    super();
+  }
+
+  getCapabilities(): PersistenceCapabilities {
+    return this.capabilities;
+  }
+  async initialize(): Promise<void> {}
+  async close(): Promise<void> {}
+  getConnectionInfo(): string {
+    return "mt#3044-scripted-provider";
+  }
+
+  /** Number of times `getDatabaseConnection()` has been called so far. */
+  get calls(): number {
+    return this.callCount;
+  }
+
+  async getDatabaseConnection(): Promise<unknown> {
+    const index = Math.min(this.callCount, this.behaviors.length - 1);
+    const behavior = this.behaviors[index];
+    this.callCount++;
+    if (!behavior) {
+      throw new Error("ScriptedPersistenceProvider: no behavior configured for this call");
+    }
+    return behavior();
+  }
+}
+
+/** Minimal AppContainerInterface fake binding only "persistence". */
+function makeContainer(
+  persistence: PersistenceProvider
+): Pick<AppContainerInterface, "has" | "get"> {
+  return {
+    has: (key: string) => key === "persistence",
+    get: ((key: string) =>
+      key === "persistence" ? persistence : undefined) as AppContainerInterface["get"],
+  };
+}
+
+describe("SubagentDispatchTracker singleton wiring retry (mt#3044)", () => {
+  afterEach(() => {
+    // Isolate tests from each other: back to the pristine "never attempted"
+    // boot state, and clear any registered retry callback.
+    SubagentDispatchTracker.resetUnwiredForTest();
+  });
+
+  test("buildSubagentDispatchTracker: a single failed getDatabaseConnection() attempt leaves the singleton unwired", async () => {
+    SubagentDispatchTracker.resetUnwiredForTest();
+    const persistence = new ScriptedPersistenceProvider([
+      async () => {
+        throw new Error("transient connection hiccup");
+      },
+    ]);
+    const container = makeContainer(persistence) as AppContainerInterface;
+
+    const wired = await buildSubagentDispatchTracker(container);
+
+    expect(wired).toBe(false);
+    expect(SubagentDispatchTracker.isWired()).toBe(false);
+  });
+
+  test("mt#3044 SC#3 regression: a first failed attempt followed by a getInstance()-triggered retry results in the singleton being wired once the DB recovers", async () => {
+    SubagentDispatchTracker.resetUnwiredForTest();
+
+    const persistence = new ScriptedPersistenceProvider([
+      async () => {
+        throw new Error("transient connection hiccup");
+      },
+      async () => ({}) as unknown, // "healthy" connection on the second attempt
+    ]);
+    const container = makeContainer(persistence) as AppContainerInterface;
+
+    // Eager startup attempt fails -- mirrors the real call site's first,
+    // fire-and-forget invocation of wireSubagentDispatchTrackerWithRetry.
+    const first = await wireSubagentDispatchTrackerWithRetry(container);
+    expect(first).toBe(false);
+    expect(SubagentDispatchTracker.isWired()).toBe(false);
+    // getInstance() must still degrade gracefully while unwired -- it never
+    // throws or returns null/undefined, only the no-op tracker.
+    expect(SubagentDispatchTracker.getInstance()).toBeInstanceOf(SubagentDispatchTracker);
+
+    // Register the retry callback exactly as the real start-command.ts call
+    // site does, then call getInstance() -- the SAME entry point
+    // debug.systemInfo and session.generate_prompt use. This getInstance()
+    // call is the ONLY thing that triggers the second attempt below; nothing
+    // else calls wireSubagentDispatchTrackerWithRetry a second time.
+    SubagentDispatchTracker.registerWireAttempt(() =>
+      wireSubagentDispatchTrackerWithRetry(container)
+    );
+    SubagentDispatchTracker.getInstance();
+
+    // Wait for the background retry (fire-and-forget from getInstance()) to settle.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(persistence.calls).toBe(2);
+    expect(SubagentDispatchTracker.isWired()).toBe(true);
+  });
+
+  test("wireSubagentDispatchTrackerWithRetry: concurrent callers during an in-flight attempt share the SAME promise (no duplicate DB-connection attempts)", async () => {
+    SubagentDispatchTracker.resetUnwiredForTest();
+
+    // A short REAL delay (rather than a manually-captured resolve callback)
+    // avoids racing the dynamic imports inside buildSubagentDispatchTracker
+    // (persistence/types, subagent-dispatch-tracker, events/emitter) that
+    // run before getDatabaseConnection() is ever called -- a synchronous
+    // capture-and-resolve-immediately approach fires before the callback is
+    // assigned and never resolves the connection at all.
+    const persistence = new ScriptedPersistenceProvider([
+      () => new Promise((resolve) => setTimeout(() => resolve({} as unknown), 30)),
+    ]);
+    const container = makeContainer(persistence) as AppContainerInterface;
+
+    const first = wireSubagentDispatchTrackerWithRetry(container);
+    const second = wireSubagentDispatchTrackerWithRetry(container);
+    expect(first).toBe(second);
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(firstResult).toBe(true);
+    expect(secondResult).toBe(true);
+    expect(persistence.calls).toBe(1);
+  });
+
+  test("wireSubagentDispatchTrackerWithRetry: a hung getDatabaseConnection() resolves to false within the bound and frees the memo for the NEXT attempt", async () => {
+    SubagentDispatchTracker.resetUnwiredForTest();
+
+    const persistence = new ScriptedPersistenceProvider([
+      () => new Promise(() => {}), // never resolves — simulates a hung connection attempt
+      async () => ({}) as unknown, // healthy on the next attempt
+    ]);
+    const container = makeContainer(persistence) as AppContainerInterface;
+
+    const hungResult = await wireSubagentDispatchTrackerWithRetry(container, 20);
+    expect(hungResult).toBe(false);
+    expect(SubagentDispatchTracker.isWired()).toBe(false);
+
+    // The memo is freed even though the hung attempt is still silently
+    // running in the background — the NEXT call starts a fresh attempt
+    // instead of rejoining the permanently-stuck promise.
+    const retryResult = await wireSubagentDispatchTrackerWithRetry(container, 20);
+    expect(retryResult).toBe(true);
+    expect(SubagentDispatchTracker.isWired()).toBe(true);
   });
 });
