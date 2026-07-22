@@ -297,6 +297,64 @@ describe("mt#3002 — file-name and hex-id symbol-class exclusions", () => {
   });
 });
 
+describe("mt#3042 — SQL/DDL keyword symbol-class exclusion", () => {
+  test("uppercase DDL keywords in a migration discussion do NOT count as symbols (16:12Z record shape)", () => {
+    // The 2026-07-21T16:12Z calibration record: prose about a role-permission
+    // migration extracted `ALTER`/`DROP`/`CREATE` as backticked "symbols" near
+    // the `drops?` predicate. The uppercase-exact exclusion kills the pairs.
+    const text =
+      "The migration runs `ALTER` then `DROP` on the old index and `CREATE` on the new one — " +
+      "it drops the stale grants for the role.";
+    const result = detectCodeMechanismAssertion(text, "");
+    const syms = result.claims.map((c) => c.symbol);
+    expect(syms).not.toContain("ALTER");
+    expect(syms).not.toContain("DROP");
+    expect(syms).not.toContain("CREATE");
+    // The whole record shape must not fire at all — no residual token in the
+    // fixture survives symbol-plausibility, so zero claims are logged.
+    expect(result.matched).toBe(false);
+    expect(result.claims).toHaveLength(0);
+  });
+
+  test("lowercase same-spelled identifiers are still valid symbols", () => {
+    // `create` as a real method name: the exclusion is UPPERCASE-exact, so a
+    // genuine lowercase identifier near a predicate still fires.
+    const camel = detectCodeMechanismAssertion(
+      "`repoCreate` defaults to inserting a detected-state row.",
+      ""
+    );
+    expect(camel.matched).toBe(true);
+    expect(camel.claims.map((c) => c.symbol)).toContain("repoCreate");
+    // Bare backticked lowercase `create` (exactly the excluded keyword's
+    // spelling, different case) is likewise still a valid symbol.
+    const bare = detectCodeMechanismAssertion(
+      "`create` defaults to inserting a detected-state row.",
+      ""
+    );
+    expect(bare.matched).toBe(true);
+    expect(bare.claims.map((c) => c.symbol)).toContain("create");
+  });
+
+  test("`postgres` is stoplisted as a prose/product name", () => {
+    const text = "`postgres` drops the connection when the pool is exhausted.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.claims.map((c) => c.symbol)).not.toContain("postgres");
+    expect(result.matched).toBe(false);
+  });
+
+  test("regression (ask#5343 tune-1 correction): a backed sibling does NOT suppress an unbacked claim — it fires with hadSameTurnRead=true", () => {
+    // hadSameTurnRead is a TURN-level aggregate (mt#2673): logged claims are
+    // definitionally unbacked; a record with hadSameTurnRead=true is NOT a
+    // false positive. The ask#5343 review's proposed record-level suppression
+    // would have silenced exactly this target class — kept unimplemented.
+    const text = "`readHelper` is fine; `unreadEnvGuard` overrides the default when set.";
+    const result = detectCodeMechanismAssertion(text, "export function readHelper() {}");
+    expect(result.matched).toBe(true);
+    expect(result.hadSameTurnRead).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain("unreadEnvGuard");
+  });
+});
+
 describe("buildVerificationCorpus", () => {
   test("captures read-class tool_use INPUT and tool_result CONTENT; ignores non-read inputs", () => {
     const turn: TranscriptLine[] = [
