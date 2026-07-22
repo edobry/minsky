@@ -5,20 +5,30 @@
  * Answers, reproducibly, the mt#1729 investigation questions against the CURRENT bun
  * version and the CURRENT `src/cli.ts` shape — so the verdict can be re-validated when bun
  * updates (the ESM+bytecode restriction below is explicitly "eventually" per bun, so this
- * script is also a REGRESSION probe: when bun lifts it, variant C will start passing and this
+ * script is also a REGRESSION probe: when bun lifts it, variant C starts passing and this
  * script's expectation flips, signalling the investigation should be revisited).
  *
- * ## What it checks (three `bun build --compile` variants + a run)
+ * ## What it checks (three `bun build --compile` variants + two runtime probes)
  *
  *   A. `--compile --target=bun`                    -> EXPECT SUCCESS (ESM, no bytecode)
  *   B. `--compile --bytecode --target=bun`         -> EXPECT FAIL (bytecode defaults to CJS;
  *                                                     cli.ts top-level await is CJS-incompatible)
  *   C. `--compile --bytecode --format=esm ...`     -> EXPECT FAIL ("format must be 'cjs' when
  *                                                     bytecode is true. Eventually ... esm")
- *   Run A's binary: `<bin> --version`              -> EXPECT "1.0.0" (dynamic imports resolve;
- *                                                     no persistence touched by --version)
+ *   Run 1: `<A-bin> --version`   -> EXPECT a version. `--version` sets `needsAll=true` in cli.ts
+ *          (src/cli.ts ~L144-150), which force-runs EVERY lazy command-group `await import(...)`
+ *          (mcp/github/context/lint/init/setup/compile/cockpit/completions/ops) — so this is the
+ *          MOST comprehensive dynamic-import probe, not the weakest.
+ *   Run 2: `<A-bin> tasks --help` -> EXPECT exit 0. `tasks` comes from the unconditionally-loaded
+ *          shared-command registry (`registerAllSharedCommands`, src/cli.ts ~L132-134); rendering
+ *          its help proves that dynamically-imported command group loaded AND registered a real
+ *          handler in the standalone binary. Hermetic (no DB / network).
  *
- * ## Findings (bun 1.2.21, 2026-07-22 — see mt#1729 spec `## Findings` for the full write-up)
+ * Full handler EXECUTION through a lazy import (`tasks list` hitting the prod DB) was verified
+ * manually during the mt#1729 investigation and recorded in the spec `## Findings`; it is kept out
+ * of this repeatedly-run script so re-running the probe never touches prod.
+ *
+ * ## Findings (bun 1.2.21, 2026-07-22 — full write-up in the mt#1729 spec `## Findings`)
  *
  * - The lazy-load shape mt#1719 introduced uses only LITERAL dynamic-import specifiers
  *   (`await import("./commands/mcp/index")` etc.), which `--compile` resolves fine — so the
@@ -30,9 +40,15 @@
  *   (the ~850ms bundle+init layer is dominated by module eval, which neither `--compile` nor
  *   `--bytecode` addresses).
  *
+ * ## Recommendation (see mt#1729 spec for the full version)
+ *
+ * Defer `--compile` adoption to Profile D (end-user single-binary distribution) only; pursue the
+ * eval lever (mt#1816) for cold-boot instead. `--bytecode` stays blocked until `src/cli.ts`'s
+ * top-level await is refactored into an async `main()`.
+ *
  * ## Usage
  *
- *   bun scripts/measure-compile-compat.ts
+ *   bun scripts/measure-compile-compat.ts        # runnable from any CWD
  *
  * Exit 0 if bun's behavior matches the recorded verdict; non-zero if it diverged (e.g. bun
  * lifted the ESM+bytecode restriction, or cli.ts no longer trips it) — a divergence means the
@@ -51,7 +67,12 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
-const ENTRY = "src/cli.ts";
+// Absolute entry path — resolved relative to THIS script's location (repo root = ../ from
+// scripts/), so the characterization is runnable from any working directory (reviewer NB: the
+// prior version assumed repo-root CWD). bun resolves node_modules/tsconfig from the entry's
+// directory, so an absolute entry is CWD-independent.
+const REPO_ROOT = join(import.meta.dir, "..");
+const ENTRY = join(REPO_ROOT, "src", "cli.ts");
 
 interface BuildVariant {
   name: string;
@@ -80,7 +101,9 @@ const VARIANTS: BuildVariant[] = [
       ENTRY,
     ],
     expect: "fail",
-    failSubstring: "await",
+    // Specific Bun diagnostic for top-level await under CJS — NOT the bare token "await", which
+    // could match unrelated errors and let a changed failure mode slip through as a false "OK".
+    failSubstring: 'can only be used inside an "async" function',
   },
   {
     name: "C: --compile --bytecode --format=esm",
@@ -129,27 +152,53 @@ function runBuild(v: BuildVariant): { ok: boolean; detail: string } {
       };
 }
 
+/** Run a hermetic probe against the compiled binary; ok when exit 0 (and, if given, output matches). */
+function runProbe(
+  bin: string,
+  argv: string[],
+  label: string,
+  outputOk?: (stdout: string) => boolean
+): { ok: boolean; detail: string } {
+  const r = spawnSync(bin, argv, { encoding: "utf8" });
+  const stdout = (r.stdout ?? "").trim();
+  const exitOk = r.status === 0;
+  const matchOk = outputOk ? outputOk(stdout) : true;
+  return {
+    ok: exitOk && matchOk,
+    detail: `${label}: exit=${r.status}${outputOk ? ` output=${JSON.stringify(safeTruncate(stdout, 40))}` : ""}`,
+  };
+}
+
 function main(): number {
   const bunVersion = spawnSync("bun", ["--version"], { encoding: "utf8" }).stdout?.trim();
   console.log(`bun ${bunVersion} — mt#1729 --compile compatibility characterization\n`);
 
   let allOk = true;
+  const report = (ok: boolean, msg: string) => {
+    allOk = allOk && ok;
+    console.log(`  [${ok ? "OK" : "DIVERGED"}] ${msg}`);
+  };
+
   for (const v of VARIANTS) {
     const { ok, detail } = runBuild(v);
-    allOk = allOk && ok;
-    console.log(`  [${ok ? "OK" : "DIVERGED"}] ${v.name}: ${detail}`);
+    report(ok, `${v.name}: ${detail}`);
   }
 
-  // Run variant A's binary — confirms literal dynamic imports resolve in a standalone binary.
+  // Runtime probes against variant A's binary — confirm literal dynamic imports resolve AND a
+  // real command group registered, in a standalone binary. Both hermetic (no DB / network).
   const aBin = join(OUT_DIR, "a");
   if (existsSync(aBin)) {
-    const r = spawnSync(aBin, ["--version"], { encoding: "utf8" });
-    const version = (r.stdout ?? "").trim();
-    const runOk = r.status === 0 && /^\d+\.\d+\.\d+$/.test(version);
-    allOk = allOk && runOk;
-    console.log(
-      `  [${runOk ? "OK" : "DIVERGED"}] A binary runs: '<bin> --version' -> "${version}" (dynamic imports resolve)`
+    // `--version` force-loads every lazy command-group import (needsAll=true) — see header.
+    const v1 = runProbe(aBin, ["--version"], "A binary '--version' (loads all lazy imports)", (s) =>
+      // Loose semver (accepts pre-release suffixes like 1.0.0-beta); prior /^d.d.d$/ was brittle.
+      /^\d+\.\d+\.\d+/.test(s)
     );
+    report(v1.ok, v1.detail);
+    // `tasks --help` renders a real handler's help from the unconditionally-loaded shared registry.
+    const v2 = runProbe(aBin, ["tasks", "--help"], "A binary 'tasks --help' (handler registered)");
+    report(v2.ok, v2.detail);
+  } else {
+    report(false, "variant A binary missing — cannot run runtime probes");
   }
 
   rmSync(OUT_DIR, { recursive: true, force: true });
