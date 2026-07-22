@@ -77,9 +77,11 @@ export interface UnsafeSql {
  * tests pass a stub. Returns null when the ledger is unreadable (table absent, permission,
  * transient) so callers fail-open rather than writing a bogus cache.
  *
- * mt#3039: the query failure is logged at WARN here — previously this catch was completely
- * silent (no log at any level), which was part of why a persistent post-boot read failure
- * produced zero operator-visible signal for 6.4 hours.
+ * mt#3039: BOTH null-producing paths here (query throws, or the query returns no row) log at
+ * WARN exactly once — previously the throw path was completely silent (no log at any level),
+ * and the empty-result path had no log either. `refreshProdStateCache` deliberately does NOT
+ * re-log when this function returns null (PR #2176 R1) — logging the failure here, at the
+ * single source of the domain read, avoids a duplicated WARN per failed tick.
  */
 export async function buildProdStateSnapshot(sql: UnsafeSql): Promise<ProdStateSnapshot | null> {
   try {
@@ -88,7 +90,10 @@ export async function buildProdStateSnapshot(sql: UnsafeSql): Promise<ProdStateS
        FROM drizzle.__drizzle_migrations`
     )) as Array<{ total: number; latest_at: string | number | null }>;
     const row = rows?.[0];
-    if (!row) return null;
+    if (!row) {
+      log.warn("prod-state-cache: ledger query returned no rows");
+      return null;
+    }
     const ledgerRows = Number(row.total ?? 0);
     const latestRaw = row.latest_at;
     const latestAppliedAtMs =
@@ -143,9 +148,13 @@ export function writeProdStateCache(
  * try/catch never sees a throw from this function (it fails open by returning `false`), so
  * without this tracker a persistent domain-level failure here is invisible to both the
  * interval-liveness registry (`/api/sweeps`) and `/api/health` — exactly the gap that let a
- * 6.4-hour stall go undetected. The two failure paths also now log at WARN (previously
- * `log.debug`, invisible at the daemon's default log level) so the failure is visible via the
- * log surface even before a caller reads `/api/health`.
+ * 6.4-hour stall go undetected.
+ *
+ * Logging (PR #2176 R1): the `!sql` branch logs its own WARN here (there's no other call
+ * site that would log it). The `!snapshot` branch deliberately does NOT log again —
+ * `buildProdStateSnapshot` already logged the specific reason (query threw vs. empty result)
+ * before returning null; re-logging here would double every ledger-read failure into two WARN
+ * lines per tick, which is noisy and misleading during a real outage.
  */
 export async function refreshProdStateCache(
   sql: UnsafeSql | null | undefined,
@@ -161,7 +170,7 @@ export async function refreshProdStateCache(
   }
   const snapshot = await buildProdStateSnapshot(sql);
   if (!snapshot) {
-    log.warn("prod-state-cache: ledger unreadable; leaving last-good cache in place");
+    // buildProdStateSnapshot already logged the specific failure reason — see above.
     tracker.recordFailure();
     return false;
   }

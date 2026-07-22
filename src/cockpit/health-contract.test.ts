@@ -125,7 +125,10 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
     };
     // Explicit tmp cachePath — must NOT touch the real default state-dir
     // cache file that a live cockpit daemon reads/writes.
-    const tmpPath = path.join(os.tmpdir(), `minsky-health-contract-prod-state-${process.pid}.json`);
+    const tmpPath = path.join(
+      os.tmpdir(),
+      `minsky-health-contract-prod-state-${process.pid}-${crypto.randomUUID()}.json`
+    );
     try {
       // Run the real producer function once (as the sweep tick does) so the
       // process-lifetime tracker singleton — the same one health.ts reads —

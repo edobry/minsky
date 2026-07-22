@@ -76,13 +76,21 @@ export class ProdStateSweepTracker {
     return ProdStateSweepTracker._instance;
   }
 
-  /** Record that a refresh attempt ran (called once per `refreshProdStateCache` call). */
+  /**
+   * Record that a refresh attempt ran (called once per `refreshProdStateCache` call).
+   *
+   * Intended call sequence (see `refreshProdStateCache` in prod-state-cache.ts for the sole
+   * production caller): exactly one `recordRun()` call at the start of every attempt, followed
+   * by exactly one of `recordSuccess()` (the cache was written) or `recordFailure()` (no sql,
+   * an unreadable ledger, or a write failure) once the attempt's outcome is known. `runsCount`
+   * is therefore expected to equal `(successes so far) + (failures so far)` at any read.
+   */
   recordRun(nowMs: number = Date.now()): void {
     this.runsCount++;
     this.lastRunAtMs = nowMs;
   }
 
-  /** Record a refresh attempt that successfully wrote the cache. */
+  /** Record a refresh attempt that successfully wrote the cache. Pairs with a prior `recordRun()`. */
   recordSuccess(nowMs: number = Date.now()): void {
     this.lastSuccessAtMs = nowMs;
     this.consecutiveFailures = 0;
@@ -90,9 +98,8 @@ export class ProdStateSweepTracker {
 
   /**
    * Record a failed refresh attempt (no sql, unreadable ledger, or a write
-   * failure). Only the timestamp is stored — no raw message (redaction
-   * policy; the caller logs the raw message via `log.warn` before calling
-   * this).
+   * failure). Pairs with a prior `recordRun()`. Only the timestamp is stored — no raw message
+   * (redaction policy; the caller logs the raw message via `log.warn` before calling this).
    */
   recordFailure(nowMs: number = Date.now()): void {
     this.lastErrorAtMs = nowMs;

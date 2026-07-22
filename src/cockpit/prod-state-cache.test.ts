@@ -21,7 +21,10 @@ const throwSql: UnsafeSql = {
   },
 };
 
-const tmpPath = path.join(os.tmpdir(), `minsky-prod-state-${process.pid}.json`);
+const tmpPath = path.join(
+  os.tmpdir(),
+  `minsky-prod-state-${process.pid}-${crypto.randomUUID()}.json`
+);
 
 /** Poll `condition` until it's true, or throw after `timeoutMs` — mirrors sweepers.test.ts's helper. */
 async function waitFor(condition: () => boolean, timeoutMs = 2000): Promise<void> {
