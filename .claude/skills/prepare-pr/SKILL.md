@@ -137,6 +137,8 @@ The `[unverified-tests]` tag is detected anywhere in the visible PR title by the
 
 **Reviewer-side:** when reviewing a PR that adds new test files, confirm the PR body either contains `Execution evidence:` output OR the PR title carries `[unverified-tests]` with a documented reason. If neither is present, request the evidence before approving.
 
+**Per-AT coverage (mt#3033, calibration-first).** Independent of the new-test-file trigger above, the mt#1459 gate also cross-references the bound task's `## Acceptance Tests`. For each AT the gate classifies as executable (skipping `state-ops`-kind tasks and findings-shaped ATs like "audit produces…" / "decision recorded…"), the `Execution evidence:` block should address it — either a reference by number (`AT3`, `AT#3`, `acceptance test 3`) or a distinctive keyword from its text, or an explicit `[atN-deferred: mt#NNNN]` marker naming a tracked follow-up task for that specific AT. As of mt#3033 this is **log-only** (mt#2263 calibration ladder): an unaddressed AT logs a calibration record and surfaces a WARN, it does not block merge — but treat it as real signal, not noise to ignore. The originating incident (mt#2542) merged with evidence for a proxy (role permissions) while the spec's literal AT ("services boot on the role") was silently deferred and later crashed production; a per-AT deferral marker would have made that gap visible pre-merge. Override (should not normally be needed): `MINSKY_SKIP_AT_COVERAGE=1`.
+
 ### 2. Commit all changes
 
 Use `mcp__minsky__session_commit` with:

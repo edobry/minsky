@@ -210,6 +210,13 @@ export const EditInstructionsSchema = z.object({
     .describe(
       "Override the marker-less fail-closed guard (mt#2400). When false (default), editing an EXISTING file with marker-less content is REFUSED (it would silently overwrite the whole file). Set true to intentionally replace the entire file content (prefer session_write_file for that)."
     ),
+  allowShrink: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "Override the marker-spanning-collapse guard (mt#2577). When false (default), a marker-based edit whose apply result is dramatically smaller than the original is REFUSED (the apply model likely mis-resolved a marker and dropped content it should have preserved). Set true only for an intentional large deletion."
+    ),
 });
 
 /**

@@ -68,7 +68,9 @@ Block 3
 Make sure it is clear what the edit should be, and where it should be applied.
 Make edits to a file in a single edit_file call instead of multiple edit_file calls to the same file. The apply model can handle many distinct edits at once.
 
-FAIL-CLOSED (mt#2400): editing an EXISTING file with content that has NO '// ... existing code ...' marker is REFUSED, because it would silently overwrite the whole file. For an intentional full rewrite, use session_write_file, or pass fullReplace=true.`,
+FAIL-CLOSED (mt#2400): editing an EXISTING file with content that has NO '// ... existing code ...' marker is REFUSED, because it would silently overwrite the whole file. For an intentional full rewrite, use session_write_file, or pass fullReplace=true.
+
+COLLAPSE-GUARD (mt#2577): a marker edit whose apply result is dramatically smaller than the original is also REFUSED — the apply model likely mis-resolved a marker and dropped content it should have preserved. Re-issue with tighter, smaller marker regions, or pass allowShrink=true for an intentional large deletion.`,
     parameters: SessionFileEditSchema,
     getHandler: async () => {
       // mt#1792: defer heavy runtime imports until first call.
@@ -102,6 +104,7 @@ FAIL-CLOSED (mt#2400): editing an EXISTING file with content that has NO '// ...
             dryRun: args.dryRun,
             createDirs: args.createDirs,
             fullReplace: args.fullReplace,
+            allowShrink: args.allowShrink,
             sessionProvider,
           });
 
