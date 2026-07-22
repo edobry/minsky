@@ -19,20 +19,27 @@
  * map per the spec; this file's `--warn-chars`/`--fail-chars` options thread
  * into the SAME `runMinskyCompile()` domain call, and both files share the
  * SAME `reportMonolithicSizeBudget()` reporter (`packages/domain/src/
- * compile/size-budget-report.ts`) so the exact marker strings
- * `classifyCompileCheckError` string-matches are emitted from one place,
- * not duplicated a third time.
+ * compile/size-budget-report.ts`) plus the SAME `resolveMemoryLoadingMode()`
+ * / `buildSizeBudgetOverride()` helpers (`../../adapters/shared/commands/
+ * compile/cli-options.ts`) so neither the marker strings
+ * `classifyCompileCheckError` string-matches, nor the config-read /
+ * override-construction logic, are duplicated a third time (mt#2992 review
+ * R1).
  */
 
 import { Command } from "commander";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import { runMinskyCompile } from "@minsky/domain/compile/compile";
-import type { MemoryLoadingMode } from "@minsky/domain/configuration/schemas/memory";
 import {
   hasSizeBudgetFields,
   reportMonolithicSizeBudget,
 } from "@minsky/domain/compile/size-budget-report";
+import {
+  resolveMemoryLoadingMode,
+  buildSizeBudgetOverride,
+  parseCliSizeBudgetChars,
+} from "../../adapters/shared/commands/compile/cli-options";
 
 export function createCompileCommand(): Command {
   const compile = new Command("compile")
@@ -63,25 +70,16 @@ export function createCompileCommand(): Command {
     )
     .action(async (opts) => {
       try {
-        // Read memory.loadingMode from config; fall back gracefully if
-        // config unavailable (mt#2992 — only the claude.md target reads
-        // this).
-        let memoryLoadingMode: MemoryLoadingMode | undefined;
-        try {
-          const { getConfigurationProvider } = await import("@minsky/domain/configuration/index");
-          const config = getConfigurationProvider().getConfig();
-          memoryLoadingMode = config.memory?.loadingMode;
-        } catch {
-          // Config not yet initialized or unavailable — target default (on_demand) applies.
-        }
-
-        const warnChars = opts.warnChars !== undefined ? Number(opts.warnChars) : undefined;
-        const failChars = opts.failChars !== undefined ? Number(opts.failChars) : undefined;
-        const sizeBudgetOverride: { warnChars?: number; failChars?: number } = {};
-        if (warnChars !== undefined) sizeBudgetOverride.warnChars = warnChars;
-        if (failChars !== undefined) sizeBudgetOverride.failChars = failChars;
-        const sizeBudget =
-          Object.keys(sizeBudgetOverride).length > 0 ? sizeBudgetOverride : undefined;
+        // mt#2992 review R1 (BLOCKING) — validate BEFORE any other work so a
+        // bad flag fails fast with a clear, flag-named error rather than
+        // silently coercing to NaN (see parseCliSizeBudgetChars's doc comment
+        // for the exact failure mode this closes: an unvalidated NaN WINS
+        // over the real default in resolveSizeBudget's `??` merge, so the
+        // size-budget check would silently never fire).
+        const warnChars = parseCliSizeBudgetChars("--warn-chars", opts.warnChars);
+        const failChars = parseCliSizeBudgetChars("--fail-chars", opts.failChars);
+        const sizeBudget = buildSizeBudgetOverride(warnChars, failChars);
+        const memoryLoadingMode = await resolveMemoryLoadingMode();
 
         const result = await runMinskyCompile({
           target: opts.target as string | undefined,

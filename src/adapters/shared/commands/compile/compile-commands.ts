@@ -15,11 +15,11 @@ import {
 } from "../../command-registry";
 import { log } from "@minsky/shared/logger";
 import { runMinskyCompile } from "@minsky/domain/compile/compile";
-import type { MemoryLoadingMode } from "@minsky/domain/configuration/schemas/memory";
 import {
   hasSizeBudgetFields,
   reportMonolithicSizeBudget,
 } from "@minsky/domain/compile/size-budget-report";
+import { resolveMemoryLoadingMode, buildSizeBudgetOverride } from "./cli-options";
 
 const compileCommandParams = {
   target: {
@@ -76,27 +76,16 @@ export function registerCompileCommands(targetRegistry: {
     execute: async (params, _ctx?: CommandExecutionContext) => {
       log.debug("Executing compile command", { params });
       try {
-        // Read memory.loadingMode from config; fall back gracefully if
-        // config unavailable (mt#2992 — only the claude.md target reads
-        // this, mirroring compile-migrate-commands.ts's identical pattern
-        // for the legacy `rules compile` command).
-        let memoryLoadingMode: MemoryLoadingMode | undefined;
-        try {
-          const { getConfigurationProvider } = await import("@minsky/domain/configuration/index");
-          const config = getConfigurationProvider().getConfig();
-          memoryLoadingMode = config.memory?.loadingMode;
-        } catch {
-          // Config not yet initialized or unavailable — target default (on_demand) applies.
-        }
-
-        // mt#2992: build the override with ONLY the fields actually supplied —
-        // never `{ warnChars: undefined, failChars: undefined }` — an absent
-        // field falls back to the target default in resolveSizeBudget.
-        const sizeBudgetOverride: { warnChars?: number; failChars?: number } = {};
-        if (params.warnChars !== undefined) sizeBudgetOverride.warnChars = params.warnChars;
-        if (params.failChars !== undefined) sizeBudgetOverride.failChars = params.failChars;
-        const sizeBudget =
-          Object.keys(sizeBudgetOverride).length > 0 ? sizeBudgetOverride : undefined;
+        // mt#2992 review R1 (non-blocking 1): both compile entry points share
+        // this config-read + override-construction logic via cli-options.ts
+        // so they can't drift. params.warnChars/params.failChars are already
+        // validated numbers here (the zod schema above is enforced at the
+        // parameter-parsing boundary — schema-bridge.ts's
+        // parseOptionsToParameters / the MCP tool-call validator) — no
+        // additional parsing needed on this surface, unlike the raw-Commander
+        // direct-CLI entry point (src/commands/compile/index.ts).
+        const memoryLoadingMode = await resolveMemoryLoadingMode();
+        const sizeBudget = buildSizeBudgetOverride(params.warnChars, params.failChars);
 
         const result = await runMinskyCompile({
           target: params.target,
