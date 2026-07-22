@@ -192,24 +192,27 @@ async function resolveDrivenSessionForUpgrade(
       // mechanism exists to fix: a session that DOES have a durable, known
       // reason gets the generic "may not exist" crash instead of its reason.
       // Construct the placeholder now rather than requiring it to have
-      // already existed.
-      const record =
-        existing ??
-        registry.get(sessionId) ??
-        buildReconnectingDrivenSessionRecord({
-          localId: sessionId,
-          harnessSessionId: null,
-          cwd: "",
-          permissionMode: "default",
-          taskId: null,
-          minskySessionId: null,
-          status: "unrecoverable",
-          unrecoverableReason: outcome.reason,
-          actuatorGeneration: 0,
-          startedAt: new Date().toISOString(),
-        });
-      record.status = "unrecoverable";
-      record.unrecoverableReason = outcome.reason;
+      // already existed. `registry.register()` is called ONLY in the
+      // freshly-built branch — re-registering an already-registered record
+      // is pointless work on the hot path (reviewer round 2, PR #2179).
+      const alreadyRegistered = existing ?? registry.get(sessionId);
+      if (alreadyRegistered) {
+        alreadyRegistered.status = "unrecoverable";
+        alreadyRegistered.unrecoverableReason = outcome.reason;
+        return { kind: "attach", record: alreadyRegistered };
+      }
+      const record = buildReconnectingDrivenSessionRecord({
+        localId: sessionId,
+        harnessSessionId: null,
+        cwd: "",
+        permissionMode: "default",
+        taskId: null,
+        minskySessionId: null,
+        status: "unrecoverable",
+        unrecoverableReason: outcome.reason,
+        actuatorGeneration: 0,
+        startedAt: new Date().toISOString(),
+      });
       registry.register(record);
       return { kind: "attach", record };
     }

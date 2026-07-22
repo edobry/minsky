@@ -529,8 +529,17 @@ export async function orchestrateDrivenSessionResume(
     // confirmed safe must still let a genuinely-dead PID's resume proceed.
     if (row.pid) {
       const killOrphan = deps.killOrphan ?? killIfIdentityMatches;
+      // Reviewer round 2 (PR #2179) non-blocking — prefer the FULL
+      // persisted command line over the bare binary name when available;
+      // it's a strictly tighter identity check (the persisted argv is
+      // basically never going to coincidentally match an unrelated
+      // process). Failing to match only ever means "skip the kill" (the
+      // fail-SAFE direction per killIfIdentityMatches's own contract), so
+      // being stricter here never makes cleanup less safe — at worst it
+      // skips a cleanup that would have been legitimate.
+      const identitySubstring = row.pidCmdline ?? CLAUDE_BINARY;
       try {
-        await killOrphan(row.pid, CLAUDE_BINARY, "SIGKILL", deps.execFileFn);
+        await killOrphan(row.pid, identitySubstring, "SIGKILL", deps.execFileFn);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn(

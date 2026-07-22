@@ -281,6 +281,35 @@ describe("orchestrateDrivenSessionResume", () => {
     expect(killCalls).toEqual([{ pid: 42424, expectedCmdSubstring: "claude", signal: "SIGKILL" }]);
   });
 
+  // Reviewer round 2 (PR #2179) non-blocking — prefer the persisted full
+  // command line (a stricter identity check) over the bare binary name.
+  test("prefers the persisted pidCmdline over the bare binary name for identity", async () => {
+    const registry = new DrivenSessionRegistry();
+    const killCalls: unknown[] = [];
+    await orchestrateDrivenSessionResume("local-1", {
+      getDb: async () => FAKE_DB,
+      getPersisted: async () => ({
+        ...BASE_ROW,
+        pid: 42424,
+        pidCmdline: "claude -p --resume harness-1 --dangerously-skip-permissions",
+      }),
+      withResumeLock: async (_db, _conversationId, fn) => ({ acquired: true, result: await fn() }),
+      registry,
+      spawnFn: () => new FakeClaudeProcess(),
+      killOrphan: async (pid, expectedCmdSubstring, signal) => {
+        killCalls.push({ pid, expectedCmdSubstring, signal });
+        return true;
+      },
+    });
+    expect(killCalls).toEqual([
+      {
+        pid: 42424,
+        expectedCmdSubstring: "claude -p --resume harness-1 --dangerously-skip-permissions",
+        signal: "SIGKILL",
+      },
+    ]);
+  });
+
   test("skips the orphan-cleanup kill when no pid was persisted", async () => {
     const registry = new DrivenSessionRegistry();
     let killCalled = false;
