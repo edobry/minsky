@@ -58,6 +58,21 @@ const hasDbConfig =
   Boolean(process.env.DATABASE_URL);
 
 const bootstrap = await ensureHookDomainBootstrap();
+
+// The skip gate is checked BEFORE treating a bootstrap failure as a hard fail.
+// Without a configured Postgres, `setupConfiguration()` fails validation
+// (`persistence.postgres.connectionString: expected string, received
+// undefined`) — an environment gap, not a defect in the code under test. An
+// earlier revision only skipped further down, after the provider resolution,
+// so an unconfigured environment (CI) hard-failed instead of skipping.
+if (!bootstrap.ok && !hasDbConfig) {
+  process.stdout.write(
+    `SKIP: no Postgres configured (MINSKY_PERSISTENCE_POSTGRES_URL / DATABASE_URL unset) — ` +
+      `bootstrap cannot complete here: ${bootstrap.error}\n`
+  );
+  process.exit(0);
+}
+
 record(
   "layer 1+2: hook domain bootstrap",
   bootstrap.ok,

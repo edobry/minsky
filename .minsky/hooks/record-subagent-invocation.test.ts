@@ -181,12 +181,24 @@ describe("record-subagent-invocation process contract (mt#3019)", () => {
       transcript_path: "",
     });
 
+    // The fail-safe contract holds in EVERY environment.
     expect(exitCode).toBe(0);
-    expect(stderr).toContain("no taskId and no session correlation key");
-    // The bootstrap must have SUCCEEDED to get this far — a regression that
-    // removes it surfaces here as the tsyringe polyfill error instead.
+
+    // Two legitimate outcomes, depending on whether this environment can reach
+    // a database: it either gets far enough to skip on the missing correlation
+    // key, or it reports a bootstrap failure as a value. CI has no Postgres
+    // configured and takes the second path; a developer machine takes the
+    // first. (An earlier revision asserted only the first and failed in CI.)
+    const skippedOnKey = stderr.includes("no taskId and no session correlation key");
+    const reportedBootstrapFailure = stderr.includes("domain bootstrap failed");
+    expect(skippedOnKey || reportedBootstrapFailure).toBe(true);
+
+    // Environment-independent regression guard: the pre-mt#3019 failure was an
+    // UNCAUGHT throw from the domain import, which the entrypoint reports as an
+    // "unexpected top-level error". A missing bootstrap resurfaces exactly
+    // there, whatever the environment.
+    expect(stderr).not.toContain("unexpected top-level error");
     expect(stderr).not.toContain("reflect polyfill");
-    expect(stderr).not.toContain("Configuration not initialized");
   }, 30_000);
 
   test("missing agent_id (a main-agent Stop) exits 0 without touching the DB", async () => {
