@@ -8,7 +8,7 @@ import { Command } from "commander";
 // none of them run. Each is converted to function-local dynamic import
 // at its sole use site below. Type positions (`import("express").Request`)
 // remain top-level since TS erases them at runtime.
-import { MinskyMCPServer } from "../../mcp/server";
+import type { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { RetryingInitController } from "../../mcp/init-retry";
 import { log } from "@minsky/shared/logger";
@@ -1140,7 +1140,19 @@ export function createStartCommand(
           httpConfig: serverConfig.httpConfig,
         });
 
-        // Create server with the specified transport
+        // Create server with the specified transport.
+        // mt#1816: defer the server.ts + @modelcontextprotocol/sdk load (~60-80ms measured on the
+        // `before_mcp_command_load → mcp_command_module_loaded` stage) off the command-registration
+        // path. `--version`/`--help`/bare `minsky` load the mcp command module to build the full
+        // command tree (cli.ts needsAll) but never run THIS action, so they should not pay the SDK
+        // cost. server.ts is the SOLE runtime importer of the SDK; importing MinskyMCPServer here at
+        // its only construction site (mirroring this file's function-local dynamic-import pattern for
+        // express/persistence/memory above, and mt#1719's lazy command-group loading) keeps loading
+        // the mcp command SDK-free until `mcp start` actually runs. The top-level `import type` keeps
+        // the MinskyMCPServer type annotation (used below) erased at build time.
+        profileCheckpoint("before_mcp_server_load");
+        const { MinskyMCPServer } = await import("../../mcp/server");
+        profileCheckpoint("after_mcp_server_load");
         const server = new MinskyMCPServer(serverConfig);
         profileCheckpoint("server_constructed");
 
