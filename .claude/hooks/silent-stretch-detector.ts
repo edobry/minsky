@@ -107,6 +107,7 @@ import {
   extractToolUseNames,
   findRealPromptIndices,
   resolveParentTranscriptLines,
+  resolveParentTranscriptLinesForPath,
   readLogTailText,
   sessionHasLoggedKey,
 } from "./transcript";
@@ -549,7 +550,12 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const lines = parseTranscript(transcriptPath);
+  // PR #2175 R1: mirrors run()'s cross-transcript-contamination guard
+  // (resolveParentTranscriptLines) — a bare parseTranscript(transcriptPath)
+  // here would leave the standalone CLI path vulnerable to the same
+  // stale-turn freeze the dispatcher path is guarded against, and
+  // divergent from it besides.
+  const lines = resolveParentTranscriptLinesForPath(transcriptPath, input.agent_id);
   if (lines.length === 0) {
     process.exit(0);
   }

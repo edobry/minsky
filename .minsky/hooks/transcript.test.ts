@@ -8,6 +8,7 @@ import {
   findRealPromptIndices,
   extractFinalTurn,
   resolveParentTranscriptLines,
+  resolveParentTranscriptLinesForPath,
   readLogTailText,
   sessionHasLoggedKey,
   DEFAULT_MAX_DEDUPE_READ_BYTES,
@@ -512,6 +513,94 @@ describe("resolveParentTranscriptLines", () => {
         parseTranscriptFn
       )
     ).toBe(parentLines);
+  });
+
+  // PR #2175 R1 BLOCKING #1 — the real bug: resolveTranscriptCandidates
+  // places the per-agent file FIRST (candidates[0]) when the GIVEN
+  // transcriptPath is itself a per-agent file (its own "tree semantics in
+  // the other direction" branch, mt#2637), pushing the true parent LATER.
+  // A naive `candidates[0]` assumption would scope this function to the
+  // SUBAGENT's own transcript instead of the parent.
+  test(">1 candidates, transcriptPath IS a per-agent file (candidates[0] is the AGENT, not the parent) -> still resolves the PARENT", () => {
+    const parentLines = [userPrompt("the real conversation"), assistantText("parent report")];
+    const subagentLines = [userPrompt("subagent task"), assistantText("subagent report")];
+    // Mirrors resolveTranscriptCandidates's actual output shape for this
+    // input: [givenAgentPath, parentPath, ...other siblings].
+    const candidates = [SUBAGENT_PATH, PARENT_PATH];
+    const parseTranscriptFn = (path: string): TranscriptLine[] => {
+      expect(path).toBe(PARENT_PATH); // must resolve to the PARENT, not candidates[0]
+      return parentLines;
+    };
+    expect(
+      resolveParentTranscriptLines(
+        SUBAGENT_PATH, // the GIVEN transcriptPath is itself the agent file
+        candidates,
+        [...subagentLines, ...parentLines], // flattened array shape is irrelevant here — never used
+        parseTranscriptFn
+      )
+    ).toBe(parentLines);
+  });
+
+  test("every candidate looks agent-shaped -> defensive fallback to candidates[0] (never actually produced by resolveTranscriptCandidates)", () => {
+    const fallbackLines = [userPrompt("fallback")];
+    const otherAgentPath = "/tmp/subagents/agent-other.jsonl";
+    const parseTranscriptFn = (path: string): TranscriptLine[] => {
+      expect(path).toBe(SUBAGENT_PATH);
+      return fallbackLines;
+    };
+    expect(
+      resolveParentTranscriptLines(
+        undefined,
+        [SUBAGENT_PATH, otherAgentPath],
+        [],
+        parseTranscriptFn
+      )
+    ).toBe(fallbackLines);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveParentTranscriptLinesForPath (PR #2175 R1 BLOCKING #2) — the CLI
+// (standalone, non-dispatcher) convenience wrapper. Verifies a standalone
+// hook invocation gets the SAME cross-transcript-contamination guarantee as
+// the dispatcher `run()` path, by reconstructing the candidate set itself
+// (no DispatchContext is available in CLI mode).
+// ---------------------------------------------------------------------------
+
+describe("resolveParentTranscriptLinesForPath", () => {
+  const LONE_SESSION_PATH = "/tmp/lone-session.jsonl";
+
+  test("no subagents dir -> parses transcriptPath alone (single-candidate case)", () => {
+    const parentLines = [userPrompt("solo"), assistantText("ok")];
+    const parseTranscriptFn = (path: string): TranscriptLine[] => {
+      expect(path).toBe(LONE_SESSION_PATH);
+      return parentLines;
+    };
+    expect(
+      resolveParentTranscriptLinesForPath(LONE_SESSION_PATH, undefined, parseTranscriptFn)
+    ).toEqual(parentLines);
+  });
+
+  test("CLI contamination: an agentId candidate is reconstructed but the wrapper still scopes to the parent alone, without wastefully parsing the discarded candidate", () => {
+    // resolveTranscriptCandidates itself walks a real subagents/ directory
+    // via readdirSync, which this pure-function test can't fake without
+    // real fs — so this exercises the composition contract instead. Passing
+    // an agentId unconditionally adds a second (subagent-shaped) candidate
+    // (resolveTranscriptCandidates pushes it regardless of whether that
+    // file actually exists on disk), so this is genuinely a >1-candidate
+    // case — the parent-only scoping path. A `parseTranscriptFn` that
+    // throws if called with anything other than the parent path proves BOTH
+    // that no subagent content leaks in AND that the wrapper doesn't
+    // wastefully parse the discarded candidate first (the fix for the
+    // eager-flatMap bug this test caught).
+    const parentLines = [userPrompt("main thread"), assistantText("main report")];
+    const parseTranscriptFn = (path: string): TranscriptLine[] => {
+      expect(path).toBe(LONE_SESSION_PATH);
+      return parentLines;
+    };
+    expect(
+      resolveParentTranscriptLinesForPath(LONE_SESSION_PATH, "some-agent-id", parseTranscriptFn)
+    ).toEqual(parentLines);
   });
 });
 

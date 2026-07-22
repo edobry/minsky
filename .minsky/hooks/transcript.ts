@@ -177,6 +177,25 @@ export function resolveTranscriptCandidates(transcriptPath: string, agentId?: st
 // ---------------------------------------------------------------------------
 
 /**
+ * True iff `path` is a per-agent subagent transcript file — i.e. its
+ * basename starts with `agent-` AND its containing directory is named
+ * `subagents`. Mirrors the exact shape check `resolveTranscriptCandidates`
+ * itself uses to recognize a per-agent path. A parent (session-level)
+ * transcript never lives directly under a `subagents/` directory, so this
+ * is the structural discriminator `resolveParentTranscriptLines` uses to
+ * find the true parent candidate instead of assuming positional order
+ * (PR #2175 R1 — `transcriptCandidates[0]` is NOT always the parent).
+ * Accepts `undefined` defensively (a malformed/synthetic candidates entry —
+ * the real `resolveTranscriptCandidates` never produces one) and treats it
+ * as "not a subagent path" rather than throwing, so a bogus entry degrades
+ * to the next fallback in `resolveParentTranscriptLines` instead of crashing.
+ */
+function isSubagentTranscriptPath(path: string | undefined): boolean {
+  if (!path) return false;
+  return basename(path).startsWith("agent-") && basename(dirname(path)) === "subagents";
+}
+
+/**
  * Resolve the transcript lines to measure THIS conversation's own
  * turn/silence signal against, scoped to the PARENT transcript alone
  * whenever more than one transcript candidate is in play.
@@ -219,10 +238,27 @@ export function resolveTranscriptCandidates(transcriptPath: string, agentId?: st
  * Behavior: trusts `flatLines` as-is when there is at most one resolved
  * candidate (the common case — no subagents dispatched this conversation).
  * When `transcriptCandidates` names more than one file, re-parses the
- * PARENT candidate (`transcriptCandidates[0]`, falling back to
- * `transcriptPath` if the array's own first entry is somehow absent) ALONE,
+ * PARENT candidate — never a per-agent `subagents/agent-*.jsonl` file — ALONE,
  * so a dispatched subagent's own content can never be measured as if it
  * were part of the live conversation's own turn.
+ *
+ * **Parent identification (PR #2175 R1 BLOCKING fix).** Does NOT assume
+ * `transcriptCandidates[0]` is the parent. Per
+ * {@link resolveTranscriptCandidates}'s own doc comment, when the GIVEN
+ * `transcriptPath` is itself a per-agent file (the "tree semantics in the
+ * other direction" branch — basename starts with `agent-` under a
+ * `subagents/` dir), the candidate array places THAT per-agent file FIRST
+ * and pushes the true parent session transcript LATER. Trusting
+ * `candidates[0]` in that shape would scope this function to the SUBAGENT's
+ * own transcript instead of the parent — silently reintroducing the exact
+ * stale-turn-freeze bug this function exists to fix. Instead, the parent is
+ * identified structurally: the first candidate whose path is NOT itself a
+ * per-agent `subagents/agent-*.jsonl` file (a parent-transcript path never
+ * lives directly under a `subagents/` directory). Falls back to
+ * `transcriptCandidates[0]` only if every candidate looks agent-shaped (a
+ * defensive case `resolveTranscriptCandidates` should never actually
+ * produce, since it always includes the true parent as one entry whenever
+ * `transcriptPath` ends in `.jsonl`).
  *
  * `parseTranscriptFn` is injectable (defaults to the real
  * {@link parseTranscript}) so callers/tests can exercise the multi-candidate
@@ -240,13 +276,49 @@ export function resolveParentTranscriptLines(
   parseTranscriptFn: (path: string) => TranscriptLine[] = parseTranscript
 ): TranscriptLine[] {
   if (Array.isArray(transcriptCandidates) && transcriptCandidates.length > 1) {
-    // Don't ASSUME candidates[0] === transcriptPath (true by construction in
-    // resolveTranscriptCandidates, but a synthetic/test candidate list could
-    // disagree) — prefer the resolved candidate, fall back to the raw path.
-    const parentPath = transcriptCandidates[0] ?? transcriptPath;
+    const parentPath =
+      transcriptCandidates.find((c) => !isSubagentTranscriptPath(c)) ??
+      (transcriptPath && !isSubagentTranscriptPath(transcriptPath) ? transcriptPath : undefined) ??
+      transcriptCandidates[0];
     if (parentPath) return parseTranscriptFn(parentPath);
   }
   return flatLines;
+}
+
+/**
+ * CLI-entrypoint convenience wrapper (PR #2175 R1 BLOCKING fix): resolves
+ * the parent-scoped transcript lines for a STANDALONE (non-dispatcher) hook
+ * invocation, given only the hook's own `transcriptPath` and optional
+ * `agentId` — no `DispatchContext`/`transcriptCandidates` is available in
+ * that mode, so a standalone `main()` previously called `parseTranscript`
+ * on the raw path alone and got NONE of `resolveParentTranscriptLines`'s
+ * contamination guarantee (the dispatcher `run()` path got it via `ctx`,
+ * the CLI path silently didn't — divergent, and a stale-turn-freeze risk
+ * whenever the CLI is invoked with a per-agent `transcriptPath`, or more
+ * generally against a session with dispatched subagents).
+ *
+ * Reconstructs the SAME candidate set the dispatcher resolves
+ * ({@link resolveTranscriptCandidates}), then applies
+ * {@link resolveParentTranscriptLines}'s parent-only scoping on top — so a
+ * standalone CLI invocation gets the identical guarantee as the dispatcher
+ * path from a single call.
+ *
+ * Only flattens (parses) every candidate when there is at most one — the
+ * common case, where `resolveParentTranscriptLines` trusts that flattened
+ * result as-is. When more than one candidate is resolved,
+ * `resolveParentTranscriptLines` always discards the flattened array in
+ * favor of re-parsing the parent alone, so eagerly parsing every subagent
+ * transcript first (only to throw the result away) would be pure wasted
+ * I/O — this passes `[]` in that branch instead.
+ */
+export function resolveParentTranscriptLinesForPath(
+  transcriptPath: string,
+  agentId: string | undefined,
+  parseTranscriptFn: (path: string) => TranscriptLine[] = parseTranscript
+): TranscriptLine[] {
+  const candidates = resolveTranscriptCandidates(transcriptPath, agentId);
+  const flatLines = candidates.length > 1 ? [] : candidates.flatMap((p) => parseTranscriptFn(p));
+  return resolveParentTranscriptLines(transcriptPath, candidates, flatLines, parseTranscriptFn);
 }
 
 // ---------------------------------------------------------------------------

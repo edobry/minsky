@@ -95,6 +95,7 @@ import {
   extractLastAssistantTurn,
   extractAssistantText,
   resolveParentTranscriptLines,
+  resolveParentTranscriptLinesForPath,
   readLogTailText,
   sessionHasLoggedKey,
   DEFAULT_MAX_DEDUPE_READ_BYTES,
@@ -542,7 +543,12 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const lines = parseTranscript(transcriptPath);
+  // PR #2175 R1 (class-not-instance): mirrors run()'s (resolveTurnLines's)
+  // cross-transcript-contamination guard — the standalone CLI path had the
+  // identical pre-existing gap the reviewer flagged for silent-stretch's
+  // main(); fixing it here too keeps both detectors' CLI/dispatcher paths
+  // consistent instead of leaving one asymmetrically patched.
+  const lines = resolveParentTranscriptLinesForPath(transcriptPath, input.agent_id);
   if (lines.length === 0) {
     process.exit(0);
   }
