@@ -307,6 +307,9 @@ describe("applySessionFileEditOperation", () => {
         originalLines: 100,
         finalLines: 59,
       });
+      // Trailing blank-line churn is normalized away — not a collapse (mt#2577 R1).
+      expect(detectSuspiciousCollapse(makeLines(100), `${makeLines(100)}\n\n\n\n\n`)).toBeNull();
+      expect(detectSuspiciousCollapse(`${makeLines(100)}\n\n\n\n\n`, makeLines(100))).toBeNull();
     });
 
     test("throws on the 999->517 collapse and leaves the file intact", async () => {

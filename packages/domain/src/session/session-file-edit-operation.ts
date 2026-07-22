@@ -49,13 +49,17 @@ export const COLLAPSE_GUARD_MIN_ORIGINAL_LINES = 40;
 export const COLLAPSE_GUARD_SHRINK_RATIO = 0.6;
 
 /**
- * Count lines in a string, ignoring a single trailing newline so a file with
- * and without a trailing "\n" count the same.
+ * Count lines in a string, normalizing away ALL trailing blank lines so a file
+ * with a different count of trailing newlines / trailing blank lines counts the
+ * same. This keeps the collapse ratio insensitive to trailing-whitespace churn
+ * on either side (mt#2577 R1): comparing content-line counts, not trailing
+ * blanks, avoids both false positives (trailing blanks removed) and false
+ * negatives (trailing blanks padding an otherwise-collapsed file).
  */
 function countLines(content: string): number {
   if (content === "") return 0;
   const parts = content.split("\n");
-  if (parts[parts.length - 1] === "") parts.pop();
+  while (parts.length > 0 && parts[parts.length - 1] === "") parts.pop();
   return parts.length;
 }
 
