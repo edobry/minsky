@@ -381,6 +381,15 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
             files: result.files,
             pushed: result.pushed,
             credentialPath: result.credentialPath,
+            // mt#3049: surface the structured partial-outcome fields — without
+            // these, a committed-but-push-failed/timed-out/resumed result
+            // would report success:true, pushed:false to an MCP caller with
+            // NO way to tell WHY, defeating the point of returning a
+            // structured outcome instead of throwing.
+            nothingToCommit: result.nothingToCommit,
+            pushError: result.pushError,
+            pushTimedOut: result.pushTimedOut,
+            resumedPush: result.resumedPush,
             oneline: params.oneline === true,
             noFiles: params.noFiles === true,
           };
