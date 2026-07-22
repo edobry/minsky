@@ -349,6 +349,11 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
               amend: params.amend as boolean | undefined,
               noStage: params.noStage as boolean | undefined,
               noFiles: params.noFiles as boolean | undefined,
+              // mt#3049 review R1: forward operator-supplied overrides for
+              // the commit/push phase timeout bounds — undefined here falls
+              // through to sessionCommit's own DEFAULT_*_PHASE_TIMEOUT_MS.
+              commitTimeoutMs: params.commitTimeoutMs as number | undefined,
+              pushTimeoutMs: params.pushTimeoutMs as number | undefined,
             },
             deps.sessionProvider,
             askRepository ?? undefined,

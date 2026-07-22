@@ -2945,6 +2945,16 @@
             {
               "flags": ["--no-files"],
               "description": "Allow committing without staged file changes (uses --allow-empty when tree is clean) — used to wake webhooks or produce audit-trail commits"
+            },
+            {
+              "flags": ["--commit-timeout-ms"],
+              "description": "Override the commit-phase (staging + pre-commit hooks) wall-clock bound in milliseconds. Defaults to 10 minutes.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--push-timeout-ms"],
+              "description": "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes.",
+              "takesValue": true
             }
           ],
           "arguments": [

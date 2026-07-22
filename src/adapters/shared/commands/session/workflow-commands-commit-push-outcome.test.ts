@@ -46,6 +46,21 @@ async function makeTmpDirtyGitRepo(): Promise<string> {
   return dir;
 }
 
+/** Real `.git/hooks/pre-commit` that sleeps before succeeding — see the
+ * identical helper's doc comment in session-commit-push-outcome.test.ts. */
+async function makeTmpCleanGitRepoWithSlowPreCommitHook(sleepSeconds: number): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "minsky-mcp-commit-slow-hook-test-"));
+  execSync("git init", { cwd: dir, stdio: "ignore" });
+  execSync("git config user.email test@example.com", { cwd: dir, stdio: "ignore" });
+  execSync("git config user.name Test", { cwd: dir, stdio: "ignore" });
+  execSync("git commit --allow-empty -m init", { cwd: dir, stdio: "ignore" });
+  const hookPath = join(dir, ".git", "hooks", "pre-commit");
+  const hookScript = ["#!/bin/sh", `sleep ${sleepSeconds}`, "exit 0", ""].join("\n");
+  await writeFile(hookPath, hookScript); // eslint-disable-line custom/no-real-fs-in-tests -- real git hook for a real temp repo
+  execSync(`chmod +x "${hookPath}"`, { stdio: "ignore" });
+  return dir;
+}
+
 const tmpDirs: string[] = [];
 
 afterAll(async () => {
@@ -86,5 +101,41 @@ describe("session.commit MCP command surfaces the mt#3049 structured partial out
     expect((result as Record<string, unknown>).commitHash).toBeTruthy();
     expect((result as Record<string, unknown>).pushed).toBe(false);
     expect((result as Record<string, unknown>).pushError).toBeTruthy();
+  });
+
+  // Review R1 (PR #2183): commitTimeoutMs/pushTimeoutMs must actually reach
+  // sessionCommit() from an MCP-shaped params object, not just be accepted
+  // by the schema and dropped before the domain call.
+  test("commitTimeoutMs supplied via MCP params actually bounds the commit phase", async () => {
+    const repoDir = await makeTmpCleanGitRepoWithSlowPreCommitHook(5);
+    tmpDirs.push(repoDir);
+    await writeFile(join(repoDir, "pending.txt"), "pending change"); // eslint-disable-line custom/no-real-fs-in-tests
+    execSync("git add pending.txt", { cwd: repoDir, stdio: "ignore" });
+
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [
+        {
+          sessionId: "mcp-commit-timeout-session",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/edobry/minsky.git",
+          createdAt: new Date().toISOString(),
+          taskId: "mt#3049",
+        },
+      ],
+      sessionWorkdir: repoDir,
+    });
+    const command = createSessionCommitCommand(buildGetDeps(sessionDB));
+
+    await expect(
+      command.execute(
+        {
+          sessionId: "mcp-commit-timeout-session",
+          message: "test: mcp commit should time out",
+          all: true,
+          commitTimeoutMs: 100,
+        },
+        {}
+      )
+    ).rejects.toThrow(/commit phase/);
   });
 });

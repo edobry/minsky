@@ -299,6 +299,16 @@ export async function pureSessionApprove(
 export interface SessionCommitResult {
   success: boolean;
   nothingToCommit?: boolean;
+  /**
+   * Pre-existing convention (unchanged by mt#3049, documented here per
+   * review R1): SHORT hash, parsed from `git commit`'s own stdout banner
+   * (`extractCommitHash` in git-with-deps.ts prefers the `[branch abc1234]`
+   * form). `shortHash` below is the same value via a different derivation
+   * path (`git log -1 --format=%h`) and is redundant with this field for
+   * every current caller — kept for backward compatibility rather than
+   * removed. If a caller needs the unambiguous FULL 40-char SHA, resolve it
+   * separately (e.g. `git rev-parse <commitHash>`); this field is not it.
+   */
   commitHash: string | null;
   shortHash?: string;
   subject?: string;
@@ -687,9 +697,10 @@ export async function sessionCommit(
           `Branch-freshness CAS check failed: ${casResult.reason ?? "(no reason)"}`,
           casResult.capturedSha ?? "(unknown)",
           casResult.currentSha ?? "(unknown)",
-          // marker.mainRef captured here would require re-reading the marker;
-          // skip in favor of the reason field which already names the ref.
-          ""
+          // mt#3049 review R1: checkFreshnessCas now threads `mainRef` back
+          // (it already had the marker in scope) instead of forcing the
+          // caller to re-read the marker or lose the ref entirely.
+          casResult.mainRef ?? "(unknown)"
         );
       }
 
@@ -761,6 +772,18 @@ export async function sessionCommit(
       // already landed locally — the core fix for the originating mt#3003
       // incident (session_commit hung ~30 minutes with no result, then the
       // commit turned out to have landed but never pushed).
+      //
+      // Same non-cancellation caveat as the commit phase (review R1, see
+      // SessionCommitPhaseTimeoutError's doc comment for the full
+      // explanation): on a `pushTimedOut` outcome, the underlying `git push`
+      // is NOT killed — it may still complete in the background after this
+      // function returns `pushed:false`. A caller that retries immediately
+      // (including this file's own `tryResumePendingPush` on a later call)
+      // could in principle race a still-running abandoned push; the CAS
+      // check above and git's own atomicity around ref updates bound the
+      // damage (worst case: a harmless redundant push of the same content),
+      // but this is not a fully closed race. True cancellation would need
+      // `Bun.spawn` + an `AbortSignal` threaded through `pushFromParams`.
       const pushTimeoutMs = params.pushTimeoutMs ?? DEFAULT_PUSH_PHASE_TIMEOUT_MS;
       let pushed = false;
       let pushTimedOut = false;
@@ -877,14 +900,23 @@ async function collectCommitMetadata(
     // silently failing on EVERY session_commit call (caught below, logged at
     // debug level, degrading shortHash/subject/authorName/authorEmail/
     // timestamp to undefined) since it shipped. No prior test asserted these
-    // fields were populated, so the failure was invisible. Single-quoting is
-    // safe here because the format string is a static literal, not
-    // user-controlled input.
+    // fields were populated, so the failure was invisible.
+    //
+    // Delimiter is `%x00` (a literal NUL byte git emits for this format
+    // placeholder), NOT `|` (review R1, mt#3049 PR #2183): a commit SUBJECT
+    // can legitimately contain a `|` character, which would silently shift
+    // every field after it when splitting on `|` — a real, if rarer,
+    // corruption distinct from the shell-quoting bug above. NUL cannot
+    // appear in a git pretty-format field's rendered text (author name/
+    // email/subject/timestamp are all plain text), so splitting on it is
+    // unambiguous. Single-quoting the whole format string is still required
+    // and still safe (the format string is a static literal, not
+    // user-controlled input).
     const pretty = await gitService.execInRepository(
       workdir,
-      "git log -1 --pretty=format:'%h|%s|%an|%ae|%aI'"
+      "git log -1 --pretty=format:'%h%x00%s%x00%an%x00%ae%x00%aI'"
     );
-    const parts = pretty.trim().split("|");
+    const parts = pretty.trim().split("\u0000");
     if (parts.length >= 5) {
       shortHash = parts[0];
       subject = parts[1];

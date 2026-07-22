@@ -359,6 +359,35 @@ describe("sessionCommit commit metadata population (mt#3049 regression)", () => 
     expect(result.authorEmail).toBe("test@example.com");
     expect(result.timestamp).toBeTruthy();
   });
+
+  // Review R1 (PR #2183): a `|`-delimited split corrupts fields when the
+  // commit SUBJECT itself contains a `|` — distinct from (and found only
+  // after fixing) the unquoted-pipe shell bug above. NUL (`%x00`) cannot
+  // appear in git's rendered plain-text fields, so it's an unambiguous
+  // delimiter regardless of subject content.
+  test("a commit subject containing '|' does not corrupt subsequent metadata fields", async () => {
+    const repoDir = await makeTmpDirtyGitRepo();
+    const bareDir = addLocalRemote(repoDir);
+    tmpDirs.push(repoDir, bareDir);
+
+    const record = makeSessionRecord({ sessionId: "pipe-subject-session" });
+    const sessionProvider = makeSessionProvider(record, repoDir);
+
+    const result = await sessionCommit(
+      {
+        session: "pipe-subject-session",
+        message: "test: A|B|C should not shift fields",
+        all: true,
+      },
+      sessionProvider
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.subject).toBe("test: A|B|C should not shift fields");
+    expect(result.authorName).toBe("Test");
+    expect(result.authorEmail).toBe("test@example.com");
+    expect(result.timestamp).toBeTruthy();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -402,6 +431,10 @@ describe("sessionCommit branch-freshness CAS check (mt#3049 regression)", () => 
     expect(caught).toBeInstanceOf(FreshnessCasError);
     const err = caught as FreshnessCasError;
     expect(err.capturedSha).toBe("0".repeat(40));
+    // Review R1 (PR #2183): checkFreshnessCas now threads mainRef back
+    // instead of the caller receiving an empty string, losing which ref
+    // advanced.
+    expect(err.mainRef).toBe(`origin/${branch}`);
     // The commit itself lands locally (freshness is checked AFTER commit,
     // BEFORE push) — the CAS check exists to stop the PUSH, not the commit.
     const log = execSync("git log --oneline -2", { cwd: repoDir }).toString();

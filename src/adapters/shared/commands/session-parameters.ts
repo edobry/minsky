@@ -262,5 +262,22 @@ export const sessionCommitCommandParams = composeParams(
       required: false,
       defaultValue: false,
     },
+    // mt#3049 review R1: exposed as operator-configurable, not just a
+    // test-injection seam — a slower environment (larger repo, loaded
+    // machine) may legitimately need more headroom than the defaults
+    // (DEFAULT_COMMIT_PHASE_TIMEOUT_MS / DEFAULT_PUSH_PHASE_TIMEOUT_MS in
+    // session-commands.ts) without a code change.
+    commitTimeoutMs: {
+      schema: z.number().int().positive(),
+      description:
+        "Override the commit-phase (staging + pre-commit hooks) wall-clock bound in milliseconds. Defaults to 10 minutes.",
+      required: false,
+    },
+    pushTimeoutMs: {
+      schema: z.number().int().positive(),
+      description:
+        "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes.",
+      required: false,
+    },
   }
 ) satisfies CommandParameterMap;
