@@ -222,6 +222,21 @@ function wireDrivenSessionSocket(ws: WebSocket, record: DrivenSessionRecord): vo
     ws.send(JSON.stringify(event.payload));
   }
 
+  // mt#3038 R1 delta #2 — a synthetic terminal frame (namespaced like the
+  // host's own minsky_exit/minsky_error) so the client can render the
+  // read-only unrecoverable state instead of a generic crash card. Sent
+  // AFTER the (possibly empty, in-process-memory-only) eventLog replay —
+  // full on-disk transcript replay for an unrecoverable session is a known
+  // gap, not attempted here (see the PR body).
+  if (record.status === "unrecoverable") {
+    ws.send(
+      JSON.stringify({
+        type: "minsky_unrecoverable",
+        reason: record.unrecoverableReason ?? "Session unrecoverable",
+      })
+    );
+  }
+
   const subscriber: DrivenSessionSubscriber = {
     onEvent: (event) => {
       if (ws.readyState === ws.OPEN) {

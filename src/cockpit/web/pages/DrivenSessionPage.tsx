@@ -38,16 +38,20 @@ export function DrivenSessionPage() {
     );
   }
 
-  // Show the generic connection-failure ErrorState ONLY when the channel never
-  // opened — a connection-level error, or a socket that closed before the
-  // session ever started (no `init` event, so no `harnessSessionId`: auth
-  // failure / unknown session). A session that DID start and then crashed
-  // mid-stream keeps its transcript-so-far visible with a `Crashed` status bar
-  // — hiding it behind the ErrorState would violate mt#2751's acceptance test
-  // ("the view surfaces the exit rather than freezing"). (mt#2751 R2)
-  const channelFailed =
-    driven.connectionState === "error" ||
-    (driven.connectionState === "closed" && !driven.harnessSessionId);
+  // Show the generic connection-failure ErrorState ONLY when the channel
+  // genuinely gave up — the bounded reconnect budget in useDrivenSession.ts
+  // (mt#3038) is exhausted with the session never having reported ANY frame
+  // (no `init` event, so no `harnessSessionId`: auth failure / unknown
+  // session / a resume that never succeeded). While a reconnect is in
+  // flight (`status === "reconnecting"` — an actuator-swap redial, or a
+  // still-retrying never-opened channel) this deliberately does NOT show the
+  // ErrorState; that IS the mt#3038 fix for the originating "Could not
+  // connect... may not exist" crash on every daemon restart. A session that
+  // DID start and then crashed mid-stream keeps its transcript-so-far
+  // visible with a `Crashed` status bar — hiding it behind the ErrorState
+  // would violate mt#2751's acceptance test ("the view surfaces the exit
+  // rather than freezing"). (mt#2751 R2)
+  const channelFailed = driven.status === "crashed" && !driven.harnessSessionId;
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 p-4">

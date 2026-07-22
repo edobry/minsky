@@ -81,6 +81,12 @@ class StubWebSocket {
     this.readyState = StubWebSocket.CLOSED;
     this.dispatch("close", {});
   }
+  /** Dispatch a close event carrying a specific close code (mt#3038 —
+   * the actuator-swap reconnect-signal code, or a plain abnormal closure). */
+  simulateCodedClose(code: number): void {
+    this.readyState = StubWebSocket.CLOSED;
+    this.dispatch("close", { code });
+  }
 
   private dispatch(type: string, ev: unknown): void {
     for (const l of this.listeners.get(type) ?? []) l(ev);
@@ -104,6 +110,12 @@ afterEach(() => {
 function firstWs(): StubWebSocket {
   const ws = StubWebSocket.instances[0];
   if (!ws) throw new Error("expected a StubWebSocket instance to have been constructed");
+  return ws;
+}
+
+function nthWs(index: number): StubWebSocket {
+  const ws = StubWebSocket.instances[index];
+  if (!ws) throw new Error(`expected at least ${index + 1} StubWebSocket instance(s)`);
   return ws;
 }
 
@@ -260,5 +272,60 @@ describe("useDrivenSession", () => {
     rerender({ id: "s2" });
     expect(StubWebSocket.instances).toHaveLength(2);
     expect(result.current.blocks).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3038 R1 delta #9 — reconnect protocol (previously nonexistent: any
+// closed socket mapped straight to "crashed"). These are the actual bug-fix
+// behaviors: a driven session surviving a daemon restart must redial rather
+// than dead-ending the UI on the first disconnect.
+// ---------------------------------------------------------------------------
+
+describe("useDrivenSession — reconnect protocol (mt#3038)", () => {
+  test("an actuator-swap close (code 4001) redials automatically and preserves accumulated blocks", async () => {
+    const { result } = renderHook(() => useDrivenSession("local-1"));
+    act(() => {
+      firstWs().simulateOpen();
+      firstWs().simulateMessage({
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "text", text: "before the swap" }] },
+      });
+    });
+    await waitFor(() => expect(result.current.blocks).toHaveLength(1));
+
+    act(() => firstWs().simulateCodedClose(4001));
+
+    // Redials the SAME localId — a new WS instance, same URL — and does NOT
+    // wipe the conversation accumulated so far (continuity is the point of
+    // resuming, not a blank slate).
+    await waitFor(() => expect(StubWebSocket.instances).toHaveLength(2), { timeout: 2000 });
+    expect(nthWs(1).url).toBe("/api/driven-session/local-1/ws");
+    expect(result.current.blocks).toHaveLength(1);
+    expect(result.current.status).toBe("reconnecting");
+
+    act(() => {
+      nthWs(1).simulateOpen();
+      nthWs(1).simulateMessage({ type: "system", subtype: "init", session_id: "h-resumed" });
+    });
+    await waitFor(() => expect(result.current.status).toBe("live"));
+    expect(result.current.harnessSessionId).toBe("h-resumed");
+  });
+
+  test("a channel that closes before ever opening retries and reaches live on a later attempt", async () => {
+    const { result } = renderHook(() => useDrivenSession("local-2"));
+    expect(result.current.status).toBe("connecting");
+
+    // First attempt closes abnormally without ever receiving a frame.
+    act(() => firstWs().simulateCodedClose(1006));
+
+    await waitFor(() => expect(StubWebSocket.instances).toHaveLength(2), { timeout: 2000 });
+    expect(result.current.status).toBe("reconnecting");
+
+    act(() => {
+      nthWs(1).simulateOpen();
+      nthWs(1).simulateMessage({ type: "system", subtype: "init", session_id: "h-1" });
+    });
+    await waitFor(() => expect(result.current.status).toBe("live"));
   });
 });
