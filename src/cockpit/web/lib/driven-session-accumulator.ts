@@ -59,8 +59,20 @@ import type { ContextElement, SessionContextSnapshotBlock } from "@minsky/domain
 // Public types
 // ---------------------------------------------------------------------------
 
-/** Session-lifecycle status derived purely from the event stream (no WS-transport concerns — see useDrivenSession for the combined status). */
-export type DrivenSessionRunStatus = "connecting" | "running" | "exited" | "crashed";
+/**
+ * Session-lifecycle status derived purely from the event stream (no
+ * WS-transport concerns — see useDrivenSession for the combined status).
+ * `"unrecoverable"` (mt#3038 R1 delta #2) is the fourth TERMINAL state: a
+ * persisted session that can never be resumed (deleted cwd,
+ * spawn-died-before-init, policy-blocked respawn) — distinct from
+ * `"crashed"`, which may still be resumable.
+ */
+export type DrivenSessionRunStatus =
+  | "connecting"
+  | "running"
+  | "exited"
+  | "crashed"
+  | "unrecoverable";
 
 /**
  * Composer-facing interaction state (mt#2751 success criterion 3): distinct
@@ -478,6 +490,20 @@ export function foldDrivenSessionEvent(
         runStatus: "crashed",
         errorMessage:
           typeof payload["message"] === "string" ? payload["message"] : "Driven session error",
+        interactionState: "exited",
+      };
+    }
+
+    // mt#3038 R1 delta #2 — the fourth terminal state. Emitted by
+    // ../driven-session-ws.ts when the WS route attaches a client to a
+    // persisted record that can never be resumed; renders read-only with
+    // the reason, distinct from the "crashed" card (a crash MAY be resumable).
+    case "minsky_unrecoverable": {
+      return {
+        ...state,
+        runStatus: "unrecoverable",
+        errorMessage:
+          typeof payload["reason"] === "string" ? payload["reason"] : "Session unrecoverable",
         interactionState: "exited",
       };
     }

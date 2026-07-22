@@ -360,4 +360,23 @@ describe("foldDrivenSessionEvent — session lifecycle", () => {
     expect(state.runStatus).toBe("crashed");
     expect(state.errorMessage).toBe("Failed to start claude: ENOENT");
   });
+
+  // mt#3038 R1 delta #2 — the fourth terminal state.
+  test("minsky_unrecoverable sets runStatus unrecoverable with the reason as errorMessage", () => {
+    let state = createInitialDrivenAccumulatorState();
+    state = foldDrivenSessionEvent(state, {
+      type: "minsky_unrecoverable",
+      reason: "deleted cwd",
+    });
+    expect(state.runStatus).toBe("unrecoverable");
+    expect(state.errorMessage).toBe("deleted cwd");
+    expect(state.interactionState).toBe("exited");
+  });
+
+  test("minsky_unrecoverable falls back to a default message when reason is missing", () => {
+    let state = createInitialDrivenAccumulatorState();
+    state = foldDrivenSessionEvent(state, { type: "minsky_unrecoverable" });
+    expect(state.runStatus).toBe("unrecoverable");
+    expect(state.errorMessage).toBe("Session unrecoverable");
+  });
 });

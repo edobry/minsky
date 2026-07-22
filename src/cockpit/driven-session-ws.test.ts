@@ -21,6 +21,7 @@ import { createCockpitServer } from "./server";
 import { attachDrivenSessionWebSocket } from "./driven-session-ws";
 import { DrivenSessionRegistry, type ProcessLike, type SpawnFn } from "./driven-session-host";
 import { buildAllowedHosts, COCKPIT_COOKIE_NAME } from "./auth";
+import type { orchestrateDrivenSessionResume } from "./driven-session-launch";
 
 const TEST_TOKEN = "test-driven-session-ws-token";
 const DRIVEN_SESSION_PATH = "/api/driven-session";
@@ -76,7 +77,8 @@ interface TestServer {
 
 async function startTestServer(
   registry: DrivenSessionRegistry,
-  spawnFn: SpawnFn
+  spawnFn: SpawnFn,
+  orchestrateResume?: typeof orchestrateDrivenSessionResume
 ): Promise<TestServer> {
   const app = createCockpitServer({
     overrideToken: TEST_TOKEN,
@@ -92,6 +94,7 @@ async function startTestServer(
     token: TEST_TOKEN,
     allowedHosts: buildAllowedHosts(),
     registry,
+    orchestrateResume,
   });
 
   const close = () =>
@@ -328,6 +331,35 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
     const outcome = await waitForWsOutcome(ws);
 
     expect(outcome).toBe("refused");
+  });
+
+  // Reviewer round 1 (PR #2179) BLOCKING finding — an unrecoverable session
+  // with NO in-memory placeholder (e.g. boot reconciliation never loaded
+  // this specific row) must still attach with its reason, not 404.
+  test("an unrecoverable session with no in-memory record attaches with its reason (not a 404)", async () => {
+    const registry = new DrivenSessionRegistry();
+    const { spawnFn } = makeFakeSpawnFn();
+    const s = await startTestServer(registry, spawnFn, async () => ({
+      outcome: "unrecoverable",
+      reason: "deleted cwd",
+    }));
+    closeList.push(s.close);
+
+    const ws = new WebSocket(s.wsUrl(`/api/driven-session/never-in-memory/ws`), {
+      headers: { Authorization: `Bearer ${TEST_TOKEN}` },
+    });
+    socketList.push(ws);
+    const messages = collectMessages(ws);
+
+    const outcome = await waitForWsOutcome(ws);
+    expect(outcome).toBe("opened");
+
+    await waitUntil(() => messages.some((m) => m.type === "minsky_unrecoverable"));
+    const event = messages.find((m) => m.type === "minsky_unrecoverable");
+    expect(event?.reason).toBe("deleted cwd");
+
+    const record = registry.get("never-in-memory");
+    expect(record?.status).toBe("unrecoverable");
   });
 
   test("acceptance test 2: exit/crash surfaces a minsky_exit terminal event and updates the registry", async () => {

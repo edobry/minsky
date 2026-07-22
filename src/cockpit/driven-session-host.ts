@@ -46,6 +46,7 @@
 
 import { spawn as nodeSpawn } from "child_process";
 import { randomUUID } from "crypto";
+import { PassThrough } from "stream";
 import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
@@ -149,6 +150,37 @@ export function buildDrivenSessionArgs(permissionMode: PermissionMode, model?: s
     "--include-partial-messages",
     // mt#3040: principal-selected model (a resolved dispatch alias, e.g. "fable").
     // Omitted → the genuine claude binary resolves its own default.
+    ...(model ? ["--model", model] : []),
+    ...permissionModeArgs(permissionMode),
+  ];
+}
+
+/**
+ * The resume-spawn invocation (mt#3038, RFC "Conversation-first drive"
+ * Phase 1): identical to {@link buildDrivenSessionArgs} plus `--resume
+ * <harnessSessionId>`, which resumes the CLI's own on-disk transcript for
+ * that conversation id rather than starting a fresh one. This is the ONLY
+ * difference between a fresh spawn and a restart-recovery respawn — the
+ * durable entity is the conversation (the RFC's thesis), and the actuator
+ * (child process) is disposable.
+ */
+export function buildResumeSessionArgs(
+  permissionMode: PermissionMode,
+  harnessSessionId: string,
+  model?: string | null
+): string[] {
+  return [
+    "-p",
+    "--resume",
+    harnessSessionId,
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--include-partial-messages",
+    // mt#3040 preservation: a resume must keep the ORIGINALLY-selected model
+    // rather than silently falling back to the CLI's default.
     ...(model ? ["--model", model] : []),
     ...permissionModeArgs(permissionMode),
   ];
@@ -349,7 +381,28 @@ export function extractResultSummary(
 // Registry — daemon-side map of app-started driven sessions
 // ---------------------------------------------------------------------------
 
-export type DrivenSessionStatus = "spawned" | "running" | "exited" | "crashed";
+/**
+ * mt#3038 (RFC "Conversation-first drive" Phase 1) adds two persisted-only
+ * states beyond the original spawn/exit lifecycle:
+ *   - `"reconnecting"` — loaded at daemon boot from a persisted non-terminal
+ *     record (R1 delta #6: lazy-resume-only — this state alone never
+ *     triggers a respawn; a respawn only happens on operator action or
+ *     client reconnect).
+ *   - `"unrecoverable"` — the fourth TERMINAL state (R1 delta #2): a
+ *     persisted record that can never be resumed (deleted cwd,
+ *     spawn-died-before-init — `harnessSessionId` never linked, so there is
+ *     no transcript to resume — or a policy-blocked respawn). Distinct from
+ *     `"crashed"` (which MAY still be resumable via `--resume` once a
+ *     harness session id exists): the UI renders `unrecoverable` read-only
+ *     with `unrecoverableReason`, never the crash card.
+ */
+export type DrivenSessionStatus =
+  | "spawned"
+  | "running"
+  | "exited"
+  | "crashed"
+  | "reconnecting"
+  | "unrecoverable";
 
 /** One event observed on a driven session's channel (from the child's stdout
  * stream, or a host-generated synthetic terminal event — `minsky_error` /
@@ -359,6 +412,29 @@ export interface DrivenSessionEvent {
   seq: number;
   receivedAt: string;
   payload: Record<string, unknown>;
+}
+
+/**
+ * A live subscriber to a `DrivenSessionRecord` (registered by
+ * ./driven-session-ws.ts on WS connect). Two callbacks, not one function
+ * (mt#3038 R1 delta #3 — "record replacement, not mutation"): an actuator
+ * swap (`DrivenSessionRegistry.replace`) constructs a NEW record for the
+ * SAME `localId` rather than mutating the old one in place, so an existing
+ * socket subscribed to the OLD record must be told to close and have its
+ * client redial — it can never be silently re-pointed at the new record's
+ * event stream (never hot-swap a live socket).
+ */
+export interface DrivenSessionSubscriber {
+  /** A new event was appended to the record this subscriber is attached to. */
+  onEvent: (event: DrivenSessionEvent) => void;
+  /**
+   * This record was just REPLACED by an actuator swap (a resume-respawn).
+   * Called at most once per subscriber. The subscriber (a WS connection)
+   * MUST close its socket with a reconnect-signaling code/reason so the
+   * client redials the SAME `localId` — the registry will resolve the new
+   * record on the next connect.
+   */
+  onSwap: () => void;
 }
 
 /** Bounds the in-memory event log per session — generous, avoids unbounded
@@ -393,6 +469,8 @@ export interface DrivenSessionRecord {
   /** The Minsky workspace sessionId the session was launched against (see taskId). */
   readonly minskySessionId: string | null;
   status: DrivenSessionStatus;
+  /** Set only when `status === "unrecoverable"` (mt#3038 R1 delta #2). */
+  unrecoverableReason: string | null;
   harnessSessionId: string | null;
   pid: number | undefined;
   exitCode: number | null;
@@ -401,6 +479,13 @@ export interface DrivenSessionRecord {
   /** Set by `stopDrivenSession` — distinguishes an operator-requested
    * graceful stop from an unexpected crash when classifying the exit. */
   stopRequested: boolean;
+  /**
+   * Actuator-swap generation (mt#3038 R1 delta #3/#7) — 0 for the original
+   * spawn, incremented once per resume-respawn (`resumeDrivenSession`).
+   * Persisted so cost continuity can attribute rows to a generation without
+   * resetting/double-counting across a respawn.
+   */
+  readonly actuatorGeneration: number;
   /** Internal — the wired child handle. Not serialized to any API response. */
   readonly proc: ProcessLike;
   /** All events observed since spawn, in order (bounded by MAX_EVENT_LOG). */
@@ -413,7 +498,7 @@ export interface DrivenSessionRecord {
    */
   readonly costHistory: DrivenSessionCostSummary[];
   /** Live WS subscribers (registered by ./driven-session-ws.ts on connect). */
-  readonly subscribers: Set<(event: DrivenSessionEvent) => void>;
+  readonly subscribers: Set<DrivenSessionSubscriber>;
 }
 
 export class DrivenSessionRegistry {
@@ -442,6 +527,32 @@ export class DrivenSessionRegistry {
     this.byLocalId.delete(record.localId);
     if (record.harnessSessionId) this.byHarnessId.delete(record.harnessSessionId);
   }
+
+  /**
+   * Actuator swap (mt#3038 R1 delta #3): replace whatever record is
+   * currently registered under `localId` with `newRecord` — NEVER mutate the
+   * old record in place. Every existing subscriber of the OLD record is told
+   * to swap (see `DrivenSessionSubscriber.onSwap`) before the new record
+   * takes over the `localId` slot, so a live WS connection always closes and
+   * forces its client to redial rather than silently observing a spliced
+   * event stream.
+   */
+  replace(localId: string, newRecord: DrivenSessionRecord): void {
+    const old = this.byLocalId.get(localId);
+    if (old) {
+      for (const subscriber of old.subscribers) {
+        try {
+          subscriber.onSwap();
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          log.error(`[driven-session] subscriber onSwap threw for ${localId}: ${message}`);
+        }
+      }
+      if (old.harnessSessionId) this.byHarnessId.delete(old.harnessSessionId);
+    }
+    this.byLocalId.set(localId, newRecord);
+    if (newRecord.harnessSessionId) this.byHarnessId.set(newRecord.harnessSessionId, newRecord);
+  }
 }
 
 /**
@@ -465,7 +576,7 @@ function appendEvent(record: DrivenSessionRecord, payload: Record<string, unknow
   if (record.eventLog.length > MAX_EVENT_LOG) record.eventLog.shift();
   for (const subscriber of record.subscribers) {
     try {
-      subscriber(event);
+      subscriber.onEvent(event);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(`[driven-session] subscriber threw for ${record.localId}: ${message}`);
@@ -481,6 +592,12 @@ function classifyExit(
   if (record.stopRequested) return "exited";
   if (signal) return "crashed";
   return code === 0 ? "exited" : "crashed";
+}
+
+/** Statuses where the record's actuator is definitely gone — no live stdin to write to,
+ * no live process to stop (mt#3038: `unrecoverable` joins the original exited/crashed pair). */
+function isTerminalStatus(status: DrivenSessionStatus): boolean {
+  return status === "exited" || status === "crashed" || status === "unrecoverable";
 }
 
 // ---------------------------------------------------------------------------
@@ -520,6 +637,17 @@ export interface StartDrivenSessionOptions {
    * event loop.
    */
   onResultSummary?: (record: DrivenSessionRecord, summary: DrivenSessionCostSummary) => void;
+  /**
+   * Observer invoked on every meaningful lifecycle transition — initial
+   * registration, harness-session-link, and terminal exit/crash/error
+   * (mt#3038: the "make the in-memory Map a rehydratable record" step). The
+   * CALLER owns persistence (see ../driven-session-launch.ts's
+   * `createDrivenSessionPersistObserver`), mirroring the domain-import-free
+   * convention of `onHarnessSessionLinked`/`onResultSummary` above. Errors
+   * are caught and logged; a throwing observer never disturbs the event loop
+   * or the running session.
+   */
+  onStateChange?: (record: DrivenSessionRecord) => void;
   /** Override the claude binary command (test seam — points at a fake). */
   command?: string;
   /** Override the spawn function (test seam — REQUIRED for all tests, see module docblock). */
@@ -532,6 +660,20 @@ export interface StartDrivenSessionOptions {
 
 export interface StartDrivenSessionResult {
   record: DrivenSessionRecord;
+}
+
+/** Invoke `onStateChange` defensively — never let a throwing observer disturb the caller. */
+function notifyStateChange(
+  record: DrivenSessionRecord,
+  onStateChange: ((record: DrivenSessionRecord) => void) | undefined
+): void {
+  if (!onStateChange) return;
+  try {
+    onStateChange(record);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(`[driven-session] onStateChange observer threw for ${record.localId}: ${message}`);
+  }
 }
 
 /**
@@ -564,19 +706,44 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     taskId: opts.taskId ?? null,
     minskySessionId: opts.minskySessionId ?? null,
     status: "spawned",
+    unrecoverableReason: null,
     harnessSessionId: null,
     pid: proc.pid,
     exitCode: null,
     exitSignal: null,
     crashError: null,
     stopRequested: false,
+    actuatorGeneration: 0,
     proc,
     eventLog: [],
     costHistory: [],
     subscribers: new Set(),
   };
   registry.register(record);
+  notifyStateChange(record, opts.onStateChange);
+  wireChildProcess(proc, record, registry, command, opts);
 
+  return { record };
+}
+
+/**
+ * Shared stdout/stderr/error/exit wiring — factored out of
+ * {@link startDrivenSession} so {@link resumeDrivenSession} (mt#3038) can
+ * wire an actuator-swap respawn's child through the IDENTICAL parse/persist
+ * pipeline without duplicating it. Assumes `record` is ALREADY registered
+ * under its `localId` in `registry` (both callers register/replace before
+ * calling this).
+ */
+function wireChildProcess(
+  proc: ProcessLike,
+  record: DrivenSessionRecord,
+  registry: DrivenSessionRegistry,
+  command: string,
+  opts: Pick<
+    StartDrivenSessionOptions,
+    "onHarnessSessionLinked" | "onResultSummary" | "onStateChange"
+  >
+): void {
   const stdoutSplitter = new NewlineSplitter();
   const stderrTail: string[] = [];
 
@@ -598,6 +765,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
               );
             }
           }
+          notifyStateChange(record, opts.onStateChange);
         }
       }
       if (payload["type"] === "result") {
@@ -635,6 +803,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
       type: "minsky_error",
       message: record.crashError,
     });
+    notifyStateChange(record, opts.onStateChange);
   });
 
   proc.on("exit", (code, signal) => {
@@ -654,9 +823,213 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
       status: record.status,
       ...(record.crashError ? { error: record.crashError } : {}),
     });
+    notifyStateChange(record, opts.onStateChange);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Actuator swap (resume-respawn) — mt#3038, RFC "Conversation-first drive"
+// Phase 1. R1 expert-review deltas #3 (record replacement) and #5
+// (interruption-notice injection) are BINDING here.
+// ---------------------------------------------------------------------------
+
+/**
+ * Injected as the FIRST input line of every resume-respawn (R1 delta #5).
+ * Empirical basis (RFC, kill-mid-tool test): the transcript durably records
+ * an interruption when the actuator dies mid-turn, and a resumed model
+ * VERIFIES rather than blindly re-executes when told to — this notice turns
+ * that observed behavior into a designed one rather than leaving it to
+ * chance whether the model happens to notice the gap on its own.
+ */
+export const INTERRUPTION_NOTICE_TEXT =
+  "[minsky] This conversation was resumed after an unexpected interruption — the previous " +
+  "actuator process was terminated (most likely a cockpit daemon restart) potentially " +
+  "mid-turn. Before continuing, verify whether your last in-flight action actually " +
+  "completed rather than assuming it did.";
+
+/** The subset of a persisted/in-memory record {@link resumeDrivenSession} needs to respawn. */
+export interface DrivenSessionResumeSource {
+  localId: string;
+  cwd: string;
+  permissionMode: PermissionMode;
+  /** REQUIRED — resuming is impossible without a harness session id to resume (see the
+   * `unrecoverable`/`spawn-died-before-init` case, which never reaches this function). */
+  harnessSessionId: string;
+  taskId: string | null;
+  minskySessionId: string | null;
+  /** Preserved from the ORIGINAL spawn — stable across every swap (see schema docblock). */
+  startedAt: string;
+  /** The PRE-swap generation counter; the new record's is `previous.actuatorGeneration + 1`. */
+  actuatorGeneration: number;
+  /** The principal-selected model alias (mt#3040) from the original launch — preserved
+   * across the resume so it doesn't silently fall back to the CLI's default. */
+  model?: string | null;
+}
+
+export interface ResumeDrivenSessionOptions {
+  previous: DrivenSessionResumeSource;
+  onHarnessSessionLinked?: (record: DrivenSessionRecord) => void;
+  onResultSummary?: (record: DrivenSessionRecord, summary: DrivenSessionCostSummary) => void;
+  /** See `StartDrivenSessionOptions.onStateChange` — same contract, fired for the respawn too. */
+  onStateChange?: (record: DrivenSessionRecord) => void;
+  /** Override the claude binary command (test seam — points at a fake). */
+  command?: string;
+  /** Override the spawn function (test seam — REQUIRED for all tests, see module docblock). */
+  spawnFn?: SpawnFn;
+  /** Override environment variables passed to the child (test seam). */
+  env?: NodeJS.ProcessEnv;
+  /** Override the registry (test seam — hermetic instance per test). */
+  registry?: DrivenSessionRegistry;
+  /** Skip the interruption-notice injection (test seam only — production always injects). */
+  skipInterruptionNotice?: boolean;
+}
+
+/**
+ * Respawn `claude --resume <harnessSessionId>` to replace a dead actuator for
+ * an EXISTING `localId` — the restart-recovery path (RFC minimal-first-slice
+ * step 3): a WS connect to a persisted-but-dead record triggers this instead
+ * of a fresh `startDrivenSession` spawn.
+ *
+ * Callers (../driven-session-launch.ts orchestration) MUST hold the
+ * cross-process resume lock (`withDrivenSessionResumeLock`) for
+ * `previous.harnessSessionId` before calling this — this function itself has
+ * no cross-process awareness (mirrors `startDrivenSession`'s domain-import-free
+ * invariant; the lock lives in the domain layer).
+ *
+ * Constructs a brand-NEW `DrivenSessionRecord` (R1 delta #3 — never mutates
+ * the old one) and installs it via `registry.replace(localId, newRecord)`,
+ * which forces every existing subscriber of the OLD record to swap (closing
+ * their sockets so clients redial). The new record keeps the SAME `localId`
+ * and `harnessSessionId` (a resume continues the same conversation) and
+ * increments `actuatorGeneration`.
+ */
+export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDrivenSessionResult {
+  const { previous } = opts;
+  const command = opts.command ?? CLAUDE_BINARY;
+  const spawnFn = opts.spawnFn ?? prodSpawnFn;
+  const registry = opts.registry ?? drivenSessionRegistry;
+  const argv = buildResumeSessionArgs(
+    previous.permissionMode,
+    previous.harnessSessionId,
+    previous.model
+  );
+
+  log.info(
+    `[driven-session] resuming ${command} ${argv.join(" ")} (localId=${previous.localId}, ` +
+      `harnessSessionId=${previous.harnessSessionId}, generation=${previous.actuatorGeneration + 1}, cwd=${previous.cwd})`
+  );
+
+  const proc = spawnFn(command, argv, { cwd: previous.cwd, env: opts.env });
+
+  const record: DrivenSessionRecord = {
+    localId: previous.localId,
+    cwd: previous.cwd,
+    permissionMode: previous.permissionMode,
+    argv,
+    startedAt: previous.startedAt,
+    taskId: previous.taskId,
+    minskySessionId: previous.minskySessionId,
+    status: "spawned",
+    unrecoverableReason: null,
+    harnessSessionId: previous.harnessSessionId,
+    pid: proc.pid,
+    exitCode: null,
+    exitSignal: null,
+    crashError: null,
+    stopRequested: false,
+    actuatorGeneration: previous.actuatorGeneration + 1,
+    proc,
+    eventLog: [],
+    costHistory: [],
+    subscribers: new Set(),
+  };
+
+  registry.replace(previous.localId, record);
+  notifyStateChange(record, opts.onStateChange);
+  wireChildProcess(proc, record, registry, command, opts);
+
+  if (!opts.skipInterruptionNotice) {
+    sendDrivenSessionInput(record, INTERRUPTION_NOTICE_TEXT);
+  }
 
   return { record };
+}
+
+// ---------------------------------------------------------------------------
+// Boot-time reconciliation placeholder (mt#3038 minimal-first-slice step 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * A `ProcessLike` stub with NO live actuator behind it — used for a record
+ * loaded from persistence at daemon boot (R1 delta #6: lazy-resume-only,
+ * nothing is spawned here). `stdin`/`stdout`/`stderr` are inert
+ * `PassThrough` streams (never receive real data); `kill()` is a no-op
+ * (nothing to kill); `on()` never fires (no exit/error will ever occur on a
+ * placeholder).
+ */
+function createDeadProcessPlaceholder(): ProcessLike {
+  return {
+    pid: undefined,
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    stdin: new PassThrough(),
+    kill: () => false,
+    on: () => undefined,
+  };
+}
+
+/** Input to {@link buildReconnectingDrivenSessionRecord} — the persisted-row shape. */
+export interface ReconnectingRecordInput {
+  localId: string;
+  harnessSessionId: string | null;
+  cwd: string;
+  permissionMode: PermissionMode;
+  taskId: string | null;
+  minskySessionId: string | null;
+  /** Only these two persisted-only statuses ever reach this builder — a
+   * `spawned`/`running`/`exited`/`crashed` row belongs to a live or
+   * genuinely-terminal actuator, never a boot-time placeholder. */
+  status: "reconnecting" | "unrecoverable";
+  unrecoverableReason: string | null;
+  actuatorGeneration: number;
+  startedAt: string;
+}
+
+/**
+ * Build a placeholder `DrivenSessionRecord` for a persisted row loaded at
+ * daemon boot (RFC minimal-first-slice step 2) — registered into the
+ * in-memory registry as `"reconnecting"` (or `"unrecoverable"`, for a
+ * persisted row already known to be unresumable) WITHOUT spawning anything.
+ * The domain-layer caller (../driven-session-launch.ts) is responsible for
+ * eventually calling {@link resumeDrivenSession} against this placeholder's
+ * data on the LAZY trigger (an operator action or client reconnect) — never
+ * eagerly, right here.
+ */
+export function buildReconnectingDrivenSessionRecord(
+  input: ReconnectingRecordInput
+): DrivenSessionRecord {
+  return {
+    localId: input.localId,
+    cwd: input.cwd,
+    permissionMode: input.permissionMode,
+    argv: [],
+    startedAt: input.startedAt,
+    taskId: input.taskId,
+    minskySessionId: input.minskySessionId,
+    status: input.status,
+    unrecoverableReason: input.unrecoverableReason,
+    harnessSessionId: input.harnessSessionId,
+    pid: undefined,
+    exitCode: null,
+    exitSignal: null,
+    crashError: null,
+    stopRequested: false,
+    actuatorGeneration: input.actuatorGeneration,
+    proc: createDeadProcessPlaceholder(),
+    eventLog: [],
+    costHistory: [],
+    subscribers: new Set(),
+  };
 }
 
 /**
@@ -668,7 +1041,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
  * binary expects a different shape, adjust ONLY this function.
  */
 export function sendDrivenSessionInput(record: DrivenSessionRecord, text: string): boolean {
-  if (record.status === "exited" || record.status === "crashed") return false;
+  if (isTerminalStatus(record.status)) return false;
   const line = JSON.stringify({
     type: "user",
     message: {
@@ -696,7 +1069,7 @@ export function stopDrivenSession(
   record: DrivenSessionRecord,
   opts: { graceMs?: number } = {}
 ): void {
-  if (record.status === "exited" || record.status === "crashed") return;
+  if (isTerminalStatus(record.status)) return;
   record.stopRequested = true;
   try {
     record.proc.stdin.end();

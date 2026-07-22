@@ -46,9 +46,12 @@ import {
   drivenSessionRegistry,
   sendDrivenSessionInput,
   stopDrivenSession,
+  buildReconnectingDrivenSessionRecord,
   type DrivenSessionRecord,
   type DrivenSessionRegistry,
+  type DrivenSessionSubscriber,
 } from "./driven-session-host";
+import { orchestrateDrivenSessionResume } from "./driven-session-launch";
 
 /** Matches `/api/driven-session/<id>/ws` (id is a path segment — no further slashes). */
 const WS_PATH_PATTERN = /^\/api\/driven-session\/([^/]+)\/ws$/;
@@ -60,6 +63,8 @@ export interface AttachDrivenSessionWebSocketOptions {
   allowedHosts: Set<string>;
   /** Override the registry (tests use a hermetic instance; production uses the shared singleton). */
   registry?: DrivenSessionRegistry;
+  /** Override the restart-recovery orchestration (tests avoid a real Postgres round-trip). */
+  orchestrateResume?: typeof orchestrateDrivenSessionResume;
 }
 
 /**
@@ -78,6 +83,7 @@ export function attachDrivenSessionWebSocket(
   opts: AttachDrivenSessionWebSocketOptions
 ): WebSocketServer {
   const registry = opts.registry ?? drivenSessionRegistry;
+  const orchestrateResume = opts.orchestrateResume ?? orchestrateDrivenSessionResume;
   const wss = new WebSocketServer({ noServer: true });
 
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -113,19 +119,106 @@ export function attachDrivenSessionWebSocket(
     }
 
     const sessionId = decodeURIComponent(match[1] ?? "");
-    const record = registry.get(sessionId);
-    if (!record) {
-      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wireDrivenSessionSocket(ws, record);
-    });
+    void resolveDrivenSessionForUpgrade(sessionId, registry, orchestrateResume).then(
+      (resolution) => {
+        if (resolution.kind === "gone") {
+          socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        if (resolution.kind === "locked") {
+          // Another process is already resuming this conversation (R1 delta
+          // #1's cross-process lock lost the race) — a transient condition,
+          // NOT "gone forever". 503 + Retry-After tells the client to retry
+          // shortly rather than treating this as a dead session.
+          socket.write("HTTP/1.1 503 Service Unavailable\r\nRetry-After: 2\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          wireDrivenSessionSocket(ws, resolution.record);
+        });
+      }
+    );
   });
 
   return wss;
+}
+
+type UpgradeResolution =
+  | { kind: "attach"; record: DrivenSessionRecord }
+  | { kind: "locked" }
+  | { kind: "gone" };
+
+/**
+ * Resolve what to attach the incoming WS upgrade to (mt#3038 restart
+ * recovery — RFC minimal-first-slice step 3). Three cases:
+ *
+ *   - The in-memory registry already has a LIVE (non-`"reconnecting"`)
+ *     record — the common case, attach directly, no persistence lookup.
+ *   - The registry has no record, OR a `"reconnecting"` placeholder loaded
+ *     at boot (R1 delta #6) — consult persistence via
+ *     `orchestrateDrivenSessionResume`, which acquires the cross-process
+ *     resume lock (R1 delta #1) before spawning `claude --resume`.
+ *   - The persisted row is `"unrecoverable"` (R1 delta #2 — deleted cwd,
+ *     spawn-died-before-init, policy-blocked respawn) — attach anyway so the
+ *     client gets the buffered transcript history, but mark/keep the
+ *     in-memory record `"unrecoverable"` with its reason instead of ever
+ *     spawning; the client (useDrivenSession) renders this read-only, never
+ *     the crash card.
+ */
+async function resolveDrivenSessionForUpgrade(
+  sessionId: string,
+  registry: DrivenSessionRegistry,
+  orchestrateResume: typeof orchestrateDrivenSessionResume = orchestrateDrivenSessionResume
+): Promise<UpgradeResolution> {
+  const existing = registry.get(sessionId);
+  if (existing && existing.status !== "reconnecting") {
+    return { kind: "attach", record: existing };
+  }
+
+  const outcome = await orchestrateResume(sessionId, { registry });
+  switch (outcome.outcome) {
+    case "resumed":
+      return { kind: "attach", record: outcome.record };
+    case "locked":
+      return { kind: "locked" };
+    case "unrecoverable": {
+      // A persisted row genuinely IS unrecoverable — but there may be no
+      // in-memory record at all yet (boot reconciliation never loaded this
+      // ROW specifically — e.g. persistence was transiently unreachable at
+      // boot and recovered by the time this request arrived). Falling
+      // through to "gone"/404 here would be exactly the bug this whole
+      // mechanism exists to fix: a session that DOES have a durable, known
+      // reason gets the generic "may not exist" crash instead of its reason.
+      // Construct the placeholder now rather than requiring it to have
+      // already existed. `registry.register()` is called ONLY in the
+      // freshly-built branch — re-registering an already-registered record
+      // is pointless work on the hot path (reviewer round 2, PR #2179).
+      const alreadyRegistered = existing ?? registry.get(sessionId);
+      if (alreadyRegistered) {
+        alreadyRegistered.status = "unrecoverable";
+        alreadyRegistered.unrecoverableReason = outcome.reason;
+        return { kind: "attach", record: alreadyRegistered };
+      }
+      const record = buildReconnectingDrivenSessionRecord({
+        localId: sessionId,
+        harnessSessionId: null,
+        cwd: "",
+        permissionMode: "default",
+        taskId: null,
+        minskySessionId: null,
+        status: "unrecoverable",
+        unrecoverableReason: outcome.reason,
+        actuatorGeneration: 0,
+        startedAt: new Date().toISOString(),
+      });
+      registry.register(record);
+      return { kind: "attach", record };
+    }
+    case "not-found":
+      return existing ? { kind: "attach", record: existing } : { kind: "gone" };
+  }
 }
 
 /**
@@ -162,10 +255,41 @@ function wireDrivenSessionSocket(ws: WebSocket, record: DrivenSessionRecord): vo
     ws.send(JSON.stringify(event.payload));
   }
 
-  const subscriber = (event: { payload: Record<string, unknown> }): void => {
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify(event.payload));
-    }
+  // mt#3038 R1 delta #2 — a synthetic terminal frame (namespaced like the
+  // host's own minsky_exit/minsky_error) so the client can render the
+  // read-only unrecoverable state instead of a generic crash card. Sent
+  // AFTER the (possibly empty, in-process-memory-only) eventLog replay —
+  // full on-disk transcript replay for an unrecoverable session is a known
+  // gap, not attempted here (see the PR body).
+  if (record.status === "unrecoverable") {
+    ws.send(
+      JSON.stringify({
+        type: "minsky_unrecoverable",
+        reason: record.unrecoverableReason ?? "Session unrecoverable",
+      })
+    );
+  }
+
+  const subscriber: DrivenSessionSubscriber = {
+    onEvent: (event) => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify(event.payload));
+      }
+    },
+    // mt#3038 R1 delta #3 — an actuator swap replaced this record; force the
+    // client to redial the SAME localId (never hot-swap a live socket onto
+    // the new record). Close code 4001 is this channel's private
+    // reconnect-signal (the 4000-4999 range is reserved for
+    // application-defined codes per RFC 6455 §7.4.2); the client hook keys
+    // off it to distinguish "please reconnect immediately" from an ordinary
+    // close/error, which it treats as session-ended.
+    onSwap: () => {
+      try {
+        ws.close(4001, "actuator-swap-reconnect");
+      } catch {
+        // Best-effort — the socket may already be closing.
+      }
+    },
   };
   record.subscribers.add(subscriber);
 
@@ -199,7 +323,14 @@ function wireDrivenSessionSocket(ws: WebSocket, record: DrivenSessionRecord): vo
     record.subscribers.delete(subscriber);
   });
 
+  // Defense-in-depth: also unsubscribe on "error" (not just "close"). The
+  // `ws` package always follows a socket error with a close event in
+  // practice, so this is normally redundant with the handler above — but
+  // `Set.delete` on an already-removed entry is a harmless no-op, and this
+  // removes any dependency on that ordering guarantee holding across every
+  // runtime/transport this channel might ever run over.
   ws.on("error", (err: Error) => {
+    record.subscribers.delete(subscriber);
     log.error(`[driven-session-ws] socket error for ${record.localId}: ${err.message}`);
   });
 }

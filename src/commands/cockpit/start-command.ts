@@ -35,6 +35,7 @@ import {
   buildAllowedHosts,
 } from "../../cockpit/auth";
 import { attachDrivenSessionWebSocket } from "../../cockpit/driven-session-ws";
+import { loadPersistedDrivenSessions } from "../../cockpit/driven-session-launch";
 
 const DEFAULT_PORT = 3737;
 
@@ -287,6 +288,19 @@ export function createStartCommand(): Command {
       attachDrivenSessionWebSocket(server, {
         token: getOrCreateCockpitToken(),
         allowedHosts: buildAllowedHosts(host),
+      });
+
+      // mt#3038 (RFC "Conversation-first drive" Phase 1) boot reconciliation
+      // — the "minimal first slice" step 2: load every non-terminal
+      // persisted driven-session row as "reconnecting" so a WS reconnect
+      // right after this restart resumes instead of 404ing. Fire-and-forget
+      // (never blocks the bind) — persistence init is itself async and this
+      // mirrors startSseBrokerWarmup()'s posture below; a client connecting
+      // before this resolves just sees a brief "not found yet" that a retry
+      // clears once reconciliation completes.
+      void loadPersistedDrivenSessions().catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`Warning: driven-session boot reconciliation failed: ${message}`);
       });
 
       try {

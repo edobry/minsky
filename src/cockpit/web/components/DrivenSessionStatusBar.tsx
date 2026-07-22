@@ -23,8 +23,10 @@ export interface DrivenSessionStatusBarProps {
 const STATUS_LABEL: Record<DrivenSessionStatus, string> = {
   connecting: "Connecting…",
   live: "Live",
+  reconnecting: "Reconnecting…",
   exited: "Exited",
   crashed: "Crashed",
+  unrecoverable: "Unrecoverable",
 };
 
 function formatResultSummary(summary: DrivenSessionResultSummary | null | undefined): string | null {
@@ -56,9 +58,10 @@ export function DrivenSessionStatusBar({
         <span
           className={cn(
             "inline-block h-1.5 w-1.5 rounded-full",
-            status === "connecting" && "bg-muted-foreground/50",
+            (status === "connecting" || status === "reconnecting") &&
+              "bg-muted-foreground/50 animate-pulse",
             status === "exited" && "bg-muted-foreground",
-            status === "crashed" && "bg-destructive"
+            (status === "crashed" || status === "unrecoverable") && "bg-destructive"
           )}
           aria-hidden
         />
@@ -66,14 +69,16 @@ export function DrivenSessionStatusBar({
       <span
         className={cn(
           "font-medium",
-          status === "crashed" && "text-destructive",
+          (status === "crashed" || status === "unrecoverable") && "text-destructive",
           status === "live" && "text-emerald-500"
         )}
       >
         {STATUS_LABEL[status]}
       </span>
       {status === "exited" && summaryText && <span className="text-muted-foreground">{summaryText}</span>}
-      {status === "crashed" && errorMessage && <span className="text-destructive">{errorMessage}</span>}
+      {(status === "crashed" || status === "unrecoverable") && errorMessage && (
+        <span className="text-destructive">{errorMessage}</span>
+      )}
     </div>
   );
 }
