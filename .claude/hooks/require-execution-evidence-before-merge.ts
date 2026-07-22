@@ -33,7 +33,10 @@
 // calibration JSONL line) and NEVER emits `permissionDecision: "deny"` — graduating
 // to a blocking decision is a follow-up once false-positive rate is measured against
 // real merges. Override: `MINSKY_SKIP_AT_COVERAGE=1` skips the check entirely.
+// Graduation (flip WARN -> deny once the calibration FP rate is measured) is tracked
+// as mt#3059 — this task ships Phase 1 (log-only) only.
 // @see mt#3033 — this addition; mt#2542 (root incident); mt#2263 (calibration ladder)
+// @see mt#3059 — graduation follow-up (WARN -> deny)
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";

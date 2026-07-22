@@ -302,11 +302,12 @@ findings-shaped text like "audit produces…" / "decision recorded…"), and che
 `[atN-deferred: mt#NNNN]` marker. Per the mt#2263 calibration ladder this ships **LOG-ONLY**
 (v1): an unaddressed AT appends a record to
 `.minsky/execution-evidence-at-coverage-calibration.jsonl` and surfaces a WARN via
-`additionalContext` — it never emits `permissionDecision: "deny"`; graduating to blocking is a
-follow-up once false-positive rate is measured. Override: `MINSKY_SKIP_AT_COVERAGE=1`. Fail:
-silent (no WARN) on any task-spec fetch/parse error. Root incident: mt#2542 (PR #2136 merged
-with proxy evidence while the spec's literal AT — "services boot on the role" — was silently
-deferred and crashed production post-merge).
+`additionalContext` — it never emits `permissionDecision: "deny"`; graduating to blocking is
+tracked as mt#3059 (flip WARN -> deny once the calibration FP rate is measured) — mt#3033 ships
+Phase 1 (log-only) only. Override: `MINSKY_SKIP_AT_COVERAGE=1`. Fail: silent (no WARN) on any
+task-spec fetch/parse error. Root incident: mt#2542 (PR #2136 merged with proxy evidence while
+the spec's literal AT — "services boot on the role" — was silently deferred and crashed
+production post-merge).
 
 ## Deploy-Verification Merge Gate + Post-Merge Reminder
 
