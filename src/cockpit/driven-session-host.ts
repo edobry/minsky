@@ -46,6 +46,7 @@
 
 import { spawn as nodeSpawn } from "child_process";
 import { randomUUID } from "crypto";
+import { PassThrough } from "stream";
 import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
@@ -622,6 +623,17 @@ export interface StartDrivenSessionOptions {
    * event loop.
    */
   onResultSummary?: (record: DrivenSessionRecord, summary: DrivenSessionCostSummary) => void;
+  /**
+   * Observer invoked on every meaningful lifecycle transition — initial
+   * registration, harness-session-link, and terminal exit/crash/error
+   * (mt#3038: the "make the in-memory Map a rehydratable record" step). The
+   * CALLER owns persistence (see ../driven-session-launch.ts's
+   * `createDrivenSessionPersistObserver`), mirroring the domain-import-free
+   * convention of `onHarnessSessionLinked`/`onResultSummary` above. Errors
+   * are caught and logged; a throwing observer never disturbs the event loop
+   * or the running session.
+   */
+  onStateChange?: (record: DrivenSessionRecord) => void;
   /** Override the claude binary command (test seam — points at a fake). */
   command?: string;
   /** Override the spawn function (test seam — REQUIRED for all tests, see module docblock). */
@@ -634,6 +646,20 @@ export interface StartDrivenSessionOptions {
 
 export interface StartDrivenSessionResult {
   record: DrivenSessionRecord;
+}
+
+/** Invoke `onStateChange` defensively — never let a throwing observer disturb the caller. */
+function notifyStateChange(
+  record: DrivenSessionRecord,
+  onStateChange: ((record: DrivenSessionRecord) => void) | undefined
+): void {
+  if (!onStateChange) return;
+  try {
+    onStateChange(record);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(`[driven-session] onStateChange observer threw for ${record.localId}: ${message}`);
+  }
 }
 
 /**
@@ -680,6 +706,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     subscribers: new Set(),
   };
   registry.register(record);
+  notifyStateChange(record, opts.onStateChange);
   wireChildProcess(proc, record, registry, command, opts);
 
   return { record };
@@ -698,7 +725,10 @@ function wireChildProcess(
   record: DrivenSessionRecord,
   registry: DrivenSessionRegistry,
   command: string,
-  opts: Pick<StartDrivenSessionOptions, "onHarnessSessionLinked" | "onResultSummary">
+  opts: Pick<
+    StartDrivenSessionOptions,
+    "onHarnessSessionLinked" | "onResultSummary" | "onStateChange"
+  >
 ): void {
   const stdoutSplitter = new NewlineSplitter();
   const stderrTail: string[] = [];
@@ -721,6 +751,7 @@ function wireChildProcess(
               );
             }
           }
+          notifyStateChange(record, opts.onStateChange);
         }
       }
       if (payload["type"] === "result") {
@@ -758,6 +789,7 @@ function wireChildProcess(
       type: "minsky_error",
       message: record.crashError,
     });
+    notifyStateChange(record, opts.onStateChange);
   });
 
   proc.on("exit", (code, signal) => {
@@ -777,6 +809,7 @@ function wireChildProcess(
       status: record.status,
       ...(record.crashError ? { error: record.crashError } : {}),
     });
+    notifyStateChange(record, opts.onStateChange);
   });
 }
 
@@ -820,6 +853,8 @@ export interface ResumeDrivenSessionOptions {
   previous: DrivenSessionResumeSource;
   onHarnessSessionLinked?: (record: DrivenSessionRecord) => void;
   onResultSummary?: (record: DrivenSessionRecord, summary: DrivenSessionCostSummary) => void;
+  /** See `StartDrivenSessionOptions.onStateChange` — same contract, fired for the respawn too. */
+  onStateChange?: (record: DrivenSessionRecord) => void;
   /** Override the claude binary command (test seam — points at a fake). */
   command?: string;
   /** Override the spawn function (test seam — REQUIRED for all tests, see module docblock). */
@@ -889,6 +924,7 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
   };
 
   registry.replace(previous.localId, record);
+  notifyStateChange(record, opts.onStateChange);
   wireChildProcess(proc, record, registry, command, opts);
 
   if (!opts.skipInterruptionNotice) {
@@ -896,6 +932,83 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
   }
 
   return { record };
+}
+
+// ---------------------------------------------------------------------------
+// Boot-time reconciliation placeholder (mt#3038 minimal-first-slice step 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * A `ProcessLike` stub with NO live actuator behind it — used for a record
+ * loaded from persistence at daemon boot (R1 delta #6: lazy-resume-only,
+ * nothing is spawned here). `stdin`/`stdout`/`stderr` are inert
+ * `PassThrough` streams (never receive real data); `kill()` is a no-op
+ * (nothing to kill); `on()` never fires (no exit/error will ever occur on a
+ * placeholder).
+ */
+function createDeadProcessPlaceholder(): ProcessLike {
+  return {
+    pid: undefined,
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    stdin: new PassThrough(),
+    kill: () => false,
+    on: () => undefined,
+  };
+}
+
+/** Input to {@link buildReconnectingDrivenSessionRecord} — the persisted-row shape. */
+export interface ReconnectingRecordInput {
+  localId: string;
+  harnessSessionId: string | null;
+  cwd: string;
+  permissionMode: PermissionMode;
+  taskId: string | null;
+  minskySessionId: string | null;
+  /** Only these two persisted-only statuses ever reach this builder — a
+   * `spawned`/`running`/`exited`/`crashed` row belongs to a live or
+   * genuinely-terminal actuator, never a boot-time placeholder. */
+  status: "reconnecting" | "unrecoverable";
+  unrecoverableReason: string | null;
+  actuatorGeneration: number;
+  startedAt: string;
+}
+
+/**
+ * Build a placeholder `DrivenSessionRecord` for a persisted row loaded at
+ * daemon boot (RFC minimal-first-slice step 2) — registered into the
+ * in-memory registry as `"reconnecting"` (or `"unrecoverable"`, for a
+ * persisted row already known to be unresumable) WITHOUT spawning anything.
+ * The domain-layer caller (../driven-session-launch.ts) is responsible for
+ * eventually calling {@link resumeDrivenSession} against this placeholder's
+ * data on the LAZY trigger (an operator action or client reconnect) — never
+ * eagerly, right here.
+ */
+export function buildReconnectingDrivenSessionRecord(
+  input: ReconnectingRecordInput
+): DrivenSessionRecord {
+  return {
+    localId: input.localId,
+    cwd: input.cwd,
+    permissionMode: input.permissionMode,
+    argv: [],
+    startedAt: input.startedAt,
+    taskId: input.taskId,
+    minskySessionId: input.minskySessionId,
+    status: input.status,
+    unrecoverableReason: input.unrecoverableReason,
+    harnessSessionId: input.harnessSessionId,
+    pid: undefined,
+    exitCode: null,
+    exitSignal: null,
+    crashError: null,
+    stopRequested: false,
+    actuatorGeneration: input.actuatorGeneration,
+    proc: createDeadProcessPlaceholder(),
+    eventLog: [],
+    costHistory: [],
+    subscribers: new Set(),
+  };
 }
 
 /**
