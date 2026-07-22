@@ -572,12 +572,29 @@ secondary index once observed.
 Endpoints (`src/cockpit/routes/driven-sessions.ts`, mounted only when
 `!isPublicDeployment`):
 
-| Path                           | Method | Purpose                                       |
-| ------------------------------ | ------ | --------------------------------------------- |
-| `/api/driven-session`          | POST   | Spawn a driven session; returns its local id  |
-| `/api/driven-session/:id/stop` | POST   | Graceful stop (close stdin, SIGTERM fallback) |
-| `/api/driven-session`          | GET    | List app-started sessions (registry snapshot) |
-| `/api/driven-session/:id/ws`   | WS     | Bidirectional event/input channel (below)     |
+| Path                              | Method | Purpose                                           |
+| --------------------------------- | ------ | ------------------------------------------------- |
+| `/api/driven-session`             | POST   | Spawn a driven session; returns its local id      |
+| `/api/driven-session/:id/stop`    | POST   | Graceful stop (close stdin, SIGTERM fallback)     |
+| `/api/driven-session`             | GET    | List app-started sessions (registry snapshot)     |
+| `/api/driven-session/turn-active` | GET    | "Is any session mid-turn" signal (mt#3048, below) |
+| `/api/driven-session/:id/ws`      | WS     | Bidirectional event/input channel (below)         |
+
+**Turn-active signal (mt#3048).** `GET /api/driven-session/turn-active`
+returns `{ active: boolean, activeSessionIds: string[] }` — a cheap,
+in-memory scan of the registry for any session whose LATEST observed event
+is not yet a terminal `result`/`minsky_exit` event (a record with no live
+actuator — any terminal status, or `reconnecting` — is never mid-turn). This
+is the pre-restart gate the cockpit-tray watcher's backend-source watcher
+(mt#2299, `cockpit-tray/src-tauri/src/watcher_backend.rs`) queries before a
+hot-reload daemon restart: if a turn is active, the restart is deferred for
+a bounded grace period (`TURN_ACTIVE_GRACE`, 60s, polled every
+`TURN_ACTIVE_POLL_INTERVAL`, 5s) and then proceeds regardless — never
+indefinitely, since a driven session can sit idle between turns for
+hours-days. The mt#3038 resume machinery (advisory lock, `claude --resume`,
+interruption-notice injection) recovers the interrupted turn when a restart
+does land mid-stream. The query fails OPEN on any error/timeout so a broken
+or slow signal endpoint never blocks the watcher's restart.
 
 The WS channel (`src/cockpit/driven-session-ws.ts`) attaches to the
 daemon's underlying `http.Server` `"upgrade"` event via the `ws` package
