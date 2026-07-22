@@ -10,9 +10,13 @@
  * repurposing of the provider catalog (mt#3040 spec §Implementation notes —
  * introduce, not extend).
  *
- * Pure data + pure functions, no imports — safe to import from BOTH the
- * Vite-bundled web UI (the launch picker) and the Express route (validation),
- * mirroring `entity-codec.ts`'s both-sides-shared placement in this directory.
+ * Pure data + pure functions, no imports — safe to import from the domain and
+ * adapter layers, the cockpit Express route, AND the Vite-bundled cockpit web
+ * UI (the launch picker), which resolves it as a runtime import from
+ * `@minsky/domain`. It lives in the domain package because `packages/domain`
+ * consumes it and must not import from a UI tree (mt#3043); the sibling
+ * precedent for a module shared across both surfaces is
+ * `src/cockpit/web/lib/entity-codec.ts`.
  */
 
 export interface DispatchModel {

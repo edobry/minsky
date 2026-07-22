@@ -208,10 +208,9 @@ function validateDispatchMode(p: DispatchParams): void {
   if (p.model !== undefined && !isDispatchModelId(p.model)) {
     throw new ValidationError(
       `Unknown dispatch model "${p.model}". Valid ids: ` +
-        `${DISPATCH_MODELS.map((m) => m.id).join(" | ")}. The dispatch-model registry ` +
-        "(packages/domain/src/ai/dispatch-models.ts) is the single source of truth — an " +
-        "unrecognized id is rejected rather than silently falling back to the default, so a " +
-        "typo'd model never quietly downgrades the dispatch."
+        `${DISPATCH_MODELS.map((m) => m.id).join(" | ")}. The dispatch-model registry is the ` +
+        "single source of truth — an unrecognized id is rejected rather than silently falling " +
+        "back to the default, so a typo'd model never quietly downgrades the dispatch."
     );
   }
 }
