@@ -310,21 +310,36 @@ describe("mt#3042 — SQL/DDL keyword symbol-class exclusion", () => {
     expect(syms).not.toContain("ALTER");
     expect(syms).not.toContain("DROP");
     expect(syms).not.toContain("CREATE");
+    // The whole record shape must not fire at all — no residual token in the
+    // fixture survives symbol-plausibility, so zero claims are logged.
+    expect(result.matched).toBe(false);
+    expect(result.claims).toHaveLength(0);
   });
 
   test("lowercase same-spelled identifiers are still valid symbols", () => {
     // `create` as a real method name: the exclusion is UPPERCASE-exact, so a
     // genuine lowercase identifier near a predicate still fires.
-    const text = "`repoCreate` defaults to inserting a detected-state row.";
-    const result = detectCodeMechanismAssertion(text, "");
-    expect(result.matched).toBe(true);
-    expect(result.claims.map((c) => c.symbol)).toContain("repoCreate");
+    const camel = detectCodeMechanismAssertion(
+      "`repoCreate` defaults to inserting a detected-state row.",
+      ""
+    );
+    expect(camel.matched).toBe(true);
+    expect(camel.claims.map((c) => c.symbol)).toContain("repoCreate");
+    // Bare backticked lowercase `create` (exactly the excluded keyword's
+    // spelling, different case) is likewise still a valid symbol.
+    const bare = detectCodeMechanismAssertion(
+      "`create` defaults to inserting a detected-state row.",
+      ""
+    );
+    expect(bare.matched).toBe(true);
+    expect(bare.claims.map((c) => c.symbol)).toContain("create");
   });
 
   test("`postgres` is stoplisted as a prose/product name", () => {
     const text = "`postgres` drops the connection when the pool is exhausted.";
     const result = detectCodeMechanismAssertion(text, "");
     expect(result.claims.map((c) => c.symbol)).not.toContain("postgres");
+    expect(result.matched).toBe(false);
   });
 
   test("regression (ask#5343 tune-1 correction): a backed sibling does NOT suppress an unbacked claim — it fires with hadSameTurnRead=true", () => {
