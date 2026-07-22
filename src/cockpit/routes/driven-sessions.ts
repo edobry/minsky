@@ -43,6 +43,7 @@ import {
   resolveTaskWorkspace as prodResolveTaskWorkspace,
   createDrivenInitLinkObserver,
   createDrivenResultObserver,
+  createDrivenSessionPersistObserver,
   type ResolvedTaskWorkspace,
 } from "../driven-session-launch";
 
@@ -71,6 +72,15 @@ export interface DrivenSessionRoutesOptions {
    * alike) — see the `createDrivenResultObserver` docblock.
    */
   onResultSummary?: (record: DrivenSessionRecord, summary: DrivenSessionCostSummary) => void;
+  /**
+   * Override the durable-persistence observer (mt#3038 — tests capture
+   * instead of writing to Postgres). Like `onResultSummary`, defaults for
+   * EVERY launch shape — task-bound, explicit-cwd, AND untasked "scratch"
+   * sessions alike (RFC minimal-first-slice step 5: extending durable
+   * binding to scratch sessions falls out of this default, not a separate
+   * code path) — see `createDrivenSessionPersistObserver`'s docblock.
+   */
+  onStateChange?: (record: DrivenSessionRecord) => void;
   /** Override the scratch-session default cwd (defaults to the daemon's cwd). */
   scratchCwd?: string;
 }
@@ -166,6 +176,9 @@ export function mountDrivenSessionRoutes(
       // "every task-bound driven session" (unlike onHarnessSessionLinked's
       // task-bound-only default below).
       const onResultSummary = opts.onResultSummary ?? createDrivenResultObserver();
+      // mt#3038: same "every driven session" scope as onResultSummary above —
+      // durable driven_sessions persistence is not task-bound-only.
+      const onStateChange = opts.onStateChange ?? createDrivenSessionPersistObserver();
 
       if (hasTaskId) {
         taskId = taskIdRaw as string;
@@ -187,6 +200,7 @@ export function mountDrivenSessionRoutes(
         minskySessionId,
         onHarnessSessionLinked,
         onResultSummary,
+        onStateChange,
         spawnFn: opts.spawnFn,
         command: opts.command,
         registry,
