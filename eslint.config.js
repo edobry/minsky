@@ -31,6 +31,7 @@ import noRawConsole from "./eslint-rules/no-raw-console.js";
 import noHandRolledCommandParams from "./eslint-rules/no-hand-rolled-command-params.js";
 import noEntityIdParamDrift from "./eslint-rules/no-entity-id-param-drift.js";
 import noRawColorsInCockpit from "./eslint-rules/no-raw-colors-in-cockpit.js";
+import requireHookDomainBootstrap from "./eslint-rules/require-hook-domain-bootstrap.js";
 
 // === RAW COLOR ENFORCEMENT IN COCKPIT (mt#2916) — declared coverage ===
 // The blessed healthy/warning raw-Tailwind-palette exception from
@@ -220,6 +221,7 @@ export default [
           "no-hand-rolled-command-params": noHandRolledCommandParams,
           "no-entity-id-param-drift": noEntityIdParamDrift,
           "no-raw-colors-in-cockpit": noRawColorsInCockpit,
+          "require-hook-domain-bootstrap": requireHookDomainBootstrap,
         },
       },
     },
@@ -881,6 +883,30 @@ export default [
     ignores: ["**/*.test.ts"],
     rules: {
       "custom/no-entity-id-param-drift": "error",
+    },
+  },
+  // === HOOK DOMAIN-BOOTSTRAP ENFORCEMENT (mt#3046) ===
+  // A hook process is its own entry point: it inherits neither the tsyringe
+  // reflect polyfill nor the domain configuration system, so any hook reaching
+  // the persistence layer must import `ensureHookDomainBootstrap` first.
+  // Without it the domain import throws or the provider resolves to null —
+  // and in both known instances the failure was SWALLOWED, leaving the hook
+  // silently dead (mt#3019: 0 of 62 rows carried any hook-written column for
+  // two weeks; mt#3046 found a second instance the same way).
+  //
+  // COVERAGE IS DECLARED HERE: `.minsky/hooks/**` is the enforced glob — the
+  // SOURCE tree, not the generated `.claude/hooks/**` copies (fixing a
+  // generated file is not a fix). Test files are excluded: a test is not an
+  // entry point and legitimately names these symbols in assertions. The rule
+  // additionally exempts `domain-bootstrap.ts` itself, which cannot import
+  // itself. This block needs no separate plugin registration —
+  // `require-hook-domain-bootstrap` is already in the main `**/*.ts` block's
+  // `custom` plugin object above.
+  {
+    files: [".minsky/hooks/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "custom/require-hook-domain-bootstrap": "error",
     },
   },
   // === RAW COLOR ENFORCEMENT IN COCKPIT (mt#2916) ===

@@ -86,7 +86,9 @@ mt#3002 excludes file-name/hex-id symbol FPs and flips
 `tasks.dispatch` wrote. Hook: `record-subagent-invocation.ts`. **A hook is its own entry point:
 DB-touching hooks MUST statically import `ensureHookDomainBootstrap` (`domain-bootstrap.ts`) —
 reflect-metadata + config init + mt#2982 fail-fast connect — or every domain import fails
-(mt#3019: this hook wrote 0 of 62 rows for two weeks).** No override; fail-safe (8s deadline,
+(mt#3019: this hook wrote 0 of 62 rows for two weeks). Lint-enforced since mt#3046 by
+`custom/require-hook-domain-bootstrap` (see `code-style.mdc`), which found a second silent
+instance in `post-merge-unasked-direction-scan`.** No override; fail-safe (8s deadline,
 always exits 0). Doc: `subagent-invocation-recording-hook.md`.
 
 ## Session-End Transcript Ingest Hook

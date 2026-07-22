@@ -19,6 +19,7 @@ import { join } from "path";
 import matter from "gray-matter";
 import { readTextFileSync } from "@minsky/shared/fs";
 import { detectAgentHarness, type AgentHarness } from "../runtime/harness-detection";
+import { DEFAULT_DISPATCH_MODEL_ID } from "../ai/dispatch-models";
 
 export type PromptType = "implementation" | "refactor" | "review" | "cleanup" | "audit";
 
@@ -105,6 +106,16 @@ export interface GeneratePromptParams {
    * actually enforces it — this function only controls prompt TEXT.
    */
   intent?: DispatchIntent;
+  /**
+   * Principal/caller-selected dispatch model id (mt#3043), e.g. "fable".
+   * Validated against the dispatch-model registry by the CALLER (the
+   * `tasks.dispatch` command) before it reaches here; this function only
+   * decides the fallback. Omitted → `DEFAULT_DISPATCH_MODEL_ID`.
+   *
+   * Before mt#3043 this was a hardcoded `"sonnet"` literal on every return
+   * path, so the returned `suggestedModel` carried no caller intent at all.
+   */
+  model?: string;
 }
 
 export interface GeneratePromptResult {
@@ -581,7 +592,7 @@ export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePr
         harness,
         agentType,
         skillsEmbedded: skillPlan.skillsEmbedded,
-        suggestedModel: "sonnet",
+        suggestedModel: params.model ?? DEFAULT_DISPATCH_MODEL_ID,
         batchIndex,
         totalBatches,
         scopeWarning,
@@ -593,7 +604,7 @@ export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePr
       harness,
       agentType,
       skillsEmbedded: skillPlan.skillsEmbedded,
-      suggestedModel: "sonnet",
+      suggestedModel: params.model ?? DEFAULT_DISPATCH_MODEL_ID,
       scopeWarning,
       batches,
     };
@@ -606,6 +617,6 @@ export function generateSubagentPrompt(params: GeneratePromptParams): GeneratePr
     harness,
     agentType,
     skillsEmbedded: skillPlan.skillsEmbedded,
-    suggestedModel: "sonnet",
+    suggestedModel: params.model ?? DEFAULT_DISPATCH_MODEL_ID,
   };
 }
