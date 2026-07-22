@@ -166,6 +166,54 @@ tester.run("require-hook-domain-bootstrap", rule, {
       `,
       errors: [{ messageId: MSG }],
     },
+    // --- Aliasing / namespace shapes (PR #2184 R1 BLOCKING #2) ---
+    //
+    // The review predicted these evade a name-based Identifier walker. They do
+    // not, for two reasons worth pinning so a future refactor cannot quietly
+    // break them:
+    //   - a RENAMED named import still carries an `imported` Identifier with
+    //     the ORIGINAL name (`{ imported: resolvePersistenceProvider, local: r }`),
+    //     and the module specifier matches independently;
+    //   - a destructuring RENAME still carries the original name as the
+    //     Property KEY (`{ getDatabaseConnection: g }`), which ESLint visits.
+    // These were verified against the rule before being written down.
+    {
+      filename: hookFile,
+      code: `
+        import { resolvePersistenceProvider as r } from "../../packages/domain/src/persistence/factory";
+        export const x = await r();
+      `,
+      errors: [{ messageId: MSG }],
+    },
+    {
+      filename: hookFile,
+      code: `
+        import * as p from "../../packages/domain/src/persistence/factory";
+        const { getDatabaseConnection: g } = p;
+        export const x = await g();
+      `,
+      errors: [{ messageId: MSG }],
+    },
+    {
+      filename: hookFile,
+      code: `
+        import { getDatabaseConnection as gdc } from "../../packages/domain/src/persistence/service";
+        export const x = await gdc();
+      `,
+      errors: [{ messageId: MSG }],
+    },
+    // The hardest of the four: the object being destructured did NOT come from
+    // a persistence-module specifier, so the module-suffix check cannot help —
+    // only the Property-key identifier catches it.
+    {
+      filename: hookFile,
+      code: `
+        import { thing } from "./types";
+        const { getDatabaseConnection: g } = thing;
+        export const x = await g();
+      `,
+      errors: [{ messageId: MSG }],
+    },
     // REGRESSION (found by this task's own negative control): an earlier draft
     // treated ANY identifier named `ensureHookDomainBootstrap` as satisfying
     // the invariant. Deleting the import while leaving the call site behind

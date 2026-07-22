@@ -154,7 +154,23 @@ export async function loadTranscript(sessionId: string): Promise<TranscriptMessa
       db as import("drizzle-orm/postgres-js").PostgresJsDatabase
     );
     return await service.getTranscript(sessionId);
-  } catch {
+  } catch (err) {
+    // PR #2184 R1 BLOCKING #1: the bare `catch { return null }` this replaces
+    // is the exact mechanism that hid mt#3046's defect for the life of this
+    // hook — a thrown bootstrap/import error became an indistinguishable
+    // "this session had no transcript". Returning null is still correct (the
+    // hook is best-effort and must never break the merge flow), but it is no
+    // longer SILENT: the actual message goes to stderr so the next occurrence
+    // is diagnosable instead of invisible.
+    //
+    // Covers the throwing paths the `{ ok: false }` branch above cannot:
+    // `ensureHookDomainBootstrap` itself throwing, a module resolution
+    // failure, a DB error inside `getTranscript`.
+    process.stderr.write(
+      `[post-merge-unasked-direction-scan] warn: transcript load failed for session ${sessionId}: ${
+        err instanceof Error ? err.message : String(err)
+      }\n`
+    );
     return null;
   }
 }
@@ -178,7 +194,18 @@ async function buildCompletionService(): Promise<unknown | null> {
     const resolvedConfig = getResolvedConfig();
     requireAIProviders(resolvedConfig);
     return createCompletionService(resolvedConfig);
-  } catch {
+  } catch (err) {
+    // Same class as `loadTranscript`'s catch above (PR #2184 R1 BLOCKING #1,
+    // patched together per the class-not-instance discipline). This one also
+    // imports domain modules from a bare hook process, so it degrades for the
+    // same reasons — and "no AI providers configured" is a legitimate, common
+    // outcome here, which is exactly why an unreadable failure looked normal.
+    // Still returns null; no longer silent.
+    process.stderr.write(
+      `[post-merge-unasked-direction-scan] warn: completion service unavailable: ${
+        err instanceof Error ? err.message : String(err)
+      }\n`
+    );
     return null;
   }
 }
