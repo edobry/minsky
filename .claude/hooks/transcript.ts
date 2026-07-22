@@ -27,7 +27,15 @@
 // @see mt#2255 — this task
 // @see .claude/hooks/types.ts — sibling cross-hook util home (readInput, readHostCap, deriveBudgets)
 
-import { readFileSync, readdirSync } from "node:fs";
+import {
+  readFileSync,
+  readdirSync,
+  existsSync,
+  statSync,
+  openSync,
+  readSync,
+  closeSync,
+} from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -166,6 +174,240 @@ export function resolveTranscriptCandidates(transcriptPath: string, agentId?: st
   }
 
   return candidates;
+}
+
+// ---------------------------------------------------------------------------
+// Parent-scoped turn resolution (mt#3003 — shared anchoring fix)
+// ---------------------------------------------------------------------------
+
+/**
+ * True iff `path` is a per-agent subagent transcript file — i.e. its
+ * basename starts with `agent-` AND its containing directory is named
+ * `subagents`. Mirrors the exact shape check `resolveTranscriptCandidates`
+ * itself uses to recognize a per-agent path. A parent (session-level)
+ * transcript never lives directly under a `subagents/` directory, so this
+ * is the structural discriminator `resolveParentTranscriptLines` uses to
+ * find the true parent candidate instead of assuming positional order
+ * (PR #2175 R1 — `transcriptCandidates[0]` is NOT always the parent).
+ * Accepts `undefined` defensively (a malformed/synthetic candidates entry —
+ * the real `resolveTranscriptCandidates` never produces one) and treats it
+ * as "not a subagent path" rather than throwing, so a bogus entry degrades
+ * to the next fallback in `resolveParentTranscriptLines` instead of crashing.
+ */
+function isSubagentTranscriptPath(path: string | undefined): boolean {
+  if (!path) return false;
+  return basename(path).startsWith("agent-") && basename(dirname(path)) === "subagents";
+}
+
+/**
+ * Resolve the transcript lines to measure THIS conversation's own
+ * turn/silence signal against, scoped to the PARENT transcript alone
+ * whenever more than one transcript candidate is in play.
+ *
+ * **Why this exists.** A guard's `ctx.transcriptLines` (registry.ts D6) is
+ * `transcriptCandidates.flatMap(parseTranscript)` — the PARENT transcript
+ * concatenated with EVERY sibling subagent transcript under the session's
+ * `subagents/` dir ({@link resolveTranscriptCandidates}'s unconditional
+ * "every sibling" fallback, mt#2637), with no per-line file-origin marker.
+ * `findRealPromptIndices`/`extractLastAssistantTurn` operating over that
+ * flattened array can therefore anchor on a prompt boundary that lives
+ * inside a SUBAGENT's own (already-completed, no-longer-growing) transcript
+ * file rather than the live, growing parent conversation. Because
+ * `resolveTranscriptCandidates` always places subagent files AFTER the
+ * parent file in candidate order, and `flatMap` preserves that order, a
+ * subagent's own final real-prompt boundary is ALWAYS later in the flattened
+ * array than every parent-transcript line — no matter how much the parent
+ * conversation grows afterward. The last-two-real-prompt anchor
+ * (`findRealPromptIndices`) therefore gets permanently stuck inside that
+ * static subagent segment, and every subsequent hook firing re-measures the
+ * exact same frozen turn.
+ *
+ * This is the actual root cause of the "stale turn re-measurement" bug
+ * originally hypothesized (mt#3003 planning) as `findRealPromptIndices`
+ * missing some NEW-PROMPT shape. Investigation against the three named
+ * calibration sessions (3bf59029, 2c9ac5e6, 762cde32 — all of which have a
+ * populated `subagents/` dir) found no missed real-prompt shape:
+ * {@link isRealUserPrompt} correctly classified every plain-text human
+ * prompt, slash-command echo, and tool_result line encountered. The
+ * repeated-identical-record shape is fully explained by cross-transcript
+ * contamination instead. wall-of-text-detector.ts independently diagnosed
+ * and fixed this exact mechanism for its own consumption (mt#3028,
+ * `resolveTurnLines`) before this task's investigation concluded; this
+ * hoists that fix here as the SHARED primitive scope names
+ * (`.minsky/hooks/transcript.ts (anchoring/dedup helpers)`) so
+ * silent-stretch-detector.ts — which had the identical latent vulnerability,
+ * never having been given its own copy of the mt#3028 fix — gets the same
+ * guarantee instead of re-diagning/re-implementing it.
+ *
+ * Behavior: trusts `flatLines` as-is when there is at most one resolved
+ * candidate (the common case — no subagents dispatched this conversation).
+ * When `transcriptCandidates` names more than one file, re-parses the
+ * PARENT candidate — never a per-agent `subagents/agent-*.jsonl` file — ALONE,
+ * so a dispatched subagent's own content can never be measured as if it
+ * were part of the live conversation's own turn.
+ *
+ * **Parent identification (PR #2175 R1 BLOCKING fix).** Does NOT assume
+ * `transcriptCandidates[0]` is the parent. Per
+ * {@link resolveTranscriptCandidates}'s own doc comment, when the GIVEN
+ * `transcriptPath` is itself a per-agent file (the "tree semantics in the
+ * other direction" branch — basename starts with `agent-` under a
+ * `subagents/` dir), the candidate array places THAT per-agent file FIRST
+ * and pushes the true parent session transcript LATER. Trusting
+ * `candidates[0]` in that shape would scope this function to the SUBAGENT's
+ * own transcript instead of the parent — silently reintroducing the exact
+ * stale-turn-freeze bug this function exists to fix. Instead, the parent is
+ * identified structurally: the first candidate whose path is NOT itself a
+ * per-agent `subagents/agent-*.jsonl` file (a parent-transcript path never
+ * lives directly under a `subagents/` directory). Falls back to
+ * `transcriptCandidates[0]` only if every candidate looks agent-shaped (a
+ * defensive case `resolveTranscriptCandidates` should never actually
+ * produce, since it always includes the true parent as one entry whenever
+ * `transcriptPath` ends in `.jsonl`).
+ *
+ * `parseTranscriptFn` is injectable (defaults to the real
+ * {@link parseTranscript}) so callers/tests can exercise the multi-candidate
+ * branch against an in-memory fixture instead of a real file
+ * (`custom/no-real-fs-in-tests`).
+ *
+ * @see resolveTranscriptCandidates — mt#2637, produces the candidate order this relies on
+ * @see mt#3028 — the wall-of-text-detector.ts fix this generalizes
+ * @see mt#3003 — this task (hoists the fix to a shared helper + wires silent-stretch-detector.ts to it)
+ */
+export function resolveParentTranscriptLines(
+  transcriptPath: string | undefined,
+  transcriptCandidates: string[] | undefined,
+  flatLines: TranscriptLine[],
+  parseTranscriptFn: (path: string) => TranscriptLine[] = parseTranscript
+): TranscriptLine[] {
+  if (Array.isArray(transcriptCandidates) && transcriptCandidates.length > 1) {
+    const parentPath =
+      transcriptCandidates.find((c) => !isSubagentTranscriptPath(c)) ??
+      (transcriptPath && !isSubagentTranscriptPath(transcriptPath) ? transcriptPath : undefined) ??
+      transcriptCandidates[0];
+    if (parentPath) return parseTranscriptFn(parentPath);
+  }
+  return flatLines;
+}
+
+/**
+ * CLI-entrypoint convenience wrapper (PR #2175 R1 BLOCKING fix): resolves
+ * the parent-scoped transcript lines for a STANDALONE (non-dispatcher) hook
+ * invocation, given only the hook's own `transcriptPath` and optional
+ * `agentId` — no `DispatchContext`/`transcriptCandidates` is available in
+ * that mode, so a standalone `main()` previously called `parseTranscript`
+ * on the raw path alone and got NONE of `resolveParentTranscriptLines`'s
+ * contamination guarantee (the dispatcher `run()` path got it via `ctx`,
+ * the CLI path silently didn't — divergent, and a stale-turn-freeze risk
+ * whenever the CLI is invoked with a per-agent `transcriptPath`, or more
+ * generally against a session with dispatched subagents).
+ *
+ * Reconstructs the SAME candidate set the dispatcher resolves
+ * ({@link resolveTranscriptCandidates}), then applies
+ * {@link resolveParentTranscriptLines}'s parent-only scoping on top — so a
+ * standalone CLI invocation gets the identical guarantee as the dispatcher
+ * path from a single call.
+ *
+ * Only flattens (parses) every candidate when there is at most one — the
+ * common case, where `resolveParentTranscriptLines` trusts that flattened
+ * result as-is. When more than one candidate is resolved,
+ * `resolveParentTranscriptLines` always discards the flattened array in
+ * favor of re-parsing the parent alone, so eagerly parsing every subagent
+ * transcript first (only to throw the result away) would be pure wasted
+ * I/O — this passes `[]` in that branch instead.
+ */
+export function resolveParentTranscriptLinesForPath(
+  transcriptPath: string,
+  agentId: string | undefined,
+  parseTranscriptFn: (path: string) => TranscriptLine[] = parseTranscript
+): TranscriptLine[] {
+  const candidates = resolveTranscriptCandidates(transcriptPath, agentId);
+  const flatLines = candidates.length > 1 ? [] : candidates.flatMap((p) => parseTranscriptFn(p));
+  return resolveParentTranscriptLines(transcriptPath, candidates, flatLines, parseTranscriptFn);
+}
+
+// ---------------------------------------------------------------------------
+// Per-session dedupe-log primitives (mt#3003 — shared dedup helpers)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default bound on how much of a calibration log a dedupe check reads,
+ * regardless of how large the file grows over time — these logs have no
+ * rotation, so an unbounded read would grow with them (originally sized in
+ * wall-of-text-detector.ts, mt#3028 / PR #2165 R1 BLOCKING #2). 256 KiB is
+ * generously many hundreds of JSONL records at these logs' typical line
+ * size (~100-250 bytes) — comfortably more history than any realistic
+ * same-session dedupe window needs.
+ */
+export const DEFAULT_MAX_DEDUPE_READ_BYTES = 262144;
+
+/**
+ * Real on-disk read of (at most) the last `maxBytes` of `logPath`. Bounded
+ * per-invocation disk-I/O cost regardless of total log size; never throws —
+ * returns undefined on any read error or a missing file. Hoisted from
+ * wall-of-text-detector.ts's `readCalibrationLogText` (mt#3028) so any
+ * calibration-log-backed dedupe check (silent-stretch-detector.ts included,
+ * mt#3003) gets the identical bounded-read guarantee without
+ * re-implementing the byte-offset seek.
+ */
+export function readLogTailText(
+  logPath: string,
+  maxBytes: number = DEFAULT_MAX_DEDUPE_READ_BYTES
+): string | undefined {
+  try {
+    if (!existsSync(logPath)) return undefined;
+    const size = statSync(logPath).size;
+    if (size <= maxBytes) {
+      return readFileSync(logPath, "utf-8");
+    }
+    const fd = openSync(logPath, "r");
+    try {
+      const buf = Buffer.alloc(maxBytes);
+      readSync(fd, buf, 0, maxBytes, size - maxBytes);
+      return buf.toString("utf-8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * True iff `sessionId` has a calibration record in `logText` (raw JSONL
+ * contents, or a bounded TAIL of it — see {@link readLogTailText}) whose
+ * `keyField` property equals `keyValue`. Scans EVERY record for this
+ * session, not just the most recent one — an A -> B -> A sequence must
+ * still dedupe the repeat A even though B is the most recent record for the
+ * session (wall-of-text-detector.ts mt#3028 / PR #2165 R1 BLOCKING #1).
+ * Generalized from that file's `sessionHasLoggedHash` (which always
+ * compared a fixed `"textHash"` field) to an arbitrary `keyField` so a
+ * detector can dedupe on whatever notion of "unchanged" fits its own
+ * measurement — a content hash (wall-of-text) or a turn-boundary anchor
+ * (silent-stretch-detector.ts, mt#3003 — see its `buildTurnAnchor`). Pure —
+ * operates on a string, not a file path, so tests exercise it with an
+ * in-memory fixture (`custom/no-real-fs-in-tests`).
+ */
+export function sessionHasLoggedKey(
+  logText: string | undefined,
+  sessionId: string | undefined,
+  keyField: string,
+  keyValue: string
+): boolean {
+  if (!logText || !sessionId) return false;
+  for (const raw of logText.split("\n")) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    let rec: Record<string, unknown>;
+    try {
+      rec = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (rec["session_id"] === sessionId && rec[keyField] === keyValue) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------

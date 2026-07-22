@@ -8,6 +8,7 @@
  * Takes the task ID from a URL param passed by the parent page component.
  */
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { Play } from "lucide-react";
 import { Button } from "../components/ui/button";
@@ -18,6 +19,7 @@ import { Prose } from "../components/Prose";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { useStartDrivenSession } from "../hooks/useStartDrivenSession";
 import { statusStyle } from "../lib/status-colors";
+import { DISPATCH_MODELS, DEFAULT_DISPATCH_MODEL_ID } from "../lib/dispatch-models";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the /api/tasks/:id response shape
@@ -253,6 +255,11 @@ function LaunchActionButton({
   note?: string;
 }) {
   const start = useStartDrivenSession();
+  // mt#3040: the principal picks the model the driven session runs on.
+  // Defaulted (Sonnet) with a visible override — the override IS the point (a
+  // principal who can see a task needs Fable now has a channel), so it must not
+  // force a per-launch choice (the approval-fatigue anti-pattern, mt#2880).
+  const [modelId, setModelId] = useState(DEFAULT_DISPATCH_MODEL_ID);
 
   return (
     <span className="flex items-center gap-2">
@@ -266,9 +273,23 @@ function LaunchActionButton({
           {note}
         </span>
       )}
+      <select
+        value={modelId}
+        onChange={(e) => setModelId(e.target.value)}
+        disabled={start.isPending}
+        className="h-7 text-xs bg-muted border border-border rounded px-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+        aria-label={`Model for ${label.toLowerCase()}`}
+        title="Model the driven session runs on"
+      >
+        {DISPATCH_MODELS.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.label}
+          </option>
+        ))}
+      </select>
       <Button
         size="sm"
-        onClick={() => start.mutate({ taskId, composePrefill })}
+        onClick={() => start.mutate({ taskId, composePrefill, model: modelId })}
         disabled={start.isPending}
         className="h-7 px-2.5 text-xs"
         aria-label={ariaLabel}

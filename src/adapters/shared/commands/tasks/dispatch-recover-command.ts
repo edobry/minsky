@@ -35,6 +35,14 @@
  * A healthy (not-yet-stale) in-flight dispatch is left untouched — see
  * `status: "healthy"` below (the false-positive-kill acceptance test).
  *
+ * When the tracker itself is unavailable (mt#3017) — no persistence
+ * configured, or the DB connection did not resolve within
+ * `registry-setup.ts`'s bounded init timeout — this command does NOT return
+ * a bare error. It degrades to `status: "tracker-unavailable"` plus a
+ * `manualFallback` block naming the concrete git/gh commands an operator can
+ * run by hand to reach the SAME classification the automated path would
+ * have computed (see `buildTrackerUnavailableResponse`).
+ *
  * ### Covers
  * - API drops mid-dispatch (the dispatch goes silent with no further commits).
  * - Watchdog stalls (>= the stale window with no commit activity).
@@ -243,10 +251,127 @@ export function promptTypeForRecovery(
   return mapped === "refactor" || mapped === "cleanup" ? mapped : "implementation";
 }
 
+/**
+ * Structured guidance for the manual state-capture an operator/orchestrator
+ * can run when the tracker is unavailable and automated classification
+ * cannot proceed (mt#3017 SC3). Mirrors the exact commands
+ * `createRealDispatchRecoveryGitOps` runs and the exact decision table
+ * `classifyDispatchRecoveryState` (`packages/domain/src/session/
+ * dispatch-recovery-classifier.ts`) applies, so a human following these
+ * steps arrives at the SAME classification the automated path would have
+ * computed.
+ */
+export interface DispatchRecoveryManualFallback {
+  message: string;
+  steps: string[];
+  classificationGuide: string;
+  retryGuidance: string;
+}
+
+/**
+ * The SC3 degraded-response shape for a genuinely-unavailable tracker
+ * (mt#3017). Exported as a named type — rather than left inline on
+ * `buildTrackerUnavailableResponse`'s return signature — so a caller that
+ * parses `tasks.dispatch-recover` results can narrow on the
+ * `status: "tracker-unavailable"` discriminant against a stable contract
+ * (mt#3017 R1 NON-BLOCKING #2). Not (yet) folded into a full discriminated
+ * union across every `status` value this command can return
+ * (`healthy` / `recover` / `escalate` / `not-in-flight` / `no-dispatch` /
+ * `tracker-unavailable`) — that broader typing pass is out of scope for
+ * this fix, which only introduces the new shape.
+ */
+export interface DispatchRecoveryTrackerUnavailableResult {
+  success: false;
+  status: "tracker-unavailable";
+  error: string;
+  taskId: string;
+  sessionId: string | null;
+  sessionDir: string | null;
+  manualFallback: DispatchRecoveryManualFallback;
+}
+
+/**
+ * Build the SC3 degraded response for a genuinely-unavailable tracker
+ * (mt#3017). Distinct from a bare `{ success: false, error }` — names
+ * concrete manual fallback steps so an operator isn't stuck when the
+ * automated recovery path can't run.
+ *
+ * Best-effort resolves the session workspace via the SESSION provider (an
+ * independent lookup path from the tracker — `getSessionByTaskId`), so the
+ * guidance can point at a concrete session/workspace when available instead
+ * of only generic instructions.
+ */
+export async function buildTrackerUnavailableResponse(
+  taskId: string,
+  getSessionProvider: () => Promise<SessionProviderInterface>
+): Promise<DispatchRecoveryTrackerUnavailableResult> {
+  let fallbackSessionId: string | null = null;
+  let fallbackSessionDir: string | null = null;
+  try {
+    const sessionProvider = await getSessionProvider();
+    const sessionRecord = await sessionProvider.getSessionByTaskId(taskId);
+    if (sessionRecord) {
+      fallbackSessionId = sessionRecord.sessionId;
+      fallbackSessionDir = await resolveSessionDirectory(sessionRecord.sessionId, sessionProvider);
+    }
+  } catch {
+    // Best-effort — the session provider is a separate dependency from the
+    // tracker; a failure here just means the guidance falls back to fully
+    // generic instructions below rather than naming a concrete workspace.
+  }
+
+  const workspaceHint = fallbackSessionDir
+    ? `the session workspace at ${fallbackSessionDir}`
+    : `the session workspace (resolve it via session_get(task: "${taskId}") or session_list first)`;
+
+  return {
+    success: false,
+    status: "tracker-unavailable" as const,
+    error: "Subagent dispatch tracker unavailable — cannot look up invocation history.",
+    taskId,
+    sessionId: fallbackSessionId,
+    sessionDir: fallbackSessionDir,
+    manualFallback: {
+      message:
+        `Automatic recovery cannot run: the subagent dispatch tracker could not be reached ` +
+        `(no persistence configured, or the server's tracker-initialization timeout was hit). ` +
+        `To manually assess ${taskId}'s dispatch, inspect ${workspaceHint} and run:`,
+      steps: [
+        "git status --porcelain=v1  (any staged/unstaged/untracked entries = a dirty tree)",
+        "git log -1 --format=%ct  (timestamp of the last commit; compare to now for staleness)",
+        ".minsky/sessions/<sessionId>/handoff.md  (does a handoff note already exist?)",
+        "git rev-list --count origin/<base-branch>..HEAD  (commits ahead of base = unmerged work landed)",
+        "gh pr view  (if a PR was opened: is it still open, and what's the latest review state?)",
+      ],
+      classificationGuide:
+        "dirty tree + handoff.md present -> partial-committed-handoff-written; " +
+        "dirty tree, no handoff.md -> partial-uncommitted-no-handoff (the class most likely to " +
+        "need attention — stranded work with no note); " +
+        "clean tree, commits ahead of base -> committed-no-pr (drive an already-open PR to " +
+        "convergence, or create one if none exists); " +
+        "clean tree, no commits ahead -> crashed-no-output (nothing was produced; redispatch fresh).",
+      retryGuidance:
+        "Retry tasks.dispatch-recover shortly — the tracker retries its DB connection on every " +
+        "call and typically becomes available within seconds of a server restart.",
+    },
+  };
+}
+
 export function createTasksDispatchRecoverCommand(
   getSessionProvider: () => Promise<SessionProviderInterface>,
   getTaskService: () => TaskServiceInterface,
-  getTracker: () => SubagentDispatchTracker | null,
+  /**
+   * Async (mt#3017) — `registry-setup.ts`'s `getTracker` AWAITS an in-flight
+   * DB-connection resolution (bounded by a timeout) rather than returning
+   * null immediately on every call that races the async init. This closes
+   * the root-cause race that produced "Subagent dispatch tracker
+   * unavailable" on the very first call after a process restart even though
+   * the DB was healthy. A `null` return here now means the tracker is
+   * GENUINELY unavailable (no persistence configured, or the DB connection
+   * did not resolve within the timeout) — see the `tracker-unavailable`
+   * degraded-response branch below for what the caller gets in that case.
+   */
+  getTracker: () => Promise<SubagentDispatchTracker | null>,
   deps: {
     gitOps?: DispatchRecoveryGitOps;
     now?: () => Date;
@@ -266,7 +391,9 @@ export function createTasksDispatchRecoverCommand(
       "continuation prompt. Does NOT dispatch anything — the caller must redispatch the " +
       "returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched " +
       '(returns status: "healthy"). Refuses a 3rd attempt for the same dispatch chain ' +
-      '(returns status: "escalate").',
+      '(returns status: "escalate"). If the dispatch tracker itself is unavailable, degrades ' +
+      "to actionable manual-recovery guidance instead of a bare error " +
+      '(returns status: "tracker-unavailable").',
     parameters: tasksDispatchRecoverParams,
     execute: async (params: InferParams<typeof tasksDispatchRecoverParams>) => {
       const { normalizeTaskIdInput } = await import("@minsky/domain/tasks/commands/shared-helpers");
@@ -296,13 +423,19 @@ export function createTasksDispatchRecoverCommand(
         };
       }
 
-      const tracker = getTracker();
+      const tracker = await getTracker();
       if (!tracker) {
-        return {
-          success: false,
-          error: "Subagent dispatch tracker unavailable — cannot look up invocation history.",
-          taskId,
-        };
+        // Internal wiring detail (which factory, which timeout) belongs in the
+        // DEBUG log, not the operator-facing manualFallback text (mt#3017 R1
+        // NON-BLOCKING #1) — see registry-setup.ts's getTracker for the
+        // memoized-promise + bounded-timeout implementation this traces to.
+        log.debug(
+          "[tasks.dispatch-recover] getTracker() returned null — degrading to manual fallback",
+          {
+            taskId,
+          }
+        );
+        return await buildTrackerUnavailableResponse(taskId, getSessionProvider);
       }
 
       const latest = await tracker.getLatestInvocationForTask(taskId);

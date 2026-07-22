@@ -156,6 +156,17 @@ describe("startDrivenSession — spawns with the documented flags", () => {
     expect(buildDrivenSessionArgs("default")).not.toContain(SKIP_PERMISSIONS_FLAG);
   });
 
+  test("buildDrivenSessionArgs appends --model <alias> when a model is provided (mt#3040)", () => {
+    const args = buildDrivenSessionArgs("default", "fable");
+    const i = args.indexOf("--model");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(args[i + 1]).toBe("fable");
+  });
+
+  test("buildDrivenSessionArgs omits --model when no model is provided (mt#3040)", () => {
+    expect(buildDrivenSessionArgs("default")).not.toContain("--model");
+  });
+
   test("a custom command override is honored (test seam)", () => {
     const { spawnFn, calls } = makeFakeSpawnFn();
     startDrivenSession({ cwd: "/tmp/x", command: "/fake/bin/claude", spawnFn });

@@ -148,6 +148,7 @@ const SYMBOL_STOPLIST: ReadonlySet<string> = new Set([
   "github",
   "gitlab",
   "postgresql",
+  "postgres",
   "stdin",
   "stdout",
   "stderr",
@@ -183,6 +184,36 @@ const FILE_EXTENSION_RE = /\.(?:md|mdc|json|ya?ml|txt)$/i;
  */
 const HEX_ID_RE = /^[0-9a-f]{8,40}$/i;
 
+/**
+ * UPPERCASE-exact SQL/DDL keyword exclusion (mt#3042). A migration/DDL
+ * discussion in prose ("`ALTER` ... `DROP` ... `CREATE`") extracts SQL
+ * keywords as backticked "symbols" near the `drops?` predicate — the
+ * 2026-07-21T16:12Z calibration record (the ask#5343 review's tokenizer-noise
+ * FP class) logged `ALTER`/`DROP`/`CREATE` claims with predicate "DROP".
+ * SQL DDL in prose is conventionally UPPERCASE, while genuine all-caps code
+ * identifiers are MULTI_WORD_SNAKE (`MINSKY_SKIP_SIZE_JUSTIFICATION`), so an
+ * UPPERCASE-exact match closes the observed class with minimal recall risk;
+ * lowercase same-spelled identifiers (`create`, `drop`, `update` — real
+ * method names) still count as symbols. Predicates are deliberately NOT
+ * touched: `drops?` also matches genuine "X drops Y" behavioral claims.
+ */
+const SQL_KEYWORDS_UPPER: ReadonlySet<string> = new Set([
+  "DROP",
+  "CREATE",
+  "ALTER",
+  "SELECT",
+  "INSERT",
+  "UPDATE",
+  "DELETE",
+  "TABLE",
+  "INDEX",
+  "GRANT",
+  "REVOKE",
+  "TRUNCATE",
+  "CASCADE",
+  "CONSTRAINT",
+]);
+
 function isPlausibleSymbol(tok: string): boolean {
   const t = tok.trim();
   if (t.length < 3) return false;
@@ -190,6 +221,7 @@ function isPlausibleSymbol(tok: string): boolean {
   if (!/[A-Za-z]/.test(t)) return false;
   if (FILE_EXTENSION_RE.test(t)) return false;
   if (HEX_ID_RE.test(t)) return false;
+  if (SQL_KEYWORDS_UPPER.has(t)) return false;
   return true;
 }
 

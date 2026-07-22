@@ -139,7 +139,7 @@ export const CLAUDE_BINARY = "claude";
  * output; `--verbose` for the full event stream; `--include-partial-messages`
  * for token deltas (`stream_event`).
  */
-export function buildDrivenSessionArgs(permissionMode: PermissionMode): string[] {
+export function buildDrivenSessionArgs(permissionMode: PermissionMode, model?: string): string[] {
   return [
     "-p",
     "--input-format",
@@ -148,6 +148,9 @@ export function buildDrivenSessionArgs(permissionMode: PermissionMode): string[]
     "stream-json",
     "--verbose",
     "--include-partial-messages",
+    // mt#3040: principal-selected model (a resolved dispatch alias, e.g. "fable").
+    // Omitted → the genuine claude binary resolves its own default.
+    ...(model ? ["--model", model] : []),
     ...permissionModeArgs(permissionMode),
   ];
 }
@@ -607,6 +610,13 @@ export interface StartDrivenSessionOptions {
   /** Workspace-session binding recorded on the record (mt#2752) — opaque to this module. */
   minskySessionId?: string | null;
   /**
+   * The `--model` argument for the spawned binary (a resolved dispatch alias,
+   * e.g. "fable"; mt#3040). When set, appended to the spawn argv so the genuine
+   * `claude` binary runs on the principal-selected model. Omitted → the CLI's
+   * own default resolution (pre-mt#3040 behavior).
+   */
+  model?: string;
+  /**
    * Observer invoked once, when the child's `system/init` event links the
    * harness session id (mt#2752 spawn-time identity registration). The
    * CALLER owns any domain-side effect (e.g. the `driven_spawn` link write
@@ -674,7 +684,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
   const command = opts.command ?? CLAUDE_BINARY;
   const spawnFn = opts.spawnFn ?? prodSpawnFn;
   const registry = opts.registry ?? drivenSessionRegistry;
-  const argv = buildDrivenSessionArgs(permissionMode);
+  const argv = buildDrivenSessionArgs(permissionMode, opts.model);
 
   log.info(
     `[driven-session] spawning ${command} ${argv.join(" ")} ` +

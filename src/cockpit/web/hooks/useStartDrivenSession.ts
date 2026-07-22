@@ -26,6 +26,15 @@ export interface StartDrivenSessionInput {
   /** Explicit-directory launch. Omit BOTH fields for a scratch session. */
   cwd?: string;
   /**
+   * Principal-selected dispatch model id (mt#3040), e.g. "fable". Sent to the
+   * server, which validates it against the dispatch-model registry and threads
+   * the resolved `--model` alias into the spawned claude binary. Omitted → the
+   * CLI's default model resolution. Unlike `composePrefill` (client-only), this
+   * IS sent to the server (it survives the `composePrefill`-stripping spread in
+   * `postDrivenSession`).
+   */
+  model?: string;
+  /**
    * Client-side only (mt#2986): pre-fill the driven-session composer with this
    * text after landing on /driven/:id (e.g. "/plan-task mt#X" for the plan
    * action). Never sent to the server; never auto-submitted — the operator
