@@ -642,18 +642,35 @@ export async function sessionCommit(
         },
         resolveRefSha: async (dir, ref) => {
           try {
-            // Defense-in-depth (PR #963 R2 BLOCKING #1): `--` separator
-            // prevents git from interpreting `ref` as an option even if
-            // a future regex regression were to admit a leading-`-`
-            // value. SAFE_REF_RE already forbids leading `-`; this
-            // keeps the call safe under any validator drift.
+            // Defense-in-depth (PR #963 R2 BLOCKING #1, corrected mt#3049):
+            // `--verify --end-of-options` prevents git from interpreting
+            // `ref` as an option even if a future regex regression were to
+            // admit a leading-`-` value (SAFE_REF_RE already forbids
+            // leading `-`; this keeps the call safe under any validator
+            // drift), WITHOUT the bug the original `--` separator had:
+            // `git rev-parse -- <ref>` treats `--`-terminated arguments as
+            // PATHSPECS, not revisions, so it never actually resolved `ref`
+            // to a SHA — it echoed the literal string back, which always
+            // failed the SHA regex below and made `resolveRefSha` return
+            // `null` on every call. `checkFreshnessCas` (freshness-marker.ts)
+            // treats a `null` resolution as `bypass: "ref-unresolvable"` —
+            // meaning the mt#1522 branch-freshness CAS check was silently
+            // bypassing on every single session_commit push since it
+            // shipped. `--end-of-options` (git >=2.24) blocks a leading-`-`
+            // string from being parsed as an option WITHOUT the pathspec
+            // reinterpretation `--` causes, verified empirically (git
+            // 2.49): `git rev-parse --verify --end-of-options origin/main`
+            // resolves to a real SHA; `git rev-parse --verify
+            // --end-of-options -- <ref>` (both together) or `-1` /
+            // `--upload-pack=x` as `ref` all still fail cleanly with "fatal:
+            // Needed a single revision" (exit 128), not option injection.
             // mt#1742 R1: wrap `ref` with safeShellQuote rather than relying on
             // the doc-asserted SAFE_REF_RE validation at this call site. Same
             // shell-safety class as the commit-message fix; consistency at
             // every interpolation in this file's git templates.
             const out = await casGitService.execInRepository(
               dir,
-              `git rev-parse -- ${safeShellQuote(ref)}`
+              `git rev-parse --verify --end-of-options ${safeShellQuote(ref)}`
             );
             const sha = out.trim();
             return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
@@ -851,9 +868,21 @@ async function collectCommitMetadata(
   let authorEmail: string | undefined;
   let timestamp: string | undefined;
   try {
+    // mt#3049: the format string MUST be quoted. `execInRepository` shells
+    // out via `/bin/sh -c` (Node's `child_process.exec` under
+    // `@minsky/shared/exec`'s `execAsync`), so an UNQUOTED `|` in the
+    // command string is interpreted as an actual shell pipe, not passed
+    // through to git — verified empirically: the unquoted form always threw
+    // ("%s: command not found", etc.), meaning this whole try block has been
+    // silently failing on EVERY session_commit call (caught below, logged at
+    // debug level, degrading shortHash/subject/authorName/authorEmail/
+    // timestamp to undefined) since it shipped. No prior test asserted these
+    // fields were populated, so the failure was invisible. Single-quoting is
+    // safe here because the format string is a static literal, not
+    // user-controlled input.
     const pretty = await gitService.execInRepository(
       workdir,
-      "git log -1 --pretty=format:%h|%s|%an|%ae|%aI"
+      "git log -1 --pretty=format:'%h|%s|%an|%ae|%aI'"
     );
     const parts = pretty.trim().split("|");
     if (parts.length >= 5) {
@@ -1010,10 +1039,14 @@ async function tryResumePendingPush(
 
   let remoteSha: string | null = null;
   try {
+    // `--verify --end-of-options`, NOT a trailing `--` — see the identical
+    // fix + full explanation on the CAS check's `resolveRefSha` above in
+    // this file: `git rev-parse -- <ref>` treats `--`-terminated arguments
+    // as pathspecs and never actually resolves the ref to a SHA.
     remoteSha = (
       await gitService.execInRepository(
         workdir,
-        `git rev-parse -- ${safeShellQuote(`origin/${branch}`)}`
+        `git rev-parse --verify --end-of-options ${safeShellQuote(`origin/${branch}`)}`
       )
     ).trim();
   } catch {
@@ -1061,7 +1094,15 @@ async function tryResumePendingPush(
     success: true,
     nothingToCommit: true,
     resumedPush: true,
-    commitHash: headSha,
+    // mt#3049: `commitHash` matches the SHORT-hash convention every other
+    // sessionCommit return path uses (`commitResult.commitHash`, parsed from
+    // `git commit`'s own stdout banner, is short — see extractCommitHash in
+    // git-with-deps.ts). `metadata.shortHash` (from `git log -1 --format=%h`)
+    // is the same short form for this pre-existing HEAD commit; `headSha`
+    // (full 40-char, used above for the actual origin-vs-HEAD comparison,
+    // which wants the unambiguous full form) is the fallback only if
+    // metadata collection somehow failed to read it.
+    commitHash: metadata.shortHash ?? headSha,
     ...metadata,
     message: pushed
       ? "Nothing new to commit; completed a previously pending push"
