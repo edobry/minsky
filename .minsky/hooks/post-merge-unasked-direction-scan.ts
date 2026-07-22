@@ -21,9 +21,15 @@
 // @see mt#1574 — shared Detector core (consumes signalToAskIntent)
 // @see docs/research/mt1035-system3-detector.md §Surface 4
 // @see .claude/hooks/post-merge-pull.ts — sibling hook on the same matcher
+// @see mt#3046 — the missing domain bootstrap that made `loadTranscript` below
+//      always return null (found by the lint rule this task ships)
 
 import { readInput, findRepoRoot } from "./types";
 import type { ToolHookInput } from "./types";
+// mt#3046: STATIC — installs the tsyringe reflect polyfill before any domain
+// module loads. `loadTranscript`'s dynamic persistence import needs it, and a
+// dynamic import cannot install it retroactively.
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 
 import { UnaskedDirectionAnalyzer } from "../../packages/domain/src/detectors/unasked-direction-analyzer";
 import { writeFindings } from "../../packages/domain/src/detectors/unasked-direction-store";
@@ -103,9 +109,32 @@ function isObject(v: unknown): v is Record<string, unknown> {
  *
  * Returns `null` if the transcript can't be loaded for any reason — DB
  * unavailable, no row, parse failure. Hook treats `null` as a no-op.
+ *
+ * mt#3046: this returned null on EVERY invocation from the day it shipped
+ * until that task. The dynamic import below throws `tsyringe requires a
+ * reflect polyfill` in a bare hook process, the `catch` swallowed it, and the
+ * no-op branch made a permanently-dead scan indistinguishable from "this
+ * session had no transcript." Unlike mt#3019's instance there was no DB-row
+ * evidence to notice, because the findings file was simply never written. The
+ * bootstrap call below is what makes the rest of this function reachable.
+ *
+ * Exported for verification (mt#3046) — the fix's whole claim is that THIS
+ * function now returns a transcript, so the check has to call this function
+ * rather than a re-implementation of its import sequence. Same convention as
+ * `resolveMetricsTranscriptPath` in `record-subagent-invocation.ts`.
  */
-async function loadTranscript(sessionId: string): Promise<TranscriptMessage[] | null> {
+export async function loadTranscript(sessionId: string): Promise<TranscriptMessage[] | null> {
   try {
+    const bootstrap = await ensureHookDomainBootstrap();
+    if (!bootstrap.ok) {
+      // Surfaced rather than swallowed: a bootstrap failure is a defect in
+      // this hook's own setup, not a legitimately absent transcript.
+      process.stderr.write(
+        `[post-merge-unasked-direction-scan] warn: domain bootstrap failed: ${bootstrap.error}\n`
+      );
+      return null;
+    }
+
     const { resolvePersistenceProvider } = await import(
       "../../packages/domain/src/persistence/factory"
     );
