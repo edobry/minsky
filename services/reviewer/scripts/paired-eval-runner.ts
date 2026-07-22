@@ -469,7 +469,10 @@ function mean(values: readonly number[]): number {
 // runAttempts prompt construction exactly).
 // ---------------------------------------------------------------------------
 
-function resolveProviderApiKey(provider: Provider): string | undefined {
+/** Exported (PR #2151 R1): `run-judge-pass.ts` reuses this per-provider key
+ * resolution rather than duplicating it — see that script's provider-gating
+ * logic. */
+export function resolveProviderApiKey(provider: Provider): string | undefined {
   switch (provider) {
     case "openai":
       return process.env.OPENAI_API_KEY;
@@ -650,9 +653,19 @@ async function main() {
     process.exit(0);
   }
 
-  if (!process.env.OPENAI_API_KEY) {
+  // Gate on a per-PROVIDER basis, not a blanket OPENAI_API_KEY requirement:
+  // a Google-only or Anthropic-only --model list should not be blocked by an
+  // unset OpenAI key. The per-config loop below independently SKIPs any
+  // individual config whose provider key is missing; this top-level check
+  // only short-circuits the whole run when NONE of the requested configs
+  // are runnable at all (nothing useful to do otherwise).
+  const runnableModels = args.models.filter((m) => resolveProviderApiKey(m.provider) !== undefined);
+  if (runnableModels.length === 0) {
+    const requestedProviders = [...new Set(args.models.map((m) => m.provider))];
     console.log(
-      "\nSKIP: OPENAI_API_KEY not set. Live paired-eval run requires at least an OpenAI-backed config."
+      `\nSKIP: no API key configured for any requested provider (${requestedProviders.join(", ")}). ` +
+        "Live paired-eval run requires at least one of OPENAI_API_KEY / GOOGLE_AI_API_KEY / ANTHROPIC_API_KEY " +
+        "matching a --model provider."
     );
     console.log("HINT: re-run with --dry-run to validate wiring without API calls.");
     process.exit(0);

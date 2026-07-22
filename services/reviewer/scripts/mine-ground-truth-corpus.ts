@@ -38,8 +38,10 @@
  * under `services/reviewer/eval/cache/diffs/<baseSha>_<headSha>.json`, keyed
  * by the SHA pair, to avoid refetching the same diff across findings/PRs
  * (documented cache dir, not a scratch artifact — safe to delete and
- * re-populate, but intentionally NOT gitignored-as-ephemeral so repeat local
- * runs stay cheap).
+ * re-populate; it IS gitignored via `services/reviewer/eval/cache/` in
+ * `.gitignore` — regenerable local data, so large caches never get
+ * committed — but repeat local runs still stay cheap because deleting the
+ * ignored directory only forces a one-time refetch, not a permanent loss).
  */
 
 import { Octokit } from "@octokit/rest";
