@@ -34,6 +34,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { getStateDir, atomicWriteJSON } from "./lifecycle";
 import { log } from "@minsky/shared/logger";
+import { ProdStateSweepTracker } from "./prod-state-sweep-tracker";
 
 /**
  * Cache filename under the Minsky state dir. The CONSUMER hook
@@ -75,6 +76,10 @@ export interface UnsafeSql {
  * Read the prod migration ledger into a snapshot. Pure w.r.t. the injected `sql` — unit
  * tests pass a stub. Returns null when the ledger is unreadable (table absent, permission,
  * transient) so callers fail-open rather than writing a bogus cache.
+ *
+ * mt#3039: the query failure is logged at WARN here — previously this catch was completely
+ * silent (no log at any level), which was part of why a persistent post-boot read failure
+ * produced zero operator-visible signal for 6.4 hours.
  */
 export async function buildProdStateSnapshot(sql: UnsafeSql): Promise<ProdStateSnapshot | null> {
   try {
@@ -93,7 +98,10 @@ export async function buildProdStateSnapshot(sql: UnsafeSql): Promise<ProdStateS
       latestAppliedAtMs:
         latestAppliedAtMs !== null && Number.isFinite(latestAppliedAtMs) ? latestAppliedAtMs : null,
     };
-  } catch {
+  } catch (err) {
+    log.warn("prod-state-cache: ledger query failed", {
+      message: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }
@@ -128,20 +136,40 @@ export function writeProdStateCache(
  * unreadable ledger logs and returns false without touching the cache (so a transient DB
  * outage leaves the last-good snapshot in place rather than blanking it). `nowIso` is
  * injected for determinism.
+ *
+ * mt#3039: every call is recorded into {@link ProdStateSweepTracker} — success or failure —
+ * independent of the enclosing sweep tick's own success/failure bookkeeping
+ * (`createIntervalSweeper` in sweepers.ts). This is deliberate: the sweep tick's own
+ * try/catch never sees a throw from this function (it fails open by returning `false`), so
+ * without this tracker a persistent domain-level failure here is invisible to both the
+ * interval-liveness registry (`/api/sweeps`) and `/api/health` — exactly the gap that let a
+ * 6.4-hour stall go undetected. The two failure paths also now log at WARN (previously
+ * `log.debug`, invisible at the daemon's default log level) so the failure is visible via the
+ * log surface even before a caller reads `/api/health`.
  */
 export async function refreshProdStateCache(
   sql: UnsafeSql | null | undefined,
   nowIso: string,
   cachePath?: string
 ): Promise<boolean> {
+  const tracker = ProdStateSweepTracker.getInstance();
+  tracker.recordRun();
   if (!sql) {
-    log.debug("prod-state-cache: no raw-SQL connection available; skipping refresh");
+    log.warn("prod-state-cache: no raw-SQL connection available; skipping refresh");
+    tracker.recordFailure();
     return false;
   }
   const snapshot = await buildProdStateSnapshot(sql);
   if (!snapshot) {
-    log.debug("prod-state-cache: ledger unreadable; leaving last-good cache in place");
+    log.warn("prod-state-cache: ledger unreadable; leaving last-good cache in place");
+    tracker.recordFailure();
     return false;
   }
-  return writeProdStateCache(snapshot, nowIso, cachePath);
+  const wrote = writeProdStateCache(snapshot, nowIso, cachePath);
+  if (wrote) {
+    tracker.recordSuccess();
+  } else {
+    tracker.recordFailure();
+  }
+  return wrote;
 }

@@ -23,6 +23,7 @@ import { execSync } from "child_process";
 import { TranscriptWatcherTracker } from "../transcript-watcher-tracker";
 import { TranscriptSweepTracker } from "../transcript-sweep-tracker";
 import { DispatchWatchdogSweepTracker } from "../dispatch-watchdog";
+import { ProdStateSweepTracker } from "../prod-state-sweep-tracker";
 import { getDbStatus } from "../shared-persistence";
 import type { WidgetModule } from "../types";
 
@@ -102,6 +103,12 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
     // Dispatch-watchdog sweep observability (mt#2646 R1 non-blocking #2):
     // same in-process-singleton shape as the transcript sweep tracker above.
     const dispatchWatchdogSweepTracker = DispatchWatchdogSweepTracker.getInstance();
+    // Prod-state sweep observability (mt#3039): same in-process-singleton
+    // shape as the trackers above. Distinguishes "the sweep's DOMAIN work
+    // (the cache write) is actually succeeding" from "the interval is still
+    // attempting ticks" (`/api/sweeps`) — the mt#3039 incident showed these
+    // two can diverge for hours with no other visible signal.
+    const prodStateSweepTracker = ProdStateSweepTracker.getInstance();
 
     // mt#2578 watchdog TS slice: update the consecutive-degraded counter.
     // "ok" resets; anything else (degraded, unreachable, or unexpected) increments.
@@ -135,6 +142,7 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       },
       transcriptSweep: sweepTracker.getSummary(),
       dispatchWatchdogSweep: dispatchWatchdogSweepTracker.getSummary(),
+      prodStateSweep: prodStateSweepTracker.getSummary(),
     });
   });
 
