@@ -19,7 +19,7 @@ describe("parseFindingsFromBody", () => {
   test("parses single BLOCKING finding with file and line", () => {
     const body = "**[BLOCKING]** src/foo.ts:42 — bad thing";
     expect(parseFindingsFromBody(body)).toEqual([
-      { file: "src/foo.ts", severity: "BLOCKING", line: 42 },
+      { file: "src/foo.ts", severity: "BLOCKING", line: 42, text: "bad thing" },
     ]);
   });
 
@@ -33,7 +33,19 @@ describe("parseFindingsFromBody", () => {
 
   test("parses finding without line number", () => {
     const body = "**[BLOCKING]** src/foo.ts — broad concern";
-    expect(parseFindingsFromBody(body)).toEqual([{ file: "src/foo.ts", severity: "BLOCKING" }]);
+    expect(parseFindingsFromBody(body)).toEqual([
+      { file: "src/foo.ts", severity: "BLOCKING", text: "broad concern" },
+    ]);
+  });
+
+  test("leaves text undefined for colon-only citation with no trailing prose (mt#2726)", () => {
+    // Branch B (colon-then-required-line) has no dash separator to capture
+    // prose from — this pins the "existing single-line findings with no
+    // prose leave text undefined" contract from the mt#2726 spec.
+    const body = "[BLOCKING] src/foo.ts:42";
+    const findings = parseFindingsFromBody(body);
+    expect(findings).toEqual([{ file: "src/foo.ts", severity: "BLOCKING", line: 42 }]);
+    expect(findings[0]).not.toHaveProperty("text");
   });
 
   test("parses multiple findings across multi-line body", () => {
@@ -56,7 +68,7 @@ describe("parseFindingsFromBody", () => {
   test("case-insensitive severity matching", () => {
     const body = "**[blocking]** src/foo.ts:1 — case test";
     expect(parseFindingsFromBody(body)).toEqual([
-      { file: "src/foo.ts", severity: "BLOCKING", line: 1 },
+      { file: "src/foo.ts", severity: "BLOCKING", line: 1, text: "case test" },
     ]);
   });
 
@@ -83,14 +95,22 @@ describe("parseFindingsFromBody", () => {
     const body = "[BLOCKING] src/foo.ts:171-176 — broad concern over multiple lines";
     const findings = parseFindingsFromBody(body);
     expect(findings).toEqual([
-      { file: "src/foo.ts", severity: "BLOCKING", line: 171, lineEnd: 176 },
+      {
+        file: "src/foo.ts",
+        severity: "BLOCKING",
+        line: 171,
+        lineEnd: 176,
+        text: "broad concern over multiple lines",
+      },
     ]);
   });
 
   test("single-line citations omit lineEnd (PR #920 R1#2)", () => {
     const body = "[BLOCKING] src/foo.ts:42 — single-line concern";
     const findings = parseFindingsFromBody(body);
-    expect(findings).toEqual([{ file: "src/foo.ts", severity: "BLOCKING", line: 42 }]);
+    expect(findings).toEqual([
+      { file: "src/foo.ts", severity: "BLOCKING", line: 42, text: "single-line concern" },
+    ]);
     // Explicit assertion that lineEnd is absent (not just undefined-via-spread).
     expect(findings[0]).not.toHaveProperty("lineEnd");
   });
@@ -136,7 +156,7 @@ describe("parseFindingsFromBody", () => {
   test("parses en-dash separator (PR #920 R2)", () => {
     const body = "[BLOCKING] src/foo.ts:42 – en-dash variant";
     expect(parseFindingsFromBody(body)).toEqual([
-      { file: "src/foo.ts", severity: "BLOCKING", line: 42 },
+      { file: "src/foo.ts", severity: "BLOCKING", line: 42, text: "en-dash variant" },
     ]);
   });
 
@@ -150,6 +170,7 @@ describe("parseFindingsFromBody", () => {
         file: "services/reviewer/src/task-spec-fetch.ts",
         severity: "BLOCKING",
         line: 42,
+        text: "broken",
       },
     ]);
   });

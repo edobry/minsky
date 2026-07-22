@@ -37,6 +37,13 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # caches
 .eslintcache
 .cache
+
+# mt#2726: reviewer benchmark diff cache (fetched GitHub diffs; regenerable, not committed)
+services/reviewer/eval/cache/
+# mt#2726: paired-eval-runner.ts / run-judge-pass.ts run outputs (regenerable
+# comparative JSON artifacts, non-clobbering timestamped filenames — not
+# committed, same rationale as the diff cache above)
+services/reviewer/eval/results/
 *.tsbuildinfo
 
 # Hook-calibration telemetry + calibration-review state (mt#2667) — local
