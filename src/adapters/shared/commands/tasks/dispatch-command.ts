@@ -195,6 +195,46 @@ function validateDispatchMode(p: DispatchParams): void {
   }
 }
 
+/**
+ * Bound applied ON TOP OF `getTracker`'s own (registry-setup.ts) timeout,
+ * scoped specifically to Step 5's best-effort telemetry write (mt#3017 R1
+ * BLOCKING #2). Deliberately much shorter than registry-setup.ts's 5s bound
+ * — that bound exists to give `tasks.dispatch-recover` a real chance at a
+ * genuine classification; Step 5 here is "write a row if the tracker is
+ * already warm," not something the dispatch pipeline should ever wait
+ * seconds for.
+ */
+const DISPATCH_TRACKER_LOOKUP_TIMEOUT_MS = 1500;
+
+/**
+ * Resolve the tracker for Step 5's invocation-row write, bounded by
+ * `timeoutMs` (default `DISPATCH_TRACKER_LOOKUP_TIMEOUT_MS`) so a
+ * slow-to-warm or hung tracker degrades to "skip the write" (same as the
+ * pre-mt#3017 behavior) instead of adding latency to the dispatch pipeline
+ * (mt#3017 R1 BLOCKING #2). Exported + timeout-injectable so a test can
+ * exercise the timeout-loss branch with a small `timeoutMs` instead of
+ * waiting out the real production bound.
+ */
+export async function getTrackerForDispatch(
+  getTracker: (() => Promise<SubagentDispatchTracker | null>) | undefined,
+  timeoutMs: number = DISPATCH_TRACKER_LOOKUP_TIMEOUT_MS
+): Promise<SubagentDispatchTracker | null> {
+  if (!getTracker) return null;
+  const TIMEOUT_SENTINEL = Symbol("dispatch-tracker-lookup-timeout");
+  const timeout = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
+    setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
+  });
+  try {
+    const result = await Promise.race([getTracker(), timeout]);
+    return result === TIMEOUT_SENTINEL ? null : result;
+  } catch (err: unknown) {
+    log.debug("[tasks.dispatch] getTracker threw while resolving for Step 5", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
 export function createTasksDispatchCommand(
   getPersistenceProvider: () => PersistenceProvider,
   getSessionProvider: () => Promise<
@@ -209,11 +249,19 @@ export function createTasksDispatchCommand(
    * When absent (e.g., DB unavailable at startup), the write is skipped silently.
    *
    * Async (mt#3017) — `registry-setup.ts`'s `getTracker` now AWAITS an
-   * in-flight DB-connection resolution (bounded by a timeout) instead of
-   * returning null immediately on every call that races the async init.
-   * Without awaiting here, the very first `tasks.dispatch` call after every
-   * process restart would silently skip writing the invocation row even
-   * though the DB was healthy and about to become available.
+   * in-flight DB-connection resolution (bounded by its OWN 5s timeout)
+   * instead of returning null immediately on every call that races the
+   * async init. Without awaiting here, the very first `tasks.dispatch` call
+   * after every process restart would silently skip writing the invocation
+   * row even though the DB was healthy and about to become available.
+   *
+   * mt#3017 R1 BLOCKING #2: awaiting registry-setup.ts's full 5s timeout
+   * directly at this callsite would couple the WHOLE dispatch pipeline's
+   * latency to DB availability for what is documented as a best-effort
+   * telemetry write. `getTrackerForDispatch` below applies its OWN, much
+   * shorter bound (`DISPATCH_TRACKER_LOOKUP_TIMEOUT_MS`) on top, so a slow
+   * or warming-up tracker degrades to "skip the write" — same as the
+   * pre-mt#3017 behavior — well before it could stall Step 5.
    */
   getTracker?: () => Promise<SubagentDispatchTracker | null>
 ) {
@@ -560,7 +608,7 @@ export function createTasksDispatchCommand(
       // separately in `agentSessionId` at Stop time. Without this correlation
       // the upsert would fail and the dispatch row would orphan as a duplicate.
       try {
-        const tracker = await getTracker?.();
+        const tracker = await getTrackerForDispatch(getTracker);
         if (tracker) {
           const invocationId = await tracker.recordSubagentInvocation({
             taskId,

@@ -168,10 +168,29 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     }
 
     const initPromise = _trackerInitPromise;
-    const timeout = new Promise<null>((resolve) => {
-      setTimeout(() => resolve(null), TRACKER_INIT_TIMEOUT_MS);
+    // mt#3017 R1 BLOCKING #1: a HUNG connection attempt (neither resolves nor
+    // rejects — e.g. a network partition with no socket-level timeout) never
+    // reaches the inner promise's `finally`, so `_trackerInitPromise` would
+    // otherwise stay pinned to that same stuck promise forever — every
+    // subsequent call would keep racing the identical hang and always time
+    // out to null, permanently defeating the retry contract even after the
+    // DB recovers. On a timeout loss, clear the memoized promise (guarded by
+    // a reference-equality check so a genuinely NEWER attempt, kicked off by
+    // a concurrent caller between this race losing and this line running,
+    // is never clobbered) so the NEXT call starts a fresh connection attempt
+    // instead of rejoining the same permanently-hung one.
+    const TIMEOUT_SENTINEL = Symbol("tracker-init-timeout");
+    const timeout = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
+      setTimeout(() => resolve(TIMEOUT_SENTINEL), TRACKER_INIT_TIMEOUT_MS);
     });
-    return Promise.race([initPromise, timeout]);
+    const result = await Promise.race([initPromise, timeout]);
+    if (result === TIMEOUT_SENTINEL) {
+      if (_trackerInitPromise === initPromise) {
+        _trackerInitPromise = null;
+      }
+      return null;
+    }
+    return result;
   };
   // Import command creation functions locally to avoid top-level circular imports
   const { createTasksStatusGetCommand, createTasksStatusSetCommand } = require("./status-commands");

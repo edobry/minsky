@@ -269,6 +269,28 @@ export interface DispatchRecoveryManualFallback {
 }
 
 /**
+ * The SC3 degraded-response shape for a genuinely-unavailable tracker
+ * (mt#3017). Exported as a named type — rather than left inline on
+ * `buildTrackerUnavailableResponse`'s return signature — so a caller that
+ * parses `tasks.dispatch-recover` results can narrow on the
+ * `status: "tracker-unavailable"` discriminant against a stable contract
+ * (mt#3017 R1 NON-BLOCKING #2). Not (yet) folded into a full discriminated
+ * union across every `status` value this command can return
+ * (`healthy` / `recover` / `escalate` / `not-in-flight` / `no-dispatch` /
+ * `tracker-unavailable`) — that broader typing pass is out of scope for
+ * this fix, which only introduces the new shape.
+ */
+export interface DispatchRecoveryTrackerUnavailableResult {
+  success: false;
+  status: "tracker-unavailable";
+  error: string;
+  taskId: string;
+  sessionId: string | null;
+  sessionDir: string | null;
+  manualFallback: DispatchRecoveryManualFallback;
+}
+
+/**
  * Build the SC3 degraded response for a genuinely-unavailable tracker
  * (mt#3017). Distinct from a bare `{ success: false, error }` — names
  * concrete manual fallback steps so an operator isn't stuck when the
@@ -282,15 +304,7 @@ export interface DispatchRecoveryManualFallback {
 export async function buildTrackerUnavailableResponse(
   taskId: string,
   getSessionProvider: () => Promise<SessionProviderInterface>
-): Promise<{
-  success: false;
-  status: "tracker-unavailable";
-  error: string;
-  taskId: string;
-  sessionId: string | null;
-  sessionDir: string | null;
-  manualFallback: DispatchRecoveryManualFallback;
-}> {
+): Promise<DispatchRecoveryTrackerUnavailableResult> {
   let fallbackSessionId: string | null = null;
   let fallbackSessionDir: string | null = null;
   try {
@@ -319,10 +333,9 @@ export async function buildTrackerUnavailableResponse(
     sessionDir: fallbackSessionDir,
     manualFallback: {
       message:
-        `Automatic recovery cannot run: the subagent_invocations tracker could not be reached ` +
-        `(no persistence configured, or the DB connection did not resolve within the retry ` +
-        `window — see registry-setup.ts's getTracker). To manually assess ${taskId}'s dispatch, ` +
-        `inspect ${workspaceHint} and run:`,
+        `Automatic recovery cannot run: the subagent dispatch tracker could not be reached ` +
+        `(no persistence configured, or the server's tracker-initialization timeout was hit). ` +
+        `To manually assess ${taskId}'s dispatch, inspect ${workspaceHint} and run:`,
       steps: [
         "git status --porcelain=v1  (any staged/unstaged/untracked entries = a dirty tree)",
         "git log -1 --format=%ct  (timestamp of the last commit; compare to now for staleness)",
@@ -412,6 +425,16 @@ export function createTasksDispatchRecoverCommand(
 
       const tracker = await getTracker();
       if (!tracker) {
+        // Internal wiring detail (which factory, which timeout) belongs in the
+        // DEBUG log, not the operator-facing manualFallback text (mt#3017 R1
+        // NON-BLOCKING #1) — see registry-setup.ts's getTracker for the
+        // memoized-promise + bounded-timeout implementation this traces to.
+        log.debug(
+          "[tasks.dispatch-recover] getTracker() returned null — degrading to manual fallback",
+          {
+            taskId,
+          }
+        );
         return await buildTrackerUnavailableResponse(taskId, getSessionProvider);
       }
 
