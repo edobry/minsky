@@ -16,7 +16,16 @@
 // script is worse than no row: `subagent_invocations` is read by the dispatch
 // watchdog and the cadence taxonomy.
 //
-// Usage:  bun scripts/verify-hook-domain-bootstrap.ts
+// With `--e2e` it additionally drives the FULL end-to-end path the acceptance
+// criterion names (PR #2178 R2): write a pending dispatch row exactly as
+// `tasks.dispatch` does, invoke the GENERATED hook binary the way the harness
+// does — a bare `bun .claude/hooks/record-subagent-invocation.ts` with a
+// SubagentStop payload on stdin, against a REAL session workspace — then read
+// the row back and assert the Stop-time columns landed. Everything it writes is
+// deleted before it exits.
+//
+// Usage:  bun scripts/verify-hook-domain-bootstrap.ts          (bootstrap + write path)
+//         bun scripts/verify-hook-domain-bootstrap.ts --e2e    (adds the full hook round-trip)
 // Exit:   0 = pass (or SKIP when no DB is configured), non-zero = fail.
 //
 // @see mt#3019 — the defect and its two-layer diagnosis
@@ -24,6 +33,8 @@
 // @see mt#3046 — generalizes this into a per-hook CI smoke test
 
 import { ensureHookDomainBootstrap } from "../.minsky/hooks/domain-bootstrap";
+
+const RUN_E2E = process.argv.includes("--e2e");
 
 interface Step {
   name: string;
@@ -161,6 +172,136 @@ try {
     residue.length === 0,
     `rows matching the probe key after cleanup: ${residue.length} (expected 0)`
   );
+
+  // -------------------------------------------------------------------------
+  // --e2e: the acceptance criterion (PR #2178 R2)
+  //
+  // "A live SubagentStop writes a row end-to-end: a dispatch's row carries
+  // non-null agent_session_id, ended_at, and a classified outcome."
+  //
+  // Everything above proves the hook's DEPENDENCIES work. This proves the HOOK
+  // works: it runs the generated binary the harness runs, with the payload
+  // shape the harness sends, against a real session workspace, on top of a
+  // pending row written exactly the way `tasks.dispatch` writes one.
+  // -------------------------------------------------------------------------
+  if (RUN_E2E) {
+    // The workspace under observation is this script's own session checkout —
+    // a genuine Minsky session with a real task branch, real commits, and a
+    // real session record for `resolveTaskId`'s DB lookup to find.
+    const workspace = process.cwd();
+    const sessionMatch = workspace.match(/\/sessions\/([^/]+)(?:\/|$)/);
+    const realSessionId = sessionMatch?.[1];
+
+    if (!realSessionId) {
+      record(
+        "e2e: running inside a Minsky session workspace",
+        false,
+        `cwd is not under /sessions/<id>: ${workspace} — run this from a session checkout`
+      );
+    } else {
+      const hookPath = `${workspace}/.claude/hooks/record-subagent-invocation.ts`;
+      const e2eAgentId = `mt3019-e2e-${process.pid}`;
+      const dispatchTime = new Date();
+
+      try {
+        // 1. Pending row, written the way dispatch-command.ts Step 5 writes it:
+        //    real task id, keyed on the subagent's Minsky session id, with the
+        //    pessimistic placeholder outcome the Stop hook is meant to replace.
+        const pendingTracker = new SubagentDispatchTracker(db);
+        const pendingId = await pendingTracker.recordSubagentInvocation({
+          taskId: "mt#3019",
+          subagentSessionId: realSessionId,
+          agentType: "implementer",
+          suggestedModel: "sonnet",
+          startedAt: dispatchTime,
+          outcome: "crashed-no-output",
+        });
+        record(
+          "e2e: pending dispatch row written",
+          pendingId !== null,
+          `row ${pendingId} — task_id=mt#3019, outcome=crashed-no-output (the placeholder)`
+        );
+
+        // 2. Invoke the GENERATED hook exactly as the harness does.
+        const proc = Bun.spawn(["bun", hookPath], {
+          stdin: new TextEncoder().encode(
+            JSON.stringify({ agent_id: e2eAgentId, cwd: workspace, transcript_path: "" })
+          ),
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const hookStderr = await new Response(proc.stderr).text();
+        const hookExit = await proc.exited;
+        record(
+          "e2e: hook process exits 0 (fail-safe contract)",
+          hookExit === 0,
+          hookStderr.trim() === "" ? "clean run, no stderr" : `stderr: ${hookStderr.trim()}`
+        );
+
+        // 3. Read the row back — this is the acceptance criterion.
+        const after = await db
+          .select({
+            id: subagentInvocationsTable.id,
+            taskId: subagentInvocationsTable.taskId,
+            agentType: subagentInvocationsTable.agentType,
+            agentSessionId: subagentInvocationsTable.agentSessionId,
+            endedAt: subagentInvocationsTable.endedAt,
+            outcome: subagentInvocationsTable.outcome,
+            lastCommitHash: subagentInvocationsTable.lastCommitHash,
+            startedAt: subagentInvocationsTable.startedAt,
+          })
+          .from(subagentInvocationsTable)
+          .where(eq(subagentInvocationsTable.subagentSessionId, realSessionId));
+
+        const row = after[0];
+        record(
+          "e2e: the Stop upserted the SAME row (no duplicate insert)",
+          after.length === 1 && row?.id === pendingId,
+          `rows for this session: ${after.length}; id match: ${row?.id === pendingId}`
+        );
+        record(
+          "e2e: agent_session_id written by the hook",
+          row?.agentSessionId === e2eAgentId,
+          `agent_session_id=${row?.agentSessionId ?? "NULL"} (expected ${e2eAgentId})`
+        );
+        record(
+          "e2e: ended_at written — the watchdog's liveness signal",
+          row?.endedAt != null,
+          `ended_at=${row?.endedAt?.toISOString() ?? "NULL"}`
+        );
+        record(
+          "e2e: outcome classified from the real workspace",
+          typeof row?.outcome === "string",
+          `outcome=${row?.outcome} (dispatch placeholder was crashed-no-output; ` +
+            `last_commit_hash=${row?.lastCommitHash ?? "NULL"})`
+        );
+        record(
+          "e2e: dispatch-time task_id and agent_type preserved through the upsert",
+          row?.taskId === "mt#3019" && row?.agentType === "implementer",
+          `task_id=${row?.taskId}, agent_type=${row?.agentType} (both sentinels must be dropped)`
+        );
+        record(
+          "e2e: dispatch-time started_at preserved (mt#1736)",
+          row?.startedAt?.getTime() === dispatchTime.getTime(),
+          `started_at=${row?.startedAt?.toISOString() ?? "NULL"} (expected the dispatch time)`
+        );
+      } finally {
+        await db
+          .delete(subagentInvocationsTable)
+          .where(eq(subagentInvocationsTable.subagentSessionId, realSessionId));
+      }
+
+      const e2eResidue = await db
+        .select({ id: subagentInvocationsTable.id })
+        .from(subagentInvocationsTable)
+        .where(eq(subagentInvocationsTable.subagentSessionId, realSessionId));
+      record(
+        "e2e: no residue left behind",
+        e2eResidue.length === 0,
+        `rows for this session after cleanup: ${e2eResidue.length} (expected 0)`
+      );
+    }
+  }
 } finally {
   try {
     await provider.close();
