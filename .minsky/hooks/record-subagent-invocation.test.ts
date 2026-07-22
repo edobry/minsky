@@ -13,7 +13,12 @@ import { describe, expect, test, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveMetricsTranscriptPath } from "./record-subagent-invocation";
+import {
+  resolveMetricsTranscriptPath,
+  decideRecordingAction,
+  HOOK_UNKNOWN_TASK_ID,
+} from "./record-subagent-invocation";
+import { UNKNOWN_TASK_ID } from "../../src/mcp/subagent-dispatch-tracker";
 import { readTranscriptMetrics } from "../../packages/domain/src/subagent/transcript-metrics";
 
 // ---------------------------------------------------------------------------
@@ -76,6 +81,143 @@ function buildTranscriptTree(
   writeFileSync(agentPath, toJsonl(agentLines));
   return { parentPath, agentPath };
 }
+
+// ---------------------------------------------------------------------------
+// Recording decision — mt#3019 acceptance tests (PR #2178 R1 BLOCKING #3)
+//
+// These are the spec's hook-level edge cases: the null correlation key and the
+// unresolved-taskId paths. The pre-mt#3019 bug survived precisely because
+// tracker-level mocks stayed green while the hook never reached the tracker at
+// all, so these assert the hook's OWN control flow.
+// ---------------------------------------------------------------------------
+
+const SESSION_CWD = "/Users/x/.local/state/minsky/sessions/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
+describe("decideRecordingAction (mt#3019)", () => {
+  test("sentinel constant matches the tracker's, so the duplication cannot drift", () => {
+    expect(HOOK_UNKNOWN_TASK_ID).toBe(UNKNOWN_TASK_ID);
+  });
+
+  test("no taskId and no session key -> skip, with a warning naming the cwd", () => {
+    const decision = decideRecordingAction(null, null, "/tmp/not-a-session");
+
+    expect(decision.action).toBe("skip");
+    expect(decision.warning).toContain("no taskId and no session correlation key");
+    expect(decision.warning).toContain("/tmp/not-a-session");
+    expect(decision.warning).toContain("skipping DB write");
+    // Nothing to key the write on — there must be no task id to write either.
+    expect(decision.effectiveTaskId).toBeUndefined();
+  });
+
+  test("session key but unresolved taskId -> record with the sentinel, not a fabricated id", () => {
+    // The mt#2315 case. Pre-mt#3019 this dropped the entire write while its
+    // own inline comment claimed it would "still record with a placeholder".
+    const decision = decideRecordingAction(null, "session-abc", SESSION_CWD);
+
+    expect(decision.action).toBe("record");
+    expect(decision.effectiveTaskId).toBe(UNKNOWN_TASK_ID);
+    expect(decision.warning).toContain("could not resolve taskId");
+    expect(decision.warning).toContain("session-abc");
+    expect(decision.warning).toContain("unknown-task sentinel");
+  });
+
+  test("taskId but no session key -> record under the real task id, no warning", () => {
+    // A null correlation key is passed through as null by the caller; the
+    // decision must never invent a substitute string for it.
+    const decision = decideRecordingAction("mt#3019", null, "/some/other/dir");
+
+    expect(decision.action).toBe("record");
+    expect(decision.effectiveTaskId).toBe("mt#3019");
+    expect(decision.warning).toBeUndefined();
+  });
+
+  test("both resolved -> record under the real task id, no warning", () => {
+    const decision = decideRecordingAction("mt#3019", "session-abc", SESSION_CWD);
+
+    expect(decision.action).toBe("record");
+    expect(decision.effectiveTaskId).toBe("mt#3019");
+    expect(decision.warning).toBeUndefined();
+  });
+
+  test("a real task id is never replaced by the sentinel", () => {
+    // Guards the inverse of the mt#3019 fix: the sentinel is for UNRESOLVED
+    // ids only. If this ever returned the sentinel for a known task, the
+    // tracker would silently stop updating task_id for every dispatch.
+    for (const id of ["mt#1", "mt#3019", "md#416", "gh#491"]) {
+      expect(decideRecordingAction(id, "session-abc", SESSION_CWD).effectiveTaskId).toBe(id);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// End-to-end process behavior (PR #2178 R1 BLOCKING #3)
+//
+// Spawns the hook the way the harness does — a bare `bun <file>` process with a
+// JSON payload on stdin — and asserts the fail-safe contract holds. This is the
+// shape of check mt#3046 generalizes across every DB-touching hook.
+// ---------------------------------------------------------------------------
+
+describe("record-subagent-invocation process contract (mt#3019)", () => {
+  const HOOK = new URL("./record-subagent-invocation.ts", import.meta.url).pathname;
+
+  async function runHook(payload: Record<string, unknown>): Promise<{
+    exitCode: number;
+    stderr: string;
+  }> {
+    const proc = Bun.spawn(["bun", HOOK], {
+      stdin: new TextEncoder().encode(JSON.stringify(payload)),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+    return { exitCode, stderr };
+  }
+
+  test("cwd lacking a /sessions/<id> segment -> skips the write and exits 0", async () => {
+    const { exitCode, stderr } = await runHook({
+      agent_id: "test-agent-no-key",
+      cwd: "/tmp/definitely-not-a-session-dir",
+      transcript_path: "",
+    });
+
+    // The fail-safe contract holds in EVERY environment.
+    expect(exitCode).toBe(0);
+
+    // Two legitimate outcomes, depending on whether this environment can reach
+    // a database: it either gets far enough to skip on the missing correlation
+    // key, or it reports a bootstrap failure as a value. CI has no Postgres
+    // configured and takes the second path; a developer machine takes the
+    // first. (An earlier revision asserted only the first and failed in CI.)
+    const skippedOnKey = stderr.includes("no taskId and no session correlation key");
+    const reportedBootstrapFailure = stderr.includes("domain bootstrap failed");
+    expect(skippedOnKey || reportedBootstrapFailure).toBe(true);
+
+    // Environment-independent regression guard: the pre-mt#3019 failure was an
+    // UNCAUGHT throw from the domain import, which the entrypoint reports as an
+    // "unexpected top-level error". A missing bootstrap resurfaces exactly
+    // there, whatever the environment.
+    expect(stderr).not.toContain("unexpected top-level error");
+    expect(stderr).not.toContain("reflect polyfill");
+  }, 30_000);
+
+  test("missing agent_id (a main-agent Stop) exits 0 without touching the DB", async () => {
+    const { exitCode, stderr } = await runHook({ cwd: "/tmp", transcript_path: "" });
+
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
+  }, 30_000);
+
+  test("malformed payload still exits 0 — the hook never blocks a subagent stop", async () => {
+    const proc = Bun.spawn(["bun", HOOK], {
+      stdin: new TextEncoder().encode("not json at all"),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    await new Response(proc.stderr).text();
+    expect(await proc.exited).toBe(0);
+  }, 30_000);
+});
 
 // ---------------------------------------------------------------------------
 // resolveMetricsTranscriptPath

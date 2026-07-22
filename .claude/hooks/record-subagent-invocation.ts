@@ -18,26 +18,118 @@
 // @see mt#2649 — metrics read the wrong file for background-dispatched subagents
 // @see .claude/hooks/transcript.ts — resolveTranscriptCandidates (mt#2637 / PR #1806)
 // @see mt#2796 — actual_model writer (extractActualModel, transcript-metrics.ts)
+// @see mt#3019 — domain bootstrap (this hook's DB path had never executed), the
+//      unresolved-taskId fix (subsumed mt#2315), and the fail-safe deadline
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { readInput } from "./types";
 import type { StopHookInput } from "./types";
 import { resolveTranscriptCandidates } from "./transcript";
+// mt#3019: STATIC — importing this module installs the tsyringe reflect
+// polyfill, which must be resolved before ANY domain module loads. Every
+// domain import below stays dynamic; this one cannot be.
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+
+/**
+ * Overall deadline for the whole Stop-time recording path (mt#3019).
+ *
+ * The fail-safe contract above says this hook must never block a subagent stop.
+ * Until mt#3019 that was true by accident: the DB path died at its first domain
+ * import, so nothing could hang. With the path live, a slow or unreachable
+ * Postgres becomes a real hang risk against the harness's host cap. The
+ * mt#2982 connect timeout (2s, applied in `ensureHookDomainBootstrap`) bounds
+ * the connect specifically; this deadline is the backstop for the
+ * slow-but-not-hanging tail — same role, and same 8s value, as
+ * `STANDALONE_DUP_PROBE_TIMEOUT_MS` in standalone-dup-probe.ts (mt#2958).
+ */
+export const RECORD_INVOCATION_TIMEOUT_MS = 8_000;
+
+/** Bound on the post-deadline `provider.close()` so cleanup cannot itself hang the exit. */
+const CLEANUP_GRACE_MS = 1_000;
+
+const TIMED_OUT = Symbol("record-subagent-invocation-timeout");
+
+/**
+ * Cooperative-cancellation state shared between the entrypoint's deadline and
+ * the in-flight `recordInvocation` (PR #2178 R1 BLOCKING #1).
+ *
+ * `Promise.race` does NOT cancel the losing promise, so on a timeout the
+ * recording path would otherwise keep running — and `process.exit(0)` would
+ * terminate it mid-flight, skipping its `finally` cleanup and potentially
+ * killing a connection with a write in progress. Two mechanisms close that:
+ *
+ *   - `exceeded` is checked at each phase boundary (before opening the DB
+ *     connection, and again immediately before the write), so the path bails
+ *     out rather than starting work it cannot finish.
+ *   - `provider` is registered as soon as one is resolved, so the entrypoint
+ *     can close it on the timeout path — the cleanup that the abandoned
+ *     `finally` would otherwise never run.
+ *
+ * A write already issued when the deadline fires is still abandoned; that
+ * single statement's transaction is rolled back server-side when the
+ * connection drops. The guarantee here is that no NEW write is issued after
+ * the deadline and no connection is leaked.
+ */
+interface DeadlineState {
+  exceeded: boolean;
+  provider: { close(): Promise<void> } | null;
+}
+
+const deadlineState: DeadlineState = { exceeded: false, provider: null };
+
+/** Close the registered provider, bounded so cleanup cannot hang the exit. */
+async function closeRegisteredProvider(): Promise<void> {
+  const provider = deadlineState.provider;
+  deadlineState.provider = null;
+  if (!provider) return;
+  try {
+    await Promise.race([
+      provider.close(),
+      new Promise<void>((resolve) => setTimeout(resolve, CLEANUP_GRACE_MS)),
+    ]);
+  } catch {
+    /* cleanup is best-effort — never block the stop event */
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Main entrypoint
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
-  const input = await readInput<StopHookInput>();
-
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await recordInvocation(input);
+    // Inside the try (PR #2178 R1): `readInput` is `Bun.stdin.json()`, which
+    // THROWS on a malformed payload. Reading it outside the guard meant a
+    // truncated or non-JSON stdin exited the process non-zero — a direct
+    // violation of the fail-safe contract above, since a non-zero hook exit is
+    // exactly what blocks the event it observes. Surfaced by this file's
+    // "malformed payload still exits 0" test.
+    const input = await readInput<StopHookInput>();
+
+    const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => {
+        deadlineState.exceeded = true;
+        resolve(TIMED_OUT);
+      }, RECORD_INVOCATION_TIMEOUT_MS);
+    });
+    const outcome = await Promise.race([recordInvocation(input), deadline]);
+    if (outcome === TIMED_OUT) {
+      process.stderr.write(
+        `[record-subagent-invocation] warn: exceeded the ${RECORD_INVOCATION_TIMEOUT_MS}ms deadline — invocation not recorded\n`
+      );
+      // The abandoned path's `finally` will never run before process.exit —
+      // close its provider here instead of leaking the connection.
+      await closeRegisteredProvider();
+    }
   } catch (err) {
     process.stderr.write(
       `[record-subagent-invocation] warn: unexpected top-level error: ${err instanceof Error ? err.message : String(err)}\n`
     );
+    await closeRegisteredProvider();
+  } finally {
+    clearTimeout(timer);
   }
 
   process.exit(0);
@@ -84,6 +176,74 @@ export function resolveMetricsTranscriptPath(
 }
 
 // ---------------------------------------------------------------------------
+// Recording decision (PR #2178 R1 BLOCKING #3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Sentinel written to `task_id` when the real task ID could not be resolved.
+ *
+ * Duplicated from `src/mcp/subagent-dispatch-tracker.ts`'s `UNKNOWN_TASK_ID`
+ * rather than imported, so {@link decideRecordingAction} stays a pure,
+ * synchronous, dependency-free function that unit tests can call without
+ * loading the domain module tree. `record-subagent-invocation.test.ts` pins
+ * the two constants equal, so a change to either side fails a test rather than
+ * drifting silently.
+ */
+export const HOOK_UNKNOWN_TASK_ID = "unknown";
+
+/** What the Stop-time path should do, given what it managed to resolve. */
+export type RecordingDecision =
+  | { action: "skip"; warning: string; effectiveTaskId?: undefined }
+  | { action: "record"; effectiveTaskId: string; warning?: string };
+
+/**
+ * Decide whether a Stop event can be recorded, and under which task id.
+ *
+ * Extracted as a pure function so the branch table is directly testable — the
+ * surrounding `recordInvocation` needs a live DB, a real workspace, and a
+ * harness payload, which is exactly the coupling that let the pre-mt#3019 bug
+ * hide behind green tracker-level mocks.
+ *
+ * Branches:
+ *  - **neither key** — skip. An INSERT would create an orphan row keyed on
+ *    nothing and attributed to no task: strictly worse than recording nothing.
+ *    This is the ONLY case where dropping the write is correct, and unlike the
+ *    pre-mt#3019 code (which dropped whenever the TASK id alone was missing,
+ *    contradicting its own inline comment — mt#2315) the comment and the
+ *    behavior now agree.
+ *  - **session key, no task id** — record with the sentinel. The dispatch-time
+ *    row already carries the real task id and `subagentSessionId` is enough to
+ *    find it; the tracker's UPDATE path drops the sentinel rather than
+ *    clobbering that value.
+ *  - **task id, no session key** — record. The write can still land via the
+ *    marker's strong binding, or insert an attributable orphan row. A null
+ *    correlation key is passed through as null, never as a fabricated string.
+ *  - **both** — record normally.
+ */
+export function decideRecordingAction(
+  taskId: string | null,
+  subagentSessionId: string | null,
+  cwd: string | undefined
+): RecordingDecision {
+  if (!taskId && !subagentSessionId) {
+    return {
+      action: "skip",
+      warning: `[record-subagent-invocation] warn: no taskId and no session correlation key for cwd=${cwd} — skipping DB write\n`,
+    };
+  }
+
+  if (!taskId) {
+    return {
+      action: "record",
+      effectiveTaskId: HOOK_UNKNOWN_TASK_ID,
+      warning: `[record-subagent-invocation] warn: could not resolve taskId for cwd=${cwd} — recording against session ${subagentSessionId} with the unknown-task sentinel\n`,
+    };
+  }
+
+  return { action: "record", effectiveTaskId: taskId };
+}
+
+// ---------------------------------------------------------------------------
 // Core logic
 // ---------------------------------------------------------------------------
 
@@ -99,24 +259,48 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
     return;
   }
 
-  // 1. Derive task ID from the workspace path.
-  //    Session directories are named after the session ID, not the task ID.
-  //    We query the Minsky DB via the session record to get the task ID.
-  const taskId = await resolveTaskId(cwd);
-  if (!taskId) {
+  // 0. Bootstrap the domain layer (mt#3019). A hook is its own entry point:
+  //    nothing else in this process installs the tsyringe reflect polyfill or
+  //    initializes the process-global configuration system, and EVERY domain
+  //    import below fails without them. This must precede the first such
+  //    import — including `resolveTaskId`'s.
+  const bootstrap = await ensureHookDomainBootstrap();
+  if (!bootstrap.ok) {
     process.stderr.write(
-      `[record-subagent-invocation] warn: could not resolve taskId for cwd=${cwd}\n`
+      `[record-subagent-invocation] warn: domain bootstrap failed: ${bootstrap.error}\n`
     );
-    // Still record with a placeholder — the dispatch row was written at dispatch
-    // time with the real taskId; we upsert on subagentSessionId so we need it.
     return;
   }
 
-  // 2. Classify workspace outcome.
+  // 1. Derive the upsert correlation key and the task ID.
+  //
+  //    The correlation key is the SUBAGENT's Minsky session id (NOT the harness
+  //    agent_id), encoded in the last segment of the cwd path — dispatch wrote
+  //    the pending row keyed on it (PR #1053 R1 BLOCKING #1). It is resolved
+  //    FIRST (mt#3019) because it, not the task ID, is what makes a Stop-time
+  //    write land on the right row.
+  const subagentSessionId = extractMinskySessionId(cwd);
+
+  //    Session directories are named after the session ID, not the task ID, so
+  //    the task ID comes from the session record (or the git branch).
+  const taskId = await resolveTaskId(cwd);
+
+  const decision = decideRecordingAction(taskId, subagentSessionId, cwd);
+  if (decision.warning) process.stderr.write(decision.warning);
+  if (decision.action === "skip") return;
+
+  // 2. Classify workspace outcome. The classifier uses taskId only to locate a
+  //    handoff file and to look up a PR by branch name; with the sentinel both
+  //    degrade to "not found" while the commit/handoff classification — the
+  //    part that matters — still works.
   const { classifyWorkspaceOutcome } = await import(
     "../../packages/domain/src/subagent/workspace-classifier"
   );
-  const classification = await classifyWorkspaceOutcome(cwd, taskId);
+  const { SubagentDispatchTracker, UNKNOWN_AGENT_TYPE } = await import(
+    "../../src/mcp/subagent-dispatch-tracker"
+  );
+  const effectiveTaskId = decision.effectiveTaskId;
+  const classification = await classifyWorkspaceOutcome(cwd, effectiveTaskId);
 
   // 3. Read transcript metrics (best-effort).
   const { readTranscriptMetrics, extractActualModel, readTranscriptLines } = await import(
@@ -137,6 +321,13 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   const actualModel = extractActualModel(resolvedTranscriptPath, agentId, transcriptLines);
 
   // 4. Open a DB connection and record the invocation.
+  //
+  //    Cancellation checkpoint (PR #2178 R1 BLOCKING #1): everything above is
+  //    local filesystem/git work. This is the boundary where the expensive,
+  //    abandonable work starts, so bail here if the deadline already fired
+  //    rather than opening a connection nothing will close.
+  if (deadlineState.exceeded) return;
+
   const { resolvePersistenceProvider } = await import(
     "../../packages/domain/src/persistence/factory"
   );
@@ -147,6 +338,10 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
     );
     return;
   }
+
+  // Register for post-deadline cleanup: if the entrypoint's deadline wins the
+  // race, this function's own `finally` never runs before `process.exit`.
+  deadlineState.provider = provider;
 
   let db: import("drizzle-orm/postgres-js").PostgresJsDatabase | null = null;
   try {
@@ -162,17 +357,12 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   }
 
   if (!db) {
-    try {
-      await provider.close();
-    } catch {
-      /* ignore */
-    }
+    await closeRegisteredProvider();
     return;
   }
 
-  const { SubagentDispatchTracker, UNKNOWN_AGENT_TYPE } = await import(
-    "../../src/mcp/subagent-dispatch-tracker"
-  );
+  // SubagentDispatchTracker / UNKNOWN_AGENT_TYPE / UNKNOWN_TASK_ID were all
+  // imported together at step 2 (the sentinel is needed before the connect).
   const tracker = new SubagentDispatchTracker(db);
 
   const now = new Date();
@@ -192,9 +382,9 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   // (mt#2653) is responsible for NOT clobbering the real dispatch-time value
   // on the UPDATE path when it sees that sentinel. On the INSERT path (orphan
   // Stop without a matching dispatch row) the sentinel satisfies the schema's
-  // NOT NULL constraint on `agent_type`.
-  const subagentSessionId = extractMinskySessionId(cwd);
-
+  // NOT NULL constraint on `agent_type`. `UNKNOWN_TASK_ID` above works the
+  // same way for `task_id` (mt#3019).
+  //
   // mt#2831 R1 BLOCKING #1: strong-binding read. When the current-invocation
   // marker file names an exact row, pass it through as `id` — the tracker's
   // strong-binding path then updates THAT row directly, immune to the
@@ -205,20 +395,6 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   // unreadable marker (pre-mt#2831 session, or a write that never landed) falls
   // through to `undefined`, and the tracker uses its heuristic fallback —
   // unchanged behavior from before this mechanism existed.
-  // mt#2831 R3 NB #4: kept as a DYNAMIC import deliberately, matching every other
-  // packages/domain/src/mcp import already in this file (workspace-classifier,
-  // transcript-metrics, persistence/factory, drizzle-session-repository,
-  // subagent-dispatch-tracker, all above). This hook is a documented, deliberate
-  // EXCEPTION to the SPEC.md self-containment invariant the original six
-  // typecheck/workflow hooks hold to ("self-contained — no imports from src/, so
-  // they work even when the main codebase has type errors") — see
-  // docs/architecture/hooks/subagent-merge-capability-guard.md, which explicitly
-  // calls out this file's DB-backed resolution strategy as the invariant OTHER
-  // guards must not replicate. Even as an exception, the imports stay DYNAMIC so
-  // the domain-module load cost is paid only when a SubagentStop actually fires
-  // and this code path is reached — not at hook-registration time for every
-  // Claude Code event this hook (or the dispatcher framework) touches. A static
-  // import here would front-load that cost unconditionally.
   let markerInvocationId: string | undefined;
   if (subagentSessionId) {
     const { readCurrentInvocationMarker } = await import(
@@ -227,9 +403,18 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
     markerInvocationId = (await readCurrentInvocationMarker(cwd, subagentSessionId)) ?? undefined;
   }
 
+  // Final cancellation checkpoint (PR #2178 R1 BLOCKING #1): never ISSUE a
+  // write after the deadline has fired. A write already in flight is abandoned
+  // and rolled back server-side when the connection drops; this ensures we
+  // don't start a new one the process is about to be exited out from under.
+  if (deadlineState.exceeded) {
+    await closeRegisteredProvider();
+    return;
+  }
+
   await tracker.recordSubagentInvocation({
     id: markerInvocationId,
-    taskId,
+    taskId: effectiveTaskId,
     subagentSessionId,
     agentSessionId: agentId, // harness-native conversation UUID
     outcome: classification.outcome,
@@ -249,11 +434,7 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
     agentType: UNKNOWN_AGENT_TYPE,
   });
 
-  try {
-    await provider.close();
-  } catch {
-    /* ignore */
-  }
+  await closeRegisteredProvider();
 }
 
 // ---------------------------------------------------------------------------

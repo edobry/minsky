@@ -55,10 +55,13 @@
 // @see parallel-work-guard-standalone.ts — the caller + decision logic
 // @see docs/architecture/hooks/parallel-work-guard.md — mechanism writeup
 
-// tsyringe reflect polyfill — TaskSimilarityService is @injectable(); the CLI
-// entry point loads this for the whole process, but a hook is its own entry
-// point and must load it before any decorated domain class is imported.
-import "reflect-metadata";
+// Domain bootstrap for a hook entry point: installs the tsyringe reflect
+// polyfill (TaskSimilarityService is @injectable(); the CLI entry point loads
+// it for the whole process, but a hook is its own entry point and must load it
+// before any decorated domain class is imported) and exposes the config
+// bootstrap used below. Extracted from this file into a shared module by
+// mt#3019, which found record-subagent-invocation.ts missing BOTH halves.
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 
 import type { TaskSearchResult } from "./parallel-work-guard-standalone";
 import type {
@@ -100,11 +103,10 @@ export async function fetchSimilarActiveTasksInProcess(
   query: string,
   limit = 10
 ): Promise<{ results: TaskSearchResult[]; degraded: boolean } | ProbeFailure> {
-  // mt#2982 fail-fast connect — must be set BEFORE the first configuration /
-  // persistence-provider resolution below caches its view of the env. An
+  // mt#2982 fail-fast connect is applied inside `ensureHookDomainBootstrap`
+  // (called by runProbe below), still BEFORE the first configuration /
+  // persistence-provider resolution caches its view of the env. An
   // operator-set value in the hook's own env wins.
-  process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT ??= "2";
-
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
     timer = setTimeout(() => resolve(TIMED_OUT), STANDALONE_DUP_PROBE_TIMEOUT_MS);
@@ -142,12 +144,11 @@ async function runProbe(
     // this in cli.ts; nothing does it for a hook process). Everything below
     // (persistence factory, embedding factory, getConfiguration) throws
     // "Configuration not initialized" without it. Idempotent via the guard.
-    const { isConfigurationInitialized } = await import(
-      "../../packages/domain/src/configuration/index"
-    );
-    if (!isConfigurationInitialized()) {
-      const { setupConfiguration } = await import("../../packages/domain/src/config-setup");
-      await setupConfiguration();
+    // Shared with record-subagent-invocation.ts since mt#3019; the mt#2982
+    // fail-fast connect default moved into the helper alongside it.
+    const bootstrap = await ensureHookDomainBootstrap();
+    if (!bootstrap.ok) {
+      return degraded(`domain bootstrap failed: ${bootstrap.error}`);
     }
 
     const { resolvePersistenceProvider } = await import(

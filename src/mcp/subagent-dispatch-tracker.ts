@@ -88,6 +88,26 @@ export const DAILY_RATE_LIMITED_THRESHOLD = 3;
  */
 export const UNKNOWN_AGENT_TYPE = "unknown";
 
+/**
+ * Sentinel `taskId` value used by callers that could not resolve the real task
+ * ID (e.g. the SubagentStop hook when the workspace is gone, its git branch is
+ * unreadable, or the session record cannot be looked up — see
+ * `.claude/hooks/record-subagent-invocation.ts`'s `resolveTaskId`).
+ *
+ * `task_id` is a NOT NULL column, so callers must supply SOME string. This
+ * sentinel marks "no real value known" so the UPDATE path can avoid clobbering
+ * the real task ID written at dispatch time — exactly the treatment
+ * {@link UNKNOWN_AGENT_TYPE} gets for `agent_type` (mt#2653).
+ *
+ * mt#3019: before this existed, the hook's only options on an unresolved task
+ * ID were to invent a placeholder (which the UPDATE path would have written
+ * over the correct dispatch-time value) or to drop the write entirely. It chose
+ * to drop, contradicting its own inline comment — the mt#2315 bug, subsumed
+ * into mt#3019. With this sentinel the third option — record everything the
+ * Stop event DOES know, leave `task_id` alone — is expressible.
+ */
+export const UNKNOWN_TASK_ID = "unknown";
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -249,9 +269,15 @@ export class SubagentDispatchTracker {
     // INSERT paths, where "persisted" and "input" are the same value by
     // construction; reassigned below on the UPDATE path.
     let resolvedAgentType: string = input.agentType;
+    // mt#3019 (PR #2178 R1 BLOCKING #2): same treatment for taskId. When the
+    // caller sends UNKNOWN_TASK_ID the row keeps its real dispatch-time value,
+    // so events must carry THAT, not the sentinel — otherwise an event lands
+    // with `related_task_id = 'unknown'`, which the dispatch watchdog's
+    // `WHERE related_task_id = $1` lookup would treat as a real task key.
+    let resolvedTaskId: string = input.taskId;
     let persistedId: string | null = null;
     try {
-      let targetRow: { id: string; agentType: string } | undefined;
+      let targetRow: { id: string; agentType: string; taskId: string } | undefined;
 
       // Strong binding: an exact id the caller supplied. Only trust it if the row
       // genuinely exists — a stale/missing marker must fall through to the
@@ -261,6 +287,7 @@ export class SubagentDispatchTracker {
           .select({
             id: subagentInvocationsTable.id,
             agentType: subagentInvocationsTable.agentType,
+            taskId: subagentInvocationsTable.taskId,
           })
           .from(subagentInvocationsTable)
           .where(eq(subagentInvocationsTable.id, input.id))
@@ -275,8 +302,13 @@ export class SubagentDispatchTracker {
       if (targetRow) {
         // UPDATE the resolved row by primary key (never by subagentSessionId —
         // see class docstring on why subagentSessionId alone is not a safe target).
-        const { updateFields, resolvedAgentType: ra } = this._buildUpdateFields(input, targetRow);
+        const {
+          updateFields,
+          resolvedAgentType: ra,
+          resolvedTaskId: rt,
+        } = this._buildUpdateFields(input, targetRow);
         resolvedAgentType = ra;
+        resolvedTaskId = rt;
         await this.db
           .update(subagentInvocationsTable)
           .set(updateFields)
@@ -301,12 +333,14 @@ export class SubagentDispatchTracker {
         await this.eventEmitter.emit({
           eventType: "subagent.failed",
           payload: {
-            taskId: input.taskId,
+            taskId: resolvedTaskId,
             agentType: resolvedAgentType,
             outcome: input.outcome,
             errorSummary: input.errorSummary,
           },
-          relatedTaskId: input.taskId ?? undefined,
+          // Never emit the sentinel as a related-entity key: consumers treat
+          // `related_task_id` as a real task id (mt#3019 / PR #2178 R1).
+          relatedTaskId: resolvedTaskId === UNKNOWN_TASK_ID ? undefined : resolvedTaskId,
           relatedSessionId: input.parentSessionId ?? undefined,
         });
       }
@@ -324,11 +358,12 @@ export class SubagentDispatchTracker {
         await this.eventEmitter.emit({
           eventType: "subagent.completed",
           payload: {
-            taskId: input.taskId,
+            taskId: resolvedTaskId,
             agentType: resolvedAgentType,
             outcome: input.outcome,
           },
-          relatedTaskId: input.taskId ?? undefined,
+          // See the subagent.failed branch above — same sentinel guard.
+          relatedTaskId: resolvedTaskId === UNKNOWN_TASK_ID ? undefined : resolvedTaskId,
           relatedSessionId: input.parentSessionId ?? undefined,
         });
       }
@@ -362,11 +397,12 @@ export class SubagentDispatchTracker {
    */
   private async _selectHeuristicUpsertTarget(
     subagentSessionId: string
-  ): Promise<{ id: string; agentType: string } | undefined> {
+  ): Promise<{ id: string; agentType: string; taskId: string } | undefined> {
     const open = await this.db
       .select({
         id: subagentInvocationsTable.id,
         agentType: subagentInvocationsTable.agentType,
+        taskId: subagentInvocationsTable.taskId,
       })
       .from(subagentInvocationsTable)
       .where(
@@ -383,6 +419,7 @@ export class SubagentDispatchTracker {
       .select({
         id: subagentInvocationsTable.id,
         agentType: subagentInvocationsTable.agentType,
+        taskId: subagentInvocationsTable.taskId,
       })
       .from(subagentInvocationsTable)
       .where(eq(subagentInvocationsTable.subagentSessionId, subagentSessionId))
@@ -402,16 +439,25 @@ export class SubagentDispatchTracker {
    * the SubagentStop hook has no way to recover the real dispatch-time agentType from
    * the workspace alone, so it sends the sentinel unconditionally; an unconditional
    * `.set({ agentType })` would clobber the real dispatch-time value on every Stop).
+   * Preserves the target's existing `taskId` the same way when the caller only has
+   * the `UNKNOWN_TASK_ID` sentinel (mt#3019).
    */
   private _buildUpdateFields(
     input: SubagentInvocationInput,
-    target: { id: string; agentType: string }
-  ): { updateFields: Partial<SubagentInvocationInput>; resolvedAgentType: string } {
-    const { id: _id, startedAt: _startedAt, agentType, ...restFields } = input;
-    const updateFields: Partial<SubagentInvocationInput> =
+    target: { id: string; agentType: string; taskId: string }
+  ): {
+    updateFields: Partial<SubagentInvocationInput>;
+    resolvedAgentType: string;
+    resolvedTaskId: string;
+  } {
+    const { id: _id, startedAt: _startedAt, agentType, taskId, ...restFields } = input;
+    const withAgentType: Partial<SubagentInvocationInput> =
       agentType === UNKNOWN_AGENT_TYPE ? restFields : { ...restFields, agentType };
+    const updateFields: Partial<SubagentInvocationInput> =
+      taskId === UNKNOWN_TASK_ID ? withAgentType : { ...withAgentType, taskId };
     const resolvedAgentType = agentType === UNKNOWN_AGENT_TYPE ? target.agentType : agentType;
-    return { updateFields, resolvedAgentType };
+    const resolvedTaskId = taskId === UNKNOWN_TASK_ID ? target.taskId : taskId;
+    return { updateFields, resolvedAgentType, resolvedTaskId };
   }
 
   /**

@@ -448,6 +448,17 @@ mt#3002 excludes file-name/hex-id symbol FPs and flips
   `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`; silent on empty cache.
   Doc: `dispatch-watchdog-injection-hook.md`.
 
+## SubagentStop Invocation-Recording Hook
+
+`SubagentStop` (standalone, own Bun process): writes every Stop-time column of
+`subagent_invocations` — `ended_at` (the dispatch watchdog's liveness signal), `outcome`,
+`agent_session_id`, transcript metrics, `actual_model` — upserting onto the pending row
+`tasks.dispatch` wrote. Hook: `record-subagent-invocation.ts`. **A hook is its own entry point:
+DB-touching hooks MUST statically import `ensureHookDomainBootstrap` (`domain-bootstrap.ts`) —
+reflect-metadata + config init + mt#2982 fail-fast connect — or every domain import fails
+(mt#3019: this hook wrote 0 of 62 rows for two weeks).** No override; fail-safe (8s deadline,
+always exits 0). Doc: `subagent-invocation-recording-hook.md`.
+
 ## Session-End Transcript Ingest Hook
 
 `SessionEnd` hook: synchronously ingests the finished transcript into `agent_transcripts`
