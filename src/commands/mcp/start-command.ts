@@ -940,10 +940,17 @@ async function buildMemoryServiceForSpike(
  * connection, or construction failure) — the singleton stays as the no-op
  * null-DB tracker, so `debug.systemInfo.subagentDispatches` returns zeros.
  *
+ * A single attempt — no retry of its own. See `wireSubagentDispatchTrackerWithRetry`
+ * below for the promise-memoized, bounded-timeout retry wrapper (mt#3044)
+ * that callers should generally use instead of calling this directly.
+ *
  * @see mt#1738 — this wiring
  * @see mt#1736 — SubagentDispatchTracker implementation
+ * @see mt#3044 — retry wrapper (this function had no retry at all before)
  */
-async function buildSubagentDispatchTracker(container: AppContainerInterface): Promise<boolean> {
+export async function buildSubagentDispatchTracker(
+  container: AppContainerInterface
+): Promise<boolean> {
   try {
     const persistence = container.has("persistence") ? container.get("persistence") : undefined;
     if (!persistence) return false;
@@ -959,6 +966,27 @@ async function buildSubagentDispatchTracker(container: AppContainerInterface): P
     const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
     const { SubagentDispatchTracker } = await import("../../mcp/subagent-dispatch-tracker");
     const { createEventEmitter } = await import("@minsky/domain/events/emitter");
+    // mt#3044 R1 BLOCKING #1 (R3: import moved above this check — an
+    // awaited dynamic import BETWEEN the check and `setInstance` would
+    // reopen the exact race this guard exists to close, since another
+    // concurrent attempt could pass its own `isWired()` check during that
+    // yield): `wireSubagentDispatchTrackerWithRetry` clears its memo and
+    // returns `false` once `SUBAGENT_TRACKER_WIRE_TIMEOUT_MS` elapses, but
+    // the `getDatabaseConnection()` call THIS function is awaiting keeps
+    // running in the background — it is not cancelable. If it later
+    // resolves successfully, without this guard it would call `setInstance`
+    // even though a NEWER attempt (triggered by a subsequent retry) may
+    // have already wired the singleton first. Re-check immediately before
+    // the side effect: NO `await` sits between this check and `setInstance`
+    // below (only the synchronous `createEventEmitter(db)` call), so this
+    // is genuinely race-free — nothing else can run between them on
+    // Node/Bun's single-threaded event loop. Skip entirely when already
+    // wired, rather than replacing a working instance with a stale one and
+    // leaking the discarded EventEmitter this attempt would otherwise
+    // construct.
+    if (SubagentDispatchTracker.isWired()) {
+      return true;
+    }
     SubagentDispatchTracker.setInstance(db, createEventEmitter(db));
     return true;
   } catch (err) {
@@ -967,6 +995,99 @@ async function buildSubagentDispatchTracker(container: AppContainerInterface): P
     });
     return false;
   }
+}
+
+/**
+ * Bounded-timeout used by `wireSubagentDispatchTrackerWithRetry` below.
+ * Mirrors `TRACKER_INIT_TIMEOUT_MS` in registry-setup.ts's `getTracker()`.
+ */
+const SUBAGENT_TRACKER_WIRE_TIMEOUT_MS = 5000;
+
+/**
+ * Promise-memoized state for `wireSubagentDispatchTrackerWithRetry`. Module
+ * scoped (not per-call) because there is exactly one MCP server — and
+ * therefore exactly one SubagentDispatchTracker singleton — per process,
+ * same lifetime assumption `buildSubagentDispatchTracker`'s call site
+ * already made.
+ */
+let subagentTrackerWireAttemptInFlight: Promise<boolean> | null = null;
+
+/**
+ * Promise-memoized, bounded-timeout retry wrapper around
+ * `buildSubagentDispatchTracker` (mt#3044).
+ *
+ * Mirrors the pattern mt#3017 added to registry-setup.ts's `getTracker()`
+ * for the sibling (closure-cached) tracker path used by `tasks.dispatch` /
+ * `tasks.dispatch-recover`:
+ *   - A concurrent caller during an in-flight attempt awaits the SAME
+ *     resolution rather than kicking off a duplicate DB-connection attempt.
+ *   - On failure OR timeout the memo clears, so the NEXT call retries
+ *     instead of the singleton latching to the no-op null-DB tracker for
+ *     the rest of the process's life (the exact gap `buildSubagentDispatchTracker`
+ *     had before mt#3044: it ran exactly once, fire-and-forget, at server
+ *     startup, with no way for a failed attempt to ever be retried).
+ *   - A hung `getDatabaseConnection()` call (neither resolves nor rejects)
+ *     doesn't pin the memo forever — the `Promise.race` against `timeoutMs`
+ *     bounds how long a caller (or the retry driver below) waits before the
+ *     memo is freed for the next attempt.
+ *
+ * This function is BOTH the eager first attempt at MCP server startup (see
+ * the call site) AND the callback `SubagentDispatchTracker.getInstance()`
+ * invokes on every call while the singleton is unwired (registered once via
+ * `SubagentDispatchTracker.registerWireAttempt` — see the call site). Using
+ * the SAME memoized entry point for both means an eager startup attempt and
+ * a `getInstance()`-triggered retry can never race into two concurrent DB
+ * connection attempts.
+ *
+ * `timeoutMs` is exposed (default `SUBAGENT_TRACKER_WIRE_TIMEOUT_MS`) so
+ * tests can exercise the bounded-timeout branch without a real 5s wait —
+ * mirrors `getTrackerForDispatch`'s `timeoutMs` parameter in
+ * dispatch-command.ts.
+ *
+ * @see mt#3017 — the reference implementation this mirrors (registry-setup.ts's getTracker)
+ * @see mt#3044 — this task
+ */
+export function wireSubagentDispatchTrackerWithRetry(
+  container: AppContainerInterface,
+  timeoutMs: number = SUBAGENT_TRACKER_WIRE_TIMEOUT_MS
+): Promise<boolean> {
+  if (subagentTrackerWireAttemptInFlight) {
+    return subagentTrackerWireAttemptInFlight;
+  }
+
+  const TIMEOUT_SENTINEL = Symbol("subagent-tracker-wire-timeout");
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
+    timeoutHandle = setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
+  });
+
+  // Assigns directly to the outer `subagentTrackerWireAttemptInFlight` — no
+  // local binding referencing itself — mirroring registry-setup.ts's
+  // `getTracker()` inner-IIFE pattern exactly (`_trackerInitPromise = (async
+  // () => { ... finally { _trackerInitPromise = null } })();`). On settle
+  // (success, failure, OR timeout — `Promise.race` above is INSIDE this same
+  // IIFE, not a separate outer race, so there is no case where a caller times
+  // out while this IIFE keeps running independently) the memo unconditionally
+  // clears so the NEXT call retries.
+  subagentTrackerWireAttemptInFlight = (async () => {
+    try {
+      const result = await Promise.race([buildSubagentDispatchTracker(container), timeout]);
+      return result === TIMEOUT_SENTINEL ? false : result;
+    } catch (err) {
+      log.debug("[mt#3044] SubagentDispatchTracker wire-retry attempt threw", {
+        error: getErrorMessage(err),
+      });
+      return false;
+    } finally {
+      // mt#3044 R2 NON-BLOCKING: clear the timer when buildSubagentDispatchTracker
+      // wins the race — otherwise it stays pending and fires later, resolving
+      // the now-unused `timeout` promise. A tiny leak on its own, but one that
+      // can accumulate across many quick retries with a short timeoutMs.
+      clearTimeout(timeoutHandle);
+      subagentTrackerWireAttemptInFlight = null;
+    }
+  })();
+  return subagentTrackerWireAttemptInFlight;
 }
 
 /**
@@ -1311,11 +1432,44 @@ export function createStartCommand(
 
         // mt#1738: wire the SubagentDispatchTracker singleton so debug.systemInfo
         // returns real dispatch cadence aggregates instead of the zero-filled
-        // no-op defaults. The call is fire-and-forget — if the DB is unavailable,
-        // the singleton stays as the no-op tracker and subagentDispatches returns
-        // zero-filled aggregates (graceful degradation).
+        // no-op defaults. The initial call is fire-and-forget — if the DB is
+        // unavailable at THIS moment, the singleton stays as the no-op tracker
+        // and subagentDispatches returns zero-filled aggregates (graceful
+        // degradation).
+        //
+        // mt#3044: a transient failure here is no longer permanent. Register
+        // `wireSubagentDispatchTrackerWithRetry` as the singleton's retry
+        // callback (`SubagentDispatchTracker.getInstance()` invokes it on every
+        // call while the singleton is unwired — see subagent-dispatch-tracker.ts)
+        // so a LATER `debug.systemInfo` or `session.generate_prompt` call
+        // retries the wiring instead of the failure latching for the rest of
+        // the process's life.
+        //
+        // R1 BLOCKING #2 fix: registration is AWAITED (not fire-and-forget)
+        // so it completes deterministically before this function reaches
+        // `server.start()` further down — mirrors the mt#1625 bundle-
+        // composition pattern elsewhere in this file ("this MUST be awaited
+        // before server.start() so [it] is in place when the first
+        // ... handshake arrives"). Without this, a consumer that manages to
+        // call `getInstance()` before the dynamic import resolves would see
+        // no registered retry callback and get no retry until some LATER
+        // call happened to land after registration — a timing-dependent
+        // blind window undermining SC#2's "eventually reflects real data"
+        // guarantee. The eager wire attempt below stays fire-and-forget
+        // (unchanged) — only the REGISTRATION needed the ordering guarantee.
         if (container) {
-          buildSubagentDispatchTracker(container)
+          try {
+            const { SubagentDispatchTracker } = await import("../../mcp/subagent-dispatch-tracker");
+            SubagentDispatchTracker.registerWireAttempt(() =>
+              wireSubagentDispatchTrackerWithRetry(container)
+            );
+          } catch (err) {
+            log.debug("[mt#3044] Could not register SubagentDispatchTracker wire-retry callback", {
+              error: getErrorMessage(err),
+            });
+          }
+
+          wireSubagentDispatchTrackerWithRetry(container)
             .then((wired) => {
               if (wired) {
                 log.debug("[mt#1738] SubagentDispatchTracker wired");
