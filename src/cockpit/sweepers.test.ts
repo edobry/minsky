@@ -564,6 +564,18 @@ describe("sweep meta-watchdog (mt#2894)", () => {
       // tick actually run before the next scan clobbered it again).
       await waitFor(() => callCount > countAfterBoot, 2000);
       expect(callCount).toBeGreaterThan(countAfterBoot);
+
+      // mt#3060 AT2: the liveness signal (the scheduling-layer equivalent of
+      // ProdStateSweepTracker — ProdStateSweepTracker itself only tracks the
+      // DOMAIN outcome of an attempted tick, so it can't observe a tick that
+      // never got attempted at all) must demonstrably reflect BOTH the
+      // failure (a force-restart was recorded) AND the recovery (a fresh
+      // successful tick landed after it).
+      const finalEntry = getSweepLivenessSnapshot().find(
+        (e) => e.name === "test-meta-watchdog-restart-storm"
+      );
+      expect(finalEntry?.metaRestarts ?? 0).toBeGreaterThanOrEqual(1);
+      expect(finalEntry?.lastSuccessAt).not.toBeNull();
     } finally {
       stopWatchdog();
       stop();
