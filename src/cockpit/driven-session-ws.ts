@@ -48,6 +48,7 @@ import {
   stopDrivenSession,
   type DrivenSessionRecord,
   type DrivenSessionRegistry,
+  type DrivenSessionSubscriber,
 } from "./driven-session-host";
 
 /** Matches `/api/driven-session/<id>/ws` (id is a path segment — no further slashes). */
@@ -162,10 +163,26 @@ function wireDrivenSessionSocket(ws: WebSocket, record: DrivenSessionRecord): vo
     ws.send(JSON.stringify(event.payload));
   }
 
-  const subscriber = (event: { payload: Record<string, unknown> }): void => {
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify(event.payload));
-    }
+  const subscriber: DrivenSessionSubscriber = {
+    onEvent: (event) => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify(event.payload));
+      }
+    },
+    // mt#3038 R1 delta #3 — an actuator swap replaced this record; force the
+    // client to redial the SAME localId (never hot-swap a live socket onto
+    // the new record). Close code 4001 is this channel's private
+    // reconnect-signal (the 4000-4999 range is reserved for
+    // application-defined codes per RFC 6455 §7.4.2); the client hook keys
+    // off it to distinguish "please reconnect immediately" from an ordinary
+    // close/error, which it treats as session-ended.
+    onSwap: () => {
+      try {
+        ws.close(4001, "actuator-swap-reconnect");
+      } catch {
+        // Best-effort — the socket may already be closing.
+      }
+    },
   };
   record.subscribers.add(subscriber);
 
