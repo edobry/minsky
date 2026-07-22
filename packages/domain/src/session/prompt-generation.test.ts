@@ -17,6 +17,7 @@ import {
   PROMPT_WATERMARK,
   type GeneratePromptParams,
 } from "./prompt-generation";
+import { DEFAULT_DISPATCH_MODEL_ID } from "../ai/dispatch-models";
 
 const BASE_PARAMS: Omit<GeneratePromptParams, "type" | "intent"> = {
   sessionDir: "/Users/edobry/.local/state/minsky/sessions/mock-session-id",
@@ -33,6 +34,32 @@ const READ_ONLY_BOUND_MARKER = "## Read-Only Dispatch Bound";
 const READ_ONLY_ENVELOPE_MARKER = "stop investigating new areas";
 /** Distinguishing phrase unique to the readOnly=false (implementation) Operating Envelope variant. */
 const IMPLEMENTATION_ENVELOPE_MARKER = "stop starting new work";
+
+describe("generateSubagentPrompt — model threading (mt#3043)", () => {
+  test("an explicit model is returned as suggestedModel", () => {
+    const result = generateSubagentPrompt({
+      ...BASE_PARAMS,
+      type: "implementation",
+      model: "fable",
+    });
+    expect(result.suggestedModel).toBe("fable");
+  });
+
+  test("omitting model falls back to the registry default, not a hardcoded literal", () => {
+    const result = generateSubagentPrompt({ ...BASE_PARAMS, type: "implementation" });
+    expect(result.suggestedModel).toBe(DEFAULT_DISPATCH_MODEL_ID);
+  });
+
+  test("the model is dispatch metadata only — it does not alter the prompt text", () => {
+    const withFable = generateSubagentPrompt({
+      ...BASE_PARAMS,
+      type: "implementation",
+      model: "fable",
+    });
+    const withoutModel = generateSubagentPrompt({ ...BASE_PARAMS, type: "implementation" });
+    expect(withFable.prompt).toBe(withoutModel.prompt);
+  });
+});
 
 describe("generateSubagentPrompt — intent absent vs explicit 'implementation'", () => {
   test("omitting intent produces a byte-identical prompt to explicit intent: 'implementation'", () => {

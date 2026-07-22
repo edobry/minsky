@@ -1900,6 +1900,8 @@ context-scoping capability outside Minsky's control, per mt#2512/mt#2521).
 
 **Prompt generation:** Always use `mcp__minsky__session_generate_prompt` — never hand-craft prompts. It enforces correct sessionId, taskId, paths, scope bounds, and guard rails. Dispatch with `suggestedModel` and `agentType` from the result.
 
+**Choosing the model (mt#3043).** `tasks_dispatch` accepts an optional `model`: a dispatch-model registry id (`sonnet` | `opus` | `haiku` | `fable` — `packages/domain/src/ai/dispatch-models.ts`, the SAME registry the cockpit launch picker reads, so the two surfaces cannot drift). Omit it to take the registry default; set it when the task's difficulty warrants a specific tier (see §Escalation to Opus below). Before mt#3043 `suggestedModel` was a hardcoded `"sonnet"` literal on every dispatch — it carried no caller intent, so passing it through was a no-op. It now reflects YOUR choice, and is the value to pass as the harness Agent-spawn `model` arg. An unrecognized id is REJECTED at the tool boundary rather than silently defaulted, so a typo cannot quietly downgrade a dispatch.
+
 **Escalation to Opus:** The default model is Sonnet. When you recognize you're struggling — 2nd identical tool error from the same tool, architectural ambiguity you can't resolve, multi-file reasoning that isn't converging, or a task that requires deep investigation — spawn a subagent with `model: "opus"` to analyze the problem. Let Opus produce the plan or diagnosis, then continue executing with Sonnet. Don't persist on a problem that exceeds your current model's capability. (See §Error Investigation for the mechanical 2-strikes rule.)
 
 **Reporting register (mt#2867).** Dispatch prompts set the subagent's reporting register
