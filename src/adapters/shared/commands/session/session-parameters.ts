@@ -1293,6 +1293,16 @@ export const sessionEditFileCommandParams = {
     required: false,
     defaultValue: false,
   },
+  allowShrink: {
+    schema: z.boolean(),
+    description:
+      "Override the marker-spanning-collapse guard (mt#2577). When false (default), a " +
+      "marker-based edit whose apply result is dramatically smaller than the original is " +
+      "REFUSED (the apply model likely mis-resolved a marker and dropped content). Set true " +
+      "only for an intentional large deletion.",
+    required: false,
+    defaultValue: false,
+  },
   json: commonSessionParams.json,
   debug: commonSessionParams.debug,
 };

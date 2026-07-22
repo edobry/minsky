@@ -16,7 +16,10 @@ import { join } from "path";
 import { mkdtemp, writeFile as fsWriteFile, readFile as fsReadFile, rm, access } from "fs/promises";
 // eslint-disable-next-line custom/no-real-fs-in-tests
 import { tmpdir } from "os";
-import { applySessionFileEditOperation } from "./session-file-edit-operation";
+import {
+  applySessionFileEditOperation,
+  detectSuspiciousCollapse,
+} from "./session-file-edit-operation";
 import type { SessionProviderInterface } from "./index";
 
 function buildSessionProvider(workspaceDir: string): SessionProviderInterface {
@@ -52,6 +55,10 @@ async function fileExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function makeLines(n: number, label = "line"): string {
+  return `${Array.from({ length: n }, (_, i) => `${label} ${i}`).join("\n")}\n`;
 }
 
 describe("applySessionFileEditOperation", () => {
@@ -278,6 +285,146 @@ describe("applySessionFileEditOperation", () => {
         ).rejects.toThrow();
 
         expect(await fileExists(join(workspaceDir, "missing/dir/file.ts"))).toBe(false);
+      });
+    });
+  });
+
+  describe("mt#2577 marker-spanning-collapse guard", () => {
+    const MARKER_EDIT = "// ... existing code ...\n  changed\n// ... existing code ...";
+
+    test("detectSuspiciousCollapse fires on a large drop, is null otherwise", () => {
+      expect(detectSuspiciousCollapse(makeLines(999), makeLines(517))).toEqual({
+        originalLines: 999,
+        finalLines: 517,
+      });
+      // Size roughly preserved — normal edit.
+      expect(detectSuspiciousCollapse(makeLines(999), makeLines(999))).toBeNull();
+      // Below the line-count floor — ratio not applied.
+      expect(detectSuspiciousCollapse(makeLines(30), makeLines(5))).toBeNull();
+      // Boundary: exactly at the ratio is NOT a collapse; one line under is.
+      expect(detectSuspiciousCollapse(makeLines(100), makeLines(60))).toBeNull();
+      expect(detectSuspiciousCollapse(makeLines(100), makeLines(59))).toEqual({
+        originalLines: 100,
+        finalLines: 59,
+      });
+      // Trailing blank-line churn is normalized away — not a collapse (mt#2577 R1).
+      expect(detectSuspiciousCollapse(makeLines(100), `${makeLines(100)}\n\n\n\n\n`)).toBeNull();
+      expect(detectSuspiciousCollapse(`${makeLines(100)}\n\n\n\n\n`, makeLines(100))).toBeNull();
+    });
+
+    test("throws on the 999->517 collapse and leaves the file intact", async () => {
+      await withWorkspace("sfe-collapse-", async (workspaceDir) => {
+        const sessionProvider = buildSessionProvider(workspaceDir);
+        const filePath = join(workspaceDir, "big.ts");
+        const originalContent = makeLines(999);
+        await fsWriteFile(filePath, originalContent, "utf8");
+
+        // The apply model mis-resolves a marker and collapses 999 -> 517.
+        await expect(
+          applySessionFileEditOperation(
+            {
+              sessionId: "test-session",
+              path: "big.ts",
+              content: MARKER_EDIT,
+              sessionProvider,
+            },
+            { applyEditPattern: async () => makeLines(517) }
+          )
+        ).rejects.toThrow("marker-spanning-collapse failure (mt#2577)");
+
+        // File must be untouched.
+        expect(await fsReadFile(filePath, "utf8")).toBe(originalContent);
+      });
+    });
+
+    test("a normal marker edit that preserves size is NOT blocked", async () => {
+      await withWorkspace("sfe-nocollapse-", async (workspaceDir) => {
+        const sessionProvider = buildSessionProvider(workspaceDir);
+        const filePath = join(workspaceDir, "big.ts");
+        await fsWriteFile(filePath, makeLines(999), "utf8");
+        const applied = makeLines(998); // minor change, size ~preserved
+
+        const result = await applySessionFileEditOperation(
+          {
+            sessionId: "test-session",
+            path: "big.ts",
+            content: MARKER_EDIT,
+            sessionProvider,
+          },
+          { applyEditPattern: async () => applied }
+        );
+
+        expect(result.wrote).toBe(true);
+        expect(await fsReadFile(filePath, "utf8")).toBe(applied);
+      });
+    });
+
+    test("allowShrink=true overrides the guard (intentional large deletion)", async () => {
+      await withWorkspace("sfe-allowshrink-", async (workspaceDir) => {
+        const sessionProvider = buildSessionProvider(workspaceDir);
+        const filePath = join(workspaceDir, "big.ts");
+        await fsWriteFile(filePath, makeLines(999), "utf8");
+        const applied = makeLines(517);
+
+        const result = await applySessionFileEditOperation(
+          {
+            sessionId: "test-session",
+            path: "big.ts",
+            content: MARKER_EDIT,
+            allowShrink: true,
+            sessionProvider,
+          },
+          { applyEditPattern: async () => applied }
+        );
+
+        expect(result.wrote).toBe(true);
+        expect(await fsReadFile(filePath, "utf8")).toBe(applied);
+      });
+    });
+
+    test("a small file below the line-count floor is NOT blocked", async () => {
+      await withWorkspace("sfe-smallfile-", async (workspaceDir) => {
+        const sessionProvider = buildSessionProvider(workspaceDir);
+        const filePath = join(workspaceDir, "small.ts");
+        await fsWriteFile(filePath, makeLines(30), "utf8");
+        const applied = makeLines(5); // big ratio drop, but below the floor
+
+        const result = await applySessionFileEditOperation(
+          {
+            sessionId: "test-session",
+            path: "small.ts",
+            content: MARKER_EDIT,
+            sessionProvider,
+          },
+          { applyEditPattern: async () => applied }
+        );
+
+        expect(result.wrote).toBe(true);
+        expect(await fsReadFile(filePath, "utf8")).toBe(applied);
+      });
+    });
+
+    test("still enforces the collapse guard in dry-run mode", async () => {
+      await withWorkspace("sfe-collapse-dryrun-", async (workspaceDir) => {
+        const sessionProvider = buildSessionProvider(workspaceDir);
+        const filePath = join(workspaceDir, "big.ts");
+        const originalContent = makeLines(999);
+        await fsWriteFile(filePath, originalContent, "utf8");
+
+        await expect(
+          applySessionFileEditOperation(
+            {
+              sessionId: "test-session",
+              path: "big.ts",
+              content: MARKER_EDIT,
+              dryRun: true,
+              sessionProvider,
+            },
+            { applyEditPattern: async () => makeLines(517) }
+          )
+        ).rejects.toThrow("marker-spanning-collapse failure (mt#2577)");
+
+        expect(await fsReadFile(filePath, "utf8")).toBe(originalContent);
       });
     });
   });
