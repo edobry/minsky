@@ -1203,6 +1203,21 @@ branch exercised. Hook: `require-execution-evidence-before-merge.ts`. Override:
 `[unverified-tests]` title tag + follow-up task. Fail: open on unresolvable repo/PR or `gh`
 failure. Siblings: `/prepare-pr` §1b, `/implement-task` §7a.
 
+**AT-cross-reference trigger (mt#3033, calibration-first).** ADDITIVE third path, independent
+of the file-pattern triggers above (which remain the unchanged, deterministic BLOCKING floor):
+resolves the bound task's `## Acceptance Tests` (via `minsky tasks spec get <task> --json`),
+classifies each AT executable-vs-findings-shaped (skips `state-ops`-kind tasks and
+findings-shaped text like "audit produces…" / "decision recorded…"), and checks whether the
+`Execution evidence:` block addresses each executable AT by number/keyword or an explicit
+`[atN-deferred: mt#NNNN]` marker. Per the mt#2263 calibration ladder this ships **LOG-ONLY**
+(v1): an unaddressed AT appends a record to
+`.minsky/execution-evidence-at-coverage-calibration.jsonl` and surfaces a WARN via
+`additionalContext` — it never emits `permissionDecision: "deny"`; graduating to blocking is a
+follow-up once false-positive rate is measured. Override: `MINSKY_SKIP_AT_COVERAGE=1`. Fail:
+silent (no WARN) on any task-spec fetch/parse error. Root incident: mt#2542 (PR #2136 merged
+with proxy evidence while the spec's literal AT — "services boot on the role" — was silently
+deferred and crashed production post-merge).
+
 ## Deploy-Verification Merge Gate + Post-Merge Reminder
 
 PreToolUse on `session_pr_merge`: blocks a deploy-surface PR (`infra/**`, `services/*/Dockerfile`,
