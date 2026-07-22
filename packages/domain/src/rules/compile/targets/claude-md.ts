@@ -41,7 +41,8 @@ const MEMORY_USAGE_RULE_ID = "memory-usage";
  * ("trim toward 115K, or raise the threshold with a recorded rationale") and
  * is NOT a substitute for the trim. `warnChars` is deliberately left at 115k
  * so the standing warning keeps firing on every compile — the corpus is still
- * ~26% over where it should be, and mt#3052 still owns bringing it down.
+ * ~23% over where it should be (141,178 vs the 115,000 warn line), and mt#3052
+ * still owns bringing it down.
  *
  * The ~150k harness advisory remains the real ceiling: this leaves ~5k of
  * headroom, which is roughly ONE more rule addition. The next change to hit
