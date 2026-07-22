@@ -23,7 +23,15 @@
 // @see mt#2255 — this task
 // @see .claude/hooks/types.ts — sibling cross-hook util home (readInput, readHostCap, deriveBudgets)
 
-import { readFileSync, readdirSync } from "node:fs";
+import {
+  readFileSync,
+  readdirSync,
+  existsSync,
+  statSync,
+  openSync,
+  readSync,
+  closeSync,
+} from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -162,6 +170,168 @@ export function resolveTranscriptCandidates(transcriptPath: string, agentId?: st
   }
 
   return candidates;
+}
+
+// ---------------------------------------------------------------------------
+// Parent-scoped turn resolution (mt#3003 — shared anchoring fix)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the transcript lines to measure THIS conversation's own
+ * turn/silence signal against, scoped to the PARENT transcript alone
+ * whenever more than one transcript candidate is in play.
+ *
+ * **Why this exists.** A guard's `ctx.transcriptLines` (registry.ts D6) is
+ * `transcriptCandidates.flatMap(parseTranscript)` — the PARENT transcript
+ * concatenated with EVERY sibling subagent transcript under the session's
+ * `subagents/` dir ({@link resolveTranscriptCandidates}'s unconditional
+ * "every sibling" fallback, mt#2637), with no per-line file-origin marker.
+ * `findRealPromptIndices`/`extractLastAssistantTurn` operating over that
+ * flattened array can therefore anchor on a prompt boundary that lives
+ * inside a SUBAGENT's own (already-completed, no-longer-growing) transcript
+ * file rather than the live, growing parent conversation. Because
+ * `resolveTranscriptCandidates` always places subagent files AFTER the
+ * parent file in candidate order, and `flatMap` preserves that order, a
+ * subagent's own final real-prompt boundary is ALWAYS later in the flattened
+ * array than every parent-transcript line — no matter how much the parent
+ * conversation grows afterward. The last-two-real-prompt anchor
+ * (`findRealPromptIndices`) therefore gets permanently stuck inside that
+ * static subagent segment, and every subsequent hook firing re-measures the
+ * exact same frozen turn.
+ *
+ * This is the actual root cause of the "stale turn re-measurement" bug
+ * originally hypothesized (mt#3003 planning) as `findRealPromptIndices`
+ * missing some NEW-PROMPT shape. Investigation against the three named
+ * calibration sessions (3bf59029, 2c9ac5e6, 762cde32 — all of which have a
+ * populated `subagents/` dir) found no missed real-prompt shape:
+ * {@link isRealUserPrompt} correctly classified every plain-text human
+ * prompt, slash-command echo, and tool_result line encountered. The
+ * repeated-identical-record shape is fully explained by cross-transcript
+ * contamination instead. wall-of-text-detector.ts independently diagnosed
+ * and fixed this exact mechanism for its own consumption (mt#3028,
+ * `resolveTurnLines`) before this task's investigation concluded; this
+ * hoists that fix here as the SHARED primitive scope names
+ * (`.minsky/hooks/transcript.ts (anchoring/dedup helpers)`) so
+ * silent-stretch-detector.ts — which had the identical latent vulnerability,
+ * never having been given its own copy of the mt#3028 fix — gets the same
+ * guarantee instead of re-diagning/re-implementing it.
+ *
+ * Behavior: trusts `flatLines` as-is when there is at most one resolved
+ * candidate (the common case — no subagents dispatched this conversation).
+ * When `transcriptCandidates` names more than one file, re-parses the
+ * PARENT candidate (`transcriptCandidates[0]`, falling back to
+ * `transcriptPath` if the array's own first entry is somehow absent) ALONE,
+ * so a dispatched subagent's own content can never be measured as if it
+ * were part of the live conversation's own turn.
+ *
+ * `parseTranscriptFn` is injectable (defaults to the real
+ * {@link parseTranscript}) so callers/tests can exercise the multi-candidate
+ * branch against an in-memory fixture instead of a real file
+ * (`custom/no-real-fs-in-tests`).
+ *
+ * @see resolveTranscriptCandidates — mt#2637, produces the candidate order this relies on
+ * @see mt#3028 — the wall-of-text-detector.ts fix this generalizes
+ * @see mt#3003 — this task (hoists the fix to a shared helper + wires silent-stretch-detector.ts to it)
+ */
+export function resolveParentTranscriptLines(
+  transcriptPath: string | undefined,
+  transcriptCandidates: string[] | undefined,
+  flatLines: TranscriptLine[],
+  parseTranscriptFn: (path: string) => TranscriptLine[] = parseTranscript
+): TranscriptLine[] {
+  if (Array.isArray(transcriptCandidates) && transcriptCandidates.length > 1) {
+    // Don't ASSUME candidates[0] === transcriptPath (true by construction in
+    // resolveTranscriptCandidates, but a synthetic/test candidate list could
+    // disagree) — prefer the resolved candidate, fall back to the raw path.
+    const parentPath = transcriptCandidates[0] ?? transcriptPath;
+    if (parentPath) return parseTranscriptFn(parentPath);
+  }
+  return flatLines;
+}
+
+// ---------------------------------------------------------------------------
+// Per-session dedupe-log primitives (mt#3003 — shared dedup helpers)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default bound on how much of a calibration log a dedupe check reads,
+ * regardless of how large the file grows over time — these logs have no
+ * rotation, so an unbounded read would grow with them (originally sized in
+ * wall-of-text-detector.ts, mt#3028 / PR #2165 R1 BLOCKING #2). 256 KiB is
+ * generously many hundreds of JSONL records at these logs' typical line
+ * size (~100-250 bytes) — comfortably more history than any realistic
+ * same-session dedupe window needs.
+ */
+export const DEFAULT_MAX_DEDUPE_READ_BYTES = 262144;
+
+/**
+ * Real on-disk read of (at most) the last `maxBytes` of `logPath`. Bounded
+ * per-invocation disk-I/O cost regardless of total log size; never throws —
+ * returns undefined on any read error or a missing file. Hoisted from
+ * wall-of-text-detector.ts's `readCalibrationLogText` (mt#3028) so any
+ * calibration-log-backed dedupe check (silent-stretch-detector.ts included,
+ * mt#3003) gets the identical bounded-read guarantee without
+ * re-implementing the byte-offset seek.
+ */
+export function readLogTailText(
+  logPath: string,
+  maxBytes: number = DEFAULT_MAX_DEDUPE_READ_BYTES
+): string | undefined {
+  try {
+    if (!existsSync(logPath)) return undefined;
+    const size = statSync(logPath).size;
+    if (size <= maxBytes) {
+      return readFileSync(logPath, "utf-8");
+    }
+    const fd = openSync(logPath, "r");
+    try {
+      const buf = Buffer.alloc(maxBytes);
+      readSync(fd, buf, 0, maxBytes, size - maxBytes);
+      return buf.toString("utf-8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * True iff `sessionId` has a calibration record in `logText` (raw JSONL
+ * contents, or a bounded TAIL of it — see {@link readLogTailText}) whose
+ * `keyField` property equals `keyValue`. Scans EVERY record for this
+ * session, not just the most recent one — an A -> B -> A sequence must
+ * still dedupe the repeat A even though B is the most recent record for the
+ * session (wall-of-text-detector.ts mt#3028 / PR #2165 R1 BLOCKING #1).
+ * Generalized from that file's `sessionHasLoggedHash` (which always
+ * compared a fixed `"textHash"` field) to an arbitrary `keyField` so a
+ * detector can dedupe on whatever notion of "unchanged" fits its own
+ * measurement — a content hash (wall-of-text) or a turn-boundary anchor
+ * (silent-stretch-detector.ts, mt#3003 — see its `buildTurnAnchor`). Pure —
+ * operates on a string, not a file path, so tests exercise it with an
+ * in-memory fixture (`custom/no-real-fs-in-tests`).
+ */
+export function sessionHasLoggedKey(
+  logText: string | undefined,
+  sessionId: string | undefined,
+  keyField: string,
+  keyValue: string
+): boolean {
+  if (!logText || !sessionId) return false;
+  for (const raw of logText.split("\n")) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    let rec: Record<string, unknown>;
+    try {
+      rec = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (rec["session_id"] === sessionId && rec[keyField] === keyValue) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------

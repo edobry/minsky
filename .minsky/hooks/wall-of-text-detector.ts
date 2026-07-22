@@ -76,24 +76,28 @@
 // @see mt#2263 — detector ladder (calibration before injection)
 // @see mt#2713 — the contract this measures against
 // @see mt#2870 — this task (origin)
-// @see mt#3003 — sibling investigation this task's disposition narrowed/superseded for wall-of-text
+// @see mt#3003 — sibling task whose disposition narrowed/superseded scope for wall-of-text at planning;
+//   on completion, mt#3003 hoisted this file's `resolveTurnLines` candidate-resolution logic and
+//   dedupe-log primitives (`sessionHasLoggedHash`/`readCalibrationLogText`) into shared `transcript.ts`
+//   helpers (`resolveParentTranscriptLines`/`sessionHasLoggedKey`/`readLogTailText`) that
+//   silent-stretch-detector.ts now also consumes — this file's own exported functions/behavior are
+//   unchanged, they just delegate internally now.
 // @see mt#3028 — this task (the two fixes above)
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard; D6 `DispatchContext` doc comment sanctions the per-candidate re-parse pattern used here
 
 import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
-import { parseTranscript, extractLastAssistantTurn, extractAssistantText } from "./transcript";
-import type { TranscriptLine } from "./transcript";
 import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-  openSync,
-  readSync,
-  closeSync,
-} from "node:fs";
+  parseTranscript,
+  extractLastAssistantTurn,
+  extractAssistantText,
+  resolveParentTranscriptLines,
+  readLogTailText,
+  sessionHasLoggedKey,
+  DEFAULT_MAX_DEDUPE_READ_BYTES,
+} from "./transcript";
+import type { TranscriptLine } from "./transcript";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import type { DispatchContext, GuardOutcome } from "./registry";
@@ -259,16 +263,17 @@ export function resolveTurnLines(
   ctx: DispatchContext,
   parseTranscriptFn: (path: string) => TranscriptLine[] = parseTranscript
 ): TranscriptLine[] {
-  const candidates = ctx.transcriptCandidates;
-  if (Array.isArray(candidates) && candidates.length > 1) {
-    // PR #2165 R1 non-blocking: don't ASSUME candidates[0] === input.transcript_path
-    // (true by construction in `resolveTranscriptCandidates`, but a synthetic/test
-    // `ctx` could disagree) — prefer the resolved candidate, fall back to the
-    // input's own path.
-    const parentPath = candidates[0] ?? input.transcript_path;
-    if (parentPath) return parseTranscriptFn(parentPath);
-  }
-  return ctx.transcriptLines;
+  // mt#3003: delegates to the shared transcript.ts primitive — this
+  // function's own signature/behavior is unchanged (kept for callers/tests
+  // that already reference it by this name), it just no longer duplicates
+  // the candidate-resolution logic. See resolveParentTranscriptLines's own
+  // doc comment for the full contamination-mechanism rationale.
+  return resolveParentTranscriptLines(
+    input.transcript_path,
+    ctx.transcriptCandidates,
+    ctx.transcriptLines,
+    parseTranscriptFn
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -291,45 +296,30 @@ export function hashText(text: string): string {
 /**
  * Bounds how much of the calibration log the dedupe check reads, regardless
  * of how large the file grows over time (PR #2165 R1 BLOCKING #2 — the log
- * has no rotation, so an unbounded read would grow with it). 256 KiB is
- * generously many hundreds of JSONL records at this log's typical line size
- * (~150-250 bytes) — comfortably more history than any realistic
- * same-session dedupe window needs.
+ * has no rotation, so an unbounded read would grow with it). Re-exported
+ * from the shared `transcript.ts` default (mt#3003) under this file's
+ * existing name, for callers/tests that reference it here.
  */
-export const MAX_DEDUPE_READ_BYTES = 262144;
+export const MAX_DEDUPE_READ_BYTES = DEFAULT_MAX_DEDUPE_READ_BYTES;
 
 /**
  * True iff `sessionId` has a calibration record in `logText` (the raw JSONL
  * file contents, or a bounded TAIL of it — see `readCalibrationLogText`)
- * carrying exactly `hash`. Scans EVERY record for this session, not just the
- * most recent one (PR #2165 R1 BLOCKING #1 — a prior version compared only
- * against the last record, so an A -> B -> A sequence re-logged the second
- * A even though it was a repeat within the same short window; this correctly
- * catches that shape while the `MAX_DEDUPE_READ_BYTES` tail bound keeps the
- * lookback window finite rather than "forever"). Pure — operates on a
- * string, not a file path, so tests exercise it with an in-memory fixture
- * (`custom/no-real-fs-in-tests`).
+ * carrying exactly `hash` under the `textHash` field. Scans EVERY record for
+ * this session, not just the most recent one (PR #2165 R1 BLOCKING #1 — a
+ * prior version compared only against the last record, so an A -> B -> A
+ * sequence re-logged the second A even though it was a repeat within the
+ * same short window). Delegates to the shared `transcript.ts`
+ * `sessionHasLoggedKey` (mt#3003), pinning the key field to `"textHash"` so
+ * this file's existing callers/tests keep their two-arg-plus-hash call
+ * shape.
  */
 export function sessionHasLoggedHash(
   logText: string | undefined,
   sessionId: string | undefined,
   hash: string
 ): boolean {
-  if (!logText || !sessionId) return false;
-  for (const raw of logText.split("\n")) {
-    const trimmed = raw.trim();
-    if (!trimmed) continue;
-    let rec: Record<string, unknown>;
-    try {
-      rec = JSON.parse(trimmed) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    if (rec["session_id"] === sessionId && rec["textHash"] === hash) {
-      return true;
-    }
-  }
-  return false;
+  return sessionHasLoggedKey(logText, sessionId, "textHash", hash);
 }
 
 /**
@@ -338,27 +328,13 @@ export function sessionHasLoggedHash(
  * per-invocation cost regardless of total log size (PR #2165 R1 BLOCKING #2).
  * Exported (rather than module-private) so the bounded-tail behavior itself
  * has direct test coverage against a real temp file, not just the pure
- * `sessionHasLoggedHash` string-parsing logic downstream of it.
+ * `sessionHasLoggedHash` string-parsing logic downstream of it. Delegates to
+ * the shared `transcript.ts` `readLogTailText` (mt#3003) for the actual
+ * bounded-read implementation.
  */
 export function readCalibrationLogText(cwd: string): string | undefined {
-  try {
-    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
-    if (!existsSync(logPath)) return undefined;
-    const size = statSync(logPath).size;
-    if (size <= MAX_DEDUPE_READ_BYTES) {
-      return readFileSync(logPath, "utf-8");
-    }
-    const fd = openSync(logPath, "r");
-    try {
-      const buf = Buffer.alloc(MAX_DEDUPE_READ_BYTES);
-      readSync(fd, buf, 0, MAX_DEDUPE_READ_BYTES, size - MAX_DEDUPE_READ_BYTES);
-      return buf.toString("utf-8");
-    } finally {
-      closeSync(fd);
-    }
-  } catch {
-    return undefined;
-  }
+  const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
+  return readLogTailText(logPath, MAX_DEDUPE_READ_BYTES);
 }
 
 // ---------------------------------------------------------------------------

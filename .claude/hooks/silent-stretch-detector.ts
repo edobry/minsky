@@ -62,13 +62,40 @@
 // register as user-role text in the transcript (another reason to use the
 // real-prompt-boundary helper rather than scanning role fields directly).
 //
+// **Stale turn re-measurement (mt#3003).** A SEPARATE bug from the mt#3027
+// gap-semantics fix above: this guard's `run()` used `ctx.transcriptLines`
+// (D6) as-is — the SAME flattened parent+all-subagent-transcripts array
+// wall-of-text-detector.ts independently root-caused for its own consumption
+// (mt#3028, see that file's header comment). Because `resolveTranscriptCandidates`
+// (mt#2637) always places subagent transcript files AFTER the parent file,
+// and those subagent files stop growing once the subagent completes, the
+// last-two-real-prompt anchor `extractLastAssistantTurn` slices between can
+// get permanently stuck inside a STATIC subagent transcript segment — every
+// subsequent hook firing then re-measures the exact same frozen turn,
+// producing the identical calibration record repeated across many
+// subsequent (sometimes many-day-apart) prompts. Investigation against the
+// three sessions the mt#3003 spec named (3bf59029, 2c9ac5e6 — both
+// wall-of-text repeats; 762cde32 — the silent-stretch repeat) confirmed all
+// three have populated `subagents/` dirs and found NO missed-prompt-shape
+// bug in `findRealPromptIndices`/`isRealUserPrompt` itself — every genuine
+// human prompt, slash-command echo, and tool_result line was correctly
+// classified. Fix: `resolveParentTranscriptLines` (`transcript.ts`, shared
+// with wall-of-text-detector.ts's `resolveTurnLines`) re-parses the PARENT
+// transcript alone whenever more than one candidate is resolved, so a
+// subagent's static content can never anchor this guard's own turn. A
+// `buildTurnAnchor` dedupe check (keyed on the measured turn's own boundary
+// timestamps, mirroring wall-of-text-detector.ts's content-hash dedupe) adds
+// defense-in-depth on top, per the mt#3003 spec.
+//
 // @see .claude/hooks/causal-premise-detector.ts — sibling calibration-first pattern this file mirrors
 // @see .claude/hooks/inject-dispatch-watchdog.ts — sibling silence detector (SUBAGENT side; this covers the MAIN agent's own silence)
-// @see .minsky/hooks/transcript.ts — shared turn-boundary + timestamp helpers
+// @see .minsky/hooks/transcript.ts — shared turn-boundary + timestamp + anchoring/dedup helpers
 // @see mt#2263 — detector ladder (calibration before injection)
-// @see mt#2637 — ctx.transcriptLines / needsTranscript wiring
+// @see mt#2637 — ctx.transcriptLines / needsTranscript wiring; resolveTranscriptCandidates subagent-ordering
 // @see mt#2824 — origin (cadence + v1 measurement)
-// @see mt#3027 — this task: within-turn-only re-measurement (13/13 FP calibration round)
+// @see mt#3027 — within-turn-only re-measurement (13/13 FP calibration round)
+// @see mt#3028 — wall-of-text-detector.ts's independent fix for the same contamination mechanism
+// @see mt#3003 — this task: shared anchoring fix (resolveParentTranscriptLines) + dedupe guard
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard
 
 import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
@@ -79,6 +106,9 @@ import {
   extractAssistantText,
   extractToolUseNames,
   findRealPromptIndices,
+  resolveParentTranscriptLines,
+  readLogTailText,
+  sessionHasLoggedKey,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
@@ -282,6 +312,24 @@ export function findTurnBoundaryTimestamps(lines: TranscriptLine[]): TurnBoundar
   };
 }
 
+/**
+ * Stable per-session dedupe key identifying WHICH turn was measured — the
+ * pair of real-prompt boundary timestamps `extractLastAssistantTurn` sliced
+ * between (mt#3003). Two firings that resolve to the SAME anchor pair
+ * measured the identical turn (deterministically the identical result), so
+ * the second is a stale re-log, not a new signal — this is the shape the
+ * cross-transcript-contamination bug produced (see
+ * `resolveParentTranscriptLines`'s doc comment in `transcript.ts` for the
+ * mechanism). Returns undefined when either boundary is missing (an edge
+ * case already excluded upstream by `measureSilentStretch` needing 2 real
+ * prompts to produce turnLines at all, but defensive here too) — a record
+ * with no anchor is never treated as a dedupe candidate, so it always logs.
+ */
+export function buildTurnAnchor(boundaries: TurnBoundaryTimestamps): string | undefined {
+  if (!boundaries.turnStartTimestamp || !boundaries.currentPromptTimestamp) return undefined;
+  return `${boundaries.turnStartTimestamp}::${boundaries.currentPromptTimestamp}`;
+}
+
 // ---------------------------------------------------------------------------
 // Calibration logging (standalone CLI path only — dispatcher path uses D4
 // `logCalibrationRecord` via the registry's `calibrationLog` wiring)
@@ -304,19 +352,55 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
   }
 }
 
+/**
+ * Real on-disk read of the calibration log's bounded tail, resolved against
+ * the repo root (never throws). Thin wrapper over the shared `transcript.ts`
+ * `readLogTailText` (mt#3003) — mirrors wall-of-text-detector.ts's own
+ * `readCalibrationLogText`, which this file previously had no equivalent of
+ * (it had no dedupe check at all before this task).
+ */
+function readCalibrationLogText(cwd: string): string | undefined {
+  const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
+  return readLogTailText(logPath);
+}
+
+/** Injectable overrides for `run()` — tests substitute in-memory fakes for both real-IO seams (`custom/no-real-fs-in-tests`). */
+export interface RunDeps {
+  /** Defaults to the real `parseTranscript`. Used by `resolveParentTranscriptLines`'s multi-candidate branch. */
+  parseTranscriptFn?: (path: string) => TranscriptLine[];
+  /** Defaults to the real `readCalibrationLogText`. Used by the dedupe check. */
+  readCalibrationLogTextFn?: (cwd: string) => string | undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Dispatcher-compatible pure function (ADR-028 D1/D2)
 // ---------------------------------------------------------------------------
 
 /**
- * Guard-dispatcher entry point. Reuses `ctx.transcriptLines` (D6) instead of
- * re-parsing the transcript itself. Only calibration logging happens here
- * (via the returned `calibration` field, which the dispatcher forwards to
+ * Guard-dispatcher entry point. Uses `resolveParentTranscriptLines` (mt#3003)
+ * instead of trusting `ctx.transcriptLines` (D6) as-is — when this
+ * conversation has dispatched subagents, `ctx.transcriptLines` is a flat
+ * concatenation of the parent transcript with every sibling subagent
+ * transcript (mt#2637), and turn-boundary extraction over that flattened
+ * array can anchor inside a SUBAGENT's own (static) transcript instead of
+ * the live parent conversation — freezing the measured turn and re-logging
+ * the identical record on every subsequent firing (the actual root cause of
+ * the "stale turn re-measurement" bug; see `transcript.ts`'s
+ * `resolveParentTranscriptLines` doc comment for the full mechanism and the
+ * investigation that found it). Before logging, also checks the
+ * `buildTurnAnchor` dedupe key (defense-in-depth per the mt#3003 spec) so a
+ * turn already logged for this session — anchoring bug aside — is never
+ * re-logged. Only calibration logging happens here (via the returned
+ * `calibration` field, which the dispatcher forwards to
  * `logCalibrationRecord` per this guard's `calibrationLog: "silent-stretch"`
  * registration) — `additionalContext` is never set while `INJECTION_ENABLED`
  * is false.
  */
-export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+export function run(
+  input: ClaudeHookInput,
+  ctx: DispatchContext,
+  deps: RunDeps = {}
+): GuardOutcome | null {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -331,7 +415,15 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   }
 
   if (!input.transcript_path) return null;
-  const lines = ctx.transcriptLines;
+  const parseTranscriptFn = deps.parseTranscriptFn ?? parseTranscript;
+  const readCalibrationLogTextFn = deps.readCalibrationLogTextFn ?? readCalibrationLogText;
+
+  const lines = resolveParentTranscriptLines(
+    input.transcript_path,
+    ctx.transcriptCandidates,
+    ctx.transcriptLines,
+    parseTranscriptFn
+  );
   if (lines.length === 0) return null;
 
   let turnLines: TranscriptLine[];
@@ -343,9 +435,10 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   if (turnLines.length === 0) return null;
 
   let measurement: SilentStretchMeasurement;
+  let boundaries: TurnBoundaryTimestamps;
   try {
-    const { turnStartTimestamp } = findTurnBoundaryTimestamps(lines);
-    measurement = measureSilentStretch(turnLines, turnStartTimestamp);
+    boundaries = findTurnBoundaryTimestamps(lines);
+    measurement = measureSilentStretch(turnLines, boundaries.turnStartTimestamp);
   } catch (err) {
     process.stderr.write(
       `[silent-stretch-detector] Measurement error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -355,6 +448,23 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   if (!measurement.matched) return null;
 
+  const turnAnchor = buildTurnAnchor(boundaries);
+  if (
+    turnAnchor &&
+    sessionHasLoggedKey(
+      readCalibrationLogTextFn(input.cwd),
+      input.session_id,
+      "turnAnchor",
+      turnAnchor
+    )
+  ) {
+    // mt#3003 defense-in-depth: a record for this exact turn anchor already
+    // exists for this session — the anchoring fix above should make this
+    // rare, but a genuinely-unchanged re-measurement (or a residual
+    // contamination shape not yet covered) must still not re-log.
+    return null;
+  }
+
   const outcome: GuardOutcome = {
     calibration: {
       timestamp: new Date().toISOString(),
@@ -362,6 +472,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
       gapMinutes: Math.round(measurement.gapMinutes * 100) / 100,
       toolCallCount: measurement.toolCallCount,
       hadTextInTurn: measurement.hadTextInTurn,
+      turnAnchor,
     },
   };
 
@@ -455,9 +566,10 @@ export async function main(): Promise<void> {
   }
 
   let measurement: SilentStretchMeasurement;
+  let boundaries: TurnBoundaryTimestamps;
   try {
-    const { turnStartTimestamp } = findTurnBoundaryTimestamps(lines);
-    measurement = measureSilentStretch(turnLines, turnStartTimestamp);
+    boundaries = findTurnBoundaryTimestamps(lines);
+    measurement = measureSilentStretch(turnLines, boundaries.turnStartTimestamp);
   } catch (err) {
     console.error(
       `[silent-stretch-detector] Measurement error: ${err instanceof Error ? err.message : String(err)}`
@@ -469,14 +581,28 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
+  const turnAnchor = buildTurnAnchor(boundaries);
   if (Date.now() < overallDeadline) {
-    appendCalibrationRecord(input.cwd, {
-      timestamp: new Date().toISOString(),
-      session_id: input.session_id,
-      gapMinutes: Math.round(measurement.gapMinutes * 100) / 100,
-      toolCallCount: measurement.toolCallCount,
-      hadTextInTurn: measurement.hadTextInTurn,
-    });
+    // mt#3003: skip re-logging a turn already recorded for this session
+    // (see run()'s equivalent check + this file's header comment).
+    const alreadyLogged = turnAnchor
+      ? sessionHasLoggedKey(
+          readCalibrationLogText(input.cwd),
+          input.session_id,
+          "turnAnchor",
+          turnAnchor
+        )
+      : false;
+    if (!alreadyLogged) {
+      appendCalibrationRecord(input.cwd, {
+        timestamp: new Date().toISOString(),
+        session_id: input.session_id,
+        gapMinutes: Math.round(measurement.gapMinutes * 100) / 100,
+        toolCallCount: measurement.toolCallCount,
+        hadTextInTurn: measurement.hadTextInTurn,
+        turnAnchor,
+      });
+    }
   }
 
   if (!INJECTION_ENABLED) {

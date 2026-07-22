@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import {
   isRealUserPrompt,
   extractLastAssistantTurn,
@@ -7,6 +7,10 @@ import {
   extractLastUserMessage,
   findRealPromptIndices,
   extractFinalTurn,
+  resolveParentTranscriptLines,
+  readLogTailText,
+  sessionHasLoggedKey,
+  DEFAULT_MAX_DEDUPE_READ_BYTES,
   type TranscriptLine,
 } from "./transcript";
 
@@ -429,3 +433,187 @@ describe("extractFinalTurn", () => {
     expect(openingPrompt).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// resolveParentTranscriptLines (mt#3003) — shared anchoring fix
+// ---------------------------------------------------------------------------
+//
+// Generalizes wall-of-text-detector.ts's mt#3028 `resolveTurnLines` fix
+// (originally per-detector) into a shared primitive silent-stretch-detector
+// also consumes, closing the cross-transcript-contamination gap that
+// produced the "stale turn re-measurement" bug investigated at mt#3003
+// planning: a guard's `ctx.transcriptLines` (registry.ts D6) is
+// `transcriptCandidates.flatMap(parseTranscript)` — parent transcript
+// concatenated with every sibling subagent transcript (mt#2637) — and
+// turn-boundary extraction over that flattened array can permanently anchor
+// inside a STATIC subagent segment (subagent files are always ordered AFTER
+// the growing parent, per `resolveTranscriptCandidates`), freezing the
+// measured turn regardless of how much the live parent conversation grows.
+
+describe("resolveParentTranscriptLines", () => {
+  const PARENT_PATH = "/tmp/parent.jsonl";
+  const SUBAGENT_PATH = "/tmp/subagents/agent-fake.jsonl";
+
+  test("<=1 candidate -> trusts flatLines as-is (no re-parse)", () => {
+    const flatLines = [userPrompt("hi"), assistantText("hello")];
+    const poisoned = (): TranscriptLine[] => {
+      throw new Error("parseTranscriptFn must not be called for a single candidate");
+    };
+    expect(resolveParentTranscriptLines(PARENT_PATH, [PARENT_PATH], flatLines, poisoned)).toBe(
+      flatLines
+    );
+  });
+
+  test("undefined candidates -> trusts flatLines as-is", () => {
+    const flatLines = [userPrompt("hi"), assistantText("hello")];
+    const poisoned = (): TranscriptLine[] => {
+      throw new Error("parseTranscriptFn must not be called with no candidates array");
+    };
+    expect(resolveParentTranscriptLines(PARENT_PATH, undefined, flatLines, poisoned)).toBe(
+      flatLines
+    );
+  });
+
+  test(">1 candidates -> re-parses the PARENT candidate alone, ignoring the flattened array", () => {
+    // Simulates the confirmed contamination shape: the flattened array is
+    // parent lines followed by a STATIC subagent segment whose own real
+    // prompts would otherwise anchor extractLastAssistantTurn forever.
+    const parentLines = [userPrompt("investigate this"), assistantText("done investigating")];
+    const subagentLines = [userPrompt("subagent task"), assistantText("subagent report")];
+    const contaminated = [...parentLines, ...subagentLines];
+    const parseTranscriptFn = (path: string): TranscriptLine[] => {
+      expect(path).toBe(PARENT_PATH); // always candidates[0]
+      return parentLines;
+    };
+    expect(
+      resolveParentTranscriptLines(
+        PARENT_PATH,
+        [PARENT_PATH, SUBAGENT_PATH],
+        contaminated,
+        parseTranscriptFn
+      )
+    ).toBe(parentLines);
+  });
+
+  test(">1 candidates but candidates[0] missing -> falls back to transcriptPath", () => {
+    const parentLines = [userPrompt("go"), assistantText("ok")];
+    const parseTranscriptFn = (path: string): TranscriptLine[] => {
+      expect(path).toBe(PARENT_PATH);
+      return parentLines;
+    };
+    // A synthetic/test candidates array that (unlike the real
+    // resolveTranscriptCandidates) doesn't actually carry the parent path
+    // as its first entry — the fallback must still find it via transcriptPath.
+    expect(
+      resolveParentTranscriptLines(
+        PARENT_PATH,
+        [undefined as unknown as string, SUBAGENT_PATH],
+        [],
+        parseTranscriptFn
+      )
+    ).toBe(parentLines);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readLogTailText / sessionHasLoggedKey (mt#3003) — shared dedup helpers
+// ---------------------------------------------------------------------------
+
+describe("sessionHasLoggedKey", () => {
+  test("undefined log text -> false", () => {
+    expect(sessionHasLoggedKey(undefined, "session-a", "turnAnchor", "x::y")).toBe(false);
+  });
+
+  test("undefined session id -> false", () => {
+    const log = `${JSON.stringify({ session_id: "session-a", turnAnchor: "x::y" })}\n`;
+    expect(sessionHasLoggedKey(log, undefined, "turnAnchor", "x::y")).toBe(false);
+  });
+
+  test("matches the key regardless of position in the log, scoped to the session", () => {
+    const lines = [
+      { session_id: "session-a", turnAnchor: "anchor-1" },
+      { session_id: "session-b", turnAnchor: "other-session-anchor" },
+      { session_id: "session-a", turnAnchor: "anchor-2" },
+    ];
+    const log = `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
+    // Not just the most-recent record for the session (mirrors the
+    // wall-of-text A -> B -> A regression this generalizes from).
+    expect(sessionHasLoggedKey(log, "session-a", "turnAnchor", "anchor-1")).toBe(true);
+    expect(sessionHasLoggedKey(log, "session-a", "turnAnchor", "anchor-2")).toBe(true);
+    expect(sessionHasLoggedKey(log, "session-a", "turnAnchor", "anchor-3")).toBe(false);
+    expect(sessionHasLoggedKey(log, "session-b", "turnAnchor", "anchor-1")).toBe(false);
+  });
+
+  test("tolerates blank lines and malformed JSON lines", () => {
+    const log = [
+      "",
+      "not valid json",
+      JSON.stringify({ session_id: "session-a", turnAnchor: "ok" }),
+      "",
+    ].join("\n");
+    expect(sessionHasLoggedKey(log, "session-a", "turnAnchor", "ok")).toBe(true);
+  });
+
+  test("a different key field on the same record shape is independent (generic keyField)", () => {
+    const log = `${JSON.stringify({ session_id: "session-a", textHash: "h1", turnAnchor: "a1" })}\n`;
+    expect(sessionHasLoggedKey(log, "session-a", "textHash", "h1")).toBe(true);
+    expect(sessionHasLoggedKey(log, "session-a", "turnAnchor", "a1")).toBe(true);
+    expect(sessionHasLoggedKey(log, "session-a", "textHash", "a1")).toBe(false);
+  });
+});
+
+/* eslint-disable custom/no-real-fs-in-tests -- this block specifically
+   verifies readLogTailText's bounded-tail-read behavior against a real
+   file (the whole point is proving the byte-offset seek actually bounds
+   disk I/O regardless of file size); every OTHER test in this file uses
+   in-memory fixtures. A throwaway mkdtempSync directory (removed in
+   afterEach) keeps this isolated from any real calibration log. */
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+describe("readLogTailText", () => {
+  let tmpDir: string;
+  let logPath: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "transcript-dedupe-test-"));
+    logPath = join(tmpDir, "calibration.jsonl");
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("missing file -> undefined", () => {
+    expect(readLogTailText(logPath)).toBeUndefined();
+  });
+
+  test("file at or under the byte cap is returned in full", () => {
+    const content = `${JSON.stringify({ session_id: "s", turnAnchor: "a" })}\n`;
+    writeFileSync(logPath, content);
+    expect(readLogTailText(logPath)).toBe(content);
+  });
+
+  test("file over the byte cap returns only a bounded tail, excluding early content", () => {
+    const maxBytes = 4096;
+    const startRecord = `${JSON.stringify({ session_id: "session-at-start", turnAnchor: "start" })}\n`;
+    const filler = `${JSON.stringify({ session_id: "filler", turnAnchor: "f" })}\n`;
+    const fillerCount = Math.ceil((maxBytes * 3) / filler.length);
+    const endRecord = `${JSON.stringify({ session_id: "session-at-end", turnAnchor: "end" })}\n`;
+    writeFileSync(logPath, startRecord + filler.repeat(fillerCount) + endRecord);
+
+    const result = readLogTailText(logPath, maxBytes);
+    expect(result).toBeDefined();
+    expect((result as string).length).toBeLessThanOrEqual(maxBytes);
+    expect(sessionHasLoggedKey(result, "session-at-end", "turnAnchor", "end")).toBe(true);
+    expect(sessionHasLoggedKey(result, "session-at-start", "turnAnchor", "start")).toBe(false);
+  });
+
+  test("default maxBytes is DEFAULT_MAX_DEDUPE_READ_BYTES", () => {
+    const content = `${JSON.stringify({ session_id: "s", turnAnchor: "a" })}\n`;
+    writeFileSync(logPath, content);
+    expect(readLogTailText(logPath)).toBe(readLogTailText(logPath, DEFAULT_MAX_DEDUPE_READ_BYTES));
+  });
+});
+/* eslint-enable custom/no-real-fs-in-tests */
