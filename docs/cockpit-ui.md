@@ -119,6 +119,14 @@ operator's own credentials + the operator's own machine.
   `bypassPermissions` (headless print-mode sessions have no prompt UI to answer
   with); for task-bound sessions the isolated workspace clone is the
   containment.
+- **Model (mt#3040)** — each task-detail launch control carries a model picker
+  beside the button. It defaults to **Sonnet** and offers the dispatch tiers
+  (Sonnet / Opus / Haiku / Fable) from the registry in
+  `src/cockpit/web/lib/dispatch-models.ts`; the selection is passed to the
+  spawned binary as `--model <alias>`. It is a defaulted-with-visible-override
+  control, not a required per-launch choice — leaving it untouched reproduces
+  the previous behavior exactly. Reach for a stronger tier when the task
+  warrants it (the originating case: "this one needs Fable").
 
 ### Reading the run list
 
@@ -175,7 +183,12 @@ optional and `taskId`/`cwd` mutually exclusive (400 when both are present):
 | `{ "cwd": "/abs/dir" }` | Explicit-directory launch (the original mt#2750 shape).                                    |
 | `{}`                    | Scratch: cwd defaults to the daemon's own working directory; no task binding.              |
 
-Optional on any shape: `"permissionMode": "bypassPermissions" \| "default"`.
+Optional on any shape: `"permissionMode": "bypassPermissions" \| "default"`, and
+`"model"` (mt#3040) — a dispatch-model id from
+`src/cockpit/web/lib/dispatch-models.ts`: `"sonnet"` \| `"opus"` \| `"haiku"` \|
+`"fable"`. When present it is resolved to the spawned binary's `--model <alias>`
+argument; an unrecognized id is rejected with `400` rather than silently falling
+back to the default. Omit it to inherit the CLI's own default model.
 Returns `201` with `{ sessionId, harnessSessionId, cwd, taskId,
 minskySessionId, permissionMode, status, pid, startedAt, exitCode, argv }` —
 `sessionId` is the spawn-time local id that addresses `/driven/:id` and the
