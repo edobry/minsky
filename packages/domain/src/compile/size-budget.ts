@@ -1,21 +1,46 @@
 /**
- * Compiled-output size budget (mt#2802)
+ * Compiled-output size budget (mt#2802; moved + decoupled from the legacy
+ * `Rule` type in mt#2992).
  *
- * Adds a size budget to the legacy `rules compile` pipeline's monolithic
- * targets (`claude.md`, `agents.md`). Every compile reports the output size
- * in characters; `--check` mode enforces warn/fail thresholds so an
- * operator gets an early, actionable signal before the corpus silently
- * regrows past Claude Code's advisory truncation-adjacent thresholds.
+ * Adds a size budget to monolithic single-file compile targets (`claude.md`,
+ * `agents.md` — in both the legacy `rules compile` pipeline and the new
+ * `compile` pipeline). Every compile reports the output size in characters;
+ * `--check` mode enforces warn/fail thresholds so an operator gets an early,
+ * actionable signal before the corpus silently regrows past Claude Code's
+ * advisory truncation-adjacent thresholds.
  *
  * Scope: this module is deliberately generic (no target-specific defaults
- * live here) — each target (`claude-md.ts`, `agents-md.ts`) owns its own
- * default budget constant and calls into this module's pure functions to
- * evaluate it. `cursor-rules.ts` (multi-file, per-rule output) does not use
- * this module — the size budget applies to monolithic single-file targets
- * only, per the mt#2802 spec.
+ * live here) — each target (`claude-md.ts`, `agents-md.ts` in either
+ * pipeline) owns its own default budget constant and calls into this
+ * module's pure functions to evaluate it. Multi-file per-rule-output targets
+ * (`cursor-rules.ts`, `claude-rules.ts`) do not use this module — the size
+ * budget applies to monolithic single-file targets only, per the mt#2802
+ * spec.
+ *
+ * **Decoupling (mt#2992):** this module operates on {@link SizeBudgetRule} —
+ * a minimal structural shape (`id`, `content`, `alwaysApply`) — rather than
+ * the legacy `Rule` type (`packages/domain/src/rules/types.ts`), which also
+ * carries `format`/`path`/`globs`/etc. that this module never reads. The
+ * legacy `Rule` type remains structurally assignable to `SizeBudgetRule[]`
+ * (it's a strict superset), so the legacy `claude-md.ts`/`agents-md.ts`
+ * targets keep working unmodified against this moved module. The new
+ * `compile` pipeline's `claude-md.ts`/`agents-md.ts` targets build their own
+ * lightweight adapter from `RuleDefinition` instead of depending on the
+ * legacy `Rule` type at all.
  */
 
-import type { Rule } from "../types";
+/**
+ * Minimal rule shape this module needs to evaluate a size budget —
+ * intentionally decoupled from the legacy `Rule` type (mt#2992). Any caller
+ * whose rule representation carries at least these three fields (the legacy
+ * `Rule`, a `RuleDefinition`-derived adapter, or a test fixture) can use this
+ * module directly.
+ */
+export interface SizeBudgetRule {
+  id: string;
+  content: string;
+  alwaysApply?: boolean;
+}
 
 /** Warn/fail thresholds for a compile target's output size, in characters. */
 export interface SizeBudget {
@@ -136,7 +161,10 @@ export function topContributors(
  * found in `rules` are silently skipped (defensive — should not happen in
  * practice since `includedIds` is derived from the same `rules` array).
  */
-export function computeRuleContributions(rules: Rule[], includedIds: string[]): RuleContribution[] {
+export function computeRuleContributions(
+  rules: SizeBudgetRule[],
+  includedIds: string[]
+): RuleContribution[] {
   const ruleMap = new Map(rules.map((r) => [r.id, r] as const));
   const contributions: RuleContribution[] = [];
   for (const id of includedIds) {
@@ -159,20 +187,18 @@ export function computeRuleContributions(rules: Rule[], includedIds: string[]): 
  *
  * Edge case (R1 clarification): for the `claude.md` target specifically,
  * this `alwaysApply` filter is DEFENSIVE, not load-bearing in practice —
- * `buildClaudeMdContent` (`targets/claude-md.ts`) already restricts its
- * `rulesIncluded` output to `alwaysApply: true` rules by construction ("By
- * default, only includes ALWAYS_APPLY rules" per that file's own module
- * doc), so a glob-scoped or agent-requested rule never appears in the
- * `includedIds` this function receives from the `claude.md` call site at
- * all — it doesn't compile into `claude.md`, so there is nothing for this
- * filter to need to exclude there. The `alwaysApply === true` check earns
- * its keep as a CORRECTNESS GUARANTEE for this function's general
- * reusability: any FUTURE caller (a different target, a test fixture that
- * passes a broader `includedIds` set) is still protected from
- * misclassifying a non-always-on rule as a per-rule-ceiling violation.
+ * `buildClaudeMdContent`-style assembly logic already restricts its
+ * `rulesIncluded` output to `alwaysApply: true` rules by construction, so a
+ * glob-scoped or agent-requested rule never appears in the `includedIds`
+ * this function receives from the `claude.md` call site at all. The
+ * `alwaysApply === true` check earns its keep as a CORRECTNESS GUARANTEE for
+ * this function's general reusability: any FUTURE caller (a different
+ * target, a test fixture that passes a broader `includedIds` set) is still
+ * protected from misclassifying a non-always-on rule as a per-rule-ceiling
+ * violation.
  */
 export function findPerRuleCeilingViolations(
-  rules: Rule[],
+  rules: SizeBudgetRule[],
   includedIds: string[],
   ceilingChars: number = DEFAULT_PER_RULE_CEILING_CHARS
 ): RuleContribution[] {
@@ -195,7 +221,7 @@ export function findPerRuleCeilingViolations(
  */
 export function evaluateSizeBudget(params: {
   sizeChars: number;
-  rules: Rule[];
+  rules: SizeBudgetRule[];
   includedIds: string[];
   defaultBudget: SizeBudget;
   override?: Partial<SizeBudget>;

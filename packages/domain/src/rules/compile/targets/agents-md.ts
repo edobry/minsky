@@ -10,7 +10,7 @@ import * as fs from "fs/promises";
 import { classifyRuleType, RuleType } from "../../rule-classifier";
 import type { Rule } from "../../types";
 import type { CompileTarget, CompileResult, TargetOptions } from "../types";
-import { evaluateSizeBudget, type SizeBudget } from "../size-budget";
+import { evaluateSizeBudget, type SizeBudget } from "../../../compile/size-budget";
 
 /**
  * Default size budget for AGENTS.md (mt#2802).

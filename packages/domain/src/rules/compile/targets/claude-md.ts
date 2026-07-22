@@ -17,7 +17,7 @@ import {
   evaluateSizeBudget,
   DEFAULT_PER_RULE_CEILING_CHARS,
   type SizeBudget,
-} from "../size-budget";
+} from "../../../compile/size-budget";
 
 /** The canonical rule ID for the memory-usage directive. */
 const MEMORY_USAGE_RULE_ID = "memory-usage";
