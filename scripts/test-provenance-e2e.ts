@@ -68,9 +68,10 @@ const transcriptService = new AgentTranscriptService(db);
 // mt#3066: `ingestTranscript` / `getTranscript` take a branded ConversationId.
 // This script is a synthetic ROUND TRIP — it writes a row under this key and
 // reads it back under the same key — so the id never crosses keyspaces and the
-// mint below is sound. It is NOT the wrong-id-space case that
-// `unresolvedWorkspaceIdAsConversationId` marks (see mt#3101); do not swap it
-// for that helper, whose log line would assert a miss that does not happen here.
+// mint below is sound. It is NOT the wrong-id-space case: a real workspace id
+// must be resolved through `resolveConversationForWorkspace`
+// (`packages/domain/src/transcripts/conversation-link-resolver.ts`, mt#3101),
+// which is what the two production call sites now do.
 const syntheticConversationId = record.sessionId as ConversationId;
 
 const defaultJsonlPath =
