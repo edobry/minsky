@@ -86,4 +86,43 @@ describe("evaluateBunTestSummary (mt#2716 fail-closed pre-push gate)", () => {
     ].join("\n");
     expect(evaluateBunTestSummary(withDecoyName, 0).ok).toBe(true);
   });
+
+  // mt#3079: `bun test` respects an inherited FORCE_COLOR even when stdout is
+  // piped (non-TTY) -- an agent/session environment with FORCE_COLOR set wraps
+  // every summary line in ANSI SGR escape codes, which broke the anchored
+  // "<N> fail" match above and made this gate fail-closed on fully-green runs
+  // (first observed blocking a docs-only commit with 20/20 passing tests).
+  // These fixtures reproduce the exact sequences observed live with
+  // FORCE_COLOR=3 set.
+  const ANSI_RESET = "\x1b[0m";
+  const ANSI_DIM = "\x1b[2m";
+  const ANSI_GREEN = "\x1b[32m";
+  const ANSI_RED = "\x1b[31m";
+
+  test("passes a green summary whose lines are wrapped in ANSI color codes (mt#3079)", () => {
+    const colorized = [
+      `${ANSI_RESET}${ANSI_DIM}Ran 20 tests across 1 file. [107.00ms]${ANSI_RESET}`,
+      `${ANSI_RESET}${ANSI_GREEN} 20 pass${ANSI_RESET}`,
+      `${ANSI_RESET}${ANSI_DIM} 0 fail${ANSI_RESET}`,
+    ].join("\n");
+    expect(evaluateBunTestSummary(colorized, 0).ok).toBe(true);
+  });
+
+  test("still fails on a colorized summary reporting a nonzero fail count (mt#3079)", () => {
+    const colorized = [
+      `${ANSI_RESET}${ANSI_DIM}Ran 5 tests across 1 file. [50.00ms]${ANSI_RESET}`,
+      `${ANSI_RESET}${ANSI_GREEN} 4 pass${ANSI_RESET}`,
+      `${ANSI_RESET}${ANSI_RED} 1 fail${ANSI_RESET}`,
+    ].join("\n");
+    const r = evaluateBunTestSummary(colorized, 1);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain("1 failing test(s)");
+  });
+
+  test("still fails closed on colorized output with no completion summary (mt#3079)", () => {
+    const colorized = `${ANSI_RESET}${ANSI_DIM}some unrelated output${ANSI_RESET}`;
+    const r = evaluateBunTestSummary(colorized, 0);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain("no completion summary");
+  });
 });

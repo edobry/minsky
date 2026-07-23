@@ -26,6 +26,23 @@
  */
 
 /**
+ * Strip ANSI escape sequences (SGR color/style codes) from `bun test` output
+ * before line-matching. `bun test` respects `FORCE_COLOR` even when stdout is
+ * piped (non-TTY) — an agent/session environment with `FORCE_COLOR` set (e.g.
+ * `FORCE_COLOR=3`) wraps every summary line in escape codes like
+ * `\x1b[0m\x1b[2m 0 fail\x1b[0m`, which silently breaks the anchored
+ * `/^ *\d+ fail$/` match below and made `evaluateBunTestSummary` fail-closed
+ * on fully-green runs (mt#3079: first observed blocking a docs-only commit
+ * with 20/20 passing tests). `AGENT: "1"` in the spawned env alone is NOT
+ * sufficient to suppress this — `FORCE_COLOR` in the inherited `process.env`
+ * overrides bun's own non-TTY color-suppression heuristic.
+ */
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex -- deliberately matching ANSI SGR escape codes
+  return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+/**
  * Fail-closed gate over a `bun test` run's combined stdout+stderr, mirroring
  * ci.yml's "Test" step. `bun test` 1.2.21 can silently truncate — exit 0 with no
  * completion summary — so exit code alone is not a trustworthy pass signal. A run
@@ -44,9 +61,10 @@
  * grep logic.
  */
 export function evaluateBunTestSummary(
-  output: string,
+  rawOutput: string,
   exitCode: number
 ): { ok: boolean; reason: string } {
+  const output = stripAnsi(rawOutput);
   if (!/Ran \d+ tests? across \d+ files?/.test(output)) {
     return {
       ok: false,
@@ -92,12 +110,17 @@ export function evaluateBunTestSummary(
 /**
  * Run one runner script as a child `bun` process, capturing its combined output
  * (for gating) while re-emitting it so the invoking hook still shows the test
- * output. AGENT=1 keeps bun's reporter in clean non-interactive mode.
+ * output. AGENT=1 keeps bun's reporter in clean non-interactive mode. FORCE_COLOR
+ * is explicitly cleared (mt#3079): an inherited `FORCE_COLOR` from the parent
+ * environment overrides bun's own non-TTY color-suppression heuristic, which
+ * would otherwise still be preventable defense-in-depth for `evaluateBunTestSummary`'s
+ * `stripAnsi` above -- this belt-and-suspenders pair keeps the common case clean
+ * even if a future spawn call forgets the strip step.
  */
 function runStep(script: string): { exitCode: number; combined: string } {
   const decoder = new TextDecoder();
   const proc = Bun.spawnSync(["bun", script], {
-    env: { ...process.env, AGENT: "1" },
+    env: { ...process.env, AGENT: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
     stdout: "pipe",
     stderr: "pipe",
   });

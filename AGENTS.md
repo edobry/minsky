@@ -1349,9 +1349,21 @@ Doc: `turn-end-retro-scan.md`.
 
 UserPromptSubmit: flags an asserted-but-unread code-symbol behavior claim.
 mt#3002 excludes file-name/hex-id symbol FPs and flips
-`INJECTION_ENABLED=true` (calibration-only since mt#2486). Hook:
+`INJECTION_ENABLED=true` — LIVE since 2026-07-21 (calibration-first since mt#2486). Hook:
 `code-mechanism-assertion-detector.ts`. Override:
 `MINSKY_ACK_CODE_MECHANISM_ASSERTION=1`. Fail: open. Doc: same-name `.md`.
+
+## Ask-Routing Deferral Detector
+
+UserPromptSubmit: flags a chat-prose decision deferral that should have routed through the Ask
+substrate (`asks_create`), or a deferral-menu of options a cheap lookup / standing default
+would resolve. `INJECTION_ENABLED=true` — LIVE-INJECTING since 2026-07-08 (mt#2694 flip,
+operator-approved disposition of the mt#2471 calibration-first rollout; NOT log-only).
+Suppressed when the same assistant turn already calls `asks_create`. Calibration logging
+continues post-flip for FP monitoring (mt#2483 loop):
+`.minsky/ask-routing-deferral-calibration.jsonl`. Hook: `ask-routing-deferral-detector.ts`.
+Override: `MINSKY_ACK_ASK_ROUTING_DEFERRAL=1`. Fail: open on transcript/read error.
+Doc: `ask-routing-deferral-detector.md`.
 
 ## Injection Hooks (UserPromptSubmit)
 
@@ -1395,10 +1407,6 @@ Doc: `session-end-transcript-ingest-hook.md`.
 - **Causal-premise** — logs volunteered causal claims lacking same-turn verification.
   `causal-premise-detector.ts`; log `.minsky/causal-premise-calibration.jsonl`; companion
   `/check-premise`; override `MINSKY_ACK_CAUSAL_PREMISE=1`. Doc: `causal-premise-detector.md`.
-- **Ask-routing deferral** — logs decision deferrals routed via chat prose instead of the Ask
-  substrate (suppressed once the turn calls `asks_create`). `ask-routing-deferral-detector.ts`;
-  log `.minsky/ask-routing-deferral-calibration.jsonl`; override
-  `MINSKY_ACK_ASK_ROUTING_DEFERRAL=1`. Doc: `ask-routing-deferral-detector.md`.
 - **Calibration-review cadence** — warns when a calibration log crosses its review threshold
   (≥10 fires, ≥3 phrases) or goes stale; run `/calibration-review` unless a disposition Ask is
   open (mt#2659). `calibration-review-cadence-detector.ts`; override
@@ -1419,7 +1427,7 @@ Doc: `session-end-transcript-ingest-hook.md`.
   (mt#2896 never-reviewed-aging leg); override `MINSKY_ACK_BUILD_CLAIM_INJECTION=1`.
   Doc: `build-claim-injection-detector.md`.
 
-All six: fail open on transcript/read error.
+All five: fail open on transcript/read error.
 
 ## Guard-Health Tracker + Escalation Detector
 
@@ -2398,7 +2406,7 @@ Memory is stored in the Minsky DB. The file-based memory directory (`~/.claude/p
 
 ## Bridge mechanism (Claude Code only)
 
-`.claude/hooks/memory-search.ts` is a `UserPromptSubmit` hook that auto-injects top-K `mcp__minsky__memory_search` results for non-trivial prompts (length ≥ 20 chars, not a single-word affirmative). It restores preamble-parity for Claude Code only and is explicitly **temporary**: other harnesses don't have it, so the memory system isn't yet fully harness-agnostic at the read layer.
+`.claude/hooks/memory-search.ts` is a `UserPromptSubmit` hook that auto-injects top-K `mcp__minsky__memory_search` results for non-trivial prompts (length ≥ 50 chars, not a single-word affirmative — `MIN_PROMPT_LENGTH`, `memory-search.ts:93`). It restores preamble-parity for Claude Code only and is explicitly **temporary**: other harnesses don't have it, so the memory system isn't yet fully harness-agnostic at the read layer.
 
 - **Tracking task (retirement):** mt#1588 — MCP middleware enrichment on `CallToolRequestSchema`. When that ships, every MCP-capable agent gets memory enrichment for free, the harness-specific hook is deleted, and the mechanism is fully agnostic.
 - **Budget:** escalate if mt#1588 is still TODO 5 days after this rule lands in its final state, OR if the Claude Code hook fires 3+ times in 24h without the underlying user-quality issue being investigated. Per CLAUDE.md `§Temporary mechanism budget`.
