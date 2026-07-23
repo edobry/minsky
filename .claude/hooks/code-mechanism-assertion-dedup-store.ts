@@ -29,8 +29,22 @@
 // degrades to "always inject" (never dedup), the opposite failure mode from
 // silently hiding a real signal.
 //
+// State-dir resolution mirrors the majority convention across this hook
+// family (`merge-grant-store.ts`, `guard-health.ts`, `ask-grant-store.ts`,
+// `dispatch-intent-store.ts`, `guard-grant-store.ts`, `inject-prod-state.ts`,
+// `inject-dispatch-watchdog.ts`, `fire-log.ts`,
+// `mcp-daemon-staleness-detector.ts`): `MINSKY_STATE_DIR` override, else
+// `XDG_STATE_HOME`/minsky, else `~/.local/state/minsky`. `MINSKY_STATE_DIR`
+// is already registered in `HOOK_ONLY_ENV_VARS`
+// (packages/domain/src/configuration/sources/environment.ts) — no new
+// registration needed. This also gives the canary-runner framework's
+// isolated `MINSKY_STATE_DIR` redirection (`canary-runner.test.ts`) the same
+// guarantee it already has for those sibling stores, should this guard ever
+// gain a `canary.setup` that seeds dedup state.
+//
 // @see .minsky/hooks/guard-health-escalation-notify-store.ts — structural precedent (mt#3072)
 // @see .minsky/hooks/turn-end-scan-store.ts — the per-session-file layout precedent
+// @see .minsky/hooks/merge-grant-store.ts — the MINSKY_STATE_DIR resolution precedent
 // @see .minsky/hooks/code-mechanism-assertion-detector.ts — the consumer
 // @see mt#3113 — this task
 
@@ -51,13 +65,18 @@ import { join } from "node:path";
  */
 export const CLAIM_DEDUP_COOLDOWN_MS = 60 * 60 * 1000;
 
-const DEFAULT_STORE_DIR = join(
-  homedir(),
-  ".local",
-  "state",
-  "minsky",
-  "code-mechanism-assertion-dedup"
-);
+/** Resolve the Minsky state dir: MINSKY_STATE_DIR, else XDG_STATE_HOME/minsky, else ~/.local/state/minsky. */
+function getStateDir(): string {
+  const override = process.env["MINSKY_STATE_DIR"];
+  if (override) return override;
+  const xdgStateHome =
+    process.env["XDG_STATE_HOME"] || join(process.env["HOME"] || homedir(), ".local/state");
+  return join(xdgStateHome, "minsky");
+}
+
+function defaultStoreDir(): string {
+  return join(getStateDir(), "code-mechanism-assertion-dedup");
+}
 
 interface DedupState {
   signature: string;
@@ -142,7 +161,7 @@ export function shouldInjectClaimSet(
   const fs = options?.fs ?? REAL_FS;
   const now = (options?.now ?? (() => new Date()))();
   const cooldownMs = options?.cooldownMs ?? CLAIM_DEDUP_COOLDOWN_MS;
-  const dir = options?.dir ?? DEFAULT_STORE_DIR;
+  const dir = options?.dir ?? defaultStoreDir();
   const path = join(dir, `${storeFileName(sessionId ?? "unknown-session")}.json`);
 
   let prior: DedupState | null = null;
