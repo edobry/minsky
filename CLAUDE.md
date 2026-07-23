@@ -345,8 +345,8 @@ Check for Minsky's own answer before a generic (SE) default. Full detail:
   "keep tasks independent." `feedback_subsume_overlapping_task`.
 - **Strategic frame**: pre-spec a fix → check for a named concept (cockpit, mesh,
   attention-allocation, asks, System 3*). SE: "face value." `feedback_strategic_reframe_first`.
-- **Turnkey, not portal**: external-system action → Minsky tooling first; portal/hand-edit is
-  fallback (file+budget). SE: "user edits config." mt#1507, mt#2150→mt#2294.
+- **Turnkey, not portal**: external-system action, or writing "edit `~/.config/…`" → Minsky
+  tooling first; portal/hand-edit is fallback (file+budget). SE: "user edits config." §Turnkey.
 - **Workarounds**: a "temporary"/"until X ships" mechanism → cite a tracking task + an
   escalation threshold (count+window). SE: "clean up later." `work-completion.mdc §Temporary mechanism budget`.
 - **Missing MCP tool**: bash-before-MCP, MCP erroring for it, no tool+bash denied, or:

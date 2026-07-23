@@ -91,6 +91,19 @@ Generic-SE override: "act on the most recent direction; treat earlier direction 
 Origins: 2026-05-12 R2 — `feedback_multi_step_direction_compression`. Enforcement:
 `/restate-plan` skill (mt#1784).
 
+## Turnkey, not portal — in-band trigger phrases (full list)
+
+The compiled rule's `§Turnkey, not portal` entry keeps one representative trigger phrase inline
+(`"edit `~/.config/…`"`) as the recognition example; the full self-recognition list (about to
+write one of these → STOP, it's a UX defect) is:
+
+- "edit `~/.config/X/Y.json`" / "add Z to your `<config-file>`"
+- "operator follow-up: add Z to your config"
+- "manually add Z to surface this feature" / "one-time config edit required"
+
+If a proper UX is missing, file the task for it before shipping the manual-edit step, and mark
+the step temporary per `work-completion.mdc §Temporary mechanism budget`.
+
 ## Turnkey, not portal — origin detail
 
 mt#1507 (original); mt#2150 → mt#2294 (Cockpit widget-ID hand-edits, retired by
