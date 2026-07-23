@@ -17,6 +17,8 @@ import {
   resolveMetricsTranscriptPath,
   decideRecordingAction,
   HOOK_UNKNOWN_TASK_ID,
+  recordFailureBestEffort,
+  __setDeadlineExceededForTest,
 } from "./record-subagent-invocation";
 import { UNKNOWN_TASK_ID } from "../../src/mcp/subagent-dispatch-tracker";
 import { readTranscriptMetrics } from "../../packages/domain/src/subagent/transcript-metrics";
@@ -145,6 +147,49 @@ describe("decideRecordingAction (mt#3019)", () => {
     // tracker would silently stop updating task_id for every dispatch.
     for (const id of ["mt#1", "mt#3019", "md#416", "gh#491"]) {
       expect(decideRecordingAction(id, "session-abc", SESSION_CWD).effectiveTaskId).toBe(id);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// recordFailureBestEffort (mt#3089)
+//
+// The durable-error-recording fallback for when classifyAndRecord throws.
+// These tests cover its no-op guards, which are pure/synchronous-fast enough
+// to assert without needing a live DB — the function must return WITHOUT
+// attempting any persistence-provider import in either guarded case.
+// ---------------------------------------------------------------------------
+
+describe("recordFailureBestEffort (mt#3089)", () => {
+  test("no-ops when there is no correlation key (subagentSessionId null)", async () => {
+    // Should resolve immediately without throwing and without needing a DB —
+    // if this reached the persistence import it would still resolve (best-
+    // effort), but the point of this guard is to skip that work entirely
+    // when there's nothing to correlate the error to.
+    await expect(
+      recordFailureBestEffort(null, HOOK_UNKNOWN_TASK_ID, "some error")
+    ).resolves.toBeUndefined();
+  });
+
+  test("no-ops when the entrypoint's deadline has already fired", async () => {
+    __setDeadlineExceededForTest(true);
+    try {
+      await expect(
+        recordFailureBestEffort("some-session-id", HOOK_UNKNOWN_TASK_ID, "some error")
+      ).resolves.toBeUndefined();
+    } finally {
+      __setDeadlineExceededForTest(false);
+    }
+  });
+
+  test("never throws even when given a pathological error message", async () => {
+    __setDeadlineExceededForTest(true); // forces the fast no-op path in this env
+    try {
+      await expect(
+        recordFailureBestEffort("some-session-id", HOOK_UNKNOWN_TASK_ID, "x".repeat(10_000))
+      ).resolves.toBeUndefined();
+    } finally {
+      __setDeadlineExceededForTest(false);
     }
   });
 });
