@@ -29,7 +29,7 @@ mt#2521.) (mt#2865: memory `6038c0a1`'s own description still calls this rule-te
 "pending" — it isn't; this paragraph already carries it, so treat that memory's pending note as stale.)
 
 **Never fork for bounded lookups from an active implementation context (mt#2865).** A `fork`
-subagent inherits the FULL conversation context — confirmed at the transcript level (mt#2828
+subagent inherits the FULL conversation context — confirmed at the transcript level (mt#2865
 incident, 2026-07-16): a fork dispatched with a narrow, bounded, read-only instruction ("search
 memory... report back under 300 words") instead ran ~70 minutes and ~197 tool calls, independently
 implementing overlapping code, committing to the shared session workspace, and editing the shared
@@ -46,6 +46,16 @@ dispatching it: the resulting dispatch-intent declaration is enforced structural
 declared session regardless of which `agent_id` ends up making them — the gate contains a fork's
 WRITES to the shared substrate; it cannot stop a fork from THINKING like an implementer (a harness
 context-scoping capability outside Minsky's control, per mt#2512/mt#2521).
+
+**Undeclared nested fork dispatch is itself blocked (mt#3045).** The write-gate above is opt-in —
+it only fires once a declaration exists. On 2026-07-21 the pattern recurred (memory `bed551ef` /
+mem#665, R2): a nested fork was dispatched via the raw Agent tool with NO declaration, so the gate
+never applied. `block-nested-fork-dispatch.ts` closes that gap one layer earlier: a PreToolUse
+guard on the Agent tool denies a NESTED `fork` dispatch (the calling agent's `agent_id` is itself
+set — i.e. a subagent, not the main thread, is doing the dispatching) unless a live dispatch-intent
+declaration (read-only OR implementation) already covers the calling subagent's session, or the
+launch-time `MINSKY_ALLOW_NESTED_FORK=1` override is set. A top-level fork dispatch from the main
+agent is unaffected.
 
 **Prompt generation:** Always use `mcp__minsky__session_generate_prompt` — never hand-craft prompts. It enforces correct sessionId, taskId, paths, scope bounds, and guard rails. Dispatch with `suggestedModel` and `agentType` from the result.
 

@@ -158,6 +158,7 @@ export const environmentMappings = {
 export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_FORCE_PARALLEL", // .claude/hooks/parallel-work-guard.ts
   "MINSKY_FORCE_DUPLICATE_OK", // .claude/hooks/parallel-work-guard.ts (mt#1435 — tasks_create dup guard)
+  "MINSKY_ALLOW_NESTED_FORK", // .claude/hooks/block-nested-fork-dispatch.ts (mt#3045) — launch-time-only override for an undeclared nested fork dispatch
   "MINSKY_SKIP_FRESHNESS", // .claude/hooks/check-branch-fresh.ts
   "MINSKY_TWO_STRIKES_STATE_DIR", // .claude/hooks/two-strikes-record.ts
   "MINSKY_TWO_STRIKES_MODE", // .claude/hooks/two-strikes-record.ts

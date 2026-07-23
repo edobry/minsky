@@ -187,3 +187,15 @@ when a live `"read-only"` dispatch-intent covers the target session (forks inclu
 `intent` param (default `"implementation"`, no-op). Default-ALLOW. Hooks:
 `dispatch-intent-write-gate.ts` + `dispatch-intent-store.ts`. No override; fail-open on
 store-read errors only. Doc: `dispatch-intent-write-gate.md`.
+
+## Nested-Fork Dispatch Guard
+
+PreToolUse on `Agent` (mt#3045): the write gate above is opt-in — an undeclared nested fork
+bypassed it entirely (mem#665, R2 recurrence of mt#2865). This guard closes the gap one layer
+earlier: denies a NESTED `fork` dispatch (caller's `agent_id` is itself set — a subagent, not the
+main thread, is dispatching) unless a live dispatch-intent declaration (read-only OR
+implementation) already covers the calling subagent's session. Top-level fork dispatch from the
+main agent is unaffected; non-fork nested dispatch (Explore, general-purpose, ...) is unaffected.
+Hook: `block-nested-fork-dispatch.ts` (reuses `dispatch-intent-store.ts` + `isSubagentContext`/
+`resolveSessionIdFromInput` from `dispatch-intent-write-gate.ts`). Override:
+`MINSKY_ALLOW_NESTED_FORK=1` (launch-time-only). Fail-open on store-read errors only.
