@@ -1175,7 +1175,7 @@ decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture
 - **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.
 - **SubagentStop recording** — writes Stop-time columns on dispatch row. none.
 - **Session-end ingest** — ingests transcript at SessionEnd. `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK`.
-- **Calibration (log-only)** — causal-premise/cadence/silent-stretch/wall-of-text/build-claim. `MINSKY_ACK_*`/`MINSKY_SKIP_*`.
+- **Calibration (log-only)** — causal-premise/cadence/silent-stretch/wall-of-text/build-claim/knowledge-acquisition. `MINSKY_ACK_*`/`MINSKY_SKIP_*`.
 - **Guard-health tracker** — guard failure streaks, tagged `infra`/`logic` when known (mt#3072); escalation banner cools down per-session for up to 1h instead of repeating every turn (mt#3072). none.
 
 # Design Principle: Humility
