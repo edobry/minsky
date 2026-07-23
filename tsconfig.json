@@ -44,14 +44,15 @@
     "node_modules",
     "dist",
     "build",
-    // "scripts" is a DELIBERATE exclusion (mt#3082 decision record), not an
-    // oversight: a probe including all of scripts/ in one program surfaced
-    // ~180 latent type errors across ~43 files (vs. the 15/3 mt#3082 was
-    // scoped to fix), including errors in files OUTSIDE scripts/ entirely.
-    // scripts/ relies on its own per-script test suites for correctness for
-    // now; see mt#3088 for the tracked follow-up to add dedicated typecheck
-    // coverage (tsconfig.scripts.json, mirroring tsconfig.hooks.json's
-    // pattern) once that debt is paid down.
+    // "scripts" is a DELIBERATE exclusion, not an oversight: it has its own
+    // dedicated tsconfig.scripts.json (mirroring tsconfig.hooks.json's
+    // pattern for .claude/hooks) and CI typecheck step, so a script file
+    // reachable via import from something under "include" above isn't
+    // double-checked here under a different (non-"bun","node") types config.
+    // History: mt#3082 fixed 15 known errors and rejected adding this
+    // dedicated project in its own scope (a probe surfaced ~180 latent
+    // errors across ~43 files, including errors outside scripts/ entirely);
+    // mt#3088 paid down that debt and added tsconfig.scripts.json.
     "scripts",
     "src/scripts",
     "src/cockpit/web",

@@ -62,6 +62,7 @@
     "typecheck": "bun run typecheck:root && bun run typecheck:cockpit-web",
     "typecheck:root": "bunx @typescript/native-preview --noEmit",
     "typecheck:hooks": "bunx @typescript/native-preview --noEmit -p tsconfig.hooks.json",
+    "typecheck:scripts": "bunx @typescript/native-preview --noEmit -p tsconfig.scripts.json",
     "typecheck:cockpit-web": "bunx @typescript/native-preview --noEmit -p src/cockpit/web/tsconfig.json",
     "validate-all": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run test:hooks && bun run test:components && bun run test:eslint-rules",
     "secrets:gitleaks": "gitleaks detect --source . --verbose",
