@@ -46,6 +46,9 @@ describe("R1 apology/contrition patterns", () => {
     "I missed the obvious issue",
     "I anchored on the first result and missed the better option",
     "I conflated the two concepts",
+    // mt#3098: the improvised-instead-of-the-canonical-path admission shape.
+    "I improvised a reasonable-looking handoff instead of running the canonical skill",
+    "I improvised that handoff rather than following a defined method",
   ];
 
   for (const phrase of cases) {
@@ -94,6 +97,11 @@ describe("R3 future-behavior commitment patterns", () => {
     "future me will handle this better",
     "I'll be more careful about edge cases",
     "I will be more careful about this pattern",
+    // mt#3098: the same commitments with the clauses reversed — the shape that
+    // missed on 2026-07-23 while "Going forward I'll" fired the same day.
+    "I'll invoke it rather than improvise going forward",
+    "I will check the sibling hooks next time",
+    "I'll run the gate check from now on",
   ];
 
   for (const phrase of cases) {
@@ -150,6 +158,12 @@ describe("negative matches (should not trigger)", () => {
     // Simple acknowledgment without apology shape
     "I see the issue now. Let me fix it.",
     "You're right, the test is missing coverage.",
+    // mt#3098 near-misses for the widened R1/R3 patterns: improvisation with no
+    // skipped-canonical-path contrast, a temporal phrase with no first-person
+    // commitment, and a first-person future with no commitment phrase.
+    "I improvised a fixture for the integration test.",
+    "The sweeper will keep reconciling going forward.",
+    "I'll rerun the test suite now.",
     // NOTE: quoted trigger phrases in documentation text ("The hook detects
     // phrases like 'I owe you an apology'") ARE a known false-positive class.
     // SC#4 accepts this — advisory-only, tracked via calibration log.
