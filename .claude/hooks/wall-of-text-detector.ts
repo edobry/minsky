@@ -92,10 +92,16 @@
 // out the reminder. The lookback scans the last
 // `DEPTH_REQUEST_LOOKBACK_TURNS` real user prompts up to and including the
 // one that opened the measured turn (never the CURRENT prompt, which arrives
-// AFTER the report and so cannot have caused it). Every matched fire still
-// logs a calibration record — now carrying a `suppressedByDepthRequest` field
-// — whether or not injection actually fires, so the override's own accuracy
-// is itself reviewable in a future calibration pass.
+// AFTER the report and so cannot have caused it — `findOpeningPromptIndex`
+// fails CLOSED, i.e. treats the fire as unsuppressed, when fewer than 2 real
+// prompts exist to anchor on, rather than guessing an index). Every DISTINCT
+// (measured text, suppression state) matched fire logs a calibration record
+// — now carrying a `suppressedByDepthRequest` field — whether or not
+// injection actually fires; the mt#3028 dedupe (below) now keys on BOTH
+// dimensions (`sessionHasLoggedTextAndSuppression`) so a report that
+// coincidentally repeats verbatim under a DIFFERENT depth-request context
+// still logs its own record, instead of silently inheriting a stale
+// suppression verdict from an unrelated earlier turn (PR #2228 R1 BLOCKING).
 //
 // @see .minsky/hooks/silent-stretch-detector.ts — the under-signaling sibling this file mirrors structurally
 // @see .minsky/rules/communication-contract.mdc — the Tier-1 contract shape being measured; its
@@ -143,9 +149,11 @@ import type { DispatchContext, GuardOutcome } from "./registry";
  * mt#2483 review (ask 109807e1 / ask#5425) disposed the residual signal as a
  * confirmed operator-bounced true positive plus a 4x/14-day recurrence
  * (tripping the mt#2838 escalation budget). Paired, in the same flip, with
- * the depth-request override below: a matched fire still LOGS
- * unconditionally, but `additionalContext` is withheld when the principal
- * recently asked for depth (see `detectDepthRequest` / `DEPTH_REQUEST_PATTERNS`).
+ * the depth-request override below: a matched fire LOGS (unless it is a
+ * stale re-measurement of an already-logged (text, suppression-state) pair —
+ * see `sessionHasLoggedTextAndSuppression`), but `additionalContext` is
+ * withheld when the principal recently asked for depth (see
+ * `detectDepthRequest` / `DEPTH_REQUEST_PATTERNS`).
  */
 export const INJECTION_ENABLED = true;
 
@@ -297,6 +305,22 @@ export const DEPTH_REQUEST_LOOKBACK_TURNS = 3;
  * "background this" — that phrase moves the OTHER direction (toward less
  * detail, the executive register), so it is not a reason to suppress a
  * too-long-report reminder.
+ *
+ * **Deliberately narrow (PR #2228 R1 non-blocking).** Limited to exactly the
+ * three phrasings named above rather than also matching adjacent variants
+ * ("deep dive", "go into detail", "be exhaustive", bare "give me details").
+ * This is a v1 calibration-informed choice, not an oversight: an
+ * OVER-suppression false negative here (the reminder fires when it
+ * shouldn't) recreates the exact operator-friction incident this flip
+ * responds to; an under-suppression false positive (a phrase we should have
+ * matched doesn't) is the SAFER failure — the reminder still fires and the
+ * calibration log's `suppressedByDepthRequest: false` on that record is
+ * itself the signal a future calibration pass uses to justify widening this
+ * list, per the mt#2263 detector ladder's evidence-before-expansion
+ * discipline. `show-the-detail` intentionally accepts the SINGULAR "detail"
+ * (not just "details") because that is the literal wording of the
+ * rationale-doc example ("show me the detail") this pattern is calibrated
+ * from, not an idiomatic slip.
  */
 export const DEPTH_REQUEST_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   // "walk me through everything" / "walk me through it all" / "... the whole thing/story/process"
@@ -338,9 +362,28 @@ function extractUserPromptText(line: TranscriptLine): string {
 }
 
 /**
+ * The transcript-line INDEX of the real user prompt that opened the
+ * just-measured turn — the SAME boundary `extractLastAssistantTurn` slices
+ * from (`promptIndices[length - 2]`). Returns `undefined` when fewer than 2
+ * real prompts exist, mirroring `extractLastAssistantTurn`'s own guard and
+ * `silent-stretch-detector.ts`'s `findTurnBoundaryTimestamps` (PR #2228 R1
+ * BLOCKING): fails CLOSED rather than defaulting to an arbitrary index (a
+ * bare `?? 0` fallback previously here could point at a transcript line that
+ * is not actually the measured turn's opening prompt, in any future
+ * refactor that reordered or removed the caller's own >=2-prompt guard). A
+ * caller that gets `undefined` back must treat the fire as unsuppressed —
+ * NOT default to index 0 — since there is no reliable anchor to check.
+ */
+export function findOpeningPromptIndex(lines: TranscriptLine[]): number | undefined {
+  const promptIndices = findRealPromptIndices(lines);
+  if (promptIndices.length < 2) return undefined;
+  return promptIndices[promptIndices.length - 2];
+}
+
+/**
  * Text of the last `lookback` REAL user prompts at or before `throughIndex`
  * (inclusive) — the lookback window for the depth-request override. Callers
- * pass the measured turn's OPENING prompt index as `throughIndex` so the
+ * pass {@link findOpeningPromptIndex}'s result as `throughIndex` so the
  * window never reaches into the CURRENT prompt (which arrives after the
  * report being measured and so cannot have caused it).
  */
@@ -371,6 +414,23 @@ export function detectDepthRequest(userTexts: string[]): DepthRequestResult {
     }
   }
   return { matched: false };
+}
+
+/**
+ * Single entry point composing {@link findOpeningPromptIndex} +
+ * {@link recentUserPromptTexts} + {@link detectDepthRequest} — the exact
+ * three-step sequence `run()` and `main()` both need. Centralizing it here
+ * (rather than duplicating the sequence at each call site, per PR #2228 R1
+ * BLOCKING) is itself part of the anchoring-robustness fix: there is now
+ * exactly one place that can get the fail-closed behavior wrong. Returns
+ * `{ matched: false }` — i.e. treats the fire as unsuppressed — when
+ * `findOpeningPromptIndex` cannot anchor (fewer than 2 real prompts), rather
+ * than guessing at an index.
+ */
+export function resolveDepthCheck(lines: TranscriptLine[]): DepthRequestResult {
+  const openingPromptIdx = findOpeningPromptIndex(lines);
+  if (openingPromptIdx === undefined) return { matched: false };
+  return detectDepthRequest(recentUserPromptTexts(lines, openingPromptIdx));
 }
 
 // ---------------------------------------------------------------------------
@@ -455,6 +515,51 @@ export function sessionHasLoggedHash(
   hash: string
 ): boolean {
   return sessionHasLoggedKey(logText, sessionId, "textHash", hash);
+}
+
+/**
+ * mt#3112 (PR #2228 R1 BLOCKING) — dedupe check extended to ALSO require the
+ * suppression dimension to match, not just `textHash`. Plain `textHash`-only
+ * matching (the function above) treats two occurrences of BYTE-IDENTICAL
+ * report text as "the same turn re-measured" and skips logging the second —
+ * correct for the mt#3028 case this was built for (the SAME turn observed
+ * twice, e.g. via re-parse/contamination, where the recent-user-prompt
+ * window is necessarily identical too). It is WRONG for a report that
+ * coincidentally repeats verbatim from a genuinely DIFFERENT turn with a
+ * DIFFERENT depth-request context — that record would silently vanish,
+ * along with the very `suppressedByDepthRequest` variance this override
+ * exists to make reviewable. Requiring both `textHash` AND
+ * `suppressedByDepthRequest` to match before treating a record as "already
+ * logged" fixes this: a coincidental text repeat under a NEW suppression
+ * state is no longer swallowed.
+ *
+ * A record predating mt#3112 (no `suppressedByDepthRequest` field — every
+ * fire before this task was, by construction, never suppressed) is treated
+ * as `suppressed: false` for this comparison, matching its actual observed
+ * behavior; this keeps mt#3028/PR #2165's original dedupe tests
+ * (hand-built log fixtures with a bare `textHash` field) passing unchanged.
+ */
+export function sessionHasLoggedTextAndSuppression(
+  logText: string | undefined,
+  sessionId: string | undefined,
+  textHash: string,
+  suppressed: boolean
+): boolean {
+  if (!logText || !sessionId) return false;
+  for (const raw of logText.split("\n")) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    let rec: Record<string, unknown>;
+    try {
+      rec = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (rec["session_id"] !== sessionId || rec["textHash"] !== textHash) continue;
+    const recSuppressed = rec["suppressedByDepthRequest"] === true;
+    if (recSuppressed === suppressed) return true;
+  }
+  return false;
 }
 
 /**
@@ -597,21 +702,30 @@ export function run(
 
   if (!measurement.matched) return null;
 
+  // mt#3112: depth-request override-awareness, computed BEFORE the dedupe
+  // check (PR #2228 R1 BLOCKING) — the dedupe key below needs the
+  // suppression verdict to key on, so it must be known first.
+  // `resolveDepthCheck` fails CLOSED (treats the fire as unsuppressed) when
+  // fewer than 2 real prompts anchor the measured turn.
+  const depthCheck = resolveDepthCheck(lines);
+
   const textHash = hashText(finalText);
-  if (sessionHasLoggedHash(readCalibrationLogTextFn(input.cwd), input.session_id, textHash)) {
-    // mt#3028 fix (2): a record for this session already carries this exact
-    // measured text (within the bounded lookback window) — an unchanged
-    // report already logged; skip re-logging.
+  if (
+    sessionHasLoggedTextAndSuppression(
+      readCalibrationLogTextFn(input.cwd),
+      input.session_id,
+      textHash,
+      depthCheck.matched
+    )
+  ) {
+    // mt#3028 fix (2), extended by mt#3112: a record for this session
+    // already carries this exact measured text AND the same suppression
+    // state (within the bounded lookback window) — an unchanged report
+    // already logged; skip re-logging. A textHash match with a DIFFERENT
+    // suppression state is treated as new — see
+    // `sessionHasLoggedTextAndSuppression`'s doc comment.
     return null;
   }
-
-  // mt#3112: depth-request override-awareness. Look back over the recent
-  // real user prompts up to and including the one that opened the measured
-  // turn (never the CURRENT prompt — it arrives after the report and cannot
-  // have caused it).
-  const promptIndices = findRealPromptIndices(lines);
-  const openingPromptIdx = promptIndices[promptIndices.length - 2] ?? 0;
-  const depthCheck = detectDepthRequest(recentUserPromptTexts(lines, openingPromptIdx));
 
   const outcome: GuardOutcome = {
     calibration: buildCalibrationRecord(input, measurement, textHash, depthCheck.matched),
@@ -730,18 +844,20 @@ export async function main(): Promise<void> {
   }
 
   // mt#3112: depth-request override-awareness (see run()'s equivalent check).
-  const promptIndices = findRealPromptIndices(lines);
-  const openingPromptIdx = promptIndices[promptIndices.length - 2] ?? 0;
-  const depthCheck = detectDepthRequest(recentUserPromptTexts(lines, openingPromptIdx));
+  // Computed BEFORE the dedupe check — the dedupe key needs the suppression
+  // verdict to key on (PR #2228 R1 BLOCKING).
+  const depthCheck = resolveDepthCheck(lines);
 
   const textHash = hashText(finalText);
   if (Date.now() < overallDeadline) {
-    // mt#3028 fix (2): skip re-logging an unchanged report already recorded
-    // for this session (see the header comment + run()'s equivalent check).
-    const alreadyLogged = sessionHasLoggedHash(
+    // mt#3028 fix (2), extended by mt#3112: skip re-logging an unchanged
+    // report + suppression state already recorded for this session (see the
+    // header comment + run()'s equivalent check).
+    const alreadyLogged = sessionHasLoggedTextAndSuppression(
       readCalibrationLogText(input.cwd),
       input.session_id,
-      textHash
+      textHash,
+      depthCheck.matched
     );
     if (!alreadyLogged) {
       appendCalibrationRecord(

@@ -43,6 +43,17 @@
  * - `recentUserPromptTexts` bounds the lookback to `DEPTH_REQUEST_LOOKBACK_TURNS`
  *   real user prompts at or before the given index, never reaching past it
  *
+ * Covers (PR #2228 R1 review-response tests):
+ * - `findOpeningPromptIndex` fails CLOSED (`undefined`) with fewer than 2 real
+ *   prompts, instead of a magic `?? 0` fallback (BLOCKING #2)
+ * - `resolveDepthCheck` treats a fail-closed anchor as unsuppressed
+ * - `sessionHasLoggedTextAndSuppression` requires BOTH `textHash` AND
+ *   `suppressedByDepthRequest` to match; a coincidental text repeat under a
+ *   DIFFERENT suppression state is NOT treated as already-logged (BLOCKING #1)
+ * - `run()`: the same finalText recurring first unsuppressed then suppressed
+ *   (different preceding context) logs BOTH occurrences, each with its own
+ *   correct `suppressedByDepthRequest` value
+ *
  * @see mt#2870
  * @see mt#3028
  * @see mt#3112
@@ -65,6 +76,9 @@ import {
   DEPTH_REQUEST_PATTERNS,
   detectDepthRequest,
   recentUserPromptTexts,
+  findOpeningPromptIndex,
+  resolveDepthCheck,
+  sessionHasLoggedTextAndSuppression,
   run,
   type RunDeps,
 } from "./wall-of-text-detector";
@@ -83,6 +97,9 @@ const SUBAGENT_TRANSCRIPT_PATH = "/tmp/subagents/agent-fake.jsonl";
 // Shared generic opening-prompt text (custom/no-magic-string-duplication) — used
 // wherever a fixture's opening prompt content is not itself under test.
 const OPENING_PROMPT_TEXT = "please do the thing";
+// Shared depth-request phrase fixtures (custom/no-magic-string-duplication).
+const DEPTH_REQUEST_PHRASE = "walk me through everything in detail";
+const DEPTH_REQUEST_PHRASE_BARE = "walk me through everything";
 
 const BASE_TS = Date.parse("2026-07-17T10:00:00.000Z");
 
@@ -390,7 +407,7 @@ describe("run — mt#3112 depth-request override", () => {
 
   test("(AT2) same shape preceded by a depth-request opening prompt -> no injection, logged suppressed", () => {
     const lines = transcriptWithFinalReportAndOpeningPrompt(
-      "walk me through everything in detail",
+      DEPTH_REQUEST_PHRASE,
       pointerFreeOverBudgetReport()
     );
     const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
@@ -421,7 +438,7 @@ describe("run — mt#3112 depth-request override", () => {
     // depth request and the opening prompt of the measured turn — it has
     // scrolled out of the "recent" window.
     const lines: TranscriptLine[] = [
-      userPromptLine(0, "walk me through everything"),
+      userPromptLine(0, DEPTH_REQUEST_PHRASE_BARE),
       assistantTextLine(1, "ok"),
       userPromptLine(2, "turn two"),
       assistantTextLine(3, "ok"),
@@ -447,7 +464,7 @@ describe("run — mt#3112 depth-request override", () => {
       userPromptLine(0, OPENING_PROMPT_TEXT),
       assistantToolUseLine(10),
       assistantTextLine(60, pointerFreeOverBudgetReport()),
-      userPromptLine(120, "walk me through everything in detail"),
+      userPromptLine(120, DEPTH_REQUEST_PHRASE),
     ];
     const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
     const cal = outcome?.calibration as Record<string, unknown>;
@@ -477,9 +494,7 @@ describe("detectDepthRequest / DEPTH_REQUEST_PATTERNS", () => {
   });
 
   test("returns the matched pattern name", () => {
-    expect(detectDepthRequest(["walk me through everything"]).matchedPattern).toBe(
-      "walk-me-through"
-    );
+    expect(detectDepthRequest([DEPTH_REQUEST_PHRASE_BARE]).matchedPattern).toBe("walk-me-through");
   });
 
   test("empty input -> not matched", () => {
@@ -511,6 +526,96 @@ describe("recentUserPromptTexts", () => {
     ];
     const texts = recentUserPromptTexts(lines, 0, DEPTH_REQUEST_LOOKBACK_TURNS);
     expect(texts).toEqual(["prompt A"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findOpeningPromptIndex / resolveDepthCheck — PR #2228 R1 BLOCKING #2 fix
+// ---------------------------------------------------------------------------
+
+describe("findOpeningPromptIndex", () => {
+  test("fails CLOSED (undefined) with zero real prompts", () => {
+    expect(findOpeningPromptIndex([assistantTextLine(0, "no prompts at all")])).toBeUndefined();
+  });
+
+  test("fails CLOSED (undefined) with exactly one real prompt", () => {
+    const lines: TranscriptLine[] = [userPromptLine(0, "only one prompt")];
+    expect(findOpeningPromptIndex(lines)).toBeUndefined();
+  });
+
+  test("returns the second-to-last real prompt index with exactly two prompts", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, "opening prompt"),
+      assistantTextLine(1, "report"),
+      userPromptLine(2, "current prompt"),
+    ];
+    expect(findOpeningPromptIndex(lines)).toBe(0);
+  });
+
+  test("returns the OPENING prompt of the measured turn, not the first prompt of the session", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, "turn one opener"),
+      assistantTextLine(1, "ok"),
+      userPromptLine(2, "turn two opener"),
+      assistantTextLine(3, "report"),
+      userPromptLine(4, "current prompt"),
+    ];
+    // The measured turn is between index 2 (its opener) and index 4 (current) —
+    // index 0 belongs to an EARLIER, already-closed turn.
+    expect(findOpeningPromptIndex(lines)).toBe(2);
+  });
+});
+
+describe("resolveDepthCheck", () => {
+  test("fail-closed anchor (fewer than 2 real prompts) -> not matched", () => {
+    expect(resolveDepthCheck([userPromptLine(0, DEPTH_REQUEST_PHRASE_BARE)]).matched).toBe(false);
+  });
+
+  test("delegates to findOpeningPromptIndex + recentUserPromptTexts + detectDepthRequest", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      "give me the full breakdown",
+      pointerFreeOverBudgetReport()
+    );
+    expect(resolveDepthCheck(lines).matched).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sessionHasLoggedTextAndSuppression — PR #2228 R1 BLOCKING #1 fix
+// ---------------------------------------------------------------------------
+
+describe("sessionHasLoggedTextAndSuppression", () => {
+  test("matches when both textHash AND suppressedByDepthRequest agree", () => {
+    const log = `${JSON.stringify({
+      session_id: "s",
+      textHash: "hash-A",
+      suppressedByDepthRequest: true,
+    })}\n`;
+    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", true)).toBe(true);
+  });
+
+  test("does NOT match when textHash agrees but suppressedByDepthRequest differs (the R1 fix)", () => {
+    const log = `${JSON.stringify({
+      session_id: "s",
+      textHash: "hash-A",
+      suppressedByDepthRequest: false,
+    })}\n`;
+    // Same text, but this occurrence's suppression state is TRUE while the
+    // logged record's is FALSE — a genuinely different depth-request context
+    // coincidentally producing identical text; must NOT be treated as a
+    // stale re-measurement.
+    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", true)).toBe(false);
+  });
+
+  test("a pre-mt#3112 record (no suppressedByDepthRequest field) is treated as suppressed=false", () => {
+    const log = `${JSON.stringify({ session_id: "s", textHash: "hash-A" })}\n`;
+    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", false)).toBe(true);
+    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", true)).toBe(false);
+  });
+
+  test("undefined log text / session id -> false", () => {
+    expect(sessionHasLoggedTextAndSuppression(undefined, "s", "hash-A", false)).toBe(false);
+    expect(sessionHasLoggedTextAndSuppression("{}", undefined, "hash-A", false)).toBe(false);
   });
 });
 
@@ -743,6 +848,63 @@ describe("run — mt#3028 regressions", () => {
       readCalibrationLogTextFn: () => undefined,
     };
     expect(run(makeInput(), ctx, deps)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// run() — PR #2228 R1 BLOCKING #1: dedupe-vs-suppression interaction
+// ---------------------------------------------------------------------------
+
+describe("run — mt#3112 R1 dedupe-vs-suppression interaction", () => {
+  test("the same finalText recurring first unsuppressed then suppressed logs BOTH occurrences", () => {
+    const input = makeInput();
+    const report = pointerFreeOverBudgetReport();
+
+    // Occurrence 1: no depth request in context -> unsuppressed, logs.
+    const outcome1 = run(input, makeCtx(transcriptWithFinalReport(report)), noDedupeDeps());
+    expect(outcome1?.calibration).toBeDefined();
+    const cal1 = outcome1?.calibration as Record<string, unknown>;
+    expect(cal1.suppressedByDepthRequest).toBe(false);
+    expect(outcome1?.additionalContext).toBeDefined();
+    const hash1 = cal1.textHash as string;
+
+    // Simulate occurrence 1 having been appended to the calibration log.
+    const priorLogText = `${JSON.stringify({
+      session_id: input.session_id,
+      textHash: hash1,
+      suppressedByDepthRequest: false,
+    })}\n`;
+
+    // Occurrence 2: BYTE-IDENTICAL report text, but this time the opening
+    // prompt carries a depth request -> suppressed. Under the OLD
+    // textHash-only dedupe this would have been silently swallowed
+    // (PR #2228 R1 BLOCKING #1); it must log as a distinct record instead.
+    const lines2 = transcriptWithFinalReportAndOpeningPrompt(DEPTH_REQUEST_PHRASE, report);
+    const outcome2 = run(input, makeCtx(lines2), {
+      readCalibrationLogTextFn: () => priorLogText,
+    });
+    expect(outcome2?.calibration).toBeDefined();
+    const cal2 = outcome2?.calibration as Record<string, unknown>;
+    expect(cal2.suppressedByDepthRequest).toBe(true);
+    expect(cal2.textHash).toBe(hash1); // same text, confirmed via identical hash
+    expect(outcome2?.additionalContext).toBeUndefined();
+  });
+
+  test("the same finalText + same suppression state IS still deduped (mt#3028 behavior preserved)", () => {
+    const input = makeInput();
+    const lines = transcriptWithFinalReport(pointerFreeOverBudgetReport());
+
+    const outcome1 = run(input, makeCtx(lines), noDedupeDeps());
+    const hash1 = (outcome1?.calibration as Record<string, unknown>).textHash as string;
+    const priorLogText = `${JSON.stringify({
+      session_id: input.session_id,
+      textHash: hash1,
+      suppressedByDepthRequest: false,
+    })}\n`;
+
+    // Same lines, same suppression state -> genuine re-measurement, deduped.
+    const outcome2 = run(input, makeCtx(lines), { readCalibrationLogTextFn: () => priorLogText });
+    expect(outcome2).toBeNull();
   });
 });
 
