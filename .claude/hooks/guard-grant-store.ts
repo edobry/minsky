@@ -106,6 +106,22 @@ export interface GuardGrant {
    * property env vars accidentally provided (mt#2658 Success Criteria).
    */
   reason: string;
+  /**
+   * mt#2989 — the `authorization.approve` Ask id this grant rests on.
+   * OPTIONAL for the plain self-serve guards (they authorize on `reason`
+   * alone). The merge-review gate consumer REQUIRES it and re-verifies the
+   * Ask server-side before honoring the grant, because that guard alone
+   * gates an irreversible action (a merge).
+   */
+  askId?: string;
+  /**
+   * mt#2989 — ISO-8601 timestamp this grant was CONSUMED (one-shot), mirroring
+   * `ask-grant-store.ts`'s consumption model. D8 grants otherwise only expire;
+   * an unconsumed PR-scoped grant would silently cover a second, legitimate
+   * REQUEST_CHANGES landing inside its TTL window. A consumed grant is no
+   * longer valid (see `isGuardGrantValid`).
+   */
+  consumedAt?: string;
 }
 
 export interface GuardGrantMatchContext {
@@ -148,6 +164,8 @@ function validateGrant(item: unknown): GuardGrant | null {
   if (typeof rec.reason !== "string" || rec.reason.trim().length === 0) return null;
 
   const issuedBy = typeof rec.issuedBy === "string" ? rec.issuedBy : undefined;
+  const askId = typeof rec.askId === "string" ? rec.askId : undefined;
+  const consumedAt = typeof rec.consumedAt === "string" ? rec.consumedAt : undefined;
 
   return {
     guardName: rec.guardName,
@@ -156,6 +174,8 @@ function validateGrant(item: unknown): GuardGrant | null {
     ttlMs: rec.ttlMs,
     reason: rec.reason,
     issuedBy,
+    askId,
+    consumedAt,
   };
 }
 
@@ -204,7 +224,13 @@ export interface GuardGrantStoreFsDeps {
 }
 
 const defaultFsDeps: GuardGrantStoreFsDeps = {
-  readFileSync: (p: string): string => fs.readFileSync(p, "utf8"),
+  // String() so the return is unambiguously `string` — the `readFileSync`
+  // overload resolves to `string | Buffer` under the CI typechecker even with
+  // an explicit "utf8" encoding (a latent issue shared by the sibling grant
+  // stores, surfaced here once mt#2989's merge-gate import pulled this module
+  // into the root typecheck graph). At runtime the utf8 read is already a
+  // string, so String() is an identity coercion.
+  readFileSync: (p: string): string => String(fs.readFileSync(p, "utf8")),
   writeFileSync: (p: string, content: string): void => {
     fs.writeFileSync(p, content, "utf8");
   },
@@ -265,6 +291,7 @@ export function readGuardGrantStore(
  *
  * Matching requires:
  *   - not expired: `now < Date.parse(issuedAt) + ttlMs`
+ *   - not consumed: `consumedAt` is absent (mt#2989 one-shot)
  *   - `normalizeGuardName(grant.guardName) === normalizeGuardName(ctx.guardName)`
  *   - `normalizeScope(grant.scope) === normalizeScope(ctx.scope)`
  */
@@ -276,6 +303,7 @@ export function isGuardGrantValid(
   const issuedMs = Date.parse(grant.issuedAt);
   if (Number.isNaN(issuedMs)) return false;
   if (nowMs >= issuedMs + grant.ttlMs) return false; // expired
+  if (grant.consumedAt) return false; // one-shot — already consumed (mt#2989)
 
   if (normalizeGuardName(grant.guardName) !== normalizeGuardName(ctx.guardName)) return false;
   if (normalizeScope(grant.scope) !== normalizeScope(ctx.scope)) return false;
@@ -334,4 +362,47 @@ export function appendGuardGrant(
 
   unexpired.push(grant);
   fsDeps.writeFileSync(storePath, `${JSON.stringify({ grants: unexpired }, null, 2)}\n`);
+}
+
+// ---------------------------------------------------------------------------
+// One-shot consumption (mt#2989 — used by the merge-review gate only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mark the first grant valid for `ctx` at `nowMs` as CONSUMED (one-shot),
+ * rewriting the store, and return the grant that was consumed — or `null` when
+ * no valid unconsumed grant matched.
+ *
+ * The merge-review gate calls this ONLY after it has already found the grant,
+ * read its `askId`, and re-verified the linked Ask server-side. Consuming here
+ * (rather than at find time) means a grant whose Ask fails verification is NOT
+ * burned — it denies loudly and the grant stays put — while a grant whose Ask
+ * verifies is spent exactly once, so a second merge attempt on the same PR@SHA
+ * must obtain a fresh operator-approved grant.
+ *
+ * Re-reads the store rather than mutating a passed-in array so the consume is
+ * grounded in the on-disk state at consume time (the found grant may have been
+ * consumed by an interleaving invocation — single-process hooks make this rare,
+ * but a re-read costs nothing and closes the window).
+ */
+export function markGuardGrantConsumed(
+  storePath: string,
+  ctx: GuardGrantMatchContext,
+  fsDeps: GuardGrantStoreFsDeps = defaultFsDeps,
+  nowMs: number = Date.now()
+): GuardGrant | null {
+  const existing = readGuardGrantStore(storePath, fsDeps);
+  if (existing.status !== "ok") return null;
+
+  const grants = existing.grants;
+  const idx = grants.findIndex((g) => isGuardGrantValid(g, ctx, nowMs));
+  if (idx === -1) return null;
+
+  const consumed: GuardGrant = {
+    ...(grants[idx] as GuardGrant),
+    consumedAt: new Date(nowMs).toISOString(),
+  };
+  grants[idx] = consumed;
+  fsDeps.writeFileSync(storePath, `${JSON.stringify({ grants }, null, 2)}\n`);
+  return consumed;
 }

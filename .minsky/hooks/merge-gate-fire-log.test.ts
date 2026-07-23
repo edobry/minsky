@@ -37,6 +37,7 @@ function makeInMemoryFs(initial?: Record<string, string>): FireLogFsDeps & {
 const LOG_PATH = "/fake/state/fire-log.jsonl";
 const SESSION_PR_MERGE_TOOL = "mcp__minsky__session_pr_merge";
 const AUTHORIZED_EXCEPTION = "authorized_exception";
+const REVIEW_GATE = "require-review-before-merge";
 
 /** Call a `never`-returning `recordAndExit` invocation and capture the mocked
  * `process.exit` code instead of letting it actually terminate the process. */
@@ -68,7 +69,7 @@ describe("makeRecordAndExit", () => {
     const fixedStartMs = Date.now();
     const startMs = fixedStartMs - 12;
     const recordAndExit = makeRecordAndExit(
-      "require-review-before-merge",
+      REVIEW_GATE,
       startMs,
       { tool_name: SESSION_PR_MERGE_TOOL, session_id: "sess-abc" },
       { logPath: LOG_PATH, fs }
@@ -80,7 +81,7 @@ describe("makeRecordAndExit", () => {
     const entries = readFireLogEntries({ logPath: LOG_PATH, fs });
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
-      guardName: "require-review-before-merge",
+      guardName: REVIEW_GATE,
       event: "PreToolUse",
       decision: "allow",
       toolName: SESSION_PR_MERGE_TOOL,
@@ -168,6 +169,31 @@ describe("makeRecordAndExit", () => {
       overrideSource: "grant",
     });
     expect(entries[0]?.overrideEnvVar).toBeUndefined();
+  });
+
+  test("records overrideGrantAsk (the authorizing Ask id) for a grant-channel override (mt#2989)", () => {
+    const fs = makeInMemoryFs();
+    const recordAndExit = makeRecordAndExit(
+      REVIEW_GATE,
+      Date.now(),
+      { tool_name: SESSION_PR_MERGE_TOOL, session_id: "sess-req-changes" },
+      { logPath: LOG_PATH, fs }
+    );
+
+    callAndCaptureExit(() =>
+      recordAndExit("allow", {
+        overrideClassification: AUTHORIZED_EXCEPTION,
+        overrideSource: "grant",
+        overrideGrantAsk: "7fee3742-53c4-4259-ac2a-dd4b9dfdb690",
+      })
+    );
+
+    const entries = readFireLogEntries({ logPath: LOG_PATH, fs });
+    expect(entries[0]).toMatchObject({
+      decision: "allow",
+      overrideSource: "grant",
+      overrideGrantAsk: "7fee3742-53c4-4259-ac2a-dd4b9dfdb690",
+    });
   });
 
   test("a fire-log write failure never prevents process.exit(0) (fail-safe, mt#3084 hard constraint #2)", () => {
