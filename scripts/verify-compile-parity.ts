@@ -58,7 +58,8 @@ interface CheckResult {
 
 function parseArgs(argv: string[]): { workspace: string } {
   const idx = argv.indexOf("--workspace");
-  const workspace = idx !== -1 && argv[idx + 1] ? argv[idx + 1] : process.cwd();
+  const nextArg = idx !== -1 ? argv[idx + 1] : undefined;
+  const workspace = nextArg ? nextArg : process.cwd();
   return { workspace };
 }
 

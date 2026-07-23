@@ -39,6 +39,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
 import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 
 /** Canonical script DB bootstrap — mirrors scripts/backfill-minsky-session-links.ts. */
 async function getDb(): Promise<PostgresJsDatabase> {
@@ -107,10 +108,9 @@ export function dedupeByLineUuid(lines: TranscriptLine[]): DedupeResult {
 function parseArgs(argv: string[]): { execute: boolean; session: string | null } {
   const execute = argv.includes("--execute");
   const sessionIdx = argv.indexOf("--session");
-  const session =
-    sessionIdx !== -1 && argv[sessionIdx + 1] && !argv[sessionIdx + 1].startsWith("--")
-      ? argv[sessionIdx + 1]
-      : null;
+  const nextArg = sessionIdx !== -1 ? argv[sessionIdx + 1] : undefined;
+  const session: string | null =
+    nextArg !== undefined && !nextArg.startsWith("--") ? nextArg : null;
   if (sessionIdx !== -1 && session === null) {
     throw new Error("--session requires an agentSessionId argument");
   }
@@ -132,7 +132,7 @@ async function main() {
   // Fetch ids first, then each transcript individually — a single select of
   // every multi-MB transcript jsonb exceeds practical response limits.
   const idRows = session
-    ? [{ agentSessionId: session }]
+    ? [{ agentSessionId: session as AgentSessionId }]
     : await db
         .select({ agentSessionId: agentTranscriptsTable.agentSessionId })
         .from(agentTranscriptsTable);
