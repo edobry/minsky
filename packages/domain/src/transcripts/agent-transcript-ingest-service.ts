@@ -280,6 +280,24 @@ export class AgentTranscriptIngestService {
     // projectId's precedence pattern.
     const extractedModel = extractModelFromNewLines(newLines);
 
+    // mt#3089 R1 review — extractor observability: a null result is
+    // unremarkable when the batch has no assistant lines at all (nothing to
+    // extract from), but a GENUINE miss when assistant lines ARE present and
+    // none carried a usable model — either every one was a synthetic retry,
+    // or the harness's transcript shape has drifted out from under the
+    // extractor. Logging only the latter case keeps the common path quiet
+    // while making a future format drift visible instead of silently
+    // reproducing the 0/1,729 state this task exists to fix.
+    if (extractedModel === null) {
+      const assistantLineCount = countAssistantLines(newLines);
+      if (assistantLineCount > 0) {
+        log.warn(
+          `[transcripts] No genuine model id found in ${assistantLineCount} assistant line(s) for session ${agentSessionId} — possible transcript-shape drift`,
+          { agentSessionId, assistantLineCount }
+        );
+      }
+    }
+
     // Fields restricted to insert-only (harness, cwd, project_dir, started_at)
     // are not overwritten on conflict.
     try {
@@ -584,6 +602,38 @@ export function extractModelFromNewLines(lines: readonly RawTurnLine[]): string 
     }
   }
   return null;
+}
+
+/**
+ * Count assistant-type lines in a batch (mt#3089 R1 review — extractor
+ * observability).
+ *
+ * Used alongside {@link extractModelFromNewLines} to distinguish the two
+ * shapes that both produce a `null` model result, which are NOT the same
+ * situation:
+ *
+ *   - **0 assistant lines in the batch** — the common, unremarkable case (a
+ *     batch of pure user/tool_result turns, or an incremental ingest whose
+ *     new lines happen to be entirely non-assistant). Nothing to warn about.
+ *   - **1+ assistant lines, but none carried a genuine (non-synthetic)
+ *     `message.model`** — a genuine miss: either every assistant line in the
+ *     batch was a synthetic retry, or the harness's transcript shape has
+ *     drifted (e.g. `message.model` renamed/moved) and the extractor is
+ *     silently failing to find data that should be there. Callers log this
+ *     case — see `ingestSession`'s call site — so a future format drift
+ *     reproduces as a visible, diagnosable log line instead of silently
+ *     regressing back to the 0/1,729 state this task exists to fix.
+ *
+ * Exported (not just called inline) so both `ingestSession` and
+ * `scripts/backfill-agent-transcripts-model.ts` share one definition instead
+ * of duplicating the `type === "assistant"` filter.
+ */
+export function countAssistantLines(lines: readonly RawTurnLine[]): number {
+  let count = 0;
+  for (const line of lines) {
+    if (line.type === "assistant") count++;
+  }
+  return count;
 }
 
 /**

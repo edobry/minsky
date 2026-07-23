@@ -7,15 +7,17 @@
  * @see mt#1351 — AgentTranscriptIngestService
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, spyOn } from "bun:test";
 
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import {
   AgentTranscriptIngestService,
   extractModelFromNewLines,
+  countAssistantLines,
 } from "./agent-transcript-ingest-service";
 import type { IngestAllResult } from "./agent-transcript-ingest-service";
 import { SYNTHETIC_MODEL_SENTINEL } from "../subagent/transcript-metrics";
+import { log } from "@minsky/shared/logger";
 import { getSessionsDir } from "@minsky/shared/paths";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -1056,6 +1058,26 @@ describe("extractModelFromNewLines (mt#3089)", () => {
   });
 });
 
+describe("countAssistantLines (mt#3089 R1 review)", () => {
+  test("counts only assistant-type lines", () => {
+    const lines = [
+      makeAssistantLine(TS1, "claude-sonnet-5", "u1"),
+      { type: "user", timestamp: TS2, uuid: "u2", message: { role: "user", content: "hi" } },
+      makeAssistantLine(TS3, "claude-sonnet-5", "u3"),
+    ];
+    expect(countAssistantLines(lines)).toBe(2);
+  });
+
+  test("returns 0 for an empty batch or a batch with no assistant lines", () => {
+    expect(countAssistantLines([])).toBe(0);
+    expect(
+      countAssistantLines([
+        { type: "user", timestamp: TS1, uuid: "u1", message: { role: "user", content: "hi" } },
+      ])
+    ).toBe(0);
+  });
+});
+
 describe("AgentTranscriptIngestService — model column (mt#3089)", () => {
   test("first ingest with an assistant turn populates agent_transcripts.model", async () => {
     const lines = [makeAssistantLine(TS1, "claude-sonnet-5", "u1")];
@@ -1107,5 +1129,87 @@ describe("AgentTranscriptIngestService — model column (mt#3089)", () => {
     await svc.ingestSession(makeDiscovered(SESSION_A));
 
     expect(state.get(SESSION_A)?.model ?? null).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Extractor observability (mt#3089 R1 review — BLOCKING #1)
+//
+// A null model result is unremarkable when the batch has no assistant lines
+// (nothing to extract from) but a GENUINE miss when assistant lines ARE
+// present and none carried a genuine model — either every one was a
+// synthetic retry, or the transcript shape has drifted out from under the
+// extractor. These tests assert `ingestSession` distinguishes the two and
+// only logs the latter, using `spyOn` on the shared logger singleton (not a
+// module mock — `agent-transcript-ingest-service.ts` and this test both
+// resolve `log` to the SAME module-cached object, so spying on the method
+// directly works regardless of import order, unlike `mock.module`, which
+// only affects imports registered after the mock call).
+// ---------------------------------------------------------------------------
+
+describe("extractor observability — assistant-lines-present-but-no-model (mt#3089 R1)", () => {
+  test("logs a warning naming the session id and assistant-line count when every assistant line is synthetic", async () => {
+    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
+    try {
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, [
+        makeAssistantLine(TS1, SYNTHETIC_MODEL_SENTINEL, "u1"),
+        makeAssistantLine(TS2, SYNTHETIC_MODEL_SENTINEL, "u2"),
+      ]);
+      const state = new Map<string, FakeRow>();
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+
+      const svc = makeSvc(db, source);
+      await svc.ingestSession(makeDiscovered(SESSION_A));
+
+      expect(state.get(SESSION_A)?.model ?? null).toBeNull();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const [message, meta] = warnSpy.mock.calls[0] as [string, Record<string, unknown>];
+      expect(message).toContain(SESSION_A);
+      expect(message).toContain("2 assistant line(s)");
+      expect(meta).toMatchObject({ agentSessionId: SESSION_A, assistantLineCount: 2 });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  test("does NOT log when the batch simply has no assistant lines (the common, unremarkable case)", async () => {
+    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
+    try {
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, [
+        { type: "user", timestamp: TS1, uuid: "u1", message: { role: "user", content: "hi" } },
+      ]);
+      const state = new Map<string, FakeRow>();
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+
+      const svc = makeSvc(db, source);
+      await svc.ingestSession(makeDiscovered(SESSION_A));
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  test("does NOT log when a genuine model IS found", async () => {
+    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
+    try {
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, [makeAssistantLine(TS1, "claude-sonnet-5", "u1")]);
+      const state = new Map<string, FakeRow>();
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+
+      const svc = makeSvc(db, source);
+      await svc.ingestSession(makeDiscovered(SESSION_A));
+
+      expect(state.get(SESSION_A)?.model).toBe("claude-sonnet-5");
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
