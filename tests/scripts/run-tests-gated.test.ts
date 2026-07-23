@@ -86,4 +86,38 @@ describe("evaluateBunTestSummary (mt#2716 fail-closed pre-push gate)", () => {
     ].join("\n");
     expect(evaluateBunTestSummary(withDecoyName, 0).ok).toBe(true);
   });
+
+  // mt#3075: bun colorizes its summary lines whenever the child process
+  // inherits a FORCE_COLOR-set env (e.g. a Claude Code agent session's
+  // ambient shell) -- reproduced verbatim from a live `bun test` 1.2.21 run
+  // under FORCE_COLOR=3. Before the stripAnsi() fix, this exact output
+  // fail-closed EVERY commit/push in such an environment: the escape codes
+  // around " 0 fail" defeated the anchored /^ *\d+ fail$/ regex.
+  const ansiCleanSummary = [
+    "[0m[1mbun test [0m[2mv1.2.21 (7c45ed97)[0m",
+    "",
+    "[0m[32m 10 pass[0m",
+    "[0m[2m 0 fail[0m",
+    " 25 expect() calls",
+    "Ran 10 tests across 1 file. [0m[2m[[1m140.00ms[0m[2m][0m",
+  ].join("\n");
+
+  const ansiFailingSummary = [
+    "[0m[1mbun test [0m[2mv1.2.21 (7c45ed97)[0m",
+    "",
+    "[0m[32m 8 pass[0m",
+    "[0m[31m 2 fail[0m",
+    " 25 expect() calls",
+    "Ran 10 tests across 1 file. [0m[2m[[1m140.00ms[0m[2m][0m",
+  ].join("\n");
+
+  test("passes a colorized (FORCE_COLOR) clean run — ANSI codes around '0 fail' are stripped", () => {
+    expect(evaluateBunTestSummary(ansiCleanSummary, 0)).toEqual({ ok: true, reason: "" });
+  });
+
+  test("FAILS a colorized run reporting real failures (ANSI-wrapped '2 fail' line)", () => {
+    const r = evaluateBunTestSummary(ansiFailingSummary, 1);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain("2 failing test(s)");
+  });
 });
