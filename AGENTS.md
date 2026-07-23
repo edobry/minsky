@@ -912,202 +912,29 @@ minsky persistence migrate --execute
 
 # Terminal Command Best Practices
 
-## Core Guidelines for run_terminal_cmd Tool Usage
-
-When using the `run_terminal_cmd` tool, follow these practices to avoid shell parsing issues:
-
-### Quote Character Requirements
-
-- **Use ASCII quotes only**: Always use straight ASCII quotes (`"` and `'`) in commands, never smart quotes (`"` `"` `'` `'`)
-- **Prefer single quotes over double quotes** when possible to avoid shell interpretation issues
-- **Use unquoted text for simple echo statements** when special characters aren't needed
-
-### Command Structure Guidelines
-
-- **Keep commands simple**: Avoid overly complex command chains with many `&&` operators
-- **Break complex operations into multiple simple commands** rather than chaining 10+ commands together
-- **Test command syntax**: If experiencing `dquote>` or parsing issues, simplify the command structure
-
-### Problem Identification
-
-**Signs of Quote/Parsing Issues:**
-- Commands hang with `dquote>` prompt
-- Shell showing `cmdand cmdand cmdand` patterns
-- Need to type `"` and press enter to continue
-
-**Root Causes:**
-- Unicode character contamination in command strings
-- Smart quotes instead of ASCII quotes
-- Overly complex command chains
-
-### Examples
-
-**❌ Problematic:**
-```bash
-echo "Complex && command && chains && with && many && operations"
-```
-
-**✅ Preferred:**
-```bash
-echo 'Simple command'
-# or
-echo Simple unquoted text
-```
-
-**✅ For Complex Operations:**
-```bash
-echo 'Step 1 complete'
-echo 'Step 2 complete'
-echo 'Step 3 complete'
-```
-
-## Verification Commands
-
-When running a verification command — lint, `format:check`, typecheck, test, build —
-whose pass/fail result you intend to **read and act on**, optimize the command for
-**interpretability on failure**, not terseness. Two anti-patterns destroy that
-interpretability:
-
-1. **Output suppression.** `cmd >/dev/null 2>&1 && echo PASS || echo FAIL` discards the
-   diagnostic you need the moment the check fails — so a failure forces an immediate re-run
-   without `>/dev/null` just to see why. Suppressing the output of a command whose result
-   you must interpret is self-defeating.
-2. **Chaining multiple checks in one call.** `lint && format; typecheck` (or with `||`)
-   collapses several results into one ambiguous exit code — the tool returns "exitCode 1,
-   empty stdout" and you can't tell *which* check failed without re-running each separately.
-
-### Rules
-
-- **One verification command per call, output visible.** Pipe to `tail -n N` if it is chatty;
-  never `>/dev/null` a command whose pass/fail you need to read.
-- **Never chain verification commands** with `&&` / `||` / `;` in a single call. Run lint,
-  then format, then typecheck as separate calls so each result — and which one failed — is
-  unambiguous.
-- **Prefer the structured MCP tools where they exist.** `mcp__minsky__validate_lint` and
-  `mcp__minsky__validate_typecheck` return structured `{ errorCount, warningCount, errors[] }`
-  and are session-aware (pass `task` / `sessionId`, per mt#2336) — no shell, no suppression,
-  no ambiguity. For `format:check` / `lint:strict` / `test` (no MCP equivalent, or you need
-  the exact CI gate) run the bare command and READ the output rather than reducing it to a
-  PASS/FAIL echo.
-
-**❌ Problematic (output suppressed + chained — uninterpretable on failure):**
-```bash
-bun run lint:strict >/dev/null 2>&1 && echo PASS || echo FAIL; bun run format:check >/dev/null 2>&1 && echo PASS || echo FAIL
-```
-
-**✅ Preferred (separate calls, visible output):**
-```bash
-bun run lint:strict 2>&1 | tail -n 20
-```
-```bash
-bun run format:check 2>&1 | tail -n 20
-```
-
-## Bulk / loop commands
-
-When running a command **in a loop over many items** (bulk close, bulk kill, bulk
-rename, per-file checks) whose per-item pass/fail you must read, the §Verification
-Commands interpretability discipline applies — plus two shell-mechanics traps
-specific to iteration:
-
-1. **Never `>/dev/null` a per-item command in a loop whose result you must read.**
-   Per-iteration suppression turns "3 of 40 failed" into a silent "done" and forces
-   a full re-run to discover which item failed. Append each outcome to a log and read
-   it, or echo a running tally:
-
-   **❌ Problematic (per-item result suppressed):**
-   ```bash
-   for id in $ids; do gh issue close "$id" >/dev/null 2>&1; done
-   ```
-
-   **✅ Preferred (tally + log, results readable):**
-   ```bash
-   ok=0; fail=0; : >/tmp/close.err   # pre-create the log so the final cat never errors on a clean run
-   for id in ${(f)ids}; do
-     if gh issue close "$id" 2>>/tmp/close.err; then ok=$((ok+1)); else fail=$((fail+1)); echo "FAIL $id" >>/tmp/close.err; fi
-   done
-   echo "closed=$ok failed=$fail"; cat /tmp/close.err
-   ```
-
-2. **In zsh, `for x in $VAR` does NOT word-split a multiline string.** Unlike bash,
-   zsh does not split unquoted parameter expansions on whitespace/newlines, so
-   `for x in $VAR` over a multiline blob runs the body **once** with the whole blob
-   as a single `x` — e.g. `kill $pids` over a newline-separated list becomes
-   `illegal pid: 2534\n3637\n…`. Iterate by line explicitly: `for x in ${(f)VAR}`
-   (split on newlines) or `printf '%s\n' "$VAR" | while IFS= read -r x; do … done`.
-
-3. **A loop that fails where the standalone succeeds is a loop-construct bug, not a
-   sandbox/permission problem.** If `gh issue close 123` works alone but the loop
-   "does nothing" or reports one bizarre error, suspect word-splitting / the iteration
-   construct (point 2) before blaming permissions, auth, or the sandbox.
+- **ASCII quotes only**, never smart quotes; **prefer single quotes**; **no long `&&` chains** —
+  keep commands simple.
+- **One verification command per call, output visible.** Never `>/dev/null` a result you must
+  read; never chain checks with `&&`/`;` — you lose which one failed.
+- **Bulk/loop commands:** never suppress a per-item result (tally+log, not `>/dev/null`
+  per-iteration); zsh does NOT word-split `for x in $VAR` over multiline — use `${(f)VAR}`; a
+  loop failing where the standalone succeeds is word-splitting, not sandbox/permissions.
 
 ## Secret handling in shell commands
 
-Bash/`session_exec` output is persisted to disk (the harness JSONL transcript) AND ingested
-into the transcripts DB (`mcp__minsky__transcripts_ingest`, the SessionEnd hook). **Anything a
-command prints becomes durable, searchable, stored credential material** — there is no
-"just this once" scratch output. When checking whether a secret (token/key/PAT/password) is
-set, or inspecting its shape, NEVER place the raw secret-bearing variable in an **output
-position** (`echo`, `printf`, `cat`, a here-string, command substitution that gets echoed, etc.).
+Shell output is persisted AND ingested into the transcripts DB — no scratch output. NEVER place
+a secret variable in an **output position** (`echo`, `printf`, `cat`, command substitution).
 
-### The `${SECRET:-default}` footgun
-
-`${VAR:-alt}` and `${VAR:+alt}` look like a matched pair but are NOT symmetric for this
-purpose:
-
-- `${VAR:+alt}` — **alternate**-if-set: expands to the literal `alt` when `VAR` is set, empty
-  otherwise. Safe, as long as `alt` doesn't itself re-embed `$VAR`.
-- `${VAR:-alt}` — **value**-if-set, alt only if UNSET: expands to `alt` only when `VAR` is
-  *unset*; when `VAR` IS set (the common case you're actually checking), it expands to the
-  **full secret value**, not a placeholder.
-
-Mixing the two on the same variable in one interpolation is how a real leak happened
-(2026-07-13, mt#2738 Pulumi Cloud migration incident): a presence-check meant to print
-"present" printed the entire Pulumi access token instead —
+**The `${VAR:-alt}` footgun:** `${VAR:+alt}` is safe (alternate-if-set). `${VAR:-alt}` is NOT its
+mirror — substitutes `alt` only when unset; when set it expands to the **full live value**.
+Mixing both on one variable leaked mt#2738's Pulumi token.
 
 ```bash
-# LOOKS like a safe presence check. It is NOT.
-echo "pulumi token present: ${K:+yes (len ${#K}, prefix ${K:0:4})}${K:-NO}"
-#                                                                  ^^^^^^^^ prints the FULL
-#                                                                  token when $K is set
+[ -n "$K" ] && echo "present (len=${#K})" || echo "absent"  # never the value itself
 ```
 
-The `${K:+...}` half was safe; the trailing `${K:-NO}` silently expanded to the live token
-because `:-` only substitutes when the variable is *unset*, and here it was set.
-
-### Safe forms
-
-```bash
-# presence — never interpolates the value
-[ -n "$K" ] && echo "present" || echo "absent"
-
-# length — ${#K} is a length (an integer), never the value
-echo "len=${#K}"
-
-# both together, safely
-[ -n "$K" ] && echo "present (len=${#K})" || echo "absent"
-```
-
-### Rule: never interpolate a secret variable in an output position
-
-- NEVER: `echo "$SECRET"`, `echo "${SECRET}"`, `echo "${SECRET:-default}"`,
-  `printf ... "$SECRET"`, `cat <<< "$SECRET"`, or any construct where the secret's VALUE
-  (not its presence or length) can appear in stdout/stderr.
-- A prefix preview (`${K:0:4}`) is still a partial value leak — avoid it in shared/persisted
-  transcripts unless the task specifically requires identifying a credential and the operator
-  has accepted that tradeoff; presence + length is sufficient for the common "did this get
-  set correctly" check.
-- This applies equally to `session_exec` — its output is captured into the same persisted
-  transcript as Bash.
-
-Defense-in-depth for this failure class (a tool-output credential scrubber that redacts
-credential-shaped strings from tool output before it reaches the durable transcript store) is
-tracked separately — see `packages/domain/src/transcripts/credential-scrubber.ts`. This rule
-is the compose-time discipline; the scrubber is the safety net for when discipline slips.
-
-## Rationale
-
-Prevents shell parsing issues that cause commands to hang with `dquote>` prompts due to Unicode character contamination or overly complex command structures. Ensures reliable terminal command execution across all sessions. The secret-handling subsection prevents a distinct failure class — a shell interpolation footgun that leaks credential VALUES into the persisted, ingested transcript (mt#2763; originating incident 2026-07-13, mt#2738).
+Never `echo "$SECRET"` / `${SECRET:-default}` in output position — `${K:0:4}` is a partial leak.
+Detail: `docs/rules-rationale/terminal-command-best-practices.md`.
 
 ## General
 
@@ -1206,11 +1033,16 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 - ES5 trailing commas, LF line endings
 - Prefer template literals over string concatenation
 - Max 400 lines per file (warn), 1500 (error)
-- Custom ESLint rules under `eslint-rules/` enforce architectural patterns and deploy-boundary safety
-- `custom/no-unregistered-minsky-env-var` (mt#1788, extended mt#2324) — every `process.env.MINSKY_*` read in `src/` and `.claude/hooks/`, via either bare-identifier (`process.env.MINSKY_FOO`) **or** static-string-literal bracket (`process.env["MINSKY_FOO"]` / `process.env['MINSKY_FOO']`) access, must be registered in `environmentMappings` (config-mapped) or `HOOK_ONLY_ENV_VARS` (hook-only) at `packages/domain/src/configuration/sources/environment.ts`; otherwise the env-var-to-config dot-path parser will reject it at boot when the var is set on Railway. Genuinely dynamic computed access (`process.env[someVar]`, interpolated template literals) is not statically resolvable and is not flagged. The `services/*/` tree is excluded — independent deploy packages (reviewer, site) with their own config loaders, not the main dot-path parser. Severity `error`.
-- `custom/no-hand-rolled-command-params` (mt#2779) — in `src/adapters/shared/commands/**` (test files excluded), command execute handlers must derive their param types from the command's params map: omit the annotation (contextual inference from `parameters:`) or annotate `InferParams<typeof <map>>`. Flags `*Params` interface declarations, literal-shape `*Params` type aliases (derived aliases like `type X = InferParams<typeof map>` are fine), non-`InferParams` execute annotations (named types, inline object literals, `Record<string, unknown>`), `extends BaseTaskCommand<X>` where X is not `typeof <map const>`, and `as *Params` casts. Rationale: hand-rolled param types let a handler read `params.<key>` for keys the command never declares — compiles cleanly, always `undefined` at runtime (the mt#2742 Detector-B class; TS cannot catch it: excess-property checks fire only on fresh object literals, and method-override params check bivariantly). Genuinely-non-handler `*Params` types (projection/helper inputs like `BaseTaskParams`, `CreateAskParams`) carry an `eslint-disable` with a recorded justification. Severity `error`.
-- `custom/no-entity-id-param-drift` (mt#2780) — a command params map in a covered family directory declaring the family's back-compat ALIAS entity-id name without the family's CANONICAL name is flagged at authoring time (the mt#2741 Detector-A drift class). **Coverage is DECLARED in `eslint.config.js`**: the rule's config block enumerates exactly the covered family globs (currently `commands/tasks/**` and `commands/session/**`, test files excluded); adding a family means adding BOTH its `FAMILY_CONVENTIONS` entry in `eslint-rules/no-entity-id-param-drift.js` AND its glob in the config block — directories not listed have no confirmed canonical+alias pair yet and are deliberately out of scope, not heuristically skipped. Conventions (decision record mt#2741): `tasks/` → canonical `taskId` (alias `task`); `session/` → canonical `sessionId` (alias `session`). Canonical alone or canonical+alias both pass; alias alone is drift. Alias names are family-scoped — `session` in a `tasks/` map is workspace-scoping context, `task` in a `session/` map is a legitimate co-selector; neither is flagged. Zero-false-positive conservatism: maps with spreads whose canonical is not locally visible are skipped (the spread may carry it), and the `parameters:` object/class-field detection paths require param-definition shape (a property value carrying a `schema` key) so generic objects merely named `parameters` are never checked. Severity `error`.
-- `custom/require-hook-domain-bootstrap` (mt#3046) — a file under `.minsky/hooks/**` that reaches the persistence layer (`resolvePersistenceProvider` / `PersistenceService` / `getDatabaseConnection`, or an import of `persistence/factory` / `persistence/service`, static OR dynamic) must import `ensureHookDomainBootstrap` from `./domain-bootstrap`. A hook process is its own entry point: it inherits neither the tsyringe reflect polyfill nor the domain configuration system, so without the bootstrap the domain import throws or the provider resolves to null — and in BOTH known instances the failure was swallowed, leaving the hook silently dead (mt#3019: 0 of 62 rows carried any hook-written column for two weeks; mt#3046 found a second instance, `post-merge-unasked-direction-scan`, whose `loadTranscript` returned null on every invocation since it shipped). **Coverage is DECLARED in `eslint.config.js`**: the enforced glob is the `.minsky/hooks/**` SOURCE tree, not the generated `.claude/hooks/**` copies — fixing a generated file is not a fix. Only an IMPORT satisfies the rule, never a bare identifier: an earlier draft accepted any mention of `ensureHookDomainBootstrap`, so deleting the import while leaving the call site passed (caught by the task's own negative control, now pinned by a regression test). Exempt: `.test.ts` siblings (a test is not an entry point) and `domain-bootstrap.ts` itself. Chosen over a runtime spawn-and-check-stderr smoke test, which cannot see this class — the failure is swallowed and emits nothing. Severity `error`.
+- Custom ESLint rules (`eslint-rules/`) enforce architectural patterns + deploy-boundary safety.
+  Full detail, path-scoped: `eslint-custom-rules.mdc`.
+  - `custom/no-unregistered-minsky-env-var` (mt#1788) — every `process.env.MINSKY_*` read must
+    be registered in `environmentMappings`/`HOOK_ONLY_ENV_VARS`.
+  - `custom/no-hand-rolled-command-params` (mt#2779) — command execute handlers derive param
+    types from `InferParams<typeof <map>>`, never hand-rolled `*Params`.
+  - `custom/no-entity-id-param-drift` (mt#2780) — command params maps must declare the family's
+    canonical entity-id name, not the alias alone.
+  - `custom/require-hook-domain-bootstrap` (mt#3046) — `.minsky/hooks/**` files reaching
+    persistence must import `ensureHookDomainBootstrap`.
 
 # Principal Communication Contract
 
@@ -1736,96 +1568,31 @@ Memory is stored in the Minsky DB. The file-based memory directory (`~/.claude/p
 
 # Principal Context
 
-This rule establishes the **persona frame** inside which all other decision-defaults apply. Other rules (`decision-defaults.mdc`, `humility.mdc`, `work-completion.mdc`) presuppose this frame; without it, the agent re-infers persona each turn and the inference drifts toward generic defaults that don't match the actual context.
+**Eugene is the principal of the commercial AI product Minsky** — not a hobbyist; solo
+engineering, customer-facing, multi-year horizon. **Framework implication:** weigh workflow-fit
++ time-to-customer-insight over OSS-purity — engineering time is the scarce resource.
 
-## Who Eugene is
+### Decisions Eugene reserves
 
-**Eugene Dobry is the principal of the commercial AI product Minsky.** Not a hobbyist; not a personal-research project; not a one-person consultancy. The relationship to the product is:
+Per `humility.mdc §Escalation packaging` and `decision-defaults.mdc §Multi-step direction
+execution`, principal-level decisions stay with Eugene:
 
-- **Principal owner / creator** of Minsky
-- Operating as the principal of whatever company is producing Minsky (formal business entity may evolve; "principal of commercial product" is the stable framing)
-- Currently solo on engineering, but the product is **customer-facing** — Minsky is built to be used by paying customers, not just by Eugene
-- Investment time horizon is multi-year — this is the product Eugene is building, not a side experiment
-
-## What Minsky is
-
-A commercial AI agent product. Customer-facing surfaces include MCP server, hosted MCP, CLI, eventual cockpit UI, mesh, attention-allocation subsystem. Customers experience the agent's quality directly.
-
-## Framework implications
-
-These implications follow from the principal context and override generic defaults when they conflict:
-
-### 1. Tool selection for non-core capabilities
-
-When picking a SaaS / tool / vendor for an auxiliary capability (observability, analytics, CI infra, eval platform, etc.):
-
-- **Time-to-customer-insight is the dominant metric.** How fast does "customer reports issue X" become "shipped fix Y verified to help"?
-- **Workflow fit > license alignment.** A tool Eugene fights wastes principal time; a tool that fits the workflow earns its subscription cost many times over.
-- **Switching cost has a half-life by category.** Switching observability tools (OTel-conformant sinks) is cheap; switching source-of-truth databases is expensive. Don't import lock-in concerns from the latter into the former.
-- **OSS-hedge weight is LOW for derived-analytics tools.** Eugene is not running an OSS purity audit; he is shipping a product. OSS matters when (a) data sovereignty is load-bearing, or (b) switching cost is expensive. Neither applies to most SaaS-observability decisions.
-- **Customer-logo signal is HIGH for tool fit.** If Notion / Stripe / Vercel / Ramp / similar companies running production AI products pick the tool, that's calibration data that the tool fits commercial-AI-product workflows.
-
-### 2. Trust scaling
-
-Eugene's stated goal is to **offload more Minsky work to the agent as Eugene operates at higher business levels**. This implies:
-
-- Decisions made by the agent should be made under the right framework on first pass, not after the user does framework-correction work
-- Strategic recommendations should be self-contained enough that Eugene can act on them without re-deriving the framework
-- The agent's reasoning should be explicit about the framework being applied, so Eugene can spot framework mismatches early
-
-### 3. Cost calculus
-
-- Eugene is cost-conscious but not cost-purist. $10s/mo SaaS subscriptions are acceptable when they save engineering time.
-- Engineering time is the scarcest resource. Every hour spent on auxiliary infra is an hour not on Minsky core.
-- "Two days of work" framing for in-house tooling is anti-pattern unless the tool itself is core differentiation.
-
-### 4. Decisions Eugene reserves
-
-Per `humility.mdc §Escalation packaging` and `decision-defaults.mdc §Multi-step direction execution`, principal-level decisions stay with Eugene:
-
-- Naming (product names, customer-facing terms, domain naming that sets precedent, agent self-presentation to external parties — handles, bios, attribution on third-party surfaces)
+- Naming (product names, customer-facing terms, domain naming that sets precedent, agent
+  self-presentation to external parties — handles, bios, attribution on third-party surfaces)
 - Architectural moves that affect customer experience or product surface
 - Authorization for shared / production state changes
 - Scope changes to in-flight work
 - Vendor commitments (signup actions, paid plan upgrades)
 - **Framework choices** when stakes are principal-level
 
-Craft-level choices (file structure, micro-phrasing, low-stakes naming, task-spec layout) are the agent's by default — see stakes-filter calibration in `humility.mdc`.
+### Trigger rule — before applying any framework
 
-## Trigger rule — BEFORE applying any framework
+1. **Name the framework** explicitly.
+2. **Check it matches this rule** (not OSS-purist/lock-in/research framing).
+3. **If wrong, switch** to workflow-fit + time-to-customer-insight.
+4. **Name what you switched and why.**
 
-Before making a strategic recommendation (tool selection, architectural direction, vendor commitment, scope-changing decision):
-
-1. **Name the evaluation framework you are about to apply** — make it explicit. "I'm applying a 'OSS hedge + community alignment + cost-minimization' framework" or "I'm applying a 'commercial product workflow fit + time-to-customer-insight' framework."
-2. **Check that the framework matches Eugene's position per this rule.** If the framework you defaulted to is OSS-purist, lock-in-minimization, or research-project-shaped — STOP. That's the wrong frame for Eugene's commercial-product context.
-3. **If the frame is wrong, switch.** The correct frame for tooling decisions is "what's the workflow fit for a principal shipping a commercial AI product, with paying customers as the consumer of the agent's quality?"
-4. **Name what you switched and why.** Surfacing this lets Eugene spot framework mismatches early instead of after 15 turns of recommendations under the wrong frame.
-
-**Structural enforcement.** The `/declare-framework` skill operationalizes the four steps above as numbered process steps with required user-facing output. Invoke it explicitly when about to deliver a strategic recommendation, or self-trigger via the cues in the skill (the agent recognizes it is comparing ≥ 2 named candidates / a strategic recommendation is in flight). The skill is agent-invoked discipline, not harness-fired. See `.claude/skills/declare-framework/SKILL.md`.
-
-## Anti-patterns to recognize in self
-
-- **Re-inferring persona from local signals.** If you're inferring "solo dev / hobby project" because the git user is one person and the cost-sensitivity signal is present, you're wrong. Read this rule instead.
-- **Applying OSS-hedge framework to observability tools.** Specific recent incident: 2026-05-12 conversation where I evaluated Langfuse / Phoenix / PostHog / Braintrust through an OSS-hedge framework that didn't fit Eugene's commercial-product use case. Took 15 turns + user re-framing to surface. See `feedback_explicit_framework_selection`.
-- **Treating "lock-in" as universally bad.** Lock-in is a real concern for source-of-truth state; it's near-zero for OTel-conformant event sinks. The framework needs to be category-aware.
-- **Centering open-source community signal for commercial-product tool decisions.** The community-OSS-adoption signal (e.g., "Langfuse has 12M downloads") is calibration data for the OSS category, not the deciding factor for "which SaaS fits this commercial-product loop."
-
-## Originating incidents
-
-- **2026-05-12 R3 retrospective** — across 15+ turns of platform-recommendation discussion, agent applied OSS-purist evaluation framework to a commercial-product-loop decision without ever surfacing the framework choice. User had to articulate "I, Eugene, as the principal of whatever company is producing Minsky" themselves to break the agent out of the wrong frame. Bridge memory: `feedback_explicit_framework_selection`. Structural escalation: mt#1789 — IMPLEMENTED 2026-05-13 via `/declare-framework` skill.
-
-## Cross-references
-
-- `humility.mdc` — design principle on delegation boundary; this rule provides the persona context that the boundary is drawn around
-- `decision-defaults.mdc` — policy corpus that presupposes this rule; particularly `§Build vs buy` and `§Multi-step direction execution` reference principal-context implicitly
-- `work-completion.mdc` — work-completion discipline that presupposes commercial-product framing
-- `.claude/skills/declare-framework/SKILL.md` — structural enforcement of the trigger rule (mt#1789)
-- mt#1034 — attention-allocation subsystem (eventually the structural home for persona-aware decision frameworks)
-- mt#1789 — structural escalation task (skill-step requiring explicit framework declaration) — IMPLEMENTED
-- `feedback_explicit_framework_selection` — meta-rule on naming frameworks before applying them (bridge memory, retiring with this skill)
-- `feedback_build_vs_buy_default_for_non_core` — R1 of the same pattern
-- `feedback_build_path_as_research_at_action_time` — R2 of the same pattern
-- This rule is R3 (meta) of the pattern
+`/declare-framework` operationalizes this. Detail: `docs/rules-rationale/principal-context.md`.
 
 # Sequence Dependent Tool Calls
 
