@@ -19,6 +19,10 @@ import {
   detectCodeMechanismAssertion,
   buildVerificationCorpus,
   elideBlocksAndQuotes,
+  buildRelayCorpus,
+  detectRelayContext,
+  RELAY_PREAMBLE_PATTERNS,
+  computeSuppressionReasons,
   OVERRIDE_ENV_VAR,
   INJECTION_ENABLED,
   run,
@@ -229,7 +233,7 @@ describe("mt#3002 — file-name and hex-id symbol-class exclusions", () => {
     expect(result.claims.map((c) => c.symbol)).toContain("tasks_create");
 
     const transcriptLines = [makeRunUserLine(), makeRunAssistantLine(text), makeRunUserLine()];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
     expect(INJECTION_ENABLED).toBe(true);
     expect(outcome?.additionalContext).toBeDefined();
     expect(outcome?.additionalContext).toContain("tasks_create");
@@ -254,7 +258,7 @@ describe("mt#3002 — file-name and hex-id symbol-class exclusions", () => {
       } as TranscriptLine,
       makeRunUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
     expect(outcome).toBeNull();
   });
 
@@ -468,6 +472,227 @@ describe("mt#3050 — R13 sourcing/provenance predicates (capability/affordance 
   });
 });
 
+describe("mt#3113 leg 2 — symbol-plausibility extension (generic English/tech words + bare dir refs)", () => {
+  test("2026-07-23 calibration fixture: `since`/`description`/`macOS`/`CommonJS`/`target/` extract NO claims", () => {
+    const text =
+      "The `since` parameter defaults to null, `description` requires a non-empty " +
+      "string, `macOS` overrides the resolver here, `CommonJS` guards against duplicate " +
+      "module registration, and `target/` guards against a stale artifact.";
+    const result = detectCodeMechanismAssertion(text, "");
+    const syms = result.claims.map((c) => c.symbol);
+    expect(syms).not.toContain("since");
+    expect(syms).not.toContain("description");
+    expect(syms).not.toContain("macOS");
+    expect(syms).not.toContain("CommonJS");
+    expect(syms).not.toContain("target/");
+    expect(result.matched).toBe(false);
+    expect(result.claims).toEqual([]);
+  });
+
+  test("bare directory reference (`target/`) is excluded even in isolation", () => {
+    const text = "`target/` guards against a stale build artifact.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.matched).toBe(false);
+    expect(result.claims).toEqual([]);
+  });
+
+  test("multi-segment paths and code-extension paths remain plausible (path-like shape unaffected)", () => {
+    const text = "`src/exec.ts` guards against a missing buffer config.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.matched).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain("src/exec.ts");
+  });
+
+  test("AT (negative control): genuine unread-symbol claim (project identifier, no read anywhere) still injects", () => {
+    // Mirrors the mt#3113 spec's literal AT wording. `tasks_estimate` is a
+    // real project identifier (snake_case, resolvable shape) unaffected by
+    // any of the leg-2 exclusions above.
+    const result = detectCodeMechanismAssertion(TASKS_ESTIMATE_CLAIM_TEXT, "");
+    expect(result.matched).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain("tasks_estimate");
+  });
+
+  test("SYMBOL_STOPLIST additions are case-insensitive", () => {
+    const text = "`MACOS` overrides the platform default and `Description` requires review.";
+    const result = detectCodeMechanismAssertion(text, "");
+    const syms = result.claims.map((c) => c.symbol);
+    expect(syms).not.toContain("MACOS");
+    expect(syms).not.toContain("Description");
+  });
+});
+
+// Shared fixture for leg-3 relay-context tests: a claim set produced by
+// detectCodeMechanismAssertion, reused across buildRelayCorpus/
+// detectRelayContext coverage below.
+const RELAY_CLAIM_TEXT = "`tasks_create` guards against duplicate task creation.";
+
+function relayClaims(): Array<{ symbol: string; predicate: string }> {
+  return detectCodeMechanismAssertion(RELAY_CLAIM_TEXT, "").claims;
+}
+
+// Shared mt#3113 fixtures, reused across the leg-3/leg-4 describe blocks
+// below (custom/no-magic-string-duplication).
+const TASKS_ESTIMATE_CLAIM_TEXT =
+  "`tasks_estimate` overrides the default effort model for this task.";
+const REASON_RELAYED_SUBAGENT_CONTENT = "relayed-subagent-content";
+const REASON_RELAYED_PREAMBLE_PHRASE = "relayed-preamble-phrase";
+
+describe("mt#3113 leg 3 — buildRelayCorpus (same-turn subagent-dispatch correlation)", () => {
+  test("collects tool_result content correlated to an Agent tool_use by id", () => {
+    const turn: TranscriptLine[] = [
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              name: "Agent",
+              id: "toolu_1",
+              input: { prompt: "investigate mt#9999" },
+            },
+          ],
+        },
+      },
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_1",
+              content:
+                "The subagent found that `tasks_create` guards against duplicate task creation.",
+            },
+          ],
+        },
+      },
+    ] as TranscriptLine[];
+    const corpus = buildRelayCorpus(turn);
+    expect(corpus).toContain("tasks_create");
+  });
+
+  test("SendMessage dispatch tool is also recognized", () => {
+    const turn: TranscriptLine[] = [
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", name: "SendMessage", id: "toolu_2", input: {} }],
+        },
+      },
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "toolu_2", content: "resumed report text" },
+          ],
+        },
+      },
+    ] as TranscriptLine[];
+    expect(buildRelayCorpus(turn)).toContain("resumed report text");
+  });
+
+  test("a non-dispatch tool's tool_result is NOT collected (R1 — Read is not a dispatch tool)", () => {
+    const turn: TranscriptLine[] = [
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "tool_use", name: "Read", id: "toolu_3", input: { file_path: "x.ts" } },
+          ],
+        },
+      },
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "toolu_3", content: "file contents here" }],
+        },
+      },
+    ] as TranscriptLine[];
+    expect(buildRelayCorpus(turn)).toBe("");
+  });
+
+  test("no dispatch tool_use in the turn -> empty corpus", () => {
+    expect(buildRelayCorpus([])).toBe("");
+  });
+});
+
+describe("mt#3113 leg 3 — detectRelayContext", () => {
+  test("(a) same-turn dispatch tool_result present -> relayed-subagent-content, regardless of literal symbol overlap", () => {
+    const claims = relayClaims();
+    const result = detectRelayContext(
+      RELAY_CLAIM_TEXT,
+      claims,
+      "The subagent found that `tasks_create` guards against duplicate task creation."
+    );
+    expect(result.relayed).toBe(true);
+    expect(result.reason).toBe(REASON_RELAYED_SUBAGENT_CONTENT);
+    expect(result.relayedSymbols).toContain("tasks_create");
+  });
+
+  test("(a) UNRELATED same-turn subagent report still suppresses (no literal-symbol-match requirement)", () => {
+    // A claim's literal symbol appearing in a same-turn tool_result is
+    // ALREADY excluded via the pre-existing buildVerificationCorpus backing
+    // mechanism (hadSameTurnRead), so (a) deliberately does NOT require
+    // content overlap — it fires whenever a subagent report landed this
+    // turn at all, even about a completely different topic.
+    const claims = detectCodeMechanismAssertion(TASKS_ESTIMATE_CLAIM_TEXT, "").claims;
+    const result = detectRelayContext(
+      "unrelated assistant text",
+      claims,
+      "Investigated mt#9999: found 3 stale sessions to clean up."
+    );
+    expect(result.relayed).toBe(true);
+    expect(result.reason).toBe(REASON_RELAYED_SUBAGENT_CONTENT);
+  });
+
+  test("(b) relay-preamble phrase in the prose, no same-turn dispatch corpus -> relayed-preamble-phrase", () => {
+    const text = "The subagent reports that `unreadEnvGuard` overrides the default retry count.";
+    const claims = detectCodeMechanismAssertion(text, "").claims;
+    const result = detectRelayContext(text, claims, "");
+    expect(result.relayed).toBe(true);
+    expect(result.reason).toBe(REASON_RELAYED_PREAMBLE_PHRASE);
+  });
+
+  test("AT: task-notification phrase is recognized as a relay preamble", () => {
+    const text = "Per the task-notification, `unreadEnvGuard` overrides the default retry count.";
+    const claims = detectCodeMechanismAssertion(text, "").claims;
+    const result = detectRelayContext(text, claims, "");
+    expect(result.relayed).toBe(true);
+  });
+
+  test("no relay corpus and no preamble phrase -> not relayed (fresh, unverified assertion)", () => {
+    const text = "`unreadEnvGuard` overrides the default retry count.";
+    const claims = detectCodeMechanismAssertion(text, "").claims;
+    const result = detectRelayContext(text, claims, "");
+    expect(result.relayed).toBe(false);
+    expect(result.reason).toBeUndefined();
+  });
+
+  test("empty claim set -> not relayed regardless of corpus/prose", () => {
+    const result = detectRelayContext("some text", [], "the subagent reports something");
+    expect(result.relayed).toBe(false);
+  });
+
+  test("RELAY_PREAMBLE_PATTERNS matches the documented phrasings", () => {
+    const samples = [
+      "the subagent found that X does Y",
+      "per the subagent's report, X does Y",
+      "the dispatched agent's findings say X",
+      "task-notification: X completed",
+      "according to the subagent, X does Y",
+    ];
+    for (const s of samples) {
+      expect(RELAY_PREAMBLE_PATTERNS.some((re) => re.test(s))).toBe(true);
+    }
+  });
+});
+
 describe("buildVerificationCorpus", () => {
   test("captures read-class tool_use INPUT and tool_result CONTENT; ignores non-read inputs", () => {
     const turn: TranscriptLine[] = [
@@ -576,6 +801,14 @@ function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
   };
 }
 
+// mt#3113 leg 4: run() now consults the real (fs-backed) claim-set dedup
+// store by default. Existing tests below that don't specifically exercise
+// dedup use this always-inject stub so they never touch real fs and stay
+// deterministic across repeated `bun test` invocations (a real-store hit
+// keyed on RUN_HOOK_INPUT's fixed session_id could otherwise get suppressed
+// by a PRIOR test run's leftover cooldown state).
+const ALWAYS_INJECT_DEPS = { shouldInjectClaimSetFn: () => true };
+
 describe("run() (dispatcher-compatible)", () => {
   test("unread code-mechanism claim -> calibration record AND additionalContext (INJECTION_ENABLED=true, mt#3002)", () => {
     const transcriptLines = [
@@ -585,7 +818,7 @@ describe("run() (dispatcher-compatible)", () => {
       ),
       makeRunUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
     expect(outcome?.calibration).toBeDefined();
     expect(INJECTION_ENABLED).toBe(true);
     expect(outcome?.additionalContext).toBeDefined();
@@ -600,7 +833,7 @@ describe("run() (dispatcher-compatible)", () => {
       makeRunAssistantLine("The build passed and all tests are green."),
       makeRunUserLine(),
     ];
-    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
+    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS)).toBeNull();
   });
 
   test("no transcript_path -> null", () => {
@@ -621,12 +854,164 @@ describe("run() (dispatcher-compatible)", () => {
     ];
     process.env[OVERRIDE_ENV_VAR] = "1";
     try {
-      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
       expect(outcome?.calibration).toBeUndefined();
       expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
     } finally {
       delete process.env[OVERRIDE_ENV_VAR];
     }
+  });
+
+  test("mt#3113 leg 1: hadSameTurnRead=true suppresses additionalContext but STILL logs the claim + reason (AT)", () => {
+    // A DIFFERENT symbol (readHelper) is backed this turn; unreadEnvGuard's
+    // own claim remains unbacked at claim level (hadSameTurnRead is a
+    // TURN-level aggregate, per mt#2673 — unchanged detection semantics).
+    // The mt#3113 injection-layer gate suppresses additionalContext anyway.
+    const text = "`readHelper` is fine; `unreadEnvGuard` overrides the default when set.";
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(text),
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", content: "export function readHelper() {}" }],
+        },
+      } as TranscriptLine,
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as {
+      hadSameTurnRead: boolean;
+      suppressionReasons: string[];
+      claims: Array<{ symbol: string }>;
+    };
+    expect(cal.hadSameTurnRead).toBe(true);
+    expect(cal.suppressionReasons).toContain("same-turn-read");
+    // Detection-level contract is unchanged: the claim is still logged.
+    expect(cal.claims.map((c) => c.symbol)).toContain("unreadEnvGuard");
+  });
+
+  test("mt#3113 leg 3 (via run()): a subagent report landing THIS turn suppresses an unrelated fresh claim (AT)", () => {
+    // The subagent's report is about a DIFFERENT topic than the claim — its
+    // tool_result content must NOT literally contain "tasks_estimate", or
+    // the claim would already be excluded via the pre-existing
+    // buildVerificationCorpus backing mechanism (hadSameTurnRead) rather
+    // than reaching this leg-3-specific gate.
+    const transcriptLines: TranscriptLine[] = [
+      makeRunUserLine(),
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              name: "Agent",
+              id: "toolu_relay_1",
+              input: { prompt: "investigate" },
+            },
+          ],
+        },
+      },
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_relay_1",
+              content: "Investigated mt#9999: found 3 stale sessions to clean up.",
+            },
+          ],
+        },
+      },
+      makeRunAssistantLine(TASKS_ESTIMATE_CLAIM_TEXT),
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as { suppressionReasons: string[]; hadSameTurnRead: boolean };
+    expect(cal.hadSameTurnRead).toBe(false); // confirms this is leg 3, not leg 1
+    expect(cal.suppressionReasons).toContain(REASON_RELAYED_SUBAGENT_CONTENT);
+  });
+
+  test("mt#3113 leg 4 (via run()): identical claim set two turns running injects at most once (AT)", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(TASKS_ESTIMATE_CLAIM_TEXT),
+      makeRunUserLine(),
+    ];
+    let injectCallCount = 0;
+    const deps = {
+      // Mirrors the real store's contract: first call for a signature
+      // injects, subsequent calls within cooldown suppress.
+      shouldInjectClaimSetFn: () => {
+        injectCallCount++;
+        return injectCallCount === 1;
+      },
+    };
+    const first = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), deps);
+    expect(first?.additionalContext).toBeDefined();
+    const firstCal = first?.calibration as { suppressionReasons: string[] };
+    expect(firstCal.suppressionReasons).not.toContain("deduped");
+
+    const second = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), deps);
+    expect(second?.additionalContext).toBeUndefined();
+    const secondCal = second?.calibration as { suppressionReasons: string[] };
+    expect(secondCal.suppressionReasons).toContain("deduped");
+  });
+});
+
+describe("mt#3113 — computeSuppressionReasons (composition of legs 1/3/4)", () => {
+  test("no suppression signals -> empty reasons array, injection proceeds", () => {
+    const result = {
+      matched: true,
+      claims: [{ symbol: "foo", predicate: "clamps" }],
+      hadSameTurnRead: false,
+      backedClaimCount: 0,
+    };
+    const relay = { relayed: false, relayedSymbols: [] };
+    const { reasons } = computeSuppressionReasons(result, relay, "sess-x", () => true);
+    expect(reasons).toEqual([]);
+  });
+
+  test("all three signals compose into one reasons array", () => {
+    const result = {
+      matched: true,
+      claims: [{ symbol: "foo", predicate: "clamps" }],
+      hadSameTurnRead: true,
+      backedClaimCount: 1,
+    };
+    const relay = {
+      relayed: true,
+      reason: REASON_RELAYED_PREAMBLE_PHRASE as const,
+      relayedSymbols: [],
+    };
+    const { reasons, claimSetSignature } = computeSuppressionReasons(
+      result,
+      relay,
+      "sess-x",
+      () => false
+    );
+    expect(reasons).toEqual(["same-turn-read", REASON_RELAYED_PREAMBLE_PHRASE, "deduped"]);
+    expect(typeof claimSetSignature).toBe("string");
+    expect(claimSetSignature.length).toBeGreaterThan(0);
+  });
+
+  test("claimSetSignature is deterministic for the same claim set", () => {
+    const result = {
+      matched: true,
+      claims: [{ symbol: "foo", predicate: "clamps" }],
+      hadSameTurnRead: false,
+      backedClaimCount: 0,
+    };
+    const relay = { relayed: false, relayedSymbols: [] };
+    const a = computeSuppressionReasons(result, relay, "sess-x", () => true);
+    const b = computeSuppressionReasons(result, relay, "sess-x", () => true);
+    expect(a.claimSetSignature).toBe(b.claimSetSignature);
   });
 });
 
@@ -655,9 +1040,17 @@ function buildCliTranscriptJSONL(lines: CliJsonlLine[]): string {
   return lines.map((l) => JSON.stringify(l)).join("\n");
 }
 
+// mt#3113 leg 4: main() consults the real (fs-backed) claim-set dedup store,
+// keyed by session_id. A FIXED literal session_id here would let one test
+// RUN's cooldown state suppress additionalContext on the NEXT `bun test`
+// invocation within the hour (real store persists across process runs in
+// the same home dir) -- a random suffix per hook-input construction keeps
+// every CLI invocation's dedup state independent, matching this file's
+// pure-function tests (which bypass the real store entirely via
+// ALWAYS_INJECT_DEPS) instead of depending on test-run timing.
 function makeCliHookInput(transcriptPath: string): ClaudeHookInput {
   return {
-    session_id: "test-session-cma-cli",
+    session_id: `test-session-cma-cli-${crypto.randomUUID()}`,
     transcript_path: transcriptPath,
     cwd: "/tmp",
     hook_event_name: RUN_HOOK_EVENT_NAME,
