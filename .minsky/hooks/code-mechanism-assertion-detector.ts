@@ -532,15 +532,15 @@ function buildInjectionReminder(claims: Array<{ symbol: string; predicate: strin
     .map((c) => `  - "${c.symbol}" ${c.predicate}`)
     .join("\n");
   return [
-    "[code-mechanism-assertion-detector] Unread code-mechanism claim detected (mt#2486).",
+    "[code-mechanism-assertion-detector] Unread code-mechanism claim detected (mt#2486/mt#3050).",
     "",
-    "The prior turn asserted what a named code symbol DOES without reading that",
-    "symbol this turn (it did not appear in any same-turn tool_result or read-class",
-    "tool input):",
+    "The prior turn asserted what a named symbol DOES (behavior) or where its",
+    "capability COMES FROM (sourcing/provenance) without reading that symbol this",
+    "turn (it did not appear in any same-turn tool_result or read-class tool input):",
     lines,
     "",
-    "Required: READ the symbol's source before asserting its behavior. The cheapest",
-    "falsifier is one Read/Grep of the file — see /check-premise.",
+    "Required: READ the symbol's source before asserting its behavior/capability.",
+    "The cheapest falsifier is one Read/Grep of the file — see /check-premise.",
     "",
     "Family: 3772c77d / b0b294ab. Override: MINSKY_ACK_CODE_MECHANISM_ASSERTION=1.",
   ].join("\n");

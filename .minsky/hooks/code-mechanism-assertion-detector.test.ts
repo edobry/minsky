@@ -755,4 +755,50 @@ describe("code-mechanism-assertion-detector main()/CLI-path E2E (mt#3002 R1)", (
     expect(exitCode).toBe(0);
     expect(stdout.trim()).toBe("");
   });
+
+  test("R13 sourcing/provenance sentence fires via the CLI path (mt#3050)", async () => {
+    const p = join(dir, "r13.jsonl");
+    writeFileSync(
+      p,
+      buildCliTranscriptJSONL([
+        cliUserLine(),
+        cliAssistantLine(
+          "the router suggestion is sourced from the existing `tasks_route` / `tasks_estimate` seam."
+        ),
+        cliUserLine(),
+      ]),
+      "utf8"
+    );
+    const { exitCode, stdout } = await invokeCliHook(makeCliHookInput(p));
+    expect(exitCode).toBe(0);
+
+    const parsed = JSON.parse(stdout) as {
+      hookSpecificOutput?: { hookEventName?: string; additionalContext?: string };
+    };
+    expect(parsed.hookSpecificOutput?.hookEventName).toBe(RUN_HOOK_EVENT_NAME);
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain("tasks_route");
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain("tasks_estimate");
+    // mt#3050: the injection copy must cover capability/sourcing claims, not
+    // only behavior claims — a sourcing-only fixture must not read as though
+    // it was accused of a behavior claim.
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain("capability");
+  });
+
+  test("sourcing/provenance non-claim prose fixtures produce no output via the CLI path (mt#3050)", async () => {
+    const p = join(dir, "sourcing-fp.jsonl");
+    writeFileSync(
+      p,
+      buildCliTranscriptJSONL([
+        cliUserLine(),
+        cliAssistantLine(
+          "The estimate comes from a rough guess, not a formula, and our revenue is backed by strong customer retention."
+        ),
+        cliUserLine(),
+      ]),
+      "utf8"
+    );
+    const { exitCode, stdout } = await invokeCliHook(makeCliHookInput(p));
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toBe("");
+  });
 });
