@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import { safeTruncate } from "@minsky/shared";
 
 /**
  * Base error schema for standard JavaScript Error objects
@@ -211,6 +212,67 @@ export function getErrorMessageWithCause(error: unknown): string {
   const chain = getCauseChain(error);
   if (chain.length === 0) return getErrorMessage(error);
   return chain.join(" — caused by: ");
+}
+
+/**
+ * Cap on how many characters of a SINGLE error message may be written to a log
+ * field (mt#2903).
+ *
+ * 2 KB comfortably holds a Postgres error plus a healthy prefix of the failing
+ * SQL, while being ~3 orders of magnitude below the multi-megabyte messages
+ * that motivated this.
+ */
+export const MAX_LOGGED_ERROR_CHARS = 2000;
+
+/**
+ * Truncate `text` for safe logging, recording what was dropped.
+ *
+ * The suffix reports the ORIGINAL length so a reader can tell "this was a
+ * 6 MB message" from "this was 2.1 KB" — which matters, because an
+ * unexpectedly enormous message is itself the diagnostic signal.
+ */
+export function truncateForLog(text: string, maxChars: number = MAX_LOGGED_ERROR_CHARS): string {
+  if (text.length <= maxChars) return text;
+  // `safeTruncate` rather than `.slice(0, n)`: transcripts routinely contain
+  // emoji and other non-BMP characters, and a raw slice can land between the
+  // halves of a UTF-16 surrogate pair, emitting a lone surrogate that corrupts
+  // the log line's encoding (enforced by `custom/no-unsafe-string-truncation`).
+  return `${safeTruncate(text, maxChars, "head")}… [truncated: ${text.length} chars total]`;
+}
+
+/**
+ * Bounded, cause-bearing error summary safe to write to a log field (mt#2903).
+ *
+ * Use this instead of `getErrorMessage(err)` wherever a caught error is written
+ * into a log record, ESPECIALLY around database calls.
+ *
+ * ## Why this exists
+ *
+ * `DrizzleQueryError.message` is built as `Failed query: <sql>\nparams: <params>`
+ * — the bound parameters are inside the MESSAGE, not just on the error object.
+ * For a wide row (an ingested transcript blob) that message is megabytes long.
+ * `~/.local/state/minsky/logs/` reached 4.7 GB this way, with individual log
+ * lines measured at 5.87 MB, 6.65 MB and 7.12 MB, because a failing upsert was
+ * retried on every sweep tick and its full message re-logged each time.
+ *
+ * Switching to `err.message` does NOT fix that — the payload IS the message.
+ * The text must be bounded.
+ *
+ * ## Why each level is truncated independently
+ *
+ * The useful part (the actual Postgres error: constraint name, type mismatch,
+ * SQLSTATE) lives on `.cause`, AFTER the giant drizzle message. Truncating the
+ * joined string would therefore cut off precisely the diagnostic worth keeping.
+ * Bounding each cause level separately keeps the driver error visible no matter
+ * how large the wrapper's message is.
+ */
+export function getLoggableErrorSummary(
+  error: unknown,
+  maxCharsPerLevel: number = MAX_LOGGED_ERROR_CHARS
+): string {
+  const chain = getCauseChain(error);
+  if (chain.length === 0) return truncateForLog(getErrorMessage(error), maxCharsPerLevel);
+  return chain.map((m) => truncateForLog(m, maxCharsPerLevel)).join(" — caused by: ");
 }
 
 /**

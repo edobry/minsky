@@ -36,7 +36,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transcript-attachments-schema";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
 import { writeTurnsForTranscript } from "./turn-writer";
@@ -69,7 +69,7 @@ async function resolveIngestProjectId(
   } catch (err) {
     log.debug("[transcripts] Project id resolution failed for ingest; leaving unscoped", {
       cwd,
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }
@@ -117,7 +117,7 @@ export class AgentTranscriptIngestService {
     } catch (err) {
       const hwmReadError = err instanceof Error ? err : new Error(String(err));
       log.warn(`Failed to read high-water-mark for session ${agentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       // mt#2789: abort this session's ingest rather than proceeding with
       // highWaterMark=null. Proceeding used to mean "treat as no prior
@@ -193,7 +193,7 @@ export class AgentTranscriptIngestService {
       }
     } catch (err) {
       log.warn(`Failed to stream lines for session ${agentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       // Return 0 — don't partially-commit a broken read.
       // Surface the error so the sweep can count it (mt#1444).
@@ -349,7 +349,7 @@ export class AgentTranscriptIngestService {
         });
     } catch (err) {
       log.error(`Failed to upsert transcript for session ${agentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       return { ingested: 0, error: err instanceof Error ? err : new Error(String(err)) };
     }
@@ -401,7 +401,7 @@ export class AgentTranscriptIngestService {
     } catch (err) {
       turnExtractError = err instanceof Error ? err : new Error(String(err));
       log.warn(`Failed to materialize turn rows for session ${agentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       // Don't fail the whole ingest — the transcript upsert already succeeded.
       // Surface the error so the sweep can count degraded ingests.
@@ -428,7 +428,7 @@ export class AgentTranscriptIngestService {
       await writeCwdMatchLink(this.db, agentSessionId, session.cwd ?? persistedCwd);
     } catch (err) {
       log.warn(`Failed to write cwd_match link for session ${agentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
     }
 
@@ -450,7 +450,7 @@ export class AgentTranscriptIngestService {
         attachmentError = err instanceof Error ? err : new Error(String(err));
         log.warn(
           `Failed to insert ${newAttachmentRows.length} attachment rows for session ${agentSessionId}`,
-          { error: getErrorMessage(err) }
+          { error: getLoggableErrorSummary(err) }
         );
         // Don't fail the whole ingest — turn-row upsert already succeeded.
         // Surface the error so the sweep can count degraded ingests.
@@ -511,7 +511,7 @@ export class AgentTranscriptIngestService {
         // an unexpected throw escapes (e.g., an iterator boundary), still count it.
         sessionsErrored++;
         log.warn(`Session ${session.agentSessionId} failed during sweep`, {
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
       }
     }
