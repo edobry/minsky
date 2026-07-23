@@ -122,6 +122,20 @@ pub(crate) enum SupervisorCmd {
     /// restart is deferred for a bounded grace period
     /// (`watcher_backend::wait_for_turn_idle_or_grace_expiry`) before
     /// proceeding anyway — never indefinitely.
+    ///
+    /// Known minor edge case (reviewer-flagged, intentionally NOT addressed
+    /// here): a SECOND burst of backend-source edits arriving DURING a
+    /// deferred wait (up to `TURN_ACTIVE_GRACE`) debounces independently and
+    /// enqueues its OWN `AutoRestart`, which then runs immediately after the
+    /// first one completes — a harmless extra restart of an
+    /// already-just-restarted daemon, not a correctness bug (the mt#3038
+    /// resume machinery recovers it the same way either restart would).
+    /// Coalescing queued `AutoRestart`s during a deferred wait would need a
+    /// non-destructive channel peek/drain-and-requeue (`UnboundedReceiver`
+    /// has neither); a naive `try_recv()` drain risks silently swallowing an
+    /// interleaved operator-explicit `Restart`/`Stop`/`Shutdown`, which is a
+    /// strictly worse failure than one extra restart. Left as a documented,
+    /// low-risk simplification rather than a fix.
     AutoRestart,
     Shutdown,
     /// A cockpit-web source file changed at runtime — rebuild the bundle
