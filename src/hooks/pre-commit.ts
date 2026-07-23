@@ -2054,7 +2054,7 @@ export class PreCommitHook {
    */
   private async runCompileCheck(): Promise<HookResult> {
     log.cli(
-      "📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts, claude-agents)..."
+      "📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts, claude-agents, claude-hooks)..."
     );
 
     const fsp = await import("fs/promises");
@@ -2071,8 +2071,12 @@ export class PreCommitHook {
       rules: await dirExists(`${this.projectRoot}/.minsky/rules`),
       agents: await dirExists(`${this.projectRoot}/.minsky/agents`),
       // claude-hooks is auto-regenerated + re-staged by Step 3f
-      // (runClaudeHooksCompileRegen, mt#2977) instead of block-checked here.
-      hooks: false,
+      // (runClaudeHooksCompileRegen, mt#2977) when hooks SOURCES are staged;
+      // this block-on-drift check is RETAINED as the safety net for output
+      // drift when sources are NOT staged — e.g. a hand-edited output (PR #2223
+      // review). For a hooks-source commit Step 3f already regenerated the
+      // output, so this check then passes on the fresh output.
+      hooks: await dirExists(`${this.projectRoot}/.minsky/hooks`),
     });
 
     if (targetsToCheck.length === 0) {

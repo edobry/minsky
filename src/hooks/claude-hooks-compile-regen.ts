@@ -7,25 +7,26 @@
  * `runClaudeHooksCompileRegen` is a thin wrapper that injects its
  * `this`-bound git runner + logger.
  *
- * Behavior: when a commit stages `.minsky/hooks/` sources (or their generated
- * `.claude/hooks/` outputs), regenerate `.claude/hooks/*` and re-stage the
- * changed files — the same auto-fix-and-restage shape as the completion-manifest
- * (Step 1b) and Dockerfile workspace-COPY (Step 3c) steps — instead of the
- * block-on-drift shape `runCompileCheck` uses for the sibling targets. Editing
- * a hook source no longer requires a manual `compile --target claude-hooks` +
- * re-commit.
+ * Behavior: when a commit stages `.minsky/hooks/` sources, regenerate
+ * `.claude/hooks/*` and re-stage the changed files — the same auto-fix-and-restage
+ * shape as the completion-manifest (Step 1b) and Dockerfile workspace-COPY
+ * (Step 3c) steps — instead of the block-on-drift shape `runCompileCheck` uses
+ * for the sibling targets. Editing a hook source no longer requires a manual
+ * `compile --target claude-hooks` + re-commit.
  */
 import type { HookResult } from "./pre-commit";
 
 /**
  * True iff any staged file lives under the claude-hooks source tree
- * (`.minsky/hooks/`) or its generated output (`.claude/hooks/`). This is the
- * gate for the regen (mt#2977 SC#2): a commit that doesn't touch hooks pays no
- * compile cost. Staging either the source OR the generated output counts, so a
- * hand-edited output is also reconciled. Pure + exported for unit testing.
+ * (`.minsky/hooks/`). This is the gate for the regen (mt#2977 SC#2/AT#2): a
+ * commit that doesn't touch hook SOURCES pays no compile cost. A hand-edited
+ * `.claude/hooks/` output with an untouched source is caught by the RETAINED
+ * block-on-drift check in `runCompileCheck` (Step 9b), not by this gate (PR
+ * #2223 review) — this gate stays source-only so an output-only stage does not
+ * trigger a compile. Pure + exported for unit testing.
  */
 export function claudeHooksCompileAffected(stagedFiles: string[]): boolean {
-  return stagedFiles.some((f) => f.startsWith(".minsky/hooks/") || f.startsWith(".claude/hooks/"));
+  return stagedFiles.some((f) => f.startsWith(".minsky/hooks/"));
 }
 
 /**

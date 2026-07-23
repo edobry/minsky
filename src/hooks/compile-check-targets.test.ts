@@ -79,8 +79,8 @@ describe("claudeHooksCompileAffected (mt#2977)", () => {
     expect(claudeHooksCompileAffected([".minsky/hooks/check-branch-fresh.ts"])).toBe(true);
   });
 
-  test("true when a .claude/hooks generated output is staged", () => {
-    expect(claudeHooksCompileAffected([".claude/hooks/check-branch-fresh.ts"])).toBe(true);
+  test("false when ONLY a .claude/hooks output is staged (sources-only gate, PR #2223)", () => {
+    expect(claudeHooksCompileAffected([".claude/hooks/check-branch-fresh.ts"])).toBe(false);
   });
 
   test("true when hooks paths are mixed with unrelated staged files", () => {
@@ -89,7 +89,7 @@ describe("claudeHooksCompileAffected (mt#2977)", () => {
     ).toBe(true);
   });
 
-  test("false when no hooks source or output is staged", () => {
+  test("false when no hooks source is staged", () => {
     expect(claudeHooksCompileAffected(["src/hooks/pre-commit.ts", ".minsky/rules/foo.mdc"])).toBe(
       false
     );
