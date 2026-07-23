@@ -11,6 +11,10 @@ import { evaluateBunTestSummary } from "../../scripts/run-tests-gated";
 // stays consistent (and to satisfy custom/no-magic-string-duplication).
 const ranLine = "Ran 512 tests across 87 files. [12.30s]";
 
+// Shared fail-closed reason substring, reused across the "no summary at all"
+// fixtures below (and to satisfy custom/no-magic-string-duplication).
+const NO_SUMMARY_REASON = "no completion summary";
+
 const cleanSummary = [" 512 pass", " 0 fail", " 1200 expect() calls", ranLine].join("\n");
 
 const failingSummary = [" 510 pass", " 2 fail", " 1198 expect() calls", ranLine].join("\n");
@@ -53,7 +57,7 @@ describe("evaluateBunTestSummary (mt#2716 fail-closed pre-push gate)", () => {
   test("FAILS a truncated run (no completion summary) even on exit 0 — the core mt#2716 fix", () => {
     const r = evaluateBunTestSummary(truncatedOutput, 0);
     expect(r.ok).toBe(false);
-    expect(r.reason).toContain("no completion summary");
+    expect(r.reason).toContain(NO_SUMMARY_REASON);
   });
 
   test("FAILS when the summary reports failing tests", () => {
@@ -87,12 +91,13 @@ describe("evaluateBunTestSummary (mt#2716 fail-closed pre-push gate)", () => {
     expect(evaluateBunTestSummary(withDecoyName, 0).ok).toBe(true);
   });
 
-  // mt#3075: bun colorizes its summary lines whenever the child process
-  // inherits a FORCE_COLOR-set env (e.g. a Claude Code agent session's
-  // ambient shell) -- reproduced verbatim from a live `bun test` 1.2.21 run
-  // under FORCE_COLOR=3. Before the stripAnsi() fix, this exact output
-  // fail-closed EVERY commit/push in such an environment: the escape codes
-  // around " 0 fail" defeated the anchored /^ *\d+ fail$/ regex.
+  // mt#3075 / mt#3078: bun colorizes its summary lines whenever the child
+  // process inherits a FORCE_COLOR-set env (e.g. a Claude Code agent
+  // session's ambient shell) -- reproduced verbatim from a live `bun test`
+  // 1.2.21 run under FORCE_COLOR=3. Before the stripAnsi() fix (found and
+  // fixed independently on two branches), this exact output fail-closed
+  // EVERY commit/push in such an environment: the escape codes around
+  // " 0 fail" defeated the anchored /^ *\d+ fail$/ regex.
   const ansiCleanSummary = [
     "\x1b[0m\x1b[1mbun test \x1b[0m\x1b[2mv1.2.21 (7c45ed97)\x1b[0m",
     "",
@@ -122,15 +127,33 @@ describe("evaluateBunTestSummary (mt#2716 fail-closed pre-push gate)", () => {
   });
 
   // mt#3079: the colorized-clean/failing fixtures above both carry a
-  // completion summary. This fixture covers the case main's own regression
-  // pair doesn't: colorized output with NO completion summary at all (the
-  // silent-truncation case, mt#2716's core fix) must still fail closed once
+  // completion summary. This fixture covers the case the pair above doesn't:
+  // colorized output with NO completion summary at all (the silent-
+  // truncation case, mt#2716's core fix) must still fail closed once
   // ANSI-stripped, not accidentally pass because stripping happened to make
   // it look emptier.
   test("FAILS closed on colorized output with no completion summary at all (mt#3079)", () => {
     const colorized = "\x1b[0m\x1b[2msome unrelated output\x1b[0m";
     const r = evaluateBunTestSummary(colorized, 0);
     expect(r.ok).toBe(false);
-    expect(r.reason).toContain("no completion summary");
+    expect(r.reason).toContain(NO_SUMMARY_REASON);
+  });
+
+  // PR #2207 R1 (non-blocking #2): the reviewer asked for explicit coverage that
+  // stripAnsi's now-unconditional application to the full buffer doesn't mask a
+  // genuine failure when the input is PLAIN (non-ANSI) structured content with no
+  // completion summary -- a multi-line stack trace being the canonical shape. This
+  // is a coverage addition only; per coordination with mt#3075's already-landed
+  // implementation on main, the stripAnsi mechanism itself is unchanged here (see
+  // this PR's reply on the review thread for the rationale against forking it).
+  test("FAILS closed on a plain (non-ANSI) stack trace with no completion summary", () => {
+    const stackTrace = [
+      "error: Cannot access 'server' before initialization.",
+      "      at <anonymous> (packages/domain/src/setup/github-app/manifest-flow-provisioner.ts:130:9)",
+      "      at <anonymous> (packages/domain/src/setup/github-app/manifest-flow-provisioner.test.ts:187:62)",
+    ].join("\n");
+    const r = evaluateBunTestSummary(stackTrace, 1);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain(NO_SUMMARY_REASON);
   });
 });
