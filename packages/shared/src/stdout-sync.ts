@@ -11,11 +11,15 @@
  * the same command produced valid JSON via `> out.json` and truncated JSON via
  * `| jq`.
  *
- * Measured before the fix (Bun, 1 MiB payload, exit immediately after write):
- * a pipe received 65,536 bytes; a file received all 1,048,576. Real commands
- * truncated at 192 KiB / 256 KiB — always an exact 64 KiB multiple, and the
- * cut point VARIED BETWEEN RUNS on identical input, which is the signature of
- * a drain race rather than corrupt content.
+ * Measured before the fix (Bun on macOS, 1 MiB payload, exit immediately after
+ * write): a pipe received 65,536 bytes; a file received all 1,048,576. Real
+ * commands truncated at 192 KiB / 256 KiB, and the cut point VARIED BETWEEN
+ * RUNS on identical input — the signature of a drain race rather than corrupt
+ * content.
+ *
+ * The truncation OFFSET is platform-dependent: macOS cuts on exact 64 KiB
+ * buffer boundaries; Linux CI cuts at an arbitrary offset. Only the data loss
+ * itself reproduces on both, so that is what the regression test asserts.
  *
  * ## Why this approach, and what does NOT work
  *
