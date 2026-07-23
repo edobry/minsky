@@ -1124,113 +1124,23 @@ Prevents shell parsing issues that cause commands to hang with `dquote>` prompts
 
 # Claim Confidence
 
-When the agent claims work is done or something is true, two questions hide in one sentence:
-**how far the deliverable has progressed**, and **how the agent knows the claim**. Leaving both
-implicit is where miscalibrated "it's done" claims come from. This rule is the shared vocabulary —
-two orthogonal axes, a claim format carrying both, and a ranked ledger for high-stakes operations.
+Vocabulary for delivery progress + evidential warrant (not a per-claim mandate). Apply at the seam injection (mt#2923), the closeout format (mt#2924), or when stakes
+warrant it.
 
-It is the **vocabulary and rationale layer**: it does NOT mandate a label on every claim (that is
-the wallpaper failure mode — labels everywhere become noise the operator stops reading). Enforcement
-is conditional and lives in the siblings — a seam-only injection (mt#2923) and the
-`/implement-task` §9 / `/verify-task` closeout format (mt#2924). Apply the vocabulary where those
-fire and where miscalibration would cost the principal.
+**Axis A (delivery):** `merged → deployed → usable`. Auto-usable: `deployed == usable`.
+Build/install (CLI, tray): `deployed < usable`; name the crossing step.
 
-## Axis A — delivery state
+**Axis B (warrant):** `verified-1a` (deterministic) / `verified-1b` (live probe) /
+`strong-evidence` / `inferred` / `assumed` (never tried) / `unknown` (tried).
 
-How far the deliverable has progressed toward the principal using it: `merged → deployed →
-usable-by-principal`. **Class-conditional:**
+**Format:** `[delivery] — [warrant + basis]`. E.g. `Merged (verified-1a: PR merged this turn) —
+usable: rebuild + reinstall.`
 
-- **Auto-usable** (a running service picks up the merge; config takes effect on deploy): once
-  `deployed`, `deployed == usable`.
-- **Build/install** (a CLI or tray app the principal must rebuild/reinstall): `deployed < usable`,
-  with **no agent-observable transition** into `usable` — exactly where an unwarranted "it's done"
-  originates (the agent observes `merged`/`deployed` and narrates `usable`). State delivery at the
-  altitude the class supports; if there is a gap the agent cannot cross, name the crossing step.
+**Risk ledger:** high-stakes shared/prod ops LEAD with a ranked Risk/Magnitude/State/Evidence
+table before go-ahead. Fires: ≥2 of {irreversible, shared/prod, multi-party}, OR operator
+uncertainty alone.
 
-## Axis B — evidential warrant
-
-How the agent knows the claim:
-
-- **verified** — a tool result THIS turn proves it. Split: **verified-1a** (a deterministic
-  test/check — compile passed, unit test green) vs **verified-1b** (a live-environment probe — HTTP
-  200 read, a real API call, a route rendered). The split matters because a deterministic test can
-  pass against the wrong object while live behavior was never exercised (mt#2528 below).
-- **strong-evidence** — multiple consistent indirect signals (review APPROVE + CI green + a partial
-  observation), short of direct end-to-end proof.
-- **inferred** — a conclusion from a mechanism/premise not directly checked.
-- **assumed** — taken as given WITHOUT an attempt to determine it.
-- **unknown** — attempted and undetermined, or explicitly acknowledged as undetermined.
-
-**`assumed` vs `unknown`** (the distinction the RFC deferred here): `assumed` = never tried,
-proceeding on a default — the more dangerous label, since it hides an unmade check; `unknown` =
-tried, or consciously acknowledged, and the answer is unavailable. Prefer converting `assumed` into
-`verified` or `unknown` by actually probing.
-
-## Claim format
-
-`[delivery state] — [evidential warrant + basis]`. Worked examples:
-
-- `Merged (verified: PR merged this turn) — to reach usable, rebuild + reinstall.`
-- Executive one-liner: `Deployed (verified-1b: health probe this turn) — usable after tray reinstall.`
-- The **mt#2528 originating incident**, re-expressed: `Merged (verified-1a: deterministic test on
-  the wrong object) — live-1b probe not run.` The 1a/1b split makes the original error stateable —
-  it was reported as a live probe (1b) when only a deterministic check (1a), against the wrong
-  object, had run.
-
-## The risk-and-evidence ledger (high-stakes operations)
-
-For a high-stakes operation on shared/prod state, do NOT scatter confidence phrases through prose —
-LEAD, before requesting the operator's go, with a ranked table:
-`| # | Risk | Magnitude | State (mitigated / N-A / open) | Evidence |`. The operator scans it and
-either accepts or points at the one low-confidence row. Diagnostic (memory `b9cfd295`): scattered
-operator anxiety-probing is a symptom of agent epistemic **opacity** — the agent has a risk model
-but never exported it; the fix is agent-side (make it legible).
-
-**Fires when EITHER** ≥2 of the three OBJECTIVE criteria hold
-`{ irreversible-if-wrong, shared/prod state, multi-party impact }`, **OR
-operator-expressed-uncertainty ALONE** (if the operator is already probing, exporting the model is
-overdue — the circularity fix: the objective quorum lets the ledger lead BEFORE anyone asks).
-**Caveat:** a short ledger gives false confidence if the one row the operator would have probed was
-never enumerated — completeness of the enumeration is load-bearing, not the table's tidiness.
-
-Worked example (mt#2505 prod-migration): a prod schema migration satisfies `shared/prod state` AND
-`irreversible-if-wrong` (migrations are hard to reverse as a class) = 2 of 3 objective criteria →
-the ledger is required, independent of whether the operator asked.
-
-| # | Risk | Magnitude | State | Evidence |
-| - | ---- | --------- | ----- | -------- |
-| 1 | Data corruption | High | mitigated | no-op migration, 0 pending rows verified |
-| 2 | Deploy breaks | Med | mitigated | failure-safe rollout |
-| 3 | Irreversibility | Low | N-A | no schema change in this migration |
-
-## Reconciliation — this rule vs. the Communication-Altitude RFC
-
-"Altitude" is a sibling's word and this rule deliberately does NOT reuse it. The
-**Communication-Altitude RFC** (Notion `39e937f0-3cb4-81fe-bdea-e249014e356f`,
-https://app.notion.com/p/39e937f03cb481febdeae249014e356f, Accepted 2026-07-15) owns the *altitude
-register* — `receipts / standard / executive` — which governs **how much** a report says. This rule
-owns per-claim **confidence** (delivery state × evidential warrant). Orthogonal: a receipts-register
-report can carry an `unknown`-warrant claim, and an executive one-liner a `verified-1b` claim. The
-one non-free interaction is placement — that RFC keeps structured tables out of the chat lead, but
-the risk-and-evidence ledger leads chat by design; resolved by that RFC's **severity-piercing rule**
-(its triggers include "a destructive or hard-to-reverse action taken or refused," the ledger's
-territory), so the ledger leads chat *under* severity piercing.
-
-## Enforcement surfaces (not here) + cross-references
-
-Vocabulary only; enforcement is the conditional siblings under parent **mt#2544**: **mt#2923** (a
-seam-only `UserPromptSubmit` injection — the format reminder, not a block) and **mt#2924** (the
-`/implement-task` §9 + `/verify-task` closeout format). Keeping it conditional is the wallpaper
-answer. This practice is the **proactive front** to the **reactive** epistemic detectors
-(**mt#2197** pre-narration, **mt#2216** causal-premise, **mt#2488** tool-boundary evidence gate,
-**mt#2506** prod-state) — it complements them, it does not subsume them.
-
-- **RFC: First-class agent-reasoning practices** (Notion `3a0937f0-3cb4-81a6-8699-e419a5ce4da0`,
-  https://app.notion.com/p/3a0937f03cb481a68699e419a5ce4da0, Accepted 2026-07-18) — Part 2 is the
-  design record for this vocabulary.
-- **mt#2258** — principal-attention-scarcity, the design driver (the ledger converts operator
-  anxiety into targeted scrutiny). Memory `b9cfd295` (risk-ledger / opacity); `b0b294ab` (the
-  assertion-without-verification family this vocabulary gives a shared language to).
+Full detail + RFC reconciliation: `docs/rules-rationale/claim-confidence.md`.
 
 # Cockpit Deeplinks in Terminal Output
 
@@ -1660,319 +1570,45 @@ Today: human-consulted — read this file before any preference-encoding action.
 
 # Hook Files
 
-All `.claude/hooks/*.ts` files must have execute permission (`chmod +x` — the `Write` tool
-creates `644` by default; pre-commit enforces).
+PreToolUse/merge/pre-commit gate index + guard-dispatcher (ADR-028). Observers:
+`hook-observers`. Source `.minsky/hooks/`; `.claude/hooks/*` GENERATED — commit both. Execute
+permission required (pre-commit enforces). Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
+**On denial: `docs/architecture/hooks/<name>.md` or `rules_get hook-files`.**
 
-**Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620)** — each `Doc:` pointer
-below is a file there. Entries are a terse index; narration lives in the linked doc.
-**This rule indexes the PERMISSION GATES** (PreToolUse deny/allow, merge gates, pre-commit steps)
-plus the shared framework; the non-blocking observer hooks (detectors, per-turn injection,
-reminders, trackers, SessionEnd ingest) are indexed in the sibling `hook-observers` rule
-(split mt#2987 — the combined index exceeded the per-rule compile ceiling three times in one day).
-
-## Guard-Dispatcher Framework (ADR-028)
-
-Shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts`): 17 guards share ONE
-Bun process per event (`GUARD_REGISTRY`); others are standalone `settings.json` entries.
-**Load-bearing:** timeout is the HOST CAP, guards run SEQUENTIALLY — size to the SUM of
-pre-migration timeouts. Source `.minsky/hooks/`; `.claude/hooks/*` is GENERATED, commit both.
-Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all` (migrated only). Doc: `guard-dispatcher-framework.md`.
-
-## Parallel-Work Guard
-
-PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create` (parent set): blocks session-binding
-on open-PR file overlap (advisory for recently-merged); blocks duplicate-child titles vs an
-ACTIVE sibling (terminal WARN, mt#2683); parent-less creates get a WARN-only similarity probe
-(mt#2813, in-process since mt#2958). Tier-3 ceiling (mt#1362); Tier-2 floor: `/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
-`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time-env-only) + the mid-session grant channel (mt#2658):
-`--guard parallel-work-open-pr` / `--guard duplicate-child-matcher`; probe has none. Fail: closed
-(open-PR) / open (duplicate checks warn+permit on unreadable data).
-Doc: `parallel-work-guard.md`.
-
-## Bypass-Merge Guard
-
-PreToolUse on `Bash`/`session_exec`: blocks ALL `gh api -X PUT /pulls/.../merge` — prefer
-`session_pr_merge`'s audited `forceBypass`. Subagents always blocked, no override. Hook:
-`block-subagent-bypass-merge.ts`. Override: `MINSKY_FORCE_BYPASS=1` (main-agent only). Fail:
-default-deny. Doc: `bypass-merge-guard.md`.
-
-## Out-of-Band Merge Guard
-
-PreToolUse on `session_pr_merge`/`gh api PUT merge`: blocks a merge whose PR body documents a
-coupled out-of-band step never confirmed. Hook: `block-out-of-band-merge.ts`. Override:
-`MINSKY_ACK_OOB_MERGE=1`. Fail: open (`gh` failure warns). Doc: `out-of-band-merge-guard.md`.
-
-## Generated File Edit Guard
-
-PreToolUse on file-edit tools (`Edit`/`Write`/`session_edit_file`/`session_write_file`/
-`session_search_replace`): blocks edits to files whose first 5 lines carry a generation banner.
-Hook: `check-generated-file-edit.ts`. Override: `MINSKY_FORCE_EDIT_GENERATED=1`. Fail: open
-(no-match/missing-file/read-error). Doc: `generated-file-edit-guard.md`.
-
-## Branch Freshness Guard
-
-PreToolUse on `session_commit`/`session_pr_create`/`session_pr_edit`: blocks when `origin/main`
-has commits the branch lacks; on a clean tree tries an inline `git merge --no-edit` first (clean
-merge proceeds with audit line; conflict aborts + denies). Hook: `check-branch-fresh.ts`.
-Override: `MINSKY_SKIP_FRESHNESS=1`. Fail: silent-allow on 4 routine paths + merge-in-progress;
-fetch failures warn. Doc: `branch-freshness-guard.md`.
-
-## Bundle-Boot Smoke Gate
-
-Merge-gate extension: denies `session_pr_merge` unless `bundle-boot-smoke` CI concluded `success`
-on HEAD. Override: `MINSKY_SKIP_BUNDLE_SMOKE=1` (only after verifying local boot). Fail:
-deny-by-default. Doc: `bundle-boot-smoke-gate.md`.
-
-## Required-Checks Bypass-Merge D8 Escape Valve
-
-PreToolUse on `Bash`/`session_exec` (layer 2; layer 1: `require-review-before-merge.ts`): denies
-a `gh api PUT .../merge` bypass unless every required check concluded `success` on HEAD; only
-UNKNOWN status consults the D8 grant store, a failure never does. Hook:
-`require-checks-on-bypass-merge.ts`. Overrides: `MINSKY_SKIP_REQUIRED_CHECKS=1` or a D8 grant
-(`scripts/grant-guard-override.ts`). Fail: deny-on-failure. Doc:
-`required-checks-bypass-merge-gate.md` (+ shared PR-data layer: `pr-data-fetch-layer.md`).
-
-## Execution-Evidence Merge Gate
-
-PreToolUse on `session_pr_merge`: blocks a merge adding new **test files** or **operational
-scripts** (`scripts/*.ts`) without an `Execution evidence:` block; dual-mode scripts need EACH
-branch exercised. Hook: `require-execution-evidence-before-merge.ts`. Override:
-`[unverified-tests]` title tag + follow-up task. Fail: open on unresolvable repo/PR or `gh`
-failure. Siblings: `/prepare-pr` §1b, `/implement-task` §7a.
-
-**AT-cross-reference trigger (mt#3033, calibration-first).** ADDITIVE third path: cross-references
-the bound task's `## Acceptance Tests` and WARN-logs (never blocks — mt#2263 ladder) an
-unaddressed executable AT to `.minsky/execution-evidence-at-coverage-calibration.jsonl`. Override:
-`MINSKY_SKIP_AT_COVERAGE=1`. Root incident: mt#2542. Doc: `execution-evidence-merge-gate.md`.
-
-## Deploy-Verification Merge Gate + Post-Merge Reminder
-
-PreToolUse on `session_pr_merge`: blocks a deploy-surface PR (`infra/**`, `services/*/Dockerfile`,
-`services/*/railway.json`, `.github/workflows/deploy-*.yml`, +tray `src-tauri/**`) lacking a
-`Deploy verification:` commitment; paired PostToolUse injects a `deployment_wait-for-latest`
-reminder. Hooks: `deploy-surface-detector.ts` + `require-deploy-verification-before-merge.ts` +
-`deploy-verification-after-merge.ts`. Escapes: `[no-deploy-impact]` title; a `Deploy
-verification:` marker (label+colon or any-level heading, case-insensitive); `MINSKY_SKIP_DEPLOY_VERIFY=1`.
-Fail: open (unresolvable repo/PR/non-surface); PostToolUse always exits 0.
-**Gap A extension (mt#2545):** a SECOND condition on the same hook hard-blocks a tray
-build-surface PR asserting altitude-4 usability without a rebuild+reinstall acknowledgment;
-`[no-deploy-impact]` does NOT bypass it. Override: `MINSKY_SKIP_USABILITY_CLAIM_CHECK=1`.
-Doc: `deploy-verification-merge-gate.md`.
-
-## Growth-Justification Merge Gate
-
-PreToolUse on `session_pr_merge`: when the diff touches `.minsky/rules/**` AND CLAUDE.md grows
->2,000 bytes (reductions never trigger), denies without a `Size-budget justification:` marker.
-Hook: `require-growth-justification-before-merge.ts`. Override:
-`MINSKY_SKIP_SIZE_JUSTIFICATION=1`. Fail: open on unreadable diff/PR.
-Doc: `growth-justification-merge-gate.md`.
-
-## Pre-Commit Steps (`src/hooks/pre-commit.ts`)
-
-- **NUL-byte** — blocks staged text containing NUL bytes (allowlist: binary exts +
-  `tests/fixtures/`); override `MINSKY_SKIP_NUL_CHECK=1`. Doc: `nul-byte-precommit-guard.md`.
-- **Workspace-COPY** — regenerates Dockerfiles' COPY block from the root `workspaces` glob,
-  auto-restaging; no override; blocks only on missing markers. Doc: `workspace-copy-precommit-guard.md`.
-- **Deploy-domain ownership** — blocks an asserted deploy-target domain not allowlisted in
-  `infra/controlled-domains.json`; override `MINSKY_SKIP_DEPLOY_DOMAIN_CHECK=1`.
-  Doc: `deploy-domain-ownership-guard.md`.
-- **Immutable-migration** — blocks a staged modification/rename of a journaled migration `.sql`
-  (drifts its ledger hash); additions/unjournaled edits allowed. Override
-  `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1`. Doc: `immutable-migration-precommit-guard.md`.
-- **Migration-collision** — blocks a staged migration journal drifting from origin/main (mutated
-  when on a shipped entry, reused number, or non-monotonic when; mt#2948); fails open. Override
-  MINSKY_SKIP_MIGRATION_COLLISION_CHECK=1. Doc: migration-collision-precommit-guard.md.
-- **Fast related-test gate** — maps staged files to related tests (sibling + bounded dependency
-  walk), fail-closed. Override `MINSKY_SKIP_RELATED_TESTS=1`. Doc: `fast-related-test-gate.md`.
-
-## Guessed-Session-Path Guard
-
-PreToolUse on `Bash`/`session_exec`: denies a command referencing an absolute `sessions/<id>/...`
-path that doesn't exist. Hook: `check-guessed-session-path.ts`. Override:
-`MINSKY_SKIP_SESSION_PATH_CHECK=1`. Fail: open — only a confirmed-nonexistent path denies.
-Doc: `guessed-session-path-guard.md`.
-
-## Bind/Advance Spec-Read Guard
-
-PreToolUse on `tasks_status_set` (READY) / `session_start` / `tasks_dispatch`: blocks when the
-spec was never surfaced (`tasks_spec_get` / `tasks_get includeSpec:true`). Hook:
-`check-task-spec-read.ts`. Override: `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error.
-Doc: `bind-advance-spec-read-guard.md`.
-
-## Subagent Merge Capability Guard
-
-PreToolUse on `session_pr_merge`: denies subagent-initiated merges (`agent_id` set) without an
-unexpired capability grant (`scripts/grant-subagent-merge.ts --task mt#<id>`).
-Hooks: `block-subagent-merge-without-grant.ts` + `merge-grant-store.ts`. Override:
-`MINSKY_SKIP_MERGE_GRANT_CHECK=1`. Fail: open only on genuine grant-store errors.
-Doc: `subagent-merge-capability-guard.md`.
-
-## Ask-Permission Bridge
-
-PreToolUse on `Bash`/`session_exec` (standalone, allow-emitting): when the pending command
-matches a live one-shot ask-grant AND the `authorization.approve` Ask re-verifies as
-operator-approved, emits `permissionDecision: allow` with an audit reason. Issue via
-`scripts/grant-ask-action.ts` (TTL 15m, one-shot). Hooks:
-`ask-permission-bridge.ts` + `ask-grant-store.ts` + `ask-verification.ts`. No override. Fail:
-silent defer on no-grant/store-error/unavailable; DENY only on grant-present-but-unverified.
-Doc: `ask-permission-bridge.md`.
-
-## Dispatch-Intent Write Gate
-
-PreToolUse on 6 session/PR-mutating tools (`session_pr_merge` excluded): denies a subagent call
-when a live `"read-only"` dispatch-intent covers the target session (forks included), via the
-`intent` param (default `"implementation"`, no-op). Default-ALLOW. Hooks:
-`dispatch-intent-write-gate.ts` + `dispatch-intent-store.ts`. No override; fail-open on
-store-read errors only. Doc: `dispatch-intent-write-gate.md`.
-
-## Nested-Fork Dispatch Guard
-
-PreToolUse on `Agent` (mt#3045): denies a NESTED `fork` dispatch (caller's `agent_id` already
-set — a subagent, not the main thread, is dispatching) unless a live dispatch-intent declaration
-already covers the calling subagent's session — closes the gap the opt-in write gate above left
-when an undeclared nested fork bypassed it entirely (mem#665, R2 recurrence of mt#2865).
-Top-level and non-fork nested dispatch are unaffected. Hook: `block-nested-fork-dispatch.ts`.
-Override: `MINSKY_ALLOW_NESTED_FORK=1` (launch-time-only). Fail-open on store-read errors only.
-Doc: `nested-fork-dispatch-guard.md`.
+- **Parallel-work** — PR/dup overlap block. `MINSKY_FORCE_PARALLEL`/`_DUPLICATE_OK`.
+- **Bypass-merge** — `gh api PUT .../merge`. `MINSKY_FORCE_BYPASS`.
+- **Out-of-band merge** — unconfirmed OOB. `MINSKY_ACK_OOB_MERGE`.
+- **Generated-file edit** — edits to generated files. `MINSKY_FORCE_EDIT_GENERATED`.
+- **Branch-freshness** — commit/PR behind main. `MINSKY_SKIP_FRESHNESS`.
+- **Bundle-boot smoke** — merge w/o smoke pass. `MINSKY_SKIP_BUNDLE_SMOKE`.
+- **Required-checks** — bypass w/o checks pass. `MINSKY_SKIP_REQUIRED_CHECKS`.
+- **Execution-evidence** — new tests/scripts w/o evid. `[unverified-tests]`; `MINSKY_SKIP_AT_COVERAGE`.
+- **Deploy-verification** — deploy-surface w/o commit. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`.
+- **Growth-justification** — CLAUDE.md growth w/o justif. `MINSKY_SKIP_SIZE_JUSTIFICATION`.
+- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests. Various `MINSKY_SKIP_*`.
+- **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
+- **Bind/advance spec-read** — status/session ops w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
+- **Subagent merge capability** — subagent merge w/o grant. `MINSKY_SKIP_MERGE_GRANT_CHECK`.
+- **Ask-permission bridge** — approved-Ask → allow. none.
+- **Dispatch-intent write gate** — writes under read-only intent. none.
+- **Nested-fork dispatch** — undeclared nested fork. `MINSKY_ALLOW_NESTED_FORK`.
 
 # Hook Observers
 
-Index of the NON-BLOCKING hook layer: UserPromptSubmit detectors, per-turn context injection,
-PostToolUse reminders, health trackers, and the SessionEnd ingest. None of these emit a
-permission decision. The permission gates (PreToolUse deny/allow, merge gates, pre-commit
-steps), the shared guard-dispatcher framework, the compile workflow
-(`.claude/hooks/*` GENERATED from `.minsky/hooks/`, `bun run minsky compile --target
-claude-hooks`, commit both), and the execute-permission requirement are indexed in the sibling
-`hook-files` rule — this rule was split from it (mt#2987: the combined index exceeded the
-per-rule compile ceiling three times in one day). Entries stay a terse index; per-hook
-narration lives in `docs/architecture/hooks/<name>.md` (mt#2620), each `Doc:` pointer a file
-there.
+NON-BLOCKING hooks: detectors, injection, reminders, trackers, SessionEnd ingest — no
+decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture/hooks/<name>.md`.
 
-## Skill/Agent/Rule Staleness Detector
-
-UserPromptSubmit: warns when `.claude/skills/**` / `.claude/agents/**` / `.minsky/rules/**`
-changed since session baseline mtime. Hook: `skill-staleness-detector.ts`. Override:
-`MINSKY_SKIP_SKILL_STALENESS=1`. Fail: silent-informational.
-Doc: `skill-staleness-detector.md`.
-
-## Drive-PR-To-Convergence Reminder
-
-PostToolUse on successful `session_pr_create`: injects a convergence reminder naming
-`session_pr_wait-for-review` as next action. Hook: `drive-pr-to-convergence.ts`. No override.
-Fail: always exits 0. Doc: `drive-pr-to-convergence-reminder.md`.
-
-## Substrate-Bypass Detector
-
-UserPromptSubmit: detects verbal commitments with no same-turn encoding, inline-retrospective
-prose without `/retrospective`, DB-substrate-bypass phrasing, and (log-only, mt#2263 ladder)
-`operator-instruction-after-merge` — telling the user to reinstall/rebuild/edit-config to
-activate a merged change (`§Turnkey, not portal`, mt#2303). Hook:
-`substrate-bypass-detector.ts`. Overrides: `MINSKY_ACK_SUBSTRATE_BYPASS=1`,
-`MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER=1`. Fail: open on transcript error; silent on first
-turn. Doc: `substrate-bypass-detector.md`.
-
-## Retrospective-Trigger Scanner
-
-UserPromptSubmit: scans the prior turn for retrospective-trigger phrases + user-correction
-signals; reminds to invoke `/retrospective` (suppressed if already invoked). Hook:
-`retrospective-trigger-scanner.ts`. Log: `.minsky/retrospective-trigger-calibration.jsonl`.
-Override: `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1`. Fail: open on transcript error.
-Doc: `retrospective-trigger-scanner.md`.
-Stop-event sibling (mt#2357): `turn-end-retro-scan.ts` — advisory turn-end scan (registry,
-via `dispatch-stop.ts`); dedup caps phrases at one beat; same override/log (`channel:"stop"`).
-Doc: `turn-end-retro-scan.md`.
-
-## Code-Mechanism-Assertion Detector
-
-UserPromptSubmit: flags an asserted-but-unread code-symbol behavior claim.
-mt#3002 excludes file-name/hex-id symbol FPs and flips
-`INJECTION_ENABLED=true` — LIVE since 2026-07-21 (calibration-first since mt#2486). Hook:
-`code-mechanism-assertion-detector.ts`. Override:
-`MINSKY_ACK_CODE_MECHANISM_ASSERTION=1`. Fail: open. Doc: same-name `.md`.
-
-## Ask-Routing Deferral Detector
-
-UserPromptSubmit: flags a chat-prose decision deferral that should have routed through the Ask
-substrate (`asks_create`), or a deferral-menu of options a cheap lookup / standing default
-would resolve. `INJECTION_ENABLED=true` — LIVE-INJECTING since 2026-07-08 (mt#2694 flip,
-operator-approved disposition of the mt#2471 calibration-first rollout; NOT log-only).
-Suppressed when the same assistant turn already calls `asks_create`. Calibration logging
-continues post-flip for FP monitoring (mt#2483 loop):
-`.minsky/ask-routing-deferral-calibration.jsonl`. Hook: `ask-routing-deferral-detector.ts`.
-Override: `MINSKY_ACK_ASK_ROUTING_DEFERRAL=1`. Fail: open on transcript/read error.
-Doc: `ask-routing-deferral-detector.md`.
-
-## Injection Hooks (UserPromptSubmit)
-
-- **Current time** — date/day/local/UTC every turn. `inject-current-time.ts`; override
-  `MINSKY_SKIP_TIME_INJECTION=1`. Doc: `current-time-injection-hook.md`.
-- **Git state** — branch, tree status, ahead/behind, 5 recent commits; no per-turn fetch.
-  `inject-git-state.ts`; override `MINSKY_SKIP_GIT_STATE_INJECTION=1`; silent bail on
-  non-repo/detached/timeout. Doc: `git-state-injection-hook.md`.
-- **Prod state** — migration-ledger snapshot;
-  fresh/stale/unknown shapes (never assert from memory when unknown). `inject-prod-state.ts`;
-  override `MINSKY_SKIP_PROD_STATE_INJECTION=1`; never crashes.
-  Doc: `prod-state-injection-hook.md`.
-- **Dispatch watchdog** — warns when an in-flight subagent dispatch is silent ≥30m; recovery:
-  `tasks.dispatch-recover` → `/orchestrate`. `inject-dispatch-watchdog.ts`; override
-  `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`; silent on empty cache.
-  Doc: `dispatch-watchdog-injection-hook.md`.
-
-## SubagentStop Invocation-Recording Hook
-
-`SubagentStop` (standalone, own Bun process): writes every Stop-time column of
-`subagent_invocations` — `ended_at` (the dispatch watchdog's liveness signal), `outcome`,
-`agent_session_id`, transcript metrics, `actual_model` — upserting onto the pending row
-`tasks.dispatch` wrote. Hook: `record-subagent-invocation.ts`. **A hook is its own entry point:
-DB-touching hooks MUST statically import `ensureHookDomainBootstrap` (`domain-bootstrap.ts`) —
-reflect-metadata + config init + mt#2982 fail-fast connect — or every domain import fails
-(mt#3019: this hook wrote 0 of 62 rows for two weeks). Lint-enforced since mt#3046 by
-`custom/require-hook-domain-bootstrap` (see `code-style.mdc`), which found a second silent
-instance in `post-merge-unasked-direction-scan`.** No override; fail-safe (8s deadline,
-always exits 0). Doc: `subagent-invocation-recording-hook.md`.
-
-## Session-End Transcript Ingest Hook
-
-`SessionEnd` hook: synchronously ingests the finished transcript into `agent_transcripts`
-(crash-terminated: MCP boot sweep). Hook: `transcript-ingest-on-session-end.ts`. Overrides:
-`MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK=1`; `MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED=1` (opt-in embed).
-Fail: always exits 0.
-Doc: `session-end-transcript-ingest-hook.md`.
-
-## Calibration Detectors (UserPromptSubmit, log-only)
-
-- **Causal-premise** — logs volunteered causal claims lacking same-turn verification.
-  `causal-premise-detector.ts`; log `.minsky/causal-premise-calibration.jsonl`; companion
-  `/check-premise`; override `MINSKY_ACK_CAUSAL_PREMISE=1`. Doc: `causal-premise-detector.md`.
-- **Calibration-review cadence** — warns when a calibration log crosses its review threshold
-  (≥10 fires, ≥3 phrases) or goes stale; run `/calibration-review` unless a disposition Ask is
-  open (mt#2659). `calibration-review-cadence-detector.ts`; override
-  `MINSKY_SKIP_CALIBRATION_CADENCE=1`. Doc: `calibration-review-cadence-detector.md`.
-- **Silent-stretch** — flags a tool-only stretch (no assistant text) crossing 10 min OR 15
-  consecutive tool calls (mt#2824). `silent-stretch-detector.ts`; log
-  `.minsky/silent-stretch-calibration.jsonl`; override `MINSKY_SKIP_SILENT_STRETCH=1`.
-  Doc: `silent-stretch-detector.md`.
-- **Wall-of-text** — flags a turn-end report >2x the ~200-word Tier-1 budget or label-led
-  (mt#2870). `wall-of-text-detector.ts`; log `.minsky/wall-of-text-calibration.jsonl`;
-  override `MINSKY_SKIP_WALL_OF_TEXT=1`. Doc: `wall-of-text-detector.md`.
-- **Build-claim injection** — the mt#2707-RFC build/deploy-claim seam (mt#2923): fires when an
-  in-session `session_pr_merge` touched a deploy/build surface (shared `deploy-surface.ts`
-  detection with mt#2545) AND the prior turn makes a usability/delivery claim AND no
-  rebuild/reinstall/deploy evidence (`install-local.sh`, `tauri build`,
-  `deployment_wait-for-latest`, or equivalent) appears in the session. `build-claim-injection-detector.ts`;
-  log `.minsky/build-claim-injection-calibration.jsonl`; graduation contract `reviewByDays: 30`
-  (mt#2896 never-reviewed-aging leg); override `MINSKY_ACK_BUILD_CLAIM_INJECTION=1`.
-  Doc: `build-claim-injection-detector.md`.
-
-All five: fail open on transcript/read error.
-
-## Guard-Health Tracker + Escalation Detector
-
-Not a permission gate — surfaces guard-layer failures (mt#2812): dispatcher errors land in the
-guard-health log; `debug_systemInfo.guardHealth` reports counts/streaks/tier (critical = 3+
-consecutive); the escalation guard (+ cockpit widget) warns every turn while any guard is
-critical. Hooks: `guard-health.ts` + `guard-health-escalation-detector.ts`. No override; fail-safe.
-Doc: `guard-health-tracker.md`.
+- **Skill/agent/rule staleness** — stale skill/agent/rule baseline. `MINSKY_SKIP_SKILL_STALENESS`.
+- **Drive-PR-to-convergence** — reminds wait-for-review. none.
+- **Substrate-bypass** — unencoded commitments/retro-prose/DB-bypass/post-merge instr (log-only). `MINSKY_ACK_SUBSTRATE_BYPASS`.
+- **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. `MINSKY_ACK_RETROSPECTIVE_TRIGGER`.
+- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
+- **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
+- **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.
+- **SubagentStop recording** — writes Stop-time columns on dispatch row. none.
+- **Session-end ingest** — ingests transcript at SessionEnd. `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK`.
+- **Calibration (log-only)** — causal-premise/cadence/silent-stretch/wall-of-text/build-claim. `MINSKY_ACK_*`/`MINSKY_SKIP_*`.
+- **Guard-health tracker** — guard failure streaks. none.
 
 # Design Principle: Humility
 
