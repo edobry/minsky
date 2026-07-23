@@ -121,13 +121,31 @@ export async function regenerateStagedClaudeHooks(deps: ClaudeHooksRegenDeps): P
 
   let changedFiles: string[];
   try {
-    changedFiles = nonEmptyLines(await runGit(["diff", "--name-only", "--", ".claude/hooks/"]));
+    // `git status --porcelain` (NOT `git diff --name-only`) so a BRAND-NEW
+    // generated hook output — untracked, and therefore invisible to
+    // `git diff` — is also detected and staged (PR #2223 R2, the add-a-hook
+    // case / SC#1). Keep entries with an unstaged worktree change (the Y
+    // column) or an untracked status (`??`); an already-staged-clean file
+    // (`M `) needs no further action.
+    const porcelain = await runGit([
+      "status",
+      "--porcelain",
+      "--untracked-files=all",
+      "--",
+      ".claude/hooks/",
+    ]);
+    changedFiles = porcelain
+      .split("\n")
+      .filter((l) => l.length > 0)
+      .filter((l) => l.startsWith("??") || (l.length > 1 && l[1] !== " "))
+      .map((l) => l.slice(3).trim())
+      .filter((l) => l.length > 0);
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
-    logLine(`❌ Could not diff regenerated claude-hooks output: ${errMsg}`);
+    logLine(`❌ Could not inspect regenerated claude-hooks output: ${errMsg}`);
     return {
       success: false,
-      message: `Could not diff regenerated claude-hooks output: ${errMsg}`,
+      message: `Could not inspect regenerated claude-hooks output: ${errMsg}`,
       exitCode: 1,
     };
   }

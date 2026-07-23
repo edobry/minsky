@@ -135,7 +135,7 @@ describe("regenerateStagedClaudeHooks orchestration (mt#2977 AT#1-3)", () => {
 
   function makeDeps(cfg: {
     stagedOut: string;
-    diffOut?: string;
+    statusOut?: string;
     execThrows?: unknown;
     addThrows?: boolean;
   }) {
@@ -147,7 +147,8 @@ describe("regenerateStagedClaudeHooks orchestration (mt#2977 AT#1-3)", () => {
         if (cfg.addThrows) throw new Error("add failed");
         return "";
       }
-      return cfg.diffOut ?? "";
+      // git status --porcelain -- .claude/hooks/
+      return cfg.statusOut ?? "";
     };
     const exec = async (): Promise<unknown> => {
       calls.exec++;
@@ -168,7 +169,7 @@ describe("regenerateStagedClaudeHooks orchestration (mt#2977 AT#1-3)", () => {
   });
 
   test("AT#1: hooks staged + output drifted → regenerates and restages", async () => {
-    const { deps, calls } = makeDeps({ stagedOut: HOOK_SRC, diffOut: HOOK_OUT });
+    const { deps, calls } = makeDeps({ stagedOut: HOOK_SRC, statusOut: ` M ${HOOK_OUT}` });
     const result = await regenerateStagedClaudeHooks(deps);
     expect(result.success).toBe(true);
     expect(result.message).toContain("regenerated and staged");
@@ -176,12 +177,31 @@ describe("regenerateStagedClaudeHooks orchestration (mt#2977 AT#1-3)", () => {
     expect(calls.add).toBe(1);
   });
 
+  test("AT#1: brand-new (untracked) hook output is staged (PR #2223 R2)", async () => {
+    const { deps, calls } = makeDeps({
+      stagedOut: HOOK_SRC,
+      statusOut: "?? .claude/hooks/newhook.ts",
+    });
+    const result = await regenerateStagedClaudeHooks(deps);
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("regenerated and staged");
+    expect(calls.add).toBe(1);
+  });
+
   test("hooks staged but output already up-to-date → no restage", async () => {
-    const { deps, calls } = makeDeps({ stagedOut: HOOK_SRC, diffOut: "" });
+    const { deps, calls } = makeDeps({ stagedOut: HOOK_SRC, statusOut: "" });
     const result = await regenerateStagedClaudeHooks(deps);
     expect(result.success).toBe(true);
     expect(result.message).toContain("up-to-date");
     expect(calls.exec).toBe(1);
+    expect(calls.add).toBe(0);
+  });
+
+  test("already-staged-clean output (M  status) is NOT restaged", async () => {
+    const { deps, calls } = makeDeps({ stagedOut: HOOK_SRC, statusOut: `M  ${HOOK_OUT}` });
+    const result = await regenerateStagedClaudeHooks(deps);
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("up-to-date");
     expect(calls.add).toBe(0);
   });
 
@@ -198,7 +218,11 @@ describe("regenerateStagedClaudeHooks orchestration (mt#2977 AT#1-3)", () => {
   });
 
   test("AT#3: restage failure → fails loudly", async () => {
-    const { deps } = makeDeps({ stagedOut: HOOK_SRC, diffOut: HOOK_OUT, addThrows: true });
+    const { deps } = makeDeps({
+      stagedOut: HOOK_SRC,
+      statusOut: ` M ${HOOK_OUT}`,
+      addThrows: true,
+    });
     const result = await regenerateStagedClaudeHooks(deps);
     expect(result.success).toBe(false);
     expect(result.message).toContain("Could not stage regenerated claude-hooks output");
