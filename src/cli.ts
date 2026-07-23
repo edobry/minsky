@@ -25,6 +25,12 @@ try {
     // a remediation hint, then exit non-zero. The hint is environment-agnostic
     // (PR #1090 R1 NB#1) — doesn't prescribe a specific config path or install
     // method since both vary by platform and install source.
+    //
+    // mt#3067: this branch writes and then exits IMMEDIATELY, before the
+    // preAction hook that normally installs synchronous writes has had a
+    // chance to run — so the same exit-before-drain truncation applies here.
+    // Install it inline first.
+    enableSynchronousStdout();
     process.stderr.write(`Error: ${error.message}\n`);
     process.stderr.write(
       "Hint: remove the unknown key from your Minsky config file, " +
@@ -42,10 +48,16 @@ profileCheckpoint("config_setup_complete");
 import { Command } from "commander";
 import { log } from "@minsky/shared/logger";
 import { exit } from "@minsky/shared/process";
+import { enableSynchronousStdout } from "@minsky/shared/stdout-sync";
 import { setupCommonCommandCustomizations, cliFactory } from "./adapters/cli/cli-command-factory";
 import { validateError } from "@minsky/domain/schemas/error";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
-import { isMcpStartStdio, isCompletionInvocation, isCockpitInvocation } from "./cli-discriminators";
+import {
+  isMcpStartStdio,
+  isCompletionInvocation,
+  isCockpitInvocation,
+  isLongLivedServerInvocation,
+} from "./cli-discriminators";
 profileCheckpoint("cli_imports_complete");
 
 /**
@@ -72,6 +84,21 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
 
   // Setup common command customizations with the CLI instance
   setupCommonCommandCustomizations(cli);
+
+  // mt#3067: make stdout/stderr synchronous for one-shot commands.
+  //
+  // main() below ends with an explicit exit(0); when stdout is a PIPE, stream
+  // writes are async, so that exit discarded whatever was still buffered —
+  // every `minsky ... | jq` and every hook that shells out and parses stdout
+  // silently received truncated JSON above ~192 KiB. Synchronous writes
+  // complete before write() returns, so the exit has nothing left to drop.
+  //
+  // Long-lived servers are excluded: they never exit-while-buffered, and sync
+  // writes would block their event loop.
+  cli.hook("preAction", (_thisCommand, actionCommand) => {
+    if (isLongLivedServerInvocation(actionCommand)) return;
+    enableSynchronousStdout();
+  });
 
   // Initialize the container lazily via preAction hook — only when a command
   // actually executes, not during registration or help display. This defers
@@ -240,6 +267,9 @@ async function main(): Promise<void> {
 // (mt#1788) so the config-loader skips it.
 if (!process.env.MINSKY_SKIP_CLI_AUTORUN) {
   main().catch((err) => {
+    // mt#3067: another write-then-exit path. If the failure happened before
+    // (or instead of) the preAction hook, writes here are still async.
+    enableSynchronousStdout();
     const validatedError = validateError(err);
     log.systemDebug(`Error caught in main: ${err}`);
     log.systemDebug(`Error stack: ${validatedError.stack || "No stack available"}`);
