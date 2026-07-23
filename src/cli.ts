@@ -176,6 +176,12 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
   // so every `minsky --version` eagerly imported all ten non-shared command groups below —
   // MCP SDK, AI tokenizer, and the rest — costing ~455ms to print "1.0.0". Measured
   // ~820ms -> ~365ms by dropping them from this condition.
+  //
+  // --help itself still pays that ~455ms: it needs the command LIST, and today the only way to get
+  // each group's metadata (name/description/options) is to import its implementation, which drags in
+  // that group's heavy transitive deps. That metadata is already extracted statically at build time
+  // into src/generated/completion-manifest.json — the completion-server reads it in <10ms for
+  // exactly this reason (mt#1892). Serving --help from it too is mt#3116.
   const needsAll =
     !requestedCommand ||
     requestedCommand === "--help" ||
