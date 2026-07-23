@@ -26,20 +26,23 @@
  */
 
 /**
- * Strip ANSI escape sequences (SGR color/style codes) from `bun test` output
- * before line-matching. `bun test` respects `FORCE_COLOR` even when stdout is
- * piped (non-TTY) — an agent/session environment with `FORCE_COLOR` set (e.g.
- * `FORCE_COLOR=3`) wraps every summary line in escape codes like
- * `\x1b[0m\x1b[2m 0 fail\x1b[0m`, which silently breaks the anchored
- * `/^ *\d+ fail$/` match below and made `evaluateBunTestSummary` fail-closed
- * on fully-green runs (mt#3079: first observed blocking a docs-only commit
- * with 20/20 passing tests). `AGENT: "1"` in the spawned env alone is NOT
- * sufficient to suppress this — `FORCE_COLOR` in the inherited `process.env`
- * overrides bun's own non-TTY color-suppression heuristic.
+ * Strip ANSI escape sequences (bun's colorized reporter output) before the
+ * line-anchored parsing below. Bun colorizes its summary lines (e.g.
+ * `\x1b[0m\x1b[2m 0 fail\x1b[0m`) whenever the child process inherits a
+ * `FORCE_COLOR`-set environment — which `Bun.spawnSync({ env: { ...process.env } })`
+ * does unconditionally, regardless of whether the child's stdout is a real
+ * TTY. Claude Code agent sessions set `FORCE_COLOR=3` in their ambient shell
+ * env, so every commit/push from such a session inherited colorized output
+ * here. The anchored per-line regexes below (`^ *\d+ fail$`, etc.) never
+ * matched a colorized line — the leading/trailing escape codes defeat `^`/`$`
+ * — which fail-closed EVERY run in that environment regardless of actual
+ * pass/fail (mt#3075, found while committing an unrelated change). Stripping
+ * first makes the parser agnostic to whether the child process was
+ * colorized; a no-op on already-plain output (CI, non-color terminals).
  */
 function stripAnsi(text: string): string {
-  // eslint-disable-next-line no-control-regex -- deliberately matching ANSI SGR escape codes
-  return text.replace(/\x1b\[[0-9;]*m/g, "");
+  // eslint-disable-next-line no-control-regex -- deliberately matching the ESC (0x1B) CSI sequences bun's colorized reporter emits
+  return text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 }
 
 /**
@@ -61,11 +64,11 @@ function stripAnsi(text: string): string {
  * grep logic.
  */
 export function evaluateBunTestSummary(
-  rawOutput: string,
+  output: string,
   exitCode: number
 ): { ok: boolean; reason: string } {
-  const output = stripAnsi(rawOutput);
-  if (!/Ran \d+ tests? across \d+ files?/.test(output)) {
+  const clean = stripAnsi(output);
+  if (!/Ran \d+ tests? across \d+ files?/.test(clean)) {
     return {
       ok: false,
       reason:
@@ -75,7 +78,7 @@ export function evaluateBunTestSummary(
     };
   }
   // Last "<N> fail" line, mirroring ci.yml's `grep ... | tail -1`.
-  const failLine = output
+  const failLine = clean
     .split("\n")
     .reverse()
     .find((line) => /^ *\d+ fail$/.test(line));
@@ -110,17 +113,12 @@ export function evaluateBunTestSummary(
 /**
  * Run one runner script as a child `bun` process, capturing its combined output
  * (for gating) while re-emitting it so the invoking hook still shows the test
- * output. AGENT=1 keeps bun's reporter in clean non-interactive mode. FORCE_COLOR
- * is explicitly cleared (mt#3079): an inherited `FORCE_COLOR` from the parent
- * environment overrides bun's own non-TTY color-suppression heuristic, which
- * would otherwise still be preventable defense-in-depth for `evaluateBunTestSummary`'s
- * `stripAnsi` above -- this belt-and-suspenders pair keeps the common case clean
- * even if a future spawn call forgets the strip step.
+ * output. AGENT=1 keeps bun's reporter in clean non-interactive mode.
  */
 function runStep(script: string): { exitCode: number; combined: string } {
   const decoder = new TextDecoder();
   const proc = Bun.spawnSync(["bun", script], {
-    env: { ...process.env, AGENT: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
+    env: { ...process.env, AGENT: "1" },
     stdout: "pipe",
     stderr: "pipe",
   });

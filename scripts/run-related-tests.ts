@@ -80,14 +80,12 @@ function runBunTest(
   preload: string = "./tests/setup.ts"
 ): { exitCode: number; combined: string } {
   const decoder = new TextDecoder();
-  // mt#3079: FORCE_COLOR is explicitly cleared -- an inherited FORCE_COLOR from
-  // the parent (agent/session) environment overrides bun's own non-TTY
-  // color-suppression heuristic, wrapping the "<N> fail" summary line in ANSI
-  // escape codes that broke evaluateBunTestSummary's anchored regex and made
-  // this gate fail-closed on fully-green runs. Belt-and-suspenders alongside
-  // that function's own `stripAnsi` step.
+  // Note (mt#3079/mt#3075): a colorized child process no longer needs to be
+  // avoided here -- evaluateBunTestSummary (scripts/run-tests-gated.ts) strips
+  // ANSI escape codes before matching, so this gate is agnostic to whether the
+  // inherited environment forces color on the spawned `bun test` process.
   const proc = Bun.spawnSync(["bun", "test", "--preload", preload, "--timeout=15000", ...files], {
-    env: { ...process.env, AGENT: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
+    env: { ...process.env, AGENT: "1" },
     stdout: "pipe",
     stderr: "pipe",
     timeout: 60000,
