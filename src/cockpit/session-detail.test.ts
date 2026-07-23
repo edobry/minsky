@@ -11,10 +11,15 @@ import {
   compareChangesetsByRecency,
   pickBestConversationLink,
   pickBestWorkspaceLink,
+  prRefFromChangeset,
+  liveDetailFromChangeset,
+  repoWebBaseFromPrUrl,
+  commitsFromChangeset,
   type ChangesetRecencyFields,
   type ConversationLinkCandidate,
   type WorkspaceLinkCandidate,
 } from "./session-detail";
+import type { Changeset } from "@minsky/domain/changeset/types";
 
 function cs(lastActivityAt: string | null, createdAt: string | null) {
   return { session: { lastActivityAt, createdAt } satisfies ChangesetRecencyFields };
@@ -229,5 +234,165 @@ describe("pickBestWorkspaceLink", () => {
     expect(pickBestWorkspaceLink([a, b, c])).toEqual({ minskySessionId: "workspace-b" });
     expect(pickBestWorkspaceLink([c, a, b])).toEqual({ minskySessionId: "workspace-b" });
     expect(pickBestWorkspaceLink([b, c, a])).toEqual({ minskySessionId: "workspace-b" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3096 — changeset display title + live-changeset mappers
+// ---------------------------------------------------------------------------
+
+function makeChangeset(overrides: Partial<Changeset> = {}): Changeset {
+  return {
+    id: "2222",
+    platform: "github-pr",
+    title: "feat(mt#3055): check-premise cue",
+    description: "Adds a fourth Tier-3 cue.",
+    author: { username: "minsky-ai[bot]" },
+    status: "merged",
+    targetBranch: "main",
+    sourceBranch: "task/mt-3055",
+    commits: [],
+    reviews: [],
+    comments: [],
+    createdAt: new Date("2026-07-23T19:02:06Z"),
+    updatedAt: new Date("2026-07-23T19:10:41Z"),
+    metadata: {
+      github: {
+        number: 2222,
+        url: "https://api.github.com/repos/edobry/minsky/pulls/2222",
+        htmlUrl: "https://github.com/edobry/minsky/pull/2222",
+        apiUrl: "https://api.github.com/repos/edobry/minsky/pulls/2222",
+        isDraft: false,
+        isMergeable: false,
+        mergeableState: "unknown",
+        headSha: "b6480bb39725647573202b7df8a2804877f1fe31",
+        baseSha: "d410a536f4dbfbf6a09f929808d3b25fcf753cca",
+        additions: 66,
+        deletions: 8,
+        changedFiles: 2,
+        mergedAt: "2026-07-23T19:09:35Z",
+        mergedBy: "edobry",
+      },
+    },
+    ...overrides,
+  };
+}
+
+describe("prRefFromChangeset (mt#3096)", () => {
+  test("maps the live PR onto the SessionPrRef shape", () => {
+    const pr = prRefFromChangeset(makeChangeset(), true);
+    expect(pr.number).toBe(2222);
+    expect(pr.title).toBe("feat(mt#3055): check-premise cue");
+    expect(pr.state).toBe("merged");
+    expect(pr.url).toBe("https://github.com/edobry/minsky/pull/2222");
+    expect(pr.headBranch).toBe("task/mt-3055");
+    expect(pr.approved).toBe(true);
+  });
+
+  test("falls back to the changeset id when github metadata has no number", () => {
+    const pr = prRefFromChangeset(makeChangeset({ metadata: {} }), null);
+    expect(pr.number).toBe(2222);
+    expect(pr.url).toBeNull();
+  });
+});
+
+describe("liveDetailFromChangeset (mt#3096)", () => {
+  test("maps body, author, diffstat and merge metadata", () => {
+    const d = liveDetailFromChangeset(makeChangeset());
+    expect(d.body).toBe("Adds a fourth Tier-3 cue.");
+    expect(d.author).toBe("minsky-ai[bot]");
+    expect(d.additions).toBe(66);
+    expect(d.deletions).toBe(8);
+    expect(d.changedFiles).toBe(2);
+    expect(d.mergedAt).toBe("2026-07-23T19:09:35Z");
+    expect(d.mergedBy).toBe("edobry");
+  });
+
+  /**
+   * The no-false-zero rule: a list-sourced changeset carries no diffstat, and
+   * reporting it as +0 −0 would render a confident lie about the diff.
+   */
+  test("reports absent diffstat as null, never zero", () => {
+    const d = liveDetailFromChangeset(makeChangeset({ metadata: {} }));
+    expect(d.additions).toBeNull();
+    expect(d.deletions).toBeNull();
+    expect(d.changedFiles).toBeNull();
+    expect(d.mergedAt).toBeNull();
+    expect(d.mergedBy).toBeNull();
+  });
+
+  test("treats an empty PR body as null", () => {
+    expect(liveDetailFromChangeset(makeChangeset({ description: "   " })).body).toBeNull();
+  });
+
+  test("counts reviews", () => {
+    const cs = makeChangeset({
+      reviews: [
+        {
+          id: "1",
+          author: { username: "bot" },
+          status: "approved",
+          comments: [],
+          submittedAt: new Date(),
+        },
+      ],
+    });
+    expect(liveDetailFromChangeset(cs).reviewCount).toBe(1);
+  });
+});
+
+describe("repoWebBaseFromPrUrl (mt#3096)", () => {
+  test("derives the repo web base from a PR html_url", () => {
+    expect(repoWebBaseFromPrUrl("https://github.com/edobry/minsky/pull/2222")).toBe(
+      "https://github.com/edobry/minsky"
+    );
+  });
+
+  test("returns null for a null or non-PR url", () => {
+    expect(repoWebBaseFromPrUrl(null)).toBeNull();
+    expect(repoWebBaseFromPrUrl("https://example.com/nope")).toBeNull();
+  });
+});
+
+describe("commitsFromChangeset (mt#3096)", () => {
+  function commit(sha: string, message: string, iso: string) {
+    return {
+      sha,
+      message,
+      author: { username: "u", email: "e" },
+      timestamp: new Date(iso),
+      filesChanged: [],
+    };
+  }
+
+  test("returns newest-first with derived short hashes and urls", () => {
+    const cs = makeChangeset({
+      commits: [
+        commit("aaaaaaaaaaaa1111", "older commit", "2026-07-23T18:00:00Z"),
+        commit("bbbbbbbbbbbb2222", "newer commit\nbody", "2026-07-23T19:00:00Z"),
+      ],
+    });
+    const [newest, older] = commitsFromChangeset(cs, "https://github.com/edobry/minsky");
+    expect(newest).toBeDefined();
+    // Forge order is oldest-first; the git-log path is newest-first, so this reverses.
+    expect(newest?.subject).toBe("newer commit");
+    expect(newest?.shortHash).toBe("bbbbbbb");
+    expect(newest?.url).toBe("https://github.com/edobry/minsky/commit/bbbbbbbbbbbb2222");
+    expect(older?.subject).toBe("older commit");
+  });
+
+  test("caps at 10 commits", () => {
+    const cs = makeChangeset({
+      commits: Array.from({ length: 15 }, (_, i) =>
+        commit(`${i}`.padStart(12, "0"), `c${i}`, "2026-07-23T18:00:00Z")
+      ),
+    });
+    expect(commitsFromChangeset(cs, null).length).toBe(10);
+  });
+
+  test("leaves commit urls null when there is no repo web base", () => {
+    const cs = makeChangeset({ commits: [commit("abc123abc123", "m", "2026-07-23T18:00:00Z")] });
+    const [only] = commitsFromChangeset(cs, null);
+    expect(only?.url).toBeNull();
   });
 });
