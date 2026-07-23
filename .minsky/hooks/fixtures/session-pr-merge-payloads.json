@@ -1,0 +1,63 @@
+{
+  "_provenance": {
+    "task": "mt#3127",
+    "capturedAt": "2026-07-23",
+    "how": "Copied from the ACTUAL `mcp__minsky__session_pr_merge` tool returns observed in conversation f00dfb7d-17e6-42ce-b0d9-00716e2fa10b, which merged PR #2227 (mt#3066) and PR #2232 (mt#3101). Values are the real ids from those merges.",
+    "why": "These fixtures exist because the previous ones did NOT. mt#3066's verification script authored its own `ToolHookInput` with `tool_result.session.sessionId` — a shape invented to match the resolver rather than captured from a real call. It passed while production skipped every merge. A hand-written fixture tests the reader against itself; only a captured one tests the reader against reality. Do not edit these to make a test pass — re-capture them.",
+    "recapture": "Call `session_pr_merge`, copy its verbatim return into `toolResult`, and record the `tool_input` you passed."
+  },
+
+  "taskInvoked": {
+    "_description": "The COMMON form: merge invoked with `task:` and no `sessionId`. This is the shape that never resolved — the id is a string at tool_result.result.session.",
+    "toolName": "mcp__minsky__session_pr_merge",
+    "toolInput": { "task": "mt#3101" },
+    "toolResult": {
+      "success": true,
+      "result": {
+        "session": "1ae085d7-7415-4bd1-b71b-e099558f6588",
+        "taskId": "mt#3101",
+        "mergeInfo": {
+          "commitHash": "ee09232ae6126d2ac89d843a35df2495a5c8689a",
+          "mergeDate": "2026-07-23T22:21:49.852Z",
+          "mergedBy": "minsky-ai[bot]",
+          "metadata": {
+            "pr_number": 2232,
+            "merge_method": "merge",
+            "owner": "edobry",
+            "repo": "minsky",
+            "head_ref": "task/mt-3101",
+            "base_ref": "main"
+          }
+        },
+        "sessionCleanup": {
+          "performed": true,
+          "directoriesRemoved": [
+            "/Users/edobry/.local/state/minsky/sessions/1ae085d7-7415-4bd1-b71b-e099558f6588"
+          ],
+          "errors": []
+        }
+      }
+    },
+    "expected": { "sessionId": "1ae085d7-7415-4bd1-b71b-e099558f6588", "taskId": "mt#3101" }
+  },
+
+  "sessionIdInvoked": {
+    "_description": "The same tool invoked with an explicit `sessionId`. This form always resolved, via tool_input — which is why the defect was invisible whenever a merge happened to be called this way.",
+    "toolName": "mcp__minsky__session_pr_merge",
+    "toolInput": { "sessionId": "9cf73c7f-6070-4b37-8109-cfc292a96398" },
+    "toolResult": {
+      "success": true,
+      "result": {
+        "session": "9cf73c7f-6070-4b37-8109-cfc292a96398",
+        "taskId": "mt#3066",
+        "mergeInfo": {
+          "commitHash": "97356bc3430d9962f8b9b564f1ae92cdd42a6784",
+          "mergeDate": "2026-07-23T21:06:01.777Z",
+          "mergedBy": "minsky-ai[bot]",
+          "metadata": { "pr_number": 2227, "merge_method": "merge" }
+        }
+      }
+    },
+    "expected": { "sessionId": "9cf73c7f-6070-4b37-8109-cfc292a96398", "taskId": "mt#3066" }
+  }
+}
