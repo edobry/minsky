@@ -952,10 +952,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   // mt#2870 — wall-of-text turn-report shape detector. The OVER-signaling
   // sibling of silent-stretch-detector above (communication-altitude RFC
-  // Phase 3, calibration-first): measures the just-completed turn's FINAL
-  // assistant text block against the Tier-1 contract shape
-  // (communication-contract.mdc). Authored directly onto this framework —
-  // no bespoke pre-migration settings.json slot. Needs transcriptLines (D6).
+  // Phase 3): measures the just-completed turn's FINAL assistant text block
+  // against the Tier-1 contract shape (communication-contract.mdc).
+  // Authored directly onto this framework — no bespoke pre-migration
+  // settings.json slot. Needs transcriptLines (D6).
   // -------------------------------------------------------------------------
   {
     name: "wall-of-text-detector",
@@ -965,8 +965,13 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "wall-of-text",
     denyCapable: false,
     needsTranscript: true,
-    // Calibration-first (INJECTION_ENABLED=false in the module) — same
-    // rationale as silent-stretch-detector above.
+    // mt#3112: INJECTION_ENABLED=true — LIVE since 2026-07-23 (the mt#2483
+    // calibration-review sweep, ask 109807e1/ask#5425, disposed 60 lifetime
+    // fires + a confirmed operator-bounced true positive as a flip, paired
+    // with a depth-request override that suppresses-but-logs). Canary below
+    // still asserts calibration (the calibration-log write), not warn — it
+    // does not assert the presence/absence of additionalContext (mirrors
+    // code-mechanism-assertion-detector's identical canary note above).
     attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },

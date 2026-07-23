@@ -1172,11 +1172,12 @@ decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture
 - **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. `MINSKY_ACK_RETROSPECTIVE_TRIGGER`.
 - **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
+- **Wall-of-text** — turn-end report shape violation (over-budget/label-lead); suppressed-but-logged on a recent depth request. LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.
 - **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.
 - **SubagentStop recording** — writes Stop-time columns on dispatch row. none.
 - **PR-author link** — stamps workspace↔conversation link at `session_pr_create` (mt#3101). none.
 - **Session-end ingest** — ingests transcript at SessionEnd. `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK`.
-- **Calibration (log-only)** — causal-premise/cadence/silent-stretch/wall-of-text/build-claim. `MINSKY_ACK_*`/`MINSKY_SKIP_*`.
+- **Calibration (log-only)** — causal-premise/cadence/silent-stretch/build-claim. `MINSKY_ACK_*`/`MINSKY_SKIP_*`.
 - **Guard-health tracker** — guard failure streaks, tagged `infra`/`logic` when known (mt#3072); escalation banner cools down per-session for up to 1h instead of repeating every turn (mt#3072). none.
 
 # Design Principle: Humility
