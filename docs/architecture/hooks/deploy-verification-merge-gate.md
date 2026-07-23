@@ -95,6 +95,18 @@ version of the mt#2942-retrospective interim ("the agent reinstalls the tray for
 mechanically instead of relying on agent memory across conversations; the eventual
 elimination is auto-update (mt#2962, gated on Apple Developer signing mt#2201, declined 2026-07-20).
 
+**Gap A extension — usability-claim check (mt#2545).** A SECOND, independent condition lives on
+the same PreToolUse hook (`require-deploy-verification-before-merge.ts`): a build-surface PR
+(tray `src-tauri/**` only) whose body asserts altitude-4 usability ("you can use it now" /
+"ready to use" / "it's live", per `claim-confidence.mdc` Axis A) without an explicit rebuild +
+reinstall acknowledgment is hard-blocked. This closes the specific gap where a PR body claims the
+feature is usable immediately post-merge for a build/install-class deliverable, when in fact
+`deployed < usable` for that class until the principal (or the agent, per the reinstall-reminder
+mechanism above) rebuilds/reinstalls. `[no-deploy-impact]` does NOT bypass this check — a tray
+build-surface file IS a deploy/build surface by definition; the only escapes are adding the
+rebuild/reinstall acknowledgment itself, or `MINSKY_SKIP_USABILITY_CLAIM_CHECK=1` (independent of
+`MINSKY_SKIP_DEPLOY_VERIFY`, since the two checks guard different failure modes).
+
 **Cross-references:**
 
 - mt#2353 — this pair's tracking task

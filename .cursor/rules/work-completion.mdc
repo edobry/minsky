@@ -17,10 +17,6 @@ tags:
 
 ## External self-resolving waits: arm a watcher, don't delegate to the operator
 
-(Lives here rather than `decision-defaults.mdc` — its recommended sibling home was already near
-the per-rule 15,000-char compile ceiling; this section fits thematically as another
-don't-hand-to-the-human-what-the-agent-can-do instance.)
-
 Turn-end "blocked" splits into two categories that must not be collapsed: **(a) blocked on a
 principal decision** (naming, scope change, framework choice, authorization) — stop and
 escalate; the legitimate handoff. **(b) blocked on an external, self-resolving condition** (a
@@ -40,14 +36,8 @@ handing an autonomously-watchable wait to the human.
 **Generic-SE override:** "wait for the human to notice the dependency recovered." Wrong here:
 the tools to observe and self-resume already exist.
 
-**Family kinship** (don't hand the human what the agent can do itself): `§Probe before deferring`
-(`User Preferences`, mt#1819); the stop-at-handoff family (mt#2689, memory `06a454a5`);
-"long-paused subagent ≠ dead" (memory `5f2154cd`). This is the external-dependency-wait
-instance — distinct from capability-deferral and from chain-walk-stop.
-
-**Origins:** 2026-07-19 incident — 3 merge-ready PRs blocked by a GitHub API 503; the agent
-delegated the wait instead of arming a poll a parallel agent used correctly. See
-`feedback_external_self_resolving_wait_arm_a_watcher_not_delegate_to_operator` (id `cb17d1c3`).
+Full rationale, family kinship, and origin incident: `docs/rules-rationale/work-completion.md
+§External self-resolving waits`.
 
 ## Temporary mechanism budget
 
@@ -58,7 +48,7 @@ When a memory entry, skill, doc, or comment encodes a mechanism as **"temporary,
 
 When the threshold is exceeded, the agent surfaces a reprioritization prompt to the user (escalation packaging per `humility.mdc`) rather than continuing to apply the workaround silently. Memory describing the world is not a substitute for memory acting on it: an "escape hatch fires once a quarter" memory and an "escape hatch fires daily" memory have the same shape unless the budget is encoded.
 
-**Why:** mt#1503 / 2026-05-01 incident — the `gh api PUT /merge` bypass for self-authored bot PRs was framed in `feedback_gh_api_bypass.md` (2026-04-23) as "Escape hatch — not a default path." Over 3 weeks it became the dominant merge mechanism (~17+ PRs, ~5/week). Four memory entries observed "the bypass is becoming load-bearing" without escalating. The structural unblockers (mt#1073, mt#1065, mt#1345, mt#1372, mt#1310, mt#1405, mt#1477) sat in TODO/PLANNING the entire time. The prioritization loop had no measurement variety for *operational pattern frequency over time* (Ashby).
+Full incident narrative: `docs/rules-rationale/work-completion.md §Temporary mechanism budget`.
 
 **How to apply:**
 
@@ -77,7 +67,7 @@ When a task spec introduces a **recovery layer** — sweeper, retry, fallback, a
 
 A recovery layer is only as strong as the failure modes its spec enumerates. Implicit "covers everything in the area" framing produces false confidence and deferred follow-ups.
 
-**Why:** mt#1556 / 2026-05-02 incident — mt#1260's periodic-sweeper spec described what it does (detect missed reviews + retrigger) but did not enumerate which silent-reviewer modes it covers vs. doesn't. The implicit framing was "the silent-reviewer class is now covered." In reality the sweeper runs in-process via `setInterval` *after* drizzle migrations apply, so it is structurally unable to recover when the service can't start (mt#1556's actual failure mode). mt#1260 marked DONE 2026-04-26 → silent-reviewer class declared "covered" → mt#1310 (alerting) and mt#1372 (webhook diagnosis) sat in PLANNING for ~6 days → 2026-05-02 the very class they would have caught (service-down) crashed the reviewer service silently for ~107 hours.
+Full incident narrative: `docs/rules-rationale/work-completion.md §Recovery layer spec discipline`.
 
 **How to apply:**
 
@@ -89,12 +79,14 @@ A recovery layer is only as strong as the failure modes its spec enumerates. Imp
 
 ## Invocation path required for event/poll mechanisms
 
-When a spec introduces an **event-driven or polling mechanism** — webhook handler, scheduled job, cron, sweeper, watcher, poller — it MUST name the **concrete invocation path**: what starts it, what calls it, how it is wired in.
+When a task spec introduces an **event-driven or polling mechanism** — webhook handler, scheduled job, cron, sweeper, watcher, poller — it MUST name the **concrete invocation path**: what starts it, what calls it, how it is wired in.
 
 These fail silently in two shapes, identical from outside: the feature exists, its tests pass, it produces nothing.
 
-- **Nothing calls it.** No scheduler, no registration, no production callsite — or the only caller is a stub. mt#1618: `pr_watch_run` shipped complete, but production wired a `stubGithubPrClient` returning null/[]/[] and no scheduler called it.
-- **It runs; a dependency inside it is dead.** The failure is caught and converted into the same value a legitimately empty result produces. mt#3019: a hook fired on every SubagentStop, but its domain import threw — 0 of 62 rows carried any column it owned, for two weeks. mt#3046: a post-merge scan fired on every merge; its transcript load threw, was swallowed by `catch { return null }`, and null means "nothing to do" — it never ran. Harder: no missing caller to grep for, no error to find.
+- **Nothing calls it.** No scheduler, no registration, no production callsite — or the only caller is a stub (mt#1618).
+- **It runs; a dependency inside it is dead.** The failure is caught and converted into the same value a legitimately empty result produces — no missing caller to grep for, no error to find (mt#3019, mt#3046).
+
+Full incident detail for both shapes: `docs/rules-rationale/work-completion.md §Invocation path`.
 
 **How to apply:**
 

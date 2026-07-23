@@ -92,7 +92,7 @@ When you need a capability and (a) reach for bash before checking MCP, (b) the M
 
 **Generic-SE override:** "keep moving — find another path." Wrong here: silent workarounds accumulate capability gaps the user can't see and therefore can't prioritize closing.
 
-**Origins:** mt#1983, shipped via mt#1988; memories `3408717a` (bridge), `b30bfabe`, `39701a9a`, `7f67af43`; siblings mt#1196/mt#1197/mt#1989. On recurrence, escalate to hook-tier.
+**Origins:** mt#1983, shipped via mt#1988. On recurrence, escalate to hook-tier. Full incident list: `docs/rules-rationale/decision-defaults.md §Missing MCP tool`.
 
 ## User does not review PRs in the loop
 
@@ -109,7 +109,7 @@ Harnesses ship internal todo tracking (Claude Code `TaskCreate`/`TaskUpdate`, Cu
 - **Inside a Minsky skill chain (`/plan-task`, `/implement-task`, `/prepare-pr`, `/merge-coordination`) → neither.** The Minsky task IS the todo; a parallel harness checklist is a sync hazard.
 - **Harness `TaskCreate` reminder during a Minsky chain → disregard silently.** The user can't see the reminder; echoing it turns harness noise into chat noise.
 
-**Generic-SE override:** "harness todos for everything" (duplicated state) or "no tracking" (loses external memory). See `feedback_agent_todos_vs_minsky_tasks`; the position paper [*Agent todos vs. Minsky tasks*](https://www.notion.so/35e937f03cb4812e9734f0c0f9a8b26c) carries worked examples + the Shape A/B/C frame (first instance mt#1316; Shape-C follow-up mt#1797).
+**Generic-SE override:** "harness todos for everything" (duplicated state) or "no tracking" (loses external memory). See `feedback_agent_todos_vs_minsky_tasks`. Worked examples + the Shape A/B/C frame: `docs/rules-rationale/decision-defaults.md §Agent todos`.
 
 ## Build vs buy: default to buy for non-core capabilities
 
@@ -122,7 +122,7 @@ For any capability that is not Minsky's core differentiating value-add, the defa
 
 **Generic-SE override:** "build from scratch is the safe / principled / no-lock-in choice." Engineering time is the scarcest resource; that bias treats it as free.
 
-**Biases to watch for in self:** (1) **Policy-laundering** — citing `§Datastores` to justify building auxiliary analytics on Postgres; that policy covers source-of-truth state only. The tell: recommending the cheaper option AND describing it as "principled." Any "per `§X`"-style claim that a rule section covers the current case is a trigger to re-verify that section's actual scope first — full trigger enumeration in memory `88d92439`. (2) **Build-path-as-research at action time** — "use existing signals" / "grep what's already there" reads as research but is functionally the build path, skipping the user-sequenced evaluation step; see `feedback_build_path_as_research_at_action_time`.
+**Biases to watch for in self:** (1) **Policy-laundering** — citing `§Datastores` for auxiliary analytics (out of scope — source-of-truth only); any "per `§X`"-style claim of rule-coverage is a trigger to re-verify that section's actual scope. (2) **Build-path-as-research at action time** — "use existing signals" reads as research but IS the build path, skipping the user-sequenced evaluation step. Full detail: `docs/rules-rationale/decision-defaults.md §Build vs buy`.
 
 **Anti-pattern checklist before recommending OR executing build:**
 
@@ -169,4 +169,4 @@ Today: human-consulted — read this file before any preference-encoding action.
 
 ## Cross-References
 
-- `humility.mdc` (the design principle this corpus operationalizes); `operational-safety-dry-run-first.mdc`; `work-completion.mdc §Temporary mechanism budget`; mt#1034 / mt#1035; mt#2755; mt#1508 (originating audit); `/declare-framework` (mt#1789); `/restate-plan` (mt#1784). Per-section origins are cited inline above.
+`humility.mdc` (the design principle this corpus operationalizes) · `work-completion.mdc §Temporary mechanism budget` · mt#1034/mt#1035 · mt#2755. Full cross-reference index: `docs/rules-rationale/decision-defaults.md §Cross-references`.
