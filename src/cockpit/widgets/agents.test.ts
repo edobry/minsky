@@ -854,11 +854,49 @@ describe("isWithinActiveWindow — the default activity bound", () => {
     expect(isWithinActiveWindow(agedSession(40), FIXED_NOW_MS)).toBe(false);
   });
 
-  test("keeps a long-quiet workspace that still has a pull request attached", () => {
-    const withPr = agedSession(90, {
+  test("an OPEN pull request extends the window past the base bound", () => {
+    const withPr = agedSession(20, {
       pullRequest: { number: 1234, state: "open" },
     } as Partial<SessionRecord>);
+    // 20 days is outside the 10-day base bound, inside the 30-day PR window.
     expect(isWithinActiveWindow(withPr, FIXED_NOW_MS)).toBe(true);
+  });
+
+  test("a DRAFT pull request extends the window the same way (in-flight work)", () => {
+    const withDraft = agedSession(20, {
+      pullRequest: { number: 1234, state: "draft" },
+    } as Partial<SessionRecord>);
+    expect(isWithinActiveWindow(withDraft, FIXED_NOW_MS)).toBe(true);
+  });
+
+  // The open-PR window EXTENDS the bound; it does not remove it. 35 of the 37
+  // sessions cached as "open" have been inactive 30+ days with PR numbers as
+  // low as #152 — a stale cache, not live review work.
+  test("an open pull request does NOT grant an unbounded window", () => {
+    const ancient = agedSession(200, {
+      pullRequest: { number: 152, state: "open" },
+    } as Partial<SessionRecord>);
+    expect(isWithinActiveWindow(ancient, FIXED_NOW_MS)).toBe(false);
+  });
+
+  // Regression for the defect the live DB check caught: overriding on the mere
+  // PRESENCE of a PR record left 55 of 225 workspaces in the "bounded" view,
+  // oldest last active 2025-09-03 — sessions whose PR merged months ago but
+  // whose row was never updated.
+  test("a merged pull request grants no extension at all", () => {
+    const merged = agedSession(20, {
+      pullRequest: { number: 1234, state: "merged" },
+    } as Partial<SessionRecord>);
+    // Inside the 30-day PR window but outside the 10-day base bound: a merged
+    // PR must not extend anything, so this is hidden.
+    expect(isWithinActiveWindow(merged, FIXED_NOW_MS)).toBe(false);
+  });
+
+  test("a closed pull request grants no extension at all", () => {
+    const closed = agedSession(20, {
+      pullRequest: { number: 1234, state: "closed" },
+    } as Partial<SessionRecord>);
+    expect(isWithinActiveWindow(closed, FIXED_NOW_MS)).toBe(false);
   });
 
   test("keeps a row whose activity timestamp is unparseable (fail-open, never silently drop)", () => {

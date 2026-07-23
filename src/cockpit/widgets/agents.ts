@@ -183,11 +183,43 @@ const INACTIVE_WORKSPACE_THRESHOLD_DAYS = 10;
 const INACTIVE_WORKSPACE_THRESHOLD_MS = INACTIVE_WORKSPACE_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
 
 /**
+ * Longer window granted to a workspace whose PR is cached as open/draft.
+ *
+ * An open PR EXTENDS the window; it does not remove it. Both halves of that
+ * are grounded in the live data (measured 2026-07-23):
+ *   - EXTENDS: work genuinely waiting on review can sit quiet well past the
+ *     10-day bound and must stay visible.
+ *   - DOES NOT REMOVE: `pullRequest.state` is a CACHED field on the session
+ *     row that nothing re-syncs. 37 sessions carry state "open"; 35 of them
+ *     have been inactive for 30+ days, and their PR numbers go as low as #152
+ *     against a repo already past #2200. Those PRs are long since resolved —
+ *     the session row was never updated. Treating a stale cache as "still
+ *     needs you" would carry 11-month-old rows in the default view forever,
+ *     which is the exact noise this bound exists to remove.
+ *
+ * The underlying defect — session rows never updated after their PR resolves —
+ * is the same never-advances problem tracked on mt#1560 / mt#1910. This
+ * constant bounds our exposure to it; it does not fix it.
+ */
+const OPEN_PR_THRESHOLD_DAYS = 30;
+const OPEN_PR_THRESHOLD_MS = OPEN_PR_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
+
+/**
  * True when a workspace record still belongs in the default (bounded) view.
  *
- * Recency is the bound. One signal OVERRIDES it: an attached pull request —
- * work awaiting review can legitimately sit quiet for a long time and must
- * never vanish from the operator's view while it is still open.
+ * Recency is the bound. One signal OVERRIDES it: an OPEN pull request — work
+ * awaiting review can legitimately sit quiet for a long time and must never
+ * vanish from the operator's view while it is still open.
+ *
+ * "Open" is load-bearing, not decorative. An earlier revision overrode on the
+ * mere PRESENCE of `record.pullRequest`, and the live check against the real
+ * database caught it: the bound removed only 170 of 225 workspaces and left 55
+ * behind, the oldest last active 2025-09-03. Those sessions carry a PR record
+ * whose PR merged or closed months ago — the session row simply never got
+ * updated (the same status-never-advances problem that produced this task).
+ * Treating any PR record as "still needs you" reintroduced most of the noise
+ * the bound exists to remove. `state === "draft"` also counts as open: a draft
+ * PR is in-flight work, not finished work.
  *
  * Liveness deliberately gets NO separate override, though the spec's criterion
  * asks that a live workspace never be hidden. That property holds by
@@ -212,14 +244,18 @@ export function isWithinActiveWindow(
   now: number,
   thresholdMs: number = INACTIVE_WORKSPACE_THRESHOLD_MS
 ): boolean {
-  if (record.pullRequest) return true;
-
   const raw = record.lastActivityAt ?? record.createdAt;
   if (!raw) return true;
   const ts = new Date(raw).getTime();
   if (Number.isNaN(ts)) return true;
 
-  return now - ts <= thresholdMs;
+  const prState = record.pullRequest?.state;
+  const effectiveThresholdMs =
+    prState === "open" || prState === "draft"
+      ? Math.max(thresholdMs, OPEN_PR_THRESHOLD_MS)
+      : thresholdMs;
+
+  return now - ts <= effectiveThresholdMs;
 }
 
 /**
