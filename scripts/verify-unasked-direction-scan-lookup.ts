@@ -19,8 +19,19 @@
 //
 // Read-only: it performs no writes.
 //
+// With `--e2e` it additionally drives the FULL write path AT2 names, short of an
+// actual merge event: it spawns the GENERATED hook binary the way the harness
+// does — a bare `bun .claude/hooks/post-merge-unasked-direction-scan.ts` with a
+// PostToolUse `session_pr_merge` payload on stdin — against a SCRATCH repo root,
+// then asserts a `.minsky/state/unasked-directions/<workspaceId>.json` was
+// written. That exercises resolveConversationId -> loadTranscript -> the AI
+// analyzer -> writeFindings end to end. Everything it writes is inside the
+// scratch dir, which is removed before it exits; the real repo is never touched.
+// (`--e2e` makes a real AI completion call, so it is opt-in, not the default.)
+//
 // Usage:  bun scripts/verify-unasked-direction-scan-lookup.ts <conversationId> [workspaceId]
 //         bun scripts/verify-unasked-direction-scan-lookup.ts   (uses $CLAUDE_SESSION_ID)
+//         bun scripts/verify-unasked-direction-scan-lookup.ts <conversationId> --e2e
 // Exit:   0 = pass (or SKIP when no DB / no conversation id), non-zero = fail.
 //
 // @see mt#3066 — the id-space defect this proves fixed
@@ -34,6 +45,12 @@ import {
 } from "../.minsky/hooks/post-merge-unasked-direction-scan";
 import { ensureHookDomainBootstrap } from "../.minsky/hooks/domain-bootstrap";
 import type { ToolHookInput } from "../.minsky/hooks/types";
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { safeTruncate } from "../src/utils/safe-truncate";
+
+const RUN_E2E = process.argv.includes("--e2e");
 
 interface Step {
   name: string;
@@ -72,7 +89,10 @@ if (!conversationId) {
 // A workspace-shaped id that must NEVER be used as the lookup key. Any value
 // works — the point is that it is present in the payload, where the pre-mt#3066
 // code read it from.
-const workspaceId = process.argv[3] ?? "00000000-0000-0000-0000-000000000000";
+const workspaceId =
+  process.argv[3] && process.argv[3] !== "--e2e"
+    ? process.argv[3]
+    : "00000000-0000-0000-0000-000000000000";
 
 const payload: ToolHookInput = {
   session_id: conversationId,
@@ -122,4 +142,71 @@ record(
 );
 
 process.stdout.write(`\n${steps.filter((s) => s.ok).length}/${steps.length} checks passed\n`);
+
+// ── --e2e: prove the WRITE path, not just the lookup (AT2) ───────────────────
+if (RUN_E2E && !failed) {
+  process.stdout.write("\nRunning --e2e: spawning the generated hook against a scratch repo...\n");
+
+  const scratchRoot = mkdtempSync(join(tmpdir(), "unasked-direction-e2e-"));
+  // `findRepoRoot` walks up looking for a `.git` entry; a bare directory is
+  // enough, so no git CLI is involved.
+  mkdirSync(join(scratchRoot, ".git"), { recursive: true });
+
+  try {
+    const e2ePayload = { ...payload, cwd: scratchRoot };
+
+    const proc = Bun.spawn(["bun", ".claude/hooks/post-merge-unasked-direction-scan.ts"], {
+      // Async `spawn` (not `spawnSync`) because this Bun typings version does
+      // not allow piping a payload into the sync variant's stdin.
+      stdin: new Blob([JSON.stringify(e2ePayload)]),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const exitCode = await proc.exited;
+
+    const findingsPath = join(
+      scratchRoot,
+      ".minsky",
+      "state",
+      "unasked-directions",
+      `${workspaceId}.json`
+    );
+
+    record(
+      "the generated hook exits 0 (it must never break the merge flow)",
+      exitCode === 0,
+      `exit=${exitCode}${stderr.trim() ? ` stderr=${safeTruncate(stderr.trim(), 300, "head")}` : ""}`
+    );
+
+    const wrote = existsSync(findingsPath);
+    record(
+      "the hook writes a findings file for the merged workspace session (AT2 write path)",
+      wrote,
+      wrote
+        ? (() => {
+            const parsed = JSON.parse(readFileSync(findingsPath, "utf-8")) as {
+              findings?: unknown[];
+            };
+            return `${findingsPath.replace(scratchRoot, "<scratch>")} — ${
+              parsed.findings?.length ?? 0
+            } finding(s)`;
+          })()
+        : `no file at <scratch>/.minsky/state/unasked-directions/${workspaceId}.json${
+            stdout.trim() ? ` — hook said: ${safeTruncate(stdout.trim(), 300, "head")}` : ""
+          }`
+    );
+  } finally {
+    rmSync(scratchRoot, { recursive: true, force: true });
+  }
+
+  process.stdout.write(
+    `\n${steps.filter((s) => s.ok).length}/${steps.length} checks passed (with --e2e)\n`
+  );
+}
+
 process.exit(failed ? 1 : 0);

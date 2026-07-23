@@ -21,6 +21,18 @@
  * Do NOT add call sites. A new caller with a real conversation id should pass
  * it directly; a new caller without one needs mt#3101's resolution first.
  *
+ * TEMPORARY MECHANISM BUDGET (`work-completion.mdc §Temporary mechanism budget`).
+ * Retirement task: **mt#3101** — it resolves the provenance id space and deletes
+ * both call sites, at which point this module goes with them. Escalation
+ * threshold: **a third call site, or mt#3101 still open 5 days after this
+ * lands**. Either means the stopgap has become load-bearing and needs a real
+ * fix rather than another adopter. The warning below prints the calling frame
+ * precisely so an unexpected third adopter identifies itself in the logs
+ * instead of hiding behind the two known ones (PR #2227 review, non-blocking).
+ *
+ * @internal Not exported from `./index.ts` — importing it outside the two
+ *   audited call sites defeats the typed seam it exists to work around.
+ *
  * @see mt#3066 — typed the seam and enumerated the call sites
  * @see mt#3101 — owns the id-space fix for the provenance/authorship callers
  * @see ADR-022 / mt#2524 — the workspace-vs-conversation id-space split
@@ -56,10 +68,21 @@ export function unresolvedWorkspaceIdAsConversationId(
       `${callSite}: looking up a transcript by Minsky workspace session id against the ` +
         "conversation keyspace — this lookup is expected to return null until mt#3101 " +
         "resolves the id space. Any 'no transcript' result from this call site is this " +
-        "defect, not an empty transcript."
+        `defect, not an empty transcript. Called from: ${callerFrame()}`
     );
   }
   return workspaceSessionId as ConversationId;
+}
+
+/**
+ * The caller's stack frame, for traceability when a call site appears that is
+ * not one of the two audited ones. Best-effort: returns "unknown" rather than
+ * throwing if the runtime gives no usable stack.
+ */
+function callerFrame(): string {
+  const frames = new Error().stack?.split("\n") ?? [];
+  // [0] "Error", [1] callerFrame, [2] unresolvedWorkspaceIdAsConversationId, [3] the caller.
+  return frames[3]?.trim() ?? "unknown";
 }
 
 /** Reset the per-process log dedupe. Exported for tests. */

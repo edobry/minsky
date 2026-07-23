@@ -67,6 +67,18 @@ describe("unresolvedWorkspaceIdAsConversationId", () => {
     expect(warnings[0]).toContain(CALL_SITE);
     expect(warnings[1]).toContain(OTHER_CALL_SITE);
   });
+
+  it("names the calling frame so an unexpected third call site is traceable", () => {
+    // PR #2227 review (non-blocking): the docblock says "do NOT add call sites",
+    // but process discipline alone does not identify an adopter that ignores it.
+    resetUnresolvedConversationIdWarnings();
+    const warnings: string[] = [];
+
+    unresolvedWorkspaceIdAsConversationId(WORKSPACE_ID, CALL_SITE, (m) => warnings.push(m));
+
+    expect(warnings[0]).toContain("Called from:");
+    expect(warnings[0]).toContain("unresolved-conversation-id.test.ts");
+  });
 });
 
 // The id-space contract itself (AT3 — "a workspace id can no longer be passed
