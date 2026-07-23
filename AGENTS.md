@@ -1138,7 +1138,7 @@ actions once shipped.
 # Hook Files
 
 PreToolUse/merge/pre-commit gate index + guard-dispatcher. Observers:
-`hook-observers`. Source `.minsky/hooks/`; `.claude/hooks/*` GENERATED — commit both. Execute
+`hook-observers`. Source `.minsky/hooks/`; `.claude/hooks/*` GENERATED — pre-commit auto-regens+restages when hooks sources staged (mt#2977). Execute
 permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 **On denial: `docs/architecture/hooks/<name>.md` or `rules_get hook-files`.**
 
