@@ -59,6 +59,13 @@ export interface GuardHealthEvent {
   kind: GuardHealthEventKind;
   errorClass?: string;
   message: string;
+  /**
+   * mt#3072 SC2 — "infra" (a named, anticipated dependency-unavailable
+   * condition) vs "logic" (an unanticipated failure) for `kind:
+   * "check-skip"` events. Optional; absence means "not classified," not
+   * either bucket. MUST stay in sync with `.minsky/hooks/guard-health.ts`.
+   */
+  causeClass?: "infra" | "logic";
   toolName?: string;
   sessionId?: string;
 }

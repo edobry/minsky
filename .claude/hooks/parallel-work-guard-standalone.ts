@@ -190,7 +190,18 @@ export function formatStandaloneDuplicateWarning(
 
 /** The decision a standalone (parentless) tasks_create call resolves to. */
 export type StandaloneDuplicateGuardDecision =
-  | { action: "skip"; reason: string; degraded?: boolean }
+  | {
+      action: "skip";
+      reason: string;
+      degraded?: boolean;
+      /**
+       * mt#3072 SC2 — threaded from the probe's `ProbeFailure.causeClass`
+       * when available (the "failed" branch below); the legacy null/
+       * degraded-lexical-fallback branches classify as "infra" directly
+       * since neither indicates a probe-code defect.
+       */
+      causeClass?: "infra" | "logic";
+    }
   | { action: "permit" }
   | { action: "warn"; message: string; candidates: StandaloneDuplicateCandidate[] };
 
@@ -223,24 +234,32 @@ export async function decideStandaloneDuplicateGuard(
 
   const searchResult = await deps.fetchSimilar(query);
   if (searchResult === null) {
+    // Legacy null-return seam (pre-mt#2958 test fixtures / any future
+    // deps.fetchSimilar that chooses to return null) — an unavailable
+    // backend is an infra-class condition (mt#3072 SC2).
     return {
       action: "skip",
       reason:
         "in-process tasks search failed or timed out — the standalone-duplicate probe is " +
         "SKIPPED for this create (see stderr for the probe failure detail)",
       degraded: true,
+      causeClass: "infra",
     };
   }
   if ("failed" in searchResult) {
-    // Carry the ACTUAL error message into the guard-health event (mt#2958
-    // SC2) — not just a generic pointer at stderr.
+    // Carry the ACTUAL error message AND its causeClass into the
+    // guard-health event (mt#2958 SC2 for the message; mt#3072 SC2 for the
+    // classification) — not just a generic pointer at stderr.
     return {
       action: "skip",
       reason: `in-process tasks search failed — probe SKIPPED for this create: ${searchResult.failed}`,
       degraded: true,
+      causeClass: searchResult.causeClass,
     };
   }
   if (searchResult.degraded) {
+    // Lexical-fallback degradation means the EMBEDDINGS backend is
+    // unavailable — an infra condition, not a probe-logic defect.
     return {
       action: "skip",
       reason:
@@ -248,6 +267,7 @@ export async function decideStandaloneDuplicateGuard(
         "standalone-duplicate probe is SKIPPED (its threshold is calibrated for embeddings " +
         "distances only)",
       degraded: true,
+      causeClass: "infra",
     };
   }
 
@@ -274,7 +294,9 @@ export async function runStandaloneDuplicateGuard(input: ToolHookInput): Promise
   // tracker (mt#2812), and then fails OPEN (permit) — a silent crash here
   // must never block task creation.
   try {
-    await runStandaloneDuplicateGuardInner(input);
+    await runStandaloneDuplicateGuardInner(input, {
+      fetchSimilar: (query) => fetchSimilarActiveTasksInProcess(query, STANDALONE_DUP_SEARCH_LIMIT),
+    });
   } catch (err) {
     process.stderr.write(
       `[parallel-work-guard] standalone-duplicate probe errored — failing open (permit): ${
@@ -291,10 +313,20 @@ export async function runStandaloneDuplicateGuard(input: ToolHookInput): Promise
   }
 }
 
-async function runStandaloneDuplicateGuardInner(input: ToolHookInput): Promise<void> {
-  const decision = await decideStandaloneDuplicateGuard(input.tool_input, {
-    fetchSimilar: (query) => fetchSimilarActiveTasksInProcess(query, STANDALONE_DUP_SEARCH_LIMIT),
-  });
+/**
+ * `deps` is injectable (mt#3072) so a test can simulate the probe-failure
+ * mode end-to-end — through to the ACTUAL `recordGuardCheckSkip` call and a
+ * real (temp) guard-health log — without touching the real search stack.
+ * Exported for exactly that; production always goes through
+ * `runStandaloneDuplicateGuard` above, which supplies the real probe.
+ */
+export async function runStandaloneDuplicateGuardInner(
+  input: ToolHookInput,
+  deps: {
+    fetchSimilar: Parameters<typeof decideStandaloneDuplicateGuard>[1]["fetchSimilar"];
+  }
+): Promise<void> {
+  const decision = await decideStandaloneDuplicateGuard(input.tool_input, deps);
 
   switch (decision.action) {
     case "skip":
@@ -310,6 +342,7 @@ async function runStandaloneDuplicateGuardInner(input: ToolHookInput): Promise<v
           reason: decision.reason,
           toolName: input.tool_name,
           sessionId: input.session_id,
+          causeClass: decision.causeClass,
         });
       } else {
         process.stdout.write(

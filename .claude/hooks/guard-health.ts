@@ -78,6 +78,16 @@ export interface GuardHealthEvent {
   errorClass?: string;
   /** Error message, or the check-skip's reason string. */
   message: string;
+  /**
+   * mt#3072 SC2 — "distinguish infra-unavailable from probe-logic failure in
+   * the health accounting". Optional, `kind: "check-skip"`-only (a guard that
+   * THREW is already distinguished from a deliberate degrade by `kind` itself):
+   * `"infra"` for a NAMED, anticipated dependency-unavailable condition,
+   * `"logic"` for an unanticipated failure that reached a catch-all. Omitted
+   * by guards that don't yet classify their check-skips — absence carries no
+   * meaning beyond "not classified," never treated as either bucket.
+   */
+  causeClass?: "infra" | "logic";
   /** Tool context — the tool this guard was invoked for (PreToolUse/PostToolUse only). */
   toolName?: string;
   sessionId?: string;
@@ -179,10 +189,13 @@ export function recordGuardError(
 
 /**
  * Record a check-skip: a guard took its fail-open path due to an internal
- * condition WITHOUT throwing.
+ * condition WITHOUT throwing. `causeClass` (mt#3072 SC2, optional) lets a
+ * guard that already classifies its own degradation causes (e.g.
+ * standalone-duplicate-matcher's infra/logic split) carry that distinction
+ * into the health accounting.
  */
 export function recordGuardCheckSkip(
-  input: RecordGuardHealthInput & { reason: string },
+  input: RecordGuardHealthInput & { reason: string; causeClass?: "infra" | "logic" },
   options?: GuardHealthRecordOptions
 ): void {
   try {
@@ -193,6 +206,7 @@ export function recordGuardCheckSkip(
       event: input.event,
       kind: "check-skip",
       message: input.reason,
+      ...(input.causeClass ? { causeClass: input.causeClass } : {}),
       ...(input.toolName ? { toolName: input.toolName } : {}),
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
     };

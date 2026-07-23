@@ -514,10 +514,12 @@ All six: fail open on transcript/read error.
 ## Guard-Health Tracker + Escalation Detector
 
 Not a permission gate — surfaces guard-layer failures (mt#2812): dispatcher errors land in the
-guard-health log; `debug_systemInfo.guardHealth` reports counts/streaks/tier (critical = 3+
-consecutive); the escalation guard (+ cockpit widget) warns every turn while any guard is
-critical. Hooks: `guard-health.ts` + `guard-health-escalation-detector.ts`. No override; fail-safe.
-Doc: `guard-health-tracker.md`.
+guard-health log with an `infra`/`logic` cause class (mt#3072) when known;
+`debug_systemInfo.guardHealth` reports counts/streaks/tier (critical = 3+ consecutive); the
+escalation guard (+ cockpit widget) warns once per session per unchanging critical cause, then
+cools down for up to 1h before repeating (mt#3072 — replaces the original every-turn repeat).
+Hooks: `guard-health.ts` + `guard-health-escalation-detector.ts` +
+`guard-health-escalation-notify-store.ts`. No override; fail-safe. Doc: `guard-health-tracker.md`.
 
 # Principal Communication Contract
 
