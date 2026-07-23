@@ -4,12 +4,21 @@
  * Hermetic: mocks GitHub API fetch (for /app-manifests/<code>/conversions),
  * Bun.spawn (browser-open), and injects an InstallationLookup that skips the
  * WebCrypto JWT path (which requires a real PEM). The local callback server
- * runs for real on a fixed test-only port; tests use distinct ports.
+ * runs for real, on an OS-assigned port probed fresh per test (see
+ * `getFreePort` below) — never a hardcoded literal, so two concurrent suite
+ * runs (routine in this repo — see mt#3124) cannot collide on the same port.
  *
  * @see mt#1087
+ * @see mt#3124 — hardcoded 1989x literals replaced with a free-port probe,
+ *   mirroring `src/cockpit/port-recovery.test.ts`'s bindListener/closeListener
+ *   pattern. `ManifestFlowProvisioner`'s constructor rejects `port: 0`
+ *   directly (the manifest's redirect_url must be known before the server
+ *   binds), so the probe-then-reuse shape is required here, not a bare
+ *   `port: 0`.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import net from "net";
 import { setupTestMocks } from "../../../../../src/utils/test-utils/mocking";
 import { ManifestFlowProvisioner, type InstallationLookup } from "./manifest-flow-provisioner";
 import { BrowserCancelledError } from "./provisioner";
@@ -83,6 +92,30 @@ function installSpawnMock(): void {
   }) as typeof Bun.spawn;
 }
 
+/**
+ * Bind an OS-assigned TCP port, then release it immediately so
+ * `ManifestFlowProvisioner` (which requires a concrete, pre-known port — see
+ * its constructor) can bind the same number a moment later. Mirrors
+ * `src/cockpit/port-recovery.test.ts`'s `bindListener`/`closeListener`/
+ * `findFreePort` helpers (mt#3124, mt#2764's reviewed fix design).
+ */
+async function getFreePort(): Promise<number> {
+  const server = net.createServer();
+  const port = await new Promise<number>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address();
+      if (!addr || typeof addr === "string") {
+        reject(new Error("listener has no address"));
+        return;
+      }
+      resolve(addr.port);
+    });
+  });
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+}
+
 beforeEach(() => {
   manifestConversionResponse = { ok: true, body: FAKE_APP_RESPONSE };
   lookupQueue = [];
@@ -102,7 +135,7 @@ describe("ManifestFlowProvisioner", () => {
     // First lookup hits with an installation.
     lookupQueue = [99999];
 
-    const port = 19890;
+    const port = await getFreePort();
     const provisioner = new ManifestFlowProvisioner({
       port,
       timeoutMs: 30_000,
@@ -122,7 +155,7 @@ describe("ManifestFlowProvisioner", () => {
     // First lookup (during /callback) returns undefined; second (during /check-install) hits.
     lookupQueue = [undefined, 88888];
 
-    const port = 19899;
+    const port = await getFreePort();
     const provisioner = new ManifestFlowProvisioner({
       port,
       timeoutMs: 30_000,
@@ -151,7 +184,7 @@ describe("ManifestFlowProvisioner", () => {
     // Both lookups (during /callback + /check-install) return undefined.
     lookupQueue = [undefined, undefined];
 
-    const port = 19898;
+    const port = await getFreePort();
     const provisioner = new ManifestFlowProvisioner({
       port,
       timeoutMs: 200,
@@ -170,8 +203,9 @@ describe("ManifestFlowProvisioner", () => {
   });
 
   test("browser-cancel timeout fires BrowserCancelledError and shuts down server", async () => {
+    const port = await getFreePort();
     const provisioner = new ManifestFlowProvisioner({
-      port: 19891,
+      port,
       timeoutMs: 100,
       installationLookup: makeLookup(),
     });
@@ -179,8 +213,9 @@ describe("ManifestFlowProvisioner", () => {
   });
 
   test("BrowserCancelledError message describes the failure clearly when no callback arrives", async () => {
+    const port = await getFreePort();
     const provisioner = new ManifestFlowProvisioner({
-      port: 19892,
+      port,
       timeoutMs: 80,
       installationLookup: makeLookup(),
     });
@@ -196,7 +231,7 @@ describe("ManifestFlowProvisioner", () => {
       body: "internal error",
     };
 
-    const port = 19893;
+    const port = await getFreePort();
     const provisioner = new ManifestFlowProvisioner({
       port,
       timeoutMs: 30_000,
@@ -210,5 +245,63 @@ describe("ManifestFlowProvisioner", () => {
     });
 
     await expect(promise).rejects.toThrow(/GitHub API error during manifest conversion/);
+  });
+
+  describe("construction-failure path (mt#3124)", () => {
+    test("serve() throwing (port already bound) surfaces the underlying port-conflict error, not a ReferenceError, and clears the pending timer", async () => {
+      const port = await getFreePort();
+
+      // Hold the port externally so ManifestFlowProvisioner's own serve()
+      // call throws synchronously inside provision() — reproducing the
+      // EADDRINUSE collision from the mt#3124 incident directly.
+      const holder = Bun.serve({ port, fetch: () => new Response("hold") });
+
+      const originalSetTimeout = globalThis.setTimeout;
+      const originalClearTimeout = globalThis.clearTimeout;
+      const scheduledIds = new Set<ReturnType<typeof setTimeout>>();
+      const clearedIds = new Set<ReturnType<typeof setTimeout>>();
+
+      globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+        const id = originalSetTimeout(...args);
+        scheduledIds.add(id);
+        return id;
+      }) as typeof setTimeout;
+      globalThis.clearTimeout = ((id: Parameters<typeof clearTimeout>[0]) => {
+        clearedIds.add(id as ReturnType<typeof setTimeout>);
+        return originalClearTimeout(id);
+      }) as typeof clearTimeout;
+
+      try {
+        const provisioner = new ManifestFlowProvisioner({
+          port,
+          // A long timeout: if the construction-failure path did NOT clear
+          // this timer, it would sit pending for the full 30s and could
+          // fire — as the TDZ ReferenceError — into whichever unrelated
+          // test happens to be running when it elapses (the exact
+          // cross-file leak this task fixes). Asserting the timer was
+          // cleared (below) is what actually proves it can't fire, without
+          // needing to wait out the deadline.
+          timeoutMs: 30_000,
+          installationLookup: makeLookup(),
+        });
+
+        // The rejection must name the real, underlying error — not a TDZ
+        // ReferenceError about `server`.
+        await expect(provisioner.provision(SAMPLE_SPEC)).rejects.toThrow(
+          new RegExp(`port ${port} in use`, "i")
+        );
+
+        // The construction-failure path must have scheduled the deadline
+        // timer and then cleared it — leaving nothing pending.
+        expect(scheduledIds.size).toBeGreaterThan(0);
+        for (const id of scheduledIds) {
+          expect(clearedIds.has(id)).toBe(true);
+        }
+      } finally {
+        globalThis.setTimeout = originalSetTimeout;
+        globalThis.clearTimeout = originalClearTimeout;
+        holder.stop(true);
+      }
+    });
   });
 });
