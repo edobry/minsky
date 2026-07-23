@@ -1266,6 +1266,16 @@ export class MinskyMCPServer {
           }
           throw new Error(`Tool execution failed: ${wireMessage}`, { cause: error });
         }
+      } catch (dispatchError) {
+        // mt#1884: capture error_class for pre-dispatch throws (e.g. unknown tool)
+        // that bypass the inner catch, so the emitted latency event's error shape is
+        // consistent across all failure paths. The inner catch already sets
+        // dispatchErrorClass on the handler-throw path; only fill it when still unset.
+        if (dispatchErrorClass === undefined) {
+          dispatchErrorClass =
+            dispatchError instanceof Error ? dispatchError.name : typeof dispatchError;
+        }
+        throw dispatchError;
       } finally {
         this.inFlightRequests.delete(trackingId);
 
@@ -1282,7 +1292,9 @@ export class MinskyMCPServer {
           },
           metadata: {
             request_id: String(trackingId),
-            session_key: sessionKey,
+            // The session/peer dimension (active-sessions count) is deferred to
+            // mt#2289, which designs it deliberately; a per-connection identifier
+            // is intentionally NOT emitted here (reviewer note on PR #2200).
             source: "minsky.mcp.server",
             timestamp: new Date(dispatchStartMs).toISOString(),
           },

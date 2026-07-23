@@ -564,6 +564,9 @@ describe("MCP Server", () => {
     expect(evt.output.error_class).toBeUndefined();
     expect(evt.metadata.source).toBe("minsky.mcp.server");
     expect(typeof evt.metadata.request_id).toBe("string");
+    expect(typeof evt.metadata.timestamp).toBe("string");
+    // session/peer dimension deferred to mt#2289 — no per-connection id emitted here.
+    expect(evt.metadata.session_key).toBeUndefined();
 
     await server.close();
   });
@@ -602,6 +605,42 @@ describe("MCP Server", () => {
     expect(emitSpy).toHaveBeenCalledTimes(1);
     const evt = (emitSpy.mock.calls[0] as unknown[])[0] as { output: Record<string, unknown> };
     expect(evt.output.tool_name).toBe("fail");
+    expect(evt.output.outcome).toBe("error");
+    expect(evt.output.error_class).toBe("Error");
+
+    await server.close();
+  });
+
+  test("tools/call unknown-tool path emits an error event with error_class (mt#1884)", async () => {
+    // Regression guard for the outer catch that captures error_class on the
+    // pre-dispatch throw path (unknown tool) — reviewer finding on PR #2200.
+    const emitSpy = mock(async () => {});
+
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+    (server as unknown as { emitDispatchEvent: typeof emitSpy }).emitDispatchEvent = emitSpy;
+
+    const sdkServer = (server as unknown as { server: unknown }).server;
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    await expect(
+      toolsCallHandler(
+        { method: "tools/call", params: { name: "no-such-tool", arguments: {} } },
+        {}
+      )
+    ).rejects.toThrow(/not found/);
+
+    expect(emitSpy).toHaveBeenCalledTimes(1);
+    const evt = (emitSpy.mock.calls[0] as unknown[])[0] as { output: Record<string, unknown> };
+    expect(evt.output.tool_name).toBe("no-such-tool");
     expect(evt.output.outcome).toBe("error");
     expect(evt.output.error_class).toBe("Error");
 
