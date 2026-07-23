@@ -17,15 +17,18 @@
 // mt#3048 (RFC "Conversation-first drive" Phase 1 slice 6) adds a turn-active
 // pre-restart gate: `SupervisorCmd::AutoRestart` (dispatched below, distinct
 // from the operator-explicit `SupervisorCmd::Restart`) is handled in
-// `supervisor::run_supervisor` by first awaiting
+// `supervisor::run_supervisor` by spawning a background task that awaits
 // `wait_for_turn_idle_or_grace_expiry` (this module) — a cheap query against
 // the daemon's `GET /api/driven-session/turn-active` signal
-// (src/cockpit/routes/driven-sessions.ts) that defers the restart for a
-// BOUNDED grace period while a driven session's turn is actively streaming,
-// then proceeds anyway regardless of outcome. The watcher's OWN trigger
-// conditions (`is_relevant_backend_change` etc. below) are unchanged by this
-// — the gate sits between "a relevant change was detected" and "the restart
-// actually happens", not in the detection logic itself.
+// (src/cockpit/routes/driven-sessions.ts) that defers for a BOUNDED grace
+// period while a driven session's turn is actively streaming, then re-sends
+// `SupervisorCmd::Restart` regardless of outcome once done. The wait runs on
+// a spawned task rather than inline in the handler so it never blocks the
+// supervisor's single-threaded select loop (R2 fix — see the `AutoRestart`
+// match arm's comment in supervisor.rs). The watcher's OWN trigger conditions
+// (`is_relevant_backend_change` etc. below) are unchanged by this — the gate
+// sits between "a relevant change was detected" and "the restart actually
+// happens", not in the detection logic itself.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -96,13 +99,20 @@ async fn turn_active(client: &reqwest::Client) -> bool {
     parse_turn_active_body(&json)
 }
 
-/// Called by `supervisor::run_supervisor`'s `SupervisorCmd::AutoRestart`
-/// handler, BEFORE it stops/respawns the daemon. Returns immediately (no
-/// added latency) when the first check finds no active turn — the routine
-/// common case. Otherwise polls at `TURN_ACTIVE_POLL_INTERVAL` until either
-/// the signal reports idle or `TURN_ACTIVE_GRACE` elapses, whichever comes
-/// first, then returns unconditionally — the caller always proceeds with the
-/// restart after this returns, regardless of the last observed value.
+/// Awaited from a background task `tokio::spawn`ed by
+/// `supervisor::run_supervisor`'s `SupervisorCmd::AutoRestart` handler — NOT
+/// inline in that handler (mt#3048 R2 fix): the supervisor's `tokio::select!`
+/// loop is single-threaded, so an inline await here would block every other
+/// command (Start/Stop/Restart/Shutdown/Rebuild) and the watchdog poll arm
+/// for up to `TURN_ACTIVE_GRACE`. The background task re-sends
+/// `SupervisorCmd::Restart` once this returns, so the actual stop/spawn
+/// always happens back on the main loop via the `Restart` arm. Returns
+/// immediately (no added latency) when the first check finds no active turn
+/// — the routine common case. Otherwise polls at `TURN_ACTIVE_POLL_INTERVAL`
+/// until either the signal reports idle or `TURN_ACTIVE_GRACE` elapses,
+/// whichever comes first, then returns unconditionally — the caller always
+/// proceeds with the restart after this returns, regardless of the last
+/// observed value.
 pub(crate) async fn wait_for_turn_idle_or_grace_expiry(client: &reqwest::Client) {
     if !turn_active(client).await {
         return;
