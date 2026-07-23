@@ -1175,6 +1175,7 @@ decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture
 - **Wall-of-text** — turn-end report shape violation (over-budget/label-lead); suppressed-but-logged on a recent depth request. LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.
 - **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.
 - **SubagentStop recording** — writes Stop-time columns on dispatch row. none.
+- **PR-author link** — stamps workspace↔conversation link at `session_pr_create` (mt#3101). none.
 - **Session-end ingest** — ingests transcript at SessionEnd. `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK`.
 - **Calibration (log-only)** — causal-premise/cadence/silent-stretch/build-claim. `MINSKY_ACK_*`/`MINSKY_SKIP_*`.
 - **Guard-health tracker** — guard failure streaks, tagged `infra`/`logic` when known (mt#3072); escalation banner cools down per-session for up to 1h instead of repeating every turn (mt#3072). none.
