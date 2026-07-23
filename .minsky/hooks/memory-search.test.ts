@@ -965,39 +965,68 @@ function makeDispatchContext(hostCapSec: number): DispatchContext {
   };
 }
 
+// This guard's own registry-declared budget (registry.ts's "memory-search"
+// entry, `timeoutMs: 10000`) — mirrored here so the tests below don't
+// hardcode the magic number twice. Kept independent of the source constant
+// (not imported) so a future accidental drift between the two shows up as a
+// test failure rather than the test silently tracking the same typo.
+const GUARD_REGISTRY_TIMEOUT_MS = 10_000;
+
 describe("deriveDispatchSearchTimeoutMs (mt#3073)", () => {
-  it("returns ctx.budgets.fetchTimeoutMs directly, not a readHostCap self-lookup value", () => {
-    const ctx = makeDispatchContext(145);
+  it("returns ctx.budgets.fetchTimeoutMs directly for a host cap under the guard's own registry ceiling", () => {
+    const ctx = makeDispatchContext(20); // fetchTimeoutMs well under the 10s cap at this host cap
+    expect(ctx.budgets.fetchTimeoutMs).toBeLessThan(GUARD_REGISTRY_TIMEOUT_MS);
     expect(deriveDispatchSearchTimeoutMs(ctx)).toBe(ctx.budgets.fetchTimeoutMs);
+  });
+
+  it("caps at this guard's own registry-declared budget for the real 145s dispatcher-family host cap (PR #2202 R1 BLOCKING fix)", () => {
+    // Uncapped, ctx.budgets.fetchTimeoutMs is ~47.85s at the real dispatcher
+    // host cap — far more than this guard's own 10s registry slice. The
+    // derivation must clip to that slice (not the raw shared-budget value),
+    // or the guard's real subprocess call could still be in flight when the
+    // shared dispatcher process (or a future per-guard enforcement keyed on
+    // this registry value) preempts it.
+    const ctx = makeDispatchContext(145);
+    expect(ctx.budgets.fetchTimeoutMs).toBeGreaterThan(GUARD_REGISTRY_TIMEOUT_MS);
+    expect(deriveDispatchSearchTimeoutMs(ctx)).toBe(GUARD_REGISTRY_TIMEOUT_MS);
   });
 
   it("diverges from the broken self-lookup fallback for the real 145s dispatcher-family host cap", () => {
     // Pre-fix behavior: readHostCap("memory-search.ts", ...) always misses its
     // matcher entry (removed by ADR-028 Phase 2b) and falls back to
-    // DEFAULT_HOST_CAP_SEC=15 -> Math.floor(15 * 1000 * 0.7) = 10500ms.
+    // DEFAULT_HOST_CAP_SEC=15 -> Math.floor(15 * 1000 * 0.7) = 10500ms — a
+    // fixed value entirely independent of the REAL dispatcher-family host cap
+    // (it would be identical for any ctx, since the self-lookup ignores ctx
+    // altogether). The fix's value differs, proving it is genuinely derived
+    // from ctx/the registry rather than a leftover self-lookup artifact.
     const BROKEN_SELF_LOOKUP_FALLBACK_MS = Math.floor(15 * 1000 * 0.7);
     const ctx = makeDispatchContext(145); // the real UserPromptSubmit dispatcher host cap
     const derived = deriveDispatchSearchTimeoutMs(ctx);
     expect(derived).not.toBe(BROKEN_SELF_LOOKUP_FALLBACK_MS);
-    expect(derived).toBeGreaterThan(BROKEN_SELF_LOOKUP_FALLBACK_MS);
   });
 
-  it("scales with the dispatcher's own host cap rather than a hardcoded constant", () => {
-    const small = deriveDispatchSearchTimeoutMs(makeDispatchContext(20));
-    const large = deriveDispatchSearchTimeoutMs(makeDispatchContext(145));
-    expect(large).toBeGreaterThan(small);
+  it("scales with the dispatcher's own host cap for caps under the registry ceiling", () => {
+    const small = deriveDispatchSearchTimeoutMs(makeDispatchContext(5));
+    const larger = deriveDispatchSearchTimeoutMs(makeDispatchContext(20));
+    expect(larger).toBeGreaterThan(small);
   });
 });
 
 describe("run() dispatcher path (mt#3073) — no readHostCap self-lookup", () => {
-  it("run()'s source no longer references readHostCap / deriveSearchTimeoutMs(), and calls deriveDispatchSearchTimeoutMs(ctx)", () => {
+  it("run()'s source no longer CALLS readHostCap / deriveSearchTimeoutMs(), and calls deriveDispatchSearchTimeoutMs(ctx)", () => {
     // Function.prototype.toString() on a non-native function returns its
     // original source text under Bun's JavaScriptCore runtime — a cheap,
     // fs-free way to assert the dispatcher path's call graph without
     // re-deriving readHostCap's internal warning plumbing (which is only
     // reachable via a real/mocked `.claude/settings.json` read).
+    //
+    // PR #2202 R1 NON-BLOCKING: matching "readHostCap(" (call-shaped, with
+    // the open paren) rather than the bare word "readHostCap" so a future
+    // explanatory comment inside run() that merely MENTIONS the identifier
+    // (without invoking it) doesn't false-fail this test — only an actual
+    // call site should.
     const src = run.toString();
-    expect(src).not.toContain("readHostCap");
+    expect(src).not.toContain("readHostCap(");
     expect(src).not.toContain("deriveSearchTimeoutMs()");
     expect(src).toContain("deriveDispatchSearchTimeoutMs(ctx)");
   });

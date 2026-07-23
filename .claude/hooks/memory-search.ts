@@ -663,6 +663,26 @@ export function deriveSearchTimeoutMs(): { timeoutMs: number; warning?: string }
 }
 
 /**
+ * This guard's own per-guard budget in `registry.ts`'s `GUARD_REGISTRY`
+ * (`timeoutMs: 10000` on the `"memory-search"` entry as of mt#2687/mt#3073).
+ * `ctx.budgets` is derived from the DISPATCHER's aggregate host cap (145s —
+ * the SUM of every UserPromptSubmit guard's declared `timeoutMs`, per
+ * `hook-files.mdc`'s "Dispatcher host-cap budget model"), so a raw
+ * `ctx.budgets.fetchTimeoutMs` (~47.85s at that aggregate) is sized for the
+ * WHOLE shared process, not this one guard's 10s slice of it. Capping at
+ * this constant keeps the derived subprocess timeout a strict subset of
+ * what this guard is actually budgeted for, closing the PR #2202 R1
+ * BLOCKING finding: an uncapped derivation risks the guard still awaiting
+ * its subprocess when the shared dispatcher process (or a future per-guard
+ * enforcement mechanism keyed on this registry value) preempts it. Kept as
+ * a literal (not imported from `registry.ts`) to avoid a
+ * hooks-tree-internal import cycle risk between `memory-search.ts` and
+ * `registry.ts` (the latter already dynamically imports the former); update
+ * this constant in lockstep if the registry entry's `timeoutMs` changes.
+ */
+const GUARD_REGISTRY_TIMEOUT_MS = 10_000;
+
+/**
  * Derive the per-call search timeout for the DISPATCHER path from the
  * dispatcher-provided `ctx.budgets` (D6 — resolved once by the dispatcher
  * from the dispatcher's own host cap) rather than a per-guard `readHostCap`
@@ -685,9 +705,16 @@ export function deriveSearchTimeoutMs(): { timeoutMs: number; warning?: string }
  * `DerivedBudgets` field) keeps this fix scoped to `memory-search.ts`, per
  * mt#3073's explicit scope boundary (no change to K=3 or the 800-token
  * injection budget).
+ *
+ * Capped at `GUARD_REGISTRY_TIMEOUT_MS` (PR #2202 R1 BLOCKING fix): the raw
+ * `ctx.budgets` value is sized for the shared dispatcher-family aggregate,
+ * not this guard's own smaller registry slice — see that constant's doc
+ * comment. The `Math.min` still lets the derived value scale DOWN correctly
+ * for a host cap smaller than the ceiling (e.g. the historical 15s default
+ * derives ~4.95s here, well under the 10s cap); it only clips the upper end.
  */
 export function deriveDispatchSearchTimeoutMs(ctx: DispatchContext): number {
-  return ctx.budgets.fetchTimeoutMs;
+  return Math.min(ctx.budgets.fetchTimeoutMs, GUARD_REGISTRY_TIMEOUT_MS);
 }
 
 /**
