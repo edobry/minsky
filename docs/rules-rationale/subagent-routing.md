@@ -12,11 +12,34 @@ a **COMPLETED** subagent from its transcript with full context intact — valida
 (PR #1776) and repeatedly since (memory `6038c0a1`). For review-fix rounds and follow-up
 iterations on a subagent's own work, prefer `SendMessage`-resume of the same agent over a fresh
 dispatch: no context rebuild, no prompt regeneration — bake the findings plus an explicit stop
-condition into the message. Messaging a still-RUNNING subagent mid-flight remains untested —
-treat "cannot be messaged, kill + re-dispatch" as scoped to that untested case only, not to
-resume-after-completion; prefer kill + re-dispatch there until it's validated. (mt#2512; whether
-to adopt Agent Teams or build a Minsky-native equivalent for genuine mid-flight steering is
-tracked in mt#2521.)
+condition into the message. Messaging a still-RUNNING subagent mid-flight ALSO works —
+verified `mt#3128` (2026-07-23, Claude Code 2.1.218; evidence in `mem#699`). A background
+`general-purpose` agent was dispatched with five sequential steps and messaged while running:
+`SendMessage` returned `Message queued for delivery to <agentId> at its next tool round`, and the
+agent received the message verbatim mid-run, retained full prior context, and OBEYED the steer —
+skipping a remaining step and going straight to its report. So mid-flight messaging both informs
+AND steers: course-correct a running agent by messaging it rather than killing + re-dispatching.
+**Delivery granularity:** the agent's NEXT TOOL ROUND — already-executed steps cannot be
+retroactively undone, so steer REMAINING work. (The harness appends `Address this before
+completing your current task.` to the delivered message.)
+
+This supersedes the earlier "cannot be messaged, kill + re-dispatch" guidance, which was scoped
+to that then-untested case. It ALSO supersedes mt#2512's June-2026 conclusion that `SendMessage`
+is gated behind `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`: verified 2026-07-23 with that flag unset
+in env and in all five settings locations, and no `~/.claude/teams/` directory (Agent Teams NOT
+active), `SendMessage` loads and works anyway. Upstream promoted it into THE continuation
+mechanism — Claude Code changelog: _"The Agent tool no longer accepts a `resume` parameter — use
+`SendMessage({to: agentId})` to continue a previously spawned agent"_ and _"`SendMessage` now
+auto-resumes stopped agents in the background instead of returning an error"_. Agent Teams
+remains a separate, still-flagged feature; whether to adopt it or build a Minsky-native mesh
+equivalent is still tracked in mt#2521.
+
+**Capability claims have a shelf life (mt#3128).** mt#2512's conclusion was correct on 2026-06-18
+(v2.1.181) and false by 2026-07-23 (v2.1.218) with no action on Minsky's side — while the memory
+encoding it stayed active and was read 26 times, propagating "subagents can't be messaged" into
+other conversations for ~5 weeks. Treat "capability X is unavailable" as a DATED OBSERVATION, not
+a durable fact: re-probe before relying on it, and record the probe procedure alongside the
+verdict so the next reader can re-run it cheaply.
 
 **The mt#2865 stale-pending-note correction.** Memory `6038c0a1`'s own description still calls
 this rule-text correction "pending" — it isn't; the rule's Continuation paragraph already
