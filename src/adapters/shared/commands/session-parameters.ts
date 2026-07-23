@@ -83,6 +83,20 @@ export const sessionDirCommandParams = composeParams(
 
 /**
  * Parameters for the session delete command
+ *
+ * NOTE (mt#3021 R2): this export is DEAD CODE — the `session.delete` command
+ * actually registered in `management-commands.ts` imports its
+ * `sessionDeleteCommandParams` from the SIBLING file
+ * `src/adapters/shared/commands/session/session-parameters.ts` (relative
+ * import `"./session-parameters"` from inside the `session/` directory,
+ * distinct from this file at `src/adapters/shared/commands/session-parameters.ts`).
+ * The two files share several export names by coincidence; only
+ * `sessionCommitCommandParams` in THIS file is live (consumed by
+ * `workflow-commands.ts` via `"../session-parameters"`). The
+ * `destructiveOverrideReason` field for `session delete` lives in the other
+ * file's `sessionDeleteCommandParams` — see it for the real implementation.
+ * Left unedited here to avoid maintaining two copies of a param that only
+ * one of which does anything.
  */
 export const sessionDeleteCommandParams = composeParams(
   {
@@ -90,18 +104,7 @@ export const sessionDeleteCommandParams = composeParams(
     force: CommonParameters.force,
     json: CommonParameters.json,
   },
-  {
-    // mt#3021 SC2: justification required to delete a workspace with an
-    // in-progress merge (MERGE_HEAD present) or uncommitted changes.
-    // Independent of `force` above. NAME IS A PLACEHOLDER, principal-reserved
-    // (see mt#3021 PR body).
-    destructiveOverrideReason: {
-      schema: z.string().min(1),
-      description:
-        "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard. Required (non-empty) to delete a workspace with in-progress work; recorded in a structured audit event.",
-      required: false,
-    },
-  }
+  {}
 ) satisfies CommandParameterMap;
 
 /**

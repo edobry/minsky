@@ -266,6 +266,16 @@ export const sessionDeleteCommandParams = {
   force: commonSessionParams.force,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+  // mt#3021 SC2: justification required to delete a workspace with an
+  // in-progress merge (MERGE_HEAD present) or uncommitted changes.
+  // Independent of `force` above (which does not affect the new git-state
+  // guard). NAME IS A PLACEHOLDER, principal-reserved (see mt#3021 PR body).
+  destructiveOverrideReason: {
+    schema: z.string().min(1),
+    description:
+      "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard. Required (non-empty) to delete a workspace with in-progress work; recorded in a structured audit event.",
+    required: false,
+  },
 };
 
 /**

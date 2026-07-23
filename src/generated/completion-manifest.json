@@ -2773,6 +2773,11 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--destructive-override-reason"],
+              "description": "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard. Required (non-empty) to delete a workspace with in-progress work; recorded in a structured audit event.",
+              "takesValue": true
             }
           ],
           "arguments": [
