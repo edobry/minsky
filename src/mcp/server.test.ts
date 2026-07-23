@@ -18,6 +18,10 @@ const ACCEPT_MCP = "application/json, text/event-stream";
 // Shared response body constants
 const SESSION_NOT_FOUND_MSG = "Session not found";
 
+// Shared greet-tool response — used by the mt#1884 latency-emission tests and the
+// staleness success test; extracted to satisfy custom/no-magic-string-duplication.
+const GREET_TOOL_RESPONSE = "hello from greet";
+
 // Shared staleness-signal constants
 const STALENESS_LOGGER = "minsky-staleness";
 
@@ -521,6 +525,89 @@ describe("MCP Server", () => {
     }
   });
 
+  test("tools/call success path emits a Braintrust latency event (mt#1884)", async () => {
+    // mt#1884: the CallToolRequestSchema handler emits one flat per-tool latency
+    // event (fire-and-forget) after the dispatch completes. Inject a spy emitter
+    // (instance-field DI) and assert the success-path attributes.
+    const emitSpy = mock(async () => {});
+
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+    (server as unknown as { emitDispatchEvent: typeof emitSpy }).emitDispatchEvent = emitSpy;
+    server.addTool({
+      name: "greet",
+      description: "Returns a greeting",
+      handler: async () => GREET_TOOL_RESPONSE,
+    });
+
+    const sdkServer = (server as unknown as { server: unknown }).server;
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    await toolsCallHandler({ method: "tools/call", params: { name: "greet", arguments: {} } }, {});
+
+    expect(emitSpy).toHaveBeenCalledTimes(1);
+    const evt = (emitSpy.mock.calls[0] as unknown[])[0] as {
+      output: Record<string, unknown>;
+      metadata: Record<string, unknown>;
+    };
+    expect(evt.output.tool_name).toBe("greet");
+    expect(evt.output.outcome).toBe("success");
+    expect(typeof evt.output.duration_ms).toBe("number");
+    expect(evt.output.error_class).toBeUndefined();
+    expect(evt.metadata.source).toBe("minsky.mcp.server");
+    expect(typeof evt.metadata.request_id).toBe("string");
+
+    await server.close();
+  });
+
+  test("tools/call error path emits a Braintrust latency event with error_class (mt#1884)", async () => {
+    // Parallel to the success-path emission test: a throwing tool must still emit
+    // one latency event with outcome=error and the error class captured.
+    const emitSpy = mock(async () => {});
+
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+    (server as unknown as { emitDispatchEvent: typeof emitSpy }).emitDispatchEvent = emitSpy;
+    server.addTool({
+      name: "fail",
+      description: "Always fails",
+      handler: async () => {
+        throw new Error("deliberate failure");
+      },
+    });
+
+    const sdkServer = (server as unknown as { server: unknown }).server;
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    await expect(
+      toolsCallHandler({ method: "tools/call", params: { name: "fail", arguments: {} } }, {})
+    ).rejects.toThrow(/deliberate failure/);
+
+    expect(emitSpy).toHaveBeenCalledTimes(1);
+    const evt = (emitSpy.mock.calls[0] as unknown[])[0] as { output: Record<string, unknown> };
+    expect(evt.output.tool_name).toBe("fail");
+    expect(evt.output.outcome).toBe("error");
+    expect(evt.output.error_class).toBe("Error");
+
+    await server.close();
+  });
+
   test("tools/call success path triggers staleness signal when detector reports stale", async () => {
     // Regression guard for the handler wiring, not just triggerStaleSignal in isolation.
     // If the `if (this.stalenessDetector.getStaleWarning() ...)` check were removed from
@@ -544,7 +631,7 @@ describe("MCP Server", () => {
     server.addTool({
       name: "greet",
       description: "Returns a greeting",
-      handler: async () => "hello from greet",
+      handler: async () => GREET_TOOL_RESPONSE,
     });
 
     // Inject a fake StalenessDetector that always reports stale.
@@ -597,7 +684,7 @@ describe("MCP Server", () => {
 
     // The tool response must be returned correctly regardless of staleness.
     expect(response).toMatchObject({
-      content: [{ type: "text", text: "hello from greet" }],
+      content: [{ type: "text", text: GREET_TOOL_RESPONSE }],
     });
 
     // sendLoggingMessage must have been called once with the correct shape —
