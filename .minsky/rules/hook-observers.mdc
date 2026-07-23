@@ -13,7 +13,7 @@ decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture
 
 - **Skill/agent/rule staleness** — stale skill/agent/rule baseline. `MINSKY_SKIP_SKILL_STALENESS`.
 - **Drive-PR-to-convergence** — reminds wait-for-review. none.
-- **Substrate-bypass** — unencoded commitments/retro-prose/DB-bypass/post-merge instr (log-only). `MINSKY_ACK_SUBSTRATE_BYPASS`.
+- **Substrate-bypass** — unencoded commitments/retro-prose/DB-bypass, + log-only post-merge instr. `MINSKY_ACK_SUBSTRATE_BYPASS`.
 - **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. `MINSKY_ACK_RETROSPECTIVE_TRIGGER`.
 - **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.

@@ -1570,12 +1570,12 @@ Today: human-consulted — read this file before any preference-encoding action.
 
 # Hook Files
 
-PreToolUse/merge/pre-commit gate index + guard-dispatcher (ADR-028). Observers:
+PreToolUse/merge/pre-commit gate index + guard-dispatcher. Observers:
 `hook-observers`. Source `.minsky/hooks/`; `.claude/hooks/*` GENERATED — commit both. Execute
-permission required (pre-commit enforces). Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
+permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 **On denial: `docs/architecture/hooks/<name>.md` or `rules_get hook-files`.**
 
-- **Parallel-work** — PR/dup overlap block. `MINSKY_FORCE_PARALLEL`/`_DUPLICATE_OK`.
+- **Parallel-work** — PR/dup overlap. `MINSKY_FORCE_PARALLEL`/`_DUPLICATE_OK`.
 - **Bypass-merge** — `gh api PUT .../merge`. `MINSKY_FORCE_BYPASS`.
 - **Out-of-band merge** — unconfirmed OOB. `MINSKY_ACK_OOB_MERGE`.
 - **Generated-file edit** — edits to generated files. `MINSKY_FORCE_EDIT_GENERATED`.
@@ -1583,11 +1583,11 @@ permission required (pre-commit enforces). Override: `MINSKY_HOOK_OVERRIDE=<guar
 - **Bundle-boot smoke** — merge w/o smoke pass. `MINSKY_SKIP_BUNDLE_SMOKE`.
 - **Required-checks** — bypass w/o checks pass. `MINSKY_SKIP_REQUIRED_CHECKS`.
 - **Execution-evidence** — new tests/scripts w/o evid. `[unverified-tests]`; `MINSKY_SKIP_AT_COVERAGE`.
-- **Deploy-verification** — deploy-surface w/o commit. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`.
+- **Deploy-verification** — deploy-surface w/o commit; tray usability-claim. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`/`_USABILITY_CLAIM_CHECK`.
 - **Growth-justification** — CLAUDE.md growth w/o justif. `MINSKY_SKIP_SIZE_JUSTIFICATION`.
-- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests. Various `MINSKY_SKIP_*`.
+- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests. `MINSKY_SKIP_*`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
-- **Bind/advance spec-read** — status/session ops w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
+- **Bind/advance spec-read** — status/session op w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
 - **Subagent merge capability** — subagent merge w/o grant. `MINSKY_SKIP_MERGE_GRANT_CHECK`.
 - **Ask-permission bridge** — approved-Ask → allow. none.
 - **Dispatch-intent write gate** — writes under read-only intent. none.
@@ -1600,7 +1600,7 @@ decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture
 
 - **Skill/agent/rule staleness** — stale skill/agent/rule baseline. `MINSKY_SKIP_SKILL_STALENESS`.
 - **Drive-PR-to-convergence** — reminds wait-for-review. none.
-- **Substrate-bypass** — unencoded commitments/retro-prose/DB-bypass/post-merge instr (log-only). `MINSKY_ACK_SUBSTRATE_BYPASS`.
+- **Substrate-bypass** — unencoded commitments/retro-prose/DB-bypass, + log-only post-merge instr. `MINSKY_ACK_SUBSTRATE_BYPASS`.
 - **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. `MINSKY_ACK_RETROSPECTIVE_TRIGGER`.
 - **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
