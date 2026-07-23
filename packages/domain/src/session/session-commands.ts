@@ -15,6 +15,15 @@ import type { PersistenceProvider } from "../persistence/types";
 import type { TokenProvider } from "../auth/token-provider";
 import type { GitServiceInterface } from "../git/types";
 import { checkFreshnessCas, cleanupFreshnessMarker } from "./freshness-marker";
+import {
+  computeCommitDeletionStats,
+  DEFAULT_MASS_DELETION_THRESHOLD,
+} from "../git/commit-deletion-stats";
+import {
+  resolveDestructiveOverride,
+  isValidDestructiveOverride,
+  recordDestructiveOverride,
+} from "../safety/destructive-override";
 
 /**
  * Error thrown when the branch-freshness CAS check (mt#1522) detects that
@@ -81,6 +90,29 @@ export class SessionCommitPhaseTimeoutError extends MinskyError {
     message: string,
     public readonly phase: "commit" | "push",
     public readonly timeoutMs: number
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Thrown when `sessionCommit`'s mass-deletion sanity gate (mt#3021 SC3)
+ * refuses to push a commit whose staged delta deleted more than
+ * `DEFAULT_MASS_DELETION_THRESHOLD` tracked files, absent a valid
+ * destructive-override reason. The underlying commit has already landed
+ * LOCALLY at this point (see this file's `sessionCommit` — the gate runs
+ * after commit, before push, per the mt#3021 spec's "placement: push time,
+ * not commit time" design decision) — it is NOT pushed, and per that same
+ * design decision a local un-pushed commit is cheap to recover (amend /
+ * reset / redo), so refusing here does not lose work.
+ */
+export class MassDeletionGuardError extends MinskyError {
+  readonly code: "MASS_DELETION_GUARD_TRIPPED" = "MASS_DELETION_GUARD_TRIPPED";
+  constructor(
+    message: string,
+    public readonly deletionCount: number,
+    public readonly threshold: number,
+    public readonly sampleDeletedPaths: string[]
   ) {
     super(message);
   }
@@ -365,6 +397,14 @@ export async function sessionCommit(
     commitTimeoutMs?: number;
     /** mt#3049: internal override for tests — see DEFAULT_PUSH_PHASE_TIMEOUT_MS. */
     pushTimeoutMs?: number;
+    /**
+     * mt#3021 SC3: justification required to push a commit whose staged
+     * delta trips the mass-deletion sanity gate (see
+     * `MassDeletionGuardError`). Threaded through the shared
+     * destructive-override contract (`../safety/destructive-override.ts`) —
+     * NAME IS A PLACEHOLDER, principal-reserved (see the mt#3021 PR body).
+     */
+    destructiveOverrideReason?: string;
   },
   sessionProvider: import("./types").SessionProviderInterface,
   askRepository?: AskRepository,
@@ -732,6 +772,47 @@ export async function sessionCommit(
       // Collect commit metadata and changed files — independent of push
       // outcome below, since the commit itself already landed locally.
       const gitService = createGitService();
+
+      // mt#3021 SC3: mass-deletion sanity gate. Runs AFTER commit, BEFORE
+      // push — the commit already landed locally (cheap to recover: amend /
+      // reset / redo), and per the spec's "placement: push time, not commit
+      // time" design decision, gating here is what makes push-time placement
+      // concrete for `sessionCommit`, which commits and pushes atomically in
+      // one call (nothing below this point reaches `git push` unless this
+      // gate passes). See `computeCommitDeletionStats`'s doc comment for why
+      // the diff is against the first parent specifically.
+      const deletionStats = await computeCommitDeletionStats(gitService, workdir);
+      if (deletionStats && deletionStats.deletionCount > DEFAULT_MASS_DELETION_THRESHOLD) {
+        const override = resolveDestructiveOverride(params.destructiveOverrideReason);
+        if (!isValidDestructiveOverride(override)) {
+          throw new MassDeletionGuardError(
+            `session_commit: staged delta deletes ${deletionStats.deletionCount} tracked file(s), ` +
+              `exceeding the mass-deletion sanity threshold (${DEFAULT_MASS_DELETION_THRESHOLD}). ` +
+              `The commit has landed LOCALLY but was NOT pushed. Sample of deleted paths: ` +
+              `${deletionStats.sampleDeletedPaths.slice(0, 10).join(", ")}` +
+              `${deletionStats.sampleDeletedPaths.length > 10 ? ", ..." : ""}. ` +
+              `If this deletion is intentional, retry with destructiveOverrideReason set to a ` +
+              `justification (or set MINSKY_DESTRUCTIVE_OVERRIDE_REASON).`,
+            deletionStats.deletionCount,
+            DEFAULT_MASS_DELETION_THRESHOLD,
+            deletionStats.sampleDeletedPaths
+          );
+        }
+        await recordDestructiveOverride({
+          guard: "session-commit-mass-deletion",
+          reason: override.reason,
+          details: {
+            deletionCount: deletionStats.deletionCount,
+            threshold: DEFAULT_MASS_DELETION_THRESHOLD,
+            sampleDeletedPaths: deletionStats.sampleDeletedPaths,
+            commitHash: commitResult.commitHash,
+          },
+          persistenceProvider,
+          relatedSessionId: params.session,
+          relatedTaskId: sessionRecordForFreeze?.taskId,
+        });
+      }
+
       const metadata = await collectCommitMetadata(gitService, workdir);
 
       // Update session activity state after a successful LOCAL commit —

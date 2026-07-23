@@ -90,7 +90,18 @@ export const sessionDeleteCommandParams = composeParams(
     force: CommonParameters.force,
     json: CommonParameters.json,
   },
-  {}
+  {
+    // mt#3021 SC2: justification required to delete a workspace with an
+    // in-progress merge (MERGE_HEAD present) or uncommitted changes.
+    // Independent of `force` above. NAME IS A PLACEHOLDER, principal-reserved
+    // (see mt#3021 PR body).
+    destructiveOverrideReason: {
+      schema: z.string().min(1),
+      description:
+        "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard. Required (non-empty) to delete a workspace with in-progress work; recorded in a structured audit event.",
+      required: false,
+    },
+  }
 ) satisfies CommandParameterMap;
 
 /**
@@ -277,6 +288,15 @@ export const sessionCommitCommandParams = composeParams(
       schema: z.number().int().positive(),
       description:
         "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes.",
+      required: false,
+    },
+    // mt#3021 SC3: justification required to push a commit whose staged
+    // delta trips the mass-deletion sanity gate. NAME IS A PLACEHOLDER,
+    // principal-reserved (see the mt#3021 PR body).
+    destructiveOverrideReason: {
+      schema: z.string().min(1),
+      description:
+        "Justification to override the mass-deletion sanity gate when the staged delta deletes an abnormal number of tracked files. Required (non-empty) to bypass the gate; recorded in a structured audit event.",
       required: false,
     },
   }

@@ -51,7 +51,11 @@ describe("deleteSessionImpl — filesystem failure preserves DB record (mt#789)"
       {
         sessionDB,
         fs: {
-          existsSync: () => true,
+          // mt#3021 SC2: path-scoped (not a blanket `() => true`) so the new
+          // MERGE_HEAD-presence sub-check (a different path under the same
+          // workspace dir) reads "absent," not "present" — this test is
+          // about rmSync failure, not the git-state guard.
+          existsSync: (p) => p === `/mock/sessions/${SESSION_ID}`,
           rmSync: () => {
             throw new Error("EPERM: operation not permitted");
           },
@@ -105,7 +109,7 @@ describe("deleteSessionImpl — filesystem failure preserves DB record (mt#789)"
       {
         sessionDB,
         fs: {
-          existsSync: () => true,
+          existsSync: (p) => p === `/mock/sessions/${SESSION_ID}`,
           rmSync: rmSyncMock,
         },
       }

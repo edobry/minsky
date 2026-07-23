@@ -2960,6 +2960,11 @@
               "flags": ["--push-timeout-ms"],
               "description": "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes.",
               "takesValue": true
+            },
+            {
+              "flags": ["--destructive-override-reason"],
+              "description": "Justification to override the mass-deletion sanity gate when the staged delta deletes an abnormal number of tracked files. Required (non-empty) to bypass the gate; recorded in a structured audit event.",
+              "takesValue": true
             }
           ],
           "arguments": [

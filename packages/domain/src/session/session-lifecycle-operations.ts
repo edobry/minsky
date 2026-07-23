@@ -16,6 +16,13 @@ import { rmSync, existsSync } from "node:fs";
 import { getSessionsDir } from "@minsky/shared/paths";
 import type { GitServiceInterface } from "../git/types";
 import { taskIdToBranchName } from "../tasks/task-id";
+import type { PersistenceProvider } from "../persistence/types";
+import { checkWorkspaceGitStateForDelete } from "./session-workspace-git-state-guard";
+import {
+  resolveDestructiveOverride,
+  isValidDestructiveOverride,
+  recordDestructiveOverride,
+} from "../safety/destructive-override";
 
 /**
  * Gets session details based on parameters
@@ -109,6 +116,8 @@ export async function deleteSessionImpl(
     sessionDB: SessionProviderInterface;
     gitService?: GitServiceInterface;
     fs?: { existsSync: typeof existsSync; rmSync: typeof rmSync };
+    /** mt#3021 SC2: best-effort audit-event sink for a used override. */
+    persistenceProvider?: PersistenceProvider;
   }
 ): Promise<DeleteSessionResult> {
   const { sessionId, task, repo } = params;
@@ -153,6 +162,43 @@ export async function deleteSessionImpl(
 
   // Compute the workspace dir once — used for both remote branch deletion and directory removal
   const sessionWorkspaceDir = `${getSessionsDir()}/${resolvedSessionId}`;
+
+  // mt#3021 SC2: MERGE_HEAD/uncommitted-changes guard — runs INSIDE this
+  // function (not only at the `session cleanup` command layer, which is the
+  // ONLY existing safety check and which this incident's actual deletion
+  // path bypassed entirely by calling deleteSessionImpl directly). Gates
+  // BOTH the remote-branch deletion below AND the local rmSync — unconditional,
+  // independent of any caller-supplied `force`: an agent that has already
+  // reasoned itself into "safe to force" is exactly the failure mode this
+  // guard exists to stop (see the mt#3021 spec's design decision). Only the
+  // shared destructive-override contract lifts it.
+  {
+    const guardGitService = deps.gitService ?? (await (await import("../git")).createGitService());
+    const gitState = await checkWorkspaceGitStateForDelete(
+      guardGitService,
+      sessionWorkspaceDir,
+      fsOps
+    );
+    if (gitState.blocked) {
+      const override = resolveDestructiveOverride(params.destructiveOverrideReason);
+      if (!isValidDestructiveOverride(override)) {
+        return {
+          deleted: false,
+          error:
+            `${gitState.message} — refusing to delete session '${resolvedSessionId}' without ` +
+            `an explicit destructiveOverrideReason.`,
+        };
+      }
+      await recordDestructiveOverride({
+        guard: "session-delete-git-state",
+        reason: override.reason,
+        details: { sessionId: resolvedSessionId, reasonCode: gitState.reasonCode },
+        persistenceProvider: deps.persistenceProvider,
+        relatedSessionId: resolvedSessionId,
+        relatedTaskId: sessionRecord?.taskId,
+      });
+    }
+  }
 
   // Delete the remote git branch if a git service is available
   if (deps.gitService && sessionRecord) {
@@ -306,9 +352,25 @@ export async function cleanupSessionImpl(
     taskId?: string;
     force?: boolean;
     dryRun?: boolean;
+    /**
+     * mt#3021 SC2: justification required to clean up a workspace with an
+     * in-progress merge (MERGE_HEAD present) or uncommitted changes. This is
+     * a SEPARATE, UNCONDITIONAL check from `force` above — `force` only
+     * skips the pre-existing (largely vacuous) `validateSessionSafeForCleanup`
+     * stub; it does NOT lift this guard. This is deliberate: the incident
+     * this task closes was a caller (`applyPostMergeStateSync`) that already
+     * passes `force: true` unconditionally on every post-merge cleanup — the
+     * exact "already reasoned itself into safe, passes a bare flag without
+     * pausing" failure mode the shared override contract exists to stop.
+     * NAME IS A PLACEHOLDER, principal-reserved (see mt#3021 PR body).
+     */
+    destructiveOverrideReason?: string;
   },
   deps: {
     sessionDB: SessionProviderInterface;
+    gitService?: GitServiceInterface;
+    /** mt#3021 SC2: best-effort audit-event sink for a used override. */
+    persistenceProvider?: PersistenceProvider;
   }
 ): Promise<{
   sessionDeleted: boolean;
@@ -338,6 +400,40 @@ export async function cleanupSessionImpl(
         directoriesRemoved: sessionDirectories,
         errors: [],
       };
+    }
+
+    // mt#3021 SC2: MERGE_HEAD/uncommitted-changes guard — unconditional,
+    // independent of `force` (see the params doc comment above). Checks
+    // every directory this call would remove; if any is blocked, refuse the
+    // whole cleanup (fail closed) rather than partially clean up.
+    {
+      const guardGitService =
+        deps.gitService ?? (await (await import("../git")).createGitService());
+      for (const directory of sessionDirectories) {
+        const gitState = await checkWorkspaceGitStateForDelete(guardGitService, directory);
+        if (gitState.blocked) {
+          const override = resolveDestructiveOverride(params.destructiveOverrideReason);
+          if (!isValidDestructiveOverride(override)) {
+            const msg =
+              `${gitState.message} — refusing to clean up session '${sessionId}' without ` +
+              `an explicit destructiveOverrideReason.`;
+            log.warn(msg);
+            return {
+              sessionDeleted: false,
+              directoriesRemoved: [],
+              errors: [msg],
+            };
+          }
+          await recordDestructiveOverride({
+            guard: "session-cleanup-git-state",
+            reason: override.reason,
+            details: { sessionId, taskId, reasonCode: gitState.reasonCode, directory },
+            persistenceProvider: deps.persistenceProvider,
+            relatedSessionId: sessionId,
+            relatedTaskId: taskId,
+          });
+        }
+      }
     }
 
     // 3. Safety validation (unless force flag is used)
