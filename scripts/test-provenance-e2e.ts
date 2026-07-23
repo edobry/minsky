@@ -34,6 +34,7 @@ import type { ResolvedConfig } from "@minsky/domain/configuration/types";
 import { eq } from "drizzle-orm";
 import { provenanceTable } from "@minsky/domain/storage/schemas/provenance-schema";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import type { ConversationId } from "@minsky/domain/ids";
 
 const persistence = new PersistenceService();
 await persistence.initialize();
@@ -63,17 +64,26 @@ if (!record.sessionId) {
 }
 
 const transcriptService = new AgentTranscriptService(db);
+
+// mt#3066: `ingestTranscript` / `getTranscript` take a branded ConversationId.
+// This script is a synthetic ROUND TRIP — it writes a row under this key and
+// reads it back under the same key — so the id never crosses keyspaces and the
+// mint below is sound. It is NOT the wrong-id-space case that
+// `unresolvedWorkspaceIdAsConversationId` marks (see mt#3101); do not swap it
+// for that helper, whose log line would assert a miss that does not happen here.
+const syntheticConversationId = record.sessionId as ConversationId;
+
 const defaultJsonlPath =
   "/Users/edobry/.claude/projects/-Users-edobry-Projects-minsky/f7dd3fee-977d-40f2-bcdc-a26f573b2117.jsonl";
 const jsonlPath = process.argv[2] ?? defaultJsonlPath;
 console.log(`Ingesting ${jsonlPath} as session ${record.sessionId}...`);
-const stats = await transcriptService.ingestTranscript(record.sessionId, jsonlPath);
+const stats = await transcriptService.ingestTranscript(syntheticConversationId, jsonlPath);
 console.log(`Ingested: ${JSON.stringify(stats)}`);
 
 const config = getConfiguration() as ResolvedConfig;
 const completionService = createCompletionService(config);
 const judge = new AuthorshipJudge(completionService);
-const transcript = await transcriptService.getTranscript(record.sessionId);
+const transcript = await transcriptService.getTranscript(syntheticConversationId);
 if (!transcript) throw new Error("Transcript not retrievable after ingest");
 console.log(`Judging transcript with ${transcript.length} messages...`);
 const judgment = await judge.evaluateTranscript(transcript, {
