@@ -39,6 +39,11 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { execWithPath, findRepoRoot, readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+import { makeRecordAndExit } from "./merge-gate-fire-log";
+import { classifyOverride } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "require-execution-evidence-before-merge";
 import {
   deriveRepoFromGit as deriveRepoFromGitImpl,
   parseGitHubRemoteUrl as parseGitHubRemoteUrlImpl,
@@ -779,10 +784,14 @@ export function runAtCoverageCalibration(
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+  // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
+  // once per invocation regardless of which exit fires below.
+  const recordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   const task = (input.tool_input.task as string | undefined) ?? "";
-  if (!task) process.exit(0);
+  if (!task) recordAndExit("allow");
 
   // Derive owner/repo from the git remote so the hook works on forks and
   // non-edobry/minsky remotes. Fail-open with a warning if derivation fails.
@@ -795,7 +804,7 @@ if (import.meta.main) {
           "⚠️ [execution-evidence] Could not derive owner/repo from git remote — check skipped.",
       },
     });
-    process.exit(0);
+    recordAndExit("warn");
   }
 
   // mt#2617: ONE consolidated fetch (PR-number resolution + title/body/files)
@@ -818,7 +827,7 @@ if (import.meta.main) {
           .join("\n"),
       },
     });
-    process.exit(0);
+    recordAndExit("warn");
   }
 
   const { title: prTitle, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
@@ -841,6 +850,19 @@ if (import.meta.main) {
   if (atCoverage.warning) {
     allWarnings.push(atCoverage.warning);
   }
+  // mt#3084: MINSKY_SKIP_AT_COVERAGE is a documented escape hatch
+  // (`isAtCoverageSkipped`, consulted inside `runAtCoverageCalibration`) —
+  // `ranCheck: false` is how the skip surfaces back here without threading a
+  // second override signal through the function's return shape. This
+  // sub-check never denies (mt#3033: log-only), so the override is attached
+  // to whichever decision below actually fires rather than assumed to be
+  // "allow".
+  const atCoverageOverrideFields = !atCoverage.ranCheck
+    ? {
+        overrideEnvVar: AT_COVERAGE_SKIP_ENV_VAR,
+        overrideClassification: classifyOverride(AT_COVERAGE_SKIP_ENV_VAR),
+      }
+    : undefined;
 
   if (result.blocked) {
     // Blocked: aggregate warnings + deny into a single writeOutput call.
@@ -855,6 +877,7 @@ if (import.meta.main) {
         permissionDecisionReason: `${warningContext}${result.reason}`,
       },
     });
+    recordAndExit("deny", atCoverageOverrideFields);
   } else if (allWarnings.length > 0) {
     // Allowed but with warnings: single writeOutput with aggregated context.
     writeOutput({
@@ -863,5 +886,7 @@ if (import.meta.main) {
         additionalContext: allWarnings.map((w) => `⚠️ ${w}`).join("\n"),
       },
     });
+    recordAndExit("warn", atCoverageOverrideFields);
   }
+  recordAndExit("allow", atCoverageOverrideFields);
 }
