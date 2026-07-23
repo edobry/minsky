@@ -24,16 +24,11 @@ resetting) — the agent can observe this autonomously. For (b), **arm a backgro
 keep going**; do NOT delegate the wait to the operator.
 
 **Mechanisms:** `Bash` with `run_in_background: true` + an `until`-loop for a single completion;
-`Monitor` for per-occurrence streams (log lines, status changes); `ScheduleWakeup` for interval
-re-checks with no single exit condition. Cadence: 30s+ for remote APIs — back off on repeated
-5xx/429s and respect provider-specific rate windows rather than tightening the loop.
+`Monitor` for per-occurrence streams; `ScheduleWakeup` for interval re-checks with no single exit
+condition. Cadence: 30s+ for remote APIs — back off on repeated 5xx/429s.
 
 **Correct shape:** "GitHub is 503ing — I've armed a 30s background poll and will resume the
-merge on recovery, no action needed from you." **Anti-pattern:** "Ping me when GitHub's back" —
-handing an autonomously-watchable wait to the human.
-
-**Generic-SE override:** "wait for the human to notice the dependency recovered." Wrong here:
-the tools to observe and self-resume already exist.
+merge on recovery, no action needed from you." **Anti-pattern:** "Ping me when GitHub's back."
 
 Full rationale, family kinship, and origin incident: `docs/rules-rationale/work-completion.md
 §External self-resolving waits`.
@@ -45,11 +40,11 @@ When a memory entry, skill, doc, or comment encodes a mechanism as **"temporary,
 1. A **tracking task** (the structural fix that retires the mechanism), AND
 2. An **escalation threshold** — a count, time window, or both — at which the mechanism's continued use indicates the temporary framing has failed.
 
-When the threshold is exceeded, the agent surfaces a reprioritization prompt to the user (escalation packaging per `humility.mdc`) rather than continuing to apply the workaround silently. Memory describing the world is not a substitute for memory acting on it: an "escape hatch fires once a quarter" memory and an "escape hatch fires daily" memory have the same shape unless the budget is encoded.
+When the threshold is exceeded, surface a reprioritization prompt (escalation packaging per `humility.mdc`) rather than continuing to apply the workaround silently. Memory describing the world is not a substitute for memory acting on it: an "escape hatch fires once a quarter" memory and an "escape hatch fires daily" memory have the same shape unless the budget is encoded.
 
-**Load-bearing signal:** the same workaround cited 2+ times/5 days, 3+ invocations/5 days, or 2+/24h — treat as the budget signal even if unrecorded; surface the tracking task's status.
+**Load-bearing signal:** the same workaround cited 2+/5 days, 3+ invocations/5 days, or 2+/24h — treat as the signal even if unrecorded; surface the tracking task's status.
 
-How to apply + bridge memory: `docs/rules-rationale/work-completion.md §Temporary mechanism budget`.
+How to apply: `docs/rules-rationale/work-completion.md §Temporary mechanism budget`.
 
 ## Recovery layer spec discipline
 
@@ -58,11 +53,11 @@ When a task spec introduces a **recovery layer** — sweeper, retry, fallback, a
 1. **`### Covers`** — the failure modes this layer recovers from, enumerated explicitly.
 2. **`### Does NOT cover`** — the failure modes outside this layer's reach, with a pointer to the task that owns each (or explicit "no current owner — must be filed").
 
-A recovery layer is only as strong as the failure modes its spec enumerates. Implicit "covers everything in the area" framing produces false confidence and deferred follow-ups.
+A recovery layer is only as strong as the failure modes its spec enumerates. Implicit "covers everything" framing produces false confidence and deferred follow-ups.
 
-**Trigger keywords:** "missed", "silent", "drop", "fail", "lost", "stale", "expired", "unhealthy", "out-of-sync" paired with a recovery mechanism. Same family as `Temporary mechanism budget` above. Tracking task: mt#1567.
+**Trigger keywords:** "missed", "silent", "drop", "fail", "lost", "stale", "expired", "unhealthy", "out-of-sync" + a recovery mechanism. Same family as `Temporary mechanism budget`. Tracking: mt#1567.
 
-How to apply + full incident: `docs/rules-rationale/work-completion.md §Recovery layer spec discipline`.
+How to apply: `docs/rules-rationale/work-completion.md §Recovery layer spec discipline`.
 
 ## Invocation path required for event/poll mechanisms
 
@@ -73,6 +68,6 @@ These fail silently in two shapes, identical from outside: the feature exists, i
 - **Nothing calls it.** No scheduler, no registration, no production callsite — or the only caller is a stub (mt#1618).
 - **It runs; a dependency inside it is dead.** The failure is caught and converted into the same value a legitimately empty result produces — no missing caller to grep for, no error to find (mt#3019, mt#3046).
 
-**Trigger keywords:** "fires", "triggers", "polls", "watches", "scheduled", "periodic", "on event", "listener", "handler". Never swallow a dependency failure into a "nothing to do" value — log the actual error; silence makes permanent breakage look like routine emptiness.
+**Trigger keywords:** "fires", "triggers", "polls", "watches", "scheduled", "periodic", "on event", "listener", "handler". Never swallow a dependency failure into a "nothing to do" value — log the actual error.
 
-How to apply + full incident detail: `docs/rules-rationale/work-completion.md §Invocation path`.
+How to apply: `docs/rules-rationale/work-completion.md §Invocation path`.

@@ -11,9 +11,8 @@ tags:
 # Terminology: workspace / conversation / transport session
 
 `docs/architecture/adr-022-session-vs-conversation-terminology.md` (Accepted) resolves a
-three-way overload of "session". This rule is the **stage-1 convention** — NEW code, docs, and UI
-copy only; it does NOT rename the existing `session_*` tool/API surface (stage 2, mt#2527, a
-separately scheduled, larger mechanical rename).
+three-way overload of "session". Stage-1 convention — NEW code, docs, UI copy only; does NOT
+rename the existing `session_*` tool/API surface (stage 2, mt#2527, separately scheduled).
 
 ## The three senses
 
@@ -23,10 +22,9 @@ separately scheduled, larger mechanical rename).
 | **conversation** | A harness chat (Claude Code conversation UUID, `agent_session_id`, transcripts, `claude --resume`) | "session" (ecosystem-dominant term) | cockpit `/conversation/:id`, `transcripts_*` MCP tools |
 | **transport session** | The MCP client↔server connection (`Mcp-Session-Id`) | "session" (MCP-spec term) | disconnect tracker, `processRole` |
 
-Use **workspace** and **conversation** in new prose, comments, variable/type names, and UI
-copy. Reserve **session** (bare, unqualified) for the MCP-transport sense only, since that is
-the one place "session" is the authoritative external-spec term (`Mcp-Session-Id`) and no
-better word exists.
+Use **workspace** and **conversation** in new prose, comments, variable/type names, and UI copy.
+Reserve bare **session** for the MCP-transport sense only — the one place it's the authoritative
+external-spec term (`Mcp-Session-Id`) with no better word.
 
 ## What this rule does NOT change (stage 2 scope, mt#2527)
 

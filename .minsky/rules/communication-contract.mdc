@@ -31,8 +31,8 @@ happened" — chat is deliberately the thinnest:
 | **Cockpit** | Fleet/workstream state, digests | Pull today; ambient push per ambient-cockpit RFC |
 | **Transcript archive** | Everything, verbatim | Pull; searchable |
 
-**Nothing is lost by compression — chat was never the storage layer.** Structured artifacts still
-land in full in the task record, or after the plain-language lead (`user-preferences.mdc
+**Nothing is lost by compression — chat was never the storage layer.** Structured artifacts land
+in full in the task record (or after the plain-language lead, `user-preferences.mdc
 §Plain-language first`) — never as the chat opening.
 
 ## The four report tiers
@@ -58,9 +58,8 @@ readable in under 30 seconds (~200 words)**; **no skill-internal labels** (gate 
 premise-audit labels `(iii)`, criterion-table IDs — audit-trail vocabulary, not the principal's;
 specializes `user-preferences.mdc §Plain-language first`).
 
-**When to expand.** Two triggers only: the principal asks (directly, or a standing override — see
-`## Scope`), or an exception warrants it (severity, a high-stakes judgment call, or a finding
-worth probing) — widen the pointer, don't re-narrate inline.
+**When to expand.** Two triggers only: the principal asks, or an exception warrants it (severity,
+a high-stakes judgment call, a finding worth probing) — widen the pointer, don't re-narrate.
 
 ## Altitude register (RFC Phase 2)
 
@@ -113,24 +112,23 @@ maximum compression, since agent silence is self-assessed. Rationale:
 
 ## Decision artifacts lead with the decision (surface-general)
 
-The Tier-1 contract above governs chat. The same discipline governs **every principal-facing
-deliverable whose function is to obtain a decision** — an RFC, an ADR, a PR body or cockpit digest
-used as a decision surface: **it opens with a decision-grade block** (the call in one bolded
-directive sentence, 3–5 one-line consequences, "accepting this = agreeing with the call"), with
-reasoning beneath. A principal opening an artifact *to decide* is not being persuaded.
+The same discipline governs **every principal-facing deliverable whose function is to obtain a
+decision** — an RFC, an ADR, a PR body or cockpit digest: **it opens with a decision-grade block**
+(the call in one bolded directive sentence, 3–5 one-line consequences, "accepting this = agreeing
+with the call"), reasoning beneath.
 
-Recurrence history (recurred four times in 14 days across four surfaces) + full rationale:
+Recurrence history (4x/14 days across 4 surfaces) + full rationale:
 `docs/rules-rationale/communication-contract.md §Decision artifacts lead with the decision`.
 Enforcement: `/draft-rfc` step 7, `/draft-adr` step 5, `engineering-writing §Decision artifacts
-lead with the decision` — which otherwise silently overrides this rule.
+lead with the decision` (more specific, otherwise silently overrides this rule).
 
 ## Judgment calls are load-bearing (RFC Position 3)
 
 **Summaries carry judgment calls, not receipts** — contestable decisions the agent made on the
 principal's behalf (mechanical passes are receipts: task record, not lead). Belongs in the lead:
-bypass-merging under a documented escape valve; skipping live verification for an "UNVERIFIED"
-marker; picking an approach without asking first; descoping part of a spec as out-of-bounds. Does
-NOT belong: "tests passed," "lint clean," "rebased cleanly" (record, don't lead).
+bypass-merging under a documented escape valve; skipping live verification for "UNVERIFIED";
+picking an approach without asking first; descoping part of a spec. Does NOT belong: "tests
+passed," "lint clean," "rebased cleanly" (record, don't lead).
 
 ## Anti-patterns
 

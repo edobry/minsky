@@ -18,11 +18,9 @@ click opens that entity in the cockpit:
 [<clean label>](minsky://<type>/<id>)
 ```
 
-Always emit the link, even when the cockpit isn't currently running (the tray's `minsky://`
-scheme handler, mt#2528, launches it) and even on terminals without OSC-8 support (the link
-degrades to the plain label text — why the label must always be a readable ref on its own). Full
-mechanism (renderer behavior, the Surface A/B terminal-vs-cockpit split, tray-handler dependency):
-`docs/rules-rationale/cockpit-deeplinks.md`.
+Always emit the link, even when the cockpit isn't running (the tray's scheme handler, mt#2528,
+launches it) and even on terminals without OSC-8 (it degrades to the plain label — why the label
+must always be a readable ref on its own). Full mechanism: `docs/rules-rationale/cockpit-deeplinks.md`.
 
 ## The five entity types
 

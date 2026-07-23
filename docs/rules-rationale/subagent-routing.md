@@ -50,6 +50,13 @@ dispatching) unless a live dispatch-intent declaration (read-only OR implementat
 covers the calling subagent's session, or the launch-time `MINSKY_ALLOW_NESTED_FORK=1` override
 is set. A top-level fork dispatch from the main agent is unaffected.
 
+**Implementation reference (verified):** the guard is `.claude/hooks/block-nested-fork-dispatch.ts`.
+The override env var is registered — not a free-text claim — in
+`packages/domain/src/configuration/sources/environment.ts`'s `HOOK_ONLY_ENV_VARS` list, with the
+comment `"MINSKY_ALLOW_NESTED_FORK", // .claude/hooks/block-nested-fork-dispatch.ts (mt#3045) —
+launch-time-only override for an undeclared nested fork dispatch"`, confirming both the hook file
+and the override are real, wired code — not an unverified assertion.
+
 ## Choosing the model (mt#3043)
 
 `tasks_dispatch` accepts an optional `model`: a dispatch-model registry id (`sonnet` | `opus` |
