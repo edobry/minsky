@@ -186,19 +186,19 @@ async function bootstrapDb(): Promise<PostgresJsDatabase> {
   // script needs instead, matching the established pattern used across the
   // cockpit DB-access sites (e.g. src/cockpit/db-providers.ts,
   // src/cockpit/widgets/attention.ts, scripts/smoke-transcript-watcher.ts).
-  const hasSqlCapability =
-    !!persistence && !!(persistence as { capabilities?: { sql?: boolean } }).capabilities?.sql;
-  const hasGetDatabaseConnection =
-    !!persistence &&
-    typeof (persistence as { getDatabaseConnection?: unknown }).getDatabaseConnection ===
-      "function";
-  if (!hasSqlCapability || !hasGetDatabaseConnection) {
+  interface SqlCapablePersistence {
+    getDatabaseConnection: () => Promise<PostgresJsDatabase | null>;
+  }
+  const isSqlCapablePersistence = (p: unknown): p is SqlCapablePersistence =>
+    !!p &&
+    !!(p as { capabilities?: { sql?: boolean } }).capabilities?.sql &&
+    typeof (p as { getDatabaseConnection?: unknown }).getDatabaseConnection === "function";
+
+  if (!isSqlCapablePersistence(persistence)) {
     throw new Error("Backfill requires a SQL-capable persistence provider (Postgres).");
   }
 
-  const connection = await (
-    persistence as { getDatabaseConnection: () => Promise<PostgresJsDatabase | null> }
-  ).getDatabaseConnection();
+  const connection = await persistence.getDatabaseConnection();
   if (!connection) {
     throw new Error("Backfill requires an initialized Postgres database connection.");
   }

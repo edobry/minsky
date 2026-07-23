@@ -24,6 +24,7 @@
 import { eq } from "drizzle-orm";
 
 import { ClaudeCodeTranscriptSource } from "@minsky/domain/transcripts/claude-code-transcript-source";
+import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 import {
   type AttachmentRow,
   buildAttachmentRow,
@@ -31,12 +32,12 @@ import {
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
 import { agentTranscriptAttachmentsTable } from "@minsky/domain/storage/schemas/agent-transcript-attachments-schema";
 import { log } from "../src/utils/logger";
-import { getErrorMessage } from "../src/errors/index";
+import { getErrorMessage } from "@minsky/domain/errors";
 
 async function backfillSession(
   db: import("drizzle-orm/postgres-js").PostgresJsDatabase,
   source: ClaudeCodeTranscriptSource,
-  agentSessionId: string
+  agentSessionId: AgentSessionId
 ): Promise<{ inserted: number; scanned: number }> {
   // Verify the parent agent_transcripts row exists — FK requirement.
   const parent = await db
@@ -85,10 +86,43 @@ async function main() {
   // time when the Postgres config isn't available locally.
   let db: import("drizzle-orm/postgres-js").PostgresJsDatabase;
   try {
-    // Reuse the project's canonical DB-init path. We import dynamically so
-    // top-level imports don't fail in dry-run / env-missing scenarios.
-    const { getDrizzleDb } = await import("@minsky/domain/storage/db");
-    db = (await getDrizzleDb()) as import("drizzle-orm/postgres-js").PostgresJsDatabase;
+    // Reuse the project's canonical DB-init path (mirrors the sibling
+    // backfill-*-short-ids.ts scripts' bootstrapDb() convention) rather than
+    // a bare dynamic import, so top-level imports don't fail in dry-run /
+    // env-missing scenarios.
+    const { initializeConfiguration, CustomConfigFactory } = await import(
+      "@minsky/domain/configuration"
+    );
+    const { createCliContainer } = await import("../src/composition/cli");
+
+    await initializeConfiguration(new CustomConfigFactory(), {
+      workingDirectory: process.cwd(),
+    });
+
+    const container = await createCliContainer();
+    await container.initialize();
+
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+
+    interface SqlCapablePersistence {
+      getDatabaseConnection: () => Promise<
+        import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+      >;
+    }
+    const isSqlCapablePersistence = (p: unknown): p is SqlCapablePersistence =>
+      !!p &&
+      !!(p as { capabilities?: { sql?: boolean } }).capabilities?.sql &&
+      typeof (p as { getDatabaseConnection?: unknown }).getDatabaseConnection === "function";
+
+    if (!isSqlCapablePersistence(persistence)) {
+      throw new Error("Backfill requires a SQL-capable persistence provider (Postgres).");
+    }
+
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) {
+      throw new Error("Backfill requires an initialized Postgres database connection.");
+    }
+    db = connection;
   } catch (err) {
     console.error(
       "SKIP: failed to initialize DB connection — Postgres not available in this environment."

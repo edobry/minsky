@@ -60,6 +60,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { nextShortId } from "@minsky/domain/utils/short-id";
 import { postgresSessions } from "@minsky/domain/storage/schemas/session-schema";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { WorkspaceId } from "@minsky/domain/ids";
 
 // ---------------------------------------------------------------------------
 // Advisory lock — serializes concurrent `--execute` runs (mirrors the
@@ -187,19 +188,19 @@ async function bootstrapDb(): Promise<PostgresJsDatabase> {
   // (dual-package hazard) — the check then silently rejects a perfectly
   // valid provider. Check for the actual capability/method this script
   // needs instead.
-  const hasSqlCapability =
-    !!persistence && !!(persistence as { capabilities?: { sql?: boolean } }).capabilities?.sql;
-  const hasGetDatabaseConnection =
-    !!persistence &&
-    typeof (persistence as { getDatabaseConnection?: unknown }).getDatabaseConnection ===
-      "function";
-  if (!hasSqlCapability || !hasGetDatabaseConnection) {
+  interface SqlCapablePersistence {
+    getDatabaseConnection: () => Promise<PostgresJsDatabase | null>;
+  }
+  const isSqlCapablePersistence = (p: unknown): p is SqlCapablePersistence =>
+    !!p &&
+    !!(p as { capabilities?: { sql?: boolean } }).capabilities?.sql &&
+    typeof (p as { getDatabaseConnection?: unknown }).getDatabaseConnection === "function";
+
+  if (!isSqlCapablePersistence(persistence)) {
     throw new Error("Backfill requires a SQL-capable persistence provider (Postgres).");
   }
 
-  const connection = await (
-    persistence as { getDatabaseConnection: () => Promise<PostgresJsDatabase | null> }
-  ).getDatabaseConnection();
+  const connection = await persistence.getDatabaseConnection();
   if (!connection) {
     throw new Error("Backfill requires an initialized Postgres database connection.");
   }
@@ -266,7 +267,10 @@ async function main(): Promise<void> {
             .update(postgresSessions)
             .set({ shortId: a.shortId })
             .where(
-              and(eq(postgresSessions.sessionId, a.sessionId), isNull(postgresSessions.shortId))
+              and(
+                eq(postgresSessions.sessionId, a.sessionId as WorkspaceId),
+                isNull(postgresSessions.shortId)
+              )
             )
             .returning({ sessionId: postgresSessions.sessionId });
           if (updated.length > 0) {
