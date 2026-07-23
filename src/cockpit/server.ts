@@ -27,6 +27,9 @@
  *                               child, local daemon only, mt#2750)
  *   POST /api/driven-session/:id/stop — graceful stop of a driven session
  *   GET /api/driven-session   — list app-started driven sessions
+ *   ANY  /api/*                — 404 JSON for any unmatched /api route (mt#3111;
+ *                               registered after every route module above, so it
+ *                               only fires when nothing else matched — never the SPA)
  *   GET /assets/*             — static files from web/dist/assets
  *   GET /                     — serves web/dist/index.html
  *
@@ -323,6 +326,22 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   if (!opts.isPublicDeployment) {
     mountDrivenSessionRoutes(app, opts.overrideDrivenSession ?? {});
   }
+
+  /**
+   * A GET (or any other method) to an unmatched /api/* path must 404 as JSON
+   * — NOT fall through to the SPA. Mirrors the /assets guard below (mt#2674):
+   * without this, a mistyped or renamed API path returns index.html
+   * (text/html, HTTP 200), which reads to a client doing `await res.json()`
+   * as a transport/serialization bug instead of a routing bug (mt#3111).
+   * Registered unconditionally (not inside the `!opts.dev` block below) so it
+   * also covers dev mode: `--dev` attaches Vite's own SPA-fallback middleware
+   * OUTSIDE this factory (see start-command.ts), after every route this
+   * function registers — so this guard must run here, before that, to
+   * intercept an unmatched /api/* request in both modes.
+   */
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ error: "API route not found" });
+  });
 
   // --- Static SPA assets ---
 
