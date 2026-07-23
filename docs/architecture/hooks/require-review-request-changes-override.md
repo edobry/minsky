@@ -41,7 +41,13 @@ operator-verified variant because this guard alone gates an irreversible action 
   operator-approved grant.
 - **TTL** — the grant expires (default 30 min).
 - **Full audit** — the consumed grant record (with `askId`, `reason`, `consumedAt`), a stdout audit
-  line, and a fire-log entry.
+  line, and a fire-log record (`overrideSource: "grant"`, `overrideGrantAsk: <askId>`) — the Ask id
+  is in the fire-log payload, not only stdout.
+
+The scope string (`<owner/repo>#<pr>@<sha>`) is normalized identically at issuance and lookup
+(`normalizeScope`: lowercased, `#`/whitespace stripped — `/` and `@` survive), so the `#`-vs-no-`#`
+form never causes a false miss; the stored/matched value differs from what you typed (the `#` is
+gone), which the issuance output echoes.
 
 A grant present but with no `askId`, or whose Ask does not verify as operator-approved, is **denied
 with a loud fabrication warning** — this branch does NOT inherit D8's fail-open read posture on the

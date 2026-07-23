@@ -92,6 +92,13 @@ export interface FireLogEntry {
    * env var did NOT already decide for this guard).
    */
   overrideSource?: "env" | "grant";
+  /**
+   * mt#2989 — the authorization Ask id backing a grant-channel override
+   * (`overrideSource: "grant"`). Present only for guards whose grant carries an
+   * Ask (currently the merge-review REQUEST_CHANGES override); lets the fire log
+   * name the operator authorization the override rests on, not just its class.
+   */
+  overrideGrantAsk?: string;
   /** Tool context — the tool this guard was invoked for (PreToolUse/PostToolUse only). */
   toolName?: string;
   sessionId?: string;
@@ -180,6 +187,8 @@ export interface RecordFireLogInput {
   overrideClassification?: OverrideClassification;
   /** mt#2597 R1 fix — see {@link FireLogEntry.overrideSource}. */
   overrideSource?: "env" | "grant";
+  /** mt#2989 — see {@link FireLogEntry.overrideGrantAsk}. */
+  overrideGrantAsk?: string;
   toolName?: string;
   sessionId?: string;
 }
@@ -212,6 +221,7 @@ export function recordFireLogEntry(
         ? { overrideClassification: input.overrideClassification }
         : {}),
       ...(input.overrideSource !== undefined ? { overrideSource: input.overrideSource } : {}),
+      ...(input.overrideGrantAsk !== undefined ? { overrideGrantAsk: input.overrideGrantAsk } : {}),
       ...(input.toolName ? { toolName: input.toolName } : {}),
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
     };

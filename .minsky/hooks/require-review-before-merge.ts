@@ -795,11 +795,13 @@ export interface ReviewContentResult {
    * fired; the entry point emits the audit line + fire-log grant classification.
    */
   overrideAuditReason?: string;
+  /** mt#2989 — the authorizing Ask id, for the fire-log override record. */
+  overrideAskId?: string;
 }
 
 /** mt#2989 — outcome of consulting the grant channel for a REQUEST_CHANGES override. */
 export type RequestChangesOverrideDecision =
-  | { authorized: true; auditReason: string }
+  | { authorized: true; auditReason: string; askId: string }
   | { authorized: false; fabricationWarning: string }
   | { authorized: false };
 
@@ -879,6 +881,7 @@ export function makeRequestChangesOverrideResolver(
 
     return {
       authorized: true,
+      askId: grant.askId,
       auditReason:
         `PR #${pr} HEAD ${headSha.slice(0, 7)} ask=${grant.askId} ` +
         `grant-reason="${grant.reason}"`,
@@ -948,7 +951,11 @@ export function validateReviewContent(
       // overridable — stale / structural-gap / smoke / checks denials are not.
       const override = resolveRequestChangesOverride?.({ pr, headSha });
       if (override?.authorized) {
-        return { deny: false, overrideAuditReason: override.auditReason };
+        return {
+          deny: false,
+          overrideAuditReason: override.auditReason,
+          overrideAskId: override.askId,
+        };
       }
       if (override && "fabricationWarning" in override) {
         return { deny: true, reason: `${baseReason}. ${override.fabricationWarning}` };
@@ -1203,6 +1210,7 @@ async function main(): Promise<void> {
     overrideFields = {
       overrideClassification: "authorized_exception",
       overrideSource: "grant",
+      overrideGrantAsk: provenanceResult.overrideAskId,
     };
   }
 

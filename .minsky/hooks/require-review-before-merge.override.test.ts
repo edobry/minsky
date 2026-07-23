@@ -53,10 +53,12 @@ describe("validateReviewContent — REQUEST_CHANGES override (mt#2989)", () => {
   it("permits when the resolver authorizes, carrying the audit reason", () => {
     const result = validateReviewContent(reqChangesReviews(), "42", OVERRIDE_HEAD, () => ({
       authorized: true,
+      askId: "ask-1",
       auditReason: 'ask=ask-1 grant-reason="disproof"',
     }));
     expect(result.deny).toBe(false);
     expect(result.overrideAuditReason).toContain("ask-1");
+    expect(result.overrideAskId).toBe("ask-1");
   });
 
   it("denies with the fabrication warning when the resolver refuses a present-but-unverified grant", () => {
@@ -188,6 +190,7 @@ describe("makeRequestChangesOverrideResolver (mt#2989)", () => {
     });
     const result = resolve({ pr: "42", headSha: HEAD });
     expect(result.authorized).toBe(true);
+    expect("askId" in result && result.askId).toBe("ask-777");
     expect("auditReason" in result && result.auditReason).toContain("ask=ask-777");
     expect("auditReason" in result && result.auditReason).toContain("grep-disproven");
     expect(verifiedAsk).toBe("ask-777");
