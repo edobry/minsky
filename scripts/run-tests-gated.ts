@@ -2,6 +2,22 @@
 /**
  * Truncation-safe, fail-closed unit-test gate for local git hooks (mt#2716).
  *
+ * mt#3081: `evaluateBunTestSummary` strips ANSI escape codes (`stripAnsi` below,
+ * the same proven pattern `run-tests-main-sharded.ts` already established for
+ * its own fail-line parsing — duplicated here rather than imported: this file
+ * is reachable from the root tsconfig's checked program via
+ * `tests/scripts/run-tests-gated.test.ts`'s import, and `run-tests-main-sharded.ts`
+ * (excluded from the root program, per `tsconfig.json`'s `exclude: ["scripts",
+ * ...]`, until something reachable imports it) carries pre-existing,
+ * unrelated typecheck errors that a cross-import would newly surface as a
+ * regression in `bun run typecheck:root` — see mt#3082) before matching the
+ * completion-summary / "<N> fail" lines. Without this, a `FORCE_COLOR`-carrying
+ * shell environment wraps the fail-count line in ANSI codes (e.g.
+ * `"\x1b[0m\x1b[2m 0 fail\x1b[0m"`), and the `^ *\d+ fail$` regex — anchored to
+ * the start of the (post-`\n`-split) line — never matches a line that actually
+ * STARTS with an escape sequence, producing a false "<N> fail\" line could not
+ * be found" fail-closed rejection even though the real run reported 0 failures.
+ *
  * Runs the same two test steps CI runs (.github/workflows/ci.yml), in sequence:
  *   1. scripts/run-tests-main.ts — explicit file list that EXCLUDES src/mcp (the
  *      `bun test` 1.2.21 truncation trigger; see docs/testing-patterns.md and
@@ -25,6 +41,23 @@
  * otherwise.
  */
 
+// mt#3081: the standard strip-ansi pattern (sindresorhus/ansi-regex — a
+// widely-used community regex, not re-derived from scratch). Deliberately
+// DUPLICATED from `run-tests-main-sharded.ts`'s own `stripAnsi`/`ANSI_PATTERN`
+// rather than imported — see this file's header doc comment for why a
+// cross-import here would regress `bun run typecheck:root`.
+const ANSI_PATTERN = new RegExp(
+  [
+    "[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\\d/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d/#&.:=?%@~_]*)*)?(?:\\u0007|\\u001B\\u005C|\\u009C))",
+    "(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))",
+  ].join("|"),
+  "g"
+);
+
+function stripAnsi(input: string): string {
+  return input.replace(ANSI_PATTERN, "");
+}
+
 /**
  * Fail-closed gate over a `bun test` run's combined stdout+stderr, mirroring
  * ci.yml's "Test" step. `bun test` 1.2.21 can silently truncate — exit 0 with no
@@ -47,7 +80,12 @@ export function evaluateBunTestSummary(
   output: string,
   exitCode: number
 ): { ok: boolean; reason: string } {
-  if (!/Ran \d+ tests? across \d+ files?/.test(output)) {
+  // mt#3081: strip ANSI BEFORE either regex runs — a FORCE_COLOR-carrying
+  // environment wraps both the completion-summary and "<N> fail" lines in
+  // escape codes, which would otherwise defeat the anchored `^ *\d+ fail$`
+  // match (the line then starts with an escape sequence, not a digit/space).
+  const sanitized = stripAnsi(output);
+  if (!/Ran \d+ tests? across \d+ files?/.test(sanitized)) {
     return {
       ok: false,
       reason:
@@ -57,7 +95,7 @@ export function evaluateBunTestSummary(
     };
   }
   // Last "<N> fail" line, mirroring ci.yml's `grep ... | tail -1`.
-  const failLine = output
+  const failLine = sanitized
     .split("\n")
     .reverse()
     .find((line) => /^ *\d+ fail$/.test(line));

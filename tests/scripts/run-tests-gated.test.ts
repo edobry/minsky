@@ -87,3 +87,41 @@ describe("evaluateBunTestSummary (mt#2716 fail-closed pre-push gate)", () => {
     expect(evaluateBunTestSummary(withDecoyName, 0).ok).toBe(true);
   });
 });
+
+// mt#3081: a FORCE_COLOR-carrying shell environment wraps bun test's
+// completion-summary and "<N> fail" lines in ANSI escape codes, which
+// defeated the (previously un-stripped) anchored `^ *\d+ fail$` regex.
+// Reproduced live via `scripts/run-related-tests.ts` during mt#3072
+// (2026-07-23): a genuinely passing run ("82 pass, 0 fail") was rejected as
+// "the '<N> fail' line could not be found — refusing to assume 0 failures".
+describe("evaluateBunTestSummary (mt#3081 — ANSI-wrapped output)", () => {
+  test("passes a 0-fail run whose fail line is ANSI-wrapped (FORCE_COLOR reproduction)", () => {
+    // Byte-for-byte the shape captured from the mt#3072 incident: the fail
+    // line wrapped in reset+dim codes, the pass line in green.
+    const output =
+      "\x1b[0m\x1b[32m 82 pass\x1b[0m\n\x1b[0m\x1b[2m 0 fail\x1b[0m\n 187 expect() calls\n" +
+      "Ran 82 tests across 6 files. \x1b[0m\x1b[2m[96.00ms]\x1b[0m";
+    expect(evaluateBunTestSummary(output, 0)).toEqual({ ok: true, reason: "" });
+  });
+
+  test("still detects a real failure when the fail line is ANSI-wrapped", () => {
+    const output =
+      "\x1b[0m\x1b[32m 4 pass\x1b[0m\n\x1b[0m\x1b[31m 1 fail\x1b[0m\n" +
+      "Ran 5 tests across 2 files. \x1b[0m\x1b[2m[12.00ms]\x1b[0m";
+    const r = evaluateBunTestSummary(output, 1);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain("1 failing test");
+  });
+
+  test("recognizes an ANSI-wrapped completion-summary line", () => {
+    const output =
+      "0 fail\nRan \x1b[1m5\x1b[0m tests across \x1b[1m2\x1b[0m files. \x1b[2m[12.00ms]\x1b[0m";
+    expect(evaluateBunTestSummary(output, 0)).toEqual({ ok: true, reason: "" });
+  });
+
+  test("is unaffected by ANSI codes elsewhere in the output that don't touch the summary lines", () => {
+    const output =
+      "\x1b[33msome colorized log line\x1b[0m\n5 pass\n0 fail\nRan 5 tests across 2 files.";
+    expect(evaluateBunTestSummary(output, 0)).toEqual({ ok: true, reason: "" });
+  });
+});
