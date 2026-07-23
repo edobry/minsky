@@ -258,15 +258,23 @@ constraint) — this is purely additive recording.
 
 **Verification (mt#3084).** `.minsky/hooks/merge-gate-fire-log.test.ts` unit-tests the shared
 factory against an in-memory fs (allow/deny/warn, override-field passthrough, fail-safe-on-
-write-failure). Beyond the unit tests, a synthetic invocation of the real
-`dispatch-intent-write-gate.ts` script (run directly via `bun`, stdin-fed a crafted
-`ToolHookInput`, `MINSKY_STATE_DIR` pointed at a scratch temp dir so no production state was
-touched) produced both outcomes end-to-end against a real `fire-log.jsonl`:
+write-failure). Beyond the unit tests, forced synthetic invocations of several of the REAL
+hook scripts (run directly via `bun`, stdin-fed a crafted `ToolHookInput`, `MINSKY_STATE_DIR`
+pointed at a scratch temp dir so no production state was touched) produced both outcomes
+end-to-end against a real `fire-log.jsonl`:
 
 ```
-{"guardName":"dispatch-intent-write-gate","event":"PreToolUse","decision":"deny", ...}
+{"guardName":"block-subagent-bypass-merge","event":"PreToolUse","decision":"deny", ...}
 {"guardName":"dispatch-intent-write-gate","event":"PreToolUse","decision":"allow", ...}
+{"guardName":"require-growth-justification-before-merge","event":"PreToolUse","decision":"allow", ...}
+{"guardName":"block-nested-fork-dispatch","event":"PreToolUse","decision":"allow", ...}
+{"guardName":"require-review-before-merge","event":"PreToolUse","decision":"allow", ...}
 ```
+
+(the forced deny came from feeding `block-subagent-bypass-merge.ts` a `gh api PUT .../merge`
+command with no override active; the allow entries came from feeding four different gates a
+tool call outside their trigger condition — each gate's own early-exit path, not a single
+script producing both outcomes).
 
 This satisfies AT1 ("forcing a merge-gate deny... produces a new fire-log.jsonl line with
 guardName matching the gate, decision: deny") and AT2 ("a clean pass produces allow entries")
