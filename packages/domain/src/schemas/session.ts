@@ -148,6 +148,17 @@ export const sessionDeleteParamsSchema = z
     sessionId: sessionIdSchema.optional().describe("Session ID to delete"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     force: flagSchema("Skip confirmation prompt"),
+    // mt#3021 SC2: justification required to delete a workspace with an
+    // in-progress merge (MERGE_HEAD present) or uncommitted changes — this is
+    // INDEPENDENT of `force` above (which does not affect the new git-state
+    // guard). NAME IS A PLACEHOLDER, principal-reserved (see mt#3021 PR body).
+    destructiveOverrideReason: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard. Required (non-empty) to delete a workspace with in-progress work; recorded in a structured audit event."
+      ),
   })
   .extend(commonCommandOptionsSchema.shape)
   .refine((data) => data.sessionId !== undefined || data.task !== undefined, {

@@ -2773,6 +2773,11 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--destructive-override-reason"],
+              "description": "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard. Required (non-empty) to delete a workspace with in-progress work; recorded in a structured audit event.",
+              "takesValue": true
             }
           ],
           "arguments": [
@@ -2959,6 +2964,11 @@
             {
               "flags": ["--push-timeout-ms"],
               "description": "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--destructive-override-reason"],
+              "description": "Justification to override the mass-deletion sanity gate when the staged delta deletes an abnormal number of tracked files. Required (non-empty) to bypass the gate; recorded in a structured audit event.",
               "takesValue": true
             }
           ],
@@ -6807,7 +6817,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -6832,7 +6842,8 @@
                 "ask.policy_closed",
                 "authorization.policy_covered",
                 "task.bulk_edit.dry_run",
-                "task.bulk_edit.executed"
+                "task.bulk_edit.executed",
+                "guard.overridden"
               ]
             },
             {
@@ -6892,7 +6903,7 @@
             {
               "name": "eventType",
               "required": true,
-              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed)"
+              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden)"
             }
           ]
         }

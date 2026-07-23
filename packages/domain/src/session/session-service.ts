@@ -324,11 +324,16 @@ export class SessionService {
     taskId?: string;
     force?: boolean;
     dryRun?: boolean;
+    /** mt#3021 SC2: git-state guard override — see cleanupSessionImpl. */
+    destructiveOverrideReason?: string;
   }): Promise<{
     sessionDeleted: boolean;
     directoriesRemoved: string[];
     errors: string[];
   }> {
-    return cleanupSessionImpl(params, { sessionDB: this.deps.sessionProvider });
+    return cleanupSessionImpl(params, {
+      sessionDB: this.deps.sessionProvider,
+      gitService: this.deps.gitService,
+    });
   }
 }

@@ -354,6 +354,8 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
               // through to sessionCommit's own DEFAULT_*_PHASE_TIMEOUT_MS.
               commitTimeoutMs: params.commitTimeoutMs as number | undefined,
               pushTimeoutMs: params.pushTimeoutMs as number | undefined,
+              // mt#3021 SC3: mass-deletion sanity gate override.
+              destructiveOverrideReason: params.destructiveOverrideReason as string | undefined,
             },
             deps.sessionProvider,
             askRepository ?? undefined,
