@@ -144,8 +144,8 @@ describe("agents.md target (new pipeline): buildContent()", () => {
 });
 
 describe("agents.md target (new pipeline): DEFAULT_AGENTS_MD_SIZE_BUDGET", () => {
-  it("matches the legacy target's grounded defaults: warn=160000, fail=200000", () => {
-    expect(DEFAULT_AGENTS_MD_SIZE_BUDGET).toEqual({ warnChars: 160_000, failChars: 200_000 });
+  it("matches the legacy target's shared defaults (mt#3076): warn=300000, fail=400000", () => {
+    expect(DEFAULT_AGENTS_MD_SIZE_BUDGET).toEqual({ warnChars: 300_000, failChars: 400_000 });
   });
 
   it("fail sits strictly above warn", () => {

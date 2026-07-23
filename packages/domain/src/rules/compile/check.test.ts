@@ -141,7 +141,7 @@ describe("compileRules --check size budget (mt#2802)", () => {
       expect(result.stale).toBe(false);
       expect(result.sizeChars).toBe(expected.length);
       expect(result.sizeBudgetStatus).toBe("ok");
-      expect(result.sizeBudget).toEqual({ warnChars: 160_000, failChars: 200_000 });
+      expect(result.sizeBudget).toEqual({ warnChars: 300_000, failChars: 400_000 });
       expect(result.topContributors).toEqual([]);
     });
 
