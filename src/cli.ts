@@ -169,13 +169,18 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
   // dependencies (~700ms total: AI tokenizer, MCP SDK, etc.). Only load when actually
   // invoked or when full help is requested.
   const requestedCommand = process.argv[2];
+  // `needsAll` means "the full command list must be registered before Commander parses".
+  // That is true for help (it RENDERS the command list) and for a bare invocation (which
+  // prints help). It is NOT true for --version (mt#3090): printing the version string needs
+  // zero commands registered, but --version/-V used to be lumped in here with the help flags,
+  // so every `minsky --version` eagerly imported all ten non-shared command groups below —
+  // MCP SDK, AI tokenizer, and the rest — costing ~455ms to print "1.0.0". Measured
+  // ~820ms -> ~365ms by dropping them from this condition.
   const needsAll =
     !requestedCommand ||
     requestedCommand === "--help" ||
     requestedCommand === "-h" ||
-    requestedCommand === "help" ||
-    requestedCommand === "--version" ||
-    requestedCommand === "-V";
+    requestedCommand === "help";
 
   if (needsAll || requestedCommand === "mcp") {
     profileCheckpoint("before_mcp_command_load");
