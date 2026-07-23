@@ -167,12 +167,32 @@ export async function deleteSessionImpl(
   // function (not only at the `session cleanup` command layer, which is the
   // ONLY existing safety check and which this incident's actual deletion
   // path bypassed entirely by calling deleteSessionImpl directly). Gates
-  // BOTH the remote-branch deletion below AND the local rmSync — unconditional,
-  // independent of any caller-supplied `force`: an agent that has already
+  // BOTH the remote-branch deletion below AND the local rmSync — unconditional
+  // with respect to any caller-supplied `force`: an agent that has already
   // reasoned itself into "safe to force" is exactly the failure mode this
   // guard exists to stop (see the mt#3021 spec's design decision). Only the
   // shared destructive-override contract lifts it.
-  {
+  //
+  // Terminal-state bypass (mt#3021 R1, pulled forward from mt#3104's
+  // Layer-2 scope — see that task's spec for the note): a session whose OWN
+  // status is already MERGED or CLOSED does not need this check at all —
+  // its owning agent's work is definitionally finished, so there is no
+  // in-flight work left to protect. Without this, `applyPostMergeStateSync`
+  // (session-merge-status-sync.ts, called on every merge with `force: true`
+  // and no override reason) would hit the guard on routine post-merge
+  // cleanup whenever the workspace has ANY modified tracked file or
+  // untracked non-ignored file (hasUncommittedChanges runs a bare `git
+  // status --porcelain`, no `-uno`) — an under-deletion failure mode where
+  // the workspace silently accumulates on disk forever, which is exactly
+  // the "must not deadlock legitimate recovery" hazard the spec warns
+  // about, just triggered by routine operation instead of a genuine
+  // abandoned-session recovery. Mirrors the identical MERGED/CLOSED skip in
+  // `identifyCleanupCandidates` (session-cleanup.ts) rather than inventing
+  // a second convention.
+  const isTerminalSession =
+    sessionRecord?.status === SessionStatus.MERGED ||
+    sessionRecord?.status === SessionStatus.CLOSED;
+  if (!isTerminalSession) {
     const guardGitService = deps.gitService ?? (await (await import("../git")).createGitService());
     const gitState = await checkWorkspaceGitStateForDelete(
       guardGitService,
@@ -402,11 +422,27 @@ export async function cleanupSessionImpl(
       };
     }
 
-    // mt#3021 SC2: MERGE_HEAD/uncommitted-changes guard — unconditional,
-    // independent of `force` (see the params doc comment above). Checks
-    // every directory this call would remove; if any is blocked, refuse the
-    // whole cleanup (fail closed) rather than partially clean up.
-    {
+    // mt#3021 SC2: MERGE_HEAD/uncommitted-changes guard — unconditional with
+    // respect to `force` (see the params doc comment above). Checks every
+    // directory this call would remove; if any is blocked, refuse the whole
+    // cleanup (fail closed) rather than partially clean up.
+    //
+    // Terminal-state bypass (mt#3021 R1, pulled forward from mt#3104's
+    // Layer-2 scope): a session whose OWN status is already MERGED or
+    // CLOSED skips this check entirely — its owning agent's work is
+    // definitionally finished. Without this, `applyPostMergeStateSync`
+    // (which calls this function with `force: true` and no override reason
+    // on EVERY merge) would refuse routine post-merge cleanup whenever the
+    // workspace has any modified tracked file or untracked non-ignored
+    // file — a silent under-deletion regression (workspace dirs
+    // accumulating on disk forever) that is the opposite failure mode from
+    // the incident this guard exists to prevent. Mirrors the identical
+    // MERGED/CLOSED skip in `identifyCleanupCandidates`
+    // (session-cleanup.ts) rather than inventing a second convention.
+    const isTerminalSession =
+      sessionRecord?.status === SessionStatus.MERGED ||
+      sessionRecord?.status === SessionStatus.CLOSED;
+    if (!isTerminalSession) {
       const guardGitService =
         deps.gitService ?? (await (await import("../git")).createGitService());
       for (const directory of sessionDirectories) {
