@@ -72,3 +72,17 @@ export function isDispatchModelId(v: unknown): v is string {
 export function resolveDispatchModelArg(id: string): string | undefined {
   return DISPATCH_MODELS.find((m) => m.id === id)?.modelArg;
 }
+
+/**
+ * Reverse lookup (mt#3070): map a FULL model id — the shape persisted in
+ * `agent_transcripts.model` / `subagent_invocations.actual_model` (e.g.
+ * `"claude-sonnet-5"`) — to its registry short label (`"Sonnet"`).
+ *
+ * Returns `undefined` for an id with no matching `canonicalId` (an older
+ * dated model id, a provider id outside this registry, or a future tier not
+ * yet added here) — callers render the raw id in that case rather than
+ * guessing at a label.
+ */
+export function dispatchModelLabelForCanonicalId(canonicalId: string): string | undefined {
+  return DISPATCH_MODELS.find((m) => m.canonicalId === canonicalId)?.label;
+}
