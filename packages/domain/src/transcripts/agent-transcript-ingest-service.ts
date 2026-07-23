@@ -28,6 +28,20 @@
  * @see mt#1350 — TranscriptSource interface + ClaudeCodeTranscriptSource
  * @see mt#1324 — agent_transcripts schema
  * @see mt#2763 — credential scrubbing at this layer
+ *
+ * ## Inline agent-spawns extraction (mt#3109)
+ *
+ * `AgentSpawnsPipeline.runForSession(agentSessionId)` is called inline from
+ * `ingestSession()` (step "4d", right after the `writeCwdMatchLink` step) instead
+ * of via a registered `createIntervalSweeper` sweep. This is deliberate, not an
+ * oversight: spawn extraction is inherently per-parent-transcript work, which is
+ * exactly the grain `ingestSession()` already operates at, and the early return
+ * for an idempotent no-op re-ingest (see step 2 below) already gives the call the
+ * incremental behavior a bespoke watermark would otherwise need to provide — see
+ * mt#3109's spec `## Amendment 2026-07-23` for the full rationale. The pipeline
+ * dependency is injected via the constructor's optional `spawnsExtractor`
+ * parameter (defaulting to a real `AgentSpawnsPipeline`) so none of the four
+ * production call sites that construct this service need to change.
  */
 
 import { eq, sql } from "drizzle-orm";
@@ -41,12 +55,26 @@ import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcr
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
 import { writeTurnsForTranscript } from "./turn-writer";
 import { writeCwdMatchLink } from "./session-link-writer";
+import { AgentSpawnsPipeline } from "./agent-spawns-pipeline";
+import type { SpawnsPipelineRunResult } from "./agent-spawns-pipeline";
 import { scrubValueDeep, type RedactionHit } from "./credential-scrubber";
 import { recordCredentialScrub, realCredentialScrubLogDeps } from "./credential-scrub-log";
 import { resolveProjectIdentity } from "../project/identity";
 import { resolveProjectScope } from "../project/scope-resolver";
 import { isAllProjects } from "../project/scope";
 import { SYNTHETIC_MODEL_SENTINEL } from "../subagent/transcript-metrics";
+
+/**
+ * Narrow seam for the per-session spawn-extraction call `ingestSession` makes
+ * inline (mt#3109). Deliberately narrower than `AgentSpawnsPipeline` itself —
+ * a test double only needs to implement this one method, without modeling the
+ * pipeline's full drizzle select+innerJoin+insert+onConflictDoUpdate query
+ * surface across three tables, which the ingest-service test suite's
+ * hand-rolled fake DB does not support.
+ */
+export interface SpawnsExtractor {
+  runForSession(agentSessionId: string): Promise<SpawnsPipelineRunResult>;
+}
 
 /**
  * Resolve a project uuid for a transcript from its recovered `cwd`, using the
@@ -78,7 +106,13 @@ async function resolveIngestProjectId(
 export class AgentTranscriptIngestService {
   constructor(
     private readonly db: PostgresJsDatabase,
-    private readonly source: TranscriptSource
+    private readonly source: TranscriptSource,
+    /**
+     * Spawn-extraction dependency (mt#3109), defaulting to a real
+     * `AgentSpawnsPipeline` bound to `db`. Override only from tests — see this
+     * class's docblock's "Inline agent-spawns extraction" section.
+     */
+    private readonly spawnsExtractor: SpawnsExtractor = new AgentSpawnsPipeline(db)
   ) {}
 
   /**
@@ -428,6 +462,30 @@ export class AgentTranscriptIngestService {
       await writeCwdMatchLink(this.db, agentSessionId, session.cwd ?? persistedCwd);
     } catch (err) {
       log.warn(`Failed to write cwd_match link for session ${agentSessionId}`, {
+        error: getErrorMessage(err),
+      });
+    }
+
+    // ── 4d. Extract agent spawns for this parent transcript inline (mt#3109) ──
+    // AgentSpawnsPipeline.runForSession() scans ONLY this session's
+    // is_spawn_boundary turns (already materialized by writeTurnsForTranscript
+    // at step 4b above) and upserts into agent_spawns, plus writes the
+    // subagent_spawn minsky_session_links row (mt#2756) when the spawn's child
+    // conversation resolves. Reached only on THIS path — never on the
+    // idempotent-no-op early return at step 2 — so a long-lived session with
+    // many spawns is re-scanned only when it actually receives new content,
+    // not on every unattended sweep tick; this per-session grain IS the
+    // incremental behavior a bespoke watermark mode would otherwise need to
+    // provide (see mt#3109's spec `## Amendment 2026-07-23`). Idempotent
+    // (upserts on (parent_agent_session_id, parent_turn_index)) and already
+    // defensive internally — `runForSession` catches its own query failures,
+    // logs, and returns a zeroed result rather than throwing — so this
+    // try/catch is a last-resort backstop only, matching the
+    // `writeCwdMatchLink` posture immediately above.
+    try {
+      await this.spawnsExtractor.runForSession(agentSessionId);
+    } catch (err) {
+      log.warn(`Failed to extract agent spawns for session ${agentSessionId}`, {
         error: getErrorMessage(err),
       });
     }

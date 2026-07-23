@@ -15,7 +15,8 @@ import {
   extractModelFromNewLines,
   countAssistantLines,
 } from "./agent-transcript-ingest-service";
-import type { IngestAllResult } from "./agent-transcript-ingest-service";
+import type { IngestAllResult, SpawnsExtractor } from "./agent-transcript-ingest-service";
+import type { SpawnsPipelineRunResult } from "./agent-spawns-pipeline";
 import { SYNTHETIC_MODEL_SENTINEL } from "../subagent/transcript-metrics";
 import { log } from "@minsky/shared/logger";
 import { getSessionsDir } from "@minsky/shared/paths";
@@ -294,10 +295,44 @@ function makeDiscovered(sessionId: string): DiscoveredSession {
 
 type FakeDbType = ReturnType<typeof makeDb>;
 
-function makeSvc(db: FakeDbType, source: FakeTranscriptSource): AgentTranscriptIngestService {
+/** A zeroed `SpawnsPipelineRunResult` — nothing scanned, nothing written. */
+const NOOP_SPAWNS_RESULT: SpawnsPipelineRunResult = {
+  spawnsScanned: 0,
+  spawnsWritten: 0,
+  childLinkedFromMetadata: 0,
+  childLinkedFromHeuristic: 0,
+  childUnresolved: 0,
+  spawnsErrored: 0,
+  spawnLinksWritten: 0,
+  spawnLinksSkippedNoPromptMatch: 0,
+  spawnLinksErrored: 0,
+};
+
+/**
+ * Default spawns-extractor test double (mt#3109): a no-op that never touches
+ * `agent_spawns`. Existing `ingestSession`/`ingestAll` tests below predate the
+ * inline spawn-extraction call and assert on `agent_transcripts` /
+ * `minsky_session_links` state only — they don't need (and shouldn't need to
+ * model) `AgentSpawnsPipeline`'s full drizzle join/upsert query surface, which
+ * this file's hand-rolled `makeDb` fake doesn't support. Tests that DO care
+ * about the new call (see "agent-spawns extraction at ingest (mt#3109)"
+ * below) pass their own spy-based `spawnsExtractor` override instead.
+ */
+function makeNoopSpawnsExtractor(): SpawnsExtractor {
+  return {
+    runForSession: async () => ({ ...NOOP_SPAWNS_RESULT }),
+  };
+}
+
+function makeSvc(
+  db: FakeDbType,
+  source: FakeTranscriptSource,
+  spawnsExtractor: SpawnsExtractor = makeNoopSpawnsExtractor()
+): AgentTranscriptIngestService {
   return new AgentTranscriptIngestService(
     db as unknown as import("drizzle-orm/postgres-js").PostgresJsDatabase,
-    source
+    source,
+    spawnsExtractor
   );
 }
 
@@ -1006,6 +1041,124 @@ describe("AgentTranscriptIngestService", () => {
       expect(persisted).toContain("no secrets here, just output");
       expect(persisted).not.toContain("[REDACTED:");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Agent-spawns extraction at ingest (mt#3109)
+//
+// AgentSpawnsPipeline.runForSession() is called inline from ingestSession()
+// instead of via a registered sweep — see this task's spec `## Amendment
+// 2026-07-23` and the ingest-service's own "Inline agent-spawns extraction"
+// docblock section for the rationale. These tests cover the call site's
+// contract: WHEN it fires, that a failure inside it never fails the ingest,
+// and that the production default (no override) composes safely.
+// ---------------------------------------------------------------------------
+
+describe("agent-spawns extraction at ingest (mt#3109)", () => {
+  /** A spy-based SpawnsExtractor recording every `runForSession` call. */
+  function makeSpySpawnsExtractor(impl?: (agentSessionId: string) => Promise<void>): {
+    extractor: SpawnsExtractor;
+    calls: string[];
+  } {
+    const calls: string[] = [];
+    const extractor: SpawnsExtractor = {
+      async runForSession(agentSessionId: string) {
+        calls.push(agentSessionId);
+        if (impl) await impl(agentSessionId);
+        return { ...NOOP_SPAWNS_RESULT };
+      },
+    };
+    return { extractor, calls };
+  }
+
+  test("calls the spawns-extractor's runForSession with the ingested session's id when new lines are written", async () => {
+    const lines = makeLines([TS1, TS2]);
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, lines);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+    const { extractor, calls } = makeSpySpawnsExtractor();
+
+    const svc = makeSvc(db, source, extractor);
+    const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+    expect(result.error).toBeUndefined();
+    expect(calls).toEqual([SESSION_A]);
+  });
+
+  test("does NOT call the spawns-extractor on an idempotent re-ingest with no new lines", async () => {
+    const lines = makeLines([TS1]);
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, lines);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+    const { extractor, calls } = makeSpySpawnsExtractor();
+    const svc = makeSvc(db, source, extractor);
+
+    // First ingest writes the line and advances the high-water-mark.
+    await svc.ingestSession(makeDiscovered(SESSION_A));
+    expect(calls).toEqual([SESSION_A]);
+
+    // Second ingest of the SAME unchanged source is the idempotent no-op
+    // path (no new lines past the stored high-water-mark) — confirms the
+    // "reached only on new-content path" incrementality claim.
+    db._primeSession(SESSION_A);
+    const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+    expect(result.ingested).toBe(0);
+    expect(calls).toEqual([SESSION_A]); // still just the one call from the first ingest
+  });
+
+  test("a thrown/rejected runForSession call does not propagate out of ingestSession", async () => {
+    const lines = makeLines([TS1]);
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, lines);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+    const throwingExtractor: SpawnsExtractor = {
+      runForSession: async () => {
+        throw new Error("simulated spawn-extraction failure");
+      },
+    };
+
+    const svc = makeSvc(db, source, throwingExtractor);
+    const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+    // Matches the writeCwdMatchLink defensive posture: a spawn-extraction
+    // failure is logged (not asserted here) but never fails the ingest.
+    expect(result.error).toBeUndefined();
+    const row = state.get(SESSION_A);
+    expect(row?.transcript?.length).toBe(1);
+  });
+
+  test("with no constructor override, a query failure inside the real default AgentSpawnsPipeline does not propagate", async () => {
+    const lines = makeLines([TS1]);
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, lines);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+
+    // Deliberately bypass makeSvc's no-op default: construct with ONLY
+    // (db, source) so the constructor's default parameter builds a REAL
+    // AgentSpawnsPipeline bound to this fake db. That pipeline's own
+    // `runForSession` issues a `.select().from().innerJoin()...` query this
+    // hand-rolled fake doesn't implement (no `.innerJoin`) — proving the
+    // production default composes safely (AgentSpawnsPipeline's own internal
+    // try/catch logs and returns a zeroed result) even without an injected
+    // test double.
+    const svc = new AgentTranscriptIngestService(
+      db as unknown as import("drizzle-orm/postgres-js").PostgresJsDatabase,
+      source
+    );
+    const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+    expect(result.error).toBeUndefined();
+    const row = state.get(SESSION_A);
+    expect(row?.transcript?.length).toBe(1);
   });
 });
 
