@@ -63,6 +63,7 @@ function parseArgs(argv: string[]): { detectors: string[]; windowDays: number; j
   const detectors: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a === undefined) continue;
     if (a === "--json") continue;
     if (a === "--window-days") {
       const v = Number(argv[++i]);

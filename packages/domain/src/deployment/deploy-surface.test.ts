@@ -8,6 +8,7 @@ import {
 
 // Reused fixture paths extracted to constants (custom/no-magic-string-duplication).
 const REVIEWER_DOCKERFILE = "services/reviewer/Dockerfile";
+const ROOT_DOCKERFILE = "Dockerfile";
 const DEPLOY_WORKFLOW = ".github/workflows/deploy.yml";
 
 describe("isDeploySurfaceFile", () => {
@@ -21,6 +22,20 @@ describe("isDeploySurfaceFile", () => {
     expect(isDeploySurfaceFile("services/reviewer/railway.json")).toBe(true);
     expect(isDeploySurfaceFile("services/reviewer/deploy.config.ts")).toBe(true);
     expect(isDeploySurfaceFile("services/reviewer/railway.config.ts")).toBe(true);
+  });
+
+  test("mt#3023: matches the ROOT Dockerfile — the minsky-mcp image", () => {
+    // The per-service pattern is anchored to `services/<name>/`, so before
+    // mt#3023 the root Dockerfile — the file that defines the deployed MCP
+    // image — matched nothing and skipped the deploy-verification gate.
+    expect(isDeploySurfaceFile(ROOT_DOCKERFILE)).toBe(true);
+    expect(isDeploySurfaceFile("./Dockerfile")).toBe(true);
+  });
+
+  test("mt#3023: the root-Dockerfile pattern is anchored, not a suffix match", () => {
+    expect(isDeploySurfaceFile("cockpit-tray/Dockerfile")).toBe(false);
+    expect(isDeploySurfaceFile("docs/examples/Dockerfile")).toBe(false);
+    expect(isDeploySurfaceFile("Dockerfile.dev")).toBe(false);
   });
 
   test("matches deploy workflow files (bare and per-service)", () => {
@@ -109,6 +124,15 @@ describe("findAffectedServices", () => {
   test("treats infra/ changes as affecting every known service (broad impact)", () => {
     const result = findAffectedServices(["infra/index.ts"], available);
     expect(result.services).toEqual(["cockpit", "reviewer", "site"]);
+  });
+
+  test("mt#3023: treats the root Dockerfile as broad impact (not service-scoped)", () => {
+    // `extractServiceFromPath` returns undefined for an unscoped path, so the
+    // root Dockerfile lands on the conservative side — every known service is
+    // watched rather than none.
+    const result = findAffectedServices([ROOT_DOCKERFILE], available);
+    expect(result.services).toEqual(["cockpit", "reviewer", "site"]);
+    expect(result.matchedFiles).toEqual([ROOT_DOCKERFILE]);
   });
 
   test("treats a bare deploy workflow file as broad impact", () => {

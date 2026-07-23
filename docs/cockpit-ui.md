@@ -193,8 +193,11 @@ Returns `201` with `{ sessionId, harnessSessionId, cwd, taskId,
 minskySessionId, permissionMode, status, pid, startedAt, exitCode, argv }` —
 `sessionId` is the spawn-time local id that addresses `/driven/:id` and the
 per-session WebSocket. Companions: `POST /api/driven-session/:id/stop`
-(graceful stop) and `GET /api/driven-session` (registry snapshot, same row
-shape).
+(graceful stop), `GET /api/driven-session` (registry snapshot, same row
+shape), and `GET /api/driven-session/turn-active` (mt#3048 — cheap "is any
+session mid-turn" signal consumed by the cockpit-tray watcher's pre-restart
+gate; see `docs/architecture/cockpit.md`'s Operator endpoints table for
+detail).
 
 ### `GET /api/health`
 

@@ -227,7 +227,7 @@ describe("agent-identity independence", () => {
   it("denies a call whose agent_id differs from whatever agent_id issued the declaration", () => {
     // The declaration schema carries no agentId field at all — matching is
     // purely session-scoped. A fork's own distinct agent_id is irrelevant.
-    const declarations = [makeDeclaration({ issuedBy: "session.generate_prompt:mt#2828" })];
+    const declarations = [makeDeclaration({ issuedBy: "session.generate_prompt:mt#2865" })];
     const forkInput = makeInput({
       agent_id: "agent-fork-xyz-completely-different-from-parent",
       tool_name: SESSION_PR_EDIT_TOOL,
@@ -266,7 +266,7 @@ describe("buildDenialMessage", () => {
 // Acceptance walk (mt#2865): the incident fork's session_pr_edit
 // ---------------------------------------------------------------------------
 
-describe("acceptance walk — the mt#2828 incident fork's session_pr_edit", () => {
+describe("acceptance walk — the mt#2865 incident fork's session_pr_edit", () => {
   it("would have been denied had the orchestrator declared read-only intent before forking", () => {
     // Reconstructed from the mt#2865 spec's "Incident reconstruction" section:
     // the fork operated with cwd inside the shared session workspace
@@ -278,7 +278,7 @@ describe("acceptance walk — the mt#2828 incident fork's session_pr_edit", () =
     const declarations = [
       makeDeclaration({
         reason: "search memory for reviewer-empty-findings context, report back under 300 words",
-        issuedBy: "session.generate_prompt:mt#2828",
+        issuedBy: "session.generate_prompt:mt#2865",
       }),
     ];
     const forkPrEditCall = makeInput({

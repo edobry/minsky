@@ -10,21 +10,15 @@ import * as fs from "fs/promises";
 import { classifyRuleType, RuleType } from "../../rule-classifier";
 import type { Rule } from "../../types";
 import type { CompileTarget, CompileResult, TargetOptions } from "../types";
-import { evaluateSizeBudget, type SizeBudget } from "../size-budget";
+import { evaluateSizeBudget } from "../../../compile/size-budget";
+import { DEFAULT_AGENTS_MD_SIZE_BUDGET } from "../../../compile/agents-md-size-budget";
 
-/**
- * Default size budget for AGENTS.md (mt#2802).
- *
- * Proportionate to CLAUDE.md's budget (`DEFAULT_CLAUDE_MD_SIZE_BUDGET`),
- * grounded in AGENTS.md's larger current corpus footprint (~150.8k chars as
- * of 2026-07-15) — both `warnChars` and `failChars` sit comfortably above
- * that baseline so the defaults pass cleanly on the current corpus while
- * still catching future unbounded regrowth.
- */
-export const DEFAULT_AGENTS_MD_SIZE_BUDGET: SizeBudget = {
-  warnChars: 160_000,
-  failChars: 200_000,
-};
+// `DEFAULT_AGENTS_MD_SIZE_BUDGET` is imported (not declared here) so both
+// this legacy target and the new pipeline's `agents-md.ts` share one
+// threshold and cannot silently re-diverge (mt#3076 — see
+// `agents-md-size-budget.ts` for the full rationale, including why the
+// thresholds were raised well above the mt#2802 originals).
+export { DEFAULT_AGENTS_MD_SIZE_BUDGET };
 
 /**
  * Default section mapping for AGENTS.md target

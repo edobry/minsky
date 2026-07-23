@@ -83,14 +83,19 @@ function computeStats(samples: number[]): Stats {
   const sorted = [...samples].sort((a, b) => a - b);
   const n = sorted.length;
   if (n === 0) return { count: 0, median: 0, p95: 0, min: 0, max: 0 };
-  const median = n % 2 === 0 ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 : sorted[Math.floor(n / 2)];
+  const at = (i: number): number => {
+    const v = sorted[i];
+    if (v === undefined) throw new Error(`computeStats: index ${i} out of bounds (n=${n})`);
+    return v;
+  };
+  const median = n % 2 === 0 ? (at(n / 2 - 1) + at(n / 2)) / 2 : at(Math.floor(n / 2));
   const p95Index = Math.min(n - 1, Math.floor(n * 0.95));
   return {
     count: n,
     median,
-    p95: sorted[p95Index],
-    min: sorted[0],
-    max: sorted[n - 1],
+    p95: at(p95Index),
+    min: at(0),
+    max: at(n - 1),
   };
 }
 
@@ -219,7 +224,11 @@ async function measureOne(entry: string): Promise<IterationResult | null> {
         const line = stderrBuf.slice(0, newlineIdx);
         stderrBuf = stderrBuf.slice(newlineIdx + 1);
         const m = line.match(/^\[profile\] checkpoint=(\S+) t=([\d.]+)/);
-        if (m) checkpoints.set(m[1], Number(m[2]));
+        if (m) {
+          const name = m[1];
+          const t = m[2];
+          if (name !== undefined && t !== undefined) checkpoints.set(name, Number(t));
+        }
       }
     });
 
@@ -332,10 +341,16 @@ function computeStageCosts(stats: PathStats): CostContributor[] {
   const cps = stats.checkpoints;
   if (cps.length === 0) return [];
 
+  const at = (i: number): CheckpointStats => {
+    const v = cps[i];
+    if (v === undefined) throw new Error(`computeStageCosts: index ${i} out of bounds`);
+    return v;
+  };
+
   const stages: CostContributor[] = [];
 
   // Synthetic: spawn → first checkpoint.
-  const first = cps[0];
+  const first = at(0);
   if (first.median > 0) {
     stages.push({
       stage: `spawn → ${first.name} (bun startup + reflect-metadata)`,
@@ -345,8 +360,8 @@ function computeStageCosts(stats: PathStats): CostContributor[] {
 
   // Adjacent-checkpoint differences.
   for (let i = 1; i < cps.length; i++) {
-    const prev = cps[i - 1];
-    const curr = cps[i];
+    const prev = at(i - 1);
+    const curr = at(i);
     const delta = curr.median - prev.median;
     if (delta > 0) {
       stages.push({ stage: `${prev.name} → ${curr.name}`, medianMs: delta });
@@ -354,7 +369,7 @@ function computeStageCosts(stats: PathStats): CostContributor[] {
   }
 
   // Synthetic: last checkpoint → initialize response on the wire.
-  const last = cps[cps.length - 1];
+  const last = at(cps.length - 1);
   const handshake = stats.initializeWallClock.median - last.median;
   if (handshake > 0) {
     stages.push({

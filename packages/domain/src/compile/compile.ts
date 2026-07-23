@@ -11,6 +11,8 @@ import { resolveWorkspacePath } from "../workspace";
 import { createMinskyCompileService, type MinskyCompileService } from "./compile-service";
 import type { MinskyCompileServiceResult, MinskyCompileTargetOutcome } from "./compile-service";
 import type { MinskyCompileFsDeps } from "./types";
+import type { SizeBudget } from "./size-budget";
+import type { MemoryLoadingMode } from "../configuration/schemas/memory";
 import { unknownCompileTargetMessage } from "../rules/compile/target-error-hint";
 
 export interface RunMinskyCompileOptions {
@@ -26,6 +28,17 @@ export interface RunMinskyCompileOptions {
   workspacePath?: string;
   /** Injectable fs for testing — target-probing and pass-through to the compile service. Uses real fs/promises when omitted. */
   fsDeps?: MinskyCompileFsDeps;
+  /**
+   * Per-call size-budget override (mt#2992, threaded from the CLI's
+   * `warnChars`/`failChars` params). Only `claude.md`/`agents.md` read this
+   * — every other target ignores it.
+   */
+  sizeBudget?: Partial<SizeBudget>;
+  /**
+   * Memory-loading mode (mt#2992, threaded from config at the CLI layer).
+   * Only `claude.md` reads this — every other target ignores it.
+   */
+  memoryLoadingMode?: MemoryLoadingMode;
 }
 
 /**
@@ -100,6 +113,8 @@ async function compileSingleMinskyTarget(
       outputPath: options.output,
       dryRun: options.dryRun,
       check: options.check,
+      sizeBudget: options.sizeBudget,
+      memoryLoadingMode: options.memoryLoadingMode,
     },
     options.fsDeps
   );

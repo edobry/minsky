@@ -27,6 +27,7 @@ import type { RequestExtras } from "@minsky/domain/agent-identity/layer2";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { MCPClientCapabilityRegistry } from "./client-capabilities";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
+import { emitBraintrustEvent } from "@minsky/domain/observability/braintrust";
 import { enrichToolResponse } from "./middleware/memory-enrichment";
 import {
   enrichWakeResponse,
@@ -414,6 +415,12 @@ export class MinskyMCPServer {
   // code was still fully able to serve the request.
   private draining = false;
   private nextRequestId = 0;
+
+  // mt#1884: injectable per-tool dispatch latency emitter. Defaults to the shared
+  // Braintrust emitter; overridable in tests (instance-field DI) so latency
+  // instrumentation can be asserted without a global module mock
+  // (custom/no-global-module-mocks).
+  private emitDispatchEvent: typeof emitBraintrustEvent = emitBraintrustEvent;
 
   // Staleness signal tracking
   private hasTriggeredStaleSignal = false;
@@ -1058,6 +1065,17 @@ export class MinskyMCPServer {
       // Resolve agentId once per tool call — used for last-touched-by semantics
       const agentId = this.resolveCallerAgentId(server, extra as RequestExtras | undefined);
 
+      // mt#1884: per-tool dispatch latency instrumentation (flat Braintrust event).
+      // Start timestamp captured at dispatch entry; the event is emitted once in the
+      // `finally` below so it fires on both success and error paths. `outcome` defaults
+      // to "error" and is flipped to "success" immediately before the successful return;
+      // `error_class` is captured in the inner catch. This is the Phase-1 flat-event
+      // level of the mt#1778 trace-shape program (Phase-2 turn/step spans = mt#1837,
+      // which must first extend the flat-only shared emitter).
+      const dispatchStartMs = Date.now();
+      let dispatchOutcome: "success" | "error" = "error";
+      let dispatchErrorClass: string | undefined;
+
       try {
         const tool = this.tools.get(request.params.name);
         if (!tool) {
@@ -1205,6 +1223,7 @@ export class MinskyMCPServer {
           );
 
           // Return MCP-compliant tool response
+          dispatchOutcome = "success";
           return {
             content: [
               {
@@ -1216,6 +1235,7 @@ export class MinskyMCPServer {
             ],
           };
         } catch (error) {
+          dispatchErrorClass = error instanceof Error ? error.name : typeof error;
           // mt#1831: surface the underlying `.cause` chain so operators can
           // discriminate stale-connection failures (ECONNRESET, Connection
           // terminated) from real DB errors (schema mismatch, constraint
@@ -1246,8 +1266,39 @@ export class MinskyMCPServer {
           }
           throw new Error(`Tool execution failed: ${wireMessage}`, { cause: error });
         }
+      } catch (dispatchError) {
+        // mt#1884: capture error_class for pre-dispatch throws (e.g. unknown tool)
+        // that bypass the inner catch, so the emitted latency event's error shape is
+        // consistent across all failure paths. The inner catch already sets
+        // dispatchErrorClass on the handler-throw path; only fill it when still unset.
+        if (dispatchErrorClass === undefined) {
+          dispatchErrorClass =
+            dispatchError instanceof Error ? dispatchError.name : typeof dispatchError;
+        }
+        throw dispatchError;
       } finally {
         this.inFlightRequests.delete(trackingId);
+
+        // mt#1884: emit the per-tool dispatch latency event (fire-and-forget).
+        // `void` preserves the handler's control flow; the shared emitter never
+        // throws and silently no-ops when Braintrust is unconfigured (e.g. CI).
+        const dispatchDurationMs = Date.now() - dispatchStartMs;
+        void this.emitDispatchEvent({
+          output: {
+            tool_name: request.params.name,
+            duration_ms: dispatchDurationMs,
+            outcome: dispatchOutcome,
+            ...(dispatchErrorClass ? { error_class: dispatchErrorClass } : {}),
+          },
+          metadata: {
+            request_id: String(trackingId),
+            // The session/peer dimension (active-sessions count) is deferred to
+            // mt#2289, which designs it deliberately; a per-connection identifier
+            // is intentionally NOT emitted here (reviewer note on PR #2200).
+            source: "minsky.mcp.server",
+            timestamp: new Date(dispatchStartMs).toISOString(),
+          },
+        });
       }
     });
 

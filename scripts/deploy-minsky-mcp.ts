@@ -65,7 +65,6 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
-import { applyServiceInstanceUpdate } from "./railway/lib";
 
 // ---------------------------------------------------------------------------
 // Manifest — service-specific constants. Everything that isn't a secret.
@@ -547,11 +546,25 @@ async function patchServiceRootDirectory(
   environmentId: string,
   rootDirectory: string
 ): Promise<void> {
-  // Delegates to the hoisted applyServiceInstanceUpdate primitive in
-  // scripts/railway/lib.ts (mt#1964 R3). The local `graphql` helper above
-  // services this script's other GraphQL calls (variableCollectionUpsert,
-  // listRepoTriggers, etc.) and is not affected by this delegation.
-  await applyServiceInstanceUpdate(serviceId, environmentId, { rootDirectory });
+  // mt#1964 R3: `scripts/railway/lib.ts` (the module this previously
+  // delegated to) does not exist in this repo — restored inline via the
+  // same `graphql<T>()` helper this file's other mutations use
+  // (variableCollectionUpsert above), against Railway's standard
+  // `serviceInstanceUpdate` mutation. rootDirectory is top-level on
+  // ServiceInstance, NOT nested under `source` (see file header gotchas).
+  type R = { serviceInstanceUpdate: boolean };
+  await graphql<R>(
+    `
+      mutation ($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) {
+        serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input)
+      }
+    `,
+    {
+      serviceId,
+      environmentId,
+      input: { rootDirectory },
+    }
+  );
 }
 
 // ---------------------------------------------------------------------------

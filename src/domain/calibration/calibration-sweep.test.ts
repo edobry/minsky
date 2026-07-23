@@ -18,6 +18,7 @@ import {
   calibrationRecordToFireLogEntry,
   calibrationLogAsFireLogEntries,
   readAllCalibrationLogsAsFireLogEntries,
+  findInvalidLiveSinceDates,
   FIRES_THRESHOLD,
   DIVERSITY_THRESHOLD,
   STALE_DAYS_MS,
@@ -169,6 +170,93 @@ describe("CALIBRATION_LOG_REGISTRY", () => {
       ".minsky/build-claim-injection-calibration.jsonl"
     );
     expect(CALIBRATION_LOG_REGISTRY[8]?.reviewByDays).toBe(30);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findInvalidLiveSinceDates (PR #2207 R1 review — liveSinceDate bit-rot guard)
+// ---------------------------------------------------------------------------
+
+describe("findInvalidLiveSinceDates", () => {
+  const NOW_MS = Date.parse("2026-08-01T00:00:00Z");
+
+  test("returns [] when no entry declares liveSinceDate", () => {
+    const entries: CalibrationLogEntry[] = [
+      { path: CAUSAL_PATH, name: "causal-premise", kind: "causal-premise" },
+    ];
+    expect(findInvalidLiveSinceDates(entries, NOW_MS)).toEqual([]);
+  });
+
+  test("returns [] when liveSinceDate is a valid past date", () => {
+    const entries: CalibrationLogEntry[] = [
+      {
+        path: CAUSAL_PATH,
+        name: "causal-premise",
+        kind: "causal-premise",
+        liveSinceDate: "2026-07-23",
+      },
+    ];
+    expect(findInvalidLiveSinceDates(entries, NOW_MS)).toEqual([]);
+  });
+
+  test("flags a liveSinceDate that is in the future relative to nowMs", () => {
+    const entries: CalibrationLogEntry[] = [
+      {
+        path: CAUSAL_PATH,
+        name: "causal-premise",
+        kind: "causal-premise",
+        liveSinceDate: "2099-01-01",
+      },
+    ];
+    const result = findInvalidLiveSinceDates(entries, NOW_MS);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({
+      name: "causal-premise",
+      liveSinceDate: "2099-01-01",
+      reason: "future",
+    });
+  });
+
+  test("flags an unparseable liveSinceDate", () => {
+    const entries: CalibrationLogEntry[] = [
+      {
+        path: CAUSAL_PATH,
+        name: "causal-premise",
+        kind: "causal-premise",
+        liveSinceDate: "not-a-date",
+      },
+    ];
+    const result = findInvalidLiveSinceDates(entries, NOW_MS);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.reason).toBe("unparseable");
+  });
+
+  test("checks every entry independently, not just the first invalid one", () => {
+    const entries: CalibrationLogEntry[] = [
+      {
+        path: CAUSAL_PATH,
+        name: "ok-entry",
+        kind: "causal-premise",
+        liveSinceDate: "2026-01-01",
+      },
+      {
+        path: RETRO_PATH,
+        name: "future-entry",
+        kind: RETRO_KIND,
+        liveSinceDate: "2099-01-01",
+      },
+    ];
+    const result = findInvalidLiveSinceDates(entries, NOW_MS);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.name).toBe("future-entry");
+  });
+
+  test("regression guard: the REAL CALIBRATION_LOG_REGISTRY has no invalid liveSinceDate entries", () => {
+    // This is the actual bit-rot guard the PR #2207 R1 review requested: run
+    // against the live registry (not a fixture) on every test run, so a
+    // future entry with a typo'd or accidentally-future-dated liveSinceDate
+    // fails CI immediately rather than silently rotting.
+    expect(findInvalidLiveSinceDates(CALIBRATION_LOG_REGISTRY, Date.now())).toEqual([]);
   });
 });
 
@@ -1493,6 +1581,68 @@ describe("computeReviewDueLogs (mt#2896)", () => {
       [entry.path]: { lastReviewedCount: 5, lastReviewedAt: new Date(NOW - DAY).toISOString() },
     };
     expect(computeReviewDueLogs(results, watermarks, NOW)).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // condition 4 — never-fired (mt#3078): a detector with ZERO total fires and
+  // no watermark, but its registry entry declares `liveSinceDate` (confirmed
+  // alive via a live synthetic test). Closes the residual blind spot: a
+  // detector whose real-world trigger is a rare compound condition can sit at
+  // true-zero fires forever, which condition 3 (never-reviewed) can't reach
+  // because it requires >=1 fire to anchor from.
+  // -------------------------------------------------------------------------
+
+  test("condition 4 — flags a zero-fire log whose liveSinceDate is >= the review window old", () => {
+    const entry = reviewEntry(BUILD_CLAIM_INJECTION_KIND, {
+      reviewByDays: 30,
+      liveSinceDate: new Date(NOW - 31 * DAY).toISOString(),
+    });
+    const results = [reviewResult(entry, { totalFires: 0, firesSinceLastReview: 0 })];
+    const due = computeReviewDueLogs(results, {}, NOW);
+    expect(due).toHaveLength(1);
+    expect(due[0]?.reason).toBe("never-fired");
+    expect(due[0]?.reviewByDays).toBe(30);
+  });
+
+  test("condition 4 — does NOT flag a zero-fire log whose liveSinceDate is within the review window (29 days)", () => {
+    const entry = reviewEntry(BUILD_CLAIM_INJECTION_KIND, {
+      reviewByDays: 30,
+      liveSinceDate: new Date(NOW - 29 * DAY).toISOString(),
+    });
+    const results = [reviewResult(entry, { totalFires: 0, firesSinceLastReview: 0 })];
+    expect(computeReviewDueLogs(results, {}, NOW)).toHaveLength(0);
+  });
+
+  test("condition 4 — does NOT flag a zero-fire log with no liveSinceDate declared (silent forever, unchanged pre-mt#3078 behavior)", () => {
+    const entry = reviewEntry("some-other-detector");
+    const results = [reviewResult(entry, { totalFires: 0, firesSinceLastReview: 0 })];
+    expect(computeReviewDueLogs(results, {}, NOW)).toHaveLength(0);
+  });
+
+  test("condition 4 — a malformed liveSinceDate is ignored (never flagged, not a throw)", () => {
+    const entry = reviewEntry(BUILD_CLAIM_INJECTION_KIND, {
+      reviewByDays: 30,
+      liveSinceDate: "not-a-date",
+    });
+    const results = [reviewResult(entry, { totalFires: 0, firesSinceLastReview: 0 })];
+    expect(computeReviewDueLogs(results, {}, NOW)).toHaveLength(0);
+  });
+
+  test("condition 4 — a non-zero-fire log ignores liveSinceDate entirely and takes the never-reviewed leg instead", () => {
+    const entry = reviewEntry(BUILD_CLAIM_INJECTION_KIND, {
+      reviewByDays: 30,
+      liveSinceDate: new Date(NOW - 90 * DAY).toISOString(),
+    });
+    const results = [
+      reviewResult(entry, {
+        totalFires: 1,
+        firesSinceLastReview: 1,
+        firstRecordTimestamp: new Date(NOW - 1 * DAY).toISOString(),
+      }),
+    ];
+    // firstRecordTimestamp is only 1 day old -> not past the 30-day window,
+    // so this should NOT be flagged via either leg once totalFires > 0.
+    expect(computeReviewDueLogs(results, {}, NOW)).toHaveLength(0);
   });
 });
 

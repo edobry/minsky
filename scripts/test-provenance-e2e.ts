@@ -19,7 +19,7 @@
  */
 
 import "reflect-metadata";
-import { setupConfiguration } from "../src/config-setup";
+import { setupConfiguration } from "@minsky/domain/config-setup";
 await setupConfiguration();
 
 import { getConfiguration } from "@minsky/domain/configuration/index";
@@ -33,10 +33,15 @@ import { createCompletionService } from "@minsky/domain/ai/service-factory";
 import type { ResolvedConfig } from "@minsky/domain/configuration/types";
 import { eq } from "drizzle-orm";
 import { provenanceTable } from "@minsky/domain/storage/schemas/provenance-schema";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 
 const persistence = new PersistenceService();
 await persistence.initialize();
-const provider = persistence.getProvider();
+// Narrow via SqlCapablePersistenceProvider per PersistenceProvider's own doc
+// comment ("callers that need typed connections should narrow via
+// SqlCapablePersistenceProvider") - the base class's getDatabaseConnection
+// is declared Promise<unknown> since subclasses vary.
+const provider = persistence.getProvider() as SqlCapablePersistenceProvider;
 const db = await provider.getDatabaseConnection();
 if (!db) throw new Error("No database connection");
 

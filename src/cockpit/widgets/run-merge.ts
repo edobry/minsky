@@ -60,6 +60,28 @@
  * `<command-message>error-handling</command-message>`) is skipped in favor
  * of the next substantive user turn, bounded to
  * `conversation-label.ts`'s `MAX_USER_TURN_CANDIDATES`.
+ *
+ * Per-node model (mt#3070) — plan-time populated-ness check + source choice:
+ * `agent_transcripts.model` is selected below and threaded through
+ * `SubagentEntry.model` / `WorkspaceConversationAttrs.model` /
+ * `StandaloneRunRow.model`. A read-only count at plan time (2026-07-23)
+ * found NEITHER candidate source populated in production today:
+ *   - `agent_transcripts.model`: 0 of 1729 rows non-null.
+ *   - `subagent_invocations.actual_model`: 0 of 86 rows non-null.
+ *   - `subagent_invocations.suggested_model`: 86 of 86 rows non-null (100%),
+ *     but `subagent_invocations.agent_session_id` — the column that would
+ *     join a row back to this module's conversationId-keyed entries — is
+ *     NULL on all 86 rows, so there is no working join key to attach it to
+ *     a specific tree node today. `agent_transcripts.model` was chosen as
+ *     the primary (and, for now, only) source because it is selected on the
+ *     SAME table this module already queries by `agentSessionId` — no new
+ *     join, no new query — whereas the `subagent_invocations` fallback the
+ *     mt#3070 spec allowed for is currently unwireable at the per-node grain
+ *     even though its populated field (`suggested_model`) looks promising.
+ *     Whatever eventually populates `agent_transcripts.model` (a separate,
+ *     out-of-scope ingest-pipeline gap — the ingest pipeline never writes
+ *     it) will start rendering here automatically once fixed, with zero
+ *     further plumbing changes.
  */
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -102,6 +124,15 @@ export interface SubagentEntry {
   startedAt: string | null;
   /** Terminal timestamp when the subagent conversation ended; null = still running (mt#2884). */
   endedAt: string | null;
+  /**
+   * Model the subagent ran on (mt#3070), sourced from `agent_transcripts.model`
+   * — the column already keyed on this row's `conversationId`/agentSessionId.
+   * `null` when the underlying transcript row has no model recorded (the
+   * common case today — see run-merge.ts's module doc for the plan-time
+   * populated-ness finding); the frontend renders that as an explicit unknown
+   * state, never a guess.
+   */
+  model: string | null;
 }
 
 /** Fields the merge attaches to an existing workspace ("dispatched-agent") row. */
@@ -109,6 +140,8 @@ export interface WorkspaceConversationAttrs {
   conversationId: string | null;
   cwd: string | null;
   subagents: SubagentEntry[];
+  /** Model of the row's best-linked conversation (mt#3070); null when unknown. */
+  model: string | null;
 }
 
 /** A standalone top-level row the merge produces (principal conversation or subagent group). */
@@ -126,6 +159,14 @@ export interface StandaloneRunRow {
   conversationId: string | null;
   cwd: string | null;
   subagents: SubagentEntry[];
+  /**
+   * Model the row's own conversation ran on (mt#3070). Always `null` for a
+   * synthetic "subagent-group" row (mt#2767's collapsed-parent-not-shown
+   * case) — a group aggregates N children with potentially different
+   * models, so there is no single row-level model to report; see each
+   * child's own `subagents[].model` instead.
+   */
+  model: string | null;
 }
 
 export interface RunMergeResult {
@@ -230,6 +271,10 @@ export async function mergeConversationRows(
         cwd: agentTranscriptsTable.cwd,
         startedAt: agentTranscriptsTable.startedAt,
         endedAt: agentTranscriptsTable.endedAt,
+        // mt#3070 — model the conversation ran on; column already exists on
+        // this table (agentSessionId-keyed, matching this row's identity),
+        // simply not selected before this task.
+        model: agentTranscriptsTable.model,
       })
       .from(agentTranscriptsTable)
       .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)
@@ -247,6 +292,9 @@ export async function mergeConversationRows(
               detectedAt: minskySessionLinksTable.detectedAt,
               startedAt: agentTranscriptsTable.startedAt,
               cwd: agentTranscriptsTable.cwd,
+              // mt#3070 — model of the linked conversation, so the
+              // workspace ("dispatched-agent") row can show it too.
+              model: agentTranscriptsTable.model,
             })
             .from(minskySessionLinksTable)
             .innerJoin(
@@ -296,6 +344,9 @@ export async function mergeConversationRows(
       { agentSessionId: string; confidence: number | null; startedAt: Date | string | null }[]
     >();
     const cwdByLinkedConversationId = new Map<string, string | null>();
+    // mt#3070 — model of each candidate linked conversation, keyed the same
+    // way as cwdByLinkedConversationId above.
+    const modelByLinkedConversationId = new Map<string, string | null>();
     for (const row of workspaceLinkRows) {
       const list = linkCandidatesByWorkspace.get(row.minskySessionId) ?? [];
       list.push({
@@ -305,6 +356,7 @@ export async function mergeConversationRows(
       });
       linkCandidatesByWorkspace.set(row.minskySessionId, list);
       cwdByLinkedConversationId.set(row.agentSessionId, row.cwd);
+      modelByLinkedConversationId.set(row.agentSessionId, row.model);
     }
 
     const workspaceAttrsBySessionId = new Map<string, WorkspaceConversationAttrs>();
@@ -315,6 +367,7 @@ export async function mergeConversationRows(
         conversationId: best?.agentSessionId ?? null,
         cwd: best ? (cwdByLinkedConversationId.get(best.agentSessionId) ?? null) : null,
         subagents: [],
+        model: best ? (modelByLinkedConversationId.get(best.agentSessionId) ?? null) : null,
       });
       if (best) workspaceSessionIdByConversationId.set(best.agentSessionId, minskySessionId);
     }
@@ -359,6 +412,7 @@ export async function mergeConversationRows(
           cwd: row.cwd,
           startedAt: row.startedAt?.toISOString() ?? null,
           endedAt: row.endedAt?.toISOString() ?? null,
+          model: row.model,
         };
         const list = subagentsByParent.get(spawn.parentId) ?? [];
         list.push(entry);
@@ -380,6 +434,7 @@ export async function mergeConversationRows(
         conversationId: row.agentSessionId,
         cwd: row.cwd,
         subagents: [],
+        model: row.model,
       };
       principalRows.push(principalRow);
       principalRowById.set(row.agentSessionId, principalRow);
@@ -418,6 +473,10 @@ export async function mergeConversationRows(
         conversationId: null,
         cwd: null,
         subagents: entries,
+        // A collapsed group aggregates N children with potentially different
+        // models — no single row-level model to report (see each child's own
+        // subagents[].model instead; see the StandaloneRunRow.model doc comment).
+        model: null,
       });
     }
 

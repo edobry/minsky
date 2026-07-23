@@ -25,6 +25,7 @@ import {
   Anchor,
   X,
 } from "lucide-react";
+import { dispatchModelLabelForCanonicalId } from "@minsky/domain/ai/dispatch-models";
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
@@ -59,6 +60,8 @@ interface SubagentEntry {
   startedAt: string | null;
   /** Terminal timestamp; null = still running (mt#2884). */
   endedAt: string | null;
+  /** Model the subagent ran on (mt#3070); null = unknown (never a guess). */
+  model: string | null;
 }
 
 // Inline mirror of the server AgentRow shape — frontend must stay self-contained
@@ -78,6 +81,8 @@ export interface AgentRow {
   conversationId: string | null;
   cwd: string | null;
   subagents: SubagentEntry[];
+  /** Model the row's own conversation ran on (mt#3070); null = unknown (never a guess). */
+  model: string | null;
   /** App-started driven-session binding (mt#2752) — the driven-vs-observed
    *  marker (SC4): non-null rows carry the input affordance. */
   driven: { sessionId: string; status: string } | null;
@@ -171,6 +176,48 @@ function KindBadge({ kind }: { kind: RunKind }) {
       className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${cfg.className}`}
     >
       {cfg.label}
+    </span>
+  );
+}
+
+/**
+ * Compact model badge (mt#3070) — per-node/per-row model visibility, the
+ * "Agents" entity field the cockpit-design skill already names ("Model:
+ * sonnet/opus/haiku (badge)"). Maps a full model id (e.g. "claude-sonnet-5",
+ * the shape stored in `agent_transcripts.model`) to the dispatch-model
+ * registry's short label ("Sonnet") where the mapping is clean; falls back
+ * to the raw id when the id isn't in the registry (an older dated id, or a
+ * future tier not yet added there) — never hides the value, never guesses
+ * at one it doesn't recognize.
+ *
+ * Neutral (bg-muted) styling deliberately mirrors the PR-number badge
+ * rather than the kind/needs-me badges — this is supplementary metadata,
+ * not a second status channel, so it must not compete visually with the
+ * liveness dot or the needs-me badge (cockpit-design: dual-channel status
+ * untouched).
+ *
+ * `null` (no model recorded) renders as an explicit muted dash — never a
+ * wrong guess or a crash (mt#3070 success criterion).
+ */
+function ModelBadge({ model }: { model: string | null }) {
+  if (model == null) {
+    return (
+      <span
+        className="text-xs text-muted-foreground/40 flex-shrink-0"
+        aria-label="Model unknown"
+        title="Model unknown"
+      >
+        &ndash;
+      </span>
+    );
+  }
+  const label = dispatchModelLabelForCanonicalId(model) ?? model;
+  return (
+    <span
+      className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground flex-shrink-0"
+      title={model}
+    >
+      {label}
     </span>
   );
 }
@@ -334,9 +381,7 @@ function AgentsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Liveness filter */}
-      <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">
-        Liveness:
-      </span>
+      <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">Liveness:</span>
       <select
         value={filters.liveness}
         onChange={(e) => onFilterLiveness(e.target.value as AgentFilters["liveness"])}
@@ -538,7 +583,11 @@ export function resolveGoToAction(agent: AgentRow): GoToAction {
   if (agent.kind === "principal-conversation") {
     return {
       type: "navigate",
-      path: pathForTab(basePathFor("conversation", agent.sessionId), "conversation", "conversation"),
+      path: pathForTab(
+        basePathFor("conversation", agent.sessionId),
+        "conversation",
+        "conversation"
+      ),
     };
   }
 
@@ -589,7 +638,10 @@ function AttachStateIndicator({ state }: { state: AgentRow["attachState"] }) {
     <span
       title={cfg.label}
       aria-label={cfg.label}
-      className={cn("flex-shrink-0", cfg.dim ? "text-muted-foreground/30" : "text-muted-foreground")}
+      className={cn(
+        "flex-shrink-0",
+        cfg.dim ? "text-muted-foreground/30" : "text-muted-foreground"
+      )}
     >
       <Icon className="h-3 w-3" />
     </span>
@@ -772,6 +824,9 @@ function SubagentRowItem({ entry, isLive }: { entry: SubagentEntry; isLive: bool
         {entry.label}
         {isLive && <LiveDot />}
       </span>
+      {/* Model badge (mt#3070) — alongside the elapsed/liveness display per
+          the tree's existing convention. */}
+      <ModelBadge model={entry.model} />
       {/* Elapsed + terminal state (mt#2884, subsumes mt#2041): running nodes
           show live elapsed; ended nodes show total runtime. */}
       {elapsed && (
@@ -798,7 +853,11 @@ function SubagentRowItem({ entry, isLive }: { entry: SubagentEntry; isLive: bool
  * subagents" on a row that ALSO has a driven peek waiting under the same
  * toggle undersells what expanding it reveals.
  */
-function expandToggleLabel(hasSubagents: boolean, hasDrivenBinding: boolean, expanded: boolean): string {
+function expandToggleLabel(
+  hasSubagents: boolean,
+  hasDrivenBinding: boolean,
+  expanded: boolean
+): string {
   const parts: string[] = [];
   if (hasSubagents) parts.push("subagents");
   if (hasDrivenBinding) parts.push("driven session");
@@ -876,6 +935,9 @@ function AgentRowItem({
           {agent.prStatus ? ` (${agent.prStatus})` : ""}
         </span>
       )}
+
+      {/* Model badge (mt#3070) — top-level run rows show model where known. */}
+      <ModelBadge model={agent.model} />
 
       {/* Last activity */}
       <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">
@@ -974,7 +1036,9 @@ function AgentsTableHeader() {
         Status
       </span>
       <span className="flex-1 text-eyebrow font-mono uppercase text-muted-foreground">Session</span>
-      <span className="text-eyebrow font-mono uppercase text-muted-foreground flex-shrink-0">PR</span>
+      <span className="text-eyebrow font-mono uppercase text-muted-foreground flex-shrink-0">
+        PR
+      </span>
       <span className="text-eyebrow font-mono uppercase text-muted-foreground flex-shrink-0 tabular-nums">
         Activity
       </span>
@@ -1007,9 +1071,13 @@ function agentSortFn(a: AgentRow, b: AgentRow, key: AgentSortKey, dir: SortDir):
     }
     case "liveness": {
       const orderA =
-        a.liveness == null ? LIVENESS_ORDER_NULL : (LIVENESS_ORDER[a.liveness] ?? LIVENESS_ORDER_NULL);
+        a.liveness == null
+          ? LIVENESS_ORDER_NULL
+          : (LIVENESS_ORDER[a.liveness] ?? LIVENESS_ORDER_NULL);
       const orderB =
-        b.liveness == null ? LIVENESS_ORDER_NULL : (LIVENESS_ORDER[b.liveness] ?? LIVENESS_ORDER_NULL);
+        b.liveness == null
+          ? LIVENESS_ORDER_NULL
+          : (LIVENESS_ORDER[b.liveness] ?? LIVENESS_ORDER_NULL);
       cmp = orderA - orderB;
       break;
     }

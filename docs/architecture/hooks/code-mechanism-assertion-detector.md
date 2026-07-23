@@ -5,15 +5,16 @@
 > carries only a terse index entry; this file is the durable detail.
 
 A `UserPromptSubmit` hook that detects when the prior assistant turn asserts a
-named code symbol's runtime **behavior** (a behavioral predicate —
-clamps/defaults to/overrides/returns/throws/... — within proximity of a
-symbol-shaped token) without having READ that symbol this turn (its own file
-or a grep of it, evidenced by the symbol appearing in same-turn tool-use
-input or `tool_result` content). It is the narrow, high-precision slice of
-the broader "assertion frozen as fact without verification" family (root
-memory `3772c77d`) — narrowness is the precision lever that keeps false
-positives low without the broader causal-premise detector's harder judgment
-problem.
+named code symbol's runtime **behavior** OR a named tool/service/seam's
+**capability, sourcing, or provenance** (a predicate — clamps/defaults
+to/overrides/returns/throws/.../sourced from/backed by/... — within
+proximity of a symbol-shaped token) without having READ that symbol this
+turn (its own file or a grep of it, evidenced by the symbol appearing in
+same-turn tool-use input or `tool_result` content). It is the narrow,
+high-precision slice of the broader "assertion frozen as fact without
+verification" family (root memory `3772c77d`) — narrowness is the precision
+lever that keeps false positives low without the broader causal-premise
+detector's harder judgment problem.
 
 **Hook file:** `.minsky/hooks/code-mechanism-assertion-detector.ts` (compiled
 to `.claude/hooks/code-mechanism-assertion-detector.ts`).
@@ -23,14 +24,26 @@ clamps `maxBuffer` to 1MB without reading `exec.ts` — the real default was
 10MB, and the actual 850KB payload was never near either limit. The claim
 was asserted, not verified.
 
+**Capability/sourcing case (R13, mt#3050, 2026-07-22):** while authoring
+mt#3043's spec, asserted "the router suggestion is sourced from the
+existing `tasks_route` / `tasks_estimate` seam" without reading
+`task-routing-service.ts` — the named component exposes task-GRAPH routing
+(`AvailableTask`/`RouteStep`/`TaskRoute`), not model-complexity routing. The
+symbol tokens (`tasks_route`, `tasks_estimate`) were already extractable
+snake_case/backticked tokens; the gap was that none of the pre-mt#3050
+`PREDICATE_PATTERNS` covered sourcing/provenance phrasing ("sourced from"),
+only behavior verbs ("clamps", "returns"). See "Sourcing/provenance
+predicates" below.
+
 **Detection contract:**
 
-- FIRES when the prior assistant turn contains a behavioral-predicate
-  pattern (`PREDICATE_PATTERNS`) within `SYMBOL_PROXIMITY_CHARS` (100 chars)
-  of a symbol-shaped token (backticked span, camelCase, or snake_case) AND
-  that symbol does not appear anywhere in the same-turn verification corpus
-  (read-class tool-use input — `Read`/`Grep`/`Glob`/`*_read_file`/
-  `*_grep_search`/`repo_search` — or any same-turn `tool_result` content).
+- FIRES when the prior assistant turn contains a predicate pattern
+  (`PREDICATE_PATTERNS` — behavior verbs OR sourcing/provenance verbs) within
+  `SYMBOL_PROXIMITY_CHARS` (100 chars) of a symbol-shaped token (backticked
+  span, camelCase, or snake_case) AND that symbol does not appear anywhere in
+  the same-turn verification corpus (read-class tool-use input —
+  `Read`/`Grep`/`Glob`/`*_read_file`/`*_grep_search`/`repo_search` — or any
+  same-turn `tool_result` content).
 - DOES NOT FIRE when the symbol was read this turn, when the predicate+symbol
   pair sits inside a fenced code block or blockquote (pasted output, not a
   fresh assertion), or when the extracted token fails the symbol-plausibility
@@ -60,6 +73,33 @@ was asserted, not verified.
   untouched (`drops?` also matches genuine "X drops Y" claims). `postgres`
   joined the prose stoplist in the same change.
 
+**Sourcing/provenance predicates (mt#3050, 2026-07-22) — widening the claim
+SHAPE, not symbol extraction:**
+
+The R13 incident exposed a coverage gap that was NOT in symbol extraction
+(snake_case MCP tool ids like `tasks_route` were already extractable) but in
+`PREDICATE_PATTERNS` itself: all 15 original entries are BEHAVIOR verbs ("X
+clamps/returns/throws Y"). A capability/provenance claim about a named
+tool/seam — "the router suggestion **is sourced from** the existing
+`tasks_route` seam" — matched none of them, so the predicate half never
+fired and the (already-extractable) symbol half was never consulted.
+
+Five high-precision sourcing/provenance predicates were added:
+
+- `sourced from`
+- `comes from`
+- `supplied by` / `supplies`
+- `backed by`
+- `reads from` / `pulls from` / `derives from`
+
+**Deliberately excluded:** bare `provides` / `exposes`. Both are frequent in
+ordinary prose ("this PR provides…", "the module exposes…"), and with
+`INJECTION_ENABLED = true` a false positive here is recurring
+operator-facing noise, not a silent log line. Add them only on calibration
+evidence showing acceptable precision (see the mt#3050 spec's "Revised fix"
+section) — the `SYMBOL_PROXIMITY_CHARS = 100` guard is the available
+precision lever if that evidence emerges.
+
 **Calibration history:** shipped mt#2486 (tier-2 of the mt#2485 stakes-tiered
 reframe) with `INJECTION_ENABLED = false` — logging matches to
 `.minsky/code-mechanism-assertion-calibration.jsonl` without injecting
@@ -80,6 +120,11 @@ documented mt#2673 field-semantics misreading (the logged claims are
 definitionally unbacked; the flag is a turn-level aggregate) and was correctly
 NOT implemented; a regression test now pins the claim-level exclusion
 semantics instead.
+
+mt#3050 (R13, 2026-07-22) added the five sourcing/provenance predicates above,
+closing the capability-claim coverage gap the R13 incident exposed. This
+change touches `PREDICATE_PATTERNS` only — symbol extraction, the
+`SYMBOL_STOPLIST`, and the mt#3002/mt#3042 exclusions are unchanged.
 
 **On match (now live):** the hook emits a `HookOutput` /
 `GuardOutcome.additionalContext` naming each unbacked (symbol, predicate)
@@ -104,6 +149,9 @@ back to the harness.
   primarily describes.
 - mt#3042 — the SQL/DDL-keyword exclusion + the ask#5343 tune-1 correction
   (regression test pinning claim-level backed-claim semantics).
+- mt#3050 — R13 sourcing/provenance predicate widening (this doc's
+  "Sourcing/provenance predicates" section); family log `b0b294ab` records
+  R13 itself.
 - `.claude/hooks/causal-premise-detector.ts` — sibling pattern (mt#2216) for
   the broader, harder-precision causal-claim family this detector's
   code-symbol slice was carved out of.

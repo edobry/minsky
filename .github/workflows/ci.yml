@@ -49,6 +49,9 @@ jobs:
       - name: Type check (hooks)
         run: bun run typecheck:hooks
 
+      - name: Type check (scripts)
+        run: bun run typecheck:scripts
+
       # Run reviewer typecheck even if earlier steps fail so AT-1/AT-2
       # ("step always runs regardless of which paths changed or which
       # earlier checks fail") hold structurally, not just by step ordering.

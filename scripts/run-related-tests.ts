@@ -80,6 +80,10 @@ function runBunTest(
   preload: string = "./tests/setup.ts"
 ): { exitCode: number; combined: string } {
   const decoder = new TextDecoder();
+  // Note (mt#3079/mt#3075): a colorized child process no longer needs to be
+  // avoided here -- evaluateBunTestSummary (scripts/run-tests-gated.ts) strips
+  // ANSI escape codes before matching, so this gate is agnostic to whether the
+  // inherited environment forces color on the spawned `bun test` process.
   const proc = Bun.spawnSync(["bun", "test", "--preload", preload, "--timeout=15000", ...files], {
     env: { ...process.env, AGENT: "1" },
     stdout: "pipe",

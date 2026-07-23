@@ -15,6 +15,12 @@
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 import {
+  makeRecordAndExit,
+  type MergeGateOverrideFields,
+  type RecordAndExit,
+} from "./merge-gate-fire-log";
+import { classifyOverride } from "./fire-log";
+import {
   deriveRepoFromGit,
   resolvePrRefByBranch,
   fetchReviewsRaw,
@@ -22,6 +28,9 @@ import {
   fetchBranchProtectionRaw,
   type CheckRunsFetchResult,
 } from "./pr-context";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "require-review-before-merge";
 
 // ---------------------------------------------------------------------------
 // CI check_runs presence — exported for tests
@@ -940,11 +949,37 @@ export function evaluateSmokeStatus(
   return { deny: false };
 }
 
-if (import.meta.main) {
+/**
+ * Entrypoint body, wrapped in an `async function` (mirrors
+ * `check-task-spec-read.ts`'s established convention for this exact class of
+ * tsgo gap) rather than left as a bare top-level `if (import.meta.main) { ...
+ * }` block: CI's `tsgo` typecheck does not always narrow a nullable local
+ * (e.g. `repo`, `ref`) past a bare (non-`return`ed) call to a locally-defined
+ * `never`-returning closure the same way it narrows past an explicit
+ * `return` — confirmed empirically here (mt#3084): the bare-statement form
+ * compiled clean in every OTHER merge-gate hook this task instruments, but
+ * tsgo failed to narrow `repo`/`ref` specifically in THIS file's longer,
+ * multi-branch flow. Wrapping in a real function makes `return
+ * recordAndExit(...)` both valid and the correctly-narrowing form.
+ */
+async function main(): Promise<void> {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+  // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
+  // once per invocation regardless of which exit fires below. This gate has
+  // THREE independent inline override checks (smoke, bundle-boot-smoke,
+  // required-checks) below, none of which exit immediately — each
+  // neutralizes ONE downstream deny check and the hook keeps going. Track
+  // whichever fired most recently in `overrideFields` and attach it to
+  // whichever recordAndExit call actually fires; if more than one override
+  // is active in the same invocation the last one tracked wins (a rare
+  // multi-override case — still records a real, non-misleading override
+  // signal, just not a full enumeration of every escape hatch consulted).
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
+  let overrideFields: MergeGateOverrideFields | undefined;
 
   const task = (input.tool_input.task as string | undefined) ?? "";
-  if (!task) process.exit(0);
+  if (!task) return recordAndExit("allow");
 
   // mt#2617 absorbed scope (mt#2653 item 5): derive owner/repo from the git
   // remote instead of hardcoding "edobry/minsky" (was hardcoded in 6 places
@@ -967,7 +1002,7 @@ if (import.meta.main) {
           "⚠️ [require-review] Could not derive owner/repo from git remote — review-gate check skipped.",
       },
     });
-    process.exit(0);
+    return recordAndExit("warn");
   }
 
   const branch = `task/${task.replace("#", "-")}`;
@@ -977,7 +1012,7 @@ if (import.meta.main) {
   // base branch dynamically instead of the prior hardcoded "main" (mt#2653
   // item 5), used below by the branch-protection fetch.
   const ref = resolvePrRefByBranch(repo, branch, { cwd: input.cwd });
-  if (!ref) process.exit(0);
+  if (!ref) return recordAndExit("allow");
   const { pr, headSha, baseBranch } = ref;
 
   // Get all reviews (include user.login for reviewer identity enforcement)
@@ -1014,7 +1049,7 @@ if (import.meta.main) {
         permissionDecisionReason: `No review on PR #${pr}. Ensure the reviewer bot posts a review before merging.`,
       },
     });
-    process.exit(0);
+    return recordAndExit("deny");
   }
 
   // mt#2055: structured provenance inspection with text-matching fallback.
@@ -1031,18 +1066,24 @@ if (import.meta.main) {
         permissionDecisionReason: provenanceResult.reason,
       },
     });
-    process.exit(0);
+    return recordAndExit("deny");
   }
 
   // mt#2060: Smoke-status enforcement — block on Smoke: fail in any review;
   // require Smoke field in non-bot reviews. Bot reviews legitimately lack
   // a Smoke field because the bot runs in a GitHub App container with no shell.
+  // Reviewer R1 BLOCKING #2 (mt#3084): value not echoed — hook stdout is
+  // persisted to transcripts and ingested; presence/name only.
   const skipSmokeCheck = process.env[SMOKE_CHECK_OVERRIDE_ENV];
   if (skipSmokeCheck && /^(1|true|yes)$/i.test(skipSmokeCheck)) {
     process.stdout.write(
-      `[require-review-before-merge] smoke check skipped via ${SMOKE_CHECK_OVERRIDE_ENV}=${skipSmokeCheck} ` +
-        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()})\n`
+      `[require-review-before-merge] smoke check skipped via ${SMOKE_CHECK_OVERRIDE_ENV} set ` +
+        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()}, value not echoed)\n`
     );
+    overrideFields = {
+      overrideEnvVar: SMOKE_CHECK_OVERRIDE_ENV,
+      overrideClassification: classifyOverride(SMOKE_CHECK_OVERRIDE_ENV),
+    };
   } else {
     const smokeResult = evaluateSmokeStatus(reviews, pr, EXPECTED_REVIEWER_LOGIN);
     if (smokeResult.deny && smokeResult.reason) {
@@ -1053,7 +1094,7 @@ if (import.meta.main) {
           permissionDecisionReason: smokeResult.reason,
         },
       });
-      process.exit(0);
+      return recordAndExit("deny", overrideFields);
     }
   }
 
@@ -1098,7 +1139,7 @@ if (import.meta.main) {
           permissionDecisionReason: checkRunsResult.reason,
         },
       });
-      process.exit(0);
+      return recordAndExit("deny", overrideFields);
     }
   }
 
@@ -1106,12 +1147,18 @@ if (import.meta.main) {
   // Honors BUNDLE_BOOT_SMOKE_OVERRIDE_ENV escape valve for cases where the
   // operator has manually verified local boot but CI cannot run the workflow
   // (e.g., the workflow file itself is broken on the PR being merged).
+  // Reviewer R1 BLOCKING #2 (mt#3084): value not echoed (see the smoke-check
+  // override above for the rationale).
   const skipBundleSmoke = process.env[BUNDLE_BOOT_SMOKE_OVERRIDE_ENV];
   if (skipBundleSmoke && /^(1|true|yes)$/i.test(skipBundleSmoke)) {
     process.stdout.write(
-      `[require-review-before-merge] bundle-boot smoke skipped via ${BUNDLE_BOOT_SMOKE_OVERRIDE_ENV}=${skipBundleSmoke} ` +
-        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()})\n`
+      `[require-review-before-merge] bundle-boot smoke skipped via ${BUNDLE_BOOT_SMOKE_OVERRIDE_ENV} set ` +
+        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()}, value not echoed)\n`
     );
+    overrideFields = {
+      overrideEnvVar: BUNDLE_BOOT_SMOKE_OVERRIDE_ENV,
+      overrideClassification: classifyOverride(BUNDLE_BOOT_SMOKE_OVERRIDE_ENV),
+    };
   } else if (headSha) {
     const bundleParseResult = parseBundleBootSmokeResponse(checkRunsResp);
     const bundleResult = evaluateBundleBootSmokePresence(bundleParseResult, pr, headSha);
@@ -1123,7 +1170,7 @@ if (import.meta.main) {
           permissionDecisionReason: bundleResult.reason,
         },
       });
-      process.exit(0);
+      return recordAndExit("deny", overrideFields);
     }
   }
 
@@ -1133,12 +1180,18 @@ if (import.meta.main) {
   // operator-API and GitHub-UI merge paths are covered by branch protection
   // `enforce_admins: true` and the `main-watch` GitHub Action — Claude Code
   // hooks see only Claude Code tool invocations by construction.
+  // Reviewer R1 BLOCKING #2 (mt#3084): value not echoed (see the smoke-check
+  // override above for the rationale).
   const skipRequiredChecks = process.env[REQUIRED_CHECKS_OVERRIDE_ENV];
   if (skipRequiredChecks && /^(1|true|yes)$/i.test(skipRequiredChecks)) {
     process.stdout.write(
-      `[require-review-before-merge] required-checks status check skipped via ${REQUIRED_CHECKS_OVERRIDE_ENV}=${skipRequiredChecks} ` +
-        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()})\n`
+      `[require-review-before-merge] required-checks status check skipped via ${REQUIRED_CHECKS_OVERRIDE_ENV} set ` +
+        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()}, value not echoed)\n`
     );
+    overrideFields = {
+      overrideEnvVar: REQUIRED_CHECKS_OVERRIDE_ENV,
+      overrideClassification: classifyOverride(REQUIRED_CHECKS_OVERRIDE_ENV),
+    };
   } else if (headSha) {
     // mt#2617 absorbed scope (mt#2653 item 5): target the PR's actual base
     // branch (resolved above) instead of a hardcoded "main".
@@ -1161,7 +1214,12 @@ if (import.meta.main) {
           permissionDecisionReason: requiredResult.reason,
         },
       });
-      process.exit(0);
+      return recordAndExit("deny", overrideFields);
     }
   }
+  return recordAndExit("allow", overrideFields);
+}
+
+if (import.meta.main) {
+  await main();
 }

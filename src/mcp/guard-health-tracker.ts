@@ -59,6 +59,13 @@ export interface GuardHealthEvent {
   kind: GuardHealthEventKind;
   errorClass?: string;
   message: string;
+  /**
+   * mt#3072 SC2 — "infra" (a named, anticipated dependency-unavailable
+   * condition) vs "logic" (an unanticipated failure) for `kind:
+   * "check-skip"` events. Optional; absence means "not classified," not
+   * either bucket. MUST stay in sync with `.minsky/hooks/guard-health.ts`.
+   */
+  causeClass?: "infra" | "logic";
   toolName?: string;
   sessionId?: string;
 }
@@ -214,7 +221,12 @@ function isValidEvent(item: unknown): item is GuardHealthEvent {
     typeof r.guardName === "string" &&
     typeof r.event === "string" &&
     (r.kind === "error" || r.kind === "check-skip") &&
-    typeof r.message === "string"
+    typeof r.message === "string" &&
+    // mt#3072 (reviewer finding): causeClass is OPTIONAL, but when present it
+    // must be one of the two known values — an unrecognized string would
+    // otherwise pass through as a validated event and render as a raw,
+    // unexpected tag in the escalation banner.
+    (r.causeClass === undefined || r.causeClass === "infra" || r.causeClass === "logic")
   );
 }
 

@@ -14,7 +14,7 @@
 
 import "reflect-metadata";
 import { readFileSync, existsSync } from "fs";
-import { setupConfiguration } from "../../src/config-setup";
+import { setupConfiguration } from "@minsky/domain/config-setup";
 import type { MemeplexEntry } from "@minsky/domain/principal-corpus/memeplex-synthesizer";
 
 const MEMEPLEX_IN = "tmp/principal-corpus-memeplexes.json";
@@ -81,7 +81,7 @@ async function main() {
   const vectorStorage = await createMemoryVectorStorageFromConfig(dimension, persistence);
 
   const memoryService = new MemoryService({
-    db: db as Parameters<typeof MemoryService>[0]["db"],
+    db: db as ConstructorParameters<typeof MemoryService>[0]["db"],
     vectorStorage,
     embeddingService,
   });

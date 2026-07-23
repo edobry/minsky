@@ -596,8 +596,37 @@ function classifyExit(
 
 /** Statuses where the record's actuator is definitely gone — no live stdin to write to,
  * no live process to stop (mt#3038: `unrecoverable` joins the original exited/crashed pair). */
-function isTerminalStatus(status: DrivenSessionStatus): boolean {
+export function isTerminalStatus(status: DrivenSessionStatus): boolean {
   return status === "exited" || status === "crashed" || status === "unrecoverable";
+}
+
+/**
+ * True when `record` has an actively in-flight turn (mt#3048, RFC
+ * "Conversation-first drive" Phase 1 slice 6) — its latest observed event is
+ * not yet a terminal `result`/`minsky_exit` event. This is the daemon-side
+ * signal the cockpit-tray watcher's pre-restart gate
+ * (cockpit-tray/src-tauri/src/watcher_backend.rs) queries before triggering a
+ * hot-reload daemon restart, so it can defer (a bounded grace period, never
+ * indefinitely) rather than interrupt a turn that is actively streaming.
+ *
+ * A record with no LIVE actuator is never mid-turn, regardless of its
+ * (possibly stale) `eventLog` tail:
+ *   - any terminal status (`isTerminalStatus`) — the process is already gone;
+ *   - `"reconnecting"` — the actuator already died and is deliberately NOT
+ *     respawned eagerly (mt#3038 R1 delta #6, lazy-resume-only); there is no
+ *     live turn to interrupt, that is exactly the case the mt#3038 resume
+ *     machinery exists to recover, not a reason to defer a restart.
+ *
+ * A freshly-spawned record with NO events yet (before the child's first
+ * stream-json line, e.g. its `system`/`init` event) counts as mid-turn: its
+ * first turn is already in flight and has not reached a terminal event.
+ */
+export function isDrivenSessionMidTurn(record: DrivenSessionRecord): boolean {
+  if (isTerminalStatus(record.status) || record.status === "reconnecting") return false;
+  const last = record.eventLog[record.eventLog.length - 1];
+  if (!last) return true;
+  const type = last.payload["type"];
+  return type !== "result" && type !== "minsky_exit";
 }
 
 // ---------------------------------------------------------------------------

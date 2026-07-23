@@ -26,6 +26,7 @@ import { join } from "node:path";
 import { readInput } from "./types";
 import type { StopHookInput } from "./types";
 import { resolveTranscriptCandidates } from "./transcript";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 // mt#3019: STATIC — importing this module installs the tsyringe reflect
 // polyfill, which must be resolved before ANY domain module loads. Every
 // domain import below stays dynamic; this one cannot be.
@@ -77,6 +78,15 @@ interface DeadlineState {
 }
 
 const deadlineState: DeadlineState = { exceeded: false, provider: null };
+
+/**
+ * Test-only: force (or clear) the deadline-exceeded flag so tests can
+ * exercise `recordFailureBestEffort`'s "no new work after deadline" guard
+ * (mt#3089) without needing to actually wait out `RECORD_INVOCATION_TIMEOUT_MS`.
+ */
+export function __setDeadlineExceededForTest(value: boolean): void {
+  deadlineState.exceeded = value;
+}
 
 /** Close the registered provider, bounded so cleanup cannot hang the exit. */
 async function closeRegisteredProvider(): Promise<void> {
@@ -289,6 +299,50 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   if (decision.warning) process.stderr.write(decision.warning);
   if (decision.action === "skip") return;
 
+  // mt#3089: classification + metrics + the DB write (steps 2-4, extracted to
+  // classifyAndRecord below) are wrapped so ANY unexpected throw in that
+  // section gets a DURABLE failure signal instead of only the stderr line the
+  // entrypoint's outer catch would otherwise reduce it to (stderr vanishes —
+  // Claude Code does not retain hook stderr anywhere queryable). This is
+  // exactly the gap mt#3089's diagnosis found: an uncaught throw in
+  // `classifyWorkspaceOutcome` (workspace-classifier.ts's pre-fix unguarded
+  // `Bun.spawnSync(["git", ...])` — ENOENT-throws when a SubagentStop hook
+  // process's PATH omits git, the same class mt#2810 fixed elsewhere) meant
+  // subagent_invocations.agent_session_id / actual_model were NEVER written
+  // by this hook in production, and the failure left no trace anywhere.
+  // `recordFailureBestEffort` is the loud, durable replacement — it never
+  // throws itself and is a no-op when there's no correlation key to attach
+  // the error to.
+  try {
+    await classifyAndRecord({
+      cwd,
+      agentId,
+      transcriptPath,
+      effectiveTaskId: decision.effectiveTaskId,
+      subagentSessionId,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[record-subagent-invocation] warn: recording step failed: ${message}\n`);
+    await recordFailureBestEffort(subagentSessionId, decision.effectiveTaskId, message);
+  }
+}
+
+/**
+ * Steps 2-4 of the Stop-time recording path, extracted so `recordInvocation`
+ * can wrap the whole section in one try/catch (mt#3089 — see the call site's
+ * comment for why). Behavior is unchanged from before the extraction; only
+ * the function boundary is new.
+ */
+async function classifyAndRecord(params: {
+  cwd: string;
+  agentId: string;
+  transcriptPath: string | undefined;
+  effectiveTaskId: string;
+  subagentSessionId: string | null;
+}): Promise<void> {
+  const { cwd, agentId, transcriptPath, effectiveTaskId, subagentSessionId } = params;
+
   // 2. Classify workspace outcome. The classifier uses taskId only to locate a
   //    handoff file and to look up a PR by branch name; with the sentinel both
   //    degrade to "not found" while the commit/handoff classification — the
@@ -299,7 +353,6 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   const { SubagentDispatchTracker, UNKNOWN_AGENT_TYPE } = await import(
     "../../src/mcp/subagent-dispatch-tracker"
   );
-  const effectiveTaskId = decision.effectiveTaskId;
   const classification = await classifyWorkspaceOutcome(cwd, effectiveTaskId);
 
   // 3. Read transcript metrics (best-effort).
@@ -435,6 +488,76 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   });
 
   await closeRegisteredProvider();
+}
+
+/**
+ * Best-effort, bounded attempt to persist a durable failure signal when
+ * `classifyAndRecord` throws (mt#3089 "make any swallow loud"). Without this,
+ * ANY error in that section was caught only by the entrypoint's outer
+ * try/catch, which logs to stderr — never persisted anywhere Claude Code
+ * retains — and exits 0 per the fail-safe contract, so a SubagentStop write
+ * that silently fails is, from the DB's perspective, indistinguishable from
+ * one that never fired at all. This writes the error onto the correlated
+ * row's `error_summary` column instead, so a future occurrence is diagnosable
+ * with a single query rather than the multi-hour forensic reconstruction this
+ * task's own diagnosis required (grep every closed row's `summary` field for
+ * which write path actually produced it).
+ *
+ * Uses the tracker's existing heuristic upsert (prefers the most recent OPEN
+ * row for `subagentSessionId` — the pending row dispatch wrote) rather than
+ * the strong-binding `id` path, since a failure this early may not have
+ * reached the current-invocation-marker read.
+ *
+ * Never throws. No-ops when there is no correlation key to attach the error
+ * to, or when the entrypoint's deadline has already fired (respecting the
+ * "no new work after deadline" contract the rest of this hook applies).
+ */
+export async function recordFailureBestEffort(
+  subagentSessionId: string | null,
+  effectiveTaskId: string,
+  errorMessage: string
+): Promise<void> {
+  if (!subagentSessionId || deadlineState.exceeded) return;
+  try {
+    const { resolvePersistenceProvider } = await import(
+      "../../packages/domain/src/persistence/factory"
+    );
+    const provider = await resolvePersistenceProvider();
+    if (!provider || !("getDatabaseConnection" in provider)) return;
+
+    let db: import("drizzle-orm/postgres-js").PostgresJsDatabase | null = null;
+    try {
+      db = (await (
+        provider as {
+          getDatabaseConnection(): Promise<import("drizzle-orm/postgres-js").PostgresJsDatabase>;
+        }
+      ).getDatabaseConnection()) as import("drizzle-orm/postgres-js").PostgresJsDatabase;
+    } catch {
+      db = null;
+    }
+    if (!db) {
+      await provider.close().catch(() => {});
+      return;
+    }
+
+    const { SubagentDispatchTracker, UNKNOWN_AGENT_TYPE } = await import(
+      "../../src/mcp/subagent-dispatch-tracker"
+    );
+    const tracker = new SubagentDispatchTracker(db);
+    await tracker.recordSubagentInvocation({
+      taskId: effectiveTaskId,
+      subagentSessionId,
+      agentType: UNKNOWN_AGENT_TYPE,
+      outcome: "crashed-no-output",
+      errorSummary: safeTruncate(errorMessage, 2000, "head"),
+      startedAt: new Date(),
+      endedAt: new Date(),
+    });
+    await provider.close().catch(() => {});
+  } catch {
+    // Never let the failure-recording path itself fail loudly — it is
+    // already a best-effort fallback for an already-failed operation.
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -286,8 +286,13 @@ describe("dispatchBypassCheck — override path (mt#1951 R1)", () => {
     const result = dispatchBypassCheck({ ...baseInput, overrideEnvValue: "1" });
     expect(result.kind).toBe("override");
     if (result.kind === "override") {
-      expect(result.auditLine).toContain("MINSKY_SKIP_REQUIRED_CHECKS=1");
+      expect(result.auditLine).toContain("MINSKY_SKIP_REQUIRED_CHECKS set");
       expect(result.auditLine).toContain("required-checks gate skipped");
+      // mt#3084 reviewer R1 BLOCKING #2: audit line MUST NOT echo the raw
+      // override env VALUE (secret-handling posture — hook stdout is
+      // persisted to transcripts and ingested), only that it was set.
+      expect(result.auditLine).not.toContain("MINSKY_SKIP_REQUIRED_CHECKS=1");
+      expect(result.auditLine).toContain("value not echoed");
       // PR #1176 R2 BLOCKING: audit line MUST NOT echo the raw matched segment
       // (which can carry -H/--header secrets). It SHOULD use the safe parsed
       // identifier (owner/repo#PR).

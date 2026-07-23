@@ -16,6 +16,7 @@
 import { mkdtempSync, writeFileSync, mkdirSync, statSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { spawnSync as nodeSpawnSync } from "child_process";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const HOOK_PATH = join(REPO_ROOT, ".claude/hooks/skill-staleness-detector.ts");
@@ -50,12 +51,16 @@ function runHook(input: {
   };
   if (input.optOut !== undefined) env.MINSKY_SKIP_SKILL_STALENESS = input.optOut;
 
-  const proc = Bun.spawnSync({
-    cmd: ["bun", HOOK_PATH],
-    stdin: Buffer.from(JSON.stringify(payload)),
+  // Uses node:child_process.spawnSync (not Bun.spawnSync) — see mt#3088
+  // spec: bun-types@1.2.12's Bun.spawnSync stdin type is hardcoded to
+  // "ignore" on both overloads, with no cast-free way to pass a real stdin
+  // value (and the custom no-excessive-as-unknown ESLint rule correctly
+  // flags a cast-based workaround). node's `input` option is properly typed
+  // for this and has identical synchronous semantics.
+  const proc = nodeSpawnSync("bun", [HOOK_PATH], {
+    input: Buffer.from(JSON.stringify(payload)),
     env,
-    stdout: "pipe",
-    stderr: "pipe",
+    stdio: ["pipe", "pipe", "pipe"],
   });
 
   const stdout = proc.stdout.toString();
@@ -70,7 +75,7 @@ function runHook(input: {
     }
   }
 
-  return { exitCode: proc.exitCode ?? 1, stdout, stderr, parsed };
+  return { exitCode: proc.status ?? 1, stdout, stderr, parsed };
 }
 
 function fail(msg: string): never {

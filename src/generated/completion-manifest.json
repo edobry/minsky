@@ -2295,7 +2295,7 @@
         },
         {
           "name": "dispatch-recover",
-          "description": "Server-side detect/classify/prepare for a died/stalled subagent dispatch (mt#2831): captures session state, classifies the outcome, and returns a ready-to-dispatch continuation prompt. Does NOT dispatch anything — the caller must redispatch the returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched (returns status: \"healthy\"). Refuses a 3rd attempt for the same dispatch chain (returns status: \"escalate\"). If the dispatch tracker itself is unavailable, degrades to actionable manual-recovery guidance instead of a bare error (returns status: \"tracker-unavailable\").",
+          "description": "Server-side detect/classify/prepare for a died/stalled subagent dispatch (mt#2831): captures session state, classifies the outcome, and returns a ready-to-dispatch continuation prompt. Does NOT dispatch anything — the caller must redispatch the returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched (returns status: \"healthy\") — as of mt#3086 this check ALSO consults recent presence-claim (session-scoped MCP tool-call) activity, not just commits, so a dispatch that is quietly working (reading code, running tests, no commit yet) is no longer misclassified as dead; see the activitySource field on a healthy result (\"commit\" | \"presence\" | \"dispatch-start\") for which signal decided it. Refuses a 3rd attempt for the same dispatch chain (returns status: \"escalate\"). If the dispatch tracker itself is unavailable, degrades to actionable manual-recovery guidance instead of a bare error (returns status: \"tracker-unavailable\"). DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive or a hasty manual override) puts TWO agents in the SAME Minsky session workspace at once. Observed symptoms from the originating incident: uncommitted work appearing that the new attempt didn't write, a merge conflict resolving and committing out from under the new attempt between two of its own status checks, a `git push` rejected as \"remote already at a newer commit,\" and a PR already existing with the same diagnosis the new attempt was about to produce. Both attempts CAN converge on a correct end state (idempotent work + luck), but this is not guaranteed — treat any of these symptoms as a signal to stop and check whether another attempt is genuinely still running before continuing.",
           "arguments": [
             {
               "name": "taskId",
@@ -7485,6 +7485,16 @@
         {
           "flags": ["--check"],
           "description": "Check whether output files are up-to-date. Exits non-zero when stale."
+        },
+        {
+          "flags": ["--warn-chars"],
+          "description": "Override the target's default WARN size-budget threshold (chars). mt#2992 — only claude.md and agents.md enforce a size budget; other targets ignore this.",
+          "takesValue": true
+        },
+        {
+          "flags": ["--fail-chars"],
+          "description": "Override the target's default FAIL size-budget threshold (chars, --check mode hard-fails on it). mt#2992 — only claude.md and agents.md enforce a size budget; other targets ignore this.",
+          "takesValue": true
         }
       ]
     },

@@ -8,6 +8,21 @@ This is the deployment guide for mt#1129. For the architectural context, see §"
 
 Minsky's MCP server is transport-agnostic — the same tool registry serves stdio (for local Claude Code) and HTTP (for remote agents). The CLI flag `--http` selects the HTTP transport; `--require-auth` enables a bearer-token check on the `/mcp` endpoint. Railway wraps all of this in a container and auto-deploys on `main`. The `/health` endpoint stays public for Railway's uptime probes.
 
+## What ships in the image: the bundle and its source map (mt#3023)
+
+The root `Dockerfile` builds the CLI into `dist/minsky.js` at image-build time and the `CMD` execs that bundle directly. Two artifacts land in the image, and **both are intentional**:
+
+| Artifact             | Approx. size | Why it is there                                  |
+| -------------------- | ------------ | ------------------------------------------------ |
+| `dist/minsky.js`     | ~26 MB       | The bundle the container runs. Built `--minify`. |
+| `dist/minsky.js.map` | ~57 MB       | The external source map. **Do not strip it.**    |
+
+**The map is shipped on purpose, and removing it is a regression, not a cleanup.** Bun uses it to symbolicate stack traces from the minified bundle back to the original `src/**.ts` file and line. Without it, a production trace degrades to minified single-line offsets into `dist/minsky.js` and Bun logs `note: missing sourcemaps` — which is precisely the position you do not want to be in while reading Railway logs during an incident. Every production-down incident in this repo so far (mt#1763, mt#1785, mt#2345) was diagnosed from deployed logs.
+
+**Size tradeoff, stated plainly.** Keeping the map costs more than minifying saves: before mt#3023 the image carried a 37.5 MB unminified bundle and no map; it now carries ~82.5 MB across the two files, a net **+45 MB**. That was accepted deliberately — layer size is paid once per build, an unreadable stack trace is paid under time pressure. If a future change wants that 57 MB back, the honest framing is "we are trading production diagnosability for image size," not "we are removing a build artifact nobody needs." Note also that stripping the map while leaving `--minify` in place is the **worst** of the three options: it is strictly worse than the pre-mt#3023 state, which at least had readable (if unmapped) bundled traces.
+
+The build flags are deliberately identical across all three `bun build` sites (`package.json`'s `build` script, `scripts/cli-entry.ts`'s source-install self-rebuild, and this Dockerfile). They are hand-maintained today; **mt#3091** tracks removing that duplication.
+
 ## Prerequisites (one-time)
 
 1. **Railway CLI**: `brew install railway` or `bash <(curl -fsSL cli.new)`.

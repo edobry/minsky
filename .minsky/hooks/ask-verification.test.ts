@@ -25,6 +25,37 @@ describe("isApprovingPayload", () => {
     expect(isApprovingPayload("yes")).toBe(true);
   });
 
+  test("the inbox {chosen} shape is recognized (mt#3007)", () => {
+    // The exact payload a real operator approval wrote (ask 7fee3742 / ask#24).
+    // Before mt#3007 this returned false, so a genuinely approved ask failed
+    // verification and the bridge refused to mint the grant.
+    expect(isApprovingPayload({ chosen: "approve", option: "approve" })).toBe(true);
+    expect(isApprovingPayload({ chosen: "approved" })).toBe(true);
+    expect(isApprovingPayload({ chosen: "Yes" })).toBe(true);
+    expect(isApprovingPayload({ option: "approve" })).toBe(true);
+  });
+
+  test("a chosen DECLINE is not an approval", () => {
+    // The failure this function must never make: treating the act of answering
+    // an authorization ask as approving it.
+    expect(isApprovingPayload({ chosen: "reject", option: "reject" })).toBe(false);
+    expect(isApprovingPayload({ chosen: "deny" })).toBe(false);
+    expect(isApprovingPayload({ chosen: "hold-fix-first" })).toBe(false);
+  });
+
+  test("a non-approve-shaped option value fails CLOSED", () => {
+    // Deliberate: the chosen value is an option value, not necessarily the word
+    // "approved". Rather than resolve it against the ask's option list, an
+    // unrecognized value is refused.
+    expect(isApprovingPayload({ chosen: "authorize-hook-override" })).toBe(false);
+  });
+
+  test("a free-text message is not a structured approval", () => {
+    // Accepting prose would let an agent mint authorization by writing text.
+    expect(isApprovingPayload({ message: "approve" })).toBe(false);
+    expect(isApprovingPayload({ message: "yes, go ahead and do it" })).toBe(false);
+  });
+
   test("everything else is NOT approval (conservative default)", () => {
     expect(isApprovingPayload(undefined)).toBe(false);
     expect(isApprovingPayload(null)).toBe(false);
@@ -38,6 +69,21 @@ describe("isApprovingPayload", () => {
 describe("evaluateAskRows", () => {
   test("approved when all criteria hold", () => {
     expect(evaluateAskRows([approvedRow()], ASK_ID).verdict).toBe("approved");
+  });
+
+  test("the recorded ask#24 row shape verifies as approved (mt#3007 regression)", () => {
+    // Closed, operator-responded, {chosen: "approve"} — the exact combination
+    // that was refused before mt#3007.
+    const result = evaluateAskRows(
+      [
+        approvedRow({
+          state: "closed",
+          response: { responder: "operator", payload: { chosen: "approve", option: "approve" } },
+        }),
+      ],
+      ASK_ID
+    );
+    expect(result.verdict).toBe("approved");
   });
 
   test("not found → not-approved (the fabricated-askId case)", () => {
@@ -79,26 +125,85 @@ describe("evaluateAskRows", () => {
     expect(result.verdict).toBe("not-approved");
     expect(result.detail).toMatch(/not an approval/);
   });
+
+  test("only responded/closed states can carry an answer (reviewer R1)", () => {
+    // The predecessor enforced this implicitly by fetching only those two
+    // states. The by-id lookup can return an Ask in ANY state, so a cancelled
+    // or expired Ask carrying a stale approving response must still be refused.
+    for (const state of ["suspended", "cancelled", "expired", "routed", undefined]) {
+      const result = evaluateAskRows([approvedRow({ state })], ASK_ID);
+      expect(result.verdict).toBe("not-approved");
+      expect(result.detail).toMatch(/state/);
+    }
+  });
+
+  test("responded and closed both verify", () => {
+    for (const state of ["responded", "closed"]) {
+      expect(evaluateAskRows([approvedRow({ state })], ASK_ID).verdict).toBe("approved");
+    }
+  });
 });
 
 describe("verifyApprovedAsk", () => {
-  const okExec =
-    (rowsByState: Record<string, AskRow[]>): ExecFn =>
-    (cmd) => {
-      const state = cmd[cmd.indexOf("--state") + 1] as string;
-      return {
-        exitCode: 0,
-        stdout: JSON.stringify({ asks: rowsByState[state] ?? [] }),
-        stderr: "",
-      };
+  /** Exec fake for the id-filtered list read. */
+  const foundExec =
+    (row: AskRow): ExecFn =>
+    () => ({ exitCode: 0, stdout: JSON.stringify({ asks: [row] }), stderr: "" });
+
+  test("reads the ask BY ID, not by paging a state list (mt#3007)", () => {
+    // Regression guard for the defect this replaced: the old implementation
+    // paged `tools asks list --state ... --limit 200` on the false assumption
+    // that the page was newest-first, so a genuinely approved ask outside the
+    // page verified as "not found".
+    let invoked: string[] = [];
+    const spyExec: ExecFn = (cmd) => {
+      invoked = cmd;
+      return { exitCode: 0, stdout: JSON.stringify({ asks: [approvedRow()] }), stderr: "" };
     };
 
-  test("finds the ask in the closed state too", () => {
-    const result = verifyApprovedAsk(
-      ASK_ID,
-      okExec({ responded: [], closed: [approvedRow({ state: "closed" })] })
+    expect(verifyApprovedAsk(ASK_ID, spyExec).verdict).toBe("approved");
+    expect(invoked).toEqual(["minsky", "tools", "asks", "list", "--id", ASK_ID]);
+    expect(invoked).not.toContain("--state");
+    expect(invoked).not.toContain("--limit");
+  });
+
+  test("approved regardless of which answerable state the ask is in", () => {
+    expect(verifyApprovedAsk(ASK_ID, foundExec(approvedRow({ state: "closed" }))).verdict).toBe(
+      "approved"
     );
-    expect(result.verdict).toBe("approved");
+    expect(verifyApprovedAsk(ASK_ID, foundExec(approvedRow({ state: "responded" }))).verdict).toBe(
+      "approved"
+    );
+  });
+
+  test("the recorded ask#24 payload verifies end-to-end", () => {
+    const row = approvedRow({
+      state: "closed",
+      response: { responder: "operator", payload: { chosen: "approve", option: "approve" } },
+    });
+    expect(verifyApprovedAsk(ASK_ID, foundExec(row)).verdict).toBe("approved");
+  });
+
+  test("nonexistent ask → not-approved (structured absence, fail closed)", () => {
+    // A bogus id returns exit 0 with an EMPTY array — absence is data, not a
+    // parsed error string, so it can never be confused with a broken read.
+    const emptyExec: ExecFn = () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ asks: [], total: 0 }),
+      stderr: "",
+    });
+    const result = verifyApprovedAsk(ASK_ID, emptyExec);
+    expect(result.verdict).toBe("not-approved");
+    expect(result.detail).toMatch(/does not exist/);
+  });
+
+  test("a row for a DIFFERENT id is not accepted as the target", () => {
+    const otherExec: ExecFn = () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ asks: [approvedRow({ id: "some-other-id" })] }),
+      stderr: "",
+    });
+    expect(verifyApprovedAsk(ASK_ID, otherExec).verdict).toBe("not-approved");
   });
 
   test("CLI failure → unavailable (caller defers, never allows)", () => {
@@ -111,38 +216,10 @@ describe("verifyApprovedAsk", () => {
     expect(verifyApprovedAsk(ASK_ID, garbageExec).verdict).toBe("unavailable");
   });
 
-  const partialExec =
-    (failState: string, rowsInOther: AskRow[]): ExecFn =>
-    (cmd) => {
-      const state = cmd[cmd.indexOf("--state") + 1] as string;
-      if (state === failState) return { exitCode: 1, stdout: "", stderr: "down" };
-      return { exitCode: 0, stdout: JSON.stringify({ asks: rowsInOther }), stderr: "" };
-    };
-
-  test("one fetch fails but the ask is FOUND approved in the readable state → approved", () => {
-    const result = verifyApprovedAsk(
-      ASK_ID,
-      partialExec("responded", [approvedRow({ state: "closed" })])
-    );
-    expect(result.verdict).toBe("approved");
-  });
-
-  test("one fetch fails and the ask is found NOT-approved in the readable state → not-approved (definitive)", () => {
-    const result = verifyApprovedAsk(
-      ASK_ID,
-      partialExec("responded", [
-        approvedRow({
-          state: "closed",
-          response: { responder: "operator", payload: { approved: false } },
-        }),
-      ])
-    );
-    expect(result.verdict).toBe("not-approved");
-  });
-
-  test("one fetch fails and the ask is not found in the readable state → unavailable", () => {
-    const result = verifyApprovedAsk(ASK_ID, partialExec("responded", []));
-    expect(result.verdict).toBe("unavailable");
-    expect(result.detail).toMatch(/cannot distinguish/);
+  test("a DB outage is never mistaken for a missing ask", () => {
+    // "unavailable" and "not-approved" must stay distinguishable: the first
+    // means retry/defer, the second means refuse.
+    const outageExec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "connection refused" });
+    expect(verifyApprovedAsk(ASK_ID, outageExec).verdict).toBe("unavailable");
   });
 });

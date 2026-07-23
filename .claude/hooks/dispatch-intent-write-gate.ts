@@ -8,7 +8,7 @@
 //
 // ## Why this exists
 //
-// mt#2828 (2026-07-16): an implementer dispatched a `fork` subagent with a
+// mt#2865 (2026-07-16): an implementer dispatched a `fork` subagent with a
 // narrow, bounded, read-only instruction ("search memory for
 // reviewer-empty-findings context, report back under 300 words"). The fork
 // inherited the FULL conversation context and, primed by that inherited
@@ -92,8 +92,8 @@
 // write-bound to apply) — the denial message names the sanctioned
 // alternative (report findings back; the parent decides) instead.
 //
-// @see mt#2865 — this guard's tracking task
-// @see mt#2828 — the originating incident
+// @see mt#2865 — this guard's tracking task (mt#2865 is both the incident
+//   report and the fix — see its spec's "Incident reconstruction" section)
 // @see .minsky/hooks/dispatch-intent-store.ts — declaration schema + matching logic
 // @see .minsky/hooks/block-subagent-merge-without-grant.ts — structural template (D5)
 // @see .minsky/hooks/check-guessed-session-path.ts — SESSION_DIR_RE, the cwd-resolution pattern this guard reuses
@@ -109,6 +109,10 @@ import {
 } from "./dispatch-intent-store";
 import type { DispatchIntentDeclaration } from "./dispatch-intent-store";
 import { SESSION_DIR_RE } from "./check-guessed-session-path";
+import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "dispatch-intent-write-gate";
 
 // ---------------------------------------------------------------------------
 // Tool-name matcher (kept as an exported constant so the standalone
@@ -242,15 +246,21 @@ export function decideDispatchIntentGate(
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+  // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
+  // once per invocation regardless of which exit fires below. No documented
+  // override env-var for this guard (CLAUDE.md: "No override; fail-open on
+  // store-read errors only") — no override fields are ever populated here.
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   if (!GATED_TOOL_NAMES.has(input.tool_name)) {
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   if (!isSubagentContext(input)) {
     // Main-thread calls are unaffected by this guard.
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   const sessionId = resolveSessionIdFromInput(input);
@@ -266,13 +276,13 @@ if (import.meta.main) {
       `[dispatch-intent-write-gate] warn: dispatch-intent store read error (${storeResult.message}) ` +
         "— failing open (allowing this call)."
     );
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   const decision = decideDispatchIntentGate(sessionId, storeResult.declarations, Date.now());
 
   if (decision.decision === "allow") {
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   writeOutput({
@@ -282,5 +292,5 @@ if (import.meta.main) {
       permissionDecisionReason: decision.reason,
     },
   });
-  process.exit(0);
+  recordAndExit("deny");
 }

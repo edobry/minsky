@@ -110,7 +110,35 @@ pub(crate) type SpawnedPgid = Arc<Mutex<Option<u32>>>;
 pub(crate) enum SupervisorCmd {
     Start,
     Stop,
+    /// Operator-explicit restart (tray menu "Restart Daemon"), plus the
+    /// internal port-conflict retry paths above. Never gated on driven-session
+    /// turn activity — an explicit operator action always restarts
+    /// immediately. Contrast `AutoRestart` below.
     Restart,
+    /// Automatic restart triggered by a backend-source change
+    /// (`watcher_backend::start_backend_watcher`, mt#2299). Gated by the
+    /// mt#3048 turn-active check (RFC "Conversation-first drive" Phase 1
+    /// slice 6): if a driven session's turn is actively streaming, the
+    /// restart is deferred for a bounded grace period
+    /// (`watcher_backend::wait_for_turn_idle_or_grace_expiry`) before
+    /// proceeding anyway — never indefinitely. Handled as a NON-BLOCKING
+    /// dispatch (mt#3048 R2 fix): the gate wait runs on a spawned background
+    /// task, not inline in the `run_supervisor` select loop, so it never
+    /// blocks Start/Stop/Restart/Shutdown/Rebuild or the watchdog poll arm
+    /// — see the `AutoRestart` match arm's own comment for why. The task
+    /// re-sends the operator-explicit `Restart` once ready, so the actual
+    /// stop/spawn always runs on the main loop via the `Restart` arm.
+    ///
+    /// Known minor edge case, intentionally NOT addressed: a SECOND burst of
+    /// backend-source edits arriving DURING a deferred wait debounces
+    /// independently and spawns its OWN background task/eventual `Restart`
+    /// send, which lands shortly after the first — a harmless extra restart
+    /// of an already-just-restarted daemon, not a correctness bug (the
+    /// mt#3038 resume machinery recovers it the same way either restart
+    /// would). Coalescing this would need tracking "a wait is already in
+    /// flight" shared state across tasks for marginal benefit; left as a
+    /// documented, low-risk simplification.
+    AutoRestart,
     Shutdown,
     /// A cockpit-web source file changed at runtime — rebuild the bundle
     /// without disturbing the running daemon (mt#2297).
@@ -951,6 +979,45 @@ fn run_supervisor(
                             do_stop(&mut sup, &spawned, &path, h);
                             tokio::time::sleep(Duration::from_millis(500)).await;
                             do_spawn(&app, &mut sup, &spawned, &path);
+                        }
+                    }
+                    Some(SupervisorCmd::AutoRestart) => {
+                        // mt#3048 (R2 fix, PR #2193 review): do NOT await the
+                        // turn-active gate INLINE in this match arm — this
+                        // `tokio::select!` loop is single-threaded, so an inline
+                        // await here would block EVERY other arm (Start/Stop/
+                        // Restart/Shutdown/Rebuild, and the health-poll watchdog
+                        // below) for up to TURN_ACTIVE_GRACE (60s) any time a
+                        // turn is active — unintentionally gating even an
+                        // operator-explicit Restart/Stop click behind our
+                        // auto-restart deferral, and blinding the self-health
+                        // watchdog for the same window. Instead, spawn the wait
+                        // as a background task on this SAME (current-thread)
+                        // tokio runtime: it cooperatively yields at each
+                        // `.await` inside `wait_for_turn_idle_or_grace_expiry`,
+                        // so this loop keeps servicing every other command and
+                        // the watchdog poll arm while it waits. Once idle (or
+                        // the grace period elapses), the task re-sends
+                        // `SupervisorCmd::Restart` through the SAME channel, so
+                        // the actual stop/spawn always happens back HERE via
+                        // the (unmodified) `Restart` arm above — `sup`/
+                        // `spawned`/`path` mutation stays confined to this one
+                        // loop, never shared across tasks. In the common (no
+                        // active turn) case the background task's first check
+                        // returns near-instantly and re-sends `Restart`
+                        // immediately, so end-to-end latency for the common
+                        // case is unchanged (one extra channel round-trip, not
+                        // a blocking wait).
+                        if let Some(handle) = app.try_state::<SupervisorHandle>() {
+                            let tx_clone = handle.0.clone();
+                            let client_clone = client.clone();
+                            tokio::spawn(async move {
+                                crate::watcher_backend::wait_for_turn_idle_or_grace_expiry(
+                                    &client_clone,
+                                )
+                                .await;
+                                let _ = tx_clone.send(SupervisorCmd::Restart);
+                            });
                         }
                     }
                     Some(SupervisorCmd::Rebuild) => {

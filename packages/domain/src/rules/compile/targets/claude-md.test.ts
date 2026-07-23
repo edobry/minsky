@@ -171,13 +171,40 @@ describe("claude-md target: buildClaudeMdContent()", () => {
 // "compileRules --check size budget" suite. `./size-budget.test.ts` covers
 // the evaluation logic itself in isolation.
 describe("claude-md target: DEFAULT_CLAUDE_MD_SIZE_BUDGET (mt#2802)", () => {
-  it("current-corpus defaults are grounded: warn=115000, fail=140000", () => {
-    expect(DEFAULT_CLAUDE_MD_SIZE_BUDGET).toEqual({ warnChars: 115_000, failChars: 140_000 });
+  it("current-corpus defaults are grounded: warn=135000, fail=145000", () => {
+    // fail raised 140k -> 145k on 2026-07-22 (mt#3061, operator-decided) after
+    // the corpus hit 141,178 and the gate began blocking every rule commit,
+    // including size-REDUCING ones.
+    //
+    // warn raised 115k -> 135k on 2026-07-22 (mt#3052, operator-decided —
+    // "option a": accept the trimmed corpus as the floor, raise warn rather
+    // than trim further). mt#3052 applied the rule-admission ladder in
+    // reverse to the top-5 always-apply contributors, bringing the corpus
+    // from 142,835 to 133,159 chars; what remained was overwhelmingly genuine
+    // per-turn directive that fails the mt#1876 removal test if cut further.
+    // See DEFAULT_CLAUDE_MD_SIZE_BUDGET's docblock for the full rationale.
+    expect(DEFAULT_CLAUDE_MD_SIZE_BUDGET).toEqual({ warnChars: 135_000, failChars: 145_000 });
+  });
+
+  it("fail stays under the ~150k harness advisory ceiling", () => {
+    // The raise consumed most of the margin the original 140k preserved; this
+    // pins the real constraint so a future bump cannot silently cross it.
+    expect(DEFAULT_CLAUDE_MD_SIZE_BUDGET.failChars).toBeLessThan(150_000);
   });
 
   it("fail sits strictly above warn", () => {
     expect(DEFAULT_CLAUDE_MD_SIZE_BUDGET.failChars).toBeGreaterThan(
       DEFAULT_CLAUDE_MD_SIZE_BUDGET.warnChars
     );
+  });
+
+  it("warn < fail < 150k invariant holds (mt#3052 warn raise)", () => {
+    // Explicit three-way ordering check requested alongside the mt#3052
+    // warnChars raise, so a future bump to either threshold cannot silently
+    // invert the ordering or cross the harness advisory ceiling.
+    expect(DEFAULT_CLAUDE_MD_SIZE_BUDGET.warnChars).toBeLessThan(
+      DEFAULT_CLAUDE_MD_SIZE_BUDGET.failChars
+    );
+    expect(DEFAULT_CLAUDE_MD_SIZE_BUDGET.failChars).toBeLessThan(150_000);
   });
 });

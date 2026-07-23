@@ -90,10 +90,11 @@
  *   1 = a Phase A assertion failed, or the harness itself errored
  */
 
-import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
+import { spawn, type ChildProcessByStdio } from "child_process";
 import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
+import type { Writable, Readable } from "stream";
 import os from "os";
 
 // ---------------------------------------------------------------------------
@@ -170,13 +171,19 @@ interface JsonRpcMsg {
   params?: { logger?: string; text?: string };
 }
 
+// spawn(..., { stdio: ["pipe", "pipe", "inherit"] }) returns exactly this
+// shape (stdin/stdout piped, stderr inherited so it's null) — using it
+// directly (instead of the stricter ChildProcessWithoutNullStreams, which
+// requires a non-null stderr stream) avoids a cast at every call site below.
+type DrainedChild = ChildProcessByStdio<Writable, Readable, null>;
+
 class RawClient {
   private buffer = "";
   private pending = new Map<number, { resolve: (r: JsonRpcMsg) => void }>();
   private nextId = 1;
   sawStalenessNotification = false;
 
-  constructor(private child: ChildProcessWithoutNullStreams) {
+  constructor(private child: DrainedChild) {
     this.child.stdout.on("data", (chunk: Buffer) => this.onData(chunk));
   }
 
@@ -274,7 +281,7 @@ async function phaseA(): Promise<void> {
     cwd: REPO_ROOT,
     env: { ...process.env, MINSKY_STATE_DIR: scratchState },
     stdio: ["pipe", "pipe", "inherit"],
-  }) as ChildProcessWithoutNullStreams;
+  });
 
   const client = new RawClient(child);
   let exitInfo: { code: number | null; signal: NodeJS.Signals | null } | null = null;
@@ -338,7 +345,7 @@ async function phaseA(): Promise<void> {
       cwd: REPO_ROOT,
       env: { ...process.env, MINSKY_STATE_DIR: freshState },
       stdio: ["pipe", "pipe", "inherit"],
-    }) as ChildProcessWithoutNullStreams;
+    });
     const freshClient = new RawClient(freshChild);
     try {
       await new Promise((r) => setTimeout(r, 1200));
@@ -382,7 +389,7 @@ async function phaseB(): Promise<void> {
       env: { ...process.env, MINSKY_STATE_DIR: scratchState },
       stdio: ["pipe", "pipe", "inherit"],
     }
-  ) as ChildProcessWithoutNullStreams;
+  );
 
   const client = new RawClient(proxy);
 

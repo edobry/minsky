@@ -25,6 +25,18 @@
 export const DEPLOY_SURFACE_PATTERNS: readonly RegExp[] = [
   // Pulumi / infra-as-code tree — not scoped to one service.
   /^infra\//,
+  // Root Dockerfile — the `minsky-mcp` image. Railway auto-detects it at repo
+  // root (see docs/deploy-minsky-railway.md §First deploy), so this file
+  // defines what the deployed MCP server actually IS.
+  //
+  // mt#3023: this pattern was MISSING. The per-service pattern below is
+  // anchored to `services/<name>/`, so a PR touching only the root Dockerfile
+  // matched nothing — skipping both the pre-merge deploy-verification gate and
+  // the post-merge deploy watch for the one image most likely to break a
+  // deploy. Being unscoped, it is treated as broad-impact by
+  // `findAffectedServices` (same posture as `infra/`), which is the
+  // conservative direction: watch more, miss nothing.
+  /^Dockerfile$/,
   // Per-service deploy + build config.
   /^services\/[^/]+\/Dockerfile$/,
   /^services\/[^/]+\/railway\.json$/,

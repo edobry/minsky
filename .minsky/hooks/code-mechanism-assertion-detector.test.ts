@@ -355,6 +355,119 @@ describe("mt#3042 — SQL/DDL keyword symbol-class exclusion", () => {
   });
 });
 
+describe("mt#3050 — R13 sourcing/provenance predicates (capability/affordance claims)", () => {
+  // The R13 incident (mt#3050 spec): "the router suggestion is sourced from
+  // the existing `tasks_route` / `tasks_estimate` seam" — a capability claim
+  // about a named tool/seam, not a code-identifier BEHAVIOR claim. Symbol
+  // extraction already handled snake_case tool ids; the gap was that none of
+  // the 15 pre-mt#3050 PREDICATE_PATTERNS entries were sourcing/provenance
+  // verbs.
+  const R13_SENTENCE =
+    "the router suggestion is sourced from the existing `tasks_route` / `tasks_estimate` seam.";
+
+  test("AT(a): the literal R13 assertion fires, on both named tool ids", () => {
+    const result = detectCodeMechanismAssertion(R13_SENTENCE, "");
+    expect(result.matched).toBe(true);
+    const syms = result.claims.map((c) => c.symbol);
+    expect(syms).toContain("tasks_route");
+    expect(syms).toContain("tasks_estimate");
+  });
+
+  test("AT(b): a same-turn read of the named seam (control) suppresses the claim", () => {
+    // Same sentence, but this turn's verification corpus contains the source
+    // of task-routing-service.ts (as if the file had been Read this turn) —
+    // the same-turn-read control per the mt#3050 acceptance criteria.
+    const corpus =
+      "export interface AvailableTask {} export interface RouteStep {} " +
+      "export interface TaskRoute {} function tasks_route() {} function tasks_estimate() {}";
+    const result = detectCodeMechanismAssertion(R13_SENTENCE, corpus);
+    expect(result.matched).toBe(false);
+    expect(result.hadSameTurnRead).toBe(true);
+  });
+
+  test("AT(c): existing behavior-verb patterns still fire unaffected (no regression from the new predicates)", () => {
+    // The R9 canonical case, re-run after the PREDICATE_PATTERNS widening —
+    // confirms the pre-existing 15 behavior-verb patterns are untouched.
+    const text =
+      "Diagnosing the pre-commit failure: the 1MB default `maxBuffer` is at its limit, " +
+      "and `executeCommand` clamps it — so I shipped a 64MB override.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.matched).toBe(true);
+    const syms = result.claims.map((c) => c.symbol);
+    expect(syms).toContain("maxBuffer");
+    expect(syms).toContain("executeCommand");
+  });
+
+  test("'comes from' fires on an unread symbol", () => {
+    const result = detectCodeMechanismAssertion(
+      "That default comes from `legacyConfigLoader` under the hood.",
+      ""
+    );
+    expect(result.matched).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain("legacyConfigLoader");
+  });
+
+  test("'supplied by' / 'supplies' fire on an unread symbol", () => {
+    const suppliedBy = detectCodeMechanismAssertion(
+      "The retry count is supplied by `retryPolicyResolver`.",
+      ""
+    );
+    expect(suppliedBy.matched).toBe(true);
+    expect(suppliedBy.claims.map((c) => c.symbol)).toContain("retryPolicyResolver");
+
+    const supplies = detectCodeMechanismAssertion(
+      "`retryPolicyResolver` supplies the retry count for this path.",
+      ""
+    );
+    expect(supplies.matched).toBe(true);
+    expect(supplies.claims.map((c) => c.symbol)).toContain("retryPolicyResolver");
+  });
+
+  test("'backed by' fires on an unread symbol", () => {
+    const result = detectCodeMechanismAssertion(
+      "This estimate is backed by `taskEffortModel` under the hood.",
+      ""
+    );
+    expect(result.matched).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain("taskEffortModel");
+  });
+
+  test("'reads from' / 'pulls from' / 'derives from' fire on an unread symbol", () => {
+    const readsFrom = detectCodeMechanismAssertion(
+      "The scheduler reads from `taskQueueStore` for its next batch.",
+      ""
+    );
+    expect(readsFrom.matched).toBe(true);
+    expect(readsFrom.claims.map((c) => c.symbol)).toContain("taskQueueStore");
+
+    const pullsFrom = detectCodeMechanismAssertion(
+      "The widget pulls from `attentionCostCache` to render the tile.",
+      ""
+    );
+    expect(pullsFrom.matched).toBe(true);
+    expect(pullsFrom.claims.map((c) => c.symbol)).toContain("attentionCostCache");
+
+    const derivesFrom = detectCodeMechanismAssertion(
+      "The priority score derives from `taskRoutingService` output.",
+      ""
+    );
+    expect(derivesFrom.matched).toBe(true);
+    expect(derivesFrom.claims.map((c) => c.symbol)).toContain("taskRoutingService");
+  });
+
+  test("bare 'provides'/'exposes' are deliberately NOT added — no claim fires on those verbs alone", () => {
+    // Spec's Revised Fix section: bare provides/exposes are deferred pending
+    // calibration evidence (high prose-collision risk with INJECTION_ENABLED
+    // = true). A sentence using only these verbs near a symbol must not
+    // produce a claim keyed on a provides/exposes predicate match.
+    const text = "This PR provides a new `widgetRenderer` helper and exposes `configLoader`.";
+    const result = detectCodeMechanismAssertion(text, "");
+    // Neither bare verb is itself a PREDICATE_PATTERNS entry, so no claim is
+    // produced from this sentence in isolation (no other predicate present).
+    expect(result.matched).toBe(false);
+  });
+});
+
 describe("buildVerificationCorpus", () => {
   test("captures read-class tool_use INPUT and tool_result CONTENT; ignores non-read inputs", () => {
     const turn: TranscriptLine[] = [
@@ -633,6 +746,52 @@ describe("code-mechanism-assertion-detector main()/CLI-path E2E (mt#3002 R1)", (
         cliUserLine(),
         cliAssistantLine(
           "See `hook-files.mdc` for how the override behaves; the commit `a30378971` guards against the regression."
+        ),
+        cliUserLine(),
+      ]),
+      "utf8"
+    );
+    const { exitCode, stdout } = await invokeCliHook(makeCliHookInput(p));
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toBe("");
+  });
+
+  test("R13 sourcing/provenance sentence fires via the CLI path (mt#3050)", async () => {
+    const p = join(dir, "r13.jsonl");
+    writeFileSync(
+      p,
+      buildCliTranscriptJSONL([
+        cliUserLine(),
+        cliAssistantLine(
+          "the router suggestion is sourced from the existing `tasks_route` / `tasks_estimate` seam."
+        ),
+        cliUserLine(),
+      ]),
+      "utf8"
+    );
+    const { exitCode, stdout } = await invokeCliHook(makeCliHookInput(p));
+    expect(exitCode).toBe(0);
+
+    const parsed = JSON.parse(stdout) as {
+      hookSpecificOutput?: { hookEventName?: string; additionalContext?: string };
+    };
+    expect(parsed.hookSpecificOutput?.hookEventName).toBe(RUN_HOOK_EVENT_NAME);
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain("tasks_route");
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain("tasks_estimate");
+    // mt#3050: the injection copy must cover capability/sourcing claims, not
+    // only behavior claims — a sourcing-only fixture must not read as though
+    // it was accused of a behavior claim.
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain("capability");
+  });
+
+  test("sourcing/provenance non-claim prose fixtures produce no output via the CLI path (mt#3050)", async () => {
+    const p = join(dir, "sourcing-fp.jsonl");
+    writeFileSync(
+      p,
+      buildCliTranscriptJSONL([
+        cliUserLine(),
+        cliAssistantLine(
+          "The estimate comes from a rough guess, not a formula, and our revenue is backed by strong customer retention."
         ),
         cliUserLine(),
       ]),

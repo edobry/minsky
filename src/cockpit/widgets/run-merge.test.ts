@@ -28,6 +28,8 @@ interface TranscriptRow {
   cwd: string | null;
   startedAt: Date | null;
   endedAt: Date | null;
+  /** mt#3070 — model the conversation ran on; optional in fixtures that predate the field. */
+  model?: string | null;
 }
 
 interface WorkspaceLinkRow {
@@ -37,6 +39,8 @@ interface WorkspaceLinkRow {
   detectedAt: Date | null;
   startedAt: Date | null;
   cwd: string | null;
+  /** mt#3070 — model of the linked conversation; optional in fixtures that predate the field. */
+  model?: string | null;
 }
 
 interface Fixture {
@@ -279,6 +283,178 @@ describe("mergeConversationRows (mt#2767)", () => {
     const result = await mergeConversationRows(db, [WORKSPACE_1]);
     expect(result.standaloneRows).toEqual([]);
     expect(result.workspaceAttrsBySessionId.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-node model (mt#3070) — agent_transcripts.model threaded through
+// SubagentEntry / WorkspaceConversationAttrs / StandaloneRunRow.
+// ---------------------------------------------------------------------------
+
+describe("per-node model (mt#3070)", () => {
+  test("AT: two subagent invocations whose transcripts carry a model — each entry surfaces its own model", async () => {
+    const startedAt = new Date("2026-07-13T20:00:00.000Z");
+    const CONV_E = "eeeeeeee-0000-0000-0000-00000000000e";
+    const db = mockDb({
+      transcripts: [
+        { agentSessionId: CONV_A, cwd: "/repo", startedAt, endedAt: null, model: null }, // parent, linked to workspace
+        {
+          agentSessionId: CONV_C,
+          cwd: "/repo/sub",
+          startedAt,
+          endedAt: null,
+          model: "claude-sonnet-5",
+        },
+        {
+          agentSessionId: CONV_E,
+          cwd: "/repo/sub2",
+          startedAt,
+          endedAt: null,
+          model: "claude-sonnet-5",
+        },
+      ],
+      workspaceLinks: [
+        {
+          agentSessionId: CONV_A,
+          minskySessionId: WORKSPACE_1,
+          confidence: 1.0,
+          detectedAt: startedAt,
+          startedAt,
+          cwd: "/repo",
+          model: null,
+        },
+      ],
+      conversationLinks: [{ agentSessionId: CONV_A }],
+      spawns: [
+        { parentAgentSessionId: CONV_A, childAgentSessionId: CONV_C, agentKind: "Explore" },
+        {
+          parentAgentSessionId: CONV_A,
+          childAgentSessionId: CONV_E,
+          agentKind: "general-purpose",
+        },
+      ],
+    });
+
+    const result = await mergeConversationRows(db, [WORKSPACE_1]);
+
+    const attrs = result.workspaceAttrsBySessionId.get(WORKSPACE_1);
+    expect(attrs?.subagents).toHaveLength(2);
+    const byId = new Map(attrs?.subagents.map((e) => [e.conversationId, e]));
+    expect(byId.get(CONV_C)?.model).toBe("claude-sonnet-5");
+    expect(byId.get(CONV_E)?.model).toBe("claude-sonnet-5");
+  });
+
+  test("AT: a subagent with a NULL model surfaces model: null — never a guess", async () => {
+    const startedAt = new Date("2026-07-13T20:00:00.000Z");
+    const db = mockDb({
+      transcripts: [
+        { agentSessionId: CONV_A, cwd: "/repo", startedAt, endedAt: null, model: null },
+        { agentSessionId: CONV_C, cwd: "/repo/sub", startedAt, endedAt: null, model: null },
+      ],
+      workspaceLinks: [
+        {
+          agentSessionId: CONV_A,
+          minskySessionId: WORKSPACE_1,
+          confidence: 1.0,
+          detectedAt: startedAt,
+          startedAt,
+          cwd: "/repo",
+          model: null,
+        },
+      ],
+      conversationLinks: [{ agentSessionId: CONV_A }],
+      spawns: [{ parentAgentSessionId: CONV_A, childAgentSessionId: CONV_C, agentKind: "Explore" }],
+    });
+
+    const result = await mergeConversationRows(db, [WORKSPACE_1]);
+
+    const attrs = result.workspaceAttrsBySessionId.get(WORKSPACE_1);
+    expect(attrs?.subagents).toHaveLength(1);
+    expect(attrs?.subagents[0]?.model).toBeNull();
+  });
+
+  test("workspace ('dispatched-agent') row surfaces the model of its best-linked conversation", async () => {
+    const startedAt = new Date("2026-07-13T20:00:00.000Z");
+    const db = mockDb({
+      transcripts: [
+        {
+          agentSessionId: CONV_A,
+          cwd: "/repo",
+          startedAt,
+          endedAt: null,
+          model: "claude-opus-4-8",
+        },
+      ],
+      workspaceLinks: [
+        {
+          agentSessionId: CONV_A,
+          minskySessionId: WORKSPACE_1,
+          confidence: 1.0,
+          detectedAt: startedAt,
+          startedAt,
+          cwd: "/repo",
+          model: "claude-opus-4-8",
+        },
+      ],
+      conversationLinks: [{ agentSessionId: CONV_A }],
+    });
+
+    const result = await mergeConversationRows(db, [WORKSPACE_1]);
+
+    const attrs = result.workspaceAttrsBySessionId.get(WORKSPACE_1);
+    expect(attrs?.model).toBe("claude-opus-4-8");
+  });
+
+  test("a principal-conversation standalone row surfaces its own model", async () => {
+    const startedAt = new Date("2026-07-13T20:00:00.000Z");
+    const db = mockDb({
+      transcripts: [
+        {
+          agentSessionId: CONV_B,
+          cwd: "/repo",
+          startedAt,
+          endedAt: null,
+          model: "claude-haiku-4-5-20251001",
+        },
+      ],
+      turns: [{ agentSessionId: CONV_B, turnIndex: 0, userText: FLAKY_TEST_SUITE_PROMPT }],
+    });
+
+    const result = await mergeConversationRows(db, []);
+
+    expect(result.standaloneRows).toHaveLength(1);
+    expect(result.standaloneRows[0]?.model).toBe("claude-haiku-4-5-20251001");
+  });
+
+  test("a synthetic subagent-group row's OWN model is always null, even though its children carry models — a group aggregates N children with potentially different models", async () => {
+    const startedAt = new Date("2026-07-13T20:00:00.000Z");
+    const db = mockDb({
+      transcripts: [
+        {
+          agentSessionId: CONV_D,
+          cwd: "/repo/sub",
+          startedAt,
+          endedAt: null,
+          model: "claude-sonnet-5",
+        },
+      ],
+      spawns: [
+        {
+          parentAgentSessionId: "some-parent-outside-window",
+          childAgentSessionId: CONV_D,
+          agentKind: "refactorer",
+        },
+      ],
+    });
+
+    const result = await mergeConversationRows(db, []);
+
+    expect(result.standaloneRows).toHaveLength(1);
+    const groupRow = result.standaloneRows[0];
+    if (!groupRow) throw new Error("expected a synthetic group row");
+    expect(groupRow.model).toBeNull();
+    // The child entry within the group still carries its own model.
+    expect(groupRow.subagents[0]?.model).toBe("claude-sonnet-5");
   });
 });
 

@@ -94,19 +94,19 @@ async function bootstrapDb(): Promise<PostgresJsDatabase> {
   // constructed from a DIFFERENT instance of the same module (dual-package hazard) — the
   // check then silently rejects a perfectly valid provider. Check for the actual
   // capability/method this script needs instead.
-  const hasSqlCapability =
-    !!persistence && !!(persistence as { capabilities?: { sql?: boolean } }).capabilities?.sql;
-  const hasGetDatabaseConnection =
-    !!persistence &&
-    typeof (persistence as { getDatabaseConnection?: unknown }).getDatabaseConnection ===
-      "function";
-  if (!hasSqlCapability || !hasGetDatabaseConnection) {
+  interface SqlCapablePersistence {
+    getDatabaseConnection: () => Promise<PostgresJsDatabase | null>;
+  }
+  const isSqlCapablePersistence = (p: unknown): p is SqlCapablePersistence =>
+    !!p &&
+    !!(p as { capabilities?: { sql?: boolean } }).capabilities?.sql &&
+    typeof (p as { getDatabaseConnection?: unknown }).getDatabaseConnection === "function";
+
+  if (!isSqlCapablePersistence(persistence)) {
     throw new Error("Backfill requires a SQL-capable persistence provider (Postgres).");
   }
 
-  const connection = await (
-    persistence as { getDatabaseConnection: () => Promise<PostgresJsDatabase | null> }
-  ).getDatabaseConnection();
+  const connection = await persistence.getDatabaseConnection();
   if (!connection) {
     throw new Error("Backfill requires an initialized Postgres database connection.");
   }

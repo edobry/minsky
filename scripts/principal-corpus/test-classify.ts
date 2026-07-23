@@ -5,7 +5,7 @@
  */
 
 import "reflect-metadata";
-import { setupConfiguration } from "../../src/config-setup";
+import { setupConfiguration } from "@minsky/domain/config-setup";
 import { parseTwitterArchive } from "@minsky/domain/principal-corpus/tweet-archive-parser";
 import { classifyAndFilterTweets } from "@minsky/domain/principal-corpus/relevance-filter";
 

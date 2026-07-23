@@ -14,7 +14,7 @@ import { agentsMdTarget } from "./targets/agents-md";
 import { claudeMdTarget } from "./targets/claude-md";
 import { claudeRulesTarget } from "./targets/claude-rules";
 import { resolveActiveRules } from "../rule-selection";
-import { evaluateSizeBudget, DEFAULT_PER_RULE_CEILING_CHARS } from "./size-budget";
+import { evaluateSizeBudget, DEFAULT_PER_RULE_CEILING_CHARS } from "../../compile/size-budget";
 import { unknownCompileTargetMessage } from "./target-error-hint";
 
 @injectable()

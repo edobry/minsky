@@ -38,6 +38,11 @@
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
+import { classifyOverride } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "block-subagent-bypass-merge";
 
 // ---------------------------------------------------------------------------
 // Subagent context detection
@@ -239,18 +244,22 @@ const MAIN_AGENT_DENIAL_MESSAGE =
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+  // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
+  // once per invocation regardless of which exit fires below.
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   // Only act on Bash and session_exec — the two surfaces that accept a `command` string
   if (input.tool_name !== "Bash" && input.tool_name !== "mcp__minsky__session_exec") {
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   const command = (input.tool_input.command as string | undefined) ?? "";
 
   const matchingSegment = findGhApiPutMergeSegment(command);
   if (matchingSegment === null) {
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Subagents are always blocked — no override available
@@ -262,7 +271,7 @@ if (import.meta.main) {
         permissionDecisionReason: SUBAGENT_DENIAL_MESSAGE,
       },
     });
-    process.exit(0);
+    recordAndExit("deny");
   }
 
   // Main agent: check for override env var
@@ -271,7 +280,10 @@ if (import.meta.main) {
       `[block-bypass-merge] MINSKY_FORCE_BYPASS override active — allowing bypass-merge. ` +
         `command=${matchingSegment} timestamp=${new Date().toISOString()}`
     );
-    process.exit(0);
+    recordAndExit("allow", {
+      overrideEnvVar: BYPASS_MERGE_OVERRIDE_ENV,
+      overrideClassification: classifyOverride(BYPASS_MERGE_OVERRIDE_ENV),
+    });
   }
 
   // Main agent without override: block
@@ -282,5 +294,5 @@ if (import.meta.main) {
       permissionDecisionReason: MAIN_AGENT_DENIAL_MESSAGE,
     },
   });
-  process.exit(0);
+  recordAndExit("deny");
 }

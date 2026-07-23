@@ -52,6 +52,11 @@ import type { ToolHookInput } from "./types";
 import { deriveRepoFromGit, fetchPrContext, formatContextFailureWarnings } from "./pr-context";
 import type { PrFile } from "./pr-context";
 import { findDeploySurfaceFiles, findLocalAppDeploySurfaceFiles } from "./deploy-surface-detector";
+import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
+import { classifyOverride } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "require-deploy-verification-before-merge";
 
 // ---------------------------------------------------------------------------
 // Override env var (single source of truth — also registered in HOOK_ONLY_ENV_VARS)
@@ -443,21 +448,32 @@ export function checkUsabilityClaim(
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+  // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
+  // once per invocation regardless of which exit fires below.
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   // Operator override: skip with an audit line on stdout (non-JSON — Claude Code's
   // hook-output parser logs it as "Ignoring non-JSON line", matching the sibling
   // override-audit convention). Mutually exclusive with the deny path below.
+  // Reviewer R1 BLOCKING #2: does NOT echo the raw env value — hook stdout is
+  // persisted to transcripts and ingested (CLAUDE.md "Secret handling in shell
+  // commands"); presence/name only, matching `require-growth-justification-
+  // before-merge.ts` / `block-subagent-merge-without-grant.ts`.
   if (isOverrideSet()) {
     process.stdout.write(
-      `[deploy-verification] override active: ${OVERRIDE_ENV_VAR}=${process.env[OVERRIDE_ENV_VAR]} ` +
-        `at ${new Date().toISOString()} — deploy-verification gate skipped\n`
+      `[deploy-verification] override active: ${OVERRIDE_ENV_VAR} set at ` +
+        `${new Date().toISOString()} — deploy-verification gate skipped (value not echoed)\n`
     );
-    process.exit(0);
+    recordAndExit("allow", {
+      overrideEnvVar: OVERRIDE_ENV_VAR,
+      overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
+    });
   }
 
   const task = (input.tool_input.task as string | undefined) ?? "";
-  if (!task) process.exit(0);
+  if (!task) recordAndExit("allow");
 
   // Derive owner/repo from the git remote (forks + non-edobry/minsky remotes).
   const repo = deriveRepoFromGit(input.cwd);
@@ -469,7 +485,7 @@ if (import.meta.main) {
           "⚠️ [deploy-verification] Could not derive owner/repo from git remote — check skipped.",
       },
     });
-    process.exit(0);
+    recordAndExit("warn");
   }
 
   // mt#2617: ONE consolidated fetch (PR-number resolution + title/body/files)
@@ -493,7 +509,7 @@ if (import.meta.main) {
           .join("\n"),
       },
     });
-    process.exit(0);
+    recordAndExit("warn");
   }
 
   const { title: prTitle, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
@@ -501,19 +517,38 @@ if (import.meta.main) {
   const deployResult = checkDeployVerification(prFiles, prTitle, prBody);
 
   // Gap A (mt#2545): independent override for the usability-claim check only —
-  // does not affect the Railway deploy-verification check above.
+  // does not affect the Railway deploy-verification check above. Unlike the
+  // top-level MINSKY_SKIP_DEPLOY_VERIFY override above, this one does NOT
+  // exit immediately — it neutralizes ONE sub-check and the hook keeps going,
+  // so mt#3084 tracks it in `usabilityOverrideFields` and attaches it to
+  // whichever recordAndExit call below actually fires (deny, warn, or the
+  // final allow) rather than assuming the override implies an allow outcome.
+  //
+  // Reviewer R1 NON-BLOCKING: no simultaneous-override conflation is possible
+  // here — the top-level MINSKY_SKIP_DEPLOY_VERIFY branch above calls
+  // `recordAndExit` directly (process.exit(0)), so control never reaches this
+  // point when it fires. Only ONE override variable (`usabilityOverrideFields`)
+  // is ever live by the time the final recordAndExit calls below run.
   let usabilityResult: UsabilityClaimCheckResult;
+  let usabilityOverrideFields:
+    | { overrideEnvVar: string; overrideClassification: ReturnType<typeof classifyOverride> }
+    | undefined;
   if (isUsabilityClaimOverrideSet()) {
+    // Reviewer R1 BLOCKING #2: value not echoed — see the rationale on the
+    // MINSKY_SKIP_DEPLOY_VERIFY override audit line above.
     process.stdout.write(
-      `[usability-claim] override active: ${USABILITY_CLAIM_OVERRIDE_ENV_VAR}=` +
-        `${process.env[USABILITY_CLAIM_OVERRIDE_ENV_VAR]} at ${new Date().toISOString()} — ` +
-        `usability-claim gate skipped\n`
+      `[usability-claim] override active: ${USABILITY_CLAIM_OVERRIDE_ENV_VAR} set ` +
+        `at ${new Date().toISOString()} — usability-claim gate skipped (value not echoed)\n`
     );
     usabilityResult = {
       blocked: false,
       buildSurfaceFiles: [],
       bypassDetected: false,
       warnings: [],
+    };
+    usabilityOverrideFields = {
+      overrideEnvVar: USABILITY_CLAIM_OVERRIDE_ENV_VAR,
+      overrideClassification: classifyOverride(USABILITY_CLAIM_OVERRIDE_ENV_VAR),
     };
   } else {
     usabilityResult = checkUsabilityClaim(prFiles, prTitle, prBody);
@@ -535,6 +570,7 @@ if (import.meta.main) {
         permissionDecisionReason: `${warningContext}${blockingReasons.join("\n\n---\n\n")}`,
       },
     });
+    recordAndExit("deny", usabilityOverrideFields);
   } else if (allWarnings.length > 0) {
     writeOutput({
       hookSpecificOutput: {
@@ -542,5 +578,7 @@ if (import.meta.main) {
         additionalContext: allWarnings.map((w) => `⚠️ ${w}`).join("\n"),
       },
     });
+    recordAndExit("warn", usabilityOverrideFields);
   }
+  recordAndExit("allow", usabilityOverrideFields);
 }

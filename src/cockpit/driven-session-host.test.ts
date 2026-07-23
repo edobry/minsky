@@ -25,6 +25,7 @@ import {
   buildReconnectingDrivenSessionRecord,
   parseStreamJsonLine,
   extractResultSummary,
+  isDrivenSessionMidTurn,
   NewlineSplitter,
   DrivenSessionRegistry,
   CLAUDE_BINARY,
@@ -840,5 +841,100 @@ describe("boot-reconciliation placeholder's proc is inert (never wired, never fi
 
     expect(record.proc.kill()).toBe(false);
     expect(() => record.proc.stdin.write("should be silently accepted")).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3048 — mid-turn signal (cockpit-tray watcher's pre-restart gate)
+// ---------------------------------------------------------------------------
+
+describe("isDrivenSessionMidTurn (mt#3048)", () => {
+  test("a freshly-spawned record with no events yet is mid-turn", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
+    expect(record.eventLog.length).toBe(0);
+    expect(isDrivenSessionMidTurn(record)).toBe(true);
+  });
+
+  test("becomes mid-turn once a non-terminal event (e.g. system/init) is observed", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+    proc.emitLine({ type: "system", subtype: "init", session_id: "harness-1" });
+    expect(isDrivenSessionMidTurn(record)).toBe(true);
+  });
+
+  test("is NOT mid-turn once the latest event is a terminal 'result' (turn finished, idle between turns)", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+    proc.emitLine({ type: "system", subtype: "init", session_id: "harness-1" });
+    proc.emitLine({ type: "assistant", message: { content: [] } });
+    proc.emitLine({ type: "result", subtype: "success", total_cost_usd: 0.01 });
+    expect(isDrivenSessionMidTurn(record)).toBe(false);
+  });
+
+  test("becomes mid-turn again once a NEW turn starts after a prior 'result'", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+    proc.emitLine({ type: "result", subtype: "success", total_cost_usd: 0.01 });
+    expect(isDrivenSessionMidTurn(record)).toBe(false);
+    // Operator sends the next turn's input; the child starts streaming again.
+    proc.emitLine({ type: "assistant", message: { content: [] } });
+    expect(isDrivenSessionMidTurn(record)).toBe(true);
+  });
+
+  test("is NOT mid-turn once the actuator has exited (latest event is minsky_exit)", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+    proc.emitLine({ type: "assistant", message: { content: [] } });
+    expect(isDrivenSessionMidTurn(record)).toBe(true);
+    proc.exit(0, null);
+    expect(record.status).toBe("exited");
+    expect(isDrivenSessionMidTurn(record)).toBe(false);
+  });
+
+  test("a crashed record is NOT mid-turn even mid-stream at time of crash", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+    proc.emitLine({ type: "assistant", message: { content: [] } });
+    proc.exit(1, null);
+    expect(record.status).toBe("crashed");
+    expect(isDrivenSessionMidTurn(record)).toBe(false);
+  });
+
+  test("a 'reconnecting' boot-placeholder record is NOT mid-turn (no live actuator to interrupt)", () => {
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: "local-reconnecting-1",
+      harnessSessionId: "harness-reconnecting-1",
+      cwd: "/tmp/reconnecting",
+      permissionMode: "default",
+      taskId: null,
+      minskySessionId: null,
+      status: "reconnecting",
+      unrecoverableReason: null,
+      actuatorGeneration: 1,
+      startedAt: new Date().toISOString(),
+    });
+    expect(isDrivenSessionMidTurn(record)).toBe(false);
+  });
+
+  test("an 'unrecoverable' record is NOT mid-turn", () => {
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: "local-unrecoverable-1",
+      harnessSessionId: null,
+      cwd: "/tmp/unrecoverable",
+      permissionMode: "default",
+      taskId: null,
+      minskySessionId: null,
+      status: "unrecoverable",
+      unrecoverableReason: "spawn-died-before-init",
+      actuatorGeneration: 0,
+      startedAt: new Date().toISOString(),
+    });
+    expect(isDrivenSessionMidTurn(record)).toBe(false);
   });
 });

@@ -141,6 +141,33 @@ deferred; TTL is the v1 staleness signal.)
 upsert → list → reap round-trip against real Postgres (skips gracefully without a
 DB).
 
+## Consumer: dispatch-recovery liveness signal (mt#3086)
+
+`tasks.dispatch-recover` (`src/adapters/shared/commands/tasks/dispatch-recover-command.ts`)
+reads the **session-grain** claims (`subjectKind: "session"`, keyed on the dispatched
+subagent's Minsky session id) as a liveness signal, alongside commit-timestamp
+activity, before classifying a silent dispatch as `recover` (died/stalled) vs.
+`healthy` (alive but quiet). This is a NEW read consumer of the existing `session`
+grain — it adds no new write path and no new columns.
+
+Rationale: a dispatch that is genuinely alive and working (reading code, running
+tests, making session-scoped MCP tool calls) but has produced no commit yet was,
+before this consumer existed, indistinguishable from a dead one — every such call
+already refreshes this session's presence claim via `writeSessionAttachment`
+(`src/mcp/server.ts`, described above), so no new instrumentation was required to
+make this signal available.
+
+The command's result carries an `activitySource` field
+(`"dispatch-start" | "commit" | "presence"`) on a `status: "healthy"` response,
+naming which signal produced the freshest activity timestamp — `"presence"` means
+the dispatch has no recent commit but does have recent session-scoped MCP tool-call
+activity. See `computeDispatchStaleness`
+(`packages/domain/src/session/dispatch-recovery-classifier.ts`) for the full
+signal-selection logic, the reason the harness transcript JSONL mtime was evaluated
+and rejected in favor of this table, and the documented residual blind spot (a
+dispatch making literally zero Minsky-MCP-routed tool calls for an entire stale
+window remains invisible to this signal, same as it was to commits alone).
+
 ## Cross-references
 
 - mt#2562 — this subsystem (task grain; owns the canonical schema).
@@ -149,5 +176,6 @@ DB).
 - mt#1990 — substrate RFC (the shared-blackboard vision this implements a slice of).
 - mt#1078 — `agentId` `_meta` channel (the actor identity reused here).
 - mt#2563 — the asks project_id write-stamping lesson this honors.
+- mt#3086 — dispatch-recovery false-positive fix; the session-grain consumer above.
 - CLAUDE.md §"Probe before claiming a shared resource" — the discipline this
   capability mechanizes into a single read.

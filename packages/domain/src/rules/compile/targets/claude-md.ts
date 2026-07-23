@@ -13,28 +13,19 @@ import * as fs from "fs/promises";
 import { classifyRuleType, RuleType } from "../../rule-classifier";
 import type { Rule } from "../../types";
 import type { CompileTarget, CompileResult, TargetOptions } from "../types";
-import {
-  evaluateSizeBudget,
-  DEFAULT_PER_RULE_CEILING_CHARS,
-  type SizeBudget,
-} from "../size-budget";
+import { evaluateSizeBudget, DEFAULT_PER_RULE_CEILING_CHARS } from "../../../compile/size-budget";
+import { DEFAULT_CLAUDE_MD_SIZE_BUDGET } from "../../../compile/claude-md-size-budget";
 
 /** The canonical rule ID for the memory-usage directive. */
 const MEMORY_USAGE_RULE_ID = "memory-usage";
 
-/**
- * Default size budget for CLAUDE.md (mt#2802).
- *
- * Grounded in the 2026-07-15 planning calibration: `failChars` sits with
- * margin under the ~150k harness advisory threshold Claude Code applies for
- * 1M-context models; `warnChars` sits ~13% above the post-mt#1876/mt#1877
- * baseline (~101.7k chars) so it fires after a few rule additions, not
- * immediately (observed growth increment: ~3.3k/rule-addition, mt#2801).
- */
-export const DEFAULT_CLAUDE_MD_SIZE_BUDGET: SizeBudget = {
-  warnChars: 115_000,
-  failChars: 140_000,
-};
+// `DEFAULT_CLAUDE_MD_SIZE_BUDGET` is imported (not declared here) so both
+// compile pipelines' `claude-md.ts` targets share ONE constant (mt#3075) —
+// see `../../../compile/claude-md-size-budget.ts` for the full rationale
+// behind the specific thresholds and why a prior two-copy setup drifted.
+// Re-exported for existing consumers (`compile-service.ts`'s dynamic import,
+// this target's own test file).
+export { DEFAULT_CLAUDE_MD_SIZE_BUDGET };
 
 /**
  * Build CLAUDE.md content from always-apply rules.
