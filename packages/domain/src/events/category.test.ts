@@ -15,7 +15,7 @@ import {
 } from "../storage/schemas/system-events-schema";
 
 describe("event category classification", () => {
-  test("the 5 actionable types are classified actionable", () => {
+  test("the 6 actionable types are classified actionable", () => {
     const actionable = eventTypesForCategory("actionable");
     expect(actionable.sort()).toEqual(
       [
@@ -24,6 +24,7 @@ describe("event category classification", () => {
         "pr.review_posted",
         "subagent.failed",
         "embeddings.provider_degraded",
+        "guard.overridden",
       ].sort()
     );
   });
