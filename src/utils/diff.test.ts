@@ -8,7 +8,12 @@
  * changed — the `insertion` cases below are the regression guards for that.
  */
 import { describe, expect, test } from "bun:test";
-import { computeChangedRange, generateDiffSummary, generateUnifiedDiff } from "./diff";
+import {
+  computeChangedRange,
+  describeChangedRange,
+  generateDiffSummary,
+  generateUnifiedDiff,
+} from "./diff";
 
 /** Eight distinct lines — long enough that a wrong answer is obvious. */
 const BASE = ["a", "b", "c", "d", "e", "f", "g", "h"].join("\n");
@@ -80,6 +85,28 @@ describe("computeChangedRange", () => {
     });
   });
 
+  // PR #2238 R1: creating and clearing a file used to report a 1-line
+  // REPLACEMENT, because "".split("\n") is [""] — one empty line. The range
+  // disagreed with generateDiffSummary, which special-cased it. Both now go
+  // through the same zero-line normalization.
+  test("creating a file reports a pure insertion, not a replacement", () => {
+    expect(computeChangedRange("", "a\nb\nc")).toEqual({
+      originalStart: 0,
+      originalCount: 0,
+      finalStart: 1,
+      finalCount: 3,
+    });
+  });
+
+  test("clearing a file reports a pure deletion, not a replacement", () => {
+    expect(computeChangedRange("a\nb\nc", "")).toEqual({
+      originalStart: 1,
+      originalCount: 3,
+      finalStart: 0,
+      finalCount: 0,
+    });
+  });
+
   test("a repeated line is not counted in both the prefix and the suffix", () => {
     // "x" repeats; a naive suffix walk could overlap the prefix and produce a
     // negative changed-region length.
@@ -116,6 +143,20 @@ describe("generateUnifiedDiff", () => {
     // The positional comparator this replaced emitted 6 removals and 7 additions here.
     expect(removed).toEqual([]);
     expect(added).toEqual(["+NEW"]);
+  });
+
+  test("creating a file emits only additions and a zero-length original side", () => {
+    const diff = generateUnifiedDiff("", "a\nb", "t.ts");
+    expect(diff.split("\n").filter((l) => l.startsWith("-") && !l.startsWith("---"))).toEqual([]);
+    // diff -u emits `-0,0` for a create; the old code claimed a line 1 that
+    // never existed and emitted a phantom removal of the empty line.
+    expect(diff).toContain("@@ -0,0 +1,2 @@");
+  });
+
+  test("clearing a file emits only removals and a zero-length final side", () => {
+    const diff = generateUnifiedDiff("a\nb", "", "t.ts");
+    expect(diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++"))).toEqual([]);
+    expect(diff).toContain("@@ -1,2 +0,0 @@");
   });
 
   test("hunk header line counts match the lines the hunk actually contains", () => {
@@ -182,5 +223,52 @@ describe("generateDiffSummary", () => {
       linesChanged: 0,
       totalLines: 0,
     });
+  });
+
+  // The three exported functions must agree; PR #2238 R1 was a case where they
+  // did not, because only one of them special-cased the empty side.
+  test("summary and range agree on a create", () => {
+    const summary = generateDiffSummary("", "a\nb\nc");
+    const range = computeChangedRange("", "a\nb\nc");
+    expect(summary.linesRemoved).toBe(range?.originalCount as number);
+    expect(summary.linesAdded).toBe(range?.finalCount as number);
+  });
+
+  test("summary and range agree on an insertion", () => {
+    const modified = ["a", "b", "NEW", "c", "d", "e", "f", "g", "h"].join("\n");
+    const summary = generateDiffSummary(BASE, modified);
+    const range = computeChangedRange(BASE, modified);
+    expect(summary.linesRemoved).toBe(range?.originalCount as number);
+    expect(summary.linesAdded).toBe(range?.finalCount as number);
+  });
+});
+
+describe("describeChangedRange", () => {
+  test("no-op edit says so rather than naming a line", () => {
+    expect(describeChangedRange(null)).toBe("no lines changed");
+  });
+
+  test("single changed line", () => {
+    expect(
+      describeChangedRange({ originalStart: 4, originalCount: 1, finalStart: 4, finalCount: 1 })
+    ).toBe("changed line 4");
+  });
+
+  test("multi-line change names the span", () => {
+    expect(
+      describeChangedRange({ originalStart: 2, originalCount: 6, finalStart: 2, finalCount: 6 })
+    ).toBe("changed lines 2-7");
+  });
+
+  test("insertion is described as inserted, not changed", () => {
+    expect(
+      describeChangedRange({ originalStart: 2, originalCount: 0, finalStart: 3, finalCount: 1 })
+    ).toBe("inserted line 3");
+  });
+
+  test("deletion names the removed original lines", () => {
+    expect(
+      describeChangedRange({ originalStart: 3, originalCount: 2, finalStart: 2, finalCount: 0 })
+    ).toBe("removed lines 3-4");
   });
 });

@@ -9,6 +9,11 @@ import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type SessionCommandDependencies, type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionEditFileCommandParams } from "./session-parameters";
 import { readTextFile } from "@minsky/shared/fs";
+// Static, unlike the diff imports inside `runSessionEditFileOperation`: the
+// mt#1792 lazy-import pattern defers HEAVY modules (domain, persistence), and
+// `utils/diff` is a dependency-free pure-string module. `formatResult` runs
+// outside that lazy scope and needs these to render the location signal.
+import { describeChangedRange, type ChangedRange } from "../../../../utils/diff";
 
 export type SessionEditFileParams = InferParams<typeof sessionEditFileCommandParams>;
 
@@ -221,6 +226,12 @@ function formatResult(
     return { success: true, ...mcpResult };
   }
 
+  // mt#3071 / PR #2238 R1: the non-JSON shapes below are hand-picked subsets of
+  // the envelope, so the location signal has to be added here explicitly — a
+  // CLI user is as much a caller as an MCP client, and dropping it would leave
+  // exactly the blind spot this task closes.
+  const changedRange = mcpResult.changedRange as ChangedRange | null | undefined;
+
   if (mcpResult.dryRun) {
     return {
       success: true,
@@ -229,20 +240,26 @@ function formatResult(
       session: mcpResult.session,
       diff: mcpResult.diff,
       diffSummary: mcpResult.diffSummary,
+      changedRange: changedRange ?? null,
       proposedContent: params.debug ? mcpResult.proposedContent : undefined,
       message: formatDryRunMessage(mcpResult),
     };
   }
+
+  const action = mcpResult.edited ? "edited" : "created";
 
   return {
     success: true,
     type: "edit-applied",
     path: mcpResult.path,
     session: mcpResult.session,
-    message: mcpResult.edited
-      ? `✅ Successfully edited ${mcpResult.path}`
-      : `✅ Successfully created ${mcpResult.path}`,
+    message: `✅ Successfully ${action} ${mcpResult.path} — ${describeChangedRange(
+      changedRange ?? null
+    )}`,
     bytesWritten: mcpResult.bytesWritten,
+    diff: mcpResult.diff,
+    diffSummary: mcpResult.diffSummary,
+    changedRange: changedRange ?? null,
   };
 }
 

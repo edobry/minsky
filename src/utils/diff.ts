@@ -55,10 +55,27 @@ interface Trim {
   finalCount: number;
 }
 
+/**
+ * Split content into lines, treating empty content as ZERO lines rather than
+ * one empty line.
+ *
+ * `"".split("\n")` yields `[""]`, which would make creating a file look like
+ * replacing one existing (empty) line, and clearing a file look like replacing
+ * the content with one line. Both are wrong in the same direction: they claim
+ * an original line was touched when the file had none. PR #2238 R1 caught this
+ * as a disagreement between `computeChangedRange` (which reported a 1-line
+ * replacement) and `generateDiffSummary` (which special-cased it) — normalizing
+ * here fixes both and lets the special cases go away, so the three exported
+ * functions genuinely agree instead of agreeing by coincidence.
+ */
+function toLines(content: string): string[] {
+  return content === "" ? [] : content.split("\n");
+}
+
 /** Trim the common prefix and suffix, leaving the changed region between them. */
 function trimCommon(original: string, modified: string): Trim {
-  const originalLines = original.split("\n");
-  const modifiedLines = modified.split("\n");
+  const originalLines = toLines(original);
+  const modifiedLines = toLines(modified);
 
   const limit = Math.min(originalLines.length, modifiedLines.length);
 
@@ -107,6 +124,29 @@ export function computeChangedRange(original: string, modified: string): Changed
 }
 
 /**
+ * Render a changed range as a short human-readable phrase.
+ *
+ * Exists so the CLI's success line can say WHERE an edit landed, not just that
+ * it succeeded — the same signal `changedRange` gives a programmatic caller
+ * (PR #2238 R1: the human output was dropping it).
+ */
+export function describeChangedRange(range: ChangedRange | null): string {
+  if (!range) return "no lines changed";
+
+  if (range.finalCount === 0) {
+    return range.originalCount === 1
+      ? `removed line ${range.originalStart}`
+      : `removed lines ${range.originalStart}-${range.originalStart + range.originalCount - 1}`;
+  }
+
+  const lastLine = range.finalStart + range.finalCount - 1;
+  const lines =
+    range.finalCount === 1 ? `line ${range.finalStart}` : `lines ${range.finalStart}-${lastLine}`;
+
+  return range.originalCount === 0 ? `inserted ${lines}` : `changed ${lines}`;
+}
+
+/**
  * Generate a unified diff between two strings.
  *
  * Emits one hunk covering the changed region (see the module comment on the
@@ -143,8 +183,14 @@ export function generateUnifiedDiff(original: string, modified: string, filename
   const hunkOriginalLength = leadingContext + originalCount + trailingContext;
   const hunkModifiedLength = leadingContext + finalCount + trailingContext;
 
+  // Zero-length side reports the preceding line, per diff -u convention — the
+  // same rule `computeChangedRange` applies, so a whole-file create reads
+  // `@@ -0,0 +1,N @@` rather than claiming a line 1 that never existed.
+  const originalHunkStart = hunkOriginalLength > 0 ? contextStart + 1 : contextStart;
+  const modifiedHunkStart = hunkModifiedLength > 0 ? contextStart + 1 : contextStart;
+
   diffLines.push(
-    `@@ -${contextStart + 1},${hunkOriginalLength} +${contextStart + 1},${hunkModifiedLength} @@`
+    `@@ -${originalHunkStart},${hunkOriginalLength} +${modifiedHunkStart},${hunkModifiedLength} @@`
   );
 
   for (let i = contextStart; i < prefix; i++) {
@@ -182,32 +228,15 @@ export function generateDiffSummary(
   linesChanged: number;
   totalLines: number;
 } {
-  const modifiedLines = modified.split("\n");
-
-  // Whole-file creation/clearing: report it as purely added or purely removed
-  // rather than as the empty string's one blank line being replaced.
-  if (original === "") {
-    return {
-      linesAdded: modifiedLines.length,
-      linesRemoved: 0,
-      linesChanged: 0,
-      totalLines: modifiedLines.length,
-    };
-  }
-
-  if (modified === "") {
-    return {
-      linesAdded: 0,
-      linesRemoved: original.split("\n").length,
-      linesChanged: 0,
-      totalLines: 0,
-    };
-  }
+  const totalLines = toLines(modified).length;
 
   if (original === modified) {
-    return { linesAdded: 0, linesRemoved: 0, linesChanged: 0, totalLines: modifiedLines.length };
+    return { linesAdded: 0, linesRemoved: 0, linesChanged: 0, totalLines };
   }
 
+  // Whole-file creation and clearing need no special case: `toLines` reports an
+  // empty side as zero lines, so a create is purely added and a clear is purely
+  // removed by the same arithmetic as every other edit.
   const { originalCount, finalCount } = trimCommon(original, modified);
 
   return {
@@ -215,6 +244,6 @@ export function generateDiffSummary(
     linesRemoved: originalCount,
     // Lines replaced in place — the overlap between what was removed and added.
     linesChanged: Math.min(originalCount, finalCount),
-    totalLines: modifiedLines.length,
+    totalLines,
   };
 }
