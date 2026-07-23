@@ -46,6 +46,7 @@ import { recordCredentialScrub, realCredentialScrubLogDeps } from "./credential-
 import { resolveProjectIdentity } from "../project/identity";
 import { resolveProjectScope } from "../project/scope-resolver";
 import { isAllProjects } from "../project/scope";
+import { SYNTHETIC_MODEL_SENTINEL } from "../subagent/transcript-metrics";
 
 /**
  * Resolve a project uuid for a transcript from its recovered `cwd`, using the
@@ -272,6 +273,13 @@ export class AgentTranscriptIngestService {
     // to null (mirrors the `writeCwdMatchLink` precedence note above).
     const resolvedProjectId = await resolveIngestProjectId(session.cwd, this.db);
 
+    // mt#3089: extract the model id from THIS batch's new assistant lines.
+    // See extractModelFromNewLines's doc comment for why a later batch that
+    // doesn't re-include the model-bearing turn must not regress an
+    // already-stored value — handled below via COALESCE on conflict, mirroring
+    // projectId's precedence pattern.
+    const extractedModel = extractModelFromNewLines(newLines);
+
     // Fields restricted to insert-only (harness, cwd, project_dir, started_at)
     // are not overwritten on conflict.
     try {
@@ -283,6 +291,7 @@ export class AgentTranscriptIngestService {
           transcript: newLines,
           startedAt: startedAt ?? undefined,
           endedAt: endedAt ?? undefined,
+          model: extractedModel ?? undefined,
           // mt#1445: use the session's recovered working directory if the
           // source could provide one; otherwise leave the column NULL rather
           // than substituting the JSONL path. Downstream consumers querying
@@ -315,6 +324,9 @@ export class AgentTranscriptIngestService {
             lastIngestedJsonlTimestamp: sql`GREATEST(${agentTranscriptsTable.lastIngestedJsonlTimestamp}, EXCLUDED.last_ingested_jsonl_timestamp)`,
             ingestedAt: sql`EXCLUDED.ingested_at`,
             projectId: sql`COALESCE(${agentTranscriptsTable.projectId}, EXCLUDED.project_id)`,
+            // mt#3089: never regress an already-resolved model with a later
+            // batch that didn't happen to include the model-bearing turn.
+            model: sql`COALESCE(${agentTranscriptsTable.model}, EXCLUDED.model)`,
           },
         });
     } catch (err) {
@@ -529,6 +541,49 @@ function extractStartedAt(lines: RawTurnLine[], source: TranscriptSource): Date 
     }
   }
   return earliest;
+}
+
+/**
+ * Extract the first genuine (non-synthetic) model id from a batch of newly
+ * ingested turn lines (mt#3089).
+ *
+ * Every REAL Claude Code transcript assistant line carries `message.model`
+ * (e.g. `{"type":"assistant","message":{"model":"claude-sonnet-5",...}}`) —
+ * the data has always been present in the JSONL; `agent_transcripts.model`
+ * was simply never extracted from it (the ingest path never referenced the
+ * `model` field at all prior to this fix, unlike the sibling `actual_model`
+ * writer in `packages/domain/src/subagent/transcript-metrics.ts`'s
+ * `extractActualModel`, mt#2796, which this mirrors). The harness also
+ * injects `{@link SYNTHETIC_MODEL_SENTINEL}` on locally-manufactured retry
+ * turns (rate-limit/API-error recovery) — never a genuine model response —
+ * so those are skipped the same way `extractActualModel` skips them.
+ *
+ * Operates on the already-parsed `newLines` batch (not a re-read from disk):
+ * `ingestSession` scans every retained line since the high-water-mark in one
+ * pass, so for a session's FIRST ingest this batch includes its earliest
+ * assistant turn and the model is found immediately. A later incremental
+ * ingest's `newLines` may not re-include that early turn — the caller
+ * (`ingestSession`) is responsible for not regressing an already-stored
+ * value (COALESCE on conflict), not this pure extractor.
+ *
+ * Never throws — returns null on any unexpected shape.
+ */
+export function extractModelFromNewLines(lines: readonly RawTurnLine[]): string | null {
+  for (const line of lines) {
+    if (line.type !== "assistant") continue;
+    try {
+      const message = line.message as { model?: unknown } | undefined;
+      const model = message?.model;
+      if (typeof model === "string" && model.length > 0 && model !== SYNTHETIC_MODEL_SENTINEL) {
+        return model;
+      }
+    } catch {
+      // Defensive — line.message could theoretically be a getter that throws
+      // on a malformed source adapter; never let extraction abort ingest.
+      continue;
+    }
+  }
+  return null;
 }
 
 /**

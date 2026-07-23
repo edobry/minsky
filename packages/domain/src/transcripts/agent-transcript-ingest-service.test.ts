@@ -10,8 +10,12 @@
 import { describe, test, expect } from "bun:test";
 
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
-import { AgentTranscriptIngestService } from "./agent-transcript-ingest-service";
+import {
+  AgentTranscriptIngestService,
+  extractModelFromNewLines,
+} from "./agent-transcript-ingest-service";
 import type { IngestAllResult } from "./agent-transcript-ingest-service";
+import { SYNTHETIC_MODEL_SENTINEL } from "../subagent/transcript-metrics";
 import { getSessionsDir } from "@minsky/shared/paths";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -72,6 +76,7 @@ interface FakeRow {
   projectDir: string | null;
   lastIngestedJsonlTimestamp: Date | null;
   ingestedAt: Date;
+  model: string | null;
 }
 
 /** Fake `minsky_session_links` row (mt#2441 — cwd_match link writer). */
@@ -179,6 +184,7 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
               projectDir: values.projectDir ?? null,
               lastIngestedJsonlTimestamp: values.lastIngestedJsonlTimestamp ?? null,
               ingestedAt: values.ingestedAt ?? new Date(),
+              model: values.model ?? null,
             });
             return Promise.resolve();
           };
@@ -228,6 +234,11 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
                 endedAt: values.endedAt ?? existing.endedAt,
                 lastIngestedJsonlTimestamp: newHwm,
                 ingestedAt: values.ingestedAt ?? new Date(),
+                // mt#3089: COALESCE(existing, EXCLUDED) — mirrors the real
+                // SQL's precedence so a later batch that doesn't re-include
+                // the model-bearing turn can never regress an already-stored
+                // value.
+                model: existing.model ?? values.model ?? null,
               });
               return Promise.resolve();
             },
@@ -993,5 +1004,108 @@ describe("AgentTranscriptIngestService", () => {
       expect(persisted).toContain("no secrets here, just output");
       expect(persisted).not.toContain("[REDACTED:");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Model extraction (mt#3089)
+//
+// agent_transcripts.model was 0/1729 populated in production despite every
+// real assistant JSONL line carrying a message.model field — the ingest path
+// simply never referenced `model` at all (extraction, not availability, was
+// the gap). extractModelFromNewLines is the fix; these tests cover both the
+// pure extractor and its wiring into ingestSession's insert/upsert.
+// ---------------------------------------------------------------------------
+
+function makeAssistantLine(ts: string, model: string | undefined, uuid: string): RawTurnLine {
+  return {
+    type: "assistant",
+    timestamp: ts,
+    uuid,
+    message: { role: "assistant", model, content: "reply" },
+  };
+}
+
+describe("extractModelFromNewLines (mt#3089)", () => {
+  test("returns the first genuine model id from an assistant line", () => {
+    const lines = [
+      makeAssistantLine(TS1, "claude-sonnet-5", "u1"),
+      makeAssistantLine(TS2, "claude-opus-5", "u2"),
+    ];
+    expect(extractModelFromNewLines(lines)).toBe("claude-sonnet-5");
+  });
+
+  test("skips the synthetic sentinel and returns the next genuine model", () => {
+    const lines = [
+      makeAssistantLine(TS1, SYNTHETIC_MODEL_SENTINEL, "u1"),
+      makeAssistantLine(TS2, "claude-sonnet-5", "u2"),
+    ];
+    expect(extractModelFromNewLines(lines)).toBe("claude-sonnet-5");
+  });
+
+  test("ignores non-assistant lines", () => {
+    const lines = [
+      { type: "user", timestamp: TS1, uuid: "u1", message: { role: "user", model: "not-real" } },
+    ];
+    expect(extractModelFromNewLines(lines)).toBeNull();
+  });
+
+  test("returns null when no line carries a genuine model", () => {
+    expect(extractModelFromNewLines([makeAssistantLine(TS1, undefined, "u1")])).toBeNull();
+    expect(extractModelFromNewLines([])).toBeNull();
+  });
+});
+
+describe("AgentTranscriptIngestService — model column (mt#3089)", () => {
+  test("first ingest with an assistant turn populates agent_transcripts.model", async () => {
+    const lines = [makeAssistantLine(TS1, "claude-sonnet-5", "u1")];
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, lines);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+
+    const svc = makeSvc(db, source);
+    const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+    expect(result.error).toBeUndefined();
+    expect(state.get(SESSION_A)?.model).toBe("claude-sonnet-5");
+  });
+
+  test("a later incremental ingest without a model-bearing turn does not clobber the stored model", async () => {
+    const source = new FakeTranscriptSource();
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+
+    // First ingest: model-bearing assistant turn.
+    source.addSession(SESSION_A, [makeAssistantLine(TS1, "claude-sonnet-5", "u1")]);
+    db._primeSession(SESSION_A);
+    const svc = makeSvc(db, source);
+    await svc.ingestSession(makeDiscovered(SESSION_A));
+    expect(state.get(SESSION_A)?.model).toBe("claude-sonnet-5");
+
+    // Second, incremental ingest: a plain user turn only, no model field —
+    // must not regress the already-stored model to null.
+    source.addSession(SESSION_A, [
+      makeAssistantLine(TS1, "claude-sonnet-5", "u1"),
+      { type: "user", timestamp: TS2, uuid: "u2", message: { role: "user", content: "more" } },
+    ]);
+    await svc.ingestSession(makeDiscovered(SESSION_A));
+    expect(state.get(SESSION_A)?.model).toBe("claude-sonnet-5");
+  });
+
+  test("no assistant turn in the batch leaves model null (not a synthetic placeholder)", async () => {
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, [
+      { type: "user", timestamp: TS1, uuid: "u1", message: { role: "user", content: "hi" } },
+    ]);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+
+    const svc = makeSvc(db, source);
+    await svc.ingestSession(makeDiscovered(SESSION_A));
+
+    expect(state.get(SESSION_A)?.model ?? null).toBeNull();
   });
 });
