@@ -16,6 +16,7 @@ import { ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { relativeTime, changesetRecencyIso } from "../lib/format";
+import { changesetDisplayTitle } from "../../session-detail";
 import type { SessionPrRef, SessionDetailMeta } from "../../session-detail";
 
 // ---------------------------------------------------------------------------
@@ -68,7 +69,10 @@ export function ChangesetRow({ item, onClick }: ChangesetRowProps) {
   const recencyIso = changesetRecencyIso(session);
   const age = recencyIso ? relativeTime(recencyIso) : "—";
   const prNumber = pr.number != null ? `#${pr.number}` : "—";
-  const title = pr.title ?? session.taskTitle ?? session.taskId ?? pr.headBranch ?? "—";
+  // Shared with the changeset DETAIL header (mt#3096) so the two cannot drift:
+  // the detail page used to render a literal "(no title)" where this row
+  // already fell back to the task title.
+  const title = changesetDisplayTitle(pr, session);
   const taskId = session.taskId;
   const branch = pr.headBranch ?? session.branch ?? "—";
   const approvedText = pr.approved == null ? "—" : pr.approved ? "Approved" : "Pending";

@@ -29,6 +29,7 @@
 import type { SessionRecord, SessionLiveness } from "@minsky/domain/session/types";
 import { deriveSessionLiveness } from "@minsky/domain/session/types";
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
+import type { Changeset } from "@minsky/domain/changeset/types";
 
 // ---------------------------------------------------------------------------
 // Payload types — mirrored by the SessionDetail web widget
@@ -80,6 +81,138 @@ export interface SessionDetailPayload {
   pr: SessionPrRef | null;
   /** Resolved harness transcript for this workspace, when one exists. */
   conversation: { agentSessionId: string } | null;
+}
+
+/**
+ * Live-PR fields for the changeset detail page (mt#3096).
+ *
+ * Present only when the changeset was resolved from the LIVE PR; null when the
+ * endpoint degraded to the session-record snapshot (no GitHub credential, PR
+ * not found, or a forge error). Consumers must treat null as "unknown", never
+ * as zero/empty — rendering a confident `+0 −0` for a degraded fetch is the
+ * fake-health failure mode this field exists to avoid.
+ */
+export interface ChangesetLiveDetail {
+  /** PR body/description. Null when the PR has an empty body. */
+  body: string | null;
+  /** Author login (may be a bot, e.g. `minsky-ai[bot]`). */
+  author: string | null;
+  additions: number | null;
+  deletions: number | null;
+  changedFiles: number | null;
+  /** ISO-8601; null unless the PR is merged. */
+  mergedAt: string | null;
+  /** Login of whoever merged; null unless the PR is merged. */
+  mergedBy: string | null;
+  /** Number of reviews on the PR. */
+  reviewCount: number | null;
+}
+
+/** First value that is a non-blank string, else undefined. */
+function firstNonBlank(...values: (string | null | undefined)[]): string | undefined {
+  return values.find((v): v is string => typeof v === "string" && v.trim().length > 0);
+}
+
+/**
+ * Display title for a changeset, with the fallback chain that keeps a missing
+ * PR title from rendering as a placeholder (mt#3096).
+ *
+ * Shared by the changesets LIST row and the changeset DETAIL header so the two
+ * cannot drift. That drift was the originating bug: the list already fell back
+ * to the task title, while the detail page rendered a literal "(no title)" —
+ * so drilling in made the title strictly worse than the row clicked from.
+ *
+ * Treats blank/whitespace titles as missing, not just null.
+ */
+export function changesetDisplayTitle(
+  pr: Pick<SessionPrRef, "title" | "headBranch" | "number">,
+  session: Pick<SessionDetailMeta, "taskTitle" | "taskId"> | null | undefined
+): string {
+  return (
+    firstNonBlank(pr.title, session?.taskTitle, session?.taskId, pr.headBranch) ??
+    (pr.number != null ? `PR #${pr.number}` : "Untitled changeset")
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Live-changeset mappers (mt#3096)
+//
+// Pure translations from the domain `Changeset` (the live forge read) into the
+// payload shapes this module already defines, so the live path and the
+// session-snapshot fallback hand the widget one consistent shape.
+// ---------------------------------------------------------------------------
+
+/** Map a live Changeset onto the SessionPrRef shape the detail widget renders. */
+export function prRefFromChangeset(cs: Changeset, approved: boolean | null): SessionPrRef {
+  const gh = cs.metadata?.github;
+  const parsedId = Number.parseInt(cs.id, 10);
+  return {
+    number: gh?.number ?? (Number.isFinite(parsedId) ? parsedId : null),
+    url: gh?.htmlUrl ?? null,
+    state: cs.status,
+    title: cs.title,
+    headBranch: cs.sourceBranch ?? null,
+    approved,
+  };
+}
+
+/**
+ * Extract the live-only fields (body, diffstat, merge metadata).
+ *
+ * Every field stays null when the forge did not supply it. This matters: the
+ * diffstat fields are absent on a list-sourced changeset, and defaulting them
+ * to 0 would render a confident "+0 −0" for a PR whose real diff is unknown.
+ */
+export function liveDetailFromChangeset(cs: Changeset): ChangesetLiveDetail {
+  const gh = cs.metadata?.github;
+  return {
+    body:
+      typeof cs.description === "string" && cs.description.trim().length > 0
+        ? cs.description
+        : null,
+    author: cs.author?.username ?? null,
+    additions: gh?.additions ?? null,
+    deletions: gh?.deletions ?? null,
+    changedFiles: gh?.changedFiles ?? null,
+    mergedAt: gh?.mergedAt ?? null,
+    mergedBy: gh?.mergedBy ?? null,
+    reviewCount: Array.isArray(cs.reviews) ? cs.reviews.length : null,
+  };
+}
+
+/**
+ * Repo web base ("https://github.com/<owner>/<repo>") derived from a PR
+ * html_url — the no-session path's substitute for `githubRepoWebBase`, which
+ * needs a session record's repoUrl.
+ */
+export function repoWebBaseFromPrUrl(htmlUrl: string | null | undefined): string | null {
+  if (!htmlUrl) return null;
+  return htmlUrl.match(/^(https:\/\/github\.com\/[^/]+\/[^/]+)\/pull\/\d+/)?.[1] ?? null;
+}
+
+/**
+ * Forge-sourced commits, used when there is no local workspace to `git log`
+ * (the merged-and-cleaned-up case). Reversed to newest-first so the ordering
+ * matches the git-log path, then capped at the same 10.
+ */
+export function commitsFromChangeset(
+  cs: Changeset,
+  repoWebBase: string | null
+): SessionCommitRef[] {
+  return (cs.commits ?? [])
+    .slice()
+    .reverse()
+    .slice(0, 10)
+    .map((c) => ({
+      hash: c.sha,
+      shortHash: c.sha.slice(0, 7),
+      date:
+        c.timestamp instanceof Date && !Number.isNaN(c.timestamp.getTime())
+          ? c.timestamp.toISOString()
+          : null,
+      subject: (c.message ?? "").split("\n")[0] ?? "",
+      url: repoWebBase ? `${repoWebBase}/commit/${c.sha}` : null,
+    }));
 }
 
 // ---------------------------------------------------------------------------

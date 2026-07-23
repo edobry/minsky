@@ -158,6 +158,22 @@ export interface ChangesetMetadata {
     mergeableState: string;
     headSha: string;
     baseSha: string;
+
+    /**
+     * Diffstat + merge metadata (mt#3096).
+     *
+     * OPTIONAL because these fields only exist on the single-PR response
+     * (`GET /pulls/{n}`), not on the list response (`GET /pulls`). A changeset
+     * built by `list()` legitimately leaves them undefined; consumers must
+     * treat absence as "unknown", never as zero.
+     */
+    additions?: number;
+    deletions?: number;
+    changedFiles?: number;
+    /** ISO-8601 merge timestamp; undefined when the PR is not merged. */
+    mergedAt?: string;
+    /** Login of the user who merged; undefined when not merged. */
+    mergedBy?: string;
   };
 
   /** GitLab-specific data */

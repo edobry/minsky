@@ -34,6 +34,9 @@ import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import type { SessionProviderInterface } from "@minsky/domain/session/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import type { ChangesetAdapter } from "@minsky/domain/changeset/adapter-interface";
+import type { TokenProvider } from "@minsky/domain/auth";
+import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
 // getCachedPersistenceProvider — shared bootstrap step
@@ -305,6 +308,107 @@ export async function getServerSessionProvider(): Promise<SessionProviderInterfa
 }
 
 // ---------------------------------------------------------------------------
+// Changeset reader lazy init (mt#3096) — the LIVE-PR data path used by
+// `GET /api/changeset/:id`.
+//
+// Why this exists: that endpoint used to build its entire view from the cached
+// `pullRequest` snapshot on the session record, whose `title` is almost always
+// null — so the detail page rendered the literal "(no title)" for PRs that
+// plainly have one. Reading the live PR removes that whole class of staleness.
+//
+// Why the adapter is constructed DIRECTLY instead of via
+// `createChangesetService()`: that path cannot carry a credential.
+// `ChangesetService.getAdapter()` calls `factory.createAdapter(repositoryUrl)`
+// with no config, and `GitHubChangesetAdapter`'s own fallback resolves only
+// `config.token` / `GITHUB_TOKEN` / `GH_TOKEN` — all empty for the cockpit
+// daemon, which keeps its GitHub credential in Minsky config, not the
+// environment. Passing an explicit `tokenProvider` is the only way to
+// authenticate this read path. Token/repo resolution mirrors
+// `deploy-smoke-sweep.ts`'s `buildRealDeps()`, the existing in-cockpit
+// precedent for config-driven GitHub access.
+//
+// A FRESH adapter is built per call while the deps below stay cached: the
+// adapter memoizes its Octokit on first use, so caching the adapter itself
+// would pin a GitHub App installation token past its ~1h expiry and silently
+// start 401ing. `tokenProvider` does its own caching, so rebuilding costs no
+// extra round-trip in the common case.
+//
+// Returns null (never throws) when GitHub isn't configured or credential
+// resolution fails — the caller degrades to the session-snapshot rendering.
+// ---------------------------------------------------------------------------
+
+interface ChangesetReadDeps {
+  repoUrl: string;
+  tokenProvider: TokenProvider;
+}
+
+let _cachedChangesetReadDeps: ChangesetReadDeps | null = null;
+
+async function getChangesetReadDeps(): Promise<ChangesetReadDeps | null> {
+  if (_cachedChangesetReadDeps) return _cachedChangesetReadDeps;
+
+  const { getRepositoryBackendFromConfig } = await import(
+    "@minsky/domain/session/repository-backend-detection"
+  );
+  const { repoUrl } = await getRepositoryBackendFromConfig();
+
+  // Key off `repoUrl`, NOT the optional `github` sub-object: that sub-object is
+  // populated only when `repository.github` is explicitly set in project config
+  // (see getRepositoryBackendFromConfig), which this project does not set — it
+  // configures `repository.backend` + `repository.url` only. Gating on `github`
+  // made the reader permanently null, i.e. an inert live path that degraded
+  // silently forever. `repoUrl` is always populated, and the adapter derives
+  // owner/repo from it via extractGitHubInfoFromUrl.
+  //
+  // The github.com check mirrors GitHubChangesetAdapterFactory.canHandle —
+  // a non-GitHub remote has no adapter to build.
+  if (!repoUrl || !repoUrl.includes("github.com")) return null;
+
+  const { getConfiguration } = await import("@minsky/domain/configuration/index");
+  const { createTokenProvider } = await import("@minsky/domain/auth");
+  const cfg = getConfiguration();
+
+  _cachedChangesetReadDeps = {
+    repoUrl,
+    tokenProvider: createTokenProvider(cfg.github ?? {}, cfg.github?.token ?? ""),
+  };
+  return _cachedChangesetReadDeps;
+}
+
+/**
+ * Build a read-capable GitHub changeset adapter for the project's configured
+ * repository, or null when GitHub isn't configured / the credential can't be
+ * resolved.
+ *
+ * Only the READ surface (`get`) is exercised by the cockpit — that path uses
+ * Octokit directly and needs no `sessionProvider`. (Mutation methods and
+ * `getDetails` would additionally require one; the cockpit does not call them.)
+ */
+export async function getServerChangesetService(): Promise<ChangesetAdapter | null> {
+  try {
+    const deps = await getChangesetReadDeps();
+    if (!deps) {
+      log.debug("[cockpit] changeset reader unavailable — no GitHub repository backend configured");
+      return null;
+    }
+    const { GitHubChangesetAdapter } = await import("@minsky/domain/changeset/index");
+    return new GitHubChangesetAdapter(deps.repoUrl, undefined, {
+      tokenProvider: deps.tokenProvider,
+    });
+  } catch (err) {
+    // Never swallow silently: a dead credential path is indistinguishable from
+    // "no live data" at the endpoint, which is exactly how a degraded page
+    // looks healthy. Log the real reason.
+    log.debug(
+      `[cockpit] changeset reader construction failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Test-only reset (mt#3016) — mirrors shared-persistence.ts's
 // __resetSharedPersistenceForTests(), same rationale: this module's caches
 // are all module-level state, and bun shares module state across every test
@@ -344,4 +448,5 @@ export function __resetDbProvidersForTests(): void {
   _cachedTaskService = null;
   _cachedTaskDetailDeps = null;
   _cachedServerSessionProvider = null;
+  _cachedChangesetReadDeps = null;
 }

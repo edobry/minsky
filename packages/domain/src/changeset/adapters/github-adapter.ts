@@ -513,7 +513,18 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       status = "open";
     }
 
-    const fullPr = pr as typeof pr & { mergeable?: boolean; mergeable_state?: string };
+    const fullPr = pr as typeof pr & {
+      mergeable?: boolean;
+      mergeable_state?: string;
+      // Present only on the single-PR response (`GET /pulls/{n}`), absent on
+      // the list response — mapped with optional access so a list-sourced
+      // changeset leaves them undefined rather than reporting a false zero (mt#3096).
+      additions?: number;
+      deletions?: number;
+      changed_files?: number;
+      merged_at?: string | null;
+      merged_by?: { login?: string } | null;
+    };
     return {
       id: pr.number.toString(),
       platform: "github-pr",
@@ -543,6 +554,11 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
           mergeableState: fullPr.mergeable_state ?? "unknown",
           headSha: pr.head.sha,
           baseSha: pr.base.sha,
+          additions: fullPr.additions,
+          deletions: fullPr.deletions,
+          changedFiles: fullPr.changed_files,
+          mergedAt: fullPr.merged_at ?? undefined,
+          mergedBy: fullPr.merged_by?.login ?? undefined,
         },
       },
     };
