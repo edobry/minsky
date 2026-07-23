@@ -44,6 +44,43 @@ Before writing the spec, search the codebase to ground the spec in reality:
 
 This prevents specs that reference non-existent files or miss existing infrastructure.
 
+### 2a. Verify load-bearing dependency claims (mt#3050)
+
+If the drafted spec asserts that an EXISTING component, tool, or seam **supplies a
+capability the task will consume** — a claim shaped like "X is sourced from /
+supplied by / comes from the Y seam" — that assertion is load-bearing: downstream
+work gets sequenced on the assumption it's true. Before Step 3 finalizes the spec,
+each such claim must satisfy ONE of:
+
+- **Cited** — name the FILE the component lives in AND the specific symbol/shape
+  (function, type, exported member) that actually provides the capability. This
+  is a mechanical presence check on the spec text itself: a file path and a named
+  symbol, not a description of research activity.
+- **`UNVERIFIED`** — if the file was not actually read this turn, mark the claim
+  with the literal word `UNVERIFIED` (e.g., "the router default is UNVERIFIED as
+  sourced from `tasks_route`") instead of asserting it as settled fact.
+
+Checkable from the spec text alone: either a path + symbol citation is present
+for the claim, or the literal marker `UNVERIFIED` is present. Step 2 ("Research
+the codebase") names an activity; this step is the falsifiable gate on that
+activity's OUTCOME for dependency claims specifically — advice to "research the
+codebase" is not itself verifiable, which is exactly what failed in the
+incident below.
+
+**Incident this closes (R13, mt#3043, 2026-07-22):** a spec asserted the
+router-suggested default would be "sourced from the existing `tasks_route` /
+`tasks_estimate` seam" without reading `task-routing-service.ts`. The named
+component actually exposes task-GRAPH routing (`AvailableTask`/`RouteStep`/
+`TaskRoute` — readinessScore, blockedBy, dependencies), not model-complexity
+routing. One file read falsified the premise — but only AFTER the task was
+filed, sequenced behind other work, and presented to the principal as the next
+thing to build.
+
+**Proportionality (cf. mt#2309):** this is a narrow presence check on
+load-bearing dependency claims, not the full `/plan-task` gate battery
+(cite+quote+map+verdict across every claim in a spec). Process weight matches
+work weight — a task-creation-time step, not a planning-phase audit.
+
 ### 3. Generate the structured spec
 
 Write a spec with ALL required sections:
@@ -92,6 +129,11 @@ Call `mcp__minsky__tasks_create` with:
 - `spec`: the full structured spec from step 3
 
 If `--parent`, `--tags`, or `--backend` were specified, include those parameters.
+
+**Gate:** before calling `tasks_create`, confirm every load-bearing dependency
+claim in the drafted spec passes Step 2a — cited (file + symbol) or marked
+`UNVERIFIED`. Do not call `tasks_create` while an uncited, unmarked dependency
+claim remains in the spec.
 
 ### 5. Confirm
 
