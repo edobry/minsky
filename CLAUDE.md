@@ -517,6 +517,7 @@ function helloWorld() {
 - **2-strikes rule: after the 2nd identical tool error from the same tool, stop.** Do not retry. Read the tool's actual error message, diagnose the root cause (permission? stale input? upstream state?), and file a bug task if the error is systemic. Resume only once you understand why it failed. Counting attempts, not classifying the situation — it's a mechanical rule.
 - **Workarounds are not fixes.** Switching to an alternative path/method without understanding the root cause may hide a systemic bug that breaks other users. If a workaround is needed to proceed, file the underlying bug task first.
 - **When any MCP tool call returns an error, stop and investigate before the next attempt.** Even on the first occurrence, don't retry blindly — retry only with a hypothesis about what the error means.
+- **Never mark a task complete with known errors outstanding** (lint, type, test, build) — see `dont-ignore-errors` (not always-loaded; `rules_get`) for the batch-verification and completion-gate detail.
 
 # Hook Files
 
@@ -568,6 +569,7 @@ Operational corollaries already in force below are instances of this one princip
 - 2-strikes escalation (§Error Investigation)
 - User decides scope; never defer identified work (§Work Completion)
 - Trust the hooks; never bypass (§Hook Files)
+- Never confidently assert a resource/file/capability doesn't exist without tool-based verification first — see `verification-checklist` (not always-loaded; `rules_get`) for the mandatory pre-response checklist.
 
 ## Escalation packaging
 
@@ -616,6 +618,12 @@ Originating incident: ask 6807fb14 (2026-07-15, R5 of the escalation-packaging f
 - `mcp-disconnect-cadence` — disconnect cause classes, escalation thresholds, log-reading recipes (investigating MCP disconnects)
 - `subagent-dispatch-cadence` — dispatch outcome taxonomy, escalation thresholds, SQL inspection patterns (investigating subagent outcomes)
 - `documentation-taxonomy` — doc-type taxonomy, homes, title patterns (authoring docs; `/create-task`, `/draft-rfc`, `/draft-adr` carry the workflow)
+- `architectural-bypass-prevention` — encapsulation/facade/initialization-guard patterns to prevent bypass of controlled interfaces (designing modules or interfaces)
+- `efficient-database-queries` — avoiding N+1 query patterns and I/O-in-loops; bulk-query and in-memory-processing patterns (writing DB-backed domain/service code)
+- `git-safety` — destructive git operations (reset --hard, push --force, etc.) require the `git-safety` skill; ESLint `custom/no-unsafe-git-exec` backs it structurally
+- `json-parsing` — use `jq`, never `grep`/`awk`/`sed`, when parsing or filtering JSON command output
+- `ai-linter-autofix-guideline` — don't spend cycles hand-perfecting formatting the linter autofixes
+- `no-dynamic-imports` — prefer static imports; `eslint.config.js`'s `allowDynamicImports:false` enforces this mechanically
 
 # Key Workflows (via skills)
 
@@ -960,6 +968,12 @@ a follow-up candidate rather than done here); until it does, name the register e
 # Task Lifecycle
 
 Task lifecycle transitions are owned by per-phase skills: `/plan-task` (planning and READY gate), `/implement-task` (session, coding, PR creation), `/verify-task` (post-merge closeout). Also: BLOCKED (from PLANNING, READY, or IN-PROGRESS), CLOSED (from any state). Multi-kind workflows (umbrella, etc.) documented in `docs/task-kinds.md`.
+
+## Related lifecycle rules (not always-loaded; read via `.minsky/rules/<name>.mdc` or `rules_get`)
+
+- `task-lifecycle-external-deliverable` — the READY → DONE direct-closeout convention for tasks whose deliverable is external to the repo (Notion pages, deployed services, hosted resources)
+- `task-lifecycle-verification` — verification surfaces (reviewer-bot, `/verify-task`) and the three-layer merge-protection model
+- `task-status-workflow-protocol` — never manually set DONE from a session; DONE is set only at PR merge
 
 # Terminal Command Best Practices
 

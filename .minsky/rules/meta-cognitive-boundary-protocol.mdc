@@ -1,5 +1,8 @@
 ---
 description: Use when naming code artifacts, writing comments, or reviewing variable/function names to prevent internal reasoning language from leaking into external program interfaces.
+globs:
+  - '**/*.ts'
+  - '**/*.tsx'
 tags:
   - code-style
   - preferences
