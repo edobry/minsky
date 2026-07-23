@@ -1731,11 +1731,9 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 
   **If all probes fail OR the action is out-of-scope/unsafe even with tooling available**, state both the probe results AND the scope/safety basis inline so the deferral has visible justification: e.g., `"Probed: which gh → not on PATH; no GitHub-org-admin skill; no scripts/gh-admin/; no memory matches. Deferred — requires user with GitHub org-admin access."` OR `"Probed: railway CLI available and authenticated. Action out-of-scope for this task (spec §Out of scope explicitly lists Railway env-var changes as a separate concern). Deferred."` A bare deferral without inline probe results AND scope/safety basis is unjustified.
 
-  Originating incident: mt#1811 (2026-05-13). Wrote "Operator follow-up — requires Railway access" in PR #1100 body and spec outcome despite `railway` CLI being on PATH, `railway:use-railway` in the available-skills list, and `feedback_railway_config_dot_path_fails_silently` in injected memory. Time-from-pushback-to-verified-in-production: <5 minutes. Time-to-probe-before-writing-the-deferral: would have been <30 seconds.
-
-  This rule is the dual direction of `decision-defaults.mdc §Build vs buy — anti-pattern checklist` (4th bullet, "Build-path-as-research at action-execution-time"). Both are instances of: at action-execution time, agent defaults to the path requiring the least new tool-acquisition or boundary-crossing, even when other options are available.
-
-  The `/implement-task` skill's §7 Convergence Checklist has a paired Preventive-phase sub-step that enforces the same probe at the PR-creation gate. This rule covers all artifact surfaces; the skill step covers the implement-task pipeline specifically.
+  Dual of `decision-defaults.mdc §Build vs buy` step 4 (build-path-as-research); enforced also at
+  `/implement-task` §7 Preventive phase. Full incident + cross-reference detail:
+  `docs/rules-rationale/user-preferences.md §Probe before deferring`.
 
 - **Probe before claiming a shared resource (mt#1965 → mt#1990).** Before recommending or taking action on a shared resource — a task, a branch, a deployed environment, a PR — probe for active claims by other actors. A status of `READY`, an empty PR-list filter, or any other "looks unclaimed" surface only means "no claim is currently visible to me" — not "nobody is working on it." Multi-agent task graphs contain agents mid-planning, mid-implementation, or about-to-start that don't surface on a single status read.
 
@@ -1752,11 +1750,10 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 
   **If all probes pass cleanly**, proceed — but record the probe outcome in the recommendation so the audit trail shows the check was done.
 
-  Originating incident: mt#1965 closeout (2026-05-20). After completing mt#1965 (OOB-merge guard agent-attestation gap investigation), the agent recommended `/implement-task mt#1964` without detecting that another agent had advanced mt#1964 PLANNING→READY during the same session. The status change was a visible signal not interpreted as evidence; the principal informed the agent of the collision. The substrate RFC (mt#1990) explores the structural fix — claim primitives, agent presence, status-machine intent states — that would turn this probe sequence into a single substrate read. A FIRST slice has shipped: task-grain presence claims (mt#2562; write-path fix mt#2567), now probe step 0 above — but it is a best-effort SIGNAL (opaque, churning `actorId`), not yet the "single read" that replaces the sequence. The unified-fleet-state view that would close that gap is mt#2569. Until then, this rule stays checklist-driven discipline with presence as the cheap first pass.
-
-  This rule is the dual of `§Probe before deferring`: that rule guards the "skipping the easy path because I assume it's blocked" failure (claiming tooling is unavailable without verifying); this rule guards the "taking the easy path because I assume it's unclaimed" failure (recommending action on a shared resource without verifying who holds it). Both are instances of: at action-execution time, the agent defaults to the lowest-cost-check path without verifying the underlying assumption.
-
-  **Future structural enforcement:** the unified fleet-state view (mt#2569) may fold probes 0–4 into a single query, or eliminate the need to probe entirely via active edges + presence broadcast. When that lands, this rule retires.
+  Dual of `§Probe before deferring` (opposite direction: assuming unclaimed vs. assuming
+  blocked). Full incident, structural-enforcement roadmap (mt#1990/mt#2569), and
+  presence-probe detail: `docs/rules-rationale/user-preferences.md §Probe before claiming a
+  shared resource`.
 
 - **No echo for progress summaries:** Execute actions directly. Use `echo` only for legitimate shell scripting, not to generate status reports or avoid real work.
 
@@ -1776,15 +1773,17 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 
   This does NOT weaken any skill's requirement to produce structured reports (gap reports, gate tables, premise audits). Those are records — produce them in full, but render them after the plain-language lead or into the durable artifact. Placement changes; rigor does not.
 
-  Originating incident: 2026-07-15, mt#2777 planning. The gate output led with a four-part premise audit and a 14-row criterion table; the principal responded "This is too much information. Help me understand what the situation is and what should be done about this," and approved the plain rewrite (what happened → the two underlying problems → what's wrong with the task as written → three recommended actions) as the standard. Structural fix: this bullet plus the `/plan-task` Step 4 output amendment (same task). Sibling rules: `§Professional communication` (tone), `humility.mdc §Escalation packaging` (self-contained decision escalations); this bullet covers report-shaped output.
-
-  For the specific shape of a turn-end status report (BLUF, exceptions + judgment calls, pointers instead of re-narration), see `communication-contract.mdc` — this bullet's plain-language discipline is the sibling covering investigation/planning/incident reports generally; that rule specializes it for the turn-end report.
+  Full incident narrative: `docs/rules-rationale/user-preferences.md §Plain-language first`. See
+  `communication-contract.mdc` for the turn-end report shape this discipline specializes.
 
 - **Progress heartbeats during tool-only stretches (mt#2824).** During research/build chains where several tool calls run back-to-back with no interstitial prose, emit a one-line status update — current activity plus a health signal (e.g., "still reading the auth module, no blockers" or "3 of 5 files migrated, tests pending") — at least every **10 minutes of wall-clock time OR 15 consecutive tool calls, whichever comes first.** A stretch below BOTH thresholds needs no heartbeat.
 
-  Cadence pinned at planning (2026-07-15) and grounded in two originating interrupts (conversations a9c1a09b at 24 minutes, ac4f5675 at 28 minutes) — this cadence yields at least two heartbeats before either historical interrupt point. Applies at **every altitude register, including executive-level summaries** — per [`RFC: Communication altitude`](https://www.notion.so/39e937f03cb481febdeae249014e356f) (Draft), heartbeats are scroll lines the operator can glance at mid-stream, not notifications reserved for a final report. Content contract: one line, current activity + health signal — not a status essay. A genuine severity event (blocking error, unexpected destructive action, a finding that changes the plan) reports immediately regardless of where the cadence clock stands; don't hold it for the next scheduled heartbeat.
+  Applies at **every altitude register, including executive-level summaries** (heartbeats are scroll lines the operator can glance at mid-stream, not notifications reserved for a final report). Content contract: one line, current activity + health signal — not a status essay. A genuine severity event (blocking error, unexpected destructive action, a finding that changes the plan) reports immediately regardless of where the cadence clock stands; don't hold it for the next scheduled heartbeat.
 
-  This is the discipline layer of a two-layer fix; the detection layer is `silent-stretch-detector.ts` (`.minsky/hooks/`, ADR-028 `GUARD_REGISTRY`) — a calibration-first (mt#2263 ladder) `UserPromptSubmit` guard that measures the just-completed turn for tool-only silence and logs a record to `.minsky/silent-stretch-calibration.jsonl` when a stretch crossed the threshold without a heartbeat; it does not yet inject a reminder (v1 is log-only). Originating incident: *"I think you ran into the harness bug again. Maybe you're making progress. I can't see it because there's been no UI updates in 24 minutes"* — the operator interrupted two in-flight, healthy tool calls because silence was indistinguishable from a hang. See `docs/architecture/hooks/silent-stretch-detector.md` and `hook-files.mdc`'s entry for the detector's trigger/override/fail-posture summary.
+  Detection-layer companion (log-only, no injection yet): `silent-stretch-detector.ts` logs to
+  `.minsky/silent-stretch-calibration.jsonl` when a stretch crosses the threshold without a
+  heartbeat. Full incident + cadence-grounding detail: `docs/rules-rationale/user-preferences.md
+  §Progress heartbeats`.
 
   `communication-contract.mdc` cites this section's cadence for its "silence must be designed, not accidental" premise rather than restating the numbers — this bullet stays the single source of truth for heartbeat cadence.
 
@@ -2178,10 +2177,6 @@ answer. This practice is the **proactive front** to the **reactive** epistemic d
 
 ## External self-resolving waits: arm a watcher, don't delegate to the operator
 
-(Lives here rather than `decision-defaults.mdc` — its recommended sibling home was already near
-the per-rule 15,000-char compile ceiling; this section fits thematically as another
-don't-hand-to-the-human-what-the-agent-can-do instance.)
-
 Turn-end "blocked" splits into two categories that must not be collapsed: **(a) blocked on a
 principal decision** (naming, scope change, framework choice, authorization) — stop and
 escalate; the legitimate handoff. **(b) blocked on an external, self-resolving condition** (a
@@ -2201,14 +2196,8 @@ handing an autonomously-watchable wait to the human.
 **Generic-SE override:** "wait for the human to notice the dependency recovered." Wrong here:
 the tools to observe and self-resume already exist.
 
-**Family kinship** (don't hand the human what the agent can do itself): `§Probe before deferring`
-(`User Preferences`, mt#1819); the stop-at-handoff family (mt#2689, memory `06a454a5`);
-"long-paused subagent ≠ dead" (memory `5f2154cd`). This is the external-dependency-wait
-instance — distinct from capability-deferral and from chain-walk-stop.
-
-**Origins:** 2026-07-19 incident — 3 merge-ready PRs blocked by a GitHub API 503; the agent
-delegated the wait instead of arming a poll a parallel agent used correctly. See
-`feedback_external_self_resolving_wait_arm_a_watcher_not_delegate_to_operator` (id `cb17d1c3`).
+Full rationale, family kinship, and origin incident: `docs/rules-rationale/work-completion.md
+§External self-resolving waits`.
 
 ## Temporary mechanism budget
 
@@ -2219,7 +2208,7 @@ When a memory entry, skill, doc, or comment encodes a mechanism as **"temporary,
 
 When the threshold is exceeded, the agent surfaces a reprioritization prompt to the user (escalation packaging per `humility.mdc`) rather than continuing to apply the workaround silently. Memory describing the world is not a substitute for memory acting on it: an "escape hatch fires once a quarter" memory and an "escape hatch fires daily" memory have the same shape unless the budget is encoded.
 
-**Why:** mt#1503 / 2026-05-01 incident — the `gh api PUT /merge` bypass for self-authored bot PRs was framed in `feedback_gh_api_bypass.md` (2026-04-23) as "Escape hatch — not a default path." Over 3 weeks it became the dominant merge mechanism (~17+ PRs, ~5/week). Four memory entries observed "the bypass is becoming load-bearing" without escalating. The structural unblockers (mt#1073, mt#1065, mt#1345, mt#1372, mt#1310, mt#1405, mt#1477) sat in TODO/PLANNING the entire time. The prioritization loop had no measurement variety for *operational pattern frequency over time* (Ashby).
+Full incident narrative: `docs/rules-rationale/work-completion.md §Temporary mechanism budget`.
 
 **How to apply:**
 
@@ -2238,7 +2227,7 @@ When a task spec introduces a **recovery layer** — sweeper, retry, fallback, a
 
 A recovery layer is only as strong as the failure modes its spec enumerates. Implicit "covers everything in the area" framing produces false confidence and deferred follow-ups.
 
-**Why:** mt#1556 / 2026-05-02 incident — mt#1260's periodic-sweeper spec described what it does (detect missed reviews + retrigger) but did not enumerate which silent-reviewer modes it covers vs. doesn't. The implicit framing was "the silent-reviewer class is now covered." In reality the sweeper runs in-process via `setInterval` *after* drizzle migrations apply, so it is structurally unable to recover when the service can't start (mt#1556's actual failure mode). mt#1260 marked DONE 2026-04-26 → silent-reviewer class declared "covered" → mt#1310 (alerting) and mt#1372 (webhook diagnosis) sat in PLANNING for ~6 days → 2026-05-02 the very class they would have caught (service-down) crashed the reviewer service silently for ~107 hours.
+Full incident narrative: `docs/rules-rationale/work-completion.md §Recovery layer spec discipline`.
 
 **How to apply:**
 
@@ -2250,12 +2239,14 @@ A recovery layer is only as strong as the failure modes its spec enumerates. Imp
 
 ## Invocation path required for event/poll mechanisms
 
-When a spec introduces an **event-driven or polling mechanism** — webhook handler, scheduled job, cron, sweeper, watcher, poller — it MUST name the **concrete invocation path**: what starts it, what calls it, how it is wired in.
+When a task spec introduces an **event-driven or polling mechanism** — webhook handler, scheduled job, cron, sweeper, watcher, poller — it MUST name the **concrete invocation path**: what starts it, what calls it, how it is wired in.
 
 These fail silently in two shapes, identical from outside: the feature exists, its tests pass, it produces nothing.
 
-- **Nothing calls it.** No scheduler, no registration, no production callsite — or the only caller is a stub. mt#1618: `pr_watch_run` shipped complete, but production wired a `stubGithubPrClient` returning null/[]/[] and no scheduler called it.
-- **It runs; a dependency inside it is dead.** The failure is caught and converted into the same value a legitimately empty result produces. mt#3019: a hook fired on every SubagentStop, but its domain import threw — 0 of 62 rows carried any column it owned, for two weeks. mt#3046: a post-merge scan fired on every merge; its transcript load threw, was swallowed by `catch { return null }`, and null means "nothing to do" — it never ran. Harder: no missing caller to grep for, no error to find.
+- **Nothing calls it.** No scheduler, no registration, no production callsite — or the only caller is a stub (mt#1618).
+- **It runs; a dependency inside it is dead.** The failure is caught and converted into the same value a legitimately empty result produces — no missing caller to grep for, no error to find (mt#3019, mt#3046).
+
+Full incident detail for both shapes: `docs/rules-rationale/work-completion.md §Invocation path`.
 
 **How to apply:**
 
