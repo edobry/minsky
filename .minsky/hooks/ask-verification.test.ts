@@ -125,15 +125,32 @@ describe("evaluateAskRows", () => {
     expect(result.verdict).toBe("not-approved");
     expect(result.detail).toMatch(/not an approval/);
   });
+
+  test("only responded/closed states can carry an answer (reviewer R1)", () => {
+    // The predecessor enforced this implicitly by fetching only those two
+    // states. The by-id lookup can return an Ask in ANY state, so a cancelled
+    // or expired Ask carrying a stale approving response must still be refused.
+    for (const state of ["suspended", "cancelled", "expired", "routed", undefined]) {
+      const result = evaluateAskRows([approvedRow({ state })], ASK_ID);
+      expect(result.verdict).toBe("not-approved");
+      expect(result.detail).toMatch(/state/);
+    }
+  });
+
+  test("responded and closed both verify", () => {
+    for (const state of ["responded", "closed"]) {
+      expect(evaluateAskRows([approvedRow({ state })], ASK_ID).verdict).toBe("approved");
+    }
+  });
 });
 
 describe("verifyApprovedAsk", () => {
-  /** Exec fake for the by-id read: returns `row` for any `asks get` call. */
+  /** Exec fake for the id-filtered list read. */
   const foundExec =
     (row: AskRow): ExecFn =>
-    () => ({ exitCode: 0, stdout: JSON.stringify(row), stderr: "" });
+    () => ({ exitCode: 0, stdout: JSON.stringify({ asks: [row] }), stderr: "" });
 
-  test("reads the ask BY ID, not by paging a list (mt#3007)", () => {
+  test("reads the ask BY ID, not by paging a state list (mt#3007)", () => {
     // Regression guard for the defect this replaced: the old implementation
     // paged `tools asks list --state ... --limit 200` on the false assumption
     // that the page was newest-first, so a genuinely approved ask outside the
@@ -141,16 +158,16 @@ describe("verifyApprovedAsk", () => {
     let invoked: string[] = [];
     const spyExec: ExecFn = (cmd) => {
       invoked = cmd;
-      return { exitCode: 0, stdout: JSON.stringify(approvedRow()), stderr: "" };
+      return { exitCode: 0, stdout: JSON.stringify({ asks: [approvedRow()] }), stderr: "" };
     };
 
     expect(verifyApprovedAsk(ASK_ID, spyExec).verdict).toBe("approved");
-    expect(invoked).toEqual(["minsky", "tools", "asks", "get", ASK_ID]);
-    expect(invoked).not.toContain("list");
+    expect(invoked).toEqual(["minsky", "tools", "asks", "list", "--id", ASK_ID]);
     expect(invoked).not.toContain("--state");
+    expect(invoked).not.toContain("--limit");
   });
 
-  test("approved regardless of which state the ask is in", () => {
+  test("approved regardless of which answerable state the ask is in", () => {
     expect(verifyApprovedAsk(ASK_ID, foundExec(approvedRow({ state: "closed" }))).verdict).toBe(
       "approved"
     );
@@ -167,15 +184,26 @@ describe("verifyApprovedAsk", () => {
     expect(verifyApprovedAsk(ASK_ID, foundExec(row)).verdict).toBe("approved");
   });
 
-  test("nonexistent ask → not-approved (fail closed on a fabricated id)", () => {
-    const notFoundExec: ExecFn = () => ({
-      exitCode: 1,
-      stdout: `❌ Ask not found with id "${ASK_ID}"`,
+  test("nonexistent ask → not-approved (structured absence, fail closed)", () => {
+    // A bogus id returns exit 0 with an EMPTY array — absence is data, not a
+    // parsed error string, so it can never be confused with a broken read.
+    const emptyExec: ExecFn = () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ asks: [], total: 0 }),
       stderr: "",
     });
-    const result = verifyApprovedAsk(ASK_ID, notFoundExec);
+    const result = verifyApprovedAsk(ASK_ID, emptyExec);
     expect(result.verdict).toBe("not-approved");
     expect(result.detail).toMatch(/does not exist/);
+  });
+
+  test("a row for a DIFFERENT id is not accepted as the target", () => {
+    const otherExec: ExecFn = () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ asks: [approvedRow({ id: "some-other-id" })] }),
+      stderr: "",
+    });
+    expect(verifyApprovedAsk(ASK_ID, otherExec).verdict).toBe("not-approved");
   });
 
   test("CLI failure → unavailable (caller defers, never allows)", () => {
@@ -191,11 +219,7 @@ describe("verifyApprovedAsk", () => {
   test("a DB outage is never mistaken for a missing ask", () => {
     // "unavailable" and "not-approved" must stay distinguishable: the first
     // means retry/defer, the second means refuse.
-    const outageExec: ExecFn = () => ({
-      exitCode: 1,
-      stdout: "",
-      stderr: "connection refused",
-    });
+    const outageExec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "connection refused" });
     expect(verifyApprovedAsk(ASK_ID, outageExec).verdict).toBe("unavailable");
   });
 });

@@ -9,15 +9,20 @@
 // hand-written store entry still fails at the hook (defense-in-depth; the
 // store is never the authority, the Ask's DB state is).
 //
-// Mechanism: shell out to a `minsky tools asks get <id>` CLI read (the same
-// reach-the-server mechanism as the mt#2813 standalone-duplicate probe)
+// Mechanism: shell out to a `minsky tools asks list --id <id>` CLI read (the
+// same reach-the-server mechanism as the mt#2813 standalone-duplicate probe)
 // rather than importing `packages/domain` — keeps the hook self-contained per
 // `.claude/hooks/SPEC.md`. The lookup is BY ID (mt#3007); it previously paged
-// through `tools asks list`, which silently missed asks outside the page.
+// through `tools asks list --state ...`, which silently missed asks outside
+// the page. An empty result array is a structured "absent" signal, so a
+// missing ask is never confused with a broken read.
 //
 // Security posture (the spec's fabrication criterion):
 //   - ask must EXIST (a nonexistent id is refused, not deferred)
 //   - kind must be exactly "authorization.approve"
+//   - state must be "responded" or "closed" — an Ask in any other state
+//     cannot carry a valid operator answer (enforced explicitly since the
+//     by-id lookup can return an Ask in ANY state)
 //   - response.responder must be "operator" — agent/policy/timeout
 //     responders are REFUSED, closing the self-respond vector (an agent
 //     calling asks_respond on its own ask cannot mint authorization)
@@ -29,12 +34,17 @@
 import { execWithPath } from "./types";
 
 const ASKS_CLI_TIMEOUT_MS = 20000;
+
 /**
- * `tools asks get` prints this when the id resolves to no Ask. Distinguishing
- * it from an infrastructure failure is what keeps a fabricated id fail-CLOSED
- * (not-approved) while a DB outage stays "unavailable".
+ * States in which an Ask can carry an operator's answer.
+ *
+ * The predecessor implementation enforced this implicitly by only ever
+ * fetching `--state responded` and `--state closed`. The by-id lookup can
+ * return an Ask in ANY state, so the constraint has to be explicit — otherwise
+ * a cancelled or expired Ask that still carries a stale approving response
+ * would verify (reviewer R1, mt#3007).
  */
-const ASK_NOT_FOUND_MARKER = /ask not found/i;
+const ANSWERABLE_STATES = new Set(["responded", "closed"]);
 
 export interface AskVerificationResult {
   verdict: "approved" | "not-approved" | "unavailable";
@@ -122,6 +132,12 @@ export function evaluateAskRows(rows: AskRow[], askId: string): AskVerificationR
       detail: `ask ${askId} has kind "${String(ask.kind)}", not authorization.approve`,
     };
   }
+  if (typeof ask.state !== "string" || !ANSWERABLE_STATES.has(ask.state)) {
+    return {
+      verdict: "not-approved",
+      detail: `ask ${askId} is in state "${String(ask.state)}", not responded/closed`,
+    };
+  }
   const responder = ask.response?.responder;
   if (responder !== "operator") {
     return {
@@ -152,37 +168,39 @@ export function evaluateAskRows(rows: AskRow[], askId: string): AskVerificationR
  * asks" — which is verbatim the error the originating incident hit and
  * attributed to a different cause.
  *
- * A by-id lookup has no window, no ordering assumption, and no state
- * enumeration: an Ask that exists is always found, in whatever state it is in
- * (the state-appropriateness checks live in `evaluateAskRows`).
+ * Uses the `--id` filter rather than `tools asks get` so that ABSENCE is a
+ * structured signal: a nonexistent id returns exit 0 with an empty `asks`
+ * array, which cannot be confused with an infrastructure failure. (Reviewer
+ * R1: `asks get` reports absence only in prose, so telling "missing" from
+ * "broken" would have depended on matching an error string.)
  */
 function fetchAskById(askId: string, exec: ExecFn): AskFetch {
-  const result = exec(["minsky", "tools", "asks", "get", askId], {
+  const result = exec(["minsky", "tools", "asks", "list", "--id", askId], {
     timeout: ASKS_CLI_TIMEOUT_MS,
   });
 
   if (result.exitCode !== 0) {
-    if (ASK_NOT_FOUND_MARKER.test(`${result.stdout}\n${result.stderr}`)) {
-      return { ok: false, reason: "not-found" };
-    }
     return {
       ok: false,
       reason: "error",
-      message: `minsky tools asks get exited ${result.exitCode}: ${result.stderr.trim()}`,
+      message: `minsky tools asks list --id exited ${result.exitCode}: ${result.stderr.trim()}`,
     };
   }
 
   try {
     const parsed: unknown = JSON.parse(result.stdout);
-    if (!parsed || typeof parsed !== "object") {
-      return { ok: false, reason: "error", message: "unexpected asks get shape" };
+    const asks = (parsed as { asks?: unknown })?.asks;
+    if (!Array.isArray(asks)) {
+      return { ok: false, reason: "error", message: "unexpected asks list shape" };
     }
-    return { ok: true, row: parsed as AskRow };
+    const row = asks.find((r) => (r as AskRow)?.id === askId) as AskRow | undefined;
+    if (!row) return { ok: false, reason: "not-found" };
+    return { ok: true, row };
   } catch (err) {
     return {
       ok: false,
       reason: "error",
-      message: `unparseable asks get JSON: ${err instanceof Error ? err.message : String(err)}`,
+      message: `unparseable asks list JSON: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 }
