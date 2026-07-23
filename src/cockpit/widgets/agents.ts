@@ -92,6 +92,15 @@ export interface AgentRow {
   /** Subagent conversations collapsed under this row (mt#2767 grouping) — empty when none. */
   subagents: SubagentEntry[];
   /**
+   * Model the row's own conversation ran on (mt#3070), sourced from
+   * `agent_transcripts.model` via the run-merge join — see run-merge.ts's
+   * module doc for the plan-time populated-ness finding. `null` when
+   * unknown (no linked conversation, or the transcript row has no model
+   * recorded); the frontend renders that as an explicit unknown state,
+   * never a guess.
+   */
+  model: string | null;
+  /**
    * Row attachment-state (mt#2286), derived from the row's live mt#2284
    * attachment set via `deriveRowAttachState`. Only ever populated for
    * `kind: "dispatched-agent"` rows — that is the only kind whose
@@ -195,6 +204,9 @@ function toAgentRow(record: SessionRecord, taskTitle: string | null): AgentRow {
     conversationId: null,
     cwd: null,
     subagents: [],
+    // Filled in below (createAgentsWidget's fetch()) from the merge attrs
+    // when a linked conversation carries a model (mt#3070); null by default.
+    model: null,
     // Attached from the driven-session registry snapshot (mt#2752) when a
     // driven session was launched against this workspace.
     driven: null,
@@ -254,6 +266,10 @@ export function spliceDrivenSessions(
       conversationId: record.harnessSessionId,
       cwd: record.cwd,
       subagents: [],
+      // Driven-session model tracking is out of this task's scope (mt#3070
+      // covers run-merge.ts's agent_transcripts join, not the driven-session
+      // registry snapshot) — renders as the same explicit unknown state.
+      model: null,
       driven: { sessionId: record.localId, status: record.status },
       // A driven session is inherently app-started, not a workspace row —
       // attachState (mt#2284/mt#2286) doesn't apply (mt#2286).
@@ -466,6 +482,7 @@ export function createAgentsWidget(
                 row.conversationId = attrs.conversationId;
                 row.cwd = attrs.cwd;
                 row.subagents = attrs.subagents;
+                row.model = attrs.model;
               }
             }
             standaloneRows = merge.standaloneRows.map((r) => ({

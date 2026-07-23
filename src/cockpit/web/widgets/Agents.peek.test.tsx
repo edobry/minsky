@@ -46,6 +46,7 @@ function baseRow(overrides: Partial<AgentRow> & Pick<AgentRow, "sessionId">): Ag
     conversationId: null,
     cwd: null,
     subagents: [],
+    model: null,
     driven: null,
     attachState: null,
     interfaceBinding: { kind: "unbound", lastObservedAt: "2026-07-18T00:00:00Z" },
@@ -62,6 +63,7 @@ const SUBAGENT_ONLY_ROW = baseRow({
       cwd: null,
       startedAt: "2026-07-18T00:00:00Z",
       endedAt: null,
+      model: null,
     },
   ],
 });
@@ -81,6 +83,7 @@ const DRIVEN_WITH_SUBAGENTS_ROW = baseRow({
       cwd: null,
       startedAt: "2026-07-18T00:00:00Z",
       endedAt: null,
+      model: null,
     },
   ],
 });
@@ -186,7 +189,9 @@ describe("Agents row expansion (mt#2912)", () => {
     // Collapsing the row tears the peek (and its WS connection) down again —
     // expanding it back open doesn't leak a second stale connection.
     fireEvent.click(screen.getByLabelText("Collapse driven session"));
-    await waitFor(() => expect(screen.queryByLabelText("Message to the driven session")).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Message to the driven session")).toBeNull()
+    );
   });
 
   test("a row with neither subagents nor a driven binding renders no expand affordance", async () => {
