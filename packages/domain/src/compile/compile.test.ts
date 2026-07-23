@@ -108,10 +108,24 @@ describe("minskyCompileTargetsFromPresence (mt#2803)", () => {
     ).toEqual([]);
   });
 
-  it("maps every presence flag to its target id, in claude-skills/cursor-rules-ts/claude-agents/claude-hooks order", () => {
+  it("maps every presence flag to its target id, in canonical order (mt#2803, mt#3058)", () => {
     expect(
       minskyCompileTargetsFromPresence({ skills: true, rules: true, agents: true, hooks: true })
-    ).toEqual(["claude-skills", "cursor-rules-ts", "claude-agents", "claude-hooks"]);
+    ).toEqual([
+      "claude-skills",
+      "cursor-rules-ts",
+      "claude.md",
+      "agents.md",
+      "claude-rules",
+      "claude-agents",
+      "claude-hooks",
+    ]);
+  });
+
+  it("mt#3058: .minsky/rules/ presence maps to all four rules-sourced targets", () => {
+    expect(
+      minskyCompileTargetsFromPresence({ skills: false, rules: true, agents: false, hooks: false })
+    ).toEqual(["cursor-rules-ts", "claude.md", "agents.md", "claude-rules"]);
   });
 
   it("includes only the present targets, preserving the canonical order", () => {
@@ -145,7 +159,15 @@ describe("probeMinskyCompileTargets (mt#2803)", () => {
       [`${WS}/.minsky/hooks/.keep`]: "",
     });
     const targets = await probeMinskyCompileTargets(WS, fs);
-    expect(targets).toEqual(["claude-skills", "cursor-rules-ts", "claude-agents", "claude-hooks"]);
+    expect(targets).toEqual([
+      "claude-skills",
+      "cursor-rules-ts",
+      "claude.md",
+      "agents.md",
+      "claude-rules",
+      "claude-agents",
+      "claude-hooks",
+    ]);
   });
 });
 

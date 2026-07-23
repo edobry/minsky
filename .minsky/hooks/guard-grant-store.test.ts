@@ -7,6 +7,7 @@ import {
   isGuardGrantValid,
   findValidGuardGrant,
   appendGuardGrant,
+  markGuardGrantConsumed,
   getStateDir,
   getGuardGrantStorePath,
   type GuardGrant,
@@ -345,5 +346,83 @@ describe("appendGuardGrant", () => {
     appendGuardGrant(MOCK_STORE_PATH, makeGrant(), fakeFs);
     const written = JSON.parse(fakeFs.files[MOCK_STORE_PATH] as string);
     expect(written.grants).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#2989 — askId + consumedAt (one-shot merge-gate grants)
+// ---------------------------------------------------------------------------
+
+describe("askId + consumedAt round-trip", () => {
+  it("parses askId and consumedAt through parseGuardGrantStoreContent", () => {
+    const raw = JSON.stringify({
+      grants: [makeGrant({ askId: "ask-123", consumedAt: new Date(NOW).toISOString() })],
+    });
+    const grants = parseGuardGrantStoreContent(raw);
+    expect(grants).not.toBeNull();
+    expect(grants?.[0]?.askId).toBe("ask-123");
+    expect(grants?.[0]?.consumedAt).toBe(new Date(NOW).toISOString());
+  });
+
+  it("ignores a non-string askId / consumedAt (stays undefined, grant still valid)", () => {
+    const raw = JSON.stringify({
+      grants: [{ ...makeGrant(), askId: 42, consumedAt: false }],
+    });
+    const grants = parseGuardGrantStoreContent(raw);
+    expect(grants?.[0]?.askId).toBeUndefined();
+    expect(grants?.[0]?.consumedAt).toBeUndefined();
+  });
+});
+
+describe("isGuardGrantValid — consumed grants", () => {
+  it("treats a consumed grant as invalid even within TTL", () => {
+    const grant = makeGrant({ consumedAt: new Date(NOW).toISOString() });
+    expect(isGuardGrantValid(grant, { guardName: GUARD_NAME, scope: "mt#2581" }, NOW + 1000)).toBe(
+      false
+    );
+  });
+});
+
+describe("markGuardGrantConsumed", () => {
+  const ctx = { guardName: GUARD_NAME, scope: "mt#2581" };
+
+  it("marks the first matching grant consumed and returns it", () => {
+    const fakeFs = makeFakeFs({
+      [MOCK_STORE_PATH]: JSON.stringify({ grants: [makeGrant({ askId: "ask-1" })] }),
+    });
+    const consumed = markGuardGrantConsumed(MOCK_STORE_PATH, ctx, fakeFs, NOW);
+    expect(consumed?.askId).toBe("ask-1");
+    expect(consumed?.consumedAt).toBe(new Date(NOW).toISOString());
+    const written = JSON.parse(fakeFs.files[MOCK_STORE_PATH] as string);
+    expect(written.grants[0].consumedAt).toBe(new Date(NOW).toISOString());
+  });
+
+  it("is one-shot — a second consume of the same grant returns null", () => {
+    const fakeFs = makeFakeFs({
+      [MOCK_STORE_PATH]: JSON.stringify({ grants: [makeGrant()] }),
+    });
+    expect(markGuardGrantConsumed(MOCK_STORE_PATH, ctx, fakeFs, NOW)).not.toBeNull();
+    expect(markGuardGrantConsumed(MOCK_STORE_PATH, ctx, fakeFs, NOW)).toBeNull();
+  });
+
+  it("returns null when no grant matches the ctx", () => {
+    const fakeFs = makeFakeFs({
+      [MOCK_STORE_PATH]: JSON.stringify({ grants: [makeGrant({ scope: "mt#9999" })] }),
+    });
+    expect(markGuardGrantConsumed(MOCK_STORE_PATH, ctx, fakeFs, NOW)).toBeNull();
+  });
+
+  it("returns null (and does not throw) when the store file is absent", () => {
+    const fakeFs = makeFakeFs();
+    expect(markGuardGrantConsumed(MOCK_STORE_PATH, ctx, fakeFs, NOW)).toBeNull();
+  });
+
+  it("does not consume an expired matching grant", () => {
+    const expired = makeGrant({
+      issuedAt: new Date(NOW - 1000 * 60 * 60).toISOString(),
+      ttlMs: 60 * 1000,
+    });
+    const fakeFs = makeFakeFs({ [MOCK_STORE_PATH]: JSON.stringify({ grants: [expired] }) });
+    expect(markGuardGrantConsumed(MOCK_STORE_PATH, ctx, fakeFs, NOW)).toBeNull();
   });
 });

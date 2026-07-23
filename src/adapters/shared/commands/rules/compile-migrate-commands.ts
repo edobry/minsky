@@ -184,6 +184,19 @@ export function registerCompileMigrateCommands(targetRegistry: {
           return result;
         }
 
+        // mt#3058 cutover: a bare `rules compile` with no legacy targets left on
+        // disk is a no-op — the monolithic (claude.md/agents.md) and claude-rules
+        // targets moved to the new `compile` pipeline. Report it plainly and exit
+        // 0 rather than falling through to the single-target path below (which
+        // would mislabel the no-op as "agents.md").
+        if (!params.target && !result.target && (!result.targets || result.targets.length === 0)) {
+          log.cli(
+            "[rules compile] No legacy compile targets remain — nothing to regenerate. " +
+              "CLAUDE.md / AGENTS.md / .claude/rules are compiled by `minsky compile` (mt#3058)."
+          );
+          return result;
+        }
+
         // Single-target path (explicit --target, or a bare invocation that
         // probed to exactly one applicable target) — unchanged behavior.
         const target = result.target || params.target || "agents.md";

@@ -1138,7 +1138,7 @@ actions once shipped.
 # Hook Files
 
 PreToolUse/merge/pre-commit gate index + guard-dispatcher. Observers:
-`hook-observers`. Source `.minsky/hooks/`; `.claude/hooks/*` GENERATED — commit both. Execute
+`hook-observers`. Source `.minsky/hooks/`; `.claude/hooks/*` GENERATED — pre-commit auto-regens+restages when hooks sources staged (mt#2977). Execute
 permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 **On denial: `docs/architecture/hooks/<name>.md` or `rules_get hook-files`.**
 
@@ -1149,6 +1149,7 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Branch-freshness** — commit/PR behind main. `MINSKY_SKIP_FRESHNESS`.
 - **Bundle-boot smoke** — merge w/o smoke pass. `MINSKY_SKIP_BUNDLE_SMOKE`.
 - **Required-checks** — bypass w/o checks pass. `MINSKY_SKIP_REQUIRED_CHECKS`.
+- **Merge-review REQUEST_CHANGES override** — false-positive review finding; operator-approved D8 grant (`grant-guard-override.ts --guard require-review-before-merge --ask`), no env skip.
 - **Execution-evidence** — new tests/scripts w/o evid. `[unverified-tests]`; `MINSKY_SKIP_AT_COVERAGE`.
 - **Deploy-verification** — deploy-surface w/o commit; tray usability-claim. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`/`_USABILITY_CLAIM_CHECK`.
 - **Growth-justification** — CLAUDE.md growth w/o justif. `MINSKY_SKIP_SIZE_JUSTIFICATION`.

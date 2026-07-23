@@ -28,6 +28,13 @@ import {
   fetchBranchProtectionRaw,
   type CheckRunsFetchResult,
 } from "./pr-context";
+import {
+  getGuardGrantStorePath,
+  readGuardGrantStore,
+  findValidGuardGrant,
+  markGuardGrantConsumed,
+} from "./guard-grant-store";
+import { verifyApprovedAsk } from "./ask-verification";
 
 /** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
 const GUARD_NAME = "require-review-before-merge";
@@ -785,6 +792,104 @@ export function validateProvenance(provenance: ReviewProvenance): ProvenanceVali
 export interface ReviewContentResult {
   deny: boolean;
   reason?: string;
+  /**
+   * mt#2989 — set when a REQUEST_CHANGES denial was overridden via an
+   * operator-approved grant. When present, `deny` is false BECAUSE the override
+   * fired; the entry point emits the audit line + fire-log grant classification.
+   */
+  overrideAuditReason?: string;
+  /** mt#2989 — the authorizing Ask id, for the fire-log override record. */
+  overrideAskId?: string;
+}
+
+/** mt#2989 — outcome of consulting the grant channel for a REQUEST_CHANGES override. */
+export type RequestChangesOverrideDecision =
+  | { authorized: true; auditReason: string; askId: string }
+  | { authorized: false; fabricationWarning: string }
+  | { authorized: false };
+
+/**
+ * mt#2989 — resolves whether a REQUEST_CHANGES finding on `(pr, headSha)` is
+ * overridden by an operator-approved, server-re-verified, one-shot grant.
+ * Injectable so `validateReviewContent` stays a pure, filesystem/CLI-free
+ * function in tests; the entry point wires the real grant-channel resolver.
+ */
+export type RequestChangesOverrideResolver = (ctx: {
+  pr: string;
+  headSha: string | undefined;
+}) => RequestChangesOverrideDecision;
+
+/**
+ * mt#2989 — the real grant-channel resolver for the REQUEST_CHANGES override.
+ * Closes over `repo` ("owner/repo"). Reads the ADR-028 D8 grant store scoped to
+ * `<owner/repo>#<pr>@<headSha>` and — only on a matching grant — re-verifies the
+ * linked Ask server-side before authorizing and consuming it one-shot.
+ *
+ * Posture (deliberately NOT fail-open — this guard gates an irreversible merge):
+ *   - no grant                       → not authorized, no warning (normal deny)
+ *   - grant without an askId          → not authorized, LOUD warning (malformed)
+ *   - grant, Ask not approved/unavail → not authorized, LOUD warning
+ *   - grant + Ask operator-approved   → authorize, mark consumed (one-shot), audit
+ */
+export function makeRequestChangesOverrideResolver(
+  repo: string,
+  deps: {
+    readStore?: typeof readGuardGrantStore;
+    verify?: typeof verifyApprovedAsk;
+    consume?: typeof markGuardGrantConsumed;
+    now?: () => number;
+  } = {}
+): RequestChangesOverrideResolver {
+  const readStore = deps.readStore ?? readGuardGrantStore;
+  const verify = deps.verify ?? verifyApprovedAsk;
+  const consume = deps.consume ?? markGuardGrantConsumed;
+  const now = deps.now ?? Date.now;
+
+  return ({ pr, headSha }) => {
+    if (!headSha) return { authorized: false };
+    const scope = `${repo}#${pr}@${headSha}`;
+    const matchCtx = { guardName: GUARD_NAME, scope };
+
+    const store = readStore(getGuardGrantStorePath());
+    if (store.status !== "ok") return { authorized: false };
+
+    const grant = findValidGuardGrant(store.grants, matchCtx, now());
+    if (!grant) return { authorized: false };
+
+    if (!grant.askId) {
+      return {
+        authorized: false,
+        fabricationWarning:
+          "A grant for this merge gate is present but carries no authorization Ask — refusing " +
+          "(a merge-gate override must rest on an operator-approved authorization.approve Ask).",
+      };
+    }
+
+    const verdict = verify(grant.askId);
+    if (verdict.verdict !== "approved") {
+      return {
+        authorized: false,
+        fabricationWarning:
+          `A grant referencing Ask ${grant.askId} is present, but that Ask did not verify as ` +
+          `operator-approved (${verdict.verdict}: ${verdict.detail}) — refusing the override.`,
+      };
+    }
+
+    const consumed = consume(getGuardGrantStorePath(), matchCtx);
+    if (!consumed) {
+      // Spent between find and consume — treat as no override rather than
+      // permitting on an already-consumed grant.
+      return { authorized: false };
+    }
+
+    return {
+      authorized: true,
+      askId: grant.askId,
+      auditReason:
+        `PR #${pr} HEAD ${headSha.slice(0, 7)} ask=${grant.askId} ` +
+        `grant-reason="${grant.reason}"`,
+    };
+  };
 }
 
 export const EXPECTED_REVIEWER_LOGIN = "minsky-reviewer[bot]";
@@ -799,7 +904,8 @@ type ReviewEntry = {
 export function validateReviewContent(
   reviews: ReviewEntry[],
   pr: string,
-  headSha: string | undefined
+  headSha: string | undefined,
+  resolveRequestChangesOverride?: RequestChangesOverrideResolver
 ): ReviewContentResult {
   const sorted = [...reviews]
     .filter((r) => r.body)
@@ -839,11 +945,31 @@ export function validateReviewContent(
 
     // Check conclusion event — REQUEST_CHANGES means outstanding blocking findings
     if (provenance.conclusion?.event === "REQUEST_CHANGES") {
+      const baseReason =
+        `Bot review on PR #${pr} at commit ${(review.commit_id ?? "unknown").slice(0, 7)} ` +
+        `requested changes. Address the blocking findings before merging`;
+
+      // mt#2989: consult the operator-approved grant channel for a
+      // verified-false-positive override BEFORE denying. Only this branch is
+      // overridable — stale / structural-gap / smoke / checks denials are not.
+      const override = resolveRequestChangesOverride?.({ pr, headSha });
+      if (override?.authorized) {
+        return {
+          deny: false,
+          overrideAuditReason: override.auditReason,
+          overrideAskId: override.askId,
+        };
+      }
+      if (override && "fabricationWarning" in override) {
+        return { deny: true, reason: `${baseReason}. ${override.fabricationWarning}` };
+      }
       return {
         deny: true,
         reason:
-          `Bot review on PR #${pr} at commit ${(review.commit_id ?? "unknown").slice(0, 7)} ` +
-          `requested changes. Address the blocking findings before merging.`,
+          `${baseReason}. If this finding is a verified false positive, an operator can authorize a ` +
+          `one-shot override: file an authorization.approve Ask, then \`bun ` +
+          `scripts/grant-guard-override.ts --guard require-review-before-merge --scope ` +
+          `<owner/repo>#${pr}@${headSha ?? "<sha>"} --ask <askId> --reason "<disproof>"\` (mt#2989).`,
       };
     }
 
@@ -1057,7 +1183,12 @@ async function main(): Promise<void> {
   // <!-- minsky-review-provenance:{...} --> HTML comment carrying the structured
   // tool-call summary. If a provenance block exists on a review covering HEAD,
   // validate structurally. Otherwise fall back to legacy text-matching.
-  const provenanceResult = validateReviewContent(reviews, pr, headSha);
+  const provenanceResult = validateReviewContent(
+    reviews,
+    pr,
+    headSha,
+    makeRequestChangesOverrideResolver(repo)
+  );
   if (provenanceResult.deny && provenanceResult.reason) {
     writeOutput({
       hookSpecificOutput: {
@@ -1067,6 +1198,23 @@ async function main(): Promise<void> {
       },
     });
     return recordAndExit("deny");
+  }
+
+  // mt#2989: a REQUEST_CHANGES finding was overridden via the operator-approved
+  // grant channel. Emit a durable audit line (naming the Ask + PR@HEAD + grant
+  // reason — none of which is a secret) and record the grant override in the
+  // fire log. The other gates below (smoke, required-checks) STILL run — the
+  // override forgives the false-positive review finding, not CI failures.
+  if (!provenanceResult.deny && provenanceResult.overrideAuditReason) {
+    process.stdout.write(
+      "[require-review-before-merge] REQUEST_CHANGES overridden via operator-approved grant " +
+        `channel — ${provenanceResult.overrideAuditReason}, ${new Date().toISOString()}\n`
+    );
+    overrideFields = {
+      overrideClassification: "authorized_exception",
+      overrideSource: "grant",
+      overrideGrantAsk: provenanceResult.overrideAskId,
+    };
   }
 
   // mt#2060: Smoke-status enforcement — block on Smoke: fail in any review;

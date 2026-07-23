@@ -12,7 +12,7 @@
 // check-branch-fresh.ts, check-task-spec-read.ts): a bare
 // `if (import.meta.main) { const input = await readInput(...); ... }` block
 // with many early `process.exit(0)` exit points (implicit allow) and
-// `writeOutput({...}); process.exit(0);` exit points (deny, or an
+// `writeOutput({...); process.exit(0);` exit points (deny, or an
 // additionalContext-only warn). This factory gives every one of those exit
 // points a one-line `recordAndExit(decision)` call in place of a bare
 // `process.exit(0)` — it does NOT change what any gate decides (mt#3084's
@@ -58,6 +58,9 @@ export interface MergeGateOverrideFields {
    * more than one (env var vs a TTL-bound, reason-mandatory grant). Omit for
    * hooks with only one override channel (the common case). */
   overrideSource?: "env" | "grant";
+  /** mt#2989 — the authorization Ask id backing a grant-channel override, so the
+   * fire-log record names the operator authorization, not just its class. */
+  overrideGrantAsk?: string;
 }
 
 /** The `recordAndExit` closure shape every merge-gate hook's entry point uses. */

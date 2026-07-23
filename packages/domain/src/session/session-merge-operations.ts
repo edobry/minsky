@@ -40,6 +40,7 @@ import { buildMergeTrailers, type MergeIdentity } from "../provenance/authorship
 import { resolveMergeToken } from "../provenance/merge-token-resolution";
 import { AuthorshipJudge } from "../provenance/authorship-judge";
 import { AgentTranscriptService } from "../provenance/transcript-service";
+import { unresolvedWorkspaceIdAsConversationId } from "../transcripts/unresolved-conversation-id";
 import { createCompletionService } from "../ai/service-factory";
 import { createTokenProvider } from "../auth";
 import { getConfiguration } from "../configuration/index";
@@ -575,7 +576,20 @@ export async function mergeSessionPr(
         const db = await provider.getDatabaseConnection();
         if (db) {
           const transcriptService = new AgentTranscriptService(db);
-          const transcript = await transcriptService.getTranscript(sessionIdToUse);
+          // mt#3066 / mt#3101: `sessionIdToUse` is a Minsky WORKSPACE session
+          // id (it is what `sessionDB.getSession()` above resolves), but
+          // `getTranscript` keys on the harness CONVERSATION id. This lookup
+          // therefore returns null and the judging block below is skipped —
+          // measured: 1 of 1,303 provenance rows has ever been AI-judged.
+          // mt#3101 owns the fix (the provenance id-space decision); until it
+          // lands, this call is routed through the named helper so the miss is
+          // logged instead of being indistinguishable from an empty transcript.
+          const transcript = await transcriptService.getTranscript(
+            unresolvedWorkspaceIdAsConversationId(
+              sessionIdToUse,
+              "session-merge-operations:authorship-tier-judging"
+            )
+          );
           if (transcript && transcript.length > 0) {
             const judgingCfg = getConfiguration() as ResolvedConfig;
             const anthropicKey = (
