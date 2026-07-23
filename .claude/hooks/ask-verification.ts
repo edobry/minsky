@@ -9,19 +9,20 @@
 // hand-written store entry still fails at the hook (defense-in-depth; the
 // store is never the authority, the Ask's DB state is).
 //
-// Mechanism: shell out to `minsky tools asks list --json`-shaped CLI reads
-// (the same reach-the-server mechanism as the mt#2813 standalone-duplicate
-// probe) rather than importing `packages/domain` — keeps the hook
-// self-contained per `.claude/hooks/SPEC.md`.
+// Mechanism: shell out to a `minsky tools asks get <id>` CLI read (the same
+// reach-the-server mechanism as the mt#2813 standalone-duplicate probe)
+// rather than importing `packages/domain` — keeps the hook self-contained per
+// `.claude/hooks/SPEC.md`. The lookup is BY ID (mt#3007); it previously paged
+// through `tools asks list`, which silently missed asks outside the page.
 //
 // Security posture (the spec's fabrication criterion):
-//   - ask must EXIST among this project's responded/closed asks
+//   - ask must EXIST (a nonexistent id is refused, not deferred)
 //   - kind must be exactly "authorization.approve"
 //   - response.responder must be "operator" — agent/policy/timeout
 //     responders are REFUSED, closing the self-respond vector (an agent
 //     calling asks_respond on its own ask cannot mint authorization)
-//   - the response VALUE must be an approval (conservative default: not
-//     approving)
+//   - the response VALUE must be a structured approval (conservative
+//     default: not approving)
 // Anything the CLI cannot confirm is "unavailable", which callers treat as
 // not-verified (never allow on unverifiable state).
 
@@ -29,17 +30,18 @@ import { execWithPath } from "./types";
 
 const ASKS_CLI_TIMEOUT_MS = 20000;
 /**
- * Recency window: grants reference asks responded within the grant TTL
- * (minutes), so a newest-first page of this size always contains the target.
+ * `tools asks get` prints this when the id resolves to no Ask. Distinguishing
+ * it from an infrastructure failure is what keeps a fabricated id fail-CLOSED
+ * (not-approved) while a DB outage stays "unavailable".
  */
-const ASKS_LOOKUP_LIMIT = 200;
+const ASK_NOT_FOUND_MARKER = /ask not found/i;
 
 export interface AskVerificationResult {
   verdict: "approved" | "not-approved" | "unavailable";
   detail: string;
 }
 
-/** Minimal row shape read from `tools asks list` JSON output. */
+/** Minimal row shape read from `tools asks get` JSON output. */
 export interface AskRow {
   id?: unknown;
   kind?: unknown;
@@ -47,23 +49,60 @@ export interface AskRow {
   response?: { responder?: unknown; payload?: unknown };
 }
 
+type AskFetch =
+  | { ok: true; row: AskRow }
+  | { ok: false; reason: "not-found" }
+  | { ok: false; reason: "error"; message: string };
+
 export type ExecFn = (
   cmd: string[],
   options?: { timeout?: number }
 ) => { exitCode: number; stdout: string; stderr: string };
 
 /**
+ * Tokens that count as an approval when they appear as a response VALUE.
+ * Deliberately narrow — see `isApprovingPayload`.
+ */
+const APPROVAL_TOKEN = /^(approved?|yes)$/i;
+
+/**
+ * Keys whose string value is treated as the operator's chosen response.
+ *
+ * `value` is the cockpit-resolve shape; `chosen`/`option` are what the inbox
+ * writes when the operator picks an option button (mt#3007 — verified against
+ * a real approval, which stored `{ chosen: "approve", option: "approve" }`).
+ *
+ * `message` is deliberately ABSENT: a free-text prose response is not a
+ * structured approval signal, and accepting one would let an agent mint
+ * authorization by writing prose into an ask response.
+ */
+const CHOICE_KEYS = ["value", "chosen", "option"] as const;
+
+/**
  * True when a kind-specific response payload expresses approval. Handles the
- * `{ approved: boolean }` cockpit-resolve shape plus approve-shaped option
- * values; everything else — including absent payloads — is NOT approval.
+ * `{ approved: boolean }` cockpit-resolve shape and approve-shaped option
+ * values (`value` / `chosen` / `option`); everything else — including absent
+ * payloads and free-text messages — is NOT approval.
+ *
+ * Note the conservative treatment of `{chosen}`: the chosen value is an OPTION
+ * VALUE, not necessarily the literal word "approved", so this only accepts one
+ * that is itself approve-shaped. An `authorization.approve` ask whose approving
+ * option carries some other value (say `"authorize-hook-override"`) therefore
+ * fails CLOSED rather than being resolved against the ask's option list. That
+ * is intentional: blanket-accepting any `{chosen}` would make DECLINING an
+ * authorization ask read as approving it, which is the one error this function
+ * must never make.
  */
 export function isApprovingPayload(payload: unknown): boolean {
   if (payload === null || payload === undefined) return false;
-  if (typeof payload === "string") return /^(approved?|yes)$/i.test(payload.trim());
+  if (typeof payload === "string") return APPROVAL_TOKEN.test(payload.trim());
   if (typeof payload === "object") {
     const rec = payload as Record<string, unknown>;
     if (rec.approved === true) return true;
-    if (typeof rec.value === "string") return /^(approved?|yes)$/i.test(rec.value.trim());
+    for (const key of CHOICE_KEYS) {
+      const candidate = rec[key];
+      if (typeof candidate === "string" && APPROVAL_TOKEN.test(candidate.trim())) return true;
+    }
   }
   return false;
 }
@@ -99,82 +138,80 @@ export function evaluateAskRows(rows: AskRow[], askId: string): AskVerificationR
   return { verdict: "approved", detail: `ask ${askId} approved by operator` };
 }
 
-function fetchState(state: string, exec: ExecFn): AskRow[] | { error: string } {
-  // Deliberately NO `--json` flag: `tools asks list`'s param map defines no
-  // json param, so `--json` fails with "unknown option" (commander exits
-  // non-zero). The command prints JSON natively — its execute returns the
-  // result object and the CLI layer serializes it. Verified live 2026-07-17
-  // (PR #2015 live-verification transcript parses this exact call's output).
-  const result = exec(
-    [
-      "minsky",
-      "tools",
-      "asks",
-      "list",
-      "--state",
-      state,
-      "--kind",
-      "authorization.approve",
-      "--limit",
-      String(ASKS_LOOKUP_LIMIT),
-    ],
-    { timeout: ASKS_CLI_TIMEOUT_MS }
-  );
+/**
+ * Fetch a single Ask BY ID.
+ *
+ * mt#3007: this replaces a paged scan of `tools asks list --state responded`
+ * plus `--state closed` at `--limit 200`. That approach rested on a documented
+ * assumption — "a newest-first page of this size always contains the target" —
+ * which is FALSE: the list is not ordered newest-first. Verified 2026-07-22
+ * against the originating incident's own ask (`7fee3742`, closed 2026-07-21):
+ * it did not appear anywhere in the 200-row page, whose entries were all from
+ * 2026-07-13/14. A genuinely fresh, genuinely approved ask could therefore be
+ * reported "not found among recent responded/closed authorization.approve
+ * asks" — which is verbatim the error the originating incident hit and
+ * attributed to a different cause.
+ *
+ * A by-id lookup has no window, no ordering assumption, and no state
+ * enumeration: an Ask that exists is always found, in whatever state it is in
+ * (the state-appropriateness checks live in `evaluateAskRows`).
+ */
+function fetchAskById(askId: string, exec: ExecFn): AskFetch {
+  const result = exec(["minsky", "tools", "asks", "get", askId], {
+    timeout: ASKS_CLI_TIMEOUT_MS,
+  });
+
   if (result.exitCode !== 0) {
-    return { error: `minsky tools asks list --state ${state} exited ${result.exitCode}` };
+    if (ASK_NOT_FOUND_MARKER.test(`${result.stdout}\n${result.stderr}`)) {
+      return { ok: false, reason: "not-found" };
+    }
+    return {
+      ok: false,
+      reason: "error",
+      message: `minsky tools asks get exited ${result.exitCode}: ${result.stderr.trim()}`,
+    };
   }
+
   try {
-    const parsed = JSON.parse(result.stdout) as { asks?: unknown };
-    if (!Array.isArray(parsed.asks))
-      return { error: `unexpected asks list shape (state ${state})` };
-    return parsed.asks as AskRow[];
+    const parsed: unknown = JSON.parse(result.stdout);
+    if (!parsed || typeof parsed !== "object") {
+      return { ok: false, reason: "error", message: "unexpected asks get shape" };
+    }
+    return { ok: true, row: parsed as AskRow };
   } catch (err) {
     return {
-      error: `unparseable asks list JSON (state ${state}): ${err instanceof Error ? err.message : String(err)}`,
+      ok: false,
+      reason: "error",
+      message: `unparseable asks get JSON: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 }
 
 /**
- * Verify `askId` is an operator-approved `authorization.approve` Ask,
- * reading both "responded" (answered, pre-close) and "closed" (resolved)
- * states server-side.
+ * Verify `askId` is an operator-approved `authorization.approve` Ask.
  *
- * Partial-failure resilience (PR #2015 R1): a verdict grounded in a state
- * that WAS readable stands — if the ask is found in a readable state, its
- * evaluation (approved or not-approved) is definitive since an ask lives in
- * exactly one state. Only the not-found case escalates to "unavailable"
- * when a fetch failed, because absent-vs-in-the-failed-state cannot be
- * distinguished. Both fetches failing is always "unavailable".
+ * Reads the Ask directly by id, so there is no page window to fall outside of
+ * and no partial-failure case to reconcile across two fetches (the mt#3007
+ * predecessor read two state pages and had to decide what a not-found verdict
+ * meant when one of them was unreadable — a single fetch removes that class
+ * rather than handling it).
+ *
+ * Fail posture: a nonexistent id is "not-approved" (fail closed — a fabricated
+ * id must never verify); anything the CLI could not confirm is "unavailable",
+ * which callers treat as not-verified and never as permission.
  */
 export function verifyApprovedAsk(
   askId: string,
   exec: ExecFn = execWithPath
 ): AskVerificationResult {
-  const rows: AskRow[] = [];
-  const errors: string[] = [];
-  for (const state of ["responded", "closed"]) {
-    const fetched = fetchState(state, exec);
-    if ("error" in fetched) {
-      errors.push(fetched.error);
-    } else {
-      rows.push(...fetched);
+  const fetched = fetchAskById(askId, exec);
+
+  if (!fetched.ok) {
+    if (fetched.reason === "not-found") {
+      return { verdict: "not-approved", detail: `ask ${askId} does not exist` };
     }
+    return { verdict: "unavailable", detail: fetched.message };
   }
 
-  if (errors.length === 2) {
-    return { verdict: "unavailable", detail: errors.join("; ") };
-  }
-
-  const found = rows.some((r) => typeof r.id === "string" && r.id === askId);
-  if (!found && errors.length > 0) {
-    return {
-      verdict: "unavailable",
-      detail: `ask ${askId} not found in readable states, and one state fetch failed (${errors.join(
-        "; "
-      )}) — cannot distinguish absent from unreadable`,
-    };
-  }
-
-  return evaluateAskRows(rows, askId);
+  return evaluateAskRows([fetched.row], askId);
 }
