@@ -108,31 +108,16 @@ export interface ChangesetLiveDetail {
   reviewCount: number | null;
 }
 
-/** First value that is a non-blank string, else undefined. */
-function firstNonBlank(...values: (string | null | undefined)[]): string | undefined {
-  return values.find((v): v is string => typeof v === "string" && v.trim().length > 0);
-}
-
 /**
- * Display title for a changeset, with the fallback chain that keeps a missing
- * PR title from rendering as a placeholder (mt#3096).
+ * NOTE (mt#3096): the shared `changesetDisplayTitle` helper deliberately does
+ * NOT live here — it lives in `web/lib/changeset-title.ts`.
  *
- * Shared by the changesets LIST row and the changeset DETAIL header so the two
- * cannot drift. That drift was the originating bug: the list already fell back
- * to the task title, while the detail page rendered a literal "(no title)" —
- * so drilling in made the title strictly worse than the row clicked from.
- *
- * Treats blank/whitespace titles as missing, not just null.
+ * This is a SERVER module: it imports `@minsky/domain` at runtime. Web files
+ * may import TYPES from it (erased before bundling), but a runtime VALUE import
+ * makes Vite resolve this whole module graph into the browser bundle, which
+ * fails the production build. Both changeset surfaces import the helper from
+ * `web/lib/changeset-title.ts` instead.
  */
-export function changesetDisplayTitle(
-  pr: Pick<SessionPrRef, "title" | "headBranch" | "number">,
-  session: Pick<SessionDetailMeta, "taskTitle" | "taskId"> | null | undefined
-): string {
-  return (
-    firstNonBlank(pr.title, session?.taskTitle, session?.taskId, pr.headBranch) ??
-    (pr.number != null ? `PR #${pr.number}` : "Untitled changeset")
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Live-changeset mappers (mt#3096)

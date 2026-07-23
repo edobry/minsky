@@ -29,12 +29,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Prose } from "../components/Prose";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { relativeTime } from "../lib/format";
-import {
-  changesetDisplayTitle,
-  type SessionPrRef,
-  type SessionDetailMeta,
-  type SessionCommitRef,
-  type ChangesetLiveDetail,
+import { changesetDisplayTitle } from "../lib/changeset-title";
+import type {
+  SessionPrRef,
+  SessionDetailMeta,
+  SessionCommitRef,
+  ChangesetLiveDetail,
 } from "../../session-detail";
 
 // ---------------------------------------------------------------------------

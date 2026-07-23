@@ -11,7 +11,6 @@ import {
   compareChangesetsByRecency,
   pickBestConversationLink,
   pickBestWorkspaceLink,
-  changesetDisplayTitle,
   prRefFromChangeset,
   liveDetailFromChangeset,
   repoWebBaseFromPrUrl,
@@ -278,47 +277,6 @@ function makeChangeset(overrides: Partial<Changeset> = {}): Changeset {
     ...overrides,
   };
 }
-
-describe("changesetDisplayTitle (mt#3096)", () => {
-  const bare = { title: null, headBranch: null, number: null };
-
-  test("prefers the PR title", () => {
-    expect(
-      changesetDisplayTitle({ ...bare, title: "real title" }, { taskTitle: "task", taskId: "mt#1" })
-    ).toBe("real title");
-  });
-
-  test("falls back to the task title when the PR title is missing", () => {
-    expect(changesetDisplayTitle(bare, { taskTitle: "task title", taskId: "mt#1" })).toBe(
-      "task title"
-    );
-  });
-
-  test("falls back to the task id when there is no task title", () => {
-    expect(changesetDisplayTitle(bare, { taskTitle: null, taskId: "mt#3096" })).toBe("mt#3096");
-  });
-
-  test("falls back to the head branch when there is no session", () => {
-    expect(changesetDisplayTitle({ ...bare, headBranch: "task/mt-3096" }, null)).toBe(
-      "task/mt-3096"
-    );
-  });
-
-  test("falls back to the PR number as a last resort", () => {
-    expect(changesetDisplayTitle({ ...bare, number: 2222 }, null)).toBe("PR #2222");
-  });
-
-  /** A blank title is "missing", not a title — otherwise the header renders empty. */
-  test("treats a blank/whitespace PR title as missing", () => {
-    expect(
-      changesetDisplayTitle({ ...bare, title: "   " }, { taskTitle: "task", taskId: null })
-    ).toBe("task");
-  });
-
-  test("never returns an empty string", () => {
-    expect(changesetDisplayTitle(bare, null)).toBe("Untitled changeset");
-  });
-});
 
 describe("prRefFromChangeset (mt#3096)", () => {
   test("maps the live PR onto the SessionPrRef shape", () => {

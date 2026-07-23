@@ -16,7 +16,7 @@ import { ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { relativeTime, changesetRecencyIso } from "../lib/format";
-import { changesetDisplayTitle } from "../../session-detail";
+import { changesetDisplayTitle } from "../lib/changeset-title";
 import type { SessionPrRef, SessionDetailMeta } from "../../session-detail";
 
 // ---------------------------------------------------------------------------
