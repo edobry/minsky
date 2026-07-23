@@ -37,6 +37,7 @@
 // @see mt#3072 — this task
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { getGuardHealthStateDir } from "./guard-health";
 import type { GuardHealthSummary } from "./guard-health";
@@ -105,6 +106,26 @@ export interface EscalationNotifyOptions {
 }
 
 /**
+ * Build a collision-resistant filename for `sessionId`'s cooldown-state file.
+ * A naive char-replace sanitization (e.g. `[^A-Za-z0-9_-]` -> `_`) can map two
+ * DISTINCT session ids onto the SAME sanitized string (`"sess:1"` and
+ * `"sess/1"` both become `"sess_1"`), which would silently share one
+ * session's cooldown state with an unrelated one — exactly the kind of
+ * cross-session leak this store's per-session design exists to avoid.
+ * Appending a short hash of the FULL, un-sanitized original id (mirrors
+ * `wall-of-text-detector.ts`'s `createHash("sha256")...slice(0, 16)`
+ * precedent, truncated shorter here since this is a filename suffix, not a
+ * dedup key) makes the combined filename unique regardless of what the
+ * readable prefix collapsed to.
+ */
+function storeFileName(sessionId: string): string {
+  const raw = sessionId || "unknown-session";
+  const safe = raw.replace(/[^A-Za-z0-9_-]/g, "_");
+  const hash = createHash("sha256").update(raw).digest("hex").slice(0, 8);
+  return `${safe}-${hash}`;
+}
+
+/**
  * Decide whether `signature` should surface a notification to `sessionId`
  * right now, and persist that decision for next time. Pure decision, real
  * (best-effort) I/O — mirrors `guard-health.ts`'s own fail-open posture:
@@ -132,8 +153,7 @@ export function shouldNotifyEscalation(
   const now = (options?.now ?? (() => new Date()))();
   const cooldownMs = options?.cooldownMs ?? ESCALATION_NOTIFY_COOLDOWN_MS;
   const dir = options?.dir ?? storeDir(options?.env);
-  const safe = (sessionId || "unknown-session").replace(/[^A-Za-z0-9_-]/g, "_");
-  const path = join(dir, `${safe}.json`);
+  const path = join(dir, `${storeFileName(sessionId)}.json`);
 
   let prior: NotifyState | null = null;
   try {

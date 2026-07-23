@@ -224,7 +224,13 @@ function isValidEvent(item: unknown): item is GuardHealthEvent {
     typeof r.guardName === "string" &&
     typeof r.event === "string" &&
     (r.kind === "error" || r.kind === "check-skip") &&
-    typeof r.message === "string"
+    typeof r.message === "string" &&
+    // mt#3072 (reviewer finding, mirrored from the kept-in-sync
+    // src/mcp/guard-health-tracker.ts copy): causeClass is OPTIONAL, but when
+    // present it must be one of the two known values — an unrecognized
+    // string would otherwise pass through as a validated event and render as
+    // a raw, unexpected tag in the escalation banner.
+    (r.causeClass === undefined || r.causeClass === "infra" || r.causeClass === "logic")
   );
 }
 

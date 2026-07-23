@@ -196,6 +196,24 @@ describe("shouldNotifyEscalation (mt#3072 SC3 — cooldown/dedup)", () => {
     expect(surfaced / TURNS).toBeLessThan(0.55);
   });
 
+  test("two session ids that collide under naive char-sanitization get INDEPENDENT cooldowns (reviewer finding)", () => {
+    // "sess:1" and "sess/1" both sanitize to "sess_1" under a plain
+    // [^A-Za-z0-9_-] -> "_" replace -- the store must not let one clobber the
+    // other's cooldown state.
+    const { fs, files } = memoryFs();
+    const t0 = new Date("2026-07-19T00:00:00Z");
+    expect(shouldNotifyEscalation("sess:1", "sig-A", { fs, now: () => t0, dir: "/store" })).toBe(
+      true
+    );
+    // A different session whose sanitized form would collide must still see
+    // a FIRST-time surface, not be treated as "already surfaced" via sess:1's
+    // record.
+    expect(shouldNotifyEscalation("sess/1", "sig-A", { fs, now: () => t0, dir: "/store" })).toBe(
+      true
+    );
+    expect(files.size).toBe(2);
+  });
+
   test("a DIFFERENT session gets its own independent cooldown (per-session scope)", () => {
     const { fs } = memoryFs();
     const t0 = new Date("2026-07-19T00:00:00Z");
