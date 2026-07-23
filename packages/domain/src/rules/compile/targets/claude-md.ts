@@ -27,9 +27,10 @@ const MEMORY_USAGE_RULE_ID = "memory-usage";
  *
  * Grounded in the 2026-07-15 planning calibration: `failChars` sits with
  * margin under the ~150k harness advisory threshold Claude Code applies for
- * 1M-context models; `warnChars` sits ~13% above the post-mt#1876/mt#1877
- * baseline (~101.7k chars) so it fires after a few rule additions, not
- * immediately (observed growth increment: ~3.3k/rule-addition, mt#2801).
+ * 1M-context models; `warnChars` originally sat ~13% above the
+ * post-mt#1876/mt#1877 baseline (~101.7k chars) so it fires after a few rule
+ * additions, not immediately (observed growth increment: ~3.3k/rule-addition,
+ * mt#2801).
  *
  * `failChars` raised 140k -> 145k on 2026-07-22 (mt#3061), operator-decided.
  * The corpus reached 141,178 chars that day and the fail gate began blocking
@@ -37,19 +38,35 @@ const MEMORY_USAGE_RULE_ID = "memory-usage";
  * mt#3061 is a net -14 change and could not land. Blocking the changes that
  * shrink the corpus is the one outcome the gate should never produce.
  *
- * This is explicitly the second of the two dispositions mt#3052 sanctions
- * ("trim toward 115K, or raise the threshold with a recorded rationale") and
- * is NOT a substitute for the trim. `warnChars` is deliberately left at 115k
- * so the standing warning keeps firing on every compile — the corpus is still
- * ~23% over where it should be (141,178 vs the 115,000 warn line), and mt#3052
- * still owns bringing it down.
+ * `warnChars` raised 115k -> 135k on 2026-07-22 (mt#3052, operator-decided —
+ * "option a" of the two dispositions mt#3052's spec sanctioned: "trim toward
+ * 115K, or raise the threshold with a recorded rationale"). mt#3052 applied
+ * the rule-admission ladder in reverse to the top-5 always-apply contributors
+ * (`decision-defaults.mdc`, `user-preferences.mdc`, `communication-contract.mdc`,
+ * `hook-files.mdc`, `work-completion.mdc`), moving every incident-shaped and
+ * reference-shaped narrative to `docs/rules-rationale/` and
+ * `docs/architecture/hooks/`, leaving one-line pointers. That trim brought the
+ * corpus from 142,835 to 133,159 chars (-9.7k) — but what remained after the
+ * ladder-reversal in all five rules was overwhelmingly genuine per-turn
+ * directive (probe sequences, trigger-phrase lists, checklists, hook
+ * override/fail-posture facts, the {Minsky-answer, generic-SE-override}
+ * policy-corpus pairs) that fails the mt#1876 removal test ("would removal
+ * cause an agent to skip a check it runs every turn?") if cut further.
  *
- * The ~150k harness advisory remains the real ceiling: this leaves ~5k of
- * headroom, which is roughly ONE more rule addition. The next change to hit
- * this gate should trim rather than raise again.
+ * The original 115,000 (mt#2802) was aspirational, set before this corpus had
+ * actually been trimmed once; the real floor of always-needed directive
+ * discipline, post-trim, is ~133k. `warnChars` -> 135,000 gives ~1.8k
+ * headroom above that trimmed floor and stops the permanently-firing
+ * advisory (a warning that always fires trains everyone to ignore it — the
+ * exact failure mode mt#3052's own framing named). `failChars` stays 145,000
+ * unchanged (~5k under the ~150,000 harness advisory) — the next change to
+ * hit warn OR fail should still trim first; a leaner corpus remains available
+ * via mt#3068's optional lever (demoting one of the five rules below
+ * `alwaysApply: true` entirely — a scope-of-guidance reduction, not a
+ * compression exercise).
  */
 export const DEFAULT_CLAUDE_MD_SIZE_BUDGET: SizeBudget = {
-  warnChars: 115_000,
+  warnChars: 135_000,
   failChars: 145_000,
 };
 

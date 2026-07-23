@@ -1203,21 +1203,10 @@ branch exercised. Hook: `require-execution-evidence-before-merge.ts`. Override:
 `[unverified-tests]` title tag + follow-up task. Fail: open on unresolvable repo/PR or `gh`
 failure. Siblings: `/prepare-pr` §1b, `/implement-task` §7a.
 
-**AT-cross-reference trigger (mt#3033, calibration-first).** ADDITIVE third path, independent
-of the file-pattern triggers above (which remain the unchanged, deterministic BLOCKING floor):
-resolves the bound task's `## Acceptance Tests` (via `minsky tasks spec get <task> --json`),
-classifies each AT executable-vs-findings-shaped (skips `state-ops`-kind tasks and
-findings-shaped text like "audit produces…" / "decision recorded…"), and checks whether the
-`Execution evidence:` block addresses each executable AT by number/keyword or an explicit
-`[atN-deferred: mt#NNNN]` marker. Per the mt#2263 calibration ladder this ships **LOG-ONLY**
-(v1): an unaddressed AT appends a record to
-`.minsky/execution-evidence-at-coverage-calibration.jsonl` and surfaces a WARN via
-`additionalContext` — it never emits `permissionDecision: "deny"`; graduating to blocking is
-tracked as mt#3059 (flip WARN -> deny once the calibration FP rate is measured) — mt#3033 ships
-Phase 1 (log-only) only. Override: `MINSKY_SKIP_AT_COVERAGE=1`. Fail: silent (no WARN) on any
-task-spec fetch/parse error. Root incident: mt#2542 (PR #2136 merged with proxy evidence while
-the spec's literal AT — "services boot on the role" — was silently deferred and crashed
-production post-merge).
+**AT-cross-reference trigger (mt#3033, calibration-first).** ADDITIVE third path: cross-references
+the bound task's `## Acceptance Tests` and WARN-logs (never blocks — mt#2263 ladder) an
+unaddressed executable AT to `.minsky/execution-evidence-at-coverage-calibration.jsonl`. Override:
+`MINSKY_SKIP_AT_COVERAGE=1`. Root incident: mt#2542. Doc: `execution-evidence-merge-gate.md`.
 
 ## Deploy-Verification Merge Gate + Post-Merge Reminder
 
@@ -1228,13 +1217,9 @@ reminder. Hooks: `deploy-surface-detector.ts` + `require-deploy-verification-bef
 `deploy-verification-after-merge.ts`. Escapes: `[no-deploy-impact]` title; a `Deploy
 verification:` marker (label+colon or any-level heading, case-insensitive); `MINSKY_SKIP_DEPLOY_VERIFY=1`.
 Fail: open (unresolvable repo/PR/non-surface); PostToolUse always exits 0.
-**Gap A extension (mt#2545):** a SECOND, independent condition on the same PreToolUse hook — a
-build-surface PR (tray `src-tauri/**` only) whose body asserts altitude-4 usability ("you can use
-it now" / "ready to use" / "it's live", per `claim-confidence.mdc` Axis A) without an explicit
-rebuild + reinstall acknowledgment is hard-blocked. `[no-deploy-impact]` does NOT bypass this
-check (a tray build-surface file IS a deploy/build surface); the only escapes are adding the
-acknowledgment itself or `MINSKY_SKIP_USABILITY_CLAIM_CHECK=1` (independent of
-`MINSKY_SKIP_DEPLOY_VERIFY`).
+**Gap A extension (mt#2545):** a SECOND condition on the same hook hard-blocks a tray
+build-surface PR asserting altitude-4 usability without a rebuild+reinstall acknowledgment;
+`[no-deploy-impact]` does NOT bypass it. Override: `MINSKY_SKIP_USABILITY_CLAIM_CHECK=1`.
 Doc: `deploy-verification-merge-gate.md`.
 
 ## Growth-Justification Merge Gate
@@ -1305,15 +1290,13 @@ store-read errors only. Doc: `dispatch-intent-write-gate.md`.
 
 ## Nested-Fork Dispatch Guard
 
-PreToolUse on `Agent` (mt#3045): the write gate above is opt-in — an undeclared nested fork
-bypassed it entirely (mem#665, R2 recurrence of mt#2865). This guard closes the gap one layer
-earlier: denies a NESTED `fork` dispatch (caller's `agent_id` is itself set — a subagent, not the
-main thread, is dispatching) unless a live dispatch-intent declaration (read-only OR
-implementation) already covers the calling subagent's session. Top-level fork dispatch from the
-main agent is unaffected; non-fork nested dispatch (Explore, general-purpose, ...) is unaffected.
-Hook: `block-nested-fork-dispatch.ts` (reuses `dispatch-intent-store.ts` + `isSubagentContext`/
-`resolveSessionIdFromInput` from `dispatch-intent-write-gate.ts`). Override:
-`MINSKY_ALLOW_NESTED_FORK=1` (launch-time-only). Fail-open on store-read errors only.
+PreToolUse on `Agent` (mt#3045): denies a NESTED `fork` dispatch (caller's `agent_id` already
+set — a subagent, not the main thread, is dispatching) unless a live dispatch-intent declaration
+already covers the calling subagent's session — closes the gap the opt-in write gate above left
+when an undeclared nested fork bypassed it entirely (mem#665, R2 recurrence of mt#2865).
+Top-level and non-fork nested dispatch are unaffected. Hook: `block-nested-fork-dispatch.ts`.
+Override: `MINSKY_ALLOW_NESTED_FORK=1` (launch-time-only). Fail-open on store-read errors only.
+Doc: `nested-fork-dispatch-guard.md`.
 
 # Hook Observers
 
@@ -1548,9 +1531,9 @@ Exactly two levels, in precedence order:
 2. **Derived default** — the model-tier-plus-dispatch-context table above.
 
 The three-level stack (instruction > persisted setting > default) is **explicitly deferred** — it
-activates only once a persisted per-conversation/task register state ships (a session-record field
-or a cockpit control), which is itself deferred pending evidence that rule-tier alone is
-insufficient. Do not build that storage speculatively.
+activates only once a persisted per-conversation/task register state ships, which is itself
+deferred pending evidence that rule-tier alone is insufficient. Do not build that storage
+speculatively.
 
 **Task-record continuity.** Until persisted state ships, an override recorded in the task record
 or a handoff note is honored by later conversations on the same task — check the task record /
@@ -1596,12 +1579,11 @@ with the call"), with all reasoning beneath. A principal opening an artifact *to
 being persuaded; making them compress a long argument themselves is the same defect as a
 multi-screen chat report, relocated.
 
-Stated surface-generally on purpose: this family recurred four times in 14 days (2026-07-08 chat
-reports, 07-15 planning-gate output, 07-21 and 07-22 RFCs), each time on a surface whose own fix
-did not exist yet, because the norm had only ever been written per-surface. A new surface is
-covered by this clause the first time, not the second. Enforcement lives in the authoring skills
-(`/draft-rfc` step 7, `/draft-adr` step 5, `engineering-writing §Decision artifacts lead with the
-decision` — which otherwise silently overrides this rule, being the more specific writing advice).
+Recurrence history motivating the surface-general framing (this pattern recurred four times in 14
+days across four different surfaces): `docs/rules-rationale/communication-contract.md §Decision
+artifacts lead with the decision`. Enforcement lives in the authoring skills (`/draft-rfc` step 7,
+`/draft-adr` step 5, `engineering-writing §Decision artifacts lead with the decision` — which
+otherwise silently overrides this rule, being the more specific writing advice).
 
 ## Judgment calls are load-bearing (RFC Position 3)
 
@@ -1619,37 +1601,15 @@ Avoid: **multi-screen final reports** (blows the Tier-1 budget regardless of con
 needed-decision below the fold** (a Tier-0 decision inside a Tier-1 report instead of routed
 through Asks, or placed after routine narrative).
 
-## Worked example: the 2026-07-08 originating incident
-
-Origin: `mt#2713` §Originating signal (the principal's multi-screen-report pushback this shape
-derives from; ids below are illustrative). "**What happened:** Two PRs merged
-([PR #1](minsky://changeset/1), [PR #2](minsky://changeset/2)); umbrella [mt#100](minsky://task/mt%23100) closed. **What you
-need to know:** one judgment call — bypass-merged under a documented escape valve; no other
-exceptions. **What's next:** nothing pending." A partial turn folds status into "what happened"
-instead of a fourth heading.
-
-## Scope
-
-This rule ships the Tier-1 turn-report contract, channel model, and (as of `mt#2867`, RFC Phase 2)
-the altitude register's default-derivation, override, continuity, and severity mechanics above. It
-deliberately does **not** ship: **persisted per-conversation/task register state** (a
-session-record field or a cockpit control — file only if rule-tier proves insufficient; see
-`## Altitude register §Override` above); **trust-accrual register input** (successor to the
-model-tier proxy, `mt#2838`); a **Tier-2 digest** (RFC Phase 3, owned by `mt#2869`, depends on
-mt#2713, ambient-cockpit push discipline with a pull-only-widget fallback); a **calibration-first
-enforcement detector** (wall-of-text/shape-violation, Phase 3, owned by `mt#2870`, depends on
-mt#2713 — per the ADR-024 ladder this rule is the cheapest-sufficient rung; the detector graduates
-only on calibration evidence).
+Worked example (the 2026-07-08 originating incident) and full `## Scope` deferred-work rationale:
+`docs/rules-rationale/communication-contract.md`.
 
 ## Cross-references
 
-`user-preferences.mdc §Plain-language first` (mt#2801) · `§Progress heartbeats` (mt#2824) ·
-`cockpit-deeplinks.mdc` · `humility.mdc §Escalation packaging` · `decision-defaults.mdc` ·
-`subagent-routing.mdc §Escalation to Opus` (dispatch-context register carve-out; sets the register
-on the consuming side) · `mt#1034` / `docs/architecture/adr-008-attention-allocation-subsystem.md`
-· `mt#2713` (Tier-1 contract, this rule's origin) · `mt#2867` (this task — altitude register) ·
-`mt#2838` (trust-accrual successor to model tier) · `mt#2869` (Tier-2 digest) · `mt#2870`
-(enforcement detector) · `mt#2258` (umbrella).
+`user-preferences.mdc §Plain-language first` · `humility.mdc §Escalation packaging` ·
+`decision-defaults.mdc` · `subagent-routing.mdc §Escalation to Opus` (sets the register on the
+consuming side) · `mt#1034` (attention-allocation subsystem). Full cross-reference index:
+`docs/rules-rationale/communication-contract.md §Cross-references`.
 
 # Cockpit Deeplinks in Terminal Output
 
@@ -1731,11 +1691,9 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 
   **If all probes fail OR the action is out-of-scope/unsafe even with tooling available**, state both the probe results AND the scope/safety basis inline so the deferral has visible justification: e.g., `"Probed: which gh → not on PATH; no GitHub-org-admin skill; no scripts/gh-admin/; no memory matches. Deferred — requires user with GitHub org-admin access."` OR `"Probed: railway CLI available and authenticated. Action out-of-scope for this task (spec §Out of scope explicitly lists Railway env-var changes as a separate concern). Deferred."` A bare deferral without inline probe results AND scope/safety basis is unjustified.
 
-  Originating incident: mt#1811 (2026-05-13). Wrote "Operator follow-up — requires Railway access" in PR #1100 body and spec outcome despite `railway` CLI being on PATH, `railway:use-railway` in the available-skills list, and `feedback_railway_config_dot_path_fails_silently` in injected memory. Time-from-pushback-to-verified-in-production: <5 minutes. Time-to-probe-before-writing-the-deferral: would have been <30 seconds.
-
-  This rule is the dual direction of `decision-defaults.mdc §Build vs buy — anti-pattern checklist` (4th bullet, "Build-path-as-research at action-execution-time"). Both are instances of: at action-execution time, agent defaults to the path requiring the least new tool-acquisition or boundary-crossing, even when other options are available.
-
-  The `/implement-task` skill's §7 Convergence Checklist has a paired Preventive-phase sub-step that enforces the same probe at the PR-creation gate. This rule covers all artifact surfaces; the skill step covers the implement-task pipeline specifically.
+  Dual of `decision-defaults.mdc §Build vs buy` step 4 (build-path-as-research); enforced also at
+  `/implement-task` §7 Preventive phase. Full incident + cross-reference detail:
+  `docs/rules-rationale/user-preferences.md §Probe before deferring`.
 
 - **Probe before claiming a shared resource (mt#1965 → mt#1990).** Before recommending or taking action on a shared resource — a task, a branch, a deployed environment, a PR — probe for active claims by other actors. A status of `READY`, an empty PR-list filter, or any other "looks unclaimed" surface only means "no claim is currently visible to me" — not "nobody is working on it." Multi-agent task graphs contain agents mid-planning, mid-implementation, or about-to-start that don't surface on a single status read.
 
@@ -1752,11 +1710,10 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 
   **If all probes pass cleanly**, proceed — but record the probe outcome in the recommendation so the audit trail shows the check was done.
 
-  Originating incident: mt#1965 closeout (2026-05-20). After completing mt#1965 (OOB-merge guard agent-attestation gap investigation), the agent recommended `/implement-task mt#1964` without detecting that another agent had advanced mt#1964 PLANNING→READY during the same session. The status change was a visible signal not interpreted as evidence; the principal informed the agent of the collision. The substrate RFC (mt#1990) explores the structural fix — claim primitives, agent presence, status-machine intent states — that would turn this probe sequence into a single substrate read. A FIRST slice has shipped: task-grain presence claims (mt#2562; write-path fix mt#2567), now probe step 0 above — but it is a best-effort SIGNAL (opaque, churning `actorId`), not yet the "single read" that replaces the sequence. The unified-fleet-state view that would close that gap is mt#2569. Until then, this rule stays checklist-driven discipline with presence as the cheap first pass.
-
-  This rule is the dual of `§Probe before deferring`: that rule guards the "skipping the easy path because I assume it's blocked" failure (claiming tooling is unavailable without verifying); this rule guards the "taking the easy path because I assume it's unclaimed" failure (recommending action on a shared resource without verifying who holds it). Both are instances of: at action-execution time, the agent defaults to the lowest-cost-check path without verifying the underlying assumption.
-
-  **Future structural enforcement:** the unified fleet-state view (mt#2569) may fold probes 0–4 into a single query, or eliminate the need to probe entirely via active edges + presence broadcast. When that lands, this rule retires.
+  Dual of `§Probe before deferring` (opposite direction: assuming unclaimed vs. assuming
+  blocked). Full incident, structural-enforcement roadmap (mt#1990/mt#2569), and
+  presence-probe detail: `docs/rules-rationale/user-preferences.md §Probe before claiming a
+  shared resource`.
 
 - **No echo for progress summaries:** Execute actions directly. Use `echo` only for legitimate shell scripting, not to generate status reports or avoid real work.
 
@@ -1776,15 +1733,17 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 
   This does NOT weaken any skill's requirement to produce structured reports (gap reports, gate tables, premise audits). Those are records — produce them in full, but render them after the plain-language lead or into the durable artifact. Placement changes; rigor does not.
 
-  Originating incident: 2026-07-15, mt#2777 planning. The gate output led with a four-part premise audit and a 14-row criterion table; the principal responded "This is too much information. Help me understand what the situation is and what should be done about this," and approved the plain rewrite (what happened → the two underlying problems → what's wrong with the task as written → three recommended actions) as the standard. Structural fix: this bullet plus the `/plan-task` Step 4 output amendment (same task). Sibling rules: `§Professional communication` (tone), `humility.mdc §Escalation packaging` (self-contained decision escalations); this bullet covers report-shaped output.
-
-  For the specific shape of a turn-end status report (BLUF, exceptions + judgment calls, pointers instead of re-narration), see `communication-contract.mdc` — this bullet's plain-language discipline is the sibling covering investigation/planning/incident reports generally; that rule specializes it for the turn-end report.
+  Full incident narrative: `docs/rules-rationale/user-preferences.md §Plain-language first`. See
+  `communication-contract.mdc` for the turn-end report shape this discipline specializes.
 
 - **Progress heartbeats during tool-only stretches (mt#2824).** During research/build chains where several tool calls run back-to-back with no interstitial prose, emit a one-line status update — current activity plus a health signal (e.g., "still reading the auth module, no blockers" or "3 of 5 files migrated, tests pending") — at least every **10 minutes of wall-clock time OR 15 consecutive tool calls, whichever comes first.** A stretch below BOTH thresholds needs no heartbeat.
 
-  Cadence pinned at planning (2026-07-15) and grounded in two originating interrupts (conversations a9c1a09b at 24 minutes, ac4f5675 at 28 minutes) — this cadence yields at least two heartbeats before either historical interrupt point. Applies at **every altitude register, including executive-level summaries** — per [`RFC: Communication altitude`](https://www.notion.so/39e937f03cb481febdeae249014e356f) (Draft), heartbeats are scroll lines the operator can glance at mid-stream, not notifications reserved for a final report. Content contract: one line, current activity + health signal — not a status essay. A genuine severity event (blocking error, unexpected destructive action, a finding that changes the plan) reports immediately regardless of where the cadence clock stands; don't hold it for the next scheduled heartbeat.
+  Applies at **every altitude register, including executive-level summaries** (heartbeats are scroll lines the operator can glance at mid-stream, not notifications reserved for a final report). Content contract: one line, current activity + health signal — not a status essay. A genuine severity event (blocking error, unexpected destructive action, a finding that changes the plan) reports immediately regardless of where the cadence clock stands; don't hold it for the next scheduled heartbeat.
 
-  This is the discipline layer of a two-layer fix; the detection layer is `silent-stretch-detector.ts` (`.minsky/hooks/`, ADR-028 `GUARD_REGISTRY`) — a calibration-first (mt#2263 ladder) `UserPromptSubmit` guard that measures the just-completed turn for tool-only silence and logs a record to `.minsky/silent-stretch-calibration.jsonl` when a stretch crossed the threshold without a heartbeat; it does not yet inject a reminder (v1 is log-only). Originating incident: *"I think you ran into the harness bug again. Maybe you're making progress. I can't see it because there's been no UI updates in 24 minutes"* — the operator interrupted two in-flight, healthy tool calls because silence was indistinguishable from a hang. See `docs/architecture/hooks/silent-stretch-detector.md` and `hook-files.mdc`'s entry for the detector's trigger/override/fail-posture summary.
+  Detection-layer companion (log-only, no injection yet): `silent-stretch-detector.ts` logs to
+  `.minsky/silent-stretch-calibration.jsonl` when a stretch crosses the threshold without a
+  heartbeat. Full incident + cadence-grounding detail: `docs/rules-rationale/user-preferences.md
+  §Progress heartbeats`.
 
   `communication-contract.mdc` cites this section's cadence for its "silence must be designed, not accidental" premise rather than restating the numbers — this bullet stays the single source of truth for heartbeat cadence.
 
@@ -2178,10 +2137,6 @@ answer. This practice is the **proactive front** to the **reactive** epistemic d
 
 ## External self-resolving waits: arm a watcher, don't delegate to the operator
 
-(Lives here rather than `decision-defaults.mdc` — its recommended sibling home was already near
-the per-rule 15,000-char compile ceiling; this section fits thematically as another
-don't-hand-to-the-human-what-the-agent-can-do instance.)
-
 Turn-end "blocked" splits into two categories that must not be collapsed: **(a) blocked on a
 principal decision** (naming, scope change, framework choice, authorization) — stop and
 escalate; the legitimate handoff. **(b) blocked on an external, self-resolving condition** (a
@@ -2201,14 +2156,8 @@ handing an autonomously-watchable wait to the human.
 **Generic-SE override:** "wait for the human to notice the dependency recovered." Wrong here:
 the tools to observe and self-resume already exist.
 
-**Family kinship** (don't hand the human what the agent can do itself): `§Probe before deferring`
-(`User Preferences`, mt#1819); the stop-at-handoff family (mt#2689, memory `06a454a5`);
-"long-paused subagent ≠ dead" (memory `5f2154cd`). This is the external-dependency-wait
-instance — distinct from capability-deferral and from chain-walk-stop.
-
-**Origins:** 2026-07-19 incident — 3 merge-ready PRs blocked by a GitHub API 503; the agent
-delegated the wait instead of arming a poll a parallel agent used correctly. See
-`feedback_external_self_resolving_wait_arm_a_watcher_not_delegate_to_operator` (id `cb17d1c3`).
+Full rationale, family kinship, and origin incident: `docs/rules-rationale/work-completion.md
+§External self-resolving waits`.
 
 ## Temporary mechanism budget
 
@@ -2219,7 +2168,7 @@ When a memory entry, skill, doc, or comment encodes a mechanism as **"temporary,
 
 When the threshold is exceeded, the agent surfaces a reprioritization prompt to the user (escalation packaging per `humility.mdc`) rather than continuing to apply the workaround silently. Memory describing the world is not a substitute for memory acting on it: an "escape hatch fires once a quarter" memory and an "escape hatch fires daily" memory have the same shape unless the budget is encoded.
 
-**Why:** mt#1503 / 2026-05-01 incident — the `gh api PUT /merge` bypass for self-authored bot PRs was framed in `feedback_gh_api_bypass.md` (2026-04-23) as "Escape hatch — not a default path." Over 3 weeks it became the dominant merge mechanism (~17+ PRs, ~5/week). Four memory entries observed "the bypass is becoming load-bearing" without escalating. The structural unblockers (mt#1073, mt#1065, mt#1345, mt#1372, mt#1310, mt#1405, mt#1477) sat in TODO/PLANNING the entire time. The prioritization loop had no measurement variety for *operational pattern frequency over time* (Ashby).
+Full incident narrative: `docs/rules-rationale/work-completion.md §Temporary mechanism budget`.
 
 **How to apply:**
 
@@ -2238,7 +2187,7 @@ When a task spec introduces a **recovery layer** — sweeper, retry, fallback, a
 
 A recovery layer is only as strong as the failure modes its spec enumerates. Implicit "covers everything in the area" framing produces false confidence and deferred follow-ups.
 
-**Why:** mt#1556 / 2026-05-02 incident — mt#1260's periodic-sweeper spec described what it does (detect missed reviews + retrigger) but did not enumerate which silent-reviewer modes it covers vs. doesn't. The implicit framing was "the silent-reviewer class is now covered." In reality the sweeper runs in-process via `setInterval` *after* drizzle migrations apply, so it is structurally unable to recover when the service can't start (mt#1556's actual failure mode). mt#1260 marked DONE 2026-04-26 → silent-reviewer class declared "covered" → mt#1310 (alerting) and mt#1372 (webhook diagnosis) sat in PLANNING for ~6 days → 2026-05-02 the very class they would have caught (service-down) crashed the reviewer service silently for ~107 hours.
+Full incident narrative: `docs/rules-rationale/work-completion.md §Recovery layer spec discipline`.
 
 **How to apply:**
 
@@ -2250,12 +2199,14 @@ A recovery layer is only as strong as the failure modes its spec enumerates. Imp
 
 ## Invocation path required for event/poll mechanisms
 
-When a spec introduces an **event-driven or polling mechanism** — webhook handler, scheduled job, cron, sweeper, watcher, poller — it MUST name the **concrete invocation path**: what starts it, what calls it, how it is wired in.
+When a task spec introduces an **event-driven or polling mechanism** — webhook handler, scheduled job, cron, sweeper, watcher, poller — it MUST name the **concrete invocation path**: what starts it, what calls it, how it is wired in.
 
 These fail silently in two shapes, identical from outside: the feature exists, its tests pass, it produces nothing.
 
-- **Nothing calls it.** No scheduler, no registration, no production callsite — or the only caller is a stub. mt#1618: `pr_watch_run` shipped complete, but production wired a `stubGithubPrClient` returning null/[]/[] and no scheduler called it.
-- **It runs; a dependency inside it is dead.** The failure is caught and converted into the same value a legitimately empty result produces. mt#3019: a hook fired on every SubagentStop, but its domain import threw — 0 of 62 rows carried any column it owned, for two weeks. mt#3046: a post-merge scan fired on every merge; its transcript load threw, was swallowed by `catch { return null }`, and null means "nothing to do" — it never ran. Harder: no missing caller to grep for, no error to find.
+- **Nothing calls it.** No scheduler, no registration, no production callsite — or the only caller is a stub (mt#1618).
+- **It runs; a dependency inside it is dead.** The failure is caught and converted into the same value a legitimately empty result produces — no missing caller to grep for, no error to find (mt#3019, mt#3046).
+
+Full incident detail for both shapes: `docs/rules-rationale/work-completion.md §Invocation path`.
 
 **How to apply:**
 
@@ -2356,7 +2307,7 @@ When you need a capability and (a) reach for bash before checking MCP, (b) the M
 
 **Generic-SE override:** "keep moving — find another path." Wrong here: silent workarounds accumulate capability gaps the user can't see and therefore can't prioritize closing.
 
-**Origins:** mt#1983, shipped via mt#1988; memories `3408717a` (bridge), `b30bfabe`, `39701a9a`, `7f67af43`; siblings mt#1196/mt#1197/mt#1989. On recurrence, escalate to hook-tier.
+**Origins:** mt#1983, shipped via mt#1988. On recurrence, escalate to hook-tier. Full incident list: `docs/rules-rationale/decision-defaults.md §Missing MCP tool`.
 
 ## User does not review PRs in the loop
 
@@ -2373,7 +2324,7 @@ Harnesses ship internal todo tracking (Claude Code `TaskCreate`/`TaskUpdate`, Cu
 - **Inside a Minsky skill chain (`/plan-task`, `/implement-task`, `/prepare-pr`, `/merge-coordination`) → neither.** The Minsky task IS the todo; a parallel harness checklist is a sync hazard.
 - **Harness `TaskCreate` reminder during a Minsky chain → disregard silently.** The user can't see the reminder; echoing it turns harness noise into chat noise.
 
-**Generic-SE override:** "harness todos for everything" (duplicated state) or "no tracking" (loses external memory). See `feedback_agent_todos_vs_minsky_tasks`; the position paper [*Agent todos vs. Minsky tasks*](https://www.notion.so/35e937f03cb4812e9734f0c0f9a8b26c) carries worked examples + the Shape A/B/C frame (first instance mt#1316; Shape-C follow-up mt#1797).
+**Generic-SE override:** "harness todos for everything" (duplicated state) or "no tracking" (loses external memory). See `feedback_agent_todos_vs_minsky_tasks`. Worked examples + the Shape A/B/C frame: `docs/rules-rationale/decision-defaults.md §Agent todos`.
 
 ## Build vs buy: default to buy for non-core capabilities
 
@@ -2386,7 +2337,7 @@ For any capability that is not Minsky's core differentiating value-add, the defa
 
 **Generic-SE override:** "build from scratch is the safe / principled / no-lock-in choice." Engineering time is the scarcest resource; that bias treats it as free.
 
-**Biases to watch for in self:** (1) **Policy-laundering** — citing `§Datastores` to justify building auxiliary analytics on Postgres; that policy covers source-of-truth state only. The tell: recommending the cheaper option AND describing it as "principled." Any "per `§X`"-style claim that a rule section covers the current case is a trigger to re-verify that section's actual scope first — full trigger enumeration in memory `88d92439`. (2) **Build-path-as-research at action time** — "use existing signals" / "grep what's already there" reads as research but is functionally the build path, skipping the user-sequenced evaluation step; see `feedback_build_path_as_research_at_action_time`.
+**Biases to watch for in self:** (1) **Policy-laundering** — citing `§Datastores` for auxiliary analytics (out of scope — source-of-truth only); any "per `§X`"-style claim of rule-coverage is a trigger to re-verify that section's actual scope. (2) **Build-path-as-research at action time** — "use existing signals" reads as research but IS the build path, skipping the user-sequenced evaluation step. Full detail: `docs/rules-rationale/decision-defaults.md §Build vs buy`.
 
 **Anti-pattern checklist before recommending OR executing build:**
 
@@ -2433,7 +2384,7 @@ Today: human-consulted — read this file before any preference-encoding action.
 
 ## Cross-References
 
-- `humility.mdc` (the design principle this corpus operationalizes); `operational-safety-dry-run-first.mdc`; `work-completion.mdc §Temporary mechanism budget`; mt#1034 / mt#1035; mt#2755; mt#1508 (originating audit); `/declare-framework` (mt#1789); `/restate-plan` (mt#1784). Per-section origins are cited inline above.
+`humility.mdc` (the design principle this corpus operationalizes) · `work-completion.mdc §Temporary mechanism budget` · mt#1034/mt#1035 · mt#2755. Full cross-reference index: `docs/rules-rationale/decision-defaults.md §Cross-references`.
 
 # Memory Usage
 

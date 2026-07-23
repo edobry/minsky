@@ -111,9 +111,9 @@ Exactly two levels, in precedence order:
 2. **Derived default** — the model-tier-plus-dispatch-context table above.
 
 The three-level stack (instruction > persisted setting > default) is **explicitly deferred** — it
-activates only once a persisted per-conversation/task register state ships (a session-record field
-or a cockpit control), which is itself deferred pending evidence that rule-tier alone is
-insufficient. Do not build that storage speculatively.
+activates only once a persisted per-conversation/task register state ships, which is itself
+deferred pending evidence that rule-tier alone is insufficient. Do not build that storage
+speculatively.
 
 **Task-record continuity.** Until persisted state ships, an override recorded in the task record
 or a handoff note is honored by later conversations on the same task — check the task record /
@@ -159,12 +159,11 @@ with the call"), with all reasoning beneath. A principal opening an artifact *to
 being persuaded; making them compress a long argument themselves is the same defect as a
 multi-screen chat report, relocated.
 
-Stated surface-generally on purpose: this family recurred four times in 14 days (2026-07-08 chat
-reports, 07-15 planning-gate output, 07-21 and 07-22 RFCs), each time on a surface whose own fix
-did not exist yet, because the norm had only ever been written per-surface. A new surface is
-covered by this clause the first time, not the second. Enforcement lives in the authoring skills
-(`/draft-rfc` step 7, `/draft-adr` step 5, `engineering-writing §Decision artifacts lead with the
-decision` — which otherwise silently overrides this rule, being the more specific writing advice).
+Recurrence history motivating the surface-general framing (this pattern recurred four times in 14
+days across four different surfaces): `docs/rules-rationale/communication-contract.md §Decision
+artifacts lead with the decision`. Enforcement lives in the authoring skills (`/draft-rfc` step 7,
+`/draft-adr` step 5, `engineering-writing §Decision artifacts lead with the decision` — which
+otherwise silently overrides this rule, being the more specific writing advice).
 
 ## Judgment calls are load-bearing (RFC Position 3)
 
@@ -182,34 +181,12 @@ Avoid: **multi-screen final reports** (blows the Tier-1 budget regardless of con
 needed-decision below the fold** (a Tier-0 decision inside a Tier-1 report instead of routed
 through Asks, or placed after routine narrative).
 
-## Worked example: the 2026-07-08 originating incident
-
-Origin: `mt#2713` §Originating signal (the principal's multi-screen-report pushback this shape
-derives from; ids below are illustrative). "**What happened:** Two PRs merged
-([PR #1](minsky://changeset/1), [PR #2](minsky://changeset/2)); umbrella [mt#100](minsky://task/mt%23100) closed. **What you
-need to know:** one judgment call — bypass-merged under a documented escape valve; no other
-exceptions. **What's next:** nothing pending." A partial turn folds status into "what happened"
-instead of a fourth heading.
-
-## Scope
-
-This rule ships the Tier-1 turn-report contract, channel model, and (as of `mt#2867`, RFC Phase 2)
-the altitude register's default-derivation, override, continuity, and severity mechanics above. It
-deliberately does **not** ship: **persisted per-conversation/task register state** (a
-session-record field or a cockpit control — file only if rule-tier proves insufficient; see
-`## Altitude register §Override` above); **trust-accrual register input** (successor to the
-model-tier proxy, `mt#2838`); a **Tier-2 digest** (RFC Phase 3, owned by `mt#2869`, depends on
-mt#2713, ambient-cockpit push discipline with a pull-only-widget fallback); a **calibration-first
-enforcement detector** (wall-of-text/shape-violation, Phase 3, owned by `mt#2870`, depends on
-mt#2713 — per the ADR-024 ladder this rule is the cheapest-sufficient rung; the detector graduates
-only on calibration evidence).
+Worked example (the 2026-07-08 originating incident) and full `## Scope` deferred-work rationale:
+`docs/rules-rationale/communication-contract.md`.
 
 ## Cross-references
 
-`user-preferences.mdc §Plain-language first` (mt#2801) · `§Progress heartbeats` (mt#2824) ·
-`cockpit-deeplinks.mdc` · `humility.mdc §Escalation packaging` · `decision-defaults.mdc` ·
-`subagent-routing.mdc §Escalation to Opus` (dispatch-context register carve-out; sets the register
-on the consuming side) · `mt#1034` / `docs/architecture/adr-008-attention-allocation-subsystem.md`
-· `mt#2713` (Tier-1 contract, this rule's origin) · `mt#2867` (this task — altitude register) ·
-`mt#2838` (trust-accrual successor to model tier) · `mt#2869` (Tier-2 digest) · `mt#2870`
-(enforcement detector) · `mt#2258` (umbrella).
+`user-preferences.mdc §Plain-language first` · `humility.mdc §Escalation packaging` ·
+`decision-defaults.mdc` · `subagent-routing.mdc §Escalation to Opus` (sets the register on the
+consuming side) · `mt#1034` (attention-allocation subsystem). Full cross-reference index:
+`docs/rules-rationale/communication-contract.md §Cross-references`.

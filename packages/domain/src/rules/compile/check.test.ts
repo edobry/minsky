@@ -191,9 +191,10 @@ describe("compileRules --check size budget (mt#2802)", () => {
       expect(result.stale).toBe(false);
       expect(result.sizeChars).toBe(expected.length);
       expect(result.sizeBudgetStatus).toBe("ok");
-      // fail raised 140k -> 145k on 2026-07-22 (mt#3061) — see
-      // DEFAULT_CLAUDE_MD_SIZE_BUDGET's docblock for the rationale.
-      expect(result.sizeBudget).toEqual({ warnChars: 115_000, failChars: 145_000 });
+      // fail raised 140k -> 145k on 2026-07-22 (mt#3061); warn raised
+      // 115k -> 135k on 2026-07-22 (mt#3052, operator-decided post-trim) —
+      // see DEFAULT_CLAUDE_MD_SIZE_BUDGET's docblock for the rationale.
+      expect(result.sizeBudget).toEqual({ warnChars: 135_000, failChars: 145_000 });
     });
 
     it("classifies status 'warn' when between warnChars and failChars (override)", async () => {
