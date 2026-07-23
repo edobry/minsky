@@ -17,10 +17,18 @@
  * command and redispatches the returned prompt verbatim). This module is
  * entirely (1) — it never dispatches anything.
  *
- * @see mt#2831 — this task
+ * mt#3086 update: `computeDispatchStaleness` below now ALSO consults a
+ * presence-claim-derived tool-call-activity signal, not just commit
+ * timestamps — see that function's docstring for the full rationale (why
+ * the harness transcript JSONL mtime was evaluated and rejected in favor of
+ * the `presence_claims` table) and the documented residual blind spot.
+ *
+ * @see mt#2831 — this task (original staleness/classification/prompt logic)
+ * @see mt#3086 — false-positive staleness fix (presence-claim liveness signal)
  * @see mt#2646 — dispatch-watchdog detection + the recovery-probe shape reused here
  * @see packages/domain/src/session/dispatch-recovery-probe.ts — the probe shape
  * @see packages/domain/src/storage/schemas/subagent-invocations-schema.ts — the outcome enum
+ * @see docs/architecture/presence-claims.md — the presence-claim subsystem this borrows
  */
 
 import type { SubagentInvocationOutcome } from "../storage/schemas/subagent-invocations-schema";
@@ -42,33 +50,96 @@ import type { SubagentInvocationOutcome } from "../storage/schemas/subagent-invo
  */
 export const DISPATCH_RECOVERY_STALE_MS = 30 * 60 * 1000;
 
+/**
+ * Which signal produced `lastActivityAtMs` (mt#3086). Surfaced so a caller
+ * can explain WHY a dispatch was judged healthy — in particular so
+ * "healthy, no commits, but recent tool-call activity" is distinguishable
+ * from "healthy, recent commit" in logs/messages, rather than collapsing
+ * both into an opaque timestamp.
+ */
+export type DispatchActivitySource = "dispatch-start" | "commit" | "presence";
+
 /** Result of the staleness check for a single in-flight invocation. */
 export interface DispatchStalenessResult {
   /** True when the dispatch has gone silent for at least `staleMs`. */
   stale: boolean;
-  /** Ms epoch of the most recent activity signal found (dispatch start or last commit). */
+  /** Ms epoch of the most recent activity signal found (dispatch start, last commit, or presence-claim activity). */
   lastActivityAtMs: number;
   /** `nowMs - lastActivityAtMs`. */
   staleForMs: number;
+  /** Which signal produced `lastActivityAtMs`. */
+  activitySource: DispatchActivitySource;
 }
 
 /**
  * Determine whether an in-flight dispatch has gone silent long enough to be
  * treated as died/stalled.
  *
- * "Activity" is the MAX of the dispatch's `startedAtMs` and the last commit
- * timestamp on its session branch (`lastCommitAtMs`), mirroring
- * `computeDispatchWatchdogFlags`'s activity model minus the `system_events`
- * signal — the recover command is a synchronous, on-demand check against a
- * single dispatch (no DB aggregation), so it intentionally omits the
- * broader event-stream signal the periodic watchdog sweep uses. This is a
- * documented simplification (see the command file's Does-NOT-cover note),
- * not a silent gap: a dispatch whose only recent activity was a PR/review
- * event (no commit) will be treated as stale slightly earlier here than the
- * full watchdog sweep would flag it — acceptable since recovering "early"
- * on such a dispatch degrades to the false-positive-kill acceptance test
- * case (probe shows a healthy, near-complete state; the continuation prompt
- * just tells the resumed agent to check PR/review status first).
+ * ## Signals consulted (mt#3086)
+ *
+ * "Activity" is the MAX of three signals: the dispatch's `startedAtMs`, the
+ * last commit timestamp on its session branch (`lastCommitAtMs`), and — new
+ * in mt#3086 — the most recent `presence_claims` refresh for the dispatch's
+ * Minsky session (`lastPresenceActivityAtMs`). Before mt#3086 this function
+ * only consulted the first two, which meant a dispatch that was genuinely
+ * alive and working (reading code, running tests, making session-scoped MCP
+ * tool calls) but had not yet committed anything was indistinguishable from
+ * a dead one — the mt#3086 originating incident (a same-session
+ * double-dispatch race triggered by exactly this false positive).
+ *
+ * ## Why `presence_claims`, not the harness transcript JSONL mtime
+ *
+ * The mt#3086 spec named the harness's transcript JSONL mtime as the
+ * "cheap proxy" candidate for tool-call-level activity. It was evaluated and
+ * rejected for THIS signal slot: the JSONL file is keyed by the harness's
+ * OWN agent-session id, and `subagent_invocations.agent_session_id` is only
+ * populated by the SubagentStop hook (`.minsky/hooks/record-subagent-invocation.ts`)
+ * — i.e. only AFTER the dispatch is no longer in-flight, which is precisely
+ * the state this function is trying to distinguish from "alive but quiet."
+ * For an in-flight row the join key genuinely does not exist yet, so the
+ * JSONL path is unreachable here regardless of whether the server can reach
+ * the harness's local filesystem (a separate, ALSO-true portability concern
+ * for a future hosted-MCP deployment).
+ *
+ * `presence_claims` (subject_kind = "session", `docs/architecture/presence-claims.md`,
+ * mt#2284) is the best DB-side substitute: `src/mcp/server.ts`'s
+ * `writeSessionAttachment` refreshes a session-grain claim's
+ * `last_refreshed_at` on EVERY MCP tool call that resolves to a Minsky
+ * session (`session_exec`, `session_read_file`, `session_grep_search`,
+ * `validate_typecheck`, etc.) — which covers the exact "long local
+ * diagnosis loop, no commits" scenario from the originating incident, since
+ * that loop is made almost entirely of such calls. It is DB-side (no local
+ * filesystem read, portable to a hosted MCP server) and keyed on the Minsky
+ * SESSION id, which this command already has (`subagentSessionId`) — no new
+ * join key is needed.
+ *
+ * ## Residual blind spot (documented, not silently accepted)
+ *
+ * A dispatch that goes an entire `staleMs` window WITHOUT making any
+ * Minsky-MCP-routed tool call — e.g. stuck inside one very long non-MCP
+ * subprocess call — is still invisible to every signal here (commit,
+ * presence, or otherwise) and will still misclassify as `recover`. This is
+ * a real, narrower gap than the pre-mt#3086 state (which missed a much
+ * broader class: any quiet-but-MCP-active stretch), not a claim of full
+ * coverage.
+ *
+ * **SendMessage-resumed agent confound.** A `SendMessage`-resumed subagent
+ * (per `subagent-routing.mdc`'s "Continuation" section) writes no NEW
+ * `subagent_invocations` row — but because `presence_claims` is keyed on the
+ * Minsky SESSION id, not on the invocation row, a SendMessage-resumed
+ * agent's own tool calls keep refreshing the SAME session-grain claim this
+ * function reads. So as long as the invocation row this function is
+ * evaluating is still open (`endedAt IS NULL` — e.g. it was itself produced
+ * by a PRIOR `tasks.dispatch-recover` auto-resume, per that command's
+ * `recordDispatchRecoveryAttempt`), a SendMessage-resumed continuation's
+ * activity IS visible here. The one case where it is NOT visible: if the
+ * row had already been closed (`endedAt` set, e.g. by the original
+ * SubagentStop) before the SendMessage resume happened — the calling
+ * command (`dispatch-recover-command.ts`) returns `not-in-flight` before
+ * ever reaching this function, so a SendMessage-resumed continuation of an
+ * already-Stopped dispatch is never staleness-checked at all (arguably
+ * correct: from `subagent_invocations`' point of view nothing is "in
+ * flight" to recover).
  *
  * Pure and synchronous — no I/O. Unit-testable with an injected clock.
  */
@@ -76,12 +147,23 @@ export function computeDispatchStaleness(
   startedAtMs: number,
   lastCommitAtMs: number | null,
   nowMs: number,
-  staleMs: number = DISPATCH_RECOVERY_STALE_MS
+  staleMs: number = DISPATCH_RECOVERY_STALE_MS,
+  lastPresenceActivityAtMs: number | null = null
 ): DispatchStalenessResult {
-  const lastActivityAtMs =
-    lastCommitAtMs !== null ? Math.max(startedAtMs, lastCommitAtMs) : startedAtMs;
+  let lastActivityAtMs = startedAtMs;
+  let activitySource: DispatchActivitySource = "dispatch-start";
+
+  if (lastCommitAtMs !== null && lastCommitAtMs > lastActivityAtMs) {
+    lastActivityAtMs = lastCommitAtMs;
+    activitySource = "commit";
+  }
+  if (lastPresenceActivityAtMs !== null && lastPresenceActivityAtMs > lastActivityAtMs) {
+    lastActivityAtMs = lastPresenceActivityAtMs;
+    activitySource = "presence";
+  }
+
   const staleForMs = nowMs - lastActivityAtMs;
-  return { stale: staleForMs >= staleMs, lastActivityAtMs, staleForMs };
+  return { stale: staleForMs >= staleMs, lastActivityAtMs, staleForMs, activitySource };
 }
 
 // ---------------------------------------------------------------------------

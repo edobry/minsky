@@ -23,6 +23,7 @@ function makeRow(overrides: Partial<AgentRow> = {}): AgentRow {
     conversationId: overrides.conversationId ?? null,
     cwd: overrides.cwd ?? null,
     subagents: overrides.subagents ?? [],
+    model: overrides.model ?? null,
     driven: overrides.driven ?? null,
     attachState: overrides.attachState ?? null,
     interfaceBinding: overrides.interfaceBinding ?? null,
