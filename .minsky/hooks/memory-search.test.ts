@@ -5,6 +5,7 @@ import {
   CANARY_STUB_ENV,
   DEFAULT_K,
   DEFAULT_TOKEN_BUDGET,
+  deriveDispatchSearchTimeoutMs,
   deriveVariantTag,
   emitBraintrust,
   estimateTokens,
@@ -14,6 +15,7 @@ import {
   parseSearchOutput,
   renderResult,
   rotateLogIfNeeded,
+  run,
   runMemorySearch,
   TRUNCATION_MARKER,
   writeLog,
@@ -25,7 +27,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 // eslint-disable-next-line custom/no-real-fs-in-tests -- mt#3004: per-test mkdtemp fixture dirs, same rationale as above
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CANARY_MODE_ENV } from "./types";
+import { CANARY_MODE_ENV, deriveBudgets } from "./types";
+import type { DispatchContext } from "./registry";
 // mt#1778 R1 NON-BLOCKING #1: read shared-emitter API directly from its
 // canonical module rather than through the hook's re-export, which was
 // fragile coupling per reviewer feedback.
@@ -936,5 +939,66 @@ describe("canary stub seam (mt#3004)", () => {
     const { error } = runMemorySearch(NON_TRIVIAL_PROMPT, DEFAULT_K, 1);
     expect(error).toBeDefined();
     expect(error).not.toContain("canary-stub");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dispatcher-path budget derivation (mt#3073)
+//
+// Regression coverage for the bug this task fixes: `run()`'s dispatcher path
+// used to derive its subprocess timeout via a `readHostCap("memory-search.ts")`
+// self-lookup that always misses post-ADR-028-Phase-2b (this hook no longer
+// has its own `settings.json` matcher entry), silently falling back to
+// DEFAULT_HOST_CAP_SEC=15 (~10.5s effective timeout, SEARCH_TIMEOUT_RATIO
+// 0.7) and warning "No matcher entry found" on every fire. The fix mirrors
+// `inject-git-state.ts`: consume the dispatcher-provided `ctx.budgets`
+// instead of self-looking-up a host cap.
+// ---------------------------------------------------------------------------
+
+function makeDispatchContext(hostCapSec: number): DispatchContext {
+  return {
+    event: "UserPromptSubmit",
+    hostCapSec,
+    budgets: deriveBudgets(hostCapSec),
+    transcriptCandidates: [],
+    transcriptLines: [],
+  };
+}
+
+describe("deriveDispatchSearchTimeoutMs (mt#3073)", () => {
+  it("returns ctx.budgets.fetchTimeoutMs directly, not a readHostCap self-lookup value", () => {
+    const ctx = makeDispatchContext(145);
+    expect(deriveDispatchSearchTimeoutMs(ctx)).toBe(ctx.budgets.fetchTimeoutMs);
+  });
+
+  it("diverges from the broken self-lookup fallback for the real 145s dispatcher-family host cap", () => {
+    // Pre-fix behavior: readHostCap("memory-search.ts", ...) always misses its
+    // matcher entry (removed by ADR-028 Phase 2b) and falls back to
+    // DEFAULT_HOST_CAP_SEC=15 -> Math.floor(15 * 1000 * 0.7) = 10500ms.
+    const BROKEN_SELF_LOOKUP_FALLBACK_MS = Math.floor(15 * 1000 * 0.7);
+    const ctx = makeDispatchContext(145); // the real UserPromptSubmit dispatcher host cap
+    const derived = deriveDispatchSearchTimeoutMs(ctx);
+    expect(derived).not.toBe(BROKEN_SELF_LOOKUP_FALLBACK_MS);
+    expect(derived).toBeGreaterThan(BROKEN_SELF_LOOKUP_FALLBACK_MS);
+  });
+
+  it("scales with the dispatcher's own host cap rather than a hardcoded constant", () => {
+    const small = deriveDispatchSearchTimeoutMs(makeDispatchContext(20));
+    const large = deriveDispatchSearchTimeoutMs(makeDispatchContext(145));
+    expect(large).toBeGreaterThan(small);
+  });
+});
+
+describe("run() dispatcher path (mt#3073) — no readHostCap self-lookup", () => {
+  it("run()'s source no longer references readHostCap / deriveSearchTimeoutMs(), and calls deriveDispatchSearchTimeoutMs(ctx)", () => {
+    // Function.prototype.toString() on a non-native function returns its
+    // original source text under Bun's JavaScriptCore runtime — a cheap,
+    // fs-free way to assert the dispatcher path's call graph without
+    // re-deriving readHostCap's internal warning plumbing (which is only
+    // reachable via a real/mocked `.claude/settings.json` read).
+    const src = run.toString();
+    expect(src).not.toContain("readHostCap");
+    expect(src).not.toContain("deriveSearchTimeoutMs()");
+    expect(src).toContain("deriveDispatchSearchTimeoutMs(ctx)");
   });
 });
