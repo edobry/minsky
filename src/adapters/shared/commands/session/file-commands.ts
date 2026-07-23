@@ -9,6 +9,11 @@ import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type SessionCommandDependencies, type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionEditFileCommandParams } from "./session-parameters";
 import { readTextFile } from "@minsky/shared/fs";
+// Static, unlike the diff imports inside `runSessionEditFileOperation`: the
+// mt#1792 lazy-import pattern defers HEAVY modules (domain, persistence), and
+// `utils/diff` is a dependency-free pure-string module. `formatResult` runs
+// outside that lazy scope and needs these to render the location signal.
+import { describeChangedRange, type ChangedRange } from "../../../../utils/diff";
 
 export type SessionEditFileParams = InferParams<typeof sessionEditFileCommandParams>;
 
@@ -126,7 +131,9 @@ async function runSessionEditFileOperation(args: {
   allowShrink: boolean;
   sessionProvider?: import("@minsky/domain/session/index").SessionProviderInterface;
 }): Promise<Record<string, unknown>> {
-  const { generateUnifiedDiff, generateDiffSummary } = await import("../../../../utils/diff");
+  const { generateUnifiedDiff, generateDiffSummary, computeChangedRange } = await import(
+    "../../../../utils/diff"
+  );
   const { createSuccessResponse } = await import("@minsky/domain/schemas");
   const { applySessionFileEditOperation } = await import(
     "@minsky/domain/session/session-file-edit-operation"
@@ -157,6 +164,7 @@ async function runSessionEditFileOperation(args: {
       proposedContent: result.finalContent,
       diff,
       diffSummary,
+      changedRange: computeChangedRange(result.originalContent, result.finalContent),
       edited: result.fileExisted,
       created: !result.fileExisted,
     });
@@ -164,12 +172,20 @@ async function runSessionEditFileOperation(args: {
 
   const bytesWritten = new TextEncoder().encode(result.finalContent).byteLength;
 
+  // mt#3071: the apply path reports WHERE the edit landed, not just that it
+  // happened — same envelope as the dry-run above, so verifying-then-applying
+  // does not mean reading two different formats. A marker apply can fail at its
+  // intended anchor and write its replacement at a different, structurally
+  // similar one; a byte count cannot distinguish that from a correct apply.
   return createSuccessResponse({
     timestamp: new Date().toISOString(),
     path: args.path,
     session: args.sessionId,
     resolvedPath: result.resolvedPath,
     bytesWritten,
+    diff: generateUnifiedDiff(result.originalContent, result.finalContent, args.path),
+    diffSummary: generateDiffSummary(result.originalContent, result.finalContent),
+    changedRange: computeChangedRange(result.originalContent, result.finalContent),
     edited: result.fileExisted,
     created: !result.fileExisted,
   });
@@ -210,6 +226,12 @@ function formatResult(
     return { success: true, ...mcpResult };
   }
 
+  // mt#3071 / PR #2238 R1: the non-JSON shapes below are hand-picked subsets of
+  // the envelope, so the location signal has to be added here explicitly — a
+  // CLI user is as much a caller as an MCP client, and dropping it would leave
+  // exactly the blind spot this task closes.
+  const changedRange = mcpResult.changedRange as ChangedRange | null | undefined;
+
   if (mcpResult.dryRun) {
     return {
       success: true,
@@ -218,20 +240,26 @@ function formatResult(
       session: mcpResult.session,
       diff: mcpResult.diff,
       diffSummary: mcpResult.diffSummary,
+      changedRange: changedRange ?? null,
       proposedContent: params.debug ? mcpResult.proposedContent : undefined,
       message: formatDryRunMessage(mcpResult),
     };
   }
+
+  const action = mcpResult.edited ? "edited" : "created";
 
   return {
     success: true,
     type: "edit-applied",
     path: mcpResult.path,
     session: mcpResult.session,
-    message: mcpResult.edited
-      ? `✅ Successfully edited ${mcpResult.path}`
-      : `✅ Successfully created ${mcpResult.path}`,
+    message: `✅ Successfully ${action} ${mcpResult.path} — ${describeChangedRange(
+      changedRange ?? null
+    )}`,
     bytesWritten: mcpResult.bytesWritten,
+    diff: mcpResult.diff,
+    diffSummary: mcpResult.diffSummary,
+    changedRange: changedRange ?? null,
   };
 }
 
