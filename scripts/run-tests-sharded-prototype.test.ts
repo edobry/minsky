@@ -25,7 +25,7 @@ describe("binPackFiles", () => {
     expect(shards[0]).toHaveLength(2);
     expect(shards[1]).toHaveLength(2);
     // Every file assigned exactly once, none dropped or duplicated.
-    const allAssigned = [...shards[0], ...shards[1]].sort();
+    const allAssigned = [...(shards[0] ?? []), ...(shards[1] ?? [])].sort();
     expect(allAssigned).toEqual(["a.test.ts", "b.test.ts", "c.test.ts", "d.test.ts"]);
   });
 
@@ -251,8 +251,12 @@ describe("runShardsConcurrently (real Bun.spawn fan-out)", () => {
 
     let overlappingPairCount = 0;
     for (let i = 0; i < windows.length; i++) {
+      const wi = windows[i];
+      if (wi === undefined) continue;
       for (let j = i + 1; j < windows.length; j++) {
-        if (overlaps(windows[i], windows[j])) {
+        const wj = windows[j];
+        if (wj === undefined) continue;
+        if (overlaps(wi, wj)) {
           overlappingPairCount++;
         }
       }

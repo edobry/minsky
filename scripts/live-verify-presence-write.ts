@@ -39,7 +39,7 @@ console.log("[live-verify] Connected to Postgres via minsky config");
 // 2. Build a real PostgresPersistenceProvider and wrap it in a fake container
 // ---------------------------------------------------------------------------
 import { PostgresPersistenceProvider } from "../packages/domain/src/persistence/providers/postgres-provider";
-import type { AppContainerInterface } from "../src/container";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 const provider = new PostgresPersistenceProvider({
   backend: "postgres",
@@ -49,10 +49,15 @@ const provider = new PostgresPersistenceProvider({
 // Initialize the provider so getDatabaseConnection() returns a real db
 await provider.initialize();
 
-// Minimal fake container that surfaces the persistence provider
+// Minimal fake container that surfaces the persistence provider.
+// AppContainerInterface.get's generic signature collapses to `never` for a
+// plain-function mock (a private-property conflict across the intersected
+// AppServices constituents, not fixable via narrowing) — `as never` on the
+// mock function itself, matching the same class of test-double cast already
+// used in scripts/smoke-mcp-discovery.ts.
 const fakeContainer: Pick<AppContainerInterface, "has" | "get"> = {
   has: (key: string) => key === "persistence",
-  get: (_key: string) => provider,
+  get: ((_key: string) => provider) as never,
 };
 
 // ---------------------------------------------------------------------------
@@ -125,6 +130,9 @@ if (rows.length === 0) {
 }
 
 const row = rows[0];
+if (row === undefined) {
+  throw new Error("internal: rows[0] missing despite length check");
+}
 console.log("[live-verify] PASS — row found in presence_claims:");
 console.log(`  id             : ${row.id}`);
 console.log(`  subject_kind   : ${row.subject_kind}`);

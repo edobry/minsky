@@ -21,7 +21,12 @@ async function main() {
         connectionString: config.persistence?.postgres?.connectionString || null,
       },
       sqlite: {
-        path: config.persistence?.sqlite?.dbPath || null,
+        // PersistenceConfig's current type is postgres-only (sqlite support
+        // predates the Postgres-only migration); read defensively in case a
+        // legacy config still carries this field, matching prior behavior.
+        path:
+          (config.persistence as { sqlite?: { dbPath?: string } } | undefined)?.sqlite?.dbPath ||
+          null,
       },
       backend: config.persistence?.backend || "sqlite",
     };

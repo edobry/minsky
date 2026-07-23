@@ -514,7 +514,7 @@ describe("runShardsConcurrently", () => {
       ],
       60_000
     );
-    expect(outcomes[0].timedOut).toBe(false);
+    expect(outcomes[0]?.timedOut).toBe(false);
     expect(aggregateShardResults(outcomes).passed).toBe(true);
   });
 });

@@ -50,8 +50,8 @@ function parseArgs(argv: string[]): BenchmarkArgs {
   const args: BenchmarkArgs = { n: 100, taskId: "mt#1012" };
   for (const arg of argv.slice(2)) {
     const [k, v] = arg.split("=");
-    if (k === "--n") args.n = Number.parseInt(v, 10);
-    else if (k === "--task") args.taskId = v;
+    if (k === "--n") args.n = Number.parseInt(v ?? "", 10);
+    else if (k === "--task") args.taskId = v ?? args.taskId;
   }
   if (!Number.isFinite(args.n) || args.n < 1) {
     throw new Error(`Invalid --n: ${args.n}`);
@@ -83,7 +83,7 @@ function computeStats(samples: number[]): Stats {
   const pct = (p: number): number => {
     if (sorted.length === 0) return 0;
     const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * p) - 1));
-    return sorted[idx];
+    return sorted[idx] ?? 0;
   };
   return {
     n: samples.length,
@@ -92,8 +92,8 @@ function computeStats(samples: number[]): Stats {
     p50Ms: pct(0.5),
     p95Ms: pct(0.95),
     p99Ms: pct(0.99),
-    minMs: sorted[0],
-    maxMs: sorted[sorted.length - 1],
+    minMs: sorted[0] ?? 0,
+    maxMs: sorted[sorted.length - 1] ?? 0,
   };
 }
 

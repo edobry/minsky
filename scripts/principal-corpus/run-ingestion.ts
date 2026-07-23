@@ -15,7 +15,7 @@
 
 import "reflect-metadata";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "fs";
-import { setupConfiguration } from "../../src/config-setup";
+import { setupConfiguration } from "@minsky/domain/config-setup";
 import { parseTwitterArchive } from "@minsky/domain/principal-corpus/tweet-archive-parser";
 import { classifyAndFilterTweets } from "@minsky/domain/principal-corpus/relevance-filter";
 import { createPrincipalCorpusService } from "@minsky/domain/principal-corpus/principal-corpus-service";

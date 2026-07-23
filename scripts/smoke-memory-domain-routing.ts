@@ -68,21 +68,15 @@ async function run(): Promise<void> {
   }
 
   // Check 2: getVectorStorageForDomain exists
-  const hasNewApi =
-    "getVectorStorageForDomain" in provider &&
-    typeof (provider as Record<string, unknown>)["getVectorStorageForDomain"] === "function";
-
-  if (!hasNewApi) {
+  // PersistenceProvider's abstract class already declares this as an
+  // OPTIONAL method (`getVectorStorageForDomain?(...)`), so no Record<string,
+  // unknown> cast is needed at all — just check it's actually present.
+  if (typeof provider.getVectorStorageForDomain !== "function") {
     fail("getVectorStorageForDomain", "method not present on provider — old code deployed?");
     printAndExit();
     return;
   }
-
-  // Use a typed accessor to avoid as-unknown casts
-  const domainMethod = (provider as Record<string, unknown>)["getVectorStorageForDomain"] as (
-    domain: string,
-    dimension: number
-  ) => unknown;
+  const domainMethod = provider.getVectorStorageForDomain;
 
   // Check 3: domain "memory" returns an instance
   // Use .call(provider, ...) to preserve `this` binding — bare method reference loses it

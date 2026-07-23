@@ -30,6 +30,7 @@ import "reflect-metadata";
 
 import type { AskRepository } from "@minsky/domain/ask/repository";
 import type { Ask } from "@minsky/domain/ask/types";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 
 const DEFAULT_MAX_AGE_DAYS = 7;
 
@@ -56,7 +57,13 @@ async function buildAskRepository(): Promise<AskRepository> {
     throw new Error("Triage requires a SQL-capable persistence provider (Postgres).");
   }
 
-  const connection = await persistence.getDatabaseConnection();
+  // Narrow via SqlCapablePersistenceProvider per the base class's own doc
+  // comment ("callers that need typed connections should narrow via
+  // SqlCapablePersistenceProvider") — the runtime checks above already
+  // proved this shape; matches packages/domain/src/tasks/taskService.ts's
+  // identical narrowing precedent.
+  const sqlProvider = persistence as SqlCapablePersistenceProvider;
+  const connection = await sqlProvider.getDatabaseConnection();
   if (!connection) {
     throw new Error("Triage requires an initialized Postgres database connection.");
   }

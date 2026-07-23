@@ -21,6 +21,7 @@
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync, readFileSync, readdirSync, statSync, mkdtempSync } from "node:fs";
+import { spawnSync as nodeSpawnSync } from "child_process";
 
 function skip(reason: string): never {
   process.stdout.write(`SKIP: ${reason}\n`);
@@ -89,14 +90,19 @@ const payload = JSON.stringify({
   hook_event_name: "SessionEnd",
 });
 
-const run = Bun.spawnSync(["bun", hookPath], {
-  stdin: Buffer.from(payload),
-  stdout: "pipe",
-  stderr: "pipe",
+// Uses node:child_process.spawnSync (not Bun.spawnSync) — see mt#3088 spec
+// for the diagnosis: bun-types@1.2.12's Bun.spawnSync stdin type is
+// hardcoded to "ignore" on both overloads, with no cast-free way to pass a
+// real stdin value (and the custom no-excessive-as-unknown ESLint rule
+// correctly flags a cast-based workaround). node's `input` option is
+// properly typed for this and has identical synchronous semantics.
+const run = nodeSpawnSync("bun", [hookPath], {
+  input: Buffer.from(payload),
+  stdio: ["pipe", "pipe", "pipe"],
   env: { ...process.env, MINSKY_STATE_DIR: stateDir },
 });
-if ((run.exitCode ?? 1) !== 0) {
-  fail(`hook exited ${run.exitCode}: ${run.stderr.toString()}`);
+if ((run.status ?? 1) !== 0) {
+  fail(`hook exited ${run.status}: ${run.stderr.toString()}`);
 }
 
 // ── Assert the observable log got a clean ingest record ──────────────────────

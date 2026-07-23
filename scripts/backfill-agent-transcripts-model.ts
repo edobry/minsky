@@ -69,6 +69,7 @@ import "reflect-metadata";
 
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { and, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
+import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 
 /**
  * Deliberately small: each row's `transcript` JSONB can be large (a full
@@ -116,19 +117,19 @@ async function bootstrapDb(): Promise<PostgresJsDatabase> {
 
   const persistence = container.has("persistence") ? container.get("persistence") : undefined;
 
-  const hasSqlCapability =
-    !!persistence && !!(persistence as { capabilities?: { sql?: boolean } }).capabilities?.sql;
-  const hasGetDatabaseConnection =
-    !!persistence &&
-    typeof (persistence as { getDatabaseConnection?: unknown }).getDatabaseConnection ===
-      "function";
-  if (!hasSqlCapability || !hasGetDatabaseConnection) {
+  interface SqlCapablePersistence {
+    getDatabaseConnection: () => Promise<PostgresJsDatabase | null>;
+  }
+  const isSqlCapablePersistence = (p: unknown): p is SqlCapablePersistence =>
+    !!p &&
+    !!(p as { capabilities?: { sql?: boolean } }).capabilities?.sql &&
+    typeof (p as { getDatabaseConnection?: unknown }).getDatabaseConnection === "function";
+
+  if (!isSqlCapablePersistence(persistence)) {
     throw new Error("Backfill requires a SQL-capable persistence provider (Postgres).");
   }
 
-  const connection = await (
-    persistence as { getDatabaseConnection: () => Promise<PostgresJsDatabase | null> }
-  ).getDatabaseConnection();
+  const connection = await persistence.getDatabaseConnection();
   if (!connection) {
     throw new Error("Backfill requires an initialized Postgres database connection.");
   }
@@ -192,10 +193,13 @@ async function main(): Promise<void> {
   let updated = 0;
   let skippedNoModel = 0;
   let failed = 0;
-  let cursor: string | null = afterId ?? null;
+  // afterId is a raw CLI boundary value (--after-id=<uuid>); brand it once
+  // here per the documented Brand<> convention (packages/domain/src/ids.ts)
+  // so downstream drizzle comparisons against the branded column type-check.
+  let cursor: AgentSessionId | null = afterId ? (afterId as AgentSessionId) : null;
 
   for (;;) {
-    let batch: Array<{ agentSessionId: string; transcript: unknown }>;
+    let batch: Array<{ agentSessionId: AgentSessionId; transcript: unknown }>;
     try {
       batch = await db
         .select({

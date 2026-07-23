@@ -117,7 +117,7 @@ export function resolveHeadCommit(repoDir: string): string | null {
       timeout: 5000,
       encoding: "utf8",
     });
-    const sha = (typeof result === "string" ? result : result.toString()).trim();
+    const sha = String(result).trim();
     if (/^[0-9a-f]{7,}$/i.test(sha)) return sha;
     return null;
   } catch {

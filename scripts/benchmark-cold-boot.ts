@@ -117,16 +117,21 @@ function computeStats(samples: number[]): Stats {
   const sorted = [...samples].sort((a, b) => a - b);
   const n = sorted.length;
   if (n === 0) return { count: 0, meanMs: 0, medianMs: 0, p95Ms: 0, minMs: 0, maxMs: 0 };
-  const median = n % 2 === 0 ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 : sorted[Math.floor(n / 2)];
+  const at = (i: number): number => {
+    const v = sorted[i];
+    if (v === undefined) throw new Error(`computeStats: index ${i} out of bounds (n=${n})`);
+    return v;
+  };
+  const median = n % 2 === 0 ? (at(n / 2 - 1) + at(n / 2)) / 2 : at(Math.floor(n / 2));
   const p95Index = Math.min(n - 1, Math.floor(n * 0.95));
   const total = sorted.reduce((sum, x) => sum + x, 0);
   return {
     count: n,
     meanMs: total / n,
     medianMs: median,
-    p95Ms: sorted[p95Index],
-    minMs: sorted[0],
-    maxMs: sorted[n - 1],
+    p95Ms: at(p95Index),
+    minMs: at(0),
+    maxMs: at(n - 1),
   };
 }
 
@@ -166,7 +171,11 @@ function measureOne(
 
     const parseCheckpointLine = (line: string): void => {
       const m = line.match(/^\[profile\] checkpoint=(\S+) t=([\d.]+)/);
-      if (m) checkpoints.set(m[1], Number(m[2]));
+      if (m) {
+        const name = m[1];
+        const t = m[2];
+        if (name !== undefined && t !== undefined) checkpoints.set(name, Number(t));
+      }
     };
 
     // Single settle path: resolve exactly once, clearing the timer, draining
@@ -373,11 +382,19 @@ function stageCosts(
 ): Array<{ stage: string; ms: number }> {
   const stages: Array<{ stage: string; ms: number }> = [];
   if (checkpoints.length === 0) return stages;
-  stages.push({ stage: `spawn -> ${checkpoints[0].name}`, ms: checkpoints[0].t });
+  const at = (i: number): { name: string; t: number } => {
+    const v = checkpoints[i];
+    if (v === undefined) throw new Error(`stageCosts: index ${i} out of bounds`);
+    return v;
+  };
+  const first = at(0);
+  stages.push({ stage: `spawn -> ${first.name}`, ms: first.t });
   for (let i = 1; i < checkpoints.length; i++) {
+    const prev = at(i - 1);
+    const curr = at(i);
     stages.push({
-      stage: `${checkpoints[i - 1].name} -> ${checkpoints[i].name}`,
-      ms: checkpoints[i].t - checkpoints[i - 1].t,
+      stage: `${prev.name} -> ${curr.name}`,
+      ms: curr.t - prev.t,
     });
   }
   return stages;

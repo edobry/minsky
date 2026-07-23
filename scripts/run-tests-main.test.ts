@@ -141,6 +141,9 @@ describe(
 
     it("the ./-prefixed positional arg (this fix's toBunTestArgs) runs ONLY the intended file", async () => {
       const [prefixedArg] = toBunTestArgs([REAL_COLLISION_SHORT_PATH]);
+      if (prefixedArg === undefined) {
+        throw new Error("internal: toBunTestArgs returned an empty array");
+      }
       const proc = Bun.spawn(["bun", "test", ...BUN_TEST_PRELOAD_ARGS, prefixedArg], {
         stdout: "pipe",
         stderr: "pipe",

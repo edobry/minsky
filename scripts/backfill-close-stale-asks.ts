@@ -39,6 +39,7 @@ import type { AskRepository } from "@minsky/domain/ask/repository";
 import type { Ask, AskState } from "@minsky/domain/ask/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { isTerminal } from "@minsky/domain/tasks/workflows";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 
 /** Ask kinds this backfill is allowed to close. Everything else is untouched. */
 const TARGET_KINDS = new Set<string>(["authorization.approve", "quality.review"]);
@@ -75,7 +76,15 @@ async function bootstrap(): Promise<Deps> {
   if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
     throw new Error("Backfill requires a SQL-capable persistence provider (Postgres).");
   }
-  const connection = await persistence.getDatabaseConnection();
+  // Narrow via SqlCapablePersistenceProvider per the base class's own doc
+  // comment ("callers that need typed connections should narrow via
+  // SqlCapablePersistenceProvider") — the runtime checks above already
+  // proved this shape; matches packages/domain/src/tasks/taskService.ts's
+  // identical narrowing precedent. `persistence` itself stays typed as
+  // PersistenceProvider so it can still be passed to
+  // createConfiguredTaskService below.
+  const sqlProvider = persistence as SqlCapablePersistenceProvider;
+  const connection = await sqlProvider.getDatabaseConnection();
   if (!connection) {
     throw new Error("Backfill requires an initialized Postgres database connection.");
   }
