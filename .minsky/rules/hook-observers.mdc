@@ -1,6 +1,6 @@
 ---
 name: Hook Observers
-description: Observer-hook index (detectors, per-turn injection, reminders, trackers, SessionEnd ingest); permission gates live in hook-files.
+description: Observer-hook index; gates live in hook-files.
 alwaysApply: true
 tags:
   - minsky
@@ -8,139 +8,17 @@ tags:
 ---
 # Hook Observers
 
-Index of the NON-BLOCKING hook layer: UserPromptSubmit detectors, per-turn context injection,
-PostToolUse reminders, health trackers, and the SessionEnd ingest. None of these emit a
-permission decision. The permission gates (PreToolUse deny/allow, merge gates, pre-commit
-steps), the shared guard-dispatcher framework, the compile workflow
-(`.claude/hooks/*` GENERATED from `.minsky/hooks/`, `bun run minsky compile --target
-claude-hooks`, commit both), and the execute-permission requirement are indexed in the sibling
-`hook-files` rule — this rule was split from it (mt#2987: the combined index exceeded the
-per-rule compile ceiling three times in one day). Entries stay a terse index; per-hook
-narration lives in `docs/architecture/hooks/<name>.md` (mt#2620), each `Doc:` pointer a file
-there.
+NON-BLOCKING hooks: detectors, injection, reminders, trackers, SessionEnd ingest — no
+decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture/hooks/<name>.md`.
 
-## Skill/Agent/Rule Staleness Detector
-
-UserPromptSubmit: warns when `.claude/skills/**` / `.claude/agents/**` / `.minsky/rules/**`
-changed since session baseline mtime. Hook: `skill-staleness-detector.ts`. Override:
-`MINSKY_SKIP_SKILL_STALENESS=1`. Fail: silent-informational.
-Doc: `skill-staleness-detector.md`.
-
-## Drive-PR-To-Convergence Reminder
-
-PostToolUse on successful `session_pr_create`: injects a convergence reminder naming
-`session_pr_wait-for-review` as next action. Hook: `drive-pr-to-convergence.ts`. No override.
-Fail: always exits 0. Doc: `drive-pr-to-convergence-reminder.md`.
-
-## Substrate-Bypass Detector
-
-UserPromptSubmit: detects verbal commitments with no same-turn encoding, inline-retrospective
-prose without `/retrospective`, DB-substrate-bypass phrasing, and (log-only, mt#2263 ladder)
-`operator-instruction-after-merge` — telling the user to reinstall/rebuild/edit-config to
-activate a merged change (`§Turnkey, not portal`, mt#2303). Hook:
-`substrate-bypass-detector.ts`. Overrides: `MINSKY_ACK_SUBSTRATE_BYPASS=1`,
-`MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER=1`. Fail: open on transcript error; silent on first
-turn. Doc: `substrate-bypass-detector.md`.
-
-## Retrospective-Trigger Scanner
-
-UserPromptSubmit: scans the prior turn for retrospective-trigger phrases + user-correction
-signals; reminds to invoke `/retrospective` (suppressed if already invoked). Hook:
-`retrospective-trigger-scanner.ts`. Log: `.minsky/retrospective-trigger-calibration.jsonl`.
-Override: `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1`. Fail: open on transcript error.
-Doc: `retrospective-trigger-scanner.md`.
-Stop-event sibling (mt#2357): `turn-end-retro-scan.ts` — advisory turn-end scan (registry,
-via `dispatch-stop.ts`); dedup caps phrases at one beat; same override/log (`channel:"stop"`).
-Doc: `turn-end-retro-scan.md`.
-
-## Code-Mechanism-Assertion Detector
-
-UserPromptSubmit: flags an asserted-but-unread code-symbol behavior claim.
-mt#3002 excludes file-name/hex-id symbol FPs and flips
-`INJECTION_ENABLED=true` — LIVE since 2026-07-21 (calibration-first since mt#2486). Hook:
-`code-mechanism-assertion-detector.ts`. Override:
-`MINSKY_ACK_CODE_MECHANISM_ASSERTION=1`. Fail: open. Doc: same-name `.md`.
-
-## Ask-Routing Deferral Detector
-
-UserPromptSubmit: flags a chat-prose decision deferral that should have routed through the Ask
-substrate (`asks_create`), or a deferral-menu of options a cheap lookup / standing default
-would resolve. `INJECTION_ENABLED=true` — LIVE-INJECTING since 2026-07-08 (mt#2694 flip,
-operator-approved disposition of the mt#2471 calibration-first rollout; NOT log-only).
-Suppressed when the same assistant turn already calls `asks_create`. Calibration logging
-continues post-flip for FP monitoring (mt#2483 loop):
-`.minsky/ask-routing-deferral-calibration.jsonl`. Hook: `ask-routing-deferral-detector.ts`.
-Override: `MINSKY_ACK_ASK_ROUTING_DEFERRAL=1`. Fail: open on transcript/read error.
-Doc: `ask-routing-deferral-detector.md`.
-
-## Injection Hooks (UserPromptSubmit)
-
-- **Current time** — date/day/local/UTC every turn. `inject-current-time.ts`; override
-  `MINSKY_SKIP_TIME_INJECTION=1`. Doc: `current-time-injection-hook.md`.
-- **Git state** — branch, tree status, ahead/behind, 5 recent commits; no per-turn fetch.
-  `inject-git-state.ts`; override `MINSKY_SKIP_GIT_STATE_INJECTION=1`; silent bail on
-  non-repo/detached/timeout. Doc: `git-state-injection-hook.md`.
-- **Prod state** — migration-ledger snapshot;
-  fresh/stale/unknown shapes (never assert from memory when unknown). `inject-prod-state.ts`;
-  override `MINSKY_SKIP_PROD_STATE_INJECTION=1`; never crashes.
-  Doc: `prod-state-injection-hook.md`.
-- **Dispatch watchdog** — warns when an in-flight subagent dispatch is silent ≥30m; recovery:
-  `tasks.dispatch-recover` → `/orchestrate`. `inject-dispatch-watchdog.ts`; override
-  `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`; silent on empty cache.
-  Doc: `dispatch-watchdog-injection-hook.md`.
-
-## SubagentStop Invocation-Recording Hook
-
-`SubagentStop` (standalone, own Bun process): writes every Stop-time column of
-`subagent_invocations` — `ended_at` (the dispatch watchdog's liveness signal), `outcome`,
-`agent_session_id`, transcript metrics, `actual_model` — upserting onto the pending row
-`tasks.dispatch` wrote. Hook: `record-subagent-invocation.ts`. **A hook is its own entry point:
-DB-touching hooks MUST statically import `ensureHookDomainBootstrap` (`domain-bootstrap.ts`) —
-reflect-metadata + config init + mt#2982 fail-fast connect — or every domain import fails
-(mt#3019: this hook wrote 0 of 62 rows for two weeks). Lint-enforced since mt#3046 by
-`custom/require-hook-domain-bootstrap` (see `code-style.mdc`), which found a second silent
-instance in `post-merge-unasked-direction-scan`.** No override; fail-safe (8s deadline,
-always exits 0). Doc: `subagent-invocation-recording-hook.md`.
-
-## Session-End Transcript Ingest Hook
-
-`SessionEnd` hook: synchronously ingests the finished transcript into `agent_transcripts`
-(crash-terminated: MCP boot sweep). Hook: `transcript-ingest-on-session-end.ts`. Overrides:
-`MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK=1`; `MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED=1` (opt-in embed).
-Fail: always exits 0.
-Doc: `session-end-transcript-ingest-hook.md`.
-
-## Calibration Detectors (UserPromptSubmit, log-only)
-
-- **Causal-premise** — logs volunteered causal claims lacking same-turn verification.
-  `causal-premise-detector.ts`; log `.minsky/causal-premise-calibration.jsonl`; companion
-  `/check-premise`; override `MINSKY_ACK_CAUSAL_PREMISE=1`. Doc: `causal-premise-detector.md`.
-- **Calibration-review cadence** — warns when a calibration log crosses its review threshold
-  (≥10 fires, ≥3 phrases) or goes stale; run `/calibration-review` unless a disposition Ask is
-  open (mt#2659). `calibration-review-cadence-detector.ts`; override
-  `MINSKY_SKIP_CALIBRATION_CADENCE=1`. Doc: `calibration-review-cadence-detector.md`.
-- **Silent-stretch** — flags a tool-only stretch (no assistant text) crossing 10 min OR 15
-  consecutive tool calls (mt#2824). `silent-stretch-detector.ts`; log
-  `.minsky/silent-stretch-calibration.jsonl`; override `MINSKY_SKIP_SILENT_STRETCH=1`.
-  Doc: `silent-stretch-detector.md`.
-- **Wall-of-text** — flags a turn-end report >2x the ~200-word Tier-1 budget or label-led
-  (mt#2870). `wall-of-text-detector.ts`; log `.minsky/wall-of-text-calibration.jsonl`;
-  override `MINSKY_SKIP_WALL_OF_TEXT=1`. Doc: `wall-of-text-detector.md`.
-- **Build-claim injection** — the mt#2707-RFC build/deploy-claim seam (mt#2923): fires when an
-  in-session `session_pr_merge` touched a deploy/build surface (shared `deploy-surface.ts`
-  detection with mt#2545) AND the prior turn makes a usability/delivery claim AND no
-  rebuild/reinstall/deploy evidence (`install-local.sh`, `tauri build`,
-  `deployment_wait-for-latest`, or equivalent) appears in the session. `build-claim-injection-detector.ts`;
-  log `.minsky/build-claim-injection-calibration.jsonl`; graduation contract `reviewByDays: 30`
-  (mt#2896 never-reviewed-aging leg); override `MINSKY_ACK_BUILD_CLAIM_INJECTION=1`.
-  Doc: `build-claim-injection-detector.md`.
-
-All five: fail open on transcript/read error.
-
-## Guard-Health Tracker + Escalation Detector
-
-Not a permission gate — surfaces guard-layer failures (mt#2812): dispatcher errors land in the
-guard-health log; `debug_systemInfo.guardHealth` reports counts/streaks/tier (critical = 3+
-consecutive); the escalation guard (+ cockpit widget) warns every turn while any guard is
-critical. Hooks: `guard-health.ts` + `guard-health-escalation-detector.ts`. No override; fail-safe.
-Doc: `guard-health-tracker.md`.
+- **Skill/agent/rule staleness** — stale skill/agent/rule baseline. `MINSKY_SKIP_SKILL_STALENESS`.
+- **Drive-PR-to-convergence** — reminds wait-for-review. none.
+- **Substrate-bypass** — unencoded commitments/retro-prose/DB-bypass, + log-only post-merge instr. `MINSKY_ACK_SUBSTRATE_BYPASS`.
+- **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. `MINSKY_ACK_RETROSPECTIVE_TRIGGER`.
+- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
+- **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
+- **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.
+- **SubagentStop recording** — writes Stop-time columns on dispatch row. none.
+- **Session-end ingest** — ingests transcript at SessionEnd. `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK`.
+- **Calibration (log-only)** — causal-premise/cadence/silent-stretch/wall-of-text/build-claim. `MINSKY_ACK_*`/`MINSKY_SKIP_*`.
+- **Guard-health tracker** — guard failure streaks. none.
