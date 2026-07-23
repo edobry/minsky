@@ -15,6 +15,7 @@ Operational corollaries already in force below are instances of this one princip
 - 2-strikes escalation (§Error Investigation)
 - User decides scope; never defer identified work (§Work Completion)
 - Trust the hooks; never bypass (§Hook Files)
+- Never confidently assert a resource/file/capability doesn't exist without tool-based verification first — see `verification-checklist` (not always-loaded; `rules_get`) for the mandatory pre-response checklist.
 
 ## Escalation packaging
 

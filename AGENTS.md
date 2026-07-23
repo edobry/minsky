@@ -124,78 +124,6 @@ See [bun-test-patterns](mdc:.minsky/rules/bun-test-patterns.mdc) for comprehensi
 
 ## Code Style
 
-# Comment Guidelines
-
-## Core Principle
-
-**Comments should explain WHY, not WHAT.**
-
-If the code clearly shows what it does, don't comment it.
-
-## ❌ DELETE These Comment Types
-
-**Obvious statements:**
-```typescript
-// Create a new user
-const user = createUser();
-
-// Return the result
-return result;
-
-// All operations work in main workspace
-function processInWorkspace() { /* clearly works in workspace */ }
-```
-
-**Temporal references (your internal process, not the code's purpose):**
-```typescript
-// This was simplified after refactoring
-// Operations now work in main workspace
-// Previously used a different approach
-```
-
-**Internal reasoning language:**
-```typescript
-// Enhanced error handling
-// Robust implementation
-// Comprehensive validation
-```
-
-## ✅ KEEP These Comment Types
-
-**Explains WHY something non-obvious happens:**
-```typescript
-// Cache expires after 5 minutes to balance freshness and performance
-// Using setTimeout instead of setInterval to avoid overlapping calls
-// Returns null when user lacks permission (intentional, not an error)
-```
-
-**Documents business logic or domain knowledge:**
-```typescript
-// Tax calculation must use the rate from the invoice date, not current rate
-// API rate limit is 100 requests per minute per API key
-// Users can only edit their own posts unless they're admins
-```
-
-**Warns about gotchas or non-obvious behavior:**
-```typescript
-// Modifies the original array for performance reasons
-// This function has side effects - it updates the global cache
-// Don't call this during unit tests - it makes real HTTP requests
-```
-
-## Comment Test
-
-Before writing any comment, ask:
-1. **Is this obvious from reading the code?** → Delete it
-2. **Does this explain WHY, not WHAT?** → Keep it
-3. **Would this help someone understand the business logic?** → Keep it
-
-**When in doubt: DELETE THE COMMENT**
-
-## Rationale
-
-Useless comments create noise, become outdated, and waste mental energy. Good comments provide context that code cannot express on its own.
-
 # Constants Management
 
 Extract and organize constants systematically to improve maintainability and reduce duplication:
@@ -444,16 +372,6 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 - You MUST avoid duplication of interfaces/types across files or modules.
 - You MUST review and update all imports/exports when consolidating interfaces.
 - You MUST reference this rule when aligning interfaces or refactoring domain modules.
-
-# Architecture
-
-Minsky follows clean architecture:
-- `packages/domain/src/` — core business logic, pure TypeScript, no framework deps
-- `src/adapters/` — CLI (Commander.js) and MCP adapters that translate between interfaces and domain
-- Commands defined once in shared registry, exposed via CLI + MCP
-- Zod schemas validate inputs at adapter layer; typed domain errors caught and translated
-
-See `.claude/skills/code-organization/SKILL.md` for deeper guidance.
 
 ## Testing
 
@@ -1400,6 +1318,7 @@ Today: human-consulted — read this file before any preference-encoding action.
 - **2-strikes rule: after the 2nd identical tool error from the same tool, stop.** Do not retry. Read the tool's actual error message, diagnose the root cause (permission? stale input? upstream state?), and file a bug task if the error is systemic. Resume only once you understand why it failed. Counting attempts, not classifying the situation — it's a mechanical rule.
 - **Workarounds are not fixes.** Switching to an alternative path/method without understanding the root cause may hide a systemic bug that breaks other users. If a workaround is needed to proceed, file the underlying bug task first.
 - **When any MCP tool call returns an error, stop and investigate before the next attempt.** Even on the first occurrence, don't retry blindly — retry only with a hypothesis about what the error means.
+- **Never mark a task complete with known errors outstanding** (lint, type, test, build) — see `dont-ignore-errors` (not always-loaded; `rules_get`) for the batch-verification and completion-gate detail.
 
 # Hook Files
 
@@ -1451,6 +1370,7 @@ Operational corollaries already in force below are instances of this one princip
 - 2-strikes escalation (§Error Investigation)
 - User decides scope; never defer identified work (§Work Completion)
 - Trust the hooks; never bypass (§Hook Files)
+- Never confidently assert a resource/file/capability doesn't exist without tool-based verification first — see `verification-checklist` (not always-loaded; `rules_get`) for the mandatory pre-response checklist.
 
 ## Escalation packaging
 
@@ -1499,6 +1419,12 @@ Originating incident: ask 6807fb14 (2026-07-15, R5 of the escalation-packaging f
 - `mcp-disconnect-cadence` — disconnect cause classes, escalation thresholds, log-reading recipes (investigating MCP disconnects)
 - `subagent-dispatch-cadence` — dispatch outcome taxonomy, escalation thresholds, SQL inspection patterns (investigating subagent outcomes)
 - `documentation-taxonomy` — doc-type taxonomy, homes, title patterns (authoring docs; `/create-task`, `/draft-rfc`, `/draft-adr` carry the workflow)
+- `architectural-bypass-prevention` — encapsulation/facade/initialization-guard patterns to prevent bypass of controlled interfaces (designing modules or interfaces)
+- `efficient-database-queries` — avoiding N+1 query patterns and I/O-in-loops; bulk-query and in-memory-processing patterns (writing DB-backed domain/service code)
+- `git-safety` — destructive git operations (reset --hard, push --force, etc.) require the `git-safety` skill; ESLint `custom/no-unsafe-git-exec` backs it structurally
+- `json-parsing` — use `jq`, never `grep`/`awk`/`sed`, when parsing or filtering JSON command output
+- `ai-linter-autofix-guideline` — don't spend cycles hand-perfecting formatting the linter autofixes
+- `no-dynamic-imports` — prefer static imports; `eslint.config.js`'s `allowDynamicImports:false` enforces this mechanically
 
 # Key Workflows (via skills)
 
@@ -1676,6 +1602,12 @@ a follow-up candidate rather than done here); until it does, name the register e
 # Task Lifecycle
 
 Task lifecycle transitions are owned by per-phase skills: `/plan-task` (planning and READY gate), `/implement-task` (session, coding, PR creation), `/verify-task` (post-merge closeout). Also: BLOCKED (from PLANNING, READY, or IN-PROGRESS), CLOSED (from any state). Multi-kind workflows (umbrella, etc.) documented in `docs/task-kinds.md`.
+
+## Related lifecycle rules (not always-loaded; read via `.minsky/rules/<name>.mdc` or `rules_get`)
+
+- `task-lifecycle-external-deliverable` — the READY → DONE direct-closeout convention for tasks whose deliverable is external to the repo (Notion pages, deployed services, hosted resources)
+- `task-lifecycle-verification` — verification surfaces (reviewer-bot, `/verify-task`) and the three-layer merge-protection model
+- `task-status-workflow-protocol` — never manually set DONE from a session; DONE is set only at PR merge
 
 # Terminology: workspace / conversation / transport session
 
