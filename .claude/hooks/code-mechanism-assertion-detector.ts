@@ -26,10 +26,16 @@
 // mt#3002 excludes both classes and flips INJECTION_ENABLED to true in the
 // same PR — this is the graduation from calibration-only to live reminders.
 //
+// mt#3050 (R13) widened the claim SHAPE, not the symbol extraction: a named
+// tool/seam CAPABILITY claim ("the router suggestion is sourced from the
+// existing `tasks_route` seam") uses sourcing/provenance verbs, not behavior
+// verbs — see the trailing entries in PREDICATE_PATTERNS below.
+//
 // Detector contract:
 //   FIRES when the prior assistant turn asserts a named code symbol's BEHAVIOR
-//   (a behavioral predicate — clamps/defaults to/overrides/returns/... — within
-//   proximity of a symbol-shaped token) AND the symbol does NOT appear in any
+//   OR CAPABILITY/PROVENANCE (a predicate — clamps/defaults to/overrides/
+//   returns/.../sourced from/backed by/... — within proximity of a
+//   symbol-shaped token) AND the symbol does NOT appear in any
 //   same-turn tool_result content OR read-class tool input. A same-turn read of
 //   the symbol's file backs the claim because the file source (containing the
 //   symbol) lands in the tool_result.
@@ -47,6 +53,9 @@
 //   FP rate is reviewable.
 //
 // @see mt#2486 — this task; mt#2485 — strategic reframe (tier-2)
+// @see mt#3050 — R13 sourcing/provenance predicate widening (this file's
+//      PREDICATE_PATTERNS trailing entries); symbol extraction was NOT the
+//      gap, only the claim-shape coverage.
 // @see .claude/hooks/causal-premise-detector.ts — sibling pattern (mt#2216)
 // @see .claude/hooks/transcript.ts — shared turn-boundary helper
 // @see mt#2652 — ADR-028 Phase 2a: this file's exported `run()` is the
@@ -121,6 +130,26 @@ export const PREDICATE_PATTERNS: RegExp[] = [
   /\b(maxes?\s+out|caps?\s+out)\b/i,
   /\bthe\s+\d[\d.,]*\s*(b|kb|mb|gb|ms|s|m|h)\b\s+(default|limit|cap|timeout|buffer|max)/i,
   /\b(default|limit|cap|timeout|buffer|threshold)\s+(is|of|=)\b/i,
+  // Sourcing/provenance predicates (mt#3050, R13 of the assertion-without-
+  // verification family). R13's actual gap was NOT symbol extraction —
+  // `tasks_route`/`tasks_estimate` were already extractable snake_case/
+  // backticked tokens — it was that all 15 patterns above are BEHAVIOR verbs
+  // ("X clamps/returns/throws Y"), while the R13 sentence ("the router
+  // suggestion is sourced from the existing `tasks_route` / `tasks_estimate`
+  // seam") is a CAPABILITY/PROVENANCE claim: a different surface form of the
+  // same "asserted a named component's affordance without reading it" defect.
+  // These five phrasings are high-precision (low prose-collision) sourcing
+  // verbs. Deliberately EXCLUDED: bare `provides`/`exposes` — both are common
+  // in ordinary PR/summary prose ("this PR provides…"), and with
+  // INJECTION_ENABLED=true (this file, above) a false positive here is
+  // recurring operator-facing noise, not a silent log line. Add them only on
+  // calibration evidence showing acceptable precision, per the mt#3050 spec's
+  // "Revised fix" section.
+  /\bsourced\s+from\b/i,
+  /\bcomes?\s+from\b/i,
+  /\b(supplies|supplied\s+by)\b/i,
+  /\bbacked\s+by\b/i,
+  /\b(reads?|pulls?|derives?)\s+from\b/i,
 ];
 
 // ---------------------------------------------------------------------------
