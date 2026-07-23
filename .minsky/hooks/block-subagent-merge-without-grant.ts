@@ -62,6 +62,11 @@ import { readInput, writeOutput, execSync } from "./types";
 import type { ToolHookInput } from "./types";
 import { getMergeGrantStorePath, readGrantStore, findValidGrant } from "./merge-grant-store";
 import type { MergeGrant } from "./merge-grant-store";
+import { makeRecordAndExit } from "./merge-gate-fire-log";
+import { classifyOverride } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "block-subagent-merge-without-grant";
 
 // ---------------------------------------------------------------------------
 // Subagent context detection (identical shape to block-subagent-bypass-merge.ts)
@@ -177,15 +182,19 @@ export function decideMergeGrant(
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+  // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
+  // once per invocation regardless of which exit fires below.
+  const recordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   if (input.tool_name !== "mcp__minsky__session_pr_merge") {
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   if (!isSubagentContext(input)) {
     // Main-thread merges are unaffected by this guard.
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   const agentId = input.agent_id as string;
@@ -197,7 +206,10 @@ if (import.meta.main) {
       `[block-subagent-merge-without-grant] ${MERGE_GRANT_OVERRIDE_ENV} override active — ` +
         `allowing subagent merge. agent_id=${agentId} timestamp=${new Date().toISOString()}\n`
     );
-    process.exit(0);
+    recordAndExit("allow", {
+      overrideEnvVar: MERGE_GRANT_OVERRIDE_ENV,
+      overrideClassification: classifyOverride(MERGE_GRANT_OVERRIDE_ENV),
+    });
   }
 
   const taskId = resolveTaskIdFromInput(input);
@@ -213,7 +225,7 @@ if (import.meta.main) {
       `[block-subagent-merge-without-grant] warn: grant store read error (${storeResult.message}) ` +
         "— failing open (allowing this call)."
     );
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   const decision = decideMergeGrant(taskId, agentId, storeResult.grants, Date.now());
@@ -221,7 +233,7 @@ if (import.meta.main) {
   if (decision.decision === "allow") {
     // Grant-backed allow is an audit event too — stdout, same convention.
     process.stdout.write(`[block-subagent-merge-without-grant] ${decision.reason} — allowing.\n`);
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   writeOutput({
@@ -231,5 +243,5 @@ if (import.meta.main) {
       permissionDecisionReason: decision.reason,
     },
   });
-  process.exit(0);
+  recordAndExit("deny");
 }
