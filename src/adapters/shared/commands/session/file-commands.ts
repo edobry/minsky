@@ -126,7 +126,9 @@ async function runSessionEditFileOperation(args: {
   allowShrink: boolean;
   sessionProvider?: import("@minsky/domain/session/index").SessionProviderInterface;
 }): Promise<Record<string, unknown>> {
-  const { generateUnifiedDiff, generateDiffSummary } = await import("../../../../utils/diff");
+  const { generateUnifiedDiff, generateDiffSummary, computeChangedRange } = await import(
+    "../../../../utils/diff"
+  );
   const { createSuccessResponse } = await import("@minsky/domain/schemas");
   const { applySessionFileEditOperation } = await import(
     "@minsky/domain/session/session-file-edit-operation"
@@ -157,6 +159,7 @@ async function runSessionEditFileOperation(args: {
       proposedContent: result.finalContent,
       diff,
       diffSummary,
+      changedRange: computeChangedRange(result.originalContent, result.finalContent),
       edited: result.fileExisted,
       created: !result.fileExisted,
     });
@@ -164,12 +167,20 @@ async function runSessionEditFileOperation(args: {
 
   const bytesWritten = new TextEncoder().encode(result.finalContent).byteLength;
 
+  // mt#3071: the apply path reports WHERE the edit landed, not just that it
+  // happened — same envelope as the dry-run above, so verifying-then-applying
+  // does not mean reading two different formats. A marker apply can fail at its
+  // intended anchor and write its replacement at a different, structurally
+  // similar one; a byte count cannot distinguish that from a correct apply.
   return createSuccessResponse({
     timestamp: new Date().toISOString(),
     path: args.path,
     session: args.sessionId,
     resolvedPath: result.resolvedPath,
     bytesWritten,
+    diff: generateUnifiedDiff(result.originalContent, result.finalContent, args.path),
+    diffSummary: generateDiffSummary(result.originalContent, result.finalContent),
+    changedRange: computeChangedRange(result.originalContent, result.finalContent),
     edited: result.fileExisted,
     created: !result.fileExisted,
   });
