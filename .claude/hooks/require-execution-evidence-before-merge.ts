@@ -388,11 +388,24 @@ export function extractAcceptanceTestsSection(specContent: string): string | nul
 }
 
 /**
- * Parses a spec's `## Acceptance Tests` section into numbered items. Handles multi-line
- * items by joining continuation lines (any non-empty line that doesn't itself start a new
- * numbered item) onto the preceding item's text.
+ * Parses a spec's `## Acceptance Tests` section into numbered items. Recognizes TWO list
+ * shapes (mt#3078): an explicitly numbered list (`1. ...`) — the ORIGINAL, still-supported
+ * form, whose written number is preserved verbatim — and a bare bullet list (`- ...` /
+ * `* ...`), which is numbered SEQUENTIALLY in document order starting at 1. Handles
+ * multi-line items by joining continuation lines (any non-empty line that doesn't itself
+ * start a new list item) onto the preceding item's text.
  *
- * Returns `[]` when the section is absent or contains no numbered list items.
+ * Bullet support closes a real invocation-path gap, not a match-pattern tuning: the
+ * CANONICAL `/create-task` skill template (`.claude/skills/create-task/SKILL.md`) writes
+ * `## Acceptance Tests` as a bullet list (`- <Concrete test 1: ...>`), never a numbered
+ * list — so before this fix, `checkAcceptanceTestCoverage` silently returned
+ * `applicable: false` for every task spec authored via the standard, documented workflow
+ * (verified against this very task's own spec, mt#3078, whose bullet-style ATs parsed to
+ * `[]`). A parser that cannot read the project's own canonical spec format is
+ * indistinguishable, from the calibration log's silence, from "never had an unaddressed AT
+ * to report" — exactly the ambiguity this task exists to resolve.
+ *
+ * Returns `[]` when the section is absent or contains no list items of either shape.
  */
 export function parseAcceptanceTests(specContent: string): AcceptanceTestItem[] {
   const section = extractAcceptanceTestsSection(specContent);
@@ -402,13 +415,22 @@ export function parseAcceptanceTests(specContent: string): AcceptanceTestItem[] 
   let current: AcceptanceTestItem | null = null;
 
   for (const rawLine of section.split("\n")) {
-    const match = rawLine.match(/^\s*(\d+)\.\s+(.*)$/);
-    if (match) {
+    const numberedMatch = rawLine.match(/^\s*(\d+)\.\s+(.*)$/);
+    if (numberedMatch) {
       if (current) items.push(current);
-      const num = parseInt(match[1] ?? "", 10);
+      const num = parseInt(numberedMatch[1] ?? "", 10);
       current = {
         number: Number.isFinite(num) ? num : items.length + 1,
-        text: (match[2] ?? "").trim(),
+        text: (numberedMatch[2] ?? "").trim(),
+      };
+      continue;
+    }
+    const bulletMatch = rawLine.match(/^\s*[-*]\s+(.*)$/);
+    if (bulletMatch) {
+      if (current) items.push(current);
+      current = {
+        number: items.length + 1,
+        text: (bulletMatch[1] ?? "").trim(),
       };
       continue;
     }

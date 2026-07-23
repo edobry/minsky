@@ -940,6 +940,8 @@ describe("checkExecutionEvidence — operational scripts (mt#2776)", () => {
 const AT3_TEXT = "All deployed services boot and operate on the DML-only role.";
 /** Distinctive keyword fragment shared by every AT3-related assertion below. */
 const AT3_KEYWORD_FRAGMENT = "services boot and operate";
+/** Shared section heading, reused across bullet-list fixtures (mt#3078) to satisfy `custom/no-magic-string-duplication`. */
+const AT_SECTION_HEADING = "## Acceptance Tests\n\n";
 
 /** mt#2542 incident-shaped fixture: 3 ATs, AT3 is the literal, unaddressed test. */
 const SPEC_MT2542_3_AT = `## Summary
@@ -1025,6 +1027,58 @@ describe("parseAcceptanceTests", () => {
   it("returns an empty array when the section has no numbered items", () => {
     const spec = `## Acceptance Tests\n\nSee above.\n`;
     expect(parseAcceptanceTests(spec)).toHaveLength(0);
+  });
+
+  // mt#3078: bullet-list support. The canonical `/create-task` skill template
+  // (`.claude/skills/create-task/SKILL.md`) writes `## Acceptance Tests` as a
+  // bullet list, never a numbered one — pre-fix, every task spec authored via
+  // that standard workflow parsed to `[]` here, silently making the AT-coverage
+  // check inapplicable for the common case.
+  it("parses a bullet list ('- ') into sequentially-numbered items", () => {
+    const spec = `${AT_SECTION_HEADING}- The widget renders a blue button on the settings page.
+- Clicking the button opens the export dialog.
+- The cancel button discards the draft without saving.
+`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(3);
+    expect(items[0]).toEqual({
+      number: 1,
+      text: "The widget renders a blue button on the settings page.",
+    });
+    expect(items[1]?.number).toBe(2);
+    expect(items[2]?.number).toBe(3);
+    expect(items[2]?.text).toBe("The cancel button discards the draft without saving.");
+  });
+
+  it("parses a '* ' bullet list the same way as '- '", () => {
+    const spec = "## Acceptance Tests\n\n* First test.\n* Second test.\n";
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(2);
+    expect(items[0]).toEqual({ number: 1, text: "First test." });
+    expect(items[1]).toEqual({ number: 2, text: "Second test." });
+  });
+
+  it("joins multi-line continuation onto the preceding bullet item", () => {
+    const spec =
+      "## Acceptance Tests\n\n- First line of item one\n  continues here.\n- Second item.\n";
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(2);
+    expect(items[0]?.text).toBe("First line of item one continues here.");
+    expect(items[1]?.text).toBe("Second item.");
+  });
+
+  it("parses this task's OWN spec-shaped bullet Acceptance Tests (mt#3078 regression fixture)", () => {
+    // Mirrors mt#3078's real spec verbatim shape (verified via a live
+    // `fetchTaskSpecForAtCoverage` call against the actual task during
+    // diagnosis) — a direct regression guard against the exact format that
+    // motivated this fix.
+    const spec = `${AT_SECTION_HEADING}- Synthetic matching input -> a calibration record appears in each log.
+- Negative control: non-matching input -> no record (confirms the fire isn't unconditional).
+`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(2);
+    expect(items[0]?.number).toBe(1);
+    expect(items[1]?.number).toBe(2);
   });
 });
 
@@ -1203,6 +1257,22 @@ describe("checkAcceptanceTestCoverage", () => {
     const body = `## Execution evidence:\nAT1 verified. AT2 verified. AT3 verified live boot.\n`;
     const result = checkAcceptanceTestCoverage(SPEC_MT2542_3_AT, "implementation", body);
     expect(result.unaddressedAts).toHaveLength(0);
+  });
+
+  // mt#3078: same mt#2542-shaped scenario, but the spec's Acceptance Tests are written
+  // as bullets — the CANONICAL `/create-task` template's format — instead of a numbered
+  // list. Pre-fix this returned `applicable: false` (parseAcceptanceTests found nothing),
+  // silently skipping the check for the common case.
+  it("is applicable and flags the unaddressed AT for a bullet-shaped spec (mt#3078)", () => {
+    const bulletSpec = `${AT_SECTION_HEADING}- CREATE TABLE is denied for the DML-only role.
+- All 37 tables are granted DML privileges to the role.
+- ${AT3_TEXT}
+`;
+    const result = checkAcceptanceTestCoverage(bulletSpec, "implementation", PROXY_EVIDENCE_BODY);
+    expect(result.applicable).toBe(true);
+    expect(result.executableAts).toHaveLength(3);
+    expect(result.unaddressedAts).toHaveLength(1);
+    expect(result.unaddressedAts[0]?.text).toContain(AT3_KEYWORD_FRAGMENT);
   });
 });
 
