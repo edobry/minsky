@@ -53,8 +53,15 @@ export interface MergeGateHookInput {
 }
 
 export interface MergeGateOverrideFields {
-  overrideEnvVar: string;
+  /** Omitted for a grant-channel override (e.g. the mt#2658 D8 grant store) — a
+   * grant has no env-var name; use `overrideSource: "grant"` for that case
+   * instead, mirroring `dispatcher.ts`'s `buildOverrideFireLogFields`. */
+  overrideEnvVar?: string;
   overrideClassification: OverrideClassification;
+  /** Which channel decided the override, when a hook's override can come from
+   * more than one (env var vs a TTL-bound, reason-mandatory grant). Omit for
+   * hooks with only one override channel (the common case). */
+  overrideSource?: "env" | "grant";
 }
 
 /** The `recordAndExit` closure shape every merge-gate hook's entry point uses. */

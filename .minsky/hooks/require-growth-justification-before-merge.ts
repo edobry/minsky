@@ -43,6 +43,8 @@
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+import { makeRecordAndExit } from "./merge-gate-fire-log";
+import { classifyOverride } from "./fire-log";
 import {
   deriveRepoFromGit,
   fetchPrContext,
@@ -58,6 +60,9 @@ import type { PrFile } from "./pr-context";
 
 /** Operator override: skip the growth-justification gate. Audit-logged when set. */
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_SIZE_JUSTIFICATION";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "require-growth-justification-before-merge";
 
 /** True when the override env var is set to a truthy value (1/true/yes). */
 export function isOverrideSet(): boolean {
@@ -297,7 +302,11 @@ function buildDenyMessage(
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+  // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
+  // once per invocation regardless of which exit fires below.
+  const recordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   // Operator override: skip with an audit line on stdout. This is the
   // ESTABLISHED convention across this hook family, verified by direct
@@ -323,11 +332,14 @@ if (import.meta.main) {
       `[growth-justification] override active: ${OVERRIDE_ENV_VAR} set at ` +
         `${new Date().toISOString()} — growth-justification gate skipped (value not echoed)\n`
     );
-    process.exit(0);
+    recordAndExit("allow", {
+      overrideEnvVar: OVERRIDE_ENV_VAR,
+      overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
+    });
   }
 
   const task = (input.tool_input.task as string | undefined) ?? "";
-  if (!task) process.exit(0);
+  if (!task) recordAndExit("allow");
 
   const repo = deriveRepoFromGit(input.cwd);
   if (!repo) {
@@ -338,7 +350,7 @@ if (import.meta.main) {
           "⚠️ [growth-justification] Could not derive owner/repo from git remote — check skipped.",
       },
     });
-    process.exit(0);
+    recordAndExit("warn");
   }
 
   const context = fetchPrContext(repo, { task, cwd: input.cwd, include: { files: true } });
@@ -352,7 +364,7 @@ if (import.meta.main) {
           .join("\n"),
       },
     });
-    process.exit(0);
+    recordAndExit("warn");
   }
 
   const { headSha, baseBranch, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
@@ -370,8 +382,9 @@ if (import.meta.main) {
           additionalContext: topLevelWarnings.map((w) => `⚠️ ${w}`).join("\n"),
         },
       });
+      recordAndExit("warn");
     }
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   const mergeBaseSha = fetchMergeBaseSha(repo, baseBranch, headSha, { cwd: input.cwd });
@@ -384,7 +397,7 @@ if (import.meta.main) {
           `${headSha} — size-justification check skipped.`,
       },
     });
-    process.exit(0);
+    recordAndExit("warn");
   }
 
   const headSizeBytes = fetchFileSizeAtRef(repo, TARGET_FILE, headSha, { cwd: input.cwd });
@@ -399,7 +412,7 @@ if (import.meta.main) {
           `— size-justification check skipped.`,
       },
     });
-    process.exit(0);
+    recordAndExit("warn");
   }
 
   const result = checkGrowthJustification(prFiles, prBody, headSizeBytes, baseSizeBytes);
@@ -415,6 +428,7 @@ if (import.meta.main) {
         permissionDecisionReason: `${warningContext}${result.reason}`,
       },
     });
+    recordAndExit("deny");
   } else if (allWarnings.length > 0) {
     writeOutput({
       hookSpecificOutput: {
@@ -422,5 +436,7 @@ if (import.meta.main) {
         additionalContext: allWarnings.map((w) => `⚠️ ${w}`).join("\n"),
       },
     });
+    recordAndExit("warn");
   }
+  recordAndExit("allow");
 }

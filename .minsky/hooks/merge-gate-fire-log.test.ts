@@ -36,6 +36,7 @@ function makeInMemoryFs(initial?: Record<string, string>): FireLogFsDeps & {
 
 const LOG_PATH = "/fake/state/fire-log.jsonl";
 const SESSION_PR_MERGE_TOOL = "mcp__minsky__session_pr_merge";
+const AUTHORIZED_EXCEPTION = "authorized_exception";
 
 /** Call a `never`-returning `recordAndExit` invocation and capture the mocked
  * `process.exit` code instead of letting it actually terminate the process. */
@@ -132,7 +133,7 @@ describe("makeRecordAndExit", () => {
     callAndCaptureExit(() =>
       recordAndExit("allow", {
         overrideEnvVar: "MINSKY_SKIP_DEPLOY_VERIFY",
-        overrideClassification: "authorized_exception",
+        overrideClassification: AUTHORIZED_EXCEPTION,
       })
     );
 
@@ -140,8 +141,33 @@ describe("makeRecordAndExit", () => {
     expect(entries[0]).toMatchObject({
       decision: "allow",
       overrideEnvVar: "MINSKY_SKIP_DEPLOY_VERIFY",
-      overrideClassification: "authorized_exception",
+      overrideClassification: AUTHORIZED_EXCEPTION,
     });
+  });
+
+  test("passes overrideSource:'grant' through with no overrideEnvVar (D8 grant-channel override)", () => {
+    const fs = makeInMemoryFs();
+    const recordAndExit = makeRecordAndExit(
+      "require-checks-on-bypass-merge",
+      Date.now(),
+      { tool_name: SESSION_PR_MERGE_TOOL, session_id: "sess-grant" },
+      { logPath: LOG_PATH, fs }
+    );
+
+    callAndCaptureExit(() =>
+      recordAndExit("allow", {
+        overrideClassification: AUTHORIZED_EXCEPTION,
+        overrideSource: "grant",
+      })
+    );
+
+    const entries = readFireLogEntries({ logPath: LOG_PATH, fs });
+    expect(entries[0]).toMatchObject({
+      decision: "allow",
+      overrideClassification: AUTHORIZED_EXCEPTION,
+      overrideSource: "grant",
+    });
+    expect(entries[0]?.overrideEnvVar).toBeUndefined();
   });
 
   test("a fire-log write failure never prevents process.exit(0) (fail-safe, mt#3084 hard constraint #2)", () => {

@@ -87,6 +87,11 @@ import {
 import { findGhApiPutMergeSegment } from "./block-subagent-bypass-merge";
 import { fetchCheckRunsRaw } from "./pr-context";
 import { checkOverride } from "./dispatcher";
+import { makeRecordAndExit } from "./merge-gate-fire-log";
+import { classifyOverride } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "require-checks-on-bypass-merge";
 
 /**
  * Guard name this hook registers for the mt#2658 D8 guard-grant store
@@ -425,7 +430,11 @@ export function dispatchBypassCheck(input: BypassDispatchInput): BypassDispatchO
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+  // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
+  // once per invocation regardless of which exit fires below.
+  const recordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   // mt#2888: track whether the check-runs read used the forge-CLI fallback
   // (gh transport-class failure) — the audit line fires below regardless of
@@ -457,11 +466,33 @@ if (import.meta.main) {
   }
 
   if (result.kind === "skip") {
-    process.exit(0);
+    recordAndExit("allow");
   }
   if (result.kind === "override") {
     process.stdout.write(result.auditLine);
-    process.exit(0);
+    // mt#3084: dispatchBypassCheck's "override" outcome comes from TWO
+    // distinct channels (the REQUIRED_CHECKS_OVERRIDE_ENV env var, checked
+    // near the top of the function; or the mt#2658 D8 grant store, checked
+    // later on the "cannot read CI status" path) — the return type carries
+    // no separate discriminator (adding one would touch decision logic, out
+    // of scope here), so the two are distinguished read-only via the
+    // auditLine text each branch already writes verbatim.
+    const overrideFields = result.auditLine.includes(REQUIRED_CHECKS_OVERRIDE_ENV)
+      ? {
+          overrideEnvVar: REQUIRED_CHECKS_OVERRIDE_ENV,
+          overrideClassification: classifyOverride(REQUIRED_CHECKS_OVERRIDE_ENV),
+          overrideSource: "env" as const,
+        }
+      : {
+          // Grant channel (mt#2658 D8 grant store): TTL-bound and
+          // reason-mandatory by construction, same property that makes the
+          // env-var channel an authorized_exception — classified directly
+          // rather than via classifyOverride(undefined)'s "contested"
+          // fallback, mirroring dispatcher.ts's buildOverrideFireLogFields.
+          overrideClassification: "authorized_exception" as const,
+          overrideSource: "grant" as const,
+        };
+    recordAndExit("allow", overrideFields);
   }
   // result.kind === "deny"
   writeOutput({
@@ -471,5 +502,5 @@ if (import.meta.main) {
       permissionDecisionReason: result.reason,
     },
   });
-  process.exit(0);
+  recordAndExit("deny");
 }
