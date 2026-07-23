@@ -42,10 +42,16 @@ profileCheckpoint("config_setup_complete");
 import { Command } from "commander";
 import { log } from "@minsky/shared/logger";
 import { exit } from "@minsky/shared/process";
+import { enableSynchronousStdout } from "@minsky/shared/stdout-sync";
 import { setupCommonCommandCustomizations, cliFactory } from "./adapters/cli/cli-command-factory";
 import { validateError } from "@minsky/domain/schemas/error";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
-import { isMcpStartStdio, isCompletionInvocation, isCockpitInvocation } from "./cli-discriminators";
+import {
+  isMcpStartStdio,
+  isCompletionInvocation,
+  isCockpitInvocation,
+  isLongLivedServerInvocation,
+} from "./cli-discriminators";
 profileCheckpoint("cli_imports_complete");
 
 /**
@@ -72,6 +78,21 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
 
   // Setup common command customizations with the CLI instance
   setupCommonCommandCustomizations(cli);
+
+  // mt#3067: make stdout/stderr synchronous for one-shot commands.
+  //
+  // main() below ends with an explicit exit(0); when stdout is a PIPE, stream
+  // writes are async, so that exit discarded whatever was still buffered —
+  // every `minsky ... | jq` and every hook that shells out and parses stdout
+  // silently received truncated JSON above ~192 KiB. Synchronous writes
+  // complete before write() returns, so the exit has nothing left to drop.
+  //
+  // Long-lived servers are excluded: they never exit-while-buffered, and sync
+  // writes would block their event loop.
+  cli.hook("preAction", (_thisCommand, actionCommand) => {
+    if (isLongLivedServerInvocation(actionCommand)) return;
+    enableSynchronousStdout();
+  });
 
   // Initialize the container lazily via preAction hook — only when a command
   // actually executes, not during registration or help display. This defers

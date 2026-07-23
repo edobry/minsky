@@ -62,3 +62,25 @@ export function isCompletionInvocation(cmd: Command): boolean {
 export function isCockpitInvocation(cmd: Command): boolean {
   return cmd.parent?.name() === "cockpit" || cmd.name() === "cockpit";
 }
+
+/**
+ * mt#3067: detect a long-lived server invocation — `mcp start` (stdio OR
+ * `--http`), any `cockpit` subcommand, or the shell-invoked
+ * `completion-server`.
+ *
+ * Used by `src/cli.ts` to decide whether to make stdout/stderr synchronous
+ * (`enableSynchronousStdout`). The truncation bug that patch fixes only
+ * affects processes that call `process.exit()` while output is still buffered
+ * — a one-shot command. A long-lived server never hits it, and synchronous
+ * writes would block its event loop under log volume, so servers are excluded.
+ *
+ * Deliberately broader than {@link isMcpStartStdio}, which returns false for
+ * `mcp start --http`: that IS a long-lived server for this purpose, even
+ * though it is not the stdio-handshake path that discriminator exists for.
+ */
+export function isLongLivedServerInvocation(cmd: Command): boolean {
+  if (cmd.name() === "start" && cmd.parent?.name() === "mcp") return true;
+  if (isCockpitInvocation(cmd)) return true;
+  if (isCompletionInvocation(cmd)) return true;
+  return false;
+}
