@@ -13,6 +13,24 @@
  *     resolve(projectRoot, "services", service, "deploy.config.ts")
  *
  * See docs/deployment-platforms.md for the full design.
+ *
+ * # mt#3117 — converted from repo-source to image-source deploy
+ *
+ * Previously this service deployed via Railway's native repo+Dockerfile
+ * source build (`build.builder: "RAILPACK"` / `dockerfilePath`), triggered
+ * by Railway's own GitHub webhook on every push to `main` matching
+ * `services/reviewer/railway.json`'s `build.watchPatterns`. That native
+ * trigger is now disabled — `.github/workflows/deploy-reviewer.yml` builds,
+ * smoke-tests, migrates, and pushes the image instead — and this config is
+ * switched to `source.image`, the SAME shape
+ * `services/minsky-mcp/deploy.config.ts` already uses. `railway.json` is
+ * retired: mt#2472 established that Railway rejects `config_path`
+ * alongside `source_image` ("Invalid Attribute Combination"), so a
+ * source-build railway.json cannot coexist with this image-source config.
+ * See `infra/index.ts`'s `reviewerService` resource for the corresponding
+ * Pulumi-side change, and `services/reviewer/DEPLOY.md` for the live
+ * dashboard flip this implies (an operator step performed after merge,
+ * NOT part of this PR).
  */
 
 import { defineDeployment } from "@minsky/shared/deployment-config";
@@ -27,13 +45,7 @@ export default defineDeployment({
     environmentId: "b3ea3f5d-8560-40ea-8824-17fe3ca0b32a",
     serviceId: "3913e8a4-81ab-465a-aad8-b76b5e3f66ed",
     source: {
-      repo: "edobry/minsky",
-      branch: "main",
-      rootDirectory: "",
-    },
-    build: {
-      builder: "RAILPACK",
-      dockerfilePath: "services/reviewer/Dockerfile",
+      image: "ghcr.io/edobry/minsky-reviewer:latest",
     },
   },
 });

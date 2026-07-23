@@ -261,6 +261,36 @@ already produced an old-code-vs-new-schema skew across services (each service
 self-migrated on its own boot). mt#2505 makes the single-runner explicit; the
 expand-contract discipline is what keeps the deploy window safe.
 
+#### Extended to the reviewer's own migrations (mt#3117)
+
+The reviewer service (`minsky-reviewer-webhook`) now has its **own**
+deploy-keyed migration step — `.github/workflows/deploy-reviewer.yml`, applying
+`services/reviewer/migrations/pg` via a **separate** tracking table
+(`drizzle.__drizzle_migrations_reviewer`, mt#1967) using the same
+`MINSKY_PERSISTENCE_POSTGRES_URL` DDL-capable `postgres` credential this
+workflow uses. Same release-phase mechanism (migrate before push gates the
+deploy), independent migration tree, **same shared prod Postgres database**.
+
+The expand-contract requirement above therefore applies to reviewer migrations
+too, and for the same reason: the reviewer and the main domain read each
+other's data out-of-band (cross-service reads against the shared database —
+the reviewer's convergence-metrics / webhook-events tables and the main
+domain's `tasks` / session tables are queried by both surfaces at different
+times, not synchronized to a single deploy). A destructive reviewer migration
+(dropping/renaming a column the main domain reads, or vice versa) can break
+the other service even though the two deploy workflows are otherwise fully
+independent and run on their own schedules.
+
+**No cross-tree ordering primitive exists.** `deploy-minsky-mcp.yml` and
+`deploy-reviewer.yml` are two independent, uncoordinated release pipelines —
+each gates its OWN tree against its OWN schema state, but neither knows about
+the other's pending migrations. If a single logical change requires a
+main-tree migration and a reviewer-tree migration to land in a specific
+relative order, that ordering must be enforced MANUALLY by sequencing the two
+merges/deploys — there is no automated coupling. (This is explicitly listed as
+NOT covered by mt#3117's own recovery-layer discipline; file a task if such a
+cross-tree-ordered change is attempted and no owner exists yet.)
+
 ### Guardrails (in the workflow)
 
 - **Timeout:** the migrate container is wrapped in `timeout 600` — a hung
