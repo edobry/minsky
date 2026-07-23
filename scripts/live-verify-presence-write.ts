@@ -49,10 +49,15 @@ const provider = new PostgresPersistenceProvider({
 // Initialize the provider so getDatabaseConnection() returns a real db
 await provider.initialize();
 
-// Minimal fake container that surfaces the persistence provider
+// Minimal fake container that surfaces the persistence provider.
+// AppContainerInterface.get's generic signature collapses to `never` for a
+// plain-function mock (a private-property conflict across the intersected
+// AppServices constituents, not fixable via narrowing) — `as never` on the
+// mock function itself, matching the same class of test-double cast already
+// used in scripts/smoke-mcp-discovery.ts.
 const fakeContainer: Pick<AppContainerInterface, "has" | "get"> = {
   has: (key: string) => key === "persistence",
-  get: (_key: string) => provider,
+  get: ((_key: string) => provider) as never,
 };
 
 // ---------------------------------------------------------------------------
