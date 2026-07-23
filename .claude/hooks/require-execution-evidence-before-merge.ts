@@ -44,9 +44,6 @@ import { execWithPath, findRepoRoot, readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import { classifyOverride } from "./fire-log";
-
-/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
-const GUARD_NAME = "require-execution-evidence-before-merge";
 import {
   deriveRepoFromGit as deriveRepoFromGitImpl,
   parseGitHubRemoteUrl as parseGitHubRemoteUrlImpl,
@@ -61,6 +58,9 @@ import type {
   PrDeps as PrDepsImpl,
   FetchPrFilesResult as FetchPrFilesResultImpl,
 } from "./pr-context";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "require-execution-evidence-before-merge";
 
 // ---------------------------------------------------------------------------
 // mt#2617: PR-data fetch (repo derivation, PR-number resolution, files/meta

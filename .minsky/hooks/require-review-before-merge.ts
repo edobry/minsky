@@ -17,9 +17,6 @@ import {
   type RecordAndExit,
 } from "./merge-gate-fire-log";
 import { classifyOverride } from "./fire-log";
-
-/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
-const GUARD_NAME = "require-review-before-merge";
 import {
   deriveRepoFromGit,
   resolvePrRefByBranch,
@@ -28,6 +25,9 @@ import {
   fetchBranchProtectionRaw,
   type CheckRunsFetchResult,
 } from "./pr-context";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "require-review-before-merge";
 
 // ---------------------------------------------------------------------------
 // CI check_runs presence — exported for tests
