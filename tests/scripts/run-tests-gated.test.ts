@@ -87,30 +87,51 @@ describe("evaluateBunTestSummary (mt#2716 fail-closed pre-push gate)", () => {
     expect(evaluateBunTestSummary(withDecoyName, 0).ok).toBe(true);
   });
 
-  // mt#3078: a colorizing shell (FORCE_COLOR set, inherited by the spawned
-  // subprocess) wraps each summary line in ANSI codes — real fixture captured
-  // from a live `bun test` run under `FORCE_COLOR=3`. Pre-fix, the exact-line
-  // regexes never matched the colorized " 0 fail" line and this genuinely
-  // clean run was fail-closed as "the <N> fail line could not be found".
-  test("passes a clean run whose summary lines are ANSI-colorized (FORCE_COLOR, mt#3078)", () => {
-    const colorizedSummary = [
-      "\x1b[0m\x1b[1mbun test \x1b[2mv1.2.21 (7c45ed97)\x1b[0m",
-      "\x1b[0m\x1b[32m 133 pass\x1b[0m",
-      "\x1b[0m\x1b[2m 0 fail\x1b[0m",
-      " 361 expect() calls",
-      "Ran 133 tests across 3 files. \x1b[0m\x1b[2m[\x1b[1m102.00ms\x1b[0m\x1b[2m]\x1b[0m",
-    ].join("\n");
-    expect(evaluateBunTestSummary(colorizedSummary, 0)).toEqual({ ok: true, reason: "" });
+  // mt#3075 / mt#3078: bun colorizes its summary lines whenever the child
+  // process inherits a FORCE_COLOR-set env (e.g. a Claude Code agent
+  // session's ambient shell) -- reproduced verbatim from a live `bun test`
+  // 1.2.21 run under FORCE_COLOR=3. Before the stripAnsi() fix (found and
+  // fixed independently on two branches), this exact output fail-closed
+  // EVERY commit/push in such an environment: the escape codes around
+  // " 0 fail" defeated the anchored /^ *\d+ fail$/ regex.
+  const ansiCleanSummary = [
+    "\x1b[0m\x1b[1mbun test \x1b[0m\x1b[2mv1.2.21 (7c45ed97)\x1b[0m",
+    "",
+    "\x1b[0m\x1b[32m 10 pass\x1b[0m",
+    "\x1b[0m\x1b[2m 0 fail\x1b[0m",
+    " 25 expect() calls",
+    "Ran 10 tests across 1 file. \x1b[0m\x1b[2m[\x1b[1m140.00ms\x1b[0m\x1b[2m]\x1b[0m",
+  ].join("\n");
+
+  const ansiFailingSummary = [
+    "\x1b[0m\x1b[1mbun test \x1b[0m\x1b[2mv1.2.21 (7c45ed97)\x1b[0m",
+    "",
+    "\x1b[0m\x1b[32m 8 pass\x1b[0m",
+    "\x1b[0m\x1b[31m 2 fail\x1b[0m",
+    " 25 expect() calls",
+    "Ran 10 tests across 1 file. \x1b[0m\x1b[2m[\x1b[1m140.00ms\x1b[0m\x1b[2m]\x1b[0m",
+  ].join("\n");
+
+  test("passes a colorized (FORCE_COLOR) clean run — ANSI codes around '0 fail' are stripped", () => {
+    expect(evaluateBunTestSummary(ansiCleanSummary, 0)).toEqual({ ok: true, reason: "" });
   });
 
-  test("still FAILS closed on an ANSI-colorized run reporting real failures (mt#3078)", () => {
-    const colorizedFailing = [
-      "\x1b[0m\x1b[32m 5 pass\x1b[0m",
-      "\x1b[0m\x1b[31m 2 fail\x1b[0m",
-      "Ran 7 tests across 1 file. [0.05s]",
-    ].join("\n");
-    const r = evaluateBunTestSummary(colorizedFailing, 1);
+  test("FAILS a colorized run reporting real failures (ANSI-wrapped '2 fail' line)", () => {
+    const r = evaluateBunTestSummary(ansiFailingSummary, 1);
     expect(r.ok).toBe(false);
     expect(r.reason).toContain("2 failing test(s)");
+  });
+
+  // mt#3079: the colorized-clean/failing fixtures above both carry a
+  // completion summary. This fixture covers the case the pair above doesn't:
+  // colorized output with NO completion summary at all (the silent-
+  // truncation case, mt#2716's core fix) must still fail closed once
+  // ANSI-stripped, not accidentally pass because stripping happened to make
+  // it look emptier.
+  test("FAILS closed on colorized output with no completion summary at all (mt#3079)", () => {
+    const colorized = "\x1b[0m\x1b[2msome unrelated output\x1b[0m";
+    const r = evaluateBunTestSummary(colorized, 0);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain("no completion summary");
   });
 });

@@ -813,8 +813,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "code-mechanism-assertion",
     denyCapable: false,
     needsTranscript: true,
-    // mt#2889: INJECTION_ENABLED=false — dormant by flag, same rationale as
-    // causal-premise-detector above; canary asserts calibration, not warn.
+    // mt#3002: INJECTION_ENABLED=true — LIVE since 2026-07-21, no longer
+    // dormant (the mt#2889 calibration-first gate flipped after the
+    // mt#2483 calibration-review sweep disposed the residual FP rate).
+    // Canary below still asserts calibration (the calibration-log write),
+    // not warn — it does not assert the absence of additionalContext.
     attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },

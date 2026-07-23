@@ -26,6 +26,26 @@
  */
 
 /**
+ * Strip ANSI escape sequences (bun's colorized reporter output) before the
+ * line-anchored parsing below. Bun colorizes its summary lines (e.g.
+ * `\x1b[0m\x1b[2m 0 fail\x1b[0m`) whenever the child process inherits a
+ * `FORCE_COLOR`-set environment — which `Bun.spawnSync({ env: { ...process.env } })`
+ * does unconditionally, regardless of whether the child's stdout is a real
+ * TTY. Claude Code agent sessions set `FORCE_COLOR=3` in their ambient shell
+ * env, so every commit/push from such a session inherited colorized output
+ * here. The anchored per-line regexes below (`^ *\d+ fail$`, etc.) never
+ * matched a colorized line — the leading/trailing escape codes defeat `^`/`$`
+ * — which fail-closed EVERY run in that environment regardless of actual
+ * pass/fail (mt#3075, found while committing an unrelated change). Stripping
+ * first makes the parser agnostic to whether the child process was
+ * colorized; a no-op on already-plain output (CI, non-color terminals).
+ */
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex -- deliberately matching the ESC (0x1B) CSI sequences bun's colorized reporter emits
+  return text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+}
+
+/**
  * Fail-closed gate over a `bun test` run's combined stdout+stderr, mirroring
  * ci.yml's "Test" step. `bun test` 1.2.21 can silently truncate — exit 0 with no
  * completion summary — so exit code alone is not a trustworthy pass signal. A run
@@ -42,35 +62,16 @@
  * 1.2.21; the original pattern required a literal "tests" and would have
  * fail-closed a genuinely-passing single-test run. Kept aligned with ci.yml's
  * grep logic.
- */
-/**
- * Strip ANSI/VT100 escape sequences (color codes, cursor moves, etc.) from
- * `bun test` output before line-matching (mt#3078).
  *
- * `bun test` colorizes its summary lines (`\x1b[2m 0 fail\x1b[0m`) whenever
- * its own color heuristic decides to — NOT only when stdout is a real TTY:
- * it also honors an inherited `FORCE_COLOR` env var, which several agent
- * harness shells set globally (`FORCE_COLOR=3`, observed in this repo's own
- * Claude Code session env) and which this gate's spawned subprocess inherits
- * via `{ ...process.env, AGENT: "1" }` (see run-related-tests.ts). Without
- * stripping, the exact-line regexes below (`/^ *\d+ fail$/`) never match a
- * colorized summary line, so a genuinely clean run (0 fail, exit 0) is
- * fail-closed as "'<N> fail' line could not be found" — a false-negative
- * gate failure, not a real test failure. CI's plain-pipe grep never hits
- * this because GitHub Actions runners don't set FORCE_COLOR, so the bug was
- * invisible there; it surfaced only in a color-forcing local/agent shell.
+ * ANSI-stripped via `stripAnsi` before line-matching (mt#3075 / mt#3078 —
+ * fixed independently on two branches; this is the reconciled single copy).
  */
-export function stripAnsi(text: string): string {
-  // eslint-disable-next-line no-control-regex -- deliberately matching the ESC control char to strip ANSI/VT100 sequences
-  return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
-}
-
 export function evaluateBunTestSummary(
   rawOutput: string,
   exitCode: number
 ): { ok: boolean; reason: string } {
-  const output = stripAnsi(rawOutput);
-  if (!/Ran \d+ tests? across \d+ files?/.test(output)) {
+  const clean = stripAnsi(rawOutput);
+  if (!/Ran \d+ tests? across \d+ files?/.test(clean)) {
     return {
       ok: false,
       reason:
@@ -80,7 +81,7 @@ export function evaluateBunTestSummary(
     };
   }
   // Last "<N> fail" line, mirroring ci.yml's `grep ... | tail -1`.
-  const failLine = output
+  const failLine = clean
     .split("\n")
     .reverse()
     .find((line) => /^ *\d+ fail$/.test(line));
