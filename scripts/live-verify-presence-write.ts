@@ -39,7 +39,7 @@ console.log("[live-verify] Connected to Postgres via minsky config");
 // 2. Build a real PostgresPersistenceProvider and wrap it in a fake container
 // ---------------------------------------------------------------------------
 import { PostgresPersistenceProvider } from "../packages/domain/src/persistence/providers/postgres-provider";
-import type { AppContainerInterface } from "../src/container";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 const provider = new PostgresPersistenceProvider({
   backend: "postgres",
@@ -125,6 +125,9 @@ if (rows.length === 0) {
 }
 
 const row = rows[0];
+if (row === undefined) {
+  throw new Error("internal: rows[0] missing despite length check");
+}
 console.log("[live-verify] PASS — row found in presence_claims:");
 console.log(`  id             : ${row.id}`);
 console.log(`  subject_kind   : ${row.subject_kind}`);
