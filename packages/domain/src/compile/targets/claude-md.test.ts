@@ -188,8 +188,13 @@ describe("claude.md target (new pipeline): buildClaudeMdContent()", () => {
 });
 
 describe("claude.md target (new pipeline): DEFAULT_CLAUDE_MD_SIZE_BUDGET", () => {
-  it("matches the legacy target's grounded defaults: warn=115000, fail=140000", () => {
-    expect(DEFAULT_CLAUDE_MD_SIZE_BUDGET).toEqual({ warnChars: 115_000, failChars: 140_000 });
+  it("matches the legacy target's grounded defaults: warn=135000, fail=145000 (mt#3075)", () => {
+    // Both pipelines import this constant from the SAME shared module
+    // (`../claude-md-size-budget.ts`) as of mt#3075 — before that fix, this
+    // dormant target carried its own stale copy (115_000/140_000) that had
+    // drifted from the legacy pipeline's mt#3052/mt#3061 update. This test
+    // pins parity going forward; a future divergence would fail it.
+    expect(DEFAULT_CLAUDE_MD_SIZE_BUDGET).toEqual({ warnChars: 135_000, failChars: 145_000 });
   });
 
   it("fail sits strictly above warn", () => {

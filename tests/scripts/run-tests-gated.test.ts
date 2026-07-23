@@ -86,42 +86,51 @@ describe("evaluateBunTestSummary (mt#2716 fail-closed pre-push gate)", () => {
     ].join("\n");
     expect(evaluateBunTestSummary(withDecoyName, 0).ok).toBe(true);
   });
-});
 
-// mt#3081: a FORCE_COLOR-carrying shell environment wraps bun test's
-// completion-summary and "<N> fail" lines in ANSI escape codes, which
-// defeated the (previously un-stripped) anchored `^ *\d+ fail$` regex.
-// Reproduced live via `scripts/run-related-tests.ts` during mt#3072
-// (2026-07-23): a genuinely passing run ("82 pass, 0 fail") was rejected as
-// "the '<N> fail' line could not be found — refusing to assume 0 failures".
-describe("evaluateBunTestSummary (mt#3081 — ANSI-wrapped output)", () => {
-  test("passes a 0-fail run whose fail line is ANSI-wrapped (FORCE_COLOR reproduction)", () => {
-    // Byte-for-byte the shape captured from the mt#3072 incident: the fail
-    // line wrapped in reset+dim codes, the pass line in green.
-    const output =
-      "\x1b[0m\x1b[32m 82 pass\x1b[0m\n\x1b[0m\x1b[2m 0 fail\x1b[0m\n 187 expect() calls\n" +
-      "Ran 82 tests across 6 files. \x1b[0m\x1b[2m[96.00ms]\x1b[0m";
-    expect(evaluateBunTestSummary(output, 0)).toEqual({ ok: true, reason: "" });
+  // mt#3075: bun colorizes its summary lines whenever the child process
+  // inherits a FORCE_COLOR-set env (e.g. a Claude Code agent session's
+  // ambient shell) -- reproduced verbatim from a live `bun test` 1.2.21 run
+  // under FORCE_COLOR=3. Before the stripAnsi() fix, this exact output
+  // fail-closed EVERY commit/push in such an environment: the escape codes
+  // around " 0 fail" defeated the anchored /^ *\d+ fail$/ regex.
+  const ansiCleanSummary = [
+    "\x1b[0m\x1b[1mbun test \x1b[0m\x1b[2mv1.2.21 (7c45ed97)\x1b[0m",
+    "",
+    "\x1b[0m\x1b[32m 10 pass\x1b[0m",
+    "\x1b[0m\x1b[2m 0 fail\x1b[0m",
+    " 25 expect() calls",
+    "Ran 10 tests across 1 file. \x1b[0m\x1b[2m[\x1b[1m140.00ms\x1b[0m\x1b[2m]\x1b[0m",
+  ].join("\n");
+
+  const ansiFailingSummary = [
+    "\x1b[0m\x1b[1mbun test \x1b[0m\x1b[2mv1.2.21 (7c45ed97)\x1b[0m",
+    "",
+    "\x1b[0m\x1b[32m 8 pass\x1b[0m",
+    "\x1b[0m\x1b[31m 2 fail\x1b[0m",
+    " 25 expect() calls",
+    "Ran 10 tests across 1 file. \x1b[0m\x1b[2m[\x1b[1m140.00ms\x1b[0m\x1b[2m]\x1b[0m",
+  ].join("\n");
+
+  test("passes a colorized (FORCE_COLOR) clean run — ANSI codes around '0 fail' are stripped", () => {
+    expect(evaluateBunTestSummary(ansiCleanSummary, 0)).toEqual({ ok: true, reason: "" });
   });
 
-  test("still detects a real failure when the fail line is ANSI-wrapped", () => {
-    const output =
-      "\x1b[0m\x1b[32m 4 pass\x1b[0m\n\x1b[0m\x1b[31m 1 fail\x1b[0m\n" +
-      "Ran 5 tests across 2 files. \x1b[0m\x1b[2m[12.00ms]\x1b[0m";
-    const r = evaluateBunTestSummary(output, 1);
+  test("FAILS a colorized run reporting real failures (ANSI-wrapped '2 fail' line)", () => {
+    const r = evaluateBunTestSummary(ansiFailingSummary, 1);
     expect(r.ok).toBe(false);
-    expect(r.reason).toContain("1 failing test");
+    expect(r.reason).toContain("2 failing test(s)");
   });
 
-  test("recognizes an ANSI-wrapped completion-summary line", () => {
-    const output =
-      "0 fail\nRan \x1b[1m5\x1b[0m tests across \x1b[1m2\x1b[0m files. \x1b[2m[12.00ms]\x1b[0m";
-    expect(evaluateBunTestSummary(output, 0)).toEqual({ ok: true, reason: "" });
-  });
-
-  test("is unaffected by ANSI codes elsewhere in the output that don't touch the summary lines", () => {
-    const output =
-      "\x1b[33msome colorized log line\x1b[0m\n5 pass\n0 fail\nRan 5 tests across 2 files.";
-    expect(evaluateBunTestSummary(output, 0)).toEqual({ ok: true, reason: "" });
+  // mt#3079: the colorized-clean/failing fixtures above both carry a
+  // completion summary. This fixture covers the case main's own regression
+  // pair doesn't: colorized output with NO completion summary at all (the
+  // silent-truncation case, mt#2716's core fix) must still fail closed once
+  // ANSI-stripped, not accidentally pass because stripping happened to make
+  // it look emptier.
+  test("FAILS closed on colorized output with no completion summary at all (mt#3079)", () => {
+    const colorized = "\x1b[0m\x1b[2msome unrelated output\x1b[0m";
+    const r = evaluateBunTestSummary(colorized, 0);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain("no completion summary");
   });
 });

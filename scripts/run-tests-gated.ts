@@ -2,22 +2,6 @@
 /**
  * Truncation-safe, fail-closed unit-test gate for local git hooks (mt#2716).
  *
- * mt#3081: `evaluateBunTestSummary` strips ANSI escape codes (`stripAnsi` below,
- * the same proven pattern `run-tests-main-sharded.ts` already established for
- * its own fail-line parsing — duplicated here rather than imported: this file
- * is reachable from the root tsconfig's checked program via
- * `tests/scripts/run-tests-gated.test.ts`'s import, and `run-tests-main-sharded.ts`
- * (excluded from the root program, per `tsconfig.json`'s `exclude: ["scripts",
- * ...]`, until something reachable imports it) carries pre-existing,
- * unrelated typecheck errors that a cross-import would newly surface as a
- * regression in `bun run typecheck:root` — see mt#3082) before matching the
- * completion-summary / "<N> fail" lines. Without this, a `FORCE_COLOR`-carrying
- * shell environment wraps the fail-count line in ANSI codes (e.g.
- * `"\x1b[0m\x1b[2m 0 fail\x1b[0m"`), and the `^ *\d+ fail$` regex — anchored to
- * the start of the (post-`\n`-split) line — never matches a line that actually
- * STARTS with an escape sequence, producing a false "<N> fail\" line could not
- * be found" fail-closed rejection even though the real run reported 0 failures.
- *
  * Runs the same two test steps CI runs (.github/workflows/ci.yml), in sequence:
  *   1. scripts/run-tests-main.ts — explicit file list that EXCLUDES src/mcp (the
  *      `bun test` 1.2.21 truncation trigger; see docs/testing-patterns.md and
@@ -41,21 +25,24 @@
  * otherwise.
  */
 
-// mt#3081: the standard strip-ansi pattern (sindresorhus/ansi-regex — a
-// widely-used community regex, not re-derived from scratch). Deliberately
-// DUPLICATED from `run-tests-main-sharded.ts`'s own `stripAnsi`/`ANSI_PATTERN`
-// rather than imported — see this file's header doc comment for why a
-// cross-import here would regress `bun run typecheck:root`.
-const ANSI_PATTERN = new RegExp(
-  [
-    "[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\\d/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d/#&.:=?%@~_]*)*)?(?:\\u0007|\\u001B\\u005C|\\u009C))",
-    "(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))",
-  ].join("|"),
-  "g"
-);
-
-function stripAnsi(input: string): string {
-  return input.replace(ANSI_PATTERN, "");
+/**
+ * Strip ANSI escape sequences (bun's colorized reporter output) before the
+ * line-anchored parsing below. Bun colorizes its summary lines (e.g.
+ * `\x1b[0m\x1b[2m 0 fail\x1b[0m`) whenever the child process inherits a
+ * `FORCE_COLOR`-set environment — which `Bun.spawnSync({ env: { ...process.env } })`
+ * does unconditionally, regardless of whether the child's stdout is a real
+ * TTY. Claude Code agent sessions set `FORCE_COLOR=3` in their ambient shell
+ * env, so every commit/push from such a session inherited colorized output
+ * here. The anchored per-line regexes below (`^ *\d+ fail$`, etc.) never
+ * matched a colorized line — the leading/trailing escape codes defeat `^`/`$`
+ * — which fail-closed EVERY run in that environment regardless of actual
+ * pass/fail (mt#3075, found while committing an unrelated change). Stripping
+ * first makes the parser agnostic to whether the child process was
+ * colorized; a no-op on already-plain output (CI, non-color terminals).
+ */
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex -- deliberately matching the ESC (0x1B) CSI sequences bun's colorized reporter emits
+  return text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 }
 
 /**
@@ -80,12 +67,8 @@ export function evaluateBunTestSummary(
   output: string,
   exitCode: number
 ): { ok: boolean; reason: string } {
-  // mt#3081: strip ANSI BEFORE either regex runs — a FORCE_COLOR-carrying
-  // environment wraps both the completion-summary and "<N> fail" lines in
-  // escape codes, which would otherwise defeat the anchored `^ *\d+ fail$`
-  // match (the line then starts with an escape sequence, not a digit/space).
-  const sanitized = stripAnsi(output);
-  if (!/Ran \d+ tests? across \d+ files?/.test(sanitized)) {
+  const clean = stripAnsi(output);
+  if (!/Ran \d+ tests? across \d+ files?/.test(clean)) {
     return {
       ok: false,
       reason:
@@ -95,7 +78,7 @@ export function evaluateBunTestSummary(
     };
   }
   // Last "<N> fail" line, mirroring ci.yml's `grep ... | tail -1`.
-  const failLine = sanitized
+  const failLine = clean
     .split("\n")
     .reverse()
     .find((line) => /^ *\d+ fail$/.test(line));

@@ -13,62 +13,19 @@ import * as fs from "fs/promises";
 import { classifyRuleType, RuleType } from "../../rule-classifier";
 import type { Rule } from "../../types";
 import type { CompileTarget, CompileResult, TargetOptions } from "../types";
-import {
-  evaluateSizeBudget,
-  DEFAULT_PER_RULE_CEILING_CHARS,
-  type SizeBudget,
-} from "../../../compile/size-budget";
+import { evaluateSizeBudget, DEFAULT_PER_RULE_CEILING_CHARS } from "../../../compile/size-budget";
+import { DEFAULT_CLAUDE_MD_SIZE_BUDGET } from "../../../compile/claude-md-size-budget";
 
 /** The canonical rule ID for the memory-usage directive. */
 const MEMORY_USAGE_RULE_ID = "memory-usage";
 
-/**
- * Default size budget for CLAUDE.md (mt#2802).
- *
- * Grounded in the 2026-07-15 planning calibration: `failChars` sits with
- * margin under the ~150k harness advisory threshold Claude Code applies for
- * 1M-context models; `warnChars` originally sat ~13% above the
- * post-mt#1876/mt#1877 baseline (~101.7k chars) so it fires after a few rule
- * additions, not immediately (observed growth increment: ~3.3k/rule-addition,
- * mt#2801).
- *
- * `failChars` raised 140k -> 145k on 2026-07-22 (mt#3061), operator-decided.
- * The corpus reached 141,178 chars that day and the fail gate began blocking
- * EVERY rule commit — including size-REDUCING ones, which is how it surfaced:
- * mt#3061 is a net -14 change and could not land. Blocking the changes that
- * shrink the corpus is the one outcome the gate should never produce.
- *
- * `warnChars` raised 115k -> 135k on 2026-07-22 (mt#3052, operator-decided —
- * "option a" of the two dispositions mt#3052's spec sanctioned: "trim toward
- * 115K, or raise the threshold with a recorded rationale"). mt#3052 applied
- * the rule-admission ladder in reverse to the top-5 always-apply contributors
- * (`decision-defaults.mdc`, `user-preferences.mdc`, `communication-contract.mdc`,
- * `hook-files.mdc`, `work-completion.mdc`), moving every incident-shaped and
- * reference-shaped narrative to `docs/rules-rationale/` and
- * `docs/architecture/hooks/`, leaving one-line pointers. That trim brought the
- * corpus from 142,835 to 133,159 chars (-9.7k) — but what remained after the
- * ladder-reversal in all five rules was overwhelmingly genuine per-turn
- * directive (probe sequences, trigger-phrase lists, checklists, hook
- * override/fail-posture facts, the {Minsky-answer, generic-SE-override}
- * policy-corpus pairs) that fails the mt#1876 removal test ("would removal
- * cause an agent to skip a check it runs every turn?") if cut further.
- *
- * The original 115,000 (mt#2802) was aspirational, set before this corpus had
- * actually been trimmed once; the real floor of always-needed directive
- * discipline, post-trim, is ~133k. `warnChars` -> 135,000 gives ~1.8k
- * headroom above that trimmed floor and stops the permanently-firing
- * advisory (a warning that always fires trains everyone to ignore it — the
- * exact failure mode mt#3052's own framing named). `failChars` stays 145,000
- * unchanged (~5k under the ~150,000 harness advisory) — the next change to
- * hit warn OR fail should still trim first; a leaner corpus remains available
- * via mt#3068's optional lever (demoting one of the five rules below
- * `alwaysApply: true` entirely — a scope-of-guidance reduction, not a
- * compression exercise).
- */
-export const DEFAULT_CLAUDE_MD_SIZE_BUDGET: SizeBudget = {
-  warnChars: 135_000,
-  failChars: 145_000,
-};
+// `DEFAULT_CLAUDE_MD_SIZE_BUDGET` is imported (not declared here) so both
+// compile pipelines' `claude-md.ts` targets share ONE constant (mt#3075) —
+// see `../../../compile/claude-md-size-budget.ts` for the full rationale
+// behind the specific thresholds and why a prior two-copy setup drifted.
+// Re-exported for existing consumers (`compile-service.ts`'s dynamic import,
+// this target's own test file).
+export { DEFAULT_CLAUDE_MD_SIZE_BUDGET };
 
 /**
  * Build CLAUDE.md content from always-apply rules.

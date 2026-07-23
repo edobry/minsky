@@ -74,6 +74,13 @@ export class RuleService {
    * `.minsky/rules/` wins over `.cursor/rules/` which wins over `.ai/rules/`.
    * This prevents compile-target artifacts (e.g. `.cursor/rules/`) from doubling
    * up alwaysApply rules that are already sourced from `.minsky/rules/`.
+   *
+   * Within each directory, rules are returned in alphabetical-by-filename
+   * order (mt#3075) — a sorted `readdir()`, not filesystem-enumeration order.
+   * This makes the returned list, and any compile target built directly from
+   * it (e.g. legacy CLAUDE.md), deterministic across compiles regardless of
+   * directory-entry churn (a file renamed away and back, a fresh checkout).
+   * Matches the new pipeline's `discoverRuleSources().sort()` (mt#2992).
    */
   async listRules(options: RuleOptions = {}): Promise<Rule[]> {
     // When scanning a single specific format, return all rules for that format (no dedup needed).
@@ -86,7 +93,12 @@ export class RuleService {
       }
 
       try {
-        const files = await this.fs.readdir(dirPath);
+        // Sorted alphabetically-by-filename (mt#3075) for deterministic
+        // output — a bare `readdir()` returns filesystem-enumeration order,
+        // which is unstable across compiles and diverges from the new
+        // pipeline's `discoverRuleSources().sort()`. Two consecutive
+        // compiles on an unchanged rule set must be byte-identical.
+        const files = (await this.fs.readdir(dirPath)).sort();
 
         for (const file of files) {
           if (!file.endsWith(".mdc")) continue;
@@ -139,7 +151,10 @@ export class RuleService {
       }
 
       try {
-        const files = await this.fs.readdir(dirPath);
+        // Sorted alphabetically-by-filename (mt#3075) — see the single-format
+        // branch above for the determinism rationale; applies per-directory
+        // here too, ahead of the priority-ordered format loop.
+        const files = (await this.fs.readdir(dirPath)).sort();
 
         for (const file of files) {
           if (!file.endsWith(".mdc")) continue;
