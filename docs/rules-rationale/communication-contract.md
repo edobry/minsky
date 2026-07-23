@@ -5,6 +5,72 @@
 > recurrence history, and full deferred-scope rationale. Nothing here changes agent behavior —
 > the directive text in the rule is the complete behavioral contract.
 
+## Altitude register — full shape table
+
+| Register      | Turn-report shape                                                                                                                                                                                                                                                     | Before/after acting                                                         |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| **Receipts**  | Narrated checkpoints; verification evidence inline for consequential actions; intent stated before significant moves ("I intend to…"). Trivial successful steps still compress — the register sets audit depth for what matters, not a verbosity floor on everything. | Report-before-action for consequential moves.                               |
+| **Standard**  | The Tier-1 BLUF contract: what happened / what you need to know / what's next, each 1–3 sentences, pointers for everything else.                                                                                                                                      | Mixed.                                                                      |
+| **Executive** | Outcome + judgment calls + needed decisions only; routine success is one line; everything else by pointer.                                                                                                                                                            | Report-after-action ("I've done…"), with scheduled receipts-level sampling. |
+
+## Default derivation — full mechanics
+
+The harness already reports which model is running; no new infrastructure is needed. In this
+repo's model vocabulary:
+
+| Model / context                                 | Default register |
+| ----------------------------------------------- | ---------------- |
+| Fable/Opus-class, principal-facing conversation | **Executive**    |
+| Sonnet-class working session                    | **Standard**     |
+| Haiku-class or unproven context                 | **Receipts**     |
+
+**Escalation-dispatch carve-out (dominates model tier).** An agent dispatched _because_ the
+orchestrator is struggling — the escalate-to-Opus pattern, `subagent-routing.mdc §Escalation to
+Opus` — reports at **receipts regardless of tier**. Escalation is a low-trust _situation_: the
+stronger model was chosen because the situation demands more scrutiny, so the register must not
+invert that by defaulting a struggling-context dispatch to executive merely because it happens to
+run Opus. Dispatch context outranks model tier — the dispatcher sets the register explicitly in
+the dispatch prompt (see `subagent-routing.mdc` for the consuming side of this contract).
+
+**Temporary-mechanism budget.** Model tier is _asserted_ trust — fixed the moment a model is
+picked — not _accrued_ trust (a track record). The accrued-trust successor is `mt#2838`.
+Escalation budget: **2 wrong-register incidents within 14 days** escalates `mt#2838`'s priority (a
+wrong-register incident = the principal manually re-registers a conversation because the default
+hid something needed or buried the signal in noise).
+
+## Override — full mechanics
+
+Exactly two levels, in precedence order:
+
+1. **Explicit principal instruction** — a one-line "walk me through everything" or "background
+   this" re-registers the conversation and **persists for the rest of the conversation**. The
+   per-message escape hatch ("show me the detail") always works without changing the standing
+   register.
+2. **Derived default** — the model-tier-plus-dispatch-context table above.
+
+The three-level stack (instruction > persisted setting > default) is **explicitly deferred** — it
+activates only once a persisted per-conversation/task register state ships, which is itself
+deferred pending evidence that rule-tier alone is insufficient. Do not build that storage
+speculatively.
+
+**Task-record continuity.** Until persisted state ships, an override recorded in the task record
+or a handoff note is honored by later conversations on the same task — check the task record /
+handoff for a standing register override before defaulting. Skipping this check silently resets
+every new conversation to the default and forces the principal to repeat the instruction.
+
+## Executive scheduled sampling — full rationale
+
+The executive register keeps active auditability even at maximum compression:
+
+- **Every 5th turn-end report** renders one register lower (i.e., at standard) instead of
+  executive.
+- **Every task-closeout report carries the verification-evidence pointer set** (deeplinks to the
+  gate report, test run, or live-verification output), regardless of sampling cadence.
+
+This exists because agent silence is self-assessed — unlike a dark cockpit's instrument-verified
+silence — so the executive register cannot rely purely on the agent's own judgment that nothing
+warrants reporting.
+
 ## Worked example: the 2026-07-08 originating incident
 
 Origin: `mt#2713` §Originating signal (the principal's multi-screen-report pushback this shape

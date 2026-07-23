@@ -10,17 +10,19 @@ tags:
 ---
 # Cockpit Deeplinks in Terminal Output
 
-When you reference a Minsky entity — a **task**, **ask**, **session**, **memory**, or **changeset (PR)** — in your live terminal output (the chat the principal reads), wrap the reference as a clickable markdown deeplink so a click opens that entity in the cockpit:
+When you reference a Minsky entity — a **task**, **ask**, **session**, **memory**, or **changeset
+(PR)** — in your live terminal output, wrap the reference as a clickable markdown deeplink so a
+click opens that entity in the cockpit:
 
 ```
 [<clean label>](minsky://<type>/<id>)
 ```
 
-Claude Code's renderer turns `[label](minsky://...)` into an OSC-8 terminal hyperlink; macOS terminals pass `minsky://` to `open`, and the cockpit-tray scheme handler (mt#2528) routes it to the cockpit — **launching the cockpit first if it is not running**. So always emit the link; never gate on whether the cockpit is currently open and never read cockpit state to decide.
-
-**Dependency:** clickability requires the cockpit-tray app's `minsky://` OS scheme handler (mt#2528) to be registered with the operating system. Where it is not — the tray app is not installed, or the terminal is non-macOS / lacks OSC-8 — the link degrades to the plain label text (which is why the label must always be a readable ref). This does NOT gate emission: emit the link unconditionally and let it degrade gracefully. (This rule is held back from merge until mt#2528 ships, so by the time it is live the handler is registered.)
-
-This is Surface A (the terminal). There is no harness hook that rewrites assistant output, so this linking is **agent discipline** — you emit the markdown by hand. (Surface B, the in-cockpit transcript view, linkifies the same refs on its own side via mt#2518.)
+Always emit the link, even when the cockpit isn't currently running (the tray's `minsky://`
+scheme handler, mt#2528, launches it) and even on terminals without OSC-8 support (the link
+degrades to the plain label text — why the label must always be a readable ref on its own). Full
+mechanism (renderer behavior, the Surface A/B terminal-vs-cockpit split, tray-handler dependency):
+`docs/rules-rationale/cockpit-deeplinks.md`.
 
 ## The five entity types
 
@@ -45,23 +47,18 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 
 ## Examples
 
-- `Implemented [mt#2519](minsky://task/mt%232519); the failing case is in [mt#2518](minsky://task/mt%232518).`
-- `Routed the decision to ask [38b1c0de](minsky://ask/38b1c0de-0000-0000-0000-000000000000).`
-- `Merged [PR #1234](minsky://changeset/1234) — reviewer-bot approved.`
-- On a non-OSC-8 terminal the first renders as `Implemented mt#2519; the failing case is in mt#2518.` — still readable.
+`Implemented [mt#2519](minsky://task/mt%232519).` On a non-OSC-8 terminal this renders as plain text — still readable.
 
 ## Terminal caveats
 
-- **tmux** strips OSC-8 hyperlinks unless passthrough is enabled (`set -g allow-passthrough on`). Under default tmux the link shows as the plain label.
-- **Ghostty** has a Cmd+click bug ([ghostty#11907](https://github.com/ghostty-org/ghostty/issues/11907)) — Cmd+click may not fire; **right-click → Open Link works**.
-- **Non-OSC-8 terminals** (older emulators, pipes, CI logs) show the plain label and drop the hyperlink — fine, because the label is the clean ref.
+tmux needs `set -g allow-passthrough on` for OSC-8. Ghostty has a Cmd+click bug
+([ghostty#11907](https://github.com/ghostty-org/ghostty/issues/11907)) — right-click → Open Link
+works instead. Non-OSC-8 terminals (older emulators, pipes, CI logs) show the plain label.
 
 ## Cross-references
 
-- mt#2517 — parent umbrella (cockpit deeplinks); mt#2519 — this rule (Surface A / terminal).
-- mt#2518 — Surface B (cockpit transcript linkifier) + the shared `(type,id) ↔ minsky:// URI ↔ path` codec this format matches.
-- mt#2528 — the `minsky://` OS scheme handler in the cockpit-tray app (required for a terminal click to actually open the cockpit).
-- mt#2535 — `/changeset/:id` cockpit detail route (ships the page the changeset URI navigates to).
-- mt#2536 — PR/changeset linkification (adds `changeset` to RoutableEntityType + linkifier PR #N recognition).
-- `src/cockpit/web/lib/entity-codec.ts` — `entityToMinskyUri(type, id)` / `parseMinskyUri(uri)`; the format documented here matches the codec's output exactly.
-- `docs/architecture/adr-022-session-vs-conversation-terminology.md` (Accepted) / `.minsky/rules/terminology-workspace-conversation.mdc` — the workspace/conversation/transport-session vocabulary for NEW code, docs, and cockpit UI copy. The `session` URI type above is deliberately NOT part of that rename (stage 1, mt#2686) — it stays `session` until the deferred stage-2 mechanical `session_*` → `workspace_*` tool-surface rename (mt#2527), which is the only stage that would touch this table.
+mt#2517 (parent umbrella) · mt#2518 (Surface B linkifier + shared codec) · mt#2528 (`minsky://`
+scheme handler) · mt#2535 (`/changeset/:id` route) · mt#2536 (PR/changeset linkification) ·
+`src/cockpit/web/lib/entity-codec.ts` (the codec this format matches) ·
+`terminology-workspace-conversation.mdc` (the `session` URI type is deliberately NOT renamed).
+Full detail: `docs/rules-rationale/cockpit-deeplinks.md`.

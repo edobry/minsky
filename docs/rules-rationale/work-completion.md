@@ -32,6 +32,13 @@ time_ (Ashby).
 
 See `feedback_temporary_mechanism_budget.md` for the bridge memory.
 
+### How to apply
+
+- When **writing** a memory or doc that names a workaround: include a budget. Format suggestion: `**Budget:** retire when <count> in <window> exceeded; tracking task: mt#X.`
+- When **reading** such a memory at use-time: count uses and check against budget. If exceeded, escalate before applying.
+- **Ground threshold numbers in observed cadence, not generic defaults.** The 5-day default is calibrated to Minsky's actual loop frequency (~1/day workaround invocation, ~3/day total feedback-memory creation, multi-per-day task status changes). When defining a new budget, check the cadence of the specific signal first (calibration data files, memory mtimes, PR merge timestamps); pick a window where 2 events on the same pattern is unambiguously a signal, not noise.
+- Until the structural detector ships (mt#1034 attention-allocation noticer), this is checklist-driven discipline.
+
 ## Recovery layer spec discipline
 
 **Why:** mt#1556 / 2026-05-02 incident — mt#1260's periodic-sweeper spec described what it does
@@ -44,6 +51,12 @@ DONE 2026-04-26 → silent-reviewer class declared "covered" → mt#1310 (alerti
 caught (service-down) crashed the reviewer service silently for ~107 hours.
 
 Tracking task: mt#1567.
+
+### How to apply
+
+- When **authoring** a recovery-layer task spec: include both subsections. List failure modes by name, not by area. If a failure mode lacks an owner task, file the owner task before marking the recovery-layer task READY.
+- When **reviewing** a recovery-layer PR: verify the runtime behavior matches the spec's `### Covers` list. If the implementation can't actually recover from a listed mode, fix or move to `### Does NOT cover`.
+- When **transitioning** a recovery-layer task to DONE: confirm every `### Does NOT cover` entry has an owner task and that those owners are at least READY. A DONE recovery-layer task with PLANNING-status non-coverage owners is the false-completion pattern.
 
 ## Invocation path required for event/poll mechanisms
 
@@ -61,3 +74,10 @@ Full incident detail behind the two failure shapes:
 
 Tracking: mt#1618, mt#3019, mt#3046; hook slice mechanized by
 `custom/require-hook-domain-bootstrap` (`code-style.mdc`).
+
+### How to apply
+
+- **Authoring:** add an `### Invocation path` subsection naming (a) what starts it, (b) where the wiring lives, (c) what config controls it.
+- **Implementing:** verify production wiring by searching production callsites, not just the handler. A stub reachable from production code is a silent failure; stubs belong only in test seams.
+- **Reviewing:** grep the entry point for a non-test, non-stub caller — and where normal output is "nothing", ask what distinguishes _found nothing_ from _never ran_.
+- **Evidence test** (what caught both above): find a positive artifact — a row, a file, a log line — proving the mechanism has EVER succeeded in production.

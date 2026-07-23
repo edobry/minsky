@@ -11,11 +11,7 @@ tags:
 
 A Minsky agent knows its boundary of delegation and represents it structurally, rather than collapsing uncertainty into confident action. Preference-bound decisions — naming, framework choice, tradeoff resolution, scope change, architectural novelty — are not yours to make alone; surface them to the user. Full framing: `docs/theory-of-operation.md §Companion Principles` and mt#1034.
 
-Operational corollaries already in force below are instances of this one principle, not separate rules:
-- 2-strikes escalation (§Error Investigation)
-- User decides scope; never defer identified work (§Work Completion)
-- Trust the hooks; never bypass (§Hook Files)
-- Never confidently assert a resource/file/capability doesn't exist without tool-based verification first — see `verification-checklist` (not always-loaded; `rules_get`) for the mandatory pre-response checklist.
+Operational corollaries already in force below are instances of this one principle, not separate rules: 2-strikes escalation (§Error Investigation); user decides scope, never defer identified work (§Work Completion); trust the hooks, never bypass (§Hook Files); never confidently assert a resource/file/capability doesn't exist without tool-based verification first (`verification-checklist` via `rules_get`).
 
 ## Escalation packaging
 
@@ -29,7 +25,7 @@ Mechanical checklist before posting an escalation:
 4. **Make a recommendation** (with a clear "you decide" caveat). Withholding a recommendation pushes synthesis onto the user; offering one anchors and accelerates. The user can always override.
 5. **Name what you do NOT need from the user** — what you can derive yourself from existing specs, code, or memory. Pruning the question reduces the response burden.
 
-This is the manual-discipline form of stage 4 (Packaging) in the Ask subsystem (mt#1034). When that subsystem ships, the packaging discipline becomes structural — until then, it's checklist-driven. See `feedback_escalation_packaging.md` for the originating incident (mt#1316 shape A/B/C).
+Manual-discipline form of stage 4 (Packaging) in the Ask subsystem (mt#1034) — becomes structural once that ships. Originating incident: `feedback_escalation_packaging.md` (mt#1316 shape A/B/C). Full narrative: `docs/rules-rationale/humility.md §Escalation packaging`.
 
 **Form (how it reads — completeness is not enough):**
 
@@ -40,4 +36,4 @@ This is the manual-discipline form of stage 4 (Packaging) in the Ask subsystem (
 5. **Body budget ~120 words.** If it doesn't fit, you're including justification that belongs in contextRefs.
 6. **Options are the buttons.** Don't restate option prose in the body under [a]/[b] labels AND in the options array with different wording — the body says how to act; the options are the possible replies.
 
-Originating incident: ask 6807fb14 (2026-07-15, R5 of the escalation-packaging family) — routed correctly, packaged completely, unusable in form.
+Originating incident: ask `6807fb14` (2026-07-15, R5 of the family) — routed correctly, packaged completely, unusable in form. Detail: `docs/rules-rationale/humility.md §Form`.

@@ -47,15 +47,9 @@ When a memory entry, skill, doc, or comment encodes a mechanism as **"temporary,
 
 When the threshold is exceeded, the agent surfaces a reprioritization prompt to the user (escalation packaging per `humility.mdc`) rather than continuing to apply the workaround silently. Memory describing the world is not a substitute for memory acting on it: an "escape hatch fires once a quarter" memory and an "escape hatch fires daily" memory have the same shape unless the budget is encoded.
 
-Full incident narrative: `docs/rules-rationale/work-completion.md §Temporary mechanism budget`.
+**Load-bearing signal:** the same workaround cited 2+ times/5 days, 3+ invocations/5 days, or 2+/24h — treat as the budget signal even if unrecorded; surface the tracking task's status.
 
-**How to apply:**
-
-- When **writing** a memory or doc that names a workaround: include a budget. Format suggestion: `**Budget:** retire when <count> in <window> exceeded; tracking task: mt#X.`
-- When **reading** such a memory at use-time: count uses and check against budget. If exceeded, escalate before applying.
-- When you observe the **same workaround memory cited 2+ times in a 5-day rolling window** (or **3+ workaround invocations in 5 days**, or **2+ in 24h**), treat it as the budget signal regardless of whether the original entry recorded one — search for the tracking task and surface its status.
-- **Ground threshold numbers in observed cadence, not generic defaults.** The 5-day default is calibrated to Minsky's actual loop frequency (~1/day workaround invocation, ~3/day total feedback-memory creation, multi-per-day task status changes). When defining a new budget, check the cadence of the specific signal first (calibration data files, memory mtimes, PR merge timestamps); pick a window where 2 events on the same pattern is unambiguously a signal, not noise.
-- Until the structural detector ships (mt#1034 attention-allocation noticer), this is checklist-driven discipline. See `feedback_temporary_mechanism_budget.md` for the bridge memory.
+How to apply + bridge memory: `docs/rules-rationale/work-completion.md §Temporary mechanism budget`.
 
 ## Recovery layer spec discipline
 
@@ -66,15 +60,9 @@ When a task spec introduces a **recovery layer** — sweeper, retry, fallback, a
 
 A recovery layer is only as strong as the failure modes its spec enumerates. Implicit "covers everything in the area" framing produces false confidence and deferred follow-ups.
 
-Full incident narrative: `docs/rules-rationale/work-completion.md §Recovery layer spec discipline`.
+**Trigger keywords:** "missed", "silent", "drop", "fail", "lost", "stale", "expired", "unhealthy", "out-of-sync" paired with a recovery mechanism. Same family as `Temporary mechanism budget` above. Tracking task: mt#1567.
 
-**How to apply:**
-
-- When **authoring** a recovery-layer task spec: include both subsections. List failure modes by name, not by area. If a failure mode lacks an owner task, file the owner task before marking the recovery-layer task READY.
-- When **reviewing** a recovery-layer PR: verify the runtime behavior matches the spec's `### Covers` list. If the implementation can't actually recover from a listed mode, fix or move to `### Does NOT cover`.
-- When **transitioning** a recovery-layer task to DONE: confirm every `### Does NOT cover` entry has an owner task and that those owners are at least READY. A DONE recovery-layer task with PLANNING-status non-coverage owners is the false-completion pattern.
-- **Trigger keywords for the rule:** spec language like "missed", "silent", "drop", "fail", "lost", "stale", "expired", "unhealthy", "out-of-sync" — when paired with a recovery mechanism, the discipline applies.
-- This is the recovery-layer equivalent of `Temporary mechanism budget` above. Same family of pattern: a mechanism labeled as "the fix" without enumerating what it doesn't cover, so the gap stays invisible until it fires. Tracking task: mt#1567.
+How to apply + full incident: `docs/rules-rationale/work-completion.md §Recovery layer spec discipline`.
 
 ## Invocation path required for event/poll mechanisms
 
@@ -85,14 +73,6 @@ These fail silently in two shapes, identical from outside: the feature exists, i
 - **Nothing calls it.** No scheduler, no registration, no production callsite — or the only caller is a stub (mt#1618).
 - **It runs; a dependency inside it is dead.** The failure is caught and converted into the same value a legitimately empty result produces — no missing caller to grep for, no error to find (mt#3019, mt#3046).
 
-Full incident detail for both shapes: `docs/rules-rationale/work-completion.md §Invocation path`.
+**Trigger keywords:** "fires", "triggers", "polls", "watches", "scheduled", "periodic", "on event", "listener", "handler". Never swallow a dependency failure into a "nothing to do" value — log the actual error; silence makes permanent breakage look like routine emptiness.
 
-**How to apply:**
-
-- **Authoring:** add an `### Invocation path` subsection naming (a) what starts it, (b) where the wiring lives, (c) what config controls it.
-- **Implementing:** verify production wiring by searching production callsites, not just the handler. A stub reachable from production code is a silent failure; stubs belong only in test seams.
-- **Reviewing:** grep the entry point for a non-test, non-stub caller — and where normal output is "nothing", ask what distinguishes *found nothing* from *never ran*.
-- **Evidence test** (what caught both above): find a positive artifact — a row, a file, a log line — proving the mechanism has EVER succeeded in production.
-- **Never swallow a dependency failure into a "nothing to do" value.** A catch converting a broken dependency to null/[]/false MUST log the actual error; that silence is what makes permanent breakage look like routine emptiness.
-- **Trigger keywords:** "fires", "triggers", "polls", "watches", "scheduled", "periodic", "on event", "listener", "handler".
-- Complement to `Recovery layer spec discipline` above: wrong-failure-mode coverage is that problem; never running is this one. Tracking: mt#1618, mt#3019, mt#3046; hook slice mechanized by `custom/require-hook-domain-bootstrap` (`code-style.mdc`).
+How to apply + full incident detail: `docs/rules-rationale/work-completion.md §Invocation path`.
