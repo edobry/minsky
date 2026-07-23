@@ -114,7 +114,35 @@ EXPOSE 3000
 # This bypasses the bin entry entirely — the bin entry is for source installs
 # (Profile A/C) only. Direct bundle exec avoids the freshness-check overhead
 # and the need for git at runtime.
-RUN bun build --target=bun --outfile=dist/minsky.js src/cli.ts
+#
+# mt#3023 — flag parity with the other two `bun build` sites, both aligned by
+# mt#3006: the `build` script in package.json and `scripts/cli-entry.ts`'s
+# source-install self-rebuild. All three now build `--minify
+# --sourcemap=external`. Three properties of this line are load-bearing:
+#
+# - `--outdir` + `--entry-naming`, NOT `--outfile`: bun rejects an external
+#   source map written through `--outfile` outright ("error: cannot use an
+#   external source map without --outdir"). `--entry-naming minsky.js` keeps
+#   the output path at `dist/minsky.js`, which the CMD below and the mt#1767
+#   migrations COPY both depend on.
+# - `--sourcemap=external` is REQUIRED alongside `--minify`, not optional.
+#   Bun symbolicates a minified bundle's stack traces back to the original
+#   `src/**.ts` file:line through the adjacent `.map`; without it, traces are
+#   minified single-line offsets and bun logs `note: missing sourcemaps`.
+#   Since this image previously emitted no source map at all, keeping the
+#   `.map` next to the bundle is a strict improvement in the diagnosability of
+#   a production crash (the failure mode of mt#1763 / mt#1785 / mt#2345).
+# - The `.map` is deliberately KEPT in the image. It costs more than `--minify`
+#   saves — measured on this tree: 37.5 MB unminified/no-map vs 24.8 MB
+#   minified + 54.7 MB map, i.e. a net +42 MB layer — so this change is NOT an
+#   image-size win, it is a production-diagnosability win bought with layer
+#   size. Stripping the `.map` to reclaim the size would leave traces strictly
+#   worse than before this change.
+#
+# The artifact shape produced here is the same one `.github/workflows/
+# bundle-boot-smoke.yml` builds (`bun run build`) and boots on every PR, so the
+# minified bundle's ability to start the MCP server is already gated in CI.
+RUN bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify src/cli.ts
 
 # mt#1767 — copy Drizzle migrations next to the bundle so the bundled
 # `postgres-provider.ts`'s `resolveMigrationsFolder()` can find them via the
