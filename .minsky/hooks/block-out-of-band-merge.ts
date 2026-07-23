@@ -53,6 +53,11 @@
 import { readInput, writeOutput, readHostCap, deriveBudgets } from "./types";
 import type { ToolHookInput } from "./types";
 import { deriveRepoFromGit, resolvePrBodyFromTask, fetchPrBody } from "./pr-context";
+import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
+import { classifyOverride } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "block-out-of-band-merge";
 
 // ---------------------------------------------------------------------------
 // Budget derivation (mt#1546 pattern)
@@ -432,7 +437,11 @@ export function buildRepoDerivationFailureWarning(cwd: string): string {
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+  // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
+  // once per invocation regardless of which exit fires below.
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
   const toolName = input.tool_name;
   const ghTimeoutMs = deriveGhTimeoutMs();
 
@@ -444,7 +453,7 @@ if (import.meta.main) {
     // mt#2617 R1 BLOCKING #1: fail-open WITH an audit signal, matching the
     // transport-error fail-open paths below, instead of a silent exit.
     console.error(buildRepoDerivationFailureWarning(input.cwd));
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Single gh call per invocation (unchanged from PR #1020 R1 BLOCKING #1
@@ -459,7 +468,7 @@ if (import.meta.main) {
     const task = (input.tool_input.task as string | undefined) ?? "";
     const resolved = resolvePrBodyFromTask(repo, task, { cwd: input.cwd, timeout: ghTimeoutMs });
     // null = no PR exists for branch (legitimate; allow silently)
-    if (resolved === null) process.exit(0);
+    if (resolved === null) recordAndExit("allow");
     if (!resolved.ok) {
       // Fail-open: emit a warning to stderr (the conventional channel for
       // operator warnings; matches check-branch-fresh.ts) so the operator
@@ -468,7 +477,7 @@ if (import.meta.main) {
         `[block-out-of-band-merge] WARNING: could not fetch PR body — gate did not run. ` +
           `Reason: ${resolved.error}`
       );
-      process.exit(0);
+      recordAndExit("allow");
     }
     prNumber = resolved.prNumber;
     body = resolved.body;
@@ -476,40 +485,43 @@ if (import.meta.main) {
     const command = (input.tool_input.command as string | undefined) ?? "";
     const extractedPrNumber = extractPrNumberFromGhApiCommand(command);
     // If no PR-merge endpoint in the command, this isn't a merge — allow silently.
-    if (extractedPrNumber === null) process.exit(0);
+    if (extractedPrNumber === null) recordAndExit("allow");
     const resolved = fetchPrBody(repo, extractedPrNumber, { cwd: input.cwd, timeout: ghTimeoutMs });
     if (!resolved.ok) {
       console.error(
         `[block-out-of-band-merge] WARNING: could not fetch PR body — gate did not run. ` +
           `Reason: ${resolved.error}`
       );
-      process.exit(0);
+      recordAndExit("allow");
     }
     prNumber = extractedPrNumber;
     body = resolved.body;
   } else {
     // Hook ran on an unrelated tool — allow.
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   if (prNumber === null || body === null) {
     // Unreachable in practice (every path above either sets both or exits) —
     // this satisfies TS control-flow narrowing below without a non-null
     // assertion.
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Scan for triggers
   const matches = scanForTriggerPhrases(body);
   if (matches.length === 0) {
     // No coupled-step language in PR body — allow.
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Triggers found. Check for operator override.
   if (isOverrideSet()) {
     emitOverrideAuditLog(prNumber, matches);
-    process.exit(0);
+    recordAndExit("allow", {
+      overrideEnvVar: OVERRIDE_ENV_VAR,
+      overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
+    });
   }
 
   // Block the merge with a structured message.
@@ -520,5 +532,5 @@ if (import.meta.main) {
       permissionDecisionReason: buildDenialReason(prNumber, matches),
     },
   });
-  process.exit(0);
+  recordAndExit("deny");
 }

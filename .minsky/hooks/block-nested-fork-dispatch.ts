@@ -105,6 +105,11 @@ import {
 } from "./dispatch-intent-store";
 import type { DispatchIntentDeclaration } from "./dispatch-intent-store";
 import { isSubagentContext, resolveSessionIdFromInput } from "./dispatch-intent-write-gate";
+import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
+import { classifyOverride } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
+const GUARD_NAME = "block-nested-fork-dispatch";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -216,10 +221,14 @@ export function decideNestedForkDispatchGate(
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+  // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
+  // once per invocation regardless of which exit fires below.
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   if (!isForkDispatch(input) || !isSubagentContext(input)) {
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   const storeResult = readDispatchIntentStore(getDispatchIntentStorePath());
@@ -230,13 +239,25 @@ if (import.meta.main) {
       `[block-nested-fork-dispatch] warn: dispatch-intent store read error (${storeResult.message}) ` +
         "— failing open (allowing this call)."
     );
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   const decision = decideNestedForkDispatchGate(input, storeResult.declarations, Date.now());
 
   if (decision.decision === "allow") {
-    process.exit(0);
+    // mt#3084: the OVERRIDE_ENV_VAR branch inside decideNestedForkDispatchGate
+    // is distinguishable only via its `reason` string (the function's return
+    // type carries no separate discriminator, and adding one would touch the
+    // gate's decision logic — out of scope per this task's hard constraints).
+    // String-matching the documented "<VAR> override active" reason is
+    // read-only instrumentation: it changes nothing about what was decided.
+    const overrideFields = decision.reason.includes(`${OVERRIDE_ENV_VAR} override active`)
+      ? {
+          overrideEnvVar: OVERRIDE_ENV_VAR,
+          overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
+        }
+      : undefined;
+    recordAndExit("allow", overrideFields);
   }
 
   writeOutput({
@@ -246,5 +267,5 @@ if (import.meta.main) {
       permissionDecisionReason: decision.reason,
     },
   });
-  process.exit(0);
+  recordAndExit("deny");
 }
