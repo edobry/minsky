@@ -200,12 +200,36 @@ export function createRealDispatchRecoveryActivityOps(
         const provider = getPersistenceProvider() as
           | { getDatabaseConnection?: () => Promise<unknown> }
           | undefined;
-        if (!provider?.getDatabaseConnection) return null;
+        if (!provider?.getDatabaseConnection) {
+          // R1 (mt#3086): log every structurally-unavailable branch, not just the
+          // catch-block failure path below — a silent null here degrades the
+          // staleness check back to its pre-mt#3086 commit-only behavior with no
+          // diagnostic trail, reintroducing the original false-positive risk
+          // invisibly. debug (not warn): a persistence-less CLI/test context is a
+          // routine, expected shape, not an operational anomaly.
+          log.debug(
+            "[tasks.dispatch-recover] lastPresenceActivityAtMs: no persistence provider / getDatabaseConnection — presence signal unavailable",
+            { subagentSessionId }
+          );
+          return null;
+        }
         const db = await provider.getDatabaseConnection();
-        if (!db) return null;
+        if (!db) {
+          log.debug(
+            "[tasks.dispatch-recover] lastPresenceActivityAtMs: getDatabaseConnection() resolved no connection — presence signal unavailable",
+            { subagentSessionId }
+          );
+          return null;
+        }
         const { buildPresenceClaimRepository } = await import("@minsky/domain/presence/index");
         const repo = buildPresenceClaimRepository(db);
-        if (!repo) return null;
+        if (!repo) {
+          log.debug(
+            "[tasks.dispatch-recover] lastPresenceActivityAtMs: buildPresenceClaimRepository returned null — presence signal unavailable",
+            { subagentSessionId }
+          );
+          return null;
+        }
         // Threshold is irrelevant here — we only read the raw timestamp and let
         // computeDispatchStaleness's OWN staleMs decide freshness, not presence's
         // separate 15-min TTL annotation. listClaims orders desc by
@@ -216,8 +240,14 @@ export function createRealDispatchRecoveryActivityOps(
         const ms = Date.parse(freshest);
         return Number.isFinite(ms) ? ms : null;
       } catch (err) {
-        log.debug(
-          "[tasks.dispatch-recover] lastPresenceActivityAtMs resolution failed (best-effort)",
+        // R1 (mt#3086): warn (not debug) — unlike the "no persistence configured"
+        // branches above (a routine, expected shape in CLI/test contexts), reaching
+        // this catch means resolution STARTED (a provider/db/repo existed) and then
+        // threw — a DI-wiring break, an unexpected dynamic-import shape, or a real
+        // query failure. That is an operational anomaly worth surfacing, not a
+        // silent degrade.
+        log.warn(
+          "[tasks.dispatch-recover] lastPresenceActivityAtMs resolution failed unexpectedly (degrading to no presence signal)",
           { subagentSessionId, error: err instanceof Error ? err.message : String(err) }
         );
         return null;
