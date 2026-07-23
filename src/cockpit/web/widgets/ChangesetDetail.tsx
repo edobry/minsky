@@ -37,6 +37,7 @@ import type {
   SessionCommitRef,
   ChangesetLiveDetail,
   ChangesetChecksSummary,
+  ChangesetChecksUnavailableReason,
 } from "../../session-detail";
 
 // ---------------------------------------------------------------------------
@@ -52,6 +53,8 @@ export interface ChangesetDetailPayload {
   detail: ChangesetLiveDetail | null;
   /** CI check-runs; null when the state could NOT be determined (not "zero checks"). */
   checks: ChangesetChecksSummary | null;
+  /** Why `checks` is null — distinguishes "no commit" from "the query failed". */
+  checksUnavailableReason: ChangesetChecksUnavailableReason | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,8 +190,9 @@ function needsYouClass(state: NeedsYouState): string {
   if (state.level !== "needs-you") {
     return "border-border bg-muted/30 text-muted-foreground";
   }
-  // A failing build is a harder signal than a merge waiting on you.
-  return state.headline.startsWith("CI failing")
+  // Branch on the discriminator, never on headline text — the headline is
+  // human-facing copy and is expected to be reworded (PR #2233 R1).
+  return state.kind === "ci-failing"
     ? "border-destructive/40 bg-destructive/10 text-destructive"
     : "border-warn-amber/40 bg-warn-amber/10 text-warn-amber";
 }
@@ -215,8 +219,32 @@ function checkConclusionLabel(status: string, conclusion: string | null): string
   return conclusion;
 }
 
-function ChecksSection({ checks }: { checks: ChangesetChecksSummary | null }) {
-  // Unknown is rendered as unknown — never as a green zero.
+/**
+ * Message for an unknown CI state. Each reason gets its OWN wording: saying
+ * "could not read check runs for this commit" when no commit was ever resolved
+ * states something untrue (PR #2233 R1).
+ */
+function checksUnavailableMessage(reason: ChangesetChecksUnavailableReason | null): string {
+  switch (reason) {
+    case "no-commit":
+      return "No commit resolved for this changeset — CI state does not apply.";
+    case "not-configured":
+      return "CI state unavailable — no GitHub connection is configured.";
+    case "fetch-failed":
+      return "CI state unavailable — could not read check runs for this commit.";
+    default:
+      return "CI state unavailable.";
+  }
+}
+
+function ChecksSection({
+  checks,
+  unavailableReason,
+}: {
+  checks: ChangesetChecksSummary | null;
+  unavailableReason: ChangesetChecksUnavailableReason | null;
+}) {
+  // Unknown is rendered as unknown — never as a green zero — and names WHY.
   if (!checks) {
     return (
       <section aria-labelledby="ci-heading">
@@ -224,7 +252,7 @@ function ChecksSection({ checks }: { checks: ChangesetChecksSummary | null }) {
         <Card>
           <CardContent className="py-3">
             <p className="text-sm text-muted-foreground">
-              CI state unavailable — could not read check runs for this commit.
+              {checksUnavailableMessage(unavailableReason)}
             </p>
           </CardContent>
         </Card>
@@ -291,7 +319,7 @@ function ChecksSection({ checks }: { checks: ChangesetChecksSummary | null }) {
 // ---------------------------------------------------------------------------
 
 export function ChangesetDetail({ changeset }: { changeset: ChangesetDetailPayload }) {
-  const { pr, session, commits, detail, checks } = changeset;
+  const { pr, session, commits, detail, checks, checksUnavailableReason } = changeset;
   const entityIndex = useEntityIndex();
 
   // Shared with the changesets LIST row so the two cannot drift — the
@@ -467,7 +495,7 @@ export function ChangesetDetail({ changeset }: { changeset: ChangesetDetailPaylo
       )}
 
       {/* CI check-runs */}
-      <ChecksSection checks={checks} />
+      <ChecksSection checks={checks} unavailableReason={checksUnavailableReason} />
 
       {/* Commits section */}
       {commits.length > 0 && (

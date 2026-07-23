@@ -15,7 +15,11 @@ import {
 import { resolveCockpitProjectScope } from "../project-scope";
 import type { Changeset } from "@minsky/domain/changeset/types";
 import type { SessionRecord } from "@minsky/domain/session/types";
-import type { SessionCommitRef, ChangesetChecksSummary } from "../session-detail";
+import type {
+  SessionCommitRef,
+  ChangesetChecksSummary,
+  ChangesetChecksUnavailableReason,
+} from "../session-detail";
 
 /** Message text for a caught unknown. */
 function errText(e: unknown): string {
@@ -174,15 +178,22 @@ export function mountChangesetRoutes(app: express.Express): void {
 
       // ---------------------------------------------------------------
       // (3) CI CHECK-RUNS (mt#3097) — keyed on the live PR's head SHA.
-      // Degrades to null, never throws: `null` means "could not determine",
-      // which the UI renders as unknown rather than as a passing state.
+      // Degrades to null, never throws. The REASON is carried alongside:
+      // "no commit to check" and "the query failed" are different facts, and
+      // reporting the second when the first is true is a false statement
+      // (PR #2233 R1).
       // ---------------------------------------------------------------
       let checks: ChangesetChecksSummary | null = null;
+      let checksUnavailableReason: ChangesetChecksUnavailableReason | null = null;
       const headSha = liveChangeset?.metadata?.github?.headSha;
-      if (headSha) {
+      if (!headSha) {
+        checksUnavailableReason = "no-commit";
+      } else {
         try {
           const checksReader = await getServerChecksReader();
-          if (checksReader) {
+          if (!checksReader) {
+            checksUnavailableReason = "not-configured";
+          } else {
             const result = await checksReader(headSha);
             checks = {
               allPassed: result.allPassed,
@@ -194,6 +205,7 @@ export function mountChangesetRoutes(app: express.Express): void {
             };
           }
         } catch (checksErr) {
+          checksUnavailableReason = "fetch-failed";
           log.debug(
             `[changeset] check-runs enrichment degraded for #${changesetId}: ${errText(checksErr)}`
           );
@@ -227,6 +239,7 @@ export function mountChangesetRoutes(app: express.Express): void {
         commits,
         detail: liveChangeset ? liveDetailFromChangeset(liveChangeset) : null,
         checks,
+        checksUnavailableReason,
       });
     } catch (err) {
       log.error(`[changeset] GET /api/changeset/:id — internal error: ${errText(err)}`);

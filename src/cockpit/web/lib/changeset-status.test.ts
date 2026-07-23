@@ -131,6 +131,55 @@ describe("deriveNeedsYou — the merge is the principal's move", () => {
   });
 });
 
+/**
+ * PR #2233 R1: styling and other consumers branch on `kind`, never on
+ * `headline` text. These pin the discriminator so a copy reword cannot
+ * silently change behavior downstream.
+ */
+describe("deriveNeedsYou — kind discriminator", () => {
+  test("each branch reports its own kind", () => {
+    expect(deriveNeedsYou({ state: "merged", approved: true, checks: checks() }).kind).toBe(
+      "merged"
+    );
+    expect(deriveNeedsYou({ state: "closed", approved: null, checks: null }).kind).toBe("closed");
+    expect(deriveNeedsYou({ state: "open", approved: true, checks: failingChecks }).kind).toBe(
+      "ci-failing"
+    );
+    expect(deriveNeedsYou({ state: "open", approved: false, checks: checks() }).kind).toBe(
+      "changes-requested"
+    );
+    expect(deriveNeedsYou({ state: "draft", approved: true, checks: checks() }).kind).toBe("draft");
+    expect(
+      deriveNeedsYou({
+        state: "open",
+        approved: true,
+        checks: checks({ allPassed: false, passed: 1, pending: 1 }),
+      }).kind
+    ).toBe("ci-running");
+    expect(deriveNeedsYou({ state: "open", approved: true, checks: checks() }).kind).toBe(
+      "awaiting-merge"
+    );
+    expect(deriveNeedsYou({ state: "open", approved: null, checks: checks() }).kind).toBe(
+      "awaiting-review"
+    );
+  });
+
+  test("ci-failing keeps its kind even when the headline is pluralized", () => {
+    const two = checks({
+      allPassed: false,
+      passed: 0,
+      failed: 2,
+      checks: [
+        { name: "build", status: "completed", conclusion: "failure", url: null },
+        { name: "smoke", status: "completed", conclusion: "timed_out", url: null },
+      ],
+    });
+    const r = deriveNeedsYou({ state: "open", approved: true, checks: two });
+    expect(r.headline).not.toBe("CI failing");
+    expect(r.kind).toBe("ci-failing");
+  });
+});
+
 describe("failingCheckNames", () => {
   test("returns only genuinely failing checks", () => {
     expect(failingCheckNames(failingChecks)).toEqual(["build"]);

@@ -30,8 +30,28 @@ import type { ChangesetChecksSummary } from "../../session-detail";
  */
 export type NeedsYouLevel = "needs-you" | "settled" | "waiting";
 
+/**
+ * WHICH situation produced the verdict.
+ *
+ * Consumers (styling, telemetry, tests) must branch on this rather than on
+ * `headline` text: the headline is human-facing copy and is expected to be
+ * reworded, so matching on it couples presentation to prose and breaks
+ * silently when the wording changes.
+ */
+export type NeedsYouKind =
+  | "merged"
+  | "closed"
+  | "ci-failing"
+  | "changes-requested"
+  | "draft"
+  | "ci-running"
+  | "awaiting-merge"
+  | "awaiting-review";
+
 export interface NeedsYouState {
   level: NeedsYouLevel;
+  /** Which situation produced this verdict — branch on this, not on `headline`. */
+  kind: NeedsYouKind;
   /** One-line lead, e.g. "Awaiting your merge". */
   headline: string;
   /** Optional qualifier, e.g. "CI state unknown" or the failing check names. */
@@ -74,10 +94,10 @@ export function failingCheckNames(checks: ChangesetChecksSummary | null): string
 export function deriveNeedsYou({ state, approved, checks }: NeedsYouInput): NeedsYouState {
   // 1. Terminal — nothing is owed.
   if (state === "merged") {
-    return { level: "settled", headline: "Merged" };
+    return { level: "settled", kind: "merged", headline: "Merged" };
   }
   if (state === "closed") {
-    return { level: "settled", headline: "Closed without merging" };
+    return { level: "settled", kind: "closed", headline: "Closed without merging" };
   }
 
   // 2. Failing CI blocks everything else and is the most actionable signal.
@@ -85,6 +105,7 @@ export function deriveNeedsYou({ state, approved, checks }: NeedsYouInput): Need
   if (failing.length > 0) {
     return {
       level: "needs-you",
+      kind: "ci-failing",
       headline: failing.length === 1 ? "CI failing" : `CI failing — ${failing.length} checks`,
       note: failing.slice(0, 3).join(", ") + (failing.length > 3 ? "…" : ""),
     };
@@ -92,18 +113,23 @@ export function deriveNeedsYou({ state, approved, checks }: NeedsYouInput): Need
 
   // 3. The reviewer asked for changes — route the work, don't merge.
   if (approved === false) {
-    return { level: "waiting", headline: "Awaiting reviewer approval" };
+    return {
+      level: "waiting",
+      kind: "changes-requested",
+      headline: "Awaiting reviewer approval",
+    };
   }
 
   // 4. A draft is explicitly not ready to merge.
   if (state === "draft") {
-    return { level: "waiting", headline: "Draft — not ready for review" };
+    return { level: "waiting", kind: "draft", headline: "Draft — not ready for review" };
   }
 
   // 5. CI still running: the system is working.
   if (checks && checks.pending > 0) {
     return {
       level: "waiting",
+      kind: "ci-running",
       headline: "CI running",
       note: `${checks.passed}/${checks.total} complete`,
     };
@@ -115,11 +141,12 @@ export function deriveNeedsYou({ state, approved, checks }: NeedsYouInput): Need
     // implying a green we never observed.
     return {
       level: "needs-you",
+      kind: "awaiting-merge",
       headline: "Awaiting your merge",
       note: checks ? undefined : "CI state unknown",
     };
   }
 
   // Open, no review yet, nothing failing.
-  return { level: "waiting", headline: "Awaiting review" };
+  return { level: "waiting", kind: "awaiting-review", headline: "Awaiting review" };
 }

@@ -120,6 +120,7 @@ const FOUND_PAYLOAD: ChangesetDetailPayload = {
       { name: "docker-build-smoke", status: "completed", conclusion: "success", url: null },
     ],
   },
+  checksUnavailableReason: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -405,6 +406,7 @@ describe("ChangesetDetailPage — live PR sourcing (mt#3096)", () => {
         reviewCount: 0,
       },
       checks: null,
+      checksUnavailableReason: "fetch-failed",
     };
     mockChangesetFetch("2222", { status: 200, body: mergedNoSession });
     renderChangesetPage("2222");
@@ -506,19 +508,52 @@ describe("ChangesetDetailPage — needs-you strip and CI (mt#3097)", () => {
   });
 
   /** AT4: unknown CI renders as unknown — never as passing, never a 500. */
-  test("AT4: renders CI as unavailable when the check state is unknown", async () => {
+  test("AT4: renders CI as unavailable when the check fetch failed", async () => {
     const unknownCi: ChangesetDetailPayload = {
       ...FOUND_PAYLOAD,
       pr: { ...FOUND_PAYLOAD.pr, approved: true },
       checks: null,
+      checksUnavailableReason: "fetch-failed",
     };
     mockChangesetFetch("1234", { status: 200, body: unknownCi });
     renderChangesetPage("1234");
     await waitFor(() => {
-      expect(screen.getByText(/CI state unavailable/i)).toBeDefined();
+      expect(screen.getByText(/could not read check runs for this commit/i)).toBeDefined();
     });
     // The merge verdict must disclose that CI was not observed.
     expect(screen.getByText(/CI state unknown/i)).toBeDefined();
+  });
+
+  /**
+   * PR #2233 R1: a null `checks` with NO resolved commit must not claim the
+   * query failed — there was no commit to query.
+   */
+  test("distinguishes 'no commit to check' from 'the check query failed'", async () => {
+    const noCommit: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      checks: null,
+      checksUnavailableReason: "no-commit",
+    };
+    mockChangesetFetch("1234", { status: 200, body: noCommit });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText(/No commit resolved for this changeset/i)).toBeDefined();
+    });
+    // Must NOT assert a failed read that never happened.
+    expect(screen.queryByText(/could not read check runs/i)).toBeNull();
+  });
+
+  test("names a missing GitHub connection as the reason when unconfigured", async () => {
+    const unconfigured: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      checks: null,
+      checksUnavailableReason: "not-configured",
+    };
+    mockChangesetFetch("1234", { status: 200, body: unconfigured });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText(/no GitHub connection is configured/i)).toBeDefined();
+    });
   });
 
   /** AT5: the page stays read-only — no merge/approve control (mt#3097 decision 1). */

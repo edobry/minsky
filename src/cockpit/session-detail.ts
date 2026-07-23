@@ -135,6 +135,22 @@ export interface ChangesetChecksSummary {
 }
 
 /**
+ * WHY the CI check state is unknown, when `checks` is null (mt#3097, PR #2233 R1).
+ *
+ * A bare `null` conflates two materially different situations, and telling the
+ * operator "could not read check runs for this commit" in the second case is a
+ * false statement — there was no commit to read them for:
+ *
+ * - `no-commit`     — no live PR resolved, so there is no head SHA to query.
+ *                     CI is not-applicable here, not failed.
+ * - `not-configured`— no GitHub credential/repo, so the reader could not be built.
+ * - `fetch-failed`  — a head SHA existed and the query genuinely failed.
+ *
+ * Only `fetch-failed` means "we tried and could not find out".
+ */
+export type ChangesetChecksUnavailableReason = "no-commit" | "not-configured" | "fetch-failed";
+
+/**
  * NOTE (mt#3096): the shared `changesetDisplayTitle` helper deliberately does
  * NOT live here — it lives in `web/lib/changeset-title.ts`.
  *
