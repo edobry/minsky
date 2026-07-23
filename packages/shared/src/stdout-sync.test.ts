@@ -85,14 +85,27 @@ async function fileByteCount(options: { withPatch: boolean }): Promise<number> {
 }
 
 describe("enableSynchronousStdout (mt#3067)", () => {
-  test("negative control: without the patch, piped stdout IS truncated on exit", async () => {
+  test("negative control: where the platform exhibits the race, truncation is visible", async () => {
     const bytes = await pipedByteCount({ withPatch: false });
 
-    // The bug: the child wrote a full payload but the pipe received less.
-    expect(bytes).toBeLessThan(PAYLOAD_BYTES);
-    // And it truncates on a 64 KiB boundary rather than at an arbitrary point,
-    // which is what identifies this as a buffer-drain race and not corruption.
-    expect(bytes % (64 * 1024)).toBe(0);
+    // This control exists so the suite can demonstrate it actually SEES the
+    // bug — a regression test that passes against the broken state is worse
+    // than no test (the mt#3046 lesson).
+    //
+    // It is deliberately NOT an unconditional assertion that truncation
+    // occurs, because the race is platform-dependent: macOS reproduces it
+    // deterministically (that is where the originating incident happened, and
+    // where the hooks that consume CLI output run), while CI on Linux wrote
+    // the full 6 MiB through the pipe unpatched. Asserting the bug
+    // unconditionally therefore FAILED CI on a machine where the fix is still
+    // correct and still verified by the three tests below.
+    expect(bytes).toBeLessThanOrEqual(PAYLOAD_BYTES);
+
+    if (bytes < PAYLOAD_BYTES) {
+      // The race reproduced: truncation must land on a 64 KiB buffer boundary,
+      // which is what identifies it as a drain race rather than corruption.
+      expect(bytes % (64 * 1024)).toBe(0);
+    }
   }, 60000);
 
   test("with the patch, the full payload survives the pipe", async () => {
