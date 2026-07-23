@@ -26,6 +26,26 @@
  */
 
 /**
+ * Strip ANSI escape sequences (bun's colorized reporter output) before the
+ * line-anchored parsing below. Bun colorizes its summary lines (e.g.
+ * `\x1b[0m\x1b[2m 0 fail\x1b[0m`) whenever the child process inherits a
+ * `FORCE_COLOR`-set environment — which `Bun.spawnSync({ env: { ...process.env } })`
+ * does unconditionally, regardless of whether the child's stdout is a real
+ * TTY. Claude Code agent sessions set `FORCE_COLOR=3` in their ambient shell
+ * env, so every commit/push from such a session inherited colorized output
+ * here. The anchored per-line regexes below (`^ *\d+ fail$`, etc.) never
+ * matched a colorized line — the leading/trailing escape codes defeat `^`/`$`
+ * — which fail-closed EVERY run in that environment regardless of actual
+ * pass/fail (mt#3075, found while committing an unrelated change). Stripping
+ * first makes the parser agnostic to whether the child process was
+ * colorized; a no-op on already-plain output (CI, non-color terminals).
+ */
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex -- deliberately matching the ESC (0x1B) CSI sequences bun's colorized reporter emits
+  return text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+}
+
+/**
  * Fail-closed gate over a `bun test` run's combined stdout+stderr, mirroring
  * ci.yml's "Test" step. `bun test` 1.2.21 can silently truncate — exit 0 with no
  * completion summary — so exit code alone is not a trustworthy pass signal. A run
@@ -47,7 +67,8 @@ export function evaluateBunTestSummary(
   output: string,
   exitCode: number
 ): { ok: boolean; reason: string } {
-  if (!/Ran \d+ tests? across \d+ files?/.test(output)) {
+  const clean = stripAnsi(output);
+  if (!/Ran \d+ tests? across \d+ files?/.test(clean)) {
     return {
       ok: false,
       reason:
@@ -57,7 +78,7 @@ export function evaluateBunTestSummary(
     };
   }
   // Last "<N> fail" line, mirroring ci.yml's `grep ... | tail -1`.
-  const failLine = output
+  const failLine = clean
     .split("\n")
     .reverse()
     .find((line) => /^ *\d+ fail$/.test(line));
