@@ -550,7 +550,10 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
           htmlUrl: pr.html_url,
           apiUrl: pr.url,
           isDraft: pr.draft ?? false,
-          isMergeable: fullPr.mergeable ?? false,
+          // Left undefined (not `false`) when absent: the list response carries
+          // no mergeability, and `false` would misreport UNKNOWN as "not
+          // mergeable" — same reasoning as the diffstat fields below.
+          isMergeable: fullPr.mergeable ?? undefined,
           mergeableState: fullPr.mergeable_state ?? "unknown",
           headSha: pr.head.sha,
           baseSha: pr.base.sha,

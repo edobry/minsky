@@ -129,7 +129,7 @@ export function mountChangesetRoutes(app: express.Express): void {
 
       const repoWebBase = record
         ? githubRepoWebBase(record.repoUrl)
-        : repoWebBaseFromPrUrl(liveChangeset?.metadata.github?.htmlUrl);
+        : repoWebBaseFromPrUrl(liveChangeset?.metadata?.github?.htmlUrl);
 
       // Enrichments degrade independently per the agents endpoint pattern.
       const commitsPromise: Promise<SessionCommitRef[]> = (async () => {

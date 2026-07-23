@@ -154,7 +154,14 @@ export interface ChangesetMetadata {
     htmlUrl: string;
     apiUrl: string;
     isDraft: boolean;
-    isMergeable: boolean;
+    /**
+     * Optional because the list response (`GET /pulls`) does not carry
+     * mergeability. Defaulting it to `false` there would report "not mergeable"
+     * for a PR whose mergeability is merely UNKNOWN — the same false-negative
+     * the diffstat fields below avoid. Absent means unknown; check explicitly.
+     */
+    isMergeable?: boolean;
+    /** "unknown" is an honest sentinel here, so this stays required. */
     mergeableState: string;
     headSha: string;
     baseSha: string;
