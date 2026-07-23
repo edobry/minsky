@@ -41,6 +41,18 @@ export const KNOWN_OVERRIDE_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_ACK_RETROSPECTIVE_TRIGGER",
   "MINSKY_ACK_SUBSTRATE_BYPASS",
   "MINSKY_ACK_TASK_HIJACK",
+  // mt#3084 (Phase-3 merge-gate fire-log build-out): the four entries below
+  // were already registered in the canonical HOOK_ONLY_ENV_VARS
+  // (packages/domain/src/configuration/sources/environment.ts) but missing
+  // from this hand-maintained mirror — a real drift, not a hypothetical one:
+  // every merge-gate hook this task instruments uses one of these as its
+  // override env var, so leaving them out would have made the very
+  // classification this task ships silently downgrade authorized_exception
+  // to unclassified for gates fire-log-instrumented in this same landing.
+  "MINSKY_ALLOW_NESTED_FORK",
+  "MINSKY_SKIP_AT_COVERAGE",
+  "MINSKY_SKIP_SIZE_JUSTIFICATION",
+  "MINSKY_SKIP_USABILITY_CLAIM_CHECK",
   "MINSKY_AUTO_MIGRATE",
   "MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS",
   "MINSKY_COCKPIT_PREVIEW",
