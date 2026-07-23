@@ -105,9 +105,10 @@
  * either disables this run's duration-cache update (logged, non-fatal) so as
  * not to clobber the caller's own reporter output.
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { cpus, tmpdir } from "node:os";
 import { join } from "node:path";
+import { readTextFileSync } from "@minsky/shared/fs";
 import { parseTestcases, type TestCase } from "./analyze-test-timing";
 import { discoverTestFiles } from "./run-tests-main";
 import { binPackFiles as binPackFilesCore } from "./run-tests-sharded-prototype";
@@ -558,7 +559,7 @@ export type DurationCache = Record<string, number>;
 export function readDurationCache(path: string = DURATION_CACHE_PATH): DurationCache {
   if (!existsSync(path)) return {};
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf-8"));
+    const parsed = JSON.parse(readTextFileSync(path));
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed as DurationCache;
     }
@@ -604,7 +605,7 @@ export function collectShardDurationsSec(junitPaths: string[]): Map<string, numb
     if (!existsSync(path)) continue;
     let cases: TestCase[];
     try {
-      cases = parseTestcases(readFileSync(path, "utf-8"));
+      cases = parseTestcases(readTextFileSync(path));
     } catch {
       continue;
     }
@@ -626,7 +627,7 @@ export function collectShardDurationsSec(junitPaths: string[]): Map<string, numb
 export function collectShardActualFiles(junitPath: string): string[] | undefined {
   if (!existsSync(junitPath)) return undefined;
   try {
-    const cases = parseTestcases(readFileSync(junitPath, "utf-8"));
+    const cases = parseTestcases(readTextFileSync(junitPath));
     return [...new Set(cases.map((c) => c.file))];
   } catch {
     return undefined;
@@ -759,7 +760,22 @@ if (import.meta.main) {
     ? rawOutcomes.map((o, i) => {
         const actualFiles = collectShardActualFiles(join(shardTmpDir, `shard-${i}.xml`));
         if (!actualFiles) return o;
-        const violations = detectShardScopeViolations(shards[i], actualFiles);
+        // `shards` and `rawOutcomes` are index-aligned by construction (one shard
+        // array per shard command). Unlike the `!actualFiles` check above -- a
+        // legitimately best-effort, sometimes-missing report -- `shards[i]` being
+        // undefined here means that invariant broke. Fail loudly (mirrors
+        // `binPackFiles`'s invariant guards in run-tests-sharded-prototype.ts)
+        // rather than silently skip the scope-violation check, which would mask
+        // real cross-shard leakage instead of detecting it.
+        const assignedFiles = shards[i];
+        if (!assignedFiles) {
+          throw new Error(
+            `run-tests-main-sharded: invariant violated -- shard ${i} missing from the bin-packed ` +
+              `shards array (shards.length=${shards.length}, rawOutcomes.length=${rawOutcomes.length}). ` +
+              "shards and rawOutcomes must be index-aligned by construction; this should never happen."
+          );
+        }
+        const violations = detectShardScopeViolations(assignedFiles, actualFiles);
         return violations.length > 0 ? { ...o, scopeViolationFiles: violations } : o;
       })
     : rawOutcomes;
