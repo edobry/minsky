@@ -34,7 +34,7 @@ import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import type { SessionProviderInterface } from "@minsky/domain/session/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
-import type { ChangesetAdapter } from "@minsky/domain/changeset/adapter-interface";
+import type { ChangesetService } from "@minsky/domain/changeset/changeset-service";
 import type { TokenProvider } from "@minsky/domain/auth";
 import { log } from "@minsky/shared/logger";
 
@@ -308,7 +308,7 @@ export async function getServerSessionProvider(): Promise<SessionProviderInterfa
 }
 
 // ---------------------------------------------------------------------------
-// Changeset reader lazy init (mt#3096) — the LIVE-PR data path used by
+// Changeset service lazy init (mt#3096) — the LIVE-PR data path used by
 // `GET /api/changeset/:id`.
 //
 // Why this exists: that endpoint used to build its entire view from the cached
@@ -316,22 +316,20 @@ export async function getServerSessionProvider(): Promise<SessionProviderInterfa
 // null — so the detail page rendered the literal "(no title)" for PRs that
 // plainly have one. Reading the live PR removes that whole class of staleness.
 //
-// Why the adapter is constructed DIRECTLY instead of via
-// `createChangesetService()`: that path cannot carry a credential.
-// `ChangesetService.getAdapter()` calls `factory.createAdapter(repositoryUrl)`
-// with no config, and `GitHubChangesetAdapter`'s own fallback resolves only
-// `config.token` / `GITHUB_TOKEN` / `GH_TOKEN` — all empty for the cockpit
-// daemon, which keeps its GitHub credential in Minsky config, not the
-// environment. Passing an explicit `tokenProvider` is the only way to
-// authenticate this read path. Token/repo resolution mirrors
-// `deploy-smoke-sweep.ts`'s `buildRealDeps()`, the existing in-cockpit
-// precedent for config-driven GitHub access.
+// CREDENTIAL PATH: `ChangesetService` previously had no way to receive one —
+// `getAdapter()` called `factory.createAdapter(repositoryUrl)` with no config,
+// so the GitHub adapter fell back to `GITHUB_TOKEN` / `GH_TOKEN` env vars only.
+// The cockpit daemon keeps its GitHub credential in Minsky config, not the
+// environment, so that path yielded an adapter failing `isAvailable()`. mt#3096
+// added the `adapterConfig` parameter threaded through here; token + repo
+// resolution mirrors `deploy-smoke-sweep.ts`'s `buildRealDeps()`, the existing
+// in-cockpit precedent for config-driven GitHub access.
 //
-// A FRESH adapter is built per call while the deps below stay cached: the
-// adapter memoizes its Octokit on first use, so caching the adapter itself
-// would pin a GitHub App installation token past its ~1h expiry and silently
-// start 401ing. `tokenProvider` does its own caching, so rebuilding costs no
-// extra round-trip in the common case.
+// A FRESH service is built per call while the deps below stay cached: the
+// adapter memoizes its Octokit on first use, so caching the service would pin a
+// GitHub App installation token past its ~1h expiry and silently start 401ing.
+// `tokenProvider` does its own caching, so rebuilding costs no extra round-trip
+// in the common case.
 //
 // Returns null (never throws) when GitHub isn't configured or credential
 // resolution fails — the caller degrades to the session-snapshot rendering.
@@ -380,31 +378,31 @@ async function getChangesetReadDeps(): Promise<ChangesetReadDeps | null> {
 }
 
 /**
- * Build a read-capable GitHub changeset adapter for the project's configured
- * repository, or null when GitHub isn't configured / the credential can't be
- * resolved.
+ * Build a changeset service for the project's configured repository, or null
+ * when GitHub isn't configured / the credential can't be resolved.
  *
  * Only the READ surface (`get`) is exercised by the cockpit — that path uses
  * Octokit directly and needs no `sessionProvider`. (Mutation methods and
  * `getDetails` would additionally require one; the cockpit does not call them.)
  */
-export async function getServerChangesetService(): Promise<ChangesetAdapter | null> {
+export async function getServerChangesetService(): Promise<ChangesetService | null> {
   try {
     const deps = await getChangesetReadDeps();
     if (!deps) {
-      log.debug("[cockpit] changeset reader unavailable — no GitHub repository backend configured");
+      log.debug("[cockpit] changeset service unavailable — no GitHub repository configured");
       return null;
     }
-    const { GitHubChangesetAdapter } = await import("@minsky/domain/changeset/index");
-    return new GitHubChangesetAdapter(deps.repoUrl, undefined, {
-      tokenProvider: deps.tokenProvider,
+    const { createChangesetService } = await import("@minsky/domain/changeset/index");
+    return await createChangesetService(deps.repoUrl, undefined, {
+      repositoryUrl: deps.repoUrl,
+      auth: { token: await deps.tokenProvider.getServiceToken() },
     });
   } catch (err) {
     // Never swallow silently: a dead credential path is indistinguishable from
     // "no live data" at the endpoint, which is exactly how a degraded page
     // looks healthy. Log the real reason.
     log.debug(
-      `[cockpit] changeset reader construction failed: ${
+      `[cockpit] changeset service construction failed: ${
         err instanceof Error ? err.message : String(err)
       }`
     );
