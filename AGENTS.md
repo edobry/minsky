@@ -1203,21 +1203,10 @@ branch exercised. Hook: `require-execution-evidence-before-merge.ts`. Override:
 `[unverified-tests]` title tag + follow-up task. Fail: open on unresolvable repo/PR or `gh`
 failure. Siblings: `/prepare-pr` §1b, `/implement-task` §7a.
 
-**AT-cross-reference trigger (mt#3033, calibration-first).** ADDITIVE third path, independent
-of the file-pattern triggers above (which remain the unchanged, deterministic BLOCKING floor):
-resolves the bound task's `## Acceptance Tests` (via `minsky tasks spec get <task> --json`),
-classifies each AT executable-vs-findings-shaped (skips `state-ops`-kind tasks and
-findings-shaped text like "audit produces…" / "decision recorded…"), and checks whether the
-`Execution evidence:` block addresses each executable AT by number/keyword or an explicit
-`[atN-deferred: mt#NNNN]` marker. Per the mt#2263 calibration ladder this ships **LOG-ONLY**
-(v1): an unaddressed AT appends a record to
-`.minsky/execution-evidence-at-coverage-calibration.jsonl` and surfaces a WARN via
-`additionalContext` — it never emits `permissionDecision: "deny"`; graduating to blocking is
-tracked as mt#3059 (flip WARN -> deny once the calibration FP rate is measured) — mt#3033 ships
-Phase 1 (log-only) only. Override: `MINSKY_SKIP_AT_COVERAGE=1`. Fail: silent (no WARN) on any
-task-spec fetch/parse error. Root incident: mt#2542 (PR #2136 merged with proxy evidence while
-the spec's literal AT — "services boot on the role" — was silently deferred and crashed
-production post-merge).
+**AT-cross-reference trigger (mt#3033, calibration-first).** ADDITIVE third path: cross-references
+the bound task's `## Acceptance Tests` and WARN-logs (never blocks — mt#2263 ladder) an
+unaddressed executable AT to `.minsky/execution-evidence-at-coverage-calibration.jsonl`. Override:
+`MINSKY_SKIP_AT_COVERAGE=1`. Root incident: mt#2542. Doc: `execution-evidence-merge-gate.md`.
 
 ## Deploy-Verification Merge Gate + Post-Merge Reminder
 
@@ -1228,13 +1217,9 @@ reminder. Hooks: `deploy-surface-detector.ts` + `require-deploy-verification-bef
 `deploy-verification-after-merge.ts`. Escapes: `[no-deploy-impact]` title; a `Deploy
 verification:` marker (label+colon or any-level heading, case-insensitive); `MINSKY_SKIP_DEPLOY_VERIFY=1`.
 Fail: open (unresolvable repo/PR/non-surface); PostToolUse always exits 0.
-**Gap A extension (mt#2545):** a SECOND, independent condition on the same PreToolUse hook — a
-build-surface PR (tray `src-tauri/**` only) whose body asserts altitude-4 usability ("you can use
-it now" / "ready to use" / "it's live", per `claim-confidence.mdc` Axis A) without an explicit
-rebuild + reinstall acknowledgment is hard-blocked. `[no-deploy-impact]` does NOT bypass this
-check (a tray build-surface file IS a deploy/build surface); the only escapes are adding the
-acknowledgment itself or `MINSKY_SKIP_USABILITY_CLAIM_CHECK=1` (independent of
-`MINSKY_SKIP_DEPLOY_VERIFY`).
+**Gap A extension (mt#2545):** a SECOND condition on the same hook hard-blocks a tray
+build-surface PR asserting altitude-4 usability without a rebuild+reinstall acknowledgment;
+`[no-deploy-impact]` does NOT bypass it. Override: `MINSKY_SKIP_USABILITY_CLAIM_CHECK=1`.
 Doc: `deploy-verification-merge-gate.md`.
 
 ## Growth-Justification Merge Gate
@@ -1548,9 +1533,9 @@ Exactly two levels, in precedence order:
 2. **Derived default** — the model-tier-plus-dispatch-context table above.
 
 The three-level stack (instruction > persisted setting > default) is **explicitly deferred** — it
-activates only once a persisted per-conversation/task register state ships (a session-record field
-or a cockpit control), which is itself deferred pending evidence that rule-tier alone is
-insufficient. Do not build that storage speculatively.
+activates only once a persisted per-conversation/task register state ships, which is itself
+deferred pending evidence that rule-tier alone is insufficient. Do not build that storage
+speculatively.
 
 **Task-record continuity.** Until persisted state ships, an override recorded in the task record
 or a handoff note is honored by later conversations on the same task — check the task record /
@@ -1596,12 +1581,11 @@ with the call"), with all reasoning beneath. A principal opening an artifact *to
 being persuaded; making them compress a long argument themselves is the same defect as a
 multi-screen chat report, relocated.
 
-Stated surface-generally on purpose: this family recurred four times in 14 days (2026-07-08 chat
-reports, 07-15 planning-gate output, 07-21 and 07-22 RFCs), each time on a surface whose own fix
-did not exist yet, because the norm had only ever been written per-surface. A new surface is
-covered by this clause the first time, not the second. Enforcement lives in the authoring skills
-(`/draft-rfc` step 7, `/draft-adr` step 5, `engineering-writing §Decision artifacts lead with the
-decision` — which otherwise silently overrides this rule, being the more specific writing advice).
+Recurrence history motivating the surface-general framing (this pattern recurred four times in 14
+days across four different surfaces): `docs/rules-rationale/communication-contract.md §Decision
+artifacts lead with the decision`. Enforcement lives in the authoring skills (`/draft-rfc` step 7,
+`/draft-adr` step 5, `engineering-writing §Decision artifacts lead with the decision` — which
+otherwise silently overrides this rule, being the more specific writing advice).
 
 ## Judgment calls are load-bearing (RFC Position 3)
 
@@ -1619,37 +1603,15 @@ Avoid: **multi-screen final reports** (blows the Tier-1 budget regardless of con
 needed-decision below the fold** (a Tier-0 decision inside a Tier-1 report instead of routed
 through Asks, or placed after routine narrative).
 
-## Worked example: the 2026-07-08 originating incident
-
-Origin: `mt#2713` §Originating signal (the principal's multi-screen-report pushback this shape
-derives from; ids below are illustrative). "**What happened:** Two PRs merged
-([PR #1](minsky://changeset/1), [PR #2](minsky://changeset/2)); umbrella [mt#100](minsky://task/mt%23100) closed. **What you
-need to know:** one judgment call — bypass-merged under a documented escape valve; no other
-exceptions. **What's next:** nothing pending." A partial turn folds status into "what happened"
-instead of a fourth heading.
-
-## Scope
-
-This rule ships the Tier-1 turn-report contract, channel model, and (as of `mt#2867`, RFC Phase 2)
-the altitude register's default-derivation, override, continuity, and severity mechanics above. It
-deliberately does **not** ship: **persisted per-conversation/task register state** (a
-session-record field or a cockpit control — file only if rule-tier proves insufficient; see
-`## Altitude register §Override` above); **trust-accrual register input** (successor to the
-model-tier proxy, `mt#2838`); a **Tier-2 digest** (RFC Phase 3, owned by `mt#2869`, depends on
-mt#2713, ambient-cockpit push discipline with a pull-only-widget fallback); a **calibration-first
-enforcement detector** (wall-of-text/shape-violation, Phase 3, owned by `mt#2870`, depends on
-mt#2713 — per the ADR-024 ladder this rule is the cheapest-sufficient rung; the detector graduates
-only on calibration evidence).
+Worked example (the 2026-07-08 originating incident) and full `## Scope` deferred-work rationale:
+`docs/rules-rationale/communication-contract.md`.
 
 ## Cross-references
 
-`user-preferences.mdc §Plain-language first` (mt#2801) · `§Progress heartbeats` (mt#2824) ·
-`cockpit-deeplinks.mdc` · `humility.mdc §Escalation packaging` · `decision-defaults.mdc` ·
-`subagent-routing.mdc §Escalation to Opus` (dispatch-context register carve-out; sets the register
-on the consuming side) · `mt#1034` / `docs/architecture/adr-008-attention-allocation-subsystem.md`
-· `mt#2713` (Tier-1 contract, this rule's origin) · `mt#2867` (this task — altitude register) ·
-`mt#2838` (trust-accrual successor to model tier) · `mt#2869` (Tier-2 digest) · `mt#2870`
-(enforcement detector) · `mt#2258` (umbrella).
+`user-preferences.mdc §Plain-language first` · `humility.mdc §Escalation packaging` ·
+`decision-defaults.mdc` · `subagent-routing.mdc §Escalation to Opus` (sets the register on the
+consuming side) · `mt#1034` (attention-allocation subsystem). Full cross-reference index:
+`docs/rules-rationale/communication-contract.md §Cross-references`.
 
 # Cockpit Deeplinks in Terminal Output
 
@@ -2377,7 +2339,7 @@ For any capability that is not Minsky's core differentiating value-add, the defa
 
 **Generic-SE override:** "build from scratch is the safe / principled / no-lock-in choice." Engineering time is the scarcest resource; that bias treats it as free.
 
-**Biases to watch for in self:** (1) **Policy-laundering** — citing `§Datastores` to justify building auxiliary analytics on Postgres; that policy covers source-of-truth state only. The tell: recommending the cheaper option AND describing it as "principled." Any "per `§X`"-style claim that a rule section covers the current case is a trigger to re-verify that section's actual scope first — full trigger enumeration in memory `88d92439`. (2) **Build-path-as-research at action time** — "use existing signals" / "grep what's already there" reads as research but is functionally the build path, skipping the user-sequenced evaluation step; see `feedback_build_path_as_research_at_action_time`.
+**Biases to watch for in self:** (1) **Policy-laundering** — citing `§Datastores` for auxiliary analytics (out of scope — source-of-truth only); any "per `§X`"-style claim of rule-coverage is a trigger to re-verify that section's actual scope. (2) **Build-path-as-research at action time** — "use existing signals" reads as research but IS the build path, skipping the user-sequenced evaluation step. Full detail: `docs/rules-rationale/decision-defaults.md §Build vs buy`.
 
 **Anti-pattern checklist before recommending OR executing build:**
 
@@ -2424,7 +2386,7 @@ Today: human-consulted — read this file before any preference-encoding action.
 
 ## Cross-References
 
-- `humility.mdc` (the design principle this corpus operationalizes); `operational-safety-dry-run-first.mdc`; `work-completion.mdc §Temporary mechanism budget`; mt#1034 / mt#1035; mt#2755; mt#1508 (originating audit); `/declare-framework` (mt#1789); `/restate-plan` (mt#1784). Per-section origins are cited inline above.
+`humility.mdc` (the design principle this corpus operationalizes) · `work-completion.mdc §Temporary mechanism budget` · mt#1034/mt#1035 · mt#2755. Full cross-reference index: `docs/rules-rationale/decision-defaults.md §Cross-references`.
 
 # Memory Usage
 

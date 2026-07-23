@@ -88,21 +88,10 @@ branch exercised. Hook: `require-execution-evidence-before-merge.ts`. Override:
 `[unverified-tests]` title tag + follow-up task. Fail: open on unresolvable repo/PR or `gh`
 failure. Siblings: `/prepare-pr` §1b, `/implement-task` §7a.
 
-**AT-cross-reference trigger (mt#3033, calibration-first).** ADDITIVE third path, independent
-of the file-pattern triggers above (which remain the unchanged, deterministic BLOCKING floor):
-resolves the bound task's `## Acceptance Tests` (via `minsky tasks spec get <task> --json`),
-classifies each AT executable-vs-findings-shaped (skips `state-ops`-kind tasks and
-findings-shaped text like "audit produces…" / "decision recorded…"), and checks whether the
-`Execution evidence:` block addresses each executable AT by number/keyword or an explicit
-`[atN-deferred: mt#NNNN]` marker. Per the mt#2263 calibration ladder this ships **LOG-ONLY**
-(v1): an unaddressed AT appends a record to
-`.minsky/execution-evidence-at-coverage-calibration.jsonl` and surfaces a WARN via
-`additionalContext` — it never emits `permissionDecision: "deny"`; graduating to blocking is
-tracked as mt#3059 (flip WARN -> deny once the calibration FP rate is measured) — mt#3033 ships
-Phase 1 (log-only) only. Override: `MINSKY_SKIP_AT_COVERAGE=1`. Fail: silent (no WARN) on any
-task-spec fetch/parse error. Root incident: mt#2542 (PR #2136 merged with proxy evidence while
-the spec's literal AT — "services boot on the role" — was silently deferred and crashed
-production post-merge).
+**AT-cross-reference trigger (mt#3033, calibration-first).** ADDITIVE third path: cross-references
+the bound task's `## Acceptance Tests` and WARN-logs (never blocks — mt#2263 ladder) an
+unaddressed executable AT to `.minsky/execution-evidence-at-coverage-calibration.jsonl`. Override:
+`MINSKY_SKIP_AT_COVERAGE=1`. Root incident: mt#2542. Doc: `execution-evidence-merge-gate.md`.
 
 ## Deploy-Verification Merge Gate + Post-Merge Reminder
 
@@ -113,13 +102,9 @@ reminder. Hooks: `deploy-surface-detector.ts` + `require-deploy-verification-bef
 `deploy-verification-after-merge.ts`. Escapes: `[no-deploy-impact]` title; a `Deploy
 verification:` marker (label+colon or any-level heading, case-insensitive); `MINSKY_SKIP_DEPLOY_VERIFY=1`.
 Fail: open (unresolvable repo/PR/non-surface); PostToolUse always exits 0.
-**Gap A extension (mt#2545):** a SECOND, independent condition on the same PreToolUse hook — a
-build-surface PR (tray `src-tauri/**` only) whose body asserts altitude-4 usability ("you can use
-it now" / "ready to use" / "it's live", per `claim-confidence.mdc` Axis A) without an explicit
-rebuild + reinstall acknowledgment is hard-blocked. `[no-deploy-impact]` does NOT bypass this
-check (a tray build-surface file IS a deploy/build surface); the only escapes are adding the
-acknowledgment itself or `MINSKY_SKIP_USABILITY_CLAIM_CHECK=1` (independent of
-`MINSKY_SKIP_DEPLOY_VERIFY`).
+**Gap A extension (mt#2545):** a SECOND condition on the same hook hard-blocks a tray
+build-surface PR asserting altitude-4 usability without a rebuild+reinstall acknowledgment;
+`[no-deploy-impact]` does NOT bypass it. Override: `MINSKY_SKIP_USABILITY_CLAIM_CHECK=1`.
 Doc: `deploy-verification-merge-gate.md`.
 
 ## Growth-Justification Merge Gate
