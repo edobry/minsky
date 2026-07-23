@@ -160,10 +160,10 @@ describe("parseDispatchIntentStoreContent", () => {
 
   it("preserves optional issuedBy and reason when present", () => {
     const raw = JSON.stringify({
-      declarations: [makeDeclaration({ issuedBy: "session.generate_prompt:mt#2828" })],
+      declarations: [makeDeclaration({ issuedBy: "session.generate_prompt:mt#2865" })],
     });
     const declarations = parseDispatchIntentStoreContent(raw);
-    expect(declarations?.[0]?.issuedBy).toBe("session.generate_prompt:mt#2828");
+    expect(declarations?.[0]?.issuedBy).toBe("session.generate_prompt:mt#2865");
     expect(declarations?.[0]?.reason).toBe(SAMPLE_REASON);
   });
 });

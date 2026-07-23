@@ -22,7 +22,7 @@
 //
 // ## Motivation (mt#2865 — fork scope-violation incident)
 //
-// During mt#2828 (2026-07-16), an implementer dispatched a `fork` subagent
+// During mt#2865 (2026-07-16), an implementer dispatched a `fork` subagent
 // with a narrow, bounded, read-only instruction ("search memory... report
 // back under 300 words"). The fork inherited the FULL conversation context
 // (confirmed at the transcript level — see mt#2865's spec "Incident

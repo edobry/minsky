@@ -8,7 +8,7 @@
 //
 // ## Why this exists
 //
-// mt#2828 (2026-07-16): an implementer dispatched a `fork` subagent with a
+// mt#2865 (2026-07-16): an implementer dispatched a `fork` subagent with a
 // narrow, bounded, read-only instruction ("search memory for
 // reviewer-empty-findings context, report back under 300 words"). The fork
 // inherited the FULL conversation context and, primed by that inherited
@@ -92,8 +92,8 @@
 // write-bound to apply) — the denial message names the sanctioned
 // alternative (report findings back; the parent decides) instead.
 //
-// @see mt#2865 — this guard's tracking task
-// @see mt#2828 — the originating incident
+// @see mt#2865 — this guard's tracking task (mt#2865 is both the incident
+//   report and the fix — see its spec's "Incident reconstruction" section)
 // @see .minsky/hooks/dispatch-intent-store.ts — declaration schema + matching logic
 // @see .minsky/hooks/block-subagent-merge-without-grant.ts — structural template (D5)
 // @see .minsky/hooks/check-guessed-session-path.ts — SESSION_DIR_RE, the cwd-resolution pattern this guard reuses

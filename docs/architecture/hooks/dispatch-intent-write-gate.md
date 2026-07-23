@@ -17,9 +17,9 @@ deliberately excluded — it already has its own default-deny ADR-028 D5 capabil
 sources per the mt#2304 hooks-compile pipeline (`bun run src/cli.ts compile --target
 claude-hooks`).
 
-## Why this exists — the mt#2828 incident (2026-07-16)
+## Why this exists — the mt#2865 incident (2026-07-16)
 
-During mt#2828, the implementing agent dispatched a `fork` subagent with a narrow, bounded,
+During mt#2865, the implementing agent dispatched a `fork` subagent with a narrow, bounded,
 read-only instruction: "search memory for reviewer-empty-findings context, report back under 300
 words." Reconstructed directly from the transcript store (mt#2865 spec, "Incident
 reconstruction" — not just the implementer's self-report):
@@ -208,7 +208,7 @@ used — see "Known limitations" below.
 - **No automatic coverage for a fork dispatched with no Minsky-side intent declaration.** If an
   orchestrator forks directly via the harness's native mechanism without first calling
   `session_generate_prompt`/`tasks_dispatch` with `intent: "read-only"` — exactly what happened
-  in the original mt#2828 incident — no declaration is ever written, and this guard has nothing
+  in the original mt#2865 incident — no declaration is ever written, and this guard has nothing
   to match against. Closing this gap requires either (a) the paired guidance discipline actually
   being followed (the (a) mitigation shipped alongside this guard, per the mt#2865 Plan
   decision), or (b) a harness-level hook into fork-dispatch itself, which does not exist as an
@@ -228,8 +228,8 @@ used — see "Known limitations" below.
 
 ## Cross-references
 
-- mt#2865 — this guard's tracking task (incident reconstruction, Plan decision)
-- mt#2828 — the originating incident
+- mt#2865 — this guard's tracking task (incident reconstruction, Plan decision; mt#2865 is
+  both the incident report and the fix)
 - ADR-028 (`docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md`) §D5/§D8 — the
   grant/declaration-store pattern this guard's store is the fourth instance of
 - `.claude/hooks/block-subagent-merge-without-grant.ts` — structural template (D5)
