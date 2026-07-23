@@ -539,15 +539,29 @@ export function buildRelayCorpus(turnLines: TranscriptLine[]): string {
   for (const line of turnLines) {
     const role = line.message?.role ?? line.type;
     const content = line.message?.content;
-    if (role !== "assistant" || !Array.isArray(content)) continue;
-    for (const block of content as Array<Record<string, unknown>>) {
-      if (
-        block["type"] === "tool_use" &&
-        typeof block["name"] === "string" &&
-        SUBAGENT_DISPATCH_TOOL_RE.test(block["name"] as string) &&
-        typeof block["id"] === "string"
-      ) {
-        dispatchIds.add(block["id"] as string);
+    if (role === "assistant" && Array.isArray(content)) {
+      for (const block of content as Array<Record<string, unknown>>) {
+        if (
+          block["type"] === "tool_use" &&
+          typeof block["name"] === "string" &&
+          SUBAGENT_DISPATCH_TOOL_RE.test(block["name"] as string) &&
+          typeof block["id"] === "string"
+        ) {
+          dispatchIds.add(block["id"] as string);
+        }
+      }
+    }
+
+    // Top-level tool_use line shape (defensive; mirrors
+    // buildVerificationCorpus's identical fallback above — PR #2236 R1/R2
+    // finding: the harness can emit a dispatch tool_use as a top-level line
+    // rather than nested inside message.content, and without this branch
+    // dispatchIds silently stays empty for that shape).
+    if (line.type === "tool_use") {
+      const name = line.name ?? line.tool_name ?? "";
+      const id = (line as Record<string, unknown>)["id"];
+      if (SUBAGENT_DISPATCH_TOOL_RE.test(name) && typeof id === "string") {
+        dispatchIds.add(id);
       }
     }
   }

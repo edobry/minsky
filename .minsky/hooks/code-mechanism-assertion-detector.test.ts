@@ -519,6 +519,23 @@ describe("mt#3113 leg 2 — symbol-plausibility extension (generic English/tech 
     expect(syms).not.toContain("MACOS");
     expect(syms).not.toContain("Description");
   });
+
+  test("PR #2236 R1/R2: bare (non-backticked) camelCase `macOS` is excluded via CAMEL_CASE_RE + stoplist", () => {
+    // No backticks here -- CAMEL_CASE_RE extracts "macOS" from bare prose
+    // independent of backtick-quoting; the stoplist check in
+    // isPlausibleSymbol must still reject it.
+    const text = "macOS overrides the platform resolver for this build.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.claims.map((c) => c.symbol)).not.toContain("macOS");
+    expect(result.matched).toBe(false);
+  });
+
+  test("PR #2236 R1/R2: bare (non-backticked) camelCase `CommonJS` is excluded via CAMEL_CASE_RE + stoplist", () => {
+    const text = "CommonJS guards against duplicate module registration here.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.claims.map((c) => c.symbol)).not.toContain("CommonJS");
+    expect(result.matched).toBe(false);
+  });
 });
 
 // Shared fixture for leg-3 relay-context tests: a claim set produced by
@@ -619,6 +636,35 @@ describe("mt#3113 leg 3 — buildRelayCorpus (same-turn subagent-dispatch correl
 
   test("no dispatch tool_use in the turn -> empty corpus", () => {
     expect(buildRelayCorpus([])).toBe("");
+  });
+
+  test("PR #2236 R1/R2: top-level tool_use line shape (not nested in message.content) is also correlated", () => {
+    // Mirrors buildVerificationCorpus's defensive top-level tool_use
+    // fallback: a dispatch tool_use emitted as a top-level line, rather than
+    // nested inside an assistant message's content array, must still
+    // register a dispatch id so the correlated tool_result is collected.
+    const turn = [
+      {
+        type: "tool_use",
+        name: "Agent",
+        id: "toolu_top_1",
+        input: { prompt: "investigate mt#9999" },
+      },
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_top_1",
+              content: "top-level dispatch report",
+            },
+          ],
+        },
+      },
+    ] as unknown as TranscriptLine[];
+    expect(buildRelayCorpus(turn)).toContain("top-level dispatch report");
   });
 });
 
