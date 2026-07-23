@@ -75,3 +75,54 @@ describe("GET /api/changesets?project=<slug> (mt#2418)", () => {
     expect(allRes.status).toBe(noParamRes.status);
   });
 });
+
+/**
+ * GET /api/changeset/:id degradation contract (mt#3096).
+ *
+ * This harness configures NO live SQL persistence provider, so
+ * `getServerSessionProvider()` resolves unavailable — precisely the
+ * "session store is down" condition that used to surface as a 500 for the
+ * whole page (observed live 2026-07-23, `Failed query: select ... from
+ * "sessions"`). The route must degrade instead: resolve from the live PR when
+ * it can, and 404 only when nothing resolves. A 500 is a regression.
+ */
+describe("GET /api/changeset/:id degradation (mt#3096)", () => {
+  let closeServer: (() => Promise<void>) | null = null;
+
+  afterEach(async () => {
+    if (closeServer) {
+      await closeServer();
+      closeServer = null;
+    }
+  });
+
+  test("never returns 500 when the session store is unavailable", async () => {
+    const { url, close } = await startTestServer();
+    closeServer = close;
+
+    const res = await fetch(`${url}/api/changeset/2222`);
+    expect(res.status).not.toBe(500);
+    // 200 when the live forge resolved the PR, 404 when neither source did.
+    expect([200, 404]).toContain(res.status);
+  });
+
+  test("rejects a non-numeric changeset id with 400 (not 404 or 500)", async () => {
+    const { url, close } = await startTestServer();
+    closeServer = close;
+
+    const res = await fetch(`${url}/api/changeset/not-a-number`);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("expected a PR number");
+  });
+
+  test("a wholly unresolvable id is a 404, not a 500", async () => {
+    const { url, close } = await startTestServer();
+    closeServer = close;
+
+    // PR 0 does not exist on any forge, and no session matches it.
+    const res = await fetch(`${url}/api/changeset/0`);
+    expect(res.status).not.toBe(500);
+    expect(res.status).toBe(404);
+  });
+});

@@ -97,6 +97,22 @@ describe("run() — firing and suppression", () => {
     expect(outcome?.calibration?.source).toBe("live");
   });
 
+  // mt#3098: both scanners share ONE FAMILY_PATTERNS corpus (this module
+  // imports detectTriggerPhrases from retrospective-trigger-scanner), so a
+  // corpus gap is a two-surface gap — and the corpus fix must be provably a
+  // two-surface fix. This pins the reversed-order R3 commitment (the 2026-07-23
+  // admission) firing through the Stop path, not just the prompt-time one.
+  test("reversed-order R3 commitment fires through the Stop path (mt#3098)", () => {
+    const lines = [
+      userPrompt("give me a handoff", "u-3098"),
+      assistantText("I'll invoke it rather than improvise going forward."),
+    ];
+    const outcome = run(STOP_INPUT, makeCtx(lines), storeDir);
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toContain("R3");
+    expect(outcome?.calibration?.channel).toBe("stop");
+  });
+
   test("same-turn /retrospective invocation -> silent", () => {
     const lines = [
       userPrompt("deploy the service"),

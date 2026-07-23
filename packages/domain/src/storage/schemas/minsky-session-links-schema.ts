@@ -12,10 +12,21 @@ import { agentTranscriptsTable } from "./agent-transcripts-schema";
  *   - 'declared'      — the JSONL explicitly references the Minsky session ID
  *   - 'cwd_match'     — the agent session's cwd matches the Minsky session workspace
  *   - 'subagent_spawn' — the agent session was spawned by a parent whose Minsky link is known
+ *   - 'driven_spawn'  — the session was launched by the cockpit as a driven child
+ *   - 'pr_author'     — the conversation that called `session_pr_create` for this workspace
  *   - 'merge_hook'    — the linkage was recorded at session_pr_merge time
+ *
+ * NOTE (mt#3101): `declared` and `merge_hook` are DESIGN-ONLY — specified by
+ * mt#1313 and never implemented. Zero writers exist for either, and the live
+ * table has never held a row of either type. `pr_author` is the one that
+ * actually covers the "a hook records the linkage" case they described; it is
+ * deliberately at PR-create time rather than merge time, because the
+ * authorship-relevant conversation is the one that WROTE the code (for
+ * dispatched work the implementer creates the PR and the main agent merges).
  *
  * @see mt#1313 — Transcript search: harness-agnostic ingestion (§Minsky session links)
  * @see mt#1324 — Foundation schema migration
+ * @see mt#3101 — `pr_author`, and the id-space defect it closes
  */
 export const minskySessionLinksTable = pgTable(
   "minsky_session_links",
@@ -27,7 +38,7 @@ export const minskySessionLinksTable = pgTable(
     minskySessionId: text("minsky_session_id").notNull(),
 
     // How the link was established
-    linkType: text("link_type").notNull(), // 'declared' | 'cwd_match' | 'subagent_spawn' | 'merge_hook'
+    linkType: text("link_type").notNull(), // 'declared' | 'cwd_match' | 'subagent_spawn' | 'driven_spawn' | 'pr_author' | 'merge_hook'
 
     // Confidence in the linkage (0.0–1.0); exact matches are 1.0, heuristic matches < 1.0
     confidence: real("confidence"),
