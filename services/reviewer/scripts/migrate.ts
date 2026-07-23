@@ -81,9 +81,19 @@ async function main(): Promise<number> {
     return 1;
   } finally {
     // Best-effort pool shutdown so the process doesn't hang on an open
-    // connection. Failure to close is not itself a migration failure — it
-    // is swallowed and does not affect the exit code determined above.
-    await db.$client.end({ timeout: 5 }).catch(() => undefined);
+    // connection. Wrapped in a real try/catch rather than a trailing
+    // `.catch()`: if `$client` is absent (drizzle version skew) or `end()`
+    // throws SYNCHRONOUSLY, a promise-level `.catch()` never runs and the
+    // throw escapes from `finally` — which in JS discards the value the
+    // `try`/`catch` above already computed, reporting a spurious failure
+    // for a migration that actually succeeded (or vice versa). Closing the
+    // pool is never itself a migration outcome, so it must not affect the
+    // exit code.
+    try {
+      await db.$client?.end({ timeout: 5 });
+    } catch {
+      /* ignore — pool-close failure is not a migration failure */
+    }
   }
 }
 
