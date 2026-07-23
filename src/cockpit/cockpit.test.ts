@@ -114,7 +114,7 @@ describe("Cockpit server", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ id: string }>;
     expect(Array.isArray(body)).toBe(true);
-    const ids = Object.keys(WIDGET_REGISTRY);
+    const ids = body.map((w) => w.id);
     expect(ids).toContain("attention");
     expect(ids).toContain("basic-health");
   });
