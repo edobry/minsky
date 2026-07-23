@@ -8,6 +8,7 @@
  */
 
 import { execAsync, safeShellQuote } from "@minsky/shared/exec";
+import { regenerateStagedClaudeHooks } from "./claude-hooks-compile-regen";
 import { execGitWithTimeout } from "@minsky/domain/utils/git-exec";
 import { stat, readdir, readFile } from "fs/promises";
 import { join } from "path";
@@ -371,6 +372,19 @@ export class PreCommitHook {
       );
       if (!deployDomainResult.success) {
         return deployDomainResult;
+      }
+
+      // Step 3f: claude-hooks compile auto-regeneration (mt#2977). Unlike the
+      // block-on-drift Step 9b compile-check, this REGENERATES + re-stages the
+      // .claude/hooks/ outputs when this commit touches hooks sources — no
+      // manual `compile --target claude-hooks` + re-commit needed. Same
+      // auto-fix-and-restage shape as Step 1b / Step 3c; no override (a
+      // generator failure is a real compile error, not staleness).
+      const claudeHooksRegenResult = await this.instrumented("claude-hooks-compile-regen", () =>
+        this.runClaudeHooksCompileRegen()
+      );
+      if (!claudeHooksRegenResult.success) {
+        return claudeHooksRegenResult;
       }
 
       // ── Medium-weight static analysis (~5s each) ──
@@ -1186,6 +1200,23 @@ export class PreCommitHook {
     };
   }
 
+  /**
+   * Thin wrapper over {@link regenerateStagedClaudeHooks} (the logic lives in
+   * `./claude-hooks-compile-regen`, extracted for the max-lines ceiling,
+   * mt#2977): auto-regenerate + re-stage `.claude/hooks/*` when this commit
+   * stages hooks sources — the same auto-fix-and-restage shape as Step 1b /
+   * Step 3c, instead of the block-on-drift `runCompileCheck` uses for the
+   * sibling targets (SC#4).
+   */
+  private async runClaudeHooksCompileRegen(): Promise<HookResult> {
+    return regenerateStagedClaudeHooks({
+      projectRoot: this.projectRoot,
+      runGit: (args) => this.runGitArgv(args),
+      logLine: (line) => log.cli(line),
+      exec: execAsync,
+    });
+  }
+
   private async runMigrationJournalCheck(): Promise<HookResult> {
     if (isOverrideTruthy(process.env[MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV])) {
       const ts = new Date().toISOString();
@@ -1938,6 +1969,12 @@ export class PreCommitHook {
       skills: await dirExists(`${this.projectRoot}/.minsky/skills`),
       rules: await dirExists(`${this.projectRoot}/.minsky/rules`),
       agents: await dirExists(`${this.projectRoot}/.minsky/agents`),
+      // claude-hooks is auto-regenerated + re-staged by Step 3f
+      // (runClaudeHooksCompileRegen, mt#2977) when hooks SOURCES are staged;
+      // this block-on-drift check is RETAINED as the safety net for output
+      // drift when sources are NOT staged — e.g. a hand-edited output (PR #2223
+      // review). For a hooks-source commit Step 3f already regenerated the
+      // output, so this check then passes on the fresh output.
       hooks: await dirExists(`${this.projectRoot}/.minsky/hooks`),
     });
 
@@ -2102,6 +2139,15 @@ export function compileCheckTargets(present: {
   if (present.hooks) targets.push("claude-hooks");
   return targets;
 }
+
+// The claude-hooks compile auto-regen helpers live in
+// ./claude-hooks-compile-regen (extracted for the max-lines ceiling, mt#2977).
+// Re-exported so existing importers (compile-check-targets.test.ts) resolve
+// them from ./pre-commit.
+export {
+  claudeHooksCompileAffected,
+  classifyCompileHooksRegenError,
+} from "./claude-hooks-compile-regen";
 
 /**
  * Classify a failed compile-check subprocess error as either genuine staleness
