@@ -25,6 +25,12 @@ try {
     // a remediation hint, then exit non-zero. The hint is environment-agnostic
     // (PR #1090 R1 NB#1) — doesn't prescribe a specific config path or install
     // method since both vary by platform and install source.
+    //
+    // mt#3067: this branch writes and then exits IMMEDIATELY, before the
+    // preAction hook that normally installs synchronous writes has had a
+    // chance to run — so the same exit-before-drain truncation applies here.
+    // Install it inline first.
+    enableSynchronousStdout();
     process.stderr.write(`Error: ${error.message}\n`);
     process.stderr.write(
       "Hint: remove the unknown key from your Minsky config file, " +
@@ -261,6 +267,9 @@ async function main(): Promise<void> {
 // (mt#1788) so the config-loader skips it.
 if (!process.env.MINSKY_SKIP_CLI_AUTORUN) {
   main().catch((err) => {
+    // mt#3067: another write-then-exit path. If the failure happened before
+    // (or instead of) the preAction hook, writes here are still async.
+    enableSynchronousStdout();
     const validatedError = validateError(err);
     log.systemDebug(`Error caught in main: ${err}`);
     log.systemDebug(`Error stack: ${validatedError.stack || "No stack available"}`);

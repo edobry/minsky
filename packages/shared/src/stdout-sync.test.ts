@@ -10,34 +10,40 @@
  * The suite deliberately includes a NEGATIVE CONTROL (`without the patch`):
  * a regression test for this bug is worthless unless it can actually see the
  * bug, and the pre-fix behavior is what it must see.
+ *
+ * Payload size is pinned ABOVE the task's 5 MB success criterion, not merely
+ * above the observed 64 KiB truncation boundary — a fix that happened to work
+ * at 1 MiB but not at 6 MiB would still fail the criterion.
+ *
+ * File-vs-pipe comparison is done by having the CHILD write the file and
+ * report its size, so this test never imports `node:fs` (which would trip
+ * `custom/no-real-fs-in-tests`).
  */
 
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-/** Comfortably above the 64 KiB boundaries the truncation lands on. */
-const PAYLOAD_BYTES = 1024 * 1024;
+/** 6 MiB — comfortably above the task's "at least 5 MB" success criterion. */
+const PAYLOAD_BYTES = 6 * 1024 * 1024;
 
 /** Repo root, from `packages/shared/src/` — child processes resolve imports from here. */
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
 
-/**
- * Run a child that writes `PAYLOAD_BYTES` to stdout and then immediately calls
- * `process.exit(0)`, capturing stdout through a PIPE. Returns the byte count
- * that actually survived.
- */
-async function pipedByteCount(options: { withPatch: boolean }): Promise<number> {
+/** Source for a child that writes the payload to stdout and exits immediately. */
+function childSource(options: { withPatch: boolean }): string {
   const enable = options.withPatch
     ? 'const m = await import("@minsky/shared/stdout-sync"); m.enableSynchronousStdout();'
     : "";
-
-  const source = `
+  return `
     ${enable}
     process.stdout.write("x".repeat(${PAYLOAD_BYTES}));
     process.exit(0);
   `;
+}
 
-  const child = Bun.spawn(["bun", "-e", source], {
+/** Run the child with stdout on a PIPE; return how many bytes survived. */
+async function pipedByteCount(options: { withPatch: boolean }): Promise<number> {
+  const child = Bun.spawn(["bun", "-e", childSource(options)], {
     cwd: REPO_ROOT,
     stdout: "pipe",
     stderr: "pipe",
@@ -55,6 +61,29 @@ async function pipedByteCount(options: { withPatch: boolean }): Promise<number> 
   return stdout.length;
 }
 
+/**
+ * Run the child with stdout redirected to a FILE and return the file's byte
+ * count, as measured by the shell (`wc -c`) rather than by this process.
+ */
+async function fileByteCount(options: { withPatch: boolean }): Promise<number> {
+  const inner = childSource(options).replace(/'/g, "'\\''");
+  const script = `f=$(mktemp); bun -e '${inner}' > "$f"; wc -c < "$f"; rm -f "$f"`;
+
+  const proc = Bun.spawn(["sh", "-c", script], {
+    cwd: REPO_ROOT,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const out = await new Response(proc.stdout).text();
+  await proc.exited;
+
+  const parsed = Number.parseInt(out.trim(), 10);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`could not read file byte count from shell output: ${JSON.stringify(out)}`);
+  }
+  return parsed;
+}
+
 describe("enableSynchronousStdout (mt#3067)", () => {
   test("negative control: without the patch, piped stdout IS truncated on exit", async () => {
     const bytes = await pipedByteCount({ withPatch: false });
@@ -64,24 +93,30 @@ describe("enableSynchronousStdout (mt#3067)", () => {
     // And it truncates on a 64 KiB boundary rather than at an arbitrary point,
     // which is what identifies this as a buffer-drain race and not corruption.
     expect(bytes % (64 * 1024)).toBe(0);
-  }, 30000);
+  }, 60000);
 
   test("with the patch, the full payload survives the pipe", async () => {
     const bytes = await pipedByteCount({ withPatch: true });
 
     expect(bytes).toBe(PAYLOAD_BYTES);
-  }, 30000);
+  }, 60000);
+
+  test("piped output is byte-for-byte identical to file-redirected output", async () => {
+    const [piped, toFile] = await Promise.all([
+      pipedByteCount({ withPatch: true }),
+      fileByteCount({ withPatch: true }),
+    ]);
+
+    // File writes were never lossy; the pipe must now match them exactly.
+    expect(piped).toBe(toFile);
+    expect(piped).toBe(PAYLOAD_BYTES);
+  }, 60000);
 
   test("a reader that closes early (EPIPE) does not crash the writer", async () => {
     // `head -c 10` closes the pipe after 10 bytes. The synchronous writer must
     // swallow the resulting EPIPE exactly as a stream would.
-    const source = `
-      const m = await import("@minsky/shared/stdout-sync");
-      m.enableSynchronousStdout();
-      process.stdout.write("x".repeat(${PAYLOAD_BYTES}));
-      process.exit(0);
-    `;
-    const proc = Bun.spawn(["sh", "-c", `bun -e '${source.replace(/'/g, "'\\''")}' | head -c 10`], {
+    const inner = childSource({ withPatch: true }).replace(/'/g, "'\\''");
+    const proc = Bun.spawn(["sh", "-c", `bun -e '${inner}' | head -c 10`], {
       cwd: REPO_ROOT,
       stdout: "pipe",
       stderr: "pipe",
@@ -91,5 +126,5 @@ describe("enableSynchronousStdout (mt#3067)", () => {
     await proc.exited;
 
     expect(stdout.length).toBe(10);
-  }, 30000);
+  }, 60000);
 });

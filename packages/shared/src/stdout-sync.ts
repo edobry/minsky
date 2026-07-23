@@ -76,25 +76,6 @@ function isPatched(write: unknown): boolean {
 }
 
 /**
- * Write `buf` to `fd` synchronously, looping until every byte is accepted.
- *
- * `writeSync` may return a short count (a partial write) and may throw EAGAIN
- * when the pipe's buffer is momentarily full and the fd is non-blocking —
- * neither is an error, both just mean "call again".
- */
-function writeAllSync(fd: number, buf: Uint8Array): void {
-  let offset = 0;
-  while (offset < buf.length) {
-    try {
-      offset += writeSync(fd, buf, offset, buf.length - offset);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException)?.code === "EAGAIN") continue;
-      throw err;
-    }
-  }
-}
-
-/**
  * Make `process.stdout` and `process.stderr` write synchronously, so a
  * subsequent `process.exit()` cannot discard buffered output.
  *
@@ -113,9 +94,26 @@ export function enableSynchronousStdout(): void {
       const callback = typeof encodingOrCb === "function" ? encodingOrCb : cb;
       const encoding: BufferEncoding = typeof encodingOrCb === "string" ? encodingOrCb : "utf8";
 
+      const buf: Uint8Array = typeof chunk === "string" ? Buffer.from(chunk, encoding) : chunk;
+
+      // `written` MUST stay in scope for the catch below: on a partial write we
+      // have already emitted `written` bytes to the fd, so any fallback must
+      // send only the REMAINDER. Re-sending the whole chunk would duplicate
+      // those bytes — silent corruption, and worse than the truncation this
+      // module exists to fix.
+      let written = 0;
       try {
-        const buf: Uint8Array = typeof chunk === "string" ? Buffer.from(chunk, encoding) : chunk;
-        writeAllSync(target.fd, buf);
+        while (written < buf.length) {
+          try {
+            // `writeSync` may return a short count (a partial write) and may
+            // throw EAGAIN when a non-blocking pipe's buffer is momentarily
+            // full — neither is an error, both just mean "call again".
+            written += writeSync(target.fd, buf, written, buf.length - written);
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException)?.code === "EAGAIN") continue;
+            throw err;
+          }
+        }
         callback?.();
         return true;
       } catch (err) {
@@ -125,8 +123,12 @@ export function enableSynchronousStdout(): void {
           callback?.();
           return true;
         }
-        // Anything else (a closed fd, an unexpected errno): fall back to the
-        // original async stream write so output degrades rather than throwing.
+        // Anything else (a closed fd, an unexpected errno): degrade to the
+        // original async stream write rather than throwing — but only for the
+        // bytes that have NOT already reached the fd.
+        if (written > 0) {
+          return original(buf.subarray(written), cb);
+        }
         return original(chunk, encodingOrCb, cb);
       }
     };
