@@ -511,4 +511,74 @@ describe("sweep meta-watchdog (mt#2894)", () => {
       stopWatchdog();
     }
   });
+
+  // ── mt#3060: force-restart must fire a tick, not just re-arm the timer ────
+  //
+  // Regression for the 2026-07-22 incident (mt#3051's runtime-log evidence):
+  // the meta-watchdog fired "force-restarting" once a minute for ~7.5h and
+  // `staleMs` never reset. Root cause: `restartInterval` only called
+  // `startInterval()` (re-arm) and never `runTick()` (fire) — so whenever a
+  // sweep's own cadence is LONGER than the watchdog's scan cadence (every
+  // real production sweep: e.g. prod-state's 10min vs the watchdog's 60s
+  // default), the watchdog re-clobbers the freshly-armed interval on its
+  // very next scan, before that interval ever gets a chance to fire on its
+  // own — an infinite restart storm that never actually resumes ticking.
+  // The prior test above ("force-restarts ... within one meta-cadence") used
+  // intervalMs=15ms < watchdog cadence=20ms, which masked this bug: the
+  // restarted interval's OWN natural cadence elapsed before the next scan,
+  // so it "happened" to tick anyway. This test deliberately inverts that
+  // ratio to match production.
+  test("force-restart resumes real ticking even when the sweep's cadence outlasts the watchdog's scan interval", async () => {
+    let callCount = 0;
+    const stop = createIntervalSweeper({
+      name: "test-meta-watchdog-restart-storm",
+      // Sweep cadence is intentionally much LONGER than the watchdog's scan
+      // cadence below (500ms vs 20ms) — the exact ratio every real sweep has
+      // relative to DEFAULT_META_WATCHDOG_INTERVAL_MS, and the ratio the
+      // pre-fix bug needed to manifest as an infinite restart storm.
+      intervalMs: 500,
+      tickTimeoutMs: 5_000,
+      tick: async () => {
+        callCount++;
+      },
+    });
+    const stopWatchdog = startSweepMetaWatchdog(20); // stall threshold = 2 * 500ms = 1000ms
+    try {
+      await waitFor(() => callCount >= 1);
+      const countAfterBoot = callCount;
+
+      _simulateDroppedTimerForTest("test-meta-watchdog-restart-storm");
+
+      // Wait for at least one force-restart to fire (staleness > 1000ms).
+      await waitFor(() => {
+        const entry = getSweepLivenessSnapshot().find(
+          (e) => e.name === "test-meta-watchdog-restart-storm"
+        );
+        return (entry?.metaRestarts ?? 0) >= 1;
+      }, 3000);
+
+      // The actual regression check: a restart must produce a REAL tick
+      // shortly after, not just increment metaRestarts while callCount stays
+      // frozen (which is what the pre-fix restart-storm looked like — the
+      // watchdog kept "restarting" every 20ms scan without ever letting a
+      // tick actually run before the next scan clobbered it again).
+      await waitFor(() => callCount > countAfterBoot, 2000);
+      expect(callCount).toBeGreaterThan(countAfterBoot);
+
+      // mt#3060 AT2: the liveness signal (the scheduling-layer equivalent of
+      // ProdStateSweepTracker — ProdStateSweepTracker itself only tracks the
+      // DOMAIN outcome of an attempted tick, so it can't observe a tick that
+      // never got attempted at all) must demonstrably reflect BOTH the
+      // failure (a force-restart was recorded) AND the recovery (a fresh
+      // successful tick landed after it).
+      const finalEntry = getSweepLivenessSnapshot().find(
+        (e) => e.name === "test-meta-watchdog-restart-storm"
+      );
+      expect(finalEntry?.metaRestarts ?? 0).toBeGreaterThanOrEqual(1);
+      expect(finalEntry?.lastSuccessAt).not.toBeNull();
+    } finally {
+      stopWatchdog();
+      stop();
+    }
+  });
 });
