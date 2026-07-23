@@ -23,9 +23,10 @@
  * Or generate the report in one shot:
  *   bun scripts/analyze-test-timing.ts --run [--top=25]
  */
-import { readFileSync, unlinkSync } from "node:fs";
+import { unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readTextFileSync } from "@minsky/shared/fs";
 
 // Exported (mt#2990): the sharded runner (scripts/run-tests-main-sharded.ts)
 // reuses this parser to derive per-file durations from each shard's own
@@ -57,7 +58,20 @@ export function parseTestcases(xml: string): TestCase[] {
   const re = /<testcase\b([^>]*?)\/?>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(xml))) {
-    const attrs = m[1];
+    // m[1] is the required (non-optional) capture group of the
+    // `<testcase\b([^>]*?)\/?>` regex above. Unlike this file's array-index
+    // invariant guards elsewhere in this PR (e.g. run-tests-main-sharded.ts's
+    // `shards[i]`, which asserts a cross-variable invariant that COULD break on
+    // a future refactor), a non-optional capture group on a regex that already
+    // matched is guaranteed by the regex engine itself to be a string (possibly
+    // ""), never `undefined` -- `noUncheckedIndexedAccess` types it that way
+    // only because array/tuple indexing is typed conservatively regardless of
+    // whether a specific index is provably in range. A loud assertion here
+    // would be dead code with no diagnostic value (its only failure mode would
+    // be a JS engine bug, not a violated assumption of ours), so this stays a
+    // defaulting narrowing: `?? ""` is safe (an empty attribute list simply
+    // yields no matched attributes below) and preserves existing behavior.
+    const attrs = m[1] ?? "";
     const file = attrOf(attrs, "file");
     const name = attrOf(attrs, "name");
     const classname = attrOf(attrs, "classname");
@@ -164,7 +178,13 @@ function main(): void {
     console.error(`Running full suite once (this takes several minutes): ${tmpPath}`);
     const proc = Bun.spawnSync(
       ["bun", "scripts/run-tests-main.ts", "--reporter=junit", `--reporter-outfile=${tmpPath}`],
-      { stdio: ["inherit", "inherit", "inherit"] }
+      // stdin "ignore" (not "inherit"): bun-types' `(cmds, options)` spawnSync
+      // overload types stdin as the fixed literal "ignore" regardless of what's
+      // passed -- matching the same established convention already used for
+      // this exact call shape in run-tests-main.ts's own `stdio: ["ignore",
+      // "inherit", "inherit"]` (the child spawned here never reads stdin
+      // either, so this is a no-op for actual behavior).
+      { stdio: ["ignore", "inherit", "inherit"] }
     );
     if (proc.exitCode !== 0) {
       console.error(`run-tests-main.ts exited ${proc.exitCode} -- analyzing partial report anyway`);
@@ -183,7 +203,7 @@ function main(): void {
   try {
     let xml: string;
     try {
-      xml = readFileSync(xmlPath, "utf-8");
+      xml = readTextFileSync(xmlPath);
     } catch (err) {
       console.error(
         `Failed to read ${xmlPath}: ${err instanceof Error ? err.message : String(err)}`

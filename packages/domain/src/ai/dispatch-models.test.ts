@@ -7,6 +7,7 @@ import {
   DEFAULT_DISPATCH_MODEL_ID,
   isDispatchModelId,
   resolveDispatchModelArg,
+  dispatchModelLabelForCanonicalId,
 } from "./dispatch-models";
 
 describe("dispatch-models registry", () => {
@@ -48,5 +49,19 @@ describe("dispatch-models registry", () => {
     expect(resolveDispatchModelArg("fable")).toBe("fable");
     expect(resolveDispatchModelArg("sonnet")).toBe("sonnet");
     expect(resolveDispatchModelArg("nonesuch")).toBeUndefined();
+  });
+
+  describe("dispatchModelLabelForCanonicalId (mt#3070 reverse lookup)", () => {
+    test("maps every registered canonicalId to its label", () => {
+      for (const m of DISPATCH_MODELS) {
+        expect(dispatchModelLabelForCanonicalId(m.canonicalId)).toBe(m.label);
+      }
+    });
+
+    test("returns undefined for an id with no matching canonicalId — callers render the raw id instead of guessing", () => {
+      expect(dispatchModelLabelForCanonicalId("gpt-4o")).toBeUndefined();
+      expect(dispatchModelLabelForCanonicalId("claude-sonnet-4-2026-01-01")).toBeUndefined();
+      expect(dispatchModelLabelForCanonicalId("")).toBeUndefined();
+    });
   });
 });

@@ -72,19 +72,38 @@ export function binPackFiles(files: FileDuration[], shardCount: number): string[
     .sort((a, b) => b.durationMs - a.durationMs);
   const unknown = files.filter((f) => !(f.durationMs > 0));
 
+  // `shardTotals`/`shards` are pre-sized to exactly `shardCount` entries above
+  // (`new Array(shardCount).fill(0)` / `Array.from({ length: shardCount }, ...)`),
+  // so every index in `[0, shardCount)` is always populated -- but
+  // `noUncheckedIndexedAccess` still types the reads as `T | undefined`. The
+  // `?? 0` defaults and shard-existence guards below are narrowing only; they
+  // preserve the exact greedy-min-bucket behavior for every reachable index.
   for (const file of known) {
     let minIdx = 0;
     for (let i = 1; i < shardCount; i++) {
-      if (shardTotals[i] < shardTotals[minIdx]) {
+      if ((shardTotals[i] ?? 0) < (shardTotals[minIdx] ?? 0)) {
         minIdx = i;
       }
     }
-    shards[minIdx].push(file.path);
-    shardTotals[minIdx] += file.durationMs;
+    const shard = shards[minIdx];
+    if (!shard) {
+      throw new Error(
+        `binPackFiles: invariant violated -- shard ${minIdx} missing (shardCount=${shardCount})`
+      );
+    }
+    shard.push(file.path);
+    shardTotals[minIdx] = (shardTotals[minIdx] ?? 0) + file.durationMs;
   }
 
   unknown.forEach((file, i) => {
-    shards[i % shardCount].push(file.path);
+    const idx = i % shardCount;
+    const shard = shards[idx];
+    if (!shard) {
+      throw new Error(
+        `binPackFiles: invariant violated -- shard ${idx} missing (shardCount=${shardCount})`
+      );
+    }
+    shard.push(file.path);
   });
 
   return shards;
