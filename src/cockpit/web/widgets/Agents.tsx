@@ -435,7 +435,7 @@ function AgentsControlBar({
                 : `Show ${hiddenInactiveCount} inactive workspace${hiddenInactiveCount === 1 ? "" : "s"}`
             }
           />
-          {includeInactive ? "Inactive shown" : `+${hiddenInactiveCount} inactive`}
+          {controlBarLabel(hiddenInactiveCount, includeInactive)}
         </label>
       )}
 
@@ -1167,6 +1167,19 @@ export function shouldShowControlBar(counts: {
   includeInactive: boolean;
 }): boolean {
   return counts.totalCount > 0 || counts.hiddenInactiveCount > 0 || counts.includeInactive;
+}
+
+/**
+ * Visible text of the activity-bound toggle (mt#3118).
+ *
+ * The withheld COUNT has to appear in the label, not just in the payload —
+ * that is the whole point of `hiddenInactiveCount`: the bound announces what
+ * it hid rather than silently truncating. Exported so the assertion runs
+ * against this exact string builder instead of a copy in the test, which
+ * would keep passing while this drifted.
+ */
+export function controlBarLabel(hiddenInactiveCount: number, includeInactive: boolean): string {
+  return includeInactive ? "Inactive shown" : `+${hiddenInactiveCount} inactive`;
 }
 
 function AgentsInner({
