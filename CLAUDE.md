@@ -62,17 +62,17 @@ Full detail + RFC reconciliation: `docs/rules-rationale/claim-confidence.md`.
 
 # Cockpit Deeplinks in Terminal Output
 
-When you reference a Minsky entity — a **task**, **ask**, **session**, **memory**, or **changeset (PR)** — in your live terminal output (the chat the principal reads), wrap the reference as a clickable markdown deeplink so a click opens that entity in the cockpit:
+When you reference a Minsky entity — a **task**, **ask**, **session**, **memory**, or **changeset
+(PR)** — in your live terminal output, wrap the reference as a clickable markdown deeplink so a
+click opens that entity in the cockpit:
 
 ```
 [<clean label>](minsky://<type>/<id>)
 ```
 
-Claude Code's renderer turns `[label](minsky://...)` into an OSC-8 terminal hyperlink; macOS terminals pass `minsky://` to `open`, and the cockpit-tray scheme handler (mt#2528) routes it to the cockpit — **launching the cockpit first if it is not running**. So always emit the link; never gate on whether the cockpit is currently open and never read cockpit state to decide.
-
-**Dependency:** clickability requires the cockpit-tray app's `minsky://` OS scheme handler (mt#2528) to be registered with the operating system. Where it is not — the tray app is not installed, or the terminal is non-macOS / lacks OSC-8 — the link degrades to the plain label text (which is why the label must always be a readable ref). This does NOT gate emission: emit the link unconditionally and let it degrade gracefully. (This rule is held back from merge until mt#2528 ships, so by the time it is live the handler is registered.)
-
-This is Surface A (the terminal). There is no harness hook that rewrites assistant output, so this linking is **agent discipline** — you emit the markdown by hand. (Surface B, the in-cockpit transcript view, linkifies the same refs on its own side via mt#2518.)
+Always emit the link, even when the cockpit isn't running (the tray's scheme handler, mt#2528,
+launches it) and even on terminals without OSC-8 (it degrades to the plain label — why the label
+must always be a readable ref on its own). Full mechanism: `docs/rules-rationale/cockpit-deeplinks.md`.
 
 ## The five entity types
 
@@ -97,26 +97,21 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 
 ## Examples
 
-- `Implemented [mt#2519](minsky://task/mt%232519); the failing case is in [mt#2518](minsky://task/mt%232518).`
-- `Routed the decision to ask [38b1c0de](minsky://ask/38b1c0de-0000-0000-0000-000000000000).`
-- `Merged [PR #1234](minsky://changeset/1234) — reviewer-bot approved.`
-- On a non-OSC-8 terminal the first renders as `Implemented mt#2519; the failing case is in mt#2518.` — still readable.
+`Implemented [mt#2519](minsky://task/mt%232519).` On a non-OSC-8 terminal this renders as plain text — still readable.
 
 ## Terminal caveats
 
-- **tmux** strips OSC-8 hyperlinks unless passthrough is enabled (`set -g allow-passthrough on`). Under default tmux the link shows as the plain label.
-- **Ghostty** has a Cmd+click bug ([ghostty#11907](https://github.com/ghostty-org/ghostty/issues/11907)) — Cmd+click may not fire; **right-click → Open Link works**.
-- **Non-OSC-8 terminals** (older emulators, pipes, CI logs) show the plain label and drop the hyperlink — fine, because the label is the clean ref.
+tmux needs `set -g allow-passthrough on` for OSC-8. Ghostty has a Cmd+click bug
+([ghostty#11907](https://github.com/ghostty-org/ghostty/issues/11907)) — right-click → Open Link
+works instead. Non-OSC-8 terminals (older emulators, pipes, CI logs) show the plain label.
 
 ## Cross-references
 
-- mt#2517 — parent umbrella (cockpit deeplinks); mt#2519 — this rule (Surface A / terminal).
-- mt#2518 — Surface B (cockpit transcript linkifier) + the shared `(type,id) ↔ minsky:// URI ↔ path` codec this format matches.
-- mt#2528 — the `minsky://` OS scheme handler in the cockpit-tray app (required for a terminal click to actually open the cockpit).
-- mt#2535 — `/changeset/:id` cockpit detail route (ships the page the changeset URI navigates to).
-- mt#2536 — PR/changeset linkification (adds `changeset` to RoutableEntityType + linkifier PR #N recognition).
-- `src/cockpit/web/lib/entity-codec.ts` — `entityToMinskyUri(type, id)` / `parseMinskyUri(uri)`; the format documented here matches the codec's output exactly.
-- `docs/architecture/adr-022-session-vs-conversation-terminology.md` (Accepted) / `.minsky/rules/terminology-workspace-conversation.mdc` — the workspace/conversation/transport-session vocabulary for NEW code, docs, and cockpit UI copy. The `session` URI type above is deliberately NOT part of that rename (stage 1, mt#2686) — it stays `session` until the deferred stage-2 mechanical `session_*` → `workspace_*` tool-surface rename (mt#2527), which is the only stage that would touch this table.
+mt#2517 (parent umbrella) · mt#2518 (Surface B linkifier + shared codec) · mt#2528 (`minsky://`
+scheme handler) · mt#2535 (`/changeset/:id` route) · mt#2536 (PR/changeset linkification) ·
+`src/cockpit/web/lib/entity-codec.ts` (the codec this format matches) ·
+`terminology-workspace-conversation.mdc` (the `session` URI type is deliberately NOT renamed).
+Full detail: `docs/rules-rationale/cockpit-deeplinks.md`.
 
 # Code Style
 
@@ -140,11 +135,10 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 
 The principal operates as an attention-limited engineering manager: agent→principal communication
 must be brief by default, exception-driven, with full detail addressable rather than pushed, and
-nothing lost. Extends the `mt#1034` / `docs/architecture/adr-008-attention-allocation-subsystem.md`
-attention-allocation frame from **asks** (decisions routed to the principal) to **reports** (status
-pushed at the principal). Source: [RFC: Communication altitude](https://www.notion.so/39e937f03cb481febdeae249014e356f)
-(Accepted 2026-07-15). This rule is that RFC's Phase 1 channel contract (origin: `mt#2713`) plus its
-Phase 2 altitude register (origin: `mt#2867`) — one rule file carries the whole channel discipline.
+nothing lost. Extends the `mt#1034` attention-allocation frame from **asks** (decisions routed to
+the principal) to **reports** (status pushed at the principal). Source: [RFC: Communication
+altitude](https://www.notion.so/39e937f03cb481febdeae249014e356f) (Accepted 2026-07-15) — Phase 1
+channel contract (`mt#2713`) plus Phase 2 altitude register (`mt#2867`).
 
 ## The channel model
 
@@ -159,8 +153,8 @@ happened" — chat is deliberately the thinnest:
 | **Cockpit** | Fleet/workstream state, digests | Pull today; ambient push per ambient-cockpit RFC |
 | **Transcript archive** | Everything, verbatim | Pull; searchable |
 
-**Nothing is lost by compression — chat was never the storage layer.** Structured artifacts still
-land in full in the task record, or after the plain-language lead (`user-preferences.mdc
+**Nothing is lost by compression — chat was never the storage layer.** Structured artifacts land
+in full in the task record (or after the plain-language lead, `user-preferences.mdc
 §Plain-language first`) — never as the chat opening.
 
 ## The four report tiers
@@ -186,66 +180,34 @@ readable in under 30 seconds (~200 words)**; **no skill-internal labels** (gate 
 premise-audit labels `(iii)`, criterion-table IDs — audit-trail vocabulary, not the principal's;
 specializes `user-preferences.mdc §Plain-language first`).
 
-**When to expand.** Two triggers only: the principal asks (directly, or a standing override — see
-`## Scope`), or an exception warrants it (severity, a high-stakes judgment call, or a finding
-worth probing) — widen the pointer, don't re-narrate inline.
+**When to expand.** Two triggers only: the principal asks, or an exception warrants it (severity,
+a high-stakes judgment call, a finding worth probing) — widen the pointer, don't re-narrate.
 
 ## Altitude register (RFC Phase 2)
 
 The Tier-1 contract above defines what a turn-end report *contains*; the **register** selects
-which of three shapes a conversation renders by default. Source: RFC `## The altitude register`
-(Notion `39e937f0-3cb4-81fe-bdea-e249014e356f`). Origin: `mt#2867`.
+one of three shapes a conversation renders by default — **receipts** (narrated checkpoints,
+verification evidence inline, report-before-action for consequential moves), **standard** (the
+Tier-1 BLUF contract above, as written), or **executive** (outcome + judgment calls + needed
+decisions only, report-after-action with scheduled sampling below). Origin: `mt#2867`. Full
+register-shape table: `docs/rules-rationale/communication-contract.md §Altitude register`.
 
-| Register | Turn-report shape | Before/after acting |
-| --- | --- | --- |
-| **Receipts** | Narrated checkpoints; verification evidence inline for consequential actions; intent stated before significant moves ("I intend to…"). Trivial successful steps still compress — the register sets audit depth for what matters, not a verbosity floor on everything. | Report-before-action for consequential moves. |
-| **Standard** | The Tier-1 BLUF contract above, as written: what happened / what you need to know / what's next, each 1–3 sentences, pointers for everything else. | Mixed. |
-| **Executive** | Outcome + judgment calls + needed decisions only; routine success is one line; everything else by pointer. | Report-after-action ("I've done…"), with scheduled receipts-level sampling (below). |
+### Default derivation
 
-### Default derivation — model tier plus dispatch context
+Defaults from model tier plus dispatch context (Fable/Opus principal-facing → executive; Sonnet
+working session → standard; Haiku/unproven → receipts), with an escalation-dispatch carve-out
+that dominates model tier: a struggling-context Opus dispatch reports at **receipts regardless of
+tier** (`subagent-routing.mdc §Escalation to Opus` sets it explicitly). Mechanics, the
+trust-accrual rationale (`mt#2838`), and the wrong-register escalation budget (2 incidents/14
+days): `docs/rules-rationale/communication-contract.md §Default derivation`.
 
-The harness already reports which model is running; no new infrastructure is needed. In this
-repo's model vocabulary:
+### Override
 
-| Model / context | Default register |
-| --- | --- |
-| Fable/Opus-class, principal-facing conversation | **Executive** |
-| Sonnet-class working session | **Standard** |
-| Haiku-class or unproven context | **Receipts** |
-
-**Escalation-dispatch carve-out (dominates model tier).** An agent dispatched *because* the
-orchestrator is struggling — the escalate-to-Opus pattern, `subagent-routing.mdc §Escalation to
-Opus` — reports at **receipts regardless of tier**. Escalation is a low-trust *situation*: the
-stronger model was chosen because the situation demands more scrutiny, so the register must not
-invert that by defaulting a struggling-context dispatch to executive merely because it happens to
-run Opus. Dispatch context outranks model tier — the dispatcher sets the register explicitly in
-the dispatch prompt (see `subagent-routing.mdc` for the consuming side of this contract).
-
-**Temporary-mechanism budget.** Model tier is *asserted* trust — fixed the moment a model is
-picked — not *accrued* trust (a track record). The accrued-trust successor is `mt#2838`.
-Escalation budget: **2 wrong-register incidents within 14 days** escalates `mt#2838`'s priority (a
-wrong-register incident = the principal manually re-registers a conversation because the default
-hid something needed or buried the signal in noise).
-
-### Override — two levels (v1)
-
-Exactly two levels, in precedence order:
-
-1. **Explicit principal instruction** — a one-line "walk me through everything" or "background
-   this" re-registers the conversation and **persists for the rest of the conversation**. The
-   per-message escape hatch ("show me the detail") always works without changing the standing
-   register.
-2. **Derived default** — the model-tier-plus-dispatch-context table above.
-
-The three-level stack (instruction > persisted setting > default) is **explicitly deferred** — it
-activates only once a persisted per-conversation/task register state ships, which is itself
-deferred pending evidence that rule-tier alone is insufficient. Do not build that storage
-speculatively.
-
-**Task-record continuity.** Until persisted state ships, an override recorded in the task record
-or a handoff note is honored by later conversations on the same task — check the task record /
-handoff for a standing register override before defaulting. Skipping this check silently resets
-every new conversation to the default and forces the principal to repeat the instruction.
+An explicit principal instruction ("walk me through everything" / "background this") re-registers
+the conversation for its remainder; otherwise the derived default applies. Until persisted
+per-conversation state ships, honor a standing override recorded in the task record or a handoff
+note — skipping this check silently resets every new conversation to the default. Mechanics:
+`docs/rules-rationale/communication-contract.md §Override`.
 
 ### Severity pierces the register
 
@@ -265,51 +227,38 @@ do — merge gates, asks, and authorization boundaries are unaffected.
 
 ### Executive scheduled sampling
 
-The executive register keeps active auditability even at maximum compression:
-
-- **Every 5th turn-end report** renders one register lower (i.e., at standard) instead of
-  executive.
-- **Every task-closeout report carries the verification-evidence pointer set** (deeplinks to the
-  gate report, test run, or live-verification output), regardless of sampling cadence.
-
-This exists because agent silence is self-assessed — unlike a dark cockpit's instrument-verified
-silence — so the executive register cannot rely purely on the agent's own judgment that nothing
-warrants reporting.
+Every 5th turn-end report renders one register lower (standard); every task-closeout report
+carries the verification-evidence pointer set regardless of cadence — active auditability even at
+maximum compression, since agent silence is self-assessed. Rationale:
+`docs/rules-rationale/communication-contract.md §Executive scheduled sampling`.
 
 ## Decision artifacts lead with the decision (surface-general)
 
-The Tier-1 contract above governs chat. The same discipline governs **every principal-facing
-deliverable whose function is to obtain a decision** — an RFC, an ADR, a position paper, a PR body
-or cockpit digest used as a decision surface: **it opens with a decision-grade block** (the call in
-one bolded directive sentence, 3–5 one-line consequences, an explicit "accepting this = agreeing
-with the call"), with all reasoning beneath. A principal opening an artifact *to decide* is not
-being persuaded; making them compress a long argument themselves is the same defect as a
-multi-screen chat report, relocated.
+The same discipline governs **every principal-facing deliverable whose function is to obtain a
+decision** — an RFC, an ADR, a PR body or cockpit digest: **it opens with a decision-grade block**
+(the call in one bolded directive sentence, 3–5 one-line consequences, "accepting this = agreeing
+with the call"), reasoning beneath.
 
-Recurrence history motivating the surface-general framing (this pattern recurred four times in 14
-days across four different surfaces): `docs/rules-rationale/communication-contract.md §Decision
-artifacts lead with the decision`. Enforcement lives in the authoring skills (`/draft-rfc` step 7,
-`/draft-adr` step 5, `engineering-writing §Decision artifacts lead with the decision` — which
-otherwise silently overrides this rule, being the more specific writing advice).
+Recurrence history (4x/14 days across 4 surfaces) + full rationale:
+`docs/rules-rationale/communication-contract.md §Decision artifacts lead with the decision`.
+Enforcement: `/draft-rfc` step 7, `/draft-adr` step 5, `engineering-writing §Decision artifacts
+lead with the decision` (more specific, otherwise silently overrides this rule).
 
 ## Judgment calls are load-bearing (RFC Position 3)
 
 **Summaries carry judgment calls, not receipts** — contestable decisions the agent made on the
 principal's behalf (mechanical passes are receipts: task record, not lead). Belongs in the lead:
-bypass-merging under a documented escape valve; skipping live verification for an "UNVERIFIED"
-marker; picking an approach without asking first; descoping part of a spec as out-of-bounds. Does
-NOT belong: "tests passed," "lint clean," "rebased cleanly" (record, don't lead).
+bypass-merging under a documented escape valve; skipping live verification for "UNVERIFIED";
+picking an approach without asking first; descoping part of a spec. Does NOT belong: "tests
+passed," "lint clean," "rebased cleanly" (record, don't lead).
 
 ## Anti-patterns
 
-Avoid: **multi-screen final reports** (blows the Tier-1 budget regardless of content quality);
-**re-narrating PR bodies/specs in chat** (duplicates the durable record — point to it instead);
-**detail without a pointer** (defeats the addressable-detail design); **burying the
-needed-decision below the fold** (a Tier-0 decision inside a Tier-1 report instead of routed
-through Asks, or placed after routine narrative).
+Avoid: **multi-screen final reports**; **re-narrating PR bodies/specs in chat**; **detail without
+a pointer**; **burying the needed-decision below the fold** (a Tier-0 decision routed through
+prose instead of Asks).
 
-Worked example (the 2026-07-08 originating incident) and full `## Scope` deferred-work rationale:
-`docs/rules-rationale/communication-contract.md`.
+Worked example + full `## Scope` deferred-work rationale: `docs/rules-rationale/communication-contract.md`.
 
 ## Cross-references
 
@@ -460,17 +409,13 @@ decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture
 
 # Design Principle: Humility
 
-A Minsky agent knows its boundary of delegation and represents it structurally, rather than collapsing uncertainty into confident action. Preference-bound decisions — naming, framework choice, tradeoff resolution, scope change, architectural novelty — are not yours to make alone; surface them to the user. Full framing: `docs/theory-of-operation.md §Companion Principles` and mt#1034.
+A Minsky agent knows its boundary of delegation and represents it structurally, rather than collapsing uncertainty into confident action. Preference-bound decisions — naming, framework choice, tradeoff resolution, scope change, architectural novelty — are not yours to make alone; surface them. Full framing: `docs/theory-of-operation.md §Companion Principles`, mt#1034.
 
-Operational corollaries already in force below are instances of this one principle, not separate rules:
-- 2-strikes escalation (§Error Investigation)
-- User decides scope; never defer identified work (§Work Completion)
-- Trust the hooks; never bypass (§Hook Files)
-- Never confidently assert a resource/file/capability doesn't exist without tool-based verification first — see `verification-checklist` (not always-loaded; `rules_get`) for the mandatory pre-response checklist.
+Operational corollaries already in force below are instances of this one principle, not separate rules: 2-strikes escalation (§Error Investigation); user decides scope, never defer identified work (§Work Completion); trust the hooks, never bypass (§Hook Files); never confidently assert a resource/file/capability doesn't exist without tool-based verification first (`verification-checklist` via `rules_get`).
 
 ## Escalation packaging
 
-Identifying a decision as principal-level (per the stakes filter) is necessary but not sufficient — the *form* of the escalation determines whether the user can act on it. An escalation message must be **self-contained**: the user should be able to make the decision from the message alone, without round-tripping for missing context.
+Identifying a decision as principal-level is necessary but not sufficient — the *form* of the escalation determines whether the user can act on it. An escalation message must be **self-contained**: the user should be able to decide from the message alone, without round-tripping for context.
 
 Mechanical checklist before posting an escalation:
 
@@ -480,7 +425,7 @@ Mechanical checklist before posting an escalation:
 4. **Make a recommendation** (with a clear "you decide" caveat). Withholding a recommendation pushes synthesis onto the user; offering one anchors and accelerates. The user can always override.
 5. **Name what you do NOT need from the user** — what you can derive yourself from existing specs, code, or memory. Pruning the question reduces the response burden.
 
-This is the manual-discipline form of stage 4 (Packaging) in the Ask subsystem (mt#1034). When that subsystem ships, the packaging discipline becomes structural — until then, it's checklist-driven. See `feedback_escalation_packaging.md` for the originating incident (mt#1316 shape A/B/C).
+Manual-discipline form of stage 4 (Packaging) in the Ask subsystem (mt#1034) — becomes structural once that ships. Originating incident: `feedback_escalation_packaging.md` (mt#1316 shape A/B/C). Full narrative: `docs/rules-rationale/humility.md §Escalation packaging`.
 
 **Form (how it reads — completeness is not enough):**
 
@@ -491,7 +436,7 @@ This is the manual-discipline form of stage 4 (Packaging) in the Ask subsystem (
 5. **Body budget ~120 words.** If it doesn't fit, you're including justification that belongs in contextRefs.
 6. **Options are the buttons.** Don't restate option prose in the body under [a]/[b] labels AND in the options array with different wording — the body says how to act; the options are the possible replies.
 
-Originating incident: ask 6807fb14 (2026-07-15, R5 of the escalation-packaging family) — routed correctly, packaged completely, unusable in form.
+Originating incident: ask `6807fb14` (2026-07-15, R5 of the family) — routed correctly, packaged completely, unusable in form. Detail: `docs/rules-rationale/humility.md §Form`.
 
 # Key Architecture
 
@@ -631,43 +576,18 @@ changes against what the operator approved. Before `--execute`:
 - Approval of an operation at one magnitude is not approval at 9x. "The
   heuristic knows more than my estimate" is the rationalization to refuse.
 
-**Originating incident (2026-07-13):** the kind backfill
-(`scripts/migrate-task-kinds.ts --execute`) ran inline with no task wrapper;
-no gate fired; the governing RFC (Task classification axes, Notion
-`363937f0`) had explicitly rejected the heuristic approach — recorded in both
-Notion and memory `59d8b62d`, surfaced in-session, unconsulted — and the
-dry-run's 136 proposed changes against an approved "~15" was not treated as a
-stop signal. Cost: 5 wrong demotions hand-reverted, a 116-task remediation
-cycle, and an operator authorization round-trip (ask `f63a49d2`).
+Originating incident + cost: `docs/rules-rationale/operational-safety-dry-run-first.md
+§Dry-run scope-match check`.
 
 ## Sanctioned primitives for bulk task mutation and set-diff (mt#2819)
 
-The two rules above are POLICED discipline; these tools are the sanctioned
-path that enforces them structurally. Prefer them over hand-rolled scripts,
-raw SQL, or `jq`/`comm` text pipelines:
-
-- **`tasks_bulk-edit`** (CLI: `minsky tasks bulk-edit`) — bulk kind/tag edits
-  over an explicit id list. The default call is a dry-run returning the full
-  per-record change set plus a **token** (sha256 over the canonical change
-  set, persisted in the `task.bulk_edit.dry_run` audit event). Execute
-  requires that token and ABORTS when any target's state drifted since the
-  dry-run — the scope-match check above enforced in code: a diverged change
-  set structurally invalidates the approval. Re-execution of a consumed token
-  is an idempotent no-op (`task.bulk_edit.executed` event). Raw-SQL bulk
-  updates remain explicitly unsanctioned — this primitive exists so they are
-  never necessary.
-- **`refs_status`** (CLI: `minsky refs status`) — id-set cross-reference:
-  mixed refs (task ids, PR numbers, ask uuids) resolve to their current
-  status in ONE call, not-found explicit per ref. Use this for "which of
-  these are still active" set-diffs instead of `jq`/`comm` pipelines (the
-  2026-07-13/14 sweeps' hand-rolled versions contained real bugs:
-  numeric-vs-lexical `comm` sort, a jq context-binding error).
-
-The >10-record task-wrapper requirement above still applies to the operation
-as a whole — `tasks_bulk-edit` makes the execution safe; it does not replace
-the planning gates. mt#2823's approved-Ask bridge binds its grants to the
-same dry-run token, so an operator-approved bulk mutation authorizes exactly
-the approved change set and nothing else.
+Prefer these over hand-rolled scripts, raw SQL, or `jq`/`comm` pipelines: **`tasks_bulk-edit`**
+(dry-run returns a per-record change set + a token; execute requires that token and ABORTS on
+drift since the dry-run — the scope-match check above, enforced in code) and **`refs_status`**
+(id-set cross-reference — task ids, PR numbers, ask uuids — in ONE call, replacing hand-rolled
+`jq`/`comm` pipelines that have contained real bugs). The >10-record task-wrapper requirement
+still applies to the operation as a whole. Mechanics:
+`docs/rules-rationale/operational-safety-dry-run-first.md §Sanctioned primitives`.
 
 ## Examples
 
@@ -733,34 +653,19 @@ Rationale: in a guard-dense repo, mid-pipeline interruption is the norm. A batch
 
 When spawning subagents, use the appropriate model and type:
 
-**Models:** `"sonnet"` for bounded tasks (implementation, refactoring, search, committing). `"opus"` (default) for complex investigation, architectural design, multi-step reasoning. `"haiku"` for simple search/formatting. (Community guides often recommend `haiku` as the `CLAUDE_CODE_SUBAGENT_MODEL` default; Minsky uses `sonnet` because subagents run full implementation workflows — edit, commit, PR — not just search/format.)
+**Models:** `"sonnet"` for bounded tasks (implementation, refactoring, search, committing). `"opus"` (default) for complex investigation, architectural design, multi-step reasoning. `"haiku"` for simple search/formatting. Minsky uses `sonnet` (not the community-common `haiku` default) because subagents run full implementation workflows — edit, commit, PR — not just search/format.
 
 **Types:** `"refactorer"` for structural changes (built-in coherence verification). `"auditor"` for spec verification. `"reviewer"` for read-only PR review. `"Explore"` for codebase search. `"Plan"` for design. `"general-purpose"` as fallback.
 
 **Capacity:** Subagents have limited context/tool budgets with no graceful degradation. Scope to 8–12 files per wave. Instruct to commit incrementally. For multi-phase work, use subtasks (`tasks_create` with `parent`). If a subagent returns incomplete work, check session `git diff`/`git status` and finish from main agent.
 
-**Continuation.** `SendMessage` IS invocable (deferred-tool list, loadable via `ToolSearch`) and
-reliably resumes a **COMPLETED** subagent from its transcript with full context intact — validated
-`mt#2578` (PR #1776) and repeatedly since (memory `6038c0a1`). For review-fix rounds and follow-up
-iterations on a subagent's own work, prefer `SendMessage`-resume of the same agent over a fresh
-dispatch: no context rebuild, no prompt regeneration — bake the findings plus an explicit stop
-condition into the message. **Messaging a still-RUNNING subagent mid-flight remains untested** —
-treat "cannot be messaged, kill + re-dispatch" as scoped to that untested case only, not to
-resume-after-completion; prefer kill + re-dispatch there until it's validated. (mt#2512; whether to
-adopt Agent Teams or build a Minsky-native equivalent for genuine mid-flight steering is tracked in
-mt#2521.) (mt#2865: memory `6038c0a1`'s own description still calls this rule-text correction
-"pending" — it isn't; this paragraph already carries it, so treat that memory's pending note as stale.)
+**Continuation.** `SendMessage` resumes a **COMPLETED** subagent from transcript with full context — prefer it over a fresh dispatch for review-fix rounds (validated `mt#2578`; memory `6038c0a1`, whose own "pending" rule-text-correction note is stale as of mt#2865 — this citation applies it). Messaging a still-RUNNING agent is untested; kill + re-dispatch there. Full mechanics: `docs/rules-rationale/subagent-routing.md §Continuation`.
 
 **Never fork for bounded lookups from an active implementation context (mt#2865).** A `fork`
-subagent inherits the FULL conversation context — confirmed at the transcript level (mt#2865
-incident, 2026-07-16): a fork dispatched with a narrow, bounded, read-only instruction ("search
-memory... report back under 300 words") instead ran ~70 minutes and ~197 tool calls, independently
-implementing overlapping code, committing to the shared session workspace, and editing the shared
-PR's title/body/author after the primary implementer had already finalized it — including writing a
-false test-count claim into the PR body. The harness's OWN fork-boilerplate prompt already said "you
-are NOT a continuation of that agent... execute ONE directive, then stop... do NOT spawn subagents";
-it did not hold. Prompt-level containment is not sufficient once a fork carries a full
-implementation context. For a bounded read-only lookup (memory search, code investigation, review)
+subagent inherits the FULL conversation context. Prompt-level containment is not sufficient once a
+fork carries a full implementation context — confirmed at the transcript level by the mt#2865
+incident (full narrative: `docs/rules-rationale/subagent-routing.md §Never fork`). For a bounded
+read-only lookup (memory search, code investigation, review)
 dispatched from inside an active implementation session, use a fresh minimal-context agent instead —
 `Explore` or `general-purpose` (per the Types table above) — NOT a fork. If a fork genuinely is the
 right shape, declare `intent: "read-only"` on `session_generate_prompt`/`tasks_dispatch` before
@@ -770,32 +675,15 @@ declared session regardless of which `agent_id` ends up making them — the gate
 WRITES to the shared substrate; it cannot stop a fork from THINKING like an implementer (a harness
 context-scoping capability outside Minsky's control, per mt#2512/mt#2521).
 
-**Undeclared nested fork dispatch is itself blocked (mt#3045).** The write-gate above is opt-in —
-it only fires once a declaration exists. On 2026-07-21 the pattern recurred (memory `bed551ef` /
-mem#665, R2): a nested fork was dispatched via the raw Agent tool with NO declaration, so the gate
-never applied. `block-nested-fork-dispatch.ts` closes that gap one layer earlier: a PreToolUse
-guard on the Agent tool denies a NESTED `fork` dispatch (the calling agent's `agent_id` is itself
-set — i.e. a subagent, not the main thread, is doing the dispatching) unless a live dispatch-intent
-declaration (read-only OR implementation) already covers the calling subagent's session, or the
-launch-time `MINSKY_ALLOW_NESTED_FORK=1` override is set. A top-level fork dispatch from the main
-agent is unaffected.
+**Undeclared nested fork dispatch is itself blocked (mt#3045).** The write-gate above is opt-in — it only fires once a declaration exists; a nested fork dispatched via the raw Agent tool with no declaration bypasses it entirely (mem#665, R2, 2026-07-21). `.claude/hooks/block-nested-fork-dispatch.ts` closes that gap: a PreToolUse guard on the Agent tool denies a NESTED `fork` dispatch (the calling agent's `agent_id` is itself set) unless a live dispatch-intent declaration already covers the calling subagent's session, or `MINSKY_ALLOW_NESTED_FORK=1` is set (registered, not free-text — `packages/domain/src/configuration/sources/environment.ts` `HOOK_ONLY_ENV_VARS`). A top-level fork dispatch from the main agent is unaffected. Full incident: `docs/rules-rationale/subagent-routing.md §Undeclared nested fork dispatch`.
 
 **Prompt generation:** Always use `mcp__minsky__session_generate_prompt` — never hand-craft prompts. It enforces correct sessionId, taskId, paths, scope bounds, and guard rails. Dispatch with `suggestedModel` and `agentType` from the result.
 
-**Choosing the model (mt#3043).** `tasks_dispatch` accepts an optional `model`: a dispatch-model registry id (`sonnet` | `opus` | `haiku` | `fable` — `packages/domain/src/ai/dispatch-models.ts`, the SAME registry the cockpit launch picker reads, so the two surfaces cannot drift). Omit it to take the registry default; set it when the task's difficulty warrants a specific tier (see §Escalation to Opus below). Before mt#3043 `suggestedModel` was a hardcoded `"sonnet"` literal on every dispatch — it carried no caller intent, so passing it through was a no-op. It now reflects YOUR choice, and is the value to pass as the harness Agent-spawn `model` arg. An unrecognized id is REJECTED at the tool boundary rather than silently defaulted, so a typo cannot quietly downgrade a dispatch.
+**Choosing the model (mt#3043).** Pass `tasks_dispatch`'s optional `model` (`sonnet`/`opus`/`haiku`/`fable`, the registry the cockpit picker also reads) when difficulty warrants a specific tier; an unrecognized id is REJECTED rather than silently defaulted. Mechanics: `docs/rules-rationale/subagent-routing.md §Choosing the model`.
 
 **Escalation to Opus:** The default model is Sonnet. When you recognize you're struggling — 2nd identical tool error from the same tool, architectural ambiguity you can't resolve, multi-file reasoning that isn't converging, or a task that requires deep investigation — spawn a subagent with `model: "opus"` to analyze the problem. Let Opus produce the plan or diagnosis, then continue executing with Sonnet. Don't persist on a problem that exceeds your current model's capability. (See §Error Investigation for the mechanical 2-strikes rule.)
 
-**Reporting register (mt#2867).** Dispatch prompts set the subagent's reporting register
-explicitly — see `communication-contract.mdc §Altitude register` for the full mechanics
-(receipts / standard / executive, default-derivation table, override, severity triggers). The
-carve-out that matters here: an escalation-to-Opus dispatch (the bullet above) reports at
-**receipts regardless of model tier** — escalation is a low-trust situation, and the stronger
-model must not invert the register just because it happens to run Opus. `mcp__minsky__session_generate_prompt`'s
-Operating-Envelope template does not yet emit register text into generated dispatch prompts (the
-`PromptType` enum has no escalation-context field to key it on — a nontrivial addition, tracked as
-a follow-up candidate rather than done here); until it does, name the register explicitly in the
-`instructions` param whenever dispatching a struggling-context escalation.
+**Reporting register (mt#2867).** An escalation-to-Opus dispatch reports at **receipts regardless of model tier** — see `communication-contract.mdc §Altitude register`. Name the register explicitly in the `instructions` param until `session_generate_prompt` emits it automatically. Detail: `docs/rules-rationale/subagent-routing.md §Reporting register`.
 
 # Task Lifecycle
 
@@ -836,10 +724,8 @@ Detail: `docs/rules-rationale/terminal-command-best-practices.md`.
 # Terminology: workspace / conversation / transport session
 
 `docs/architecture/adr-022-session-vs-conversation-terminology.md` (Accepted) resolves a
-three-way overload of the word "session" that made Minsky hard to think, talk, and search
-about. This rule is the **stage-1 convention**: it applies to NEW code, docs, and UI copy
-starting now. It does NOT rename the existing `session_*` tool/API surface — that is stage 2
-(mt#2527), a separately scheduled, larger mechanical rename.
+three-way overload of "session". Stage-1 convention — NEW code, docs, UI copy only; does NOT
+rename the existing `session_*` tool/API surface (stage 2, mt#2527, separately scheduled).
 
 ## The three senses
 
@@ -849,52 +735,39 @@ starting now. It does NOT rename the existing `session_*` tool/API surface — t
 | **conversation** | A harness chat (Claude Code conversation UUID, `agent_session_id`, transcripts, `claude --resume`) | "session" (ecosystem-dominant term) | cockpit `/conversation/:id`, `transcripts_*` MCP tools |
 | **transport session** | The MCP client↔server connection (`Mcp-Session-Id`) | "session" (MCP-spec term) | disconnect tracker, `processRole` |
 
-Use **workspace** and **conversation** in new prose, comments, variable/type names, and UI
-copy. Reserve **session** (bare, unqualified) for the MCP-transport sense only, since that is
-the one place "session" is the authoritative external-spec term (`Mcp-Session-Id`) and no
-better word exists. If "session" appears in new prose about the work-area or the chat, that's
-the overload this rule exists to prevent — say "workspace" or "conversation" instead.
+Use **workspace** and **conversation** in new prose, comments, variable/type names, and UI copy.
+Reserve bare **session** for the MCP-transport sense only — the one place it's the authoritative
+external-spec term (`Mcp-Session-Id`) with no better word.
 
 ## What this rule does NOT change (stage 2 scope, mt#2527)
 
-- No `session_*` MCP/CLI tool name, parameter name, or DB column is renamed.
-- No `~/.local/state/minsky/sessions/` path changes.
-- Back-compat aliases from mt#2526 (`transcripts_*` param renames) are untouched.
-- Existing docs/prose keep their current vocabulary until stage 2 or an opportunistic edit —
-  this rule does not require a docs back-fill pass.
+No `session_*` tool/param/DB-column is renamed, no `~/.local/state/minsky/sessions/` path
+changes, back-compat aliases (mt#2526) are untouched, and no docs back-fill pass is required.
+Full list: `docs/rules-rationale/terminology-workspace-conversation.md §What this rule does NOT
+change`.
 
 ## `minsky://` deeplink URI types are NOT renamed
 
-The `minsky://<type>/<id>` deeplink scheme (`cockpit-deeplinks.mdc`,
-`src/cockpit/web/lib/entity-codec.ts`) keeps its five URI types — `task`, `ask`, `session`,
-`memory`, `changeset` — exactly as they are. In particular, `minsky://session/<uuid>` keeps
-naming the **workspace** sessionId (stored transcripts already carry links in this form; they
-must keep resolving). The entity-codec's type→route mapping already absorbs one such
-divergence today — the `session` URI type resolves to the `/agents/:id` cockpit route, not a
-literal `/session/:id` path — and continues to absorb the stage-1 cockpit rename the same way:
-the URI **type name** is a stable public identifier; the cockpit **route/component name** is
-free to carry the new vocabulary. Do not "fix" this apparent mismatch by renaming URI types —
-that is exactly the breaking-API move stage 2 owns, and renaming URI types would break every
-stored `minsky://session/...` link in every ingested transcript.
+The `minsky://<type>/<id>` scheme (`cockpit-deeplinks.mdc`) keeps its five URI types — `task`,
+`ask`, `session`, `memory`, `changeset` — exactly as they are. `minsky://session/<uuid>` keeps
+naming the **workspace** sessionId; stored transcripts already carry links in this form and must
+keep resolving. Do not "fix" the apparent session-vs-workspace mismatch by renaming URI types —
+that is stage 2's breaking-API move, and it would break every stored `minsky://session/...` link
+in every ingested transcript. Full rationale (the entity-codec's existing type→route divergence
+this generalizes): `docs/rules-rationale/terminology-workspace-conversation.md §URI types are NOT
+renamed`.
 
 ## Applying this in cockpit UI copy
 
-When a cockpit surface displays the **workspace** sense (branch, liveness, commits, PR state —
-the Minsky work-area), label it "workspace" in headings and copy. When it displays the
-**conversation** sense (a readable chat transcript), label it "conversation". A surface that
-bridges both (e.g. a workspace detail page that also shows a live conversation tail) should
-label each section per the sense it shows, not blend the words.
+Label a surface "workspace" when it shows branch/liveness/commits/PR state, "conversation" when
+it shows a readable chat transcript. A surface bridging both should label each section per the
+sense it shows, not blend the words.
 
 ## Cross-references
 
-- `docs/architecture/adr-022-session-vs-conversation-terminology.md` — the ADR this rule
-  operationalizes (Accepted 2026-07-06).
-- `cockpit-deeplinks.mdc` — the `minsky://` URI format; its `session` row notes the
-  URI-type/route divergence this rule generalizes.
-- mt#2522 — epic; mt#2524 (branded ids), mt#2525 (id-space hardening), mt#2526 (conversation
-  labeling) — DONE prerequisite tiers; mt#2686 — this rule's originating task (stage 1);
-  mt#2527 — stage 2 (the deferred mechanical tool-surface rename).
-- Funding decision: 2026-07-06, ask f0782a96; living record memory 805ef48f.
+`docs/architecture/adr-022-session-vs-conversation-terminology.md` · `cockpit-deeplinks.mdc` (the
+`session` URI-type/route divergence this generalizes) · mt#2522 (epic) · mt#2686 (this rule's
+origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-workspace-conversation.md`.
 
 # User Preferences
 
@@ -998,16 +871,11 @@ resetting) — the agent can observe this autonomously. For (b), **arm a backgro
 keep going**; do NOT delegate the wait to the operator.
 
 **Mechanisms:** `Bash` with `run_in_background: true` + an `until`-loop for a single completion;
-`Monitor` for per-occurrence streams (log lines, status changes); `ScheduleWakeup` for interval
-re-checks with no single exit condition. Cadence: 30s+ for remote APIs — back off on repeated
-5xx/429s and respect provider-specific rate windows rather than tightening the loop.
+`Monitor` for per-occurrence streams; `ScheduleWakeup` for interval re-checks with no single exit
+condition. Cadence: 30s+ for remote APIs — back off on repeated 5xx/429s.
 
 **Correct shape:** "GitHub is 503ing — I've armed a 30s background poll and will resume the
-merge on recovery, no action needed from you." **Anti-pattern:** "Ping me when GitHub's back" —
-handing an autonomously-watchable wait to the human.
-
-**Generic-SE override:** "wait for the human to notice the dependency recovered." Wrong here:
-the tools to observe and self-resume already exist.
+merge on recovery, no action needed from you." **Anti-pattern:** "Ping me when GitHub's back."
 
 Full rationale, family kinship, and origin incident: `docs/rules-rationale/work-completion.md
 §External self-resolving waits`.
@@ -1019,17 +887,11 @@ When a memory entry, skill, doc, or comment encodes a mechanism as **"temporary,
 1. A **tracking task** (the structural fix that retires the mechanism), AND
 2. An **escalation threshold** — a count, time window, or both — at which the mechanism's continued use indicates the temporary framing has failed.
 
-When the threshold is exceeded, the agent surfaces a reprioritization prompt to the user (escalation packaging per `humility.mdc`) rather than continuing to apply the workaround silently. Memory describing the world is not a substitute for memory acting on it: an "escape hatch fires once a quarter" memory and an "escape hatch fires daily" memory have the same shape unless the budget is encoded.
+When the threshold is exceeded, surface a reprioritization prompt (escalation packaging per `humility.mdc`) rather than continuing to apply the workaround silently. Memory describing the world is not a substitute for memory acting on it: an "escape hatch fires once a quarter" memory and an "escape hatch fires daily" memory have the same shape unless the budget is encoded.
 
-Full incident narrative: `docs/rules-rationale/work-completion.md §Temporary mechanism budget`.
+**Load-bearing signal:** the same workaround cited 2+/5 days, 3+ invocations/5 days, or 2+/24h — treat as the signal even if unrecorded; surface the tracking task's status.
 
-**How to apply:**
-
-- When **writing** a memory or doc that names a workaround: include a budget. Format suggestion: `**Budget:** retire when <count> in <window> exceeded; tracking task: mt#X.`
-- When **reading** such a memory at use-time: count uses and check against budget. If exceeded, escalate before applying.
-- When you observe the **same workaround memory cited 2+ times in a 5-day rolling window** (or **3+ workaround invocations in 5 days**, or **2+ in 24h**), treat it as the budget signal regardless of whether the original entry recorded one — search for the tracking task and surface its status.
-- **Ground threshold numbers in observed cadence, not generic defaults.** The 5-day default is calibrated to Minsky's actual loop frequency (~1/day workaround invocation, ~3/day total feedback-memory creation, multi-per-day task status changes). When defining a new budget, check the cadence of the specific signal first (calibration data files, memory mtimes, PR merge timestamps); pick a window where 2 events on the same pattern is unambiguously a signal, not noise.
-- Until the structural detector ships (mt#1034 attention-allocation noticer), this is checklist-driven discipline. See `feedback_temporary_mechanism_budget.md` for the bridge memory.
+How to apply: `docs/rules-rationale/work-completion.md §Temporary mechanism budget`.
 
 ## Recovery layer spec discipline
 
@@ -1038,17 +900,11 @@ When a task spec introduces a **recovery layer** — sweeper, retry, fallback, a
 1. **`### Covers`** — the failure modes this layer recovers from, enumerated explicitly.
 2. **`### Does NOT cover`** — the failure modes outside this layer's reach, with a pointer to the task that owns each (or explicit "no current owner — must be filed").
 
-A recovery layer is only as strong as the failure modes its spec enumerates. Implicit "covers everything in the area" framing produces false confidence and deferred follow-ups.
+A recovery layer is only as strong as the failure modes its spec enumerates. Implicit "covers everything" framing produces false confidence and deferred follow-ups.
 
-Full incident narrative: `docs/rules-rationale/work-completion.md §Recovery layer spec discipline`.
+**Trigger keywords:** "missed", "silent", "drop", "fail", "lost", "stale", "expired", "unhealthy", "out-of-sync" + a recovery mechanism. Same family as `Temporary mechanism budget`. Tracking: mt#1567.
 
-**How to apply:**
-
-- When **authoring** a recovery-layer task spec: include both subsections. List failure modes by name, not by area. If a failure mode lacks an owner task, file the owner task before marking the recovery-layer task READY.
-- When **reviewing** a recovery-layer PR: verify the runtime behavior matches the spec's `### Covers` list. If the implementation can't actually recover from a listed mode, fix or move to `### Does NOT cover`.
-- When **transitioning** a recovery-layer task to DONE: confirm every `### Does NOT cover` entry has an owner task and that those owners are at least READY. A DONE recovery-layer task with PLANNING-status non-coverage owners is the false-completion pattern.
-- **Trigger keywords for the rule:** spec language like "missed", "silent", "drop", "fail", "lost", "stale", "expired", "unhealthy", "out-of-sync" — when paired with a recovery mechanism, the discipline applies.
-- This is the recovery-layer equivalent of `Temporary mechanism budget` above. Same family of pattern: a mechanism labeled as "the fix" without enumerating what it doesn't cover, so the gap stays invisible until it fires. Tracking task: mt#1567.
+How to apply: `docs/rules-rationale/work-completion.md §Recovery layer spec discipline`.
 
 ## Invocation path required for event/poll mechanisms
 
@@ -1059,14 +915,6 @@ These fail silently in two shapes, identical from outside: the feature exists, i
 - **Nothing calls it.** No scheduler, no registration, no production callsite — or the only caller is a stub (mt#1618).
 - **It runs; a dependency inside it is dead.** The failure is caught and converted into the same value a legitimately empty result produces — no missing caller to grep for, no error to find (mt#3019, mt#3046).
 
-Full incident detail for both shapes: `docs/rules-rationale/work-completion.md §Invocation path`.
+**Trigger keywords:** "fires", "triggers", "polls", "watches", "scheduled", "periodic", "on event", "listener", "handler". Never swallow a dependency failure into a "nothing to do" value — log the actual error.
 
-**How to apply:**
-
-- **Authoring:** add an `### Invocation path` subsection naming (a) what starts it, (b) where the wiring lives, (c) what config controls it.
-- **Implementing:** verify production wiring by searching production callsites, not just the handler. A stub reachable from production code is a silent failure; stubs belong only in test seams.
-- **Reviewing:** grep the entry point for a non-test, non-stub caller — and where normal output is "nothing", ask what distinguishes *found nothing* from *never ran*.
-- **Evidence test** (what caught both above): find a positive artifact — a row, a file, a log line — proving the mechanism has EVER succeeded in production.
-- **Never swallow a dependency failure into a "nothing to do" value.** A catch converting a broken dependency to null/[]/false MUST log the actual error; that silence is what makes permanent breakage look like routine emptiness.
-- **Trigger keywords:** "fires", "triggers", "polls", "watches", "scheduled", "periodic", "on event", "listener", "handler".
-- Complement to `Recovery layer spec discipline` above: wrong-failure-mode coverage is that problem; never running is this one. Tracking: mt#1618, mt#3019, mt#3046; hook slice mechanized by `custom/require-hook-domain-bootstrap` (`code-style.mdc`).
+How to apply: `docs/rules-rationale/work-completion.md §Invocation path`.
