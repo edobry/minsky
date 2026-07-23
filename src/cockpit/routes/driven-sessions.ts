@@ -7,6 +7,12 @@
  *   GET  /api/driven-session            — list app-started sessions (registry
  *                                          snapshot; minimal — the full cockpit
  *                                          view is Rung 2B/2C)
+ *   GET  /api/driven-session/turn-active — cheap "is any driven session
+ *                                          actively mid-turn" signal (mt#3048).
+ *                                          The cockpit-tray watcher's
+ *                                          pre-restart gate
+ *                                          (watcher_backend.rs) queries this
+ *                                          before a hot-reload daemon restart.
  *
  * LOCAL-DAEMON ONLY: never mounted for the Railway `isPublicDeployment`
  * entrypoint (see ../server.ts's mount call) — spawning a genuine `claude`
@@ -32,6 +38,7 @@ import {
   startDrivenSession,
   stopDrivenSession,
   drivenSessionRegistry,
+  isDrivenSessionMidTurn,
   DEFAULT_PERMISSION_MODE,
   type DrivenSessionRecord,
   type DrivenSessionRegistry,
@@ -250,5 +257,35 @@ export function mountDrivenSessionRoutes(
   app.get("/api/driven-session", (_req, res) => {
     const sessions = registry.list().map(toSessionSummary);
     res.status(200).json({ sessions });
+  });
+
+  /**
+   * GET /api/driven-session/turn-active — cheap "is any driven session
+   * actively mid-turn" signal (mt#3048, RFC "Conversation-first drive" Phase
+   * 1 slice 6). Consumed by the cockpit-tray watcher
+   * (cockpit-tray/src-tauri/src/watcher_backend.rs) as a pre-restart gate: a
+   * hot-reload daemon restart is deferred (bounded grace period, never
+   * indefinitely) while `active` is true, rather than interrupting a turn
+   * that is actively streaming. "Mid-turn" = a driven session's latest
+   * observed event is not yet a terminal `result`/`minsky_exit` event — see
+   * `isDrivenSessionMidTurn` in ../driven-session-host.ts.
+   *
+   * Deliberately a plain in-memory registry scan — O(number of driven
+   * sessions, normally single digits) with no I/O — so this stays cheap
+   * enough to poll on every restart-triggering source change with no
+   * perceptible latency added to the common (no active turn) case.
+   *
+   * Unauthenticated read-only GET, same posture as `GET /api/driven-session`
+   * above: mutation auth in ../server.ts is scoped to non-GET/HEAD/OPTIONS
+   * requests (loopback bind already covers the LAN read surface; the tray's
+   * own `/api/health` poll is the documented precedent for an unauthenticated
+   * GET consumer at this tier).
+   */
+  app.get("/api/driven-session/turn-active", (_req, res) => {
+    const activeSessionIds = registry
+      .list()
+      .filter(isDrivenSessionMidTurn)
+      .map((record) => record.localId);
+    res.status(200).json({ active: activeSessionIds.length > 0, activeSessionIds });
   });
 }
