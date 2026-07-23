@@ -102,6 +102,14 @@ export interface AgentRow {
 interface AgentsPayload {
   agents: AgentRow[];
   totalCount: number;
+  /**
+   * Workspace rows the server's default activity bound withheld (mt#3118).
+   * OPTIONAL on this side on purpose: a client running against an older
+   * daemon build (or a payload still in the TanStack cache from before the
+   * field existed) must keep rendering, so the guard below does not require
+   * it and the UI treats `undefined` as "nothing hidden".
+   */
+  hiddenInactiveCount?: number;
 }
 
 // Narrows the shared `WidgetData` envelope to the agents-specific payload shape.
@@ -114,8 +122,16 @@ function isAgentsPayload(payload: unknown): payload is AgentsPayload {
   );
 }
 
-async function fetchAgents(queryParam?: { project: string }): Promise<WidgetData> {
-  return fetchWidgetData("agents", queryParam);
+async function fetchAgents(
+  queryParam?: { project: string },
+  includeInactive?: boolean
+): Promise<WidgetData> {
+  // Only send the param when enabling — omitting it keeps the default-view URL
+  // (and therefore the server-side query) identical to the pre-mt#3118 shape.
+  return fetchWidgetData(
+    "agents",
+    includeInactive ? { ...(queryParam ?? {}), includeInactive: "true" } : queryParam
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +337,10 @@ interface ControlBarProps {
   onFilterKind: (value: AgentFilters["kind"]) => void;
   onPageSize: (size: number) => void;
   onClearFilters: () => void;
+  /** Workspace rows withheld by the server-side activity bound (mt#3118). */
+  hiddenInactiveCount: number;
+  includeInactive: boolean;
+  onIncludeInactive: (value: boolean) => void;
 }
 
 function AgentsControlBar({
@@ -336,6 +356,9 @@ function AgentsControlBar({
   onFilterKind,
   onPageSize,
   onClearFilters,
+  hiddenInactiveCount,
+  includeInactive,
+  onIncludeInactive,
 }: ControlBarProps) {
   return (
     <div className="flex flex-wrap items-center gap-2 py-2 mb-2 border-b border-border">
@@ -394,6 +417,27 @@ function AgentsControlBar({
         <option value="stale">Stale</option>
         <option value="orphaned">Orphaned</option>
       </select>
+
+      {/* Activity bound (mt#3118). The default view drops workspaces quiet
+          past the threshold; this restores them. The count is rendered in the
+          label so the bound announces itself rather than silently truncating
+          — the operator can see there IS more, and how much. */}
+      {(hiddenInactiveCount > 0 || includeInactive) && (
+        <label className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none ml-1">
+          <input
+            type="checkbox"
+            checked={includeInactive}
+            onChange={(e) => onIncludeInactive(e.target.checked)}
+            className="accent-primary"
+            aria-label={
+              includeInactive
+                ? "Hide workspaces inactive past the activity window"
+                : `Show ${hiddenInactiveCount} inactive workspace${hiddenInactiveCount === 1 ? "" : "s"}`
+            }
+          />
+          {includeInactive ? "Inactive shown" : `+${hiddenInactiveCount} inactive`}
+        </label>
+      )}
 
       {/* Task ID filter */}
       <span className="text-xs text-muted-foreground ml-1">Task:</span>
@@ -1099,7 +1143,17 @@ function agentSortFn(a: AgentRow, b: AgentRow, key: AgentSortKey, dir: SortDir):
 // Inner widget component (runs hooks after payload guard)
 // ---------------------------------------------------------------------------
 
-function AgentsInner({ agents }: { agents: AgentRow[] }) {
+function AgentsInner({
+  agents,
+  hiddenInactiveCount,
+  includeInactive,
+  onIncludeInactive,
+}: {
+  agents: AgentRow[];
+  hiddenInactiveCount: number;
+  includeInactive: boolean;
+  onIncludeInactive: (value: boolean) => void;
+}) {
   const filterFn = useCallback(agentFilterFn, []);
   const activeSessionsQuery = useActiveConversationSessions();
   const activeConversationIds = activeSessionsQuery.data ?? new Set<string>();
@@ -1168,7 +1222,12 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
 
   return (
     <>
-      {totalCount > 0 && (
+      {/* mt#3118: `|| hiddenInactiveCount > 0` is load-bearing, not defensive —
+          when the activity bound hides EVERY row, totalCount is 0 and the
+          control bar (which carries the only "show inactive" affordance) would
+          otherwise disappear exactly when the operator needs it to get their
+          rows back. */}
+      {(totalCount > 0 || hiddenInactiveCount > 0) && (
         <AgentsControlBar
           sortKey={sortKey}
           sortDir={sortDir}
@@ -1182,6 +1241,9 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
           onFilterKind={(v) => setFilter("kind", v)}
           onPageSize={setPageSize}
           onClearFilters={clearFilters}
+          hiddenInactiveCount={hiddenInactiveCount}
+          includeInactive={includeInactive}
+          onIncludeInactive={onIncludeInactive}
         />
       )}
 
@@ -1224,9 +1286,11 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
 
 interface AgentsBodyProps {
   query: UseQueryResult<WidgetData, Error>;
+  includeInactive: boolean;
+  onIncludeInactive: (value: boolean) => void;
 }
 
-function AgentsBody({ query }: AgentsBodyProps) {
+function AgentsBody({ query, includeInactive, onIncludeInactive }: AgentsBodyProps) {
   // Error state (network failure, non-200, JSON parse error)
   if (query.isError) {
     return (
@@ -1249,7 +1313,14 @@ function AgentsBody({ query }: AgentsBodyProps) {
     return <p className="text-muted-foreground text-sm">Unexpected payload shape</p>;
   }
 
-  return <AgentsInner agents={data.payload.agents} />;
+  return (
+    <AgentsInner
+      agents={data.payload.agents}
+      hiddenInactiveCount={data.payload.hiddenInactiveCount ?? 0}
+      includeInactive={includeInactive}
+      onIncludeInactive={onIncludeInactive}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1265,11 +1336,17 @@ interface AgentsProps {
 
 export function Agents({ variant = "card", title = "Agents" }: AgentsProps = {}) {
   const { selectedSlug, queryParam } = useProject();
+  // mt#3118: the activity bound is a SERVER-side filter, so toggling it must
+  // refetch rather than re-filter locally — hence it lives here (where the
+  // query does) and is threaded down to the control bar, not held there.
+  const [includeInactive, setIncludeInactive] = useState(false);
   const query = useQuery<WidgetData, Error>({
     // mt#2418: selectedSlug in the key so switching projects invalidates
     // the cache and refetches immediately rather than waiting out staleTime.
-    queryKey: ["agents", selectedSlug],
-    queryFn: () => fetchAgents(queryParam),
+    // mt#3118: includeInactive is part of the key for the same reason — the
+    // two views are different server responses, not two slices of one.
+    queryKey: ["agents", selectedSlug, includeInactive],
+    queryFn: () => fetchAgents(queryParam, includeInactive),
     staleTime: 30_000,
     refetchInterval: 5_000,
   });
@@ -1281,7 +1358,11 @@ export function Agents({ variant = "card", title = "Agents" }: AgentsProps = {})
           (not gated on its loading/error state — search hits a separate,
           user-triggered data source, not the polled agents list). */}
       <ConversationSearchPanel />
-      <AgentsBody query={query} />
+      <AgentsBody
+        query={query}
+        includeInactive={includeInactive}
+        onIncludeInactive={setIncludeInactive}
+      />
     </WidgetShell>
   );
 }

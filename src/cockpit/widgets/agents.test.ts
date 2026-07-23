@@ -6,7 +6,7 @@
  * title-from-branch fallback) live in src/cockpit/cockpit.test.ts.
  */
 import { describe, test, expect } from "bun:test";
-import { createAgentsWidget } from "./agents";
+import { createAgentsWidget, isWithinActiveWindow } from "./agents";
 import type { TaskProviderLike, AgentRow } from "./agents";
 import type {
   SessionProviderInterface,
@@ -824,4 +824,88 @@ describe("createAgentsWidget — project-scope wiring (mt#2418)", () => {
   // already covered directly, with clean DI (no mock.module, banned by this
   // repo's own custom/no-global-module-mocks ESLint rule), in
   // src/cockpit/project-scope.test.ts.
+});
+
+// ---------------------------------------------------------------------------
+// Activity-bound tests (mt#3118)
+// ---------------------------------------------------------------------------
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Fixed clock for the pure-function tests. `isWithinActiveWindow` takes `now`
+ * as a parameter precisely so these never read a real clock — a wall-clock
+ * read would make the assertions time-of-day dependent (and trips
+ * `custom/no-real-fs-in-tests`, which flags `Date.now()` in tests).
+ */
+const FIXED_NOW_MS = Date.parse("2026-07-23T12:00:00.000Z");
+
+function agedSession(daysAgo: number, overrides: Partial<SessionRecord> = {}): SessionRecord {
+  const ts = new Date(FIXED_NOW_MS - daysAgo * DAY_MS).toISOString();
+  return makeActiveSession({ createdAt: ts, lastActivityAt: ts, ...overrides });
+}
+
+describe("isWithinActiveWindow — the default activity bound", () => {
+  test("keeps a workspace active within the window", () => {
+    expect(isWithinActiveWindow(agedSession(3), FIXED_NOW_MS)).toBe(true);
+  });
+
+  test("drops a workspace quiet for longer than the window", () => {
+    expect(isWithinActiveWindow(agedSession(40), FIXED_NOW_MS)).toBe(false);
+  });
+
+  test("keeps a long-quiet workspace that still has a pull request attached", () => {
+    const withPr = agedSession(90, {
+      pullRequest: { number: 1234, state: "open" },
+    } as Partial<SessionRecord>);
+    expect(isWithinActiveWindow(withPr, FIXED_NOW_MS)).toBe(true);
+  });
+
+  test("keeps a row whose activity timestamp is unparseable (fail-open, never silently drop)", () => {
+    const bad = makeActiveSession({ createdAt: "not-a-date", lastActivityAt: "not-a-date" });
+    expect(isWithinActiveWindow(bad, FIXED_NOW_MS)).toBe(true);
+  });
+
+  test("falls back to createdAt when lastActivityAt is absent", () => {
+    const old = new Date(FIXED_NOW_MS - 40 * DAY_MS).toISOString();
+    const rec = makeActiveSession({ createdAt: old, lastActivityAt: undefined });
+    expect(isWithinActiveWindow(rec, FIXED_NOW_MS)).toBe(false);
+  });
+});
+
+describe("createAgentsWidget — activity bound applied to the row source (mt#3118)", () => {
+  // These go through the widget's own real clock, so "recent" rides the
+  // module-level NOW and "abandoned" is a fixed date far enough in the past to
+  // stay outside the window no matter when the suite runs.
+  const recent = makeActiveSession({ sessionId: S1 });
+  const abandoned = makeActiveSession({
+    sessionId: S2,
+    createdAt: "2025-01-01T00:00:00.000Z",
+    lastActivityAt: "2025-01-01T00:00:00.000Z",
+  });
+
+  test("default view hides abandoned workspaces and reports how many were hidden", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([recent, abandoned]),
+      async () => makeTaskProvider({})
+    );
+    const result = await widget.fetch({ query: {} } as never);
+    expect(result.state).toBe("ok");
+    const payload = (result as { payload: { agents: AgentRow[]; hiddenInactiveCount: number } })
+      .payload;
+    expect(payload.agents.map((a) => a.sessionId)).toEqual([S1]);
+    expect(payload.hiddenInactiveCount).toBe(1);
+  });
+
+  test("includeInactive=true restores the hidden rows", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([recent, abandoned]),
+      async () => makeTaskProvider({})
+    );
+    const result = await widget.fetch({ query: { includeInactive: "true" } } as never);
+    const payload = (result as { payload: { agents: AgentRow[]; hiddenInactiveCount: number } })
+      .payload;
+    expect(payload.agents.map((a) => a.sessionId).sort()).toEqual([S1, S2].sort());
+    expect(payload.hiddenInactiveCount).toBe(0);
+  });
 });

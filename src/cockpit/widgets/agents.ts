@@ -151,10 +151,76 @@ export interface DrivenSessionSnapshot {
 export interface AgentsPayload {
   agents: AgentRow[];
   totalCount: number;
+  /**
+   * Workspace rows withheld by the default activity bound (mt#3118). Zero when
+   * `?includeInactive=true`. Surfaced so the UI can state what the bound hid
+   * instead of silently truncating.
+   */
+  hiddenInactiveCount: number;
 }
 
 /** Terminal session statuses that should be filtered out */
 const TERMINAL_STATUSES: Set<SessionStatus> = new Set([SessionStatus.MERGED, SessionStatus.CLOSED]);
+
+/**
+ * Age past which a workspace is dropped from the DEFAULT list view (mt#3118).
+ *
+ * Status alone is not a sufficient bound: `statusNotIn: [MERGED, CLOSED]`
+ * below admits every record whose status never advanced, and in practice
+ * status advances very rarely (measured 2026-07-23: 198 of 225 records still
+ * at CREATED, 3 ever reaching MERGED, oldest activity 2025-08-14). That made
+ * the operator's default view ~96% abandoned workspaces.
+ *
+ * Grounding, per `decision-defaults.mdc §Thresholds` (observed cadence, not a
+ * round number): that rule's stall thresholds are 5 days for active work and
+ * 10 days for lynchpin tracking. We deliberately bound at the LONGER of the
+ * two. Hiding at the 5-day stall threshold would make a workspace disappear
+ * exactly when it becomes interesting — a stalled session is a supervision
+ * signal, not noise. 10 days leaves a stalled workspace visible well past the
+ * point it should have been noticed, then stops carrying it forever.
+ */
+const INACTIVE_WORKSPACE_THRESHOLD_DAYS = 10;
+const INACTIVE_WORKSPACE_THRESHOLD_MS = INACTIVE_WORKSPACE_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
+
+/**
+ * True when a workspace record still belongs in the default (bounded) view.
+ *
+ * Recency is the bound. One signal OVERRIDES it: an attached pull request —
+ * work awaiting review can legitimately sit quiet for a long time and must
+ * never vanish from the operator's view while it is still open.
+ *
+ * Liveness deliberately gets NO separate override, though the spec's criterion
+ * asks that a live workspace never be hidden. That property holds by
+ * construction rather than by a branch: `deriveSessionLiveness`
+ * (`packages/domain/src/session/types.ts:152`) derives from the SAME
+ * `lastActivityAt ?? createdAt` timestamp this function reads, and classifies
+ * anything quiet for more than 2 hours as `stale`. So a non-stale record is
+ * necessarily within any bound of 2 hours or more — a liveness check here
+ * could never fire independently, and writing one would be dead code that
+ * reads like a live guard. If the bound is ever tightened below 2 hours, that
+ * stops being true and an explicit liveness override becomes necessary.
+ *
+ * An unparseable or missing activity timestamp is treated as RECENT (kept),
+ * not hidden: this filter's failure mode must be showing too much, never
+ * silently dropping a row whose age could not be established.
+ *
+ * Exported for direct unit testing (the widget's `fetch` is awkward to drive
+ * across the full age/PR matrix).
+ */
+export function isWithinActiveWindow(
+  record: SessionRecord,
+  now: number,
+  thresholdMs: number = INACTIVE_WORKSPACE_THRESHOLD_MS
+): boolean {
+  if (record.pullRequest) return true;
+
+  const raw = record.lastActivityAt ?? record.createdAt;
+  if (!raw) return true;
+  const ts = new Date(raw).getTime();
+  if (Number.isNaN(ts)) return true;
+
+  return now - ts <= thresholdMs;
+}
 
 /**
  * Map a SessionRecord to an AgentRow.
@@ -397,11 +463,23 @@ export function createAgentsWidget(
           projectScope,
         });
 
-        const filtered = allRecords.filter((r) => {
+        // mt#3118: `?includeInactive=true` restores the unbounded view. The
+        // rows are hidden, never dropped from the substrate — `hiddenInactiveCount`
+        // below reports how many, so the UI can surface the bound rather than
+        // silently truncating (CLAUDE.md §"No silent caps").
+        const includeInactive = ctx.query?.includeInactive === "true";
+        const now = Date.now();
+
+        const liveFiltered = allRecords.filter((r) => {
           const liveness = deriveSessionLiveness(r);
           if (liveness === "orphaned") return false;
           return true;
         });
+
+        const filtered = includeInactive
+          ? liveFiltered
+          : liveFiltered.filter((r) => isWithinActiveWindow(r, now));
+        const hiddenInactiveCount = liveFiltered.length - filtered.length;
 
         // Task-title + conversation-merge enrichment run over the FULL
         // filtered set, not just the requested page — pagination (when
@@ -513,7 +591,7 @@ export function createAgentsWidget(
         const totalCount = merged.length;
         const agents = isPaginated ? merged.slice(offset ?? 0, (offset ?? 0) + limit) : merged;
 
-        const payload: AgentsPayload = { agents, totalCount };
+        const payload: AgentsPayload = { agents, totalCount, hiddenInactiveCount };
         return { state: "ok", payload };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
