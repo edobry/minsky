@@ -49,6 +49,13 @@ export interface RunMinskyCompileOptions {
  * from `@minsky/domain`, so an import in the other direction would be
  * circular. Keep the two mappings in sync if a new target is added.
  * Exported for unit testing.
+ *
+ * mt#3058 cutover: `claude.md`, `agents.md`, and `claude-rules` moved here from
+ * the legacy `rules compile` pipeline. All three are sourced from
+ * `.minsky/rules/`, so they gate on `present.rules` alongside `cursor-rules-ts`.
+ * The new pipeline is now the sole bare-invocation writer of CLAUDE.md /
+ * AGENTS.md / .claude/rules — the legacy `probeLegacyCompileTargets` no longer
+ * returns them (packages/domain/src/rules/operations/crud-operations.ts).
  */
 export function minskyCompileTargetsFromPresence(present: {
   skills: boolean;
@@ -58,7 +65,12 @@ export function minskyCompileTargetsFromPresence(present: {
 }): string[] {
   const targets: string[] = [];
   if (present.skills) targets.push("claude-skills");
-  if (present.rules) targets.push("cursor-rules-ts");
+  if (present.rules) {
+    targets.push("cursor-rules-ts");
+    targets.push("claude.md");
+    targets.push("agents.md");
+    targets.push("claude-rules");
+  }
   if (present.agents) targets.push("claude-agents");
   if (present.hooks) targets.push("claude-hooks");
   return targets;
