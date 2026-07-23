@@ -1290,15 +1290,13 @@ store-read errors only. Doc: `dispatch-intent-write-gate.md`.
 
 ## Nested-Fork Dispatch Guard
 
-PreToolUse on `Agent` (mt#3045): the write gate above is opt-in — an undeclared nested fork
-bypassed it entirely (mem#665, R2 recurrence of mt#2865). This guard closes the gap one layer
-earlier: denies a NESTED `fork` dispatch (caller's `agent_id` is itself set — a subagent, not the
-main thread, is dispatching) unless a live dispatch-intent declaration (read-only OR
-implementation) already covers the calling subagent's session. Top-level fork dispatch from the
-main agent is unaffected; non-fork nested dispatch (Explore, general-purpose, ...) is unaffected.
-Hook: `block-nested-fork-dispatch.ts` (reuses `dispatch-intent-store.ts` + `isSubagentContext`/
-`resolveSessionIdFromInput` from `dispatch-intent-write-gate.ts`). Override:
-`MINSKY_ALLOW_NESTED_FORK=1` (launch-time-only). Fail-open on store-read errors only.
+PreToolUse on `Agent` (mt#3045): denies a NESTED `fork` dispatch (caller's `agent_id` already
+set — a subagent, not the main thread, is dispatching) unless a live dispatch-intent declaration
+already covers the calling subagent's session — closes the gap the opt-in write gate above left
+when an undeclared nested fork bypassed it entirely (mem#665, R2 recurrence of mt#2865).
+Top-level and non-fork nested dispatch are unaffected. Hook: `block-nested-fork-dispatch.ts`.
+Override: `MINSKY_ALLOW_NESTED_FORK=1` (launch-time-only). Fail-open on store-read errors only.
+Doc: `nested-fork-dispatch-guard.md`.
 
 # Hook Observers
 
@@ -2309,7 +2307,7 @@ When you need a capability and (a) reach for bash before checking MCP, (b) the M
 
 **Generic-SE override:** "keep moving — find another path." Wrong here: silent workarounds accumulate capability gaps the user can't see and therefore can't prioritize closing.
 
-**Origins:** mt#1983, shipped via mt#1988; memories `3408717a` (bridge), `b30bfabe`, `39701a9a`, `7f67af43`; siblings mt#1196/mt#1197/mt#1989. On recurrence, escalate to hook-tier.
+**Origins:** mt#1983, shipped via mt#1988. On recurrence, escalate to hook-tier. Full incident list: `docs/rules-rationale/decision-defaults.md §Missing MCP tool`.
 
 ## User does not review PRs in the loop
 
@@ -2326,7 +2324,7 @@ Harnesses ship internal todo tracking (Claude Code `TaskCreate`/`TaskUpdate`, Cu
 - **Inside a Minsky skill chain (`/plan-task`, `/implement-task`, `/prepare-pr`, `/merge-coordination`) → neither.** The Minsky task IS the todo; a parallel harness checklist is a sync hazard.
 - **Harness `TaskCreate` reminder during a Minsky chain → disregard silently.** The user can't see the reminder; echoing it turns harness noise into chat noise.
 
-**Generic-SE override:** "harness todos for everything" (duplicated state) or "no tracking" (loses external memory). See `feedback_agent_todos_vs_minsky_tasks`; the position paper [*Agent todos vs. Minsky tasks*](https://www.notion.so/35e937f03cb4812e9734f0c0f9a8b26c) carries worked examples + the Shape A/B/C frame (first instance mt#1316; Shape-C follow-up mt#1797).
+**Generic-SE override:** "harness todos for everything" (duplicated state) or "no tracking" (loses external memory). See `feedback_agent_todos_vs_minsky_tasks`. Worked examples + the Shape A/B/C frame: `docs/rules-rationale/decision-defaults.md §Agent todos`.
 
 ## Build vs buy: default to buy for non-core capabilities
 

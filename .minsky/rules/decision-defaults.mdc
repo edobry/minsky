@@ -92,7 +92,7 @@ When you need a capability and (a) reach for bash before checking MCP, (b) the M
 
 **Generic-SE override:** "keep moving — find another path." Wrong here: silent workarounds accumulate capability gaps the user can't see and therefore can't prioritize closing.
 
-**Origins:** mt#1983, shipped via mt#1988; memories `3408717a` (bridge), `b30bfabe`, `39701a9a`, `7f67af43`; siblings mt#1196/mt#1197/mt#1989. On recurrence, escalate to hook-tier.
+**Origins:** mt#1983, shipped via mt#1988. On recurrence, escalate to hook-tier. Full incident list: `docs/rules-rationale/decision-defaults.md §Missing MCP tool`.
 
 ## User does not review PRs in the loop
 
@@ -109,7 +109,7 @@ Harnesses ship internal todo tracking (Claude Code `TaskCreate`/`TaskUpdate`, Cu
 - **Inside a Minsky skill chain (`/plan-task`, `/implement-task`, `/prepare-pr`, `/merge-coordination`) → neither.** The Minsky task IS the todo; a parallel harness checklist is a sync hazard.
 - **Harness `TaskCreate` reminder during a Minsky chain → disregard silently.** The user can't see the reminder; echoing it turns harness noise into chat noise.
 
-**Generic-SE override:** "harness todos for everything" (duplicated state) or "no tracking" (loses external memory). See `feedback_agent_todos_vs_minsky_tasks`; the position paper [*Agent todos vs. Minsky tasks*](https://www.notion.so/35e937f03cb4812e9734f0c0f9a8b26c) carries worked examples + the Shape A/B/C frame (first instance mt#1316; Shape-C follow-up mt#1797).
+**Generic-SE override:** "harness todos for everything" (duplicated state) or "no tracking" (loses external memory). See `feedback_agent_todos_vs_minsky_tasks`. Worked examples + the Shape A/B/C frame: `docs/rules-rationale/decision-defaults.md §Agent todos`.
 
 ## Build vs buy: default to buy for non-core capabilities
 

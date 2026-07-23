@@ -17,6 +17,17 @@ enumeration in memory `88d92439`.
 there" reads as research but is functionally the build path, skipping the user-sequenced
 evaluation step; see `feedback_build_path_as_research_at_action_time`.
 
+## Missing MCP tool — full incident list
+
+Origins: mt#1983, shipped via mt#1988; memories `3408717a` (bridge), `b30bfabe`, `39701a9a`,
+`7f67af43`; siblings mt#1196/mt#1197/mt#1989.
+
+## Agent todos vs. Minsky tasks — worked examples
+
+The position paper [_Agent todos vs. Minsky tasks_](https://www.notion.so/35e937f03cb4812e9734f0c0f9a8b26c)
+carries worked examples plus the Shape A/B/C frame (first instance mt#1316; Shape-C follow-up
+mt#1797).
+
 ## Cross-references (full index)
 
 `humility.mdc` (the design principle this corpus operationalizes); `operational-safety-dry-run-first.mdc`;
