@@ -56,7 +56,7 @@ to that family.)
 
 ## Additional trigger cues (Tier-3 residual slice — mt#2698)
 
-Three narrow per-surface cues, filed as cheap Tier-3 residual-slice
+Four narrow per-surface cues, filed as cheap Tier-3 residual-slice
 amendments to the "When to invoke" list above — not a new containment
 strategy. Per the `mt#2485` strategic partition (family record `b0b294ab`):
 the broad-detector tier is demoted; per-surface prose-tier cues like these
@@ -115,6 +115,34 @@ observations were quiet ports; "tray-spawned vs shell-spawned" was encoded
 into mt#2765's spec v1 when the real variable was concurrent request traffic.
 The isolating experiments (shell daemon ON 3737; exact tray spawn shape on a
 quiet port) took <5 minutes once run, and both falsified the framing.
+
+### (d) Runtime-behavior root cause
+
+Trigger: about to assert OR refute a root cause for what a system DID at
+runtime — a stall, crash, timing/liveness anomaly, "it fired / didn't fire /
+hung / stopped."
+
+Falsifier: the authoritative evidence for observed runtime behavior is the
+RUNTIME RECORD — grep the service logs, read the live health/metrics endpoint
+(e.g. `/api/health`, `/api/sweeps`), or inspect process state — BEFORE
+concluding. Reading the SOURCE establishes only INTENDED behavior, which
+cannot refute an observed-behavior hypothesis the logs could settle in one
+grep. The trap is sharpest when REFUTING ("the machinery looks correct, I
+found no bug, therefore it can't be that"): a static-correctness argument is
+not evidence about what the code DID. Note the Tier-2 blind spot — reading the
+source symbol SATISFIES mt#2486's same-turn-read suppression, but for a
+runtime-behavior claim that is the "right read for the wrong question."
+
+_Origin:_ `b0b294ab` R13 (mt#3039, 2026-07-22) — the prod-state sweep-stall
+investigation REFUTED the "dead interval" hypothesis from
+`createIntervalSweeper` / meta-watchdog source ("no bug found") and concluded
+the interval "kept ticking" and the meta-watchdog "never intervened." The
+daemon's own logs showed the meta-watchdog firing `force-restarting` once a
+minute for ~7.5h with `staleMs` growing — the interval was dead and the
+force-restart ineffective (an infinite restart storm). One `grep` of
+`cockpit-daemon*.log`, or a read of live `/api/sweeps` `lastAttemptAt` (frozen),
+would have falsified the conclusion; the task shipped DONE on the wrong root
+cause (corrected + fixed by mt#3060). See memory mem#674.
 
 ## Artifact-content and identity claims (mt#2534)
 
@@ -273,10 +301,11 @@ unverified premises, say "unverified — need to check X."
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference`
   (memory `88d92439`) — sibling family (strategic framing vs mechanism claims).
 - Memory `b0b294ab` — family record for the "assertion frozen as fact without
-  verification" pattern (R6–R12); R11 and R12 are the origin of the three
+  verification" pattern (R6–R13); R11–R13 are the origin of the four
   cues above. `mt#2485` — the strategic partition (Tier-1 `mt#2488`, Tier-2
-  `mt#2486`, Tier-3 residual = these per-surface cues). `mt#2698` — this
-  amendment's task.
+  `mt#2486`, Tier-3 residual = these per-surface cues). `mt#2698` — cues
+  (a)–(c)'s task; `mt#3055` — cue (d)'s task. Cue (d)'s incident memory:
+  `mem#674` (`07cb2686`).
 - Memory `eb4411f3` — bridge memory for the artifact-content/identity family
   (`## Artifact-content and identity claims` above); originating incidents
   R1–R4 (mt#2518, plus the 2026-06-24 and 2026-06-26 recurrences).
