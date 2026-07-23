@@ -79,6 +79,15 @@ interface DeadlineState {
 
 const deadlineState: DeadlineState = { exceeded: false, provider: null };
 
+/**
+ * Test-only: force (or clear) the deadline-exceeded flag so tests can
+ * exercise `recordFailureBestEffort`'s "no new work after deadline" guard
+ * (mt#3089) without needing to actually wait out `RECORD_INVOCATION_TIMEOUT_MS`.
+ */
+export function __setDeadlineExceededForTest(value: boolean): void {
+  deadlineState.exceeded = value;
+}
+
 /** Close the registered provider, bounded so cleanup cannot hang the exit. */
 async function closeRegisteredProvider(): Promise<void> {
   const provider = deadlineState.provider;
@@ -503,7 +512,7 @@ async function classifyAndRecord(params: {
  * to, or when the entrypoint's deadline has already fired (respecting the
  * "no new work after deadline" contract the rest of this hook applies).
  */
-async function recordFailureBestEffort(
+export async function recordFailureBestEffort(
   subagentSessionId: string | null,
   effectiveTaskId: string,
   errorMessage: string
