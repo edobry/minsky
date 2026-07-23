@@ -3,10 +3,10 @@ description: Use when naming code artifacts, writing comments, or reviewing vari
 globs:
   - '**/*.ts'
   - '**/*.tsx'
+alwaysApply: false
 tags:
   - code-style
   - preferences
-alwaysApply: false
 ---
 # Meta-Cognitive Boundary Protocol
 
