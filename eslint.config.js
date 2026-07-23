@@ -117,6 +117,10 @@ export default [
       "build/**",
       "dist/**",
       "**/dist/**",
+      // Rust/Cargo build output — `cargo doc` generates target/doc/**/*.js (rustdoc)
+      // that `eslint .` would otherwise lint, blocking every commit (mt#2541). No
+      // legitimate `target` source dir is tracked, so the broad glob is safe.
+      "**/target/**",
       // Generated Slidev talk-deck build snapshot (committed for Railway serving;
       // regenerate via `cd services/site && bun run build:talks`)
       "services/site/public/talks/**",
