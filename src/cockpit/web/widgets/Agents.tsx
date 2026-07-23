@@ -1143,6 +1143,32 @@ function agentSortFn(a: AgentRow, b: AgentRow, key: AgentSortKey, dir: SortDir):
 // Inner widget component (runs hooks after payload guard)
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether the control bar renders (mt#3118).
+ *
+ * The bar carries the ONLY affordance for the activity bound, so it has to
+ * survive both directions of the empty case — each disjunct is load-bearing,
+ * not defensive:
+ *
+ *  - `totalCount > 0` — the ordinary case, rows to control.
+ *  - `hiddenInactiveCount > 0` — the bound is hiding EVERYTHING. Without this
+ *    the bar vanishes exactly when the operator needs it to get rows back.
+ *  - `includeInactive` — the filter is OFF and there is genuinely nothing to
+ *    show. `includeInactive` always reports 0 hidden by construction, so both
+ *    counts are 0 and, without this disjunct, the bar disappears and the
+ *    operator cannot turn the filter back off. (PR #2235 review, non-blocking.)
+ *
+ * Exported for direct unit testing — the trap here is a render condition that
+ * looks obviously right and strands the operator in one specific state.
+ */
+export function shouldShowControlBar(counts: {
+  totalCount: number;
+  hiddenInactiveCount: number;
+  includeInactive: boolean;
+}): boolean {
+  return counts.totalCount > 0 || counts.hiddenInactiveCount > 0 || counts.includeInactive;
+}
+
 function AgentsInner({
   agents,
   hiddenInactiveCount,
@@ -1222,12 +1248,7 @@ function AgentsInner({
 
   return (
     <>
-      {/* mt#3118: `|| hiddenInactiveCount > 0` is load-bearing, not defensive —
-          when the activity bound hides EVERY row, totalCount is 0 and the
-          control bar (which carries the only "show inactive" affordance) would
-          otherwise disappear exactly when the operator needs it to get their
-          rows back. */}
-      {(totalCount > 0 || hiddenInactiveCount > 0) && (
+      {shouldShowControlBar({ totalCount, hiddenInactiveCount, includeInactive }) && (
         <AgentsControlBar
           sortKey={sortKey}
           sortDir={sortDir}

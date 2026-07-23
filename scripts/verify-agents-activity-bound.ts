@@ -47,6 +47,30 @@ async function fetchMode(includeInactive: boolean): Promise<AgentsResult> {
   return (await agentsWidget.fetch({ query } as never)) as AgentsResult;
 }
 
+/**
+ * Median wall-clock of N fetches in one mode.
+ *
+ * Median, not mean: this runs against a live database on a developer machine
+ * whose load varies, so a single slow sample must not dominate. The first
+ * fetch is discarded as a warm-up — it pays connection setup and lazy
+ * persistence init that no subsequent request repeats, and counting it would
+ * overstate the steady-state cost this measurement exists to compare.
+ *
+ * `includeInactive: true` is the honest stand-in for "before this change":
+ * it returns the same unbounded row set the widget served prior to the bound.
+ */
+async function timeMode(includeInactive: boolean, samples = 5): Promise<number> {
+  await fetchMode(includeInactive); // warm-up, discarded
+  const times: number[] = [];
+  for (let i = 0; i < samples; i++) {
+    const t0 = performance.now();
+    await fetchMode(includeInactive);
+    times.push(performance.now() - t0);
+  }
+  times.sort((a, b) => a - b);
+  return times[Math.floor(times.length / 2)] ?? 0;
+}
+
 function workspaceRows(r: AgentsResult) {
   return (r.payload?.agents ?? []).filter((a) => a.kind === "dispatched-agent");
 }
@@ -77,6 +101,14 @@ const boundedWs = workspaceRows(bounded);
 const unboundedWs = workspaceRows(unbounded);
 const hidden = bounded.payload?.hiddenInactiveCount ?? 0;
 
+// Latency comparison — required by this task's success criterion ("the
+// latency change is measured and recorded, not assumed"). Recorded, not
+// asserted on: absolute timings depend on machine load and DB round-trip and
+// would make this script flaky as a gate. The assertions below stay on the
+// deterministic row-count properties.
+const boundedMs = await timeMode(false);
+const unboundedMs = await timeMode(true);
+
 console.log(
   JSON.stringify(
     {
@@ -93,6 +125,11 @@ console.log(
       oldestWorkspaceActivity: {
         default: boundedWs.map((a) => a.lastActivityAt).sort()[0] ?? null,
         includeInactive: unboundedWs.map((a) => a.lastActivityAt).sort()[0] ?? null,
+      },
+      medianFetchMs: {
+        default: Math.round(boundedMs),
+        includeInactive: Math.round(unboundedMs),
+        note: "median of 5, warm-up discarded; includeInactive == the pre-change unbounded row set",
       },
     },
     null,
