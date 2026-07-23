@@ -31,7 +31,7 @@
 // daemon gets this from its own entry point; a standalone script must import
 // it itself (same as every other script under scripts/).
 import "reflect-metadata";
-import { getServerChangesetService } from "../src/cockpit/db-providers";
+import { getServerChangesetService, getServerChecksReader } from "../src/cockpit/db-providers";
 
 const DEFAULT_PR = "2222";
 
@@ -112,6 +112,50 @@ async function main(): Promise<number> {
   }
   if (!gh?.htmlUrl) {
     problems.push("htmlUrl is missing — the 'Open on GitHub' break-out would not render");
+  }
+
+  // --- mt#3097: exercise the CI check-runs binding -----------------------
+  //
+  // This is the §7a binding check for the check-runs path: the unit tests
+  // exercise the pure derivation against fixtures, which says nothing about
+  // whether `getServerChecksReader` actually authenticates and returns real
+  // check-runs. The endpoint degrades `checks` to null on failure, so a dead
+  // binding would be indistinguishable from "this commit has no CI" at every
+  // downstream surface — exactly the failure mode this script exists to catch.
+  const headSha = gh?.headSha;
+  if (!headSha) {
+    result["checks"] = { status: "SKIP", reason: "no headSha on the resolved changeset" };
+  } else {
+    const checksReader = await getServerChecksReader();
+    if (!checksReader) {
+      result["checks"] = { status: "SKIP", reason: "no checks reader — GitHub not configured" };
+    } else {
+      try {
+        const checks = await checksReader(headSha);
+        result["checks"] = {
+          status: "PASS",
+          headSha,
+          allPassed: checks.allPassed,
+          total: checks.summary.total,
+          passed: checks.summary.passed,
+          failed: checks.summary.failed,
+          pending: checks.summary.pending,
+        };
+        if (checks.summary.total === 0) {
+          problems.push(
+            `check-runs returned 0 checks for ${headSha} — expected CI on this commit; ` +
+              `a zero result here may indicate a dead binding rather than a genuinely uncovered commit`
+          );
+        }
+      } catch (checksErr) {
+        result["checks"] = {
+          status: "FAIL",
+          headSha,
+          error: checksErr instanceof Error ? checksErr.message : String(checksErr),
+        };
+        problems.push("check-runs fetch threw — the CI binding is not working");
+      }
+    }
   }
 
   if (problems.length > 0) {

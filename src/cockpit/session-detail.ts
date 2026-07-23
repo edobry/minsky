@@ -109,6 +109,32 @@ export interface ChangesetLiveDetail {
 }
 
 /**
+ * CI check-run summary for a changeset (mt#3097).
+ *
+ * Mirrors the domain `ChecksResult` shape. Carried on the detail payload as
+ * `checks`, which is **null when the check state could not be determined** —
+ * distinct from a real result reporting `total: 0`. That distinction is
+ * load-bearing: `getCheckRunsForRef` deliberately throws rather than returning
+ * an empty-but-successful result when its fetches fail, so "we could not find
+ * out" must never render as "no checks / green".
+ */
+export interface ChangesetChecksSummary {
+  allPassed: boolean;
+  total: number;
+  passed: number;
+  failed: number;
+  pending: number;
+  checks: {
+    name: string;
+    /** "completed" | "queued" | "in_progress" */
+    status: string;
+    /** "success" | "failure" | "neutral" | ... | null while pending */
+    conclusion: string | null;
+    url: string | null;
+  }[];
+}
+
+/**
  * NOTE (mt#3096): the shared `changesetDisplayTitle` helper deliberately does
  * NOT live here — it lives in `web/lib/changeset-title.ts`.
  *

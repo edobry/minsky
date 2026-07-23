@@ -108,6 +108,18 @@ const FOUND_PAYLOAD: ChangesetDetailPayload = {
     mergedBy: null,
     reviewCount: 1,
   },
+  checks: {
+    allPassed: true,
+    total: 3,
+    passed: 3,
+    failed: 0,
+    pending: 0,
+    checks: [
+      { name: "build", status: "completed", conclusion: "success", url: null },
+      { name: "bundle-boot-smoke", status: "completed", conclusion: "success", url: null },
+      { name: "docker-build-smoke", status: "completed", conclusion: "success", url: null },
+    ],
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -392,13 +404,16 @@ describe("ChangesetDetailPage — live PR sourcing (mt#3096)", () => {
         mergedBy: "edobry",
         reviewCount: 0,
       },
+      checks: null,
     };
     mockChangesetFetch("2222", { status: 200, body: mergedNoSession });
     renderChangesetPage("2222");
     await waitFor(() => {
       expect(screen.getByText("feat(mt#3055): check-premise cue")).toBeDefined();
     });
-    expect(screen.getByText("Merged")).toBeDefined();
+    // "Merged" now appears twice: the state chip AND mt#3097's needs-you strip
+    // headline (a merged PR settles to "Merged"). Both are intended.
+    expect(screen.getAllByText("Merged").length).toBeGreaterThan(0);
     expect(screen.getByText("edobry")).toBeDefined();
   });
 
@@ -422,5 +437,110 @@ describe("ChangesetDetailPage — live PR sourcing (mt#3096)", () => {
       expect(screen.getByText("feat(mt#2535): changeset detail route")).toBeDefined();
     });
     expect(screen.queryByText(/live pull-request data unavailable/i)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: mt#3097 — needs-you strip + CI section
+// ---------------------------------------------------------------------------
+
+describe("ChangesetDetailPage — needs-you strip and CI (mt#3097)", () => {
+  /** AT1: approved + all checks passing → the merge is the principal's move. */
+  test("AT1: shows 'Awaiting your merge' when approved with CI green", async () => {
+    const readyToMerge: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      pr: { ...FOUND_PAYLOAD.pr, approved: true },
+    };
+    mockChangesetFetch("1234", { status: 200, body: readyToMerge });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("Awaiting your merge")).toBeDefined();
+    });
+    const strip = screen.getByTestId("needs-you-strip");
+    expect(strip.getAttribute("data-level")).toBe("needs-you");
+    // CI green is observed, so no "unknown" qualifier.
+    expect(screen.queryByText(/CI state unknown/i)).toBeNull();
+  });
+
+  /** AT2: a failing check outranks review state and names the failure. */
+  test("AT2: surfaces a failing check and names it", async () => {
+    const ciFailing: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      pr: { ...FOUND_PAYLOAD.pr, approved: true },
+      checks: {
+        allPassed: false,
+        total: 3,
+        passed: 2,
+        failed: 1,
+        pending: 0,
+        checks: [
+          { name: "build", status: "completed", conclusion: "failure", url: null },
+          { name: "bundle-boot-smoke", status: "completed", conclusion: "success", url: null },
+          { name: "docker-build-smoke", status: "completed", conclusion: "success", url: null },
+        ],
+      },
+    };
+    mockChangesetFetch("1234", { status: 200, body: ciFailing });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("CI failing")).toBeDefined();
+    });
+    expect(screen.getByTestId("needs-you-strip").getAttribute("data-level")).toBe("needs-you");
+    // The failing check is named, not just counted.
+    expect(screen.getAllByText(/build/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/1 failing/)).toBeDefined();
+  });
+
+  /** AT3: a merged PR is settled — no alarm, regardless of CI/review. */
+  test("AT3: a merged PR renders as settled with no alarm", async () => {
+    const merged: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      pr: { ...FOUND_PAYLOAD.pr, state: "merged", approved: true },
+    };
+    mockChangesetFetch("1234", { status: 200, body: merged });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByTestId("needs-you-strip").getAttribute("data-level")).toBe("settled");
+    });
+    expect(screen.queryByText("Awaiting your merge")).toBeNull();
+  });
+
+  /** AT4: unknown CI renders as unknown — never as passing, never a 500. */
+  test("AT4: renders CI as unavailable when the check state is unknown", async () => {
+    const unknownCi: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      pr: { ...FOUND_PAYLOAD.pr, approved: true },
+      checks: null,
+    };
+    mockChangesetFetch("1234", { status: 200, body: unknownCi });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText(/CI state unavailable/i)).toBeDefined();
+    });
+    // The merge verdict must disclose that CI was not observed.
+    expect(screen.getByText(/CI state unknown/i)).toBeDefined();
+  });
+
+  /** AT5: the page stays read-only — no merge/approve control (mt#3097 decision 1). */
+  test("AT5: renders no merge or approve control", async () => {
+    const readyToMerge: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      pr: { ...FOUND_PAYLOAD.pr, approved: true },
+    };
+    mockChangesetFetch("1234", { status: 200, body: readyToMerge });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("Awaiting your merge")).toBeDefined();
+    });
+    expect(screen.queryByRole("button", { name: /^merge$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
+  });
+
+  test("shows the CI passing count", async () => {
+    mockChangesetFetch("1234", { status: 200, body: FOUND_PAYLOAD });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("3/3")).toBeDefined();
+    });
   });
 });

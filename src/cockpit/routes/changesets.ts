@@ -10,11 +10,12 @@ import {
   getServerSessionProvider,
   getServerTaskService,
   getServerChangesetService,
+  getServerChecksReader,
 } from "../db-providers";
 import { resolveCockpitProjectScope } from "../project-scope";
 import type { Changeset } from "@minsky/domain/changeset/types";
 import type { SessionRecord } from "@minsky/domain/session/types";
-import type { SessionCommitRef } from "../session-detail";
+import type { SessionCommitRef, ChangesetChecksSummary } from "../session-detail";
 
 /** Message text for a caught unknown. */
 function errText(e: unknown): string {
@@ -171,6 +172,34 @@ export function mountChangesetRoutes(app: express.Express): void {
 
       const [localCommits, taskTitle] = await Promise.all([commitsPromise, taskTitlePromise]);
 
+      // ---------------------------------------------------------------
+      // (3) CI CHECK-RUNS (mt#3097) — keyed on the live PR's head SHA.
+      // Degrades to null, never throws: `null` means "could not determine",
+      // which the UI renders as unknown rather than as a passing state.
+      // ---------------------------------------------------------------
+      let checks: ChangesetChecksSummary | null = null;
+      const headSha = liveChangeset?.metadata?.github?.headSha;
+      if (headSha) {
+        try {
+          const checksReader = await getServerChecksReader();
+          if (checksReader) {
+            const result = await checksReader(headSha);
+            checks = {
+              allPassed: result.allPassed,
+              total: result.summary.total,
+              passed: result.summary.passed,
+              failed: result.summary.failed,
+              pending: result.summary.pending,
+              checks: result.checks,
+            };
+          }
+        } catch (checksErr) {
+          log.debug(
+            `[changeset] check-runs enrichment degraded for #${changesetId}: ${errText(checksErr)}`
+          );
+        }
+      }
+
       // PR block: live when available, else the session snapshot.
       const snapshotPr = record ? buildPrRef(record) : null;
       const pr = liveChangeset
@@ -197,6 +226,7 @@ export function mountChangesetRoutes(app: express.Express): void {
         session: record ? buildSessionMeta(record, taskTitle) : null,
         commits,
         detail: liveChangeset ? liveDetailFromChangeset(liveChangeset) : null,
+        checks,
       });
     } catch (err) {
       log.error(`[changeset] GET /api/changeset/:id — internal error: ${errText(err)}`);
