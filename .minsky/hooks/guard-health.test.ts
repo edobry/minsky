@@ -161,6 +161,47 @@ describe("readGuardHealthEvents", () => {
     expect(events[0]?.guardName).toBe("g");
   });
 
+  test("rejects an event with an unrecognized causeClass value (mt#3072 reviewer finding)", () => {
+    const fs = makeInMemoryFs({
+      [LOG_PATH]:
+        `${JSON.stringify({
+          timestamp: "2026-07-14T00:00:00.000Z",
+          guardName: "g",
+          event: "PreToolUse",
+          kind: "check-skip",
+          message: "ok",
+          causeClass: "not-a-real-value",
+        })}\n` +
+        `${JSON.stringify({
+          timestamp: "2026-07-14T00:00:01.000Z",
+          guardName: "g",
+          event: "PreToolUse",
+          kind: "check-skip",
+          message: "ok2",
+          causeClass: "infra",
+        })}\n`,
+    });
+    const events = readGuardHealthEvents({ logPath: LOG_PATH, fs });
+    expect(events.length).toBe(1);
+    expect(events[0]?.message).toBe("ok2");
+    expect(events[0]?.causeClass).toBe("infra");
+  });
+
+  test("accepts an event with no causeClass at all (field is optional)", () => {
+    const fs = makeInMemoryFs({
+      [LOG_PATH]: `${JSON.stringify({
+        timestamp: "2026-07-14T00:00:00.000Z",
+        guardName: "g",
+        event: "PreToolUse",
+        kind: "error",
+        message: "ok",
+      })}\n`,
+    });
+    const events = readGuardHealthEvents({ logPath: LOG_PATH, fs });
+    expect(events.length).toBe(1);
+    expect(events[0]?.causeClass).toBeUndefined();
+  });
+
   test("missing log file returns empty array, does not throw", () => {
     const fs = makeInMemoryFs();
     expect(readGuardHealthEvents({ logPath: LOG_PATH, fs })).toEqual([]);

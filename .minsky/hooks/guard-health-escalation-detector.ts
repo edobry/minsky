@@ -9,19 +9,30 @@
 // rely on a guard's fail-open permit needs to know that permit may not
 // reflect a real check having run.
 //
-// No de-duplication / per-session "already warned" tracker: the warning is
-// re-surfaced every turn while any guard remains critical, mirroring
-// inject-current-time.ts / inject-git-state.ts's "fresh info every turn"
-// posture — a dead gate silently forgotten after one mention would defeat
-// the point of an ESCALATING signal.
+// Per-session cooldown, not unconditional per-turn re-injection (mt#3072,
+// REVISES the original posture below): the warning surfaces once per
+// session, then is suppressed for the SAME critical-escalation signature
+// until either a new failure changes it or ESCALATION_NOTIFY_COOLDOWN_MS
+// elapses (see guard-health-escalation-notify-store.ts). Originally this
+// module re-surfaced on EVERY turn while any guard remained critical,
+// mirroring inject-current-time.ts / inject-git-state.ts's "fresh info every
+// turn" posture — deliberately, to avoid "a dead gate silently forgotten
+// after one mention." That intent is preserved (the cooldown still
+// resurfaces periodically, and any NEW failure resurfaces immediately) but
+// the unconditional every-turn repeat was itself the incident: the
+// standalone-duplicate-matcher streak (2026-07-19 -> 07-22) never changed
+// between failures, yet the banner re-injected on 385 of 697 turns (55%)
+// across ~3 days for one unchanging, already-known cause.
 //
 // ADR-028 guard-dispatcher registration: this guard is registered in
 // registry.ts's GUARD_REGISTRY (UserPromptSubmit family) — adding it here
 // required NO dispatcher/settings.json changes beyond the family's shared
 // host-cap budget bump (hook-files.mdc "Dispatcher host-cap budget model").
 //
-// @see mt#2812 — this task
+// @see mt#2812 — this task (original)
+// @see mt#3072 — the cooldown + causeClass additions (this revision)
 // @see .minsky/hooks/guard-health.ts — the shared record/read/aggregate module
+// @see .minsky/hooks/guard-health-escalation-notify-store.ts — the cooldown store
 // @see .minsky/hooks/dispatcher.ts — the automatic capture path for every
 //      ADR-028-migrated guard's thrown errors
 // @see .minsky/hooks/registry.ts — GUARD_REGISTRY entry for this guard
@@ -31,6 +42,10 @@ import type { ClaudeHookInput, HookOutput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { getGuardHealthSummary, STALE_ESCALATION_WINDOW_MS } from "./guard-health";
 import type { GuardHealthSummary } from "./guard-health";
+import {
+  shouldNotifyEscalation,
+  escalationSignature,
+} from "./guard-health-escalation-notify-store";
 
 export interface UserPromptSubmitInput extends ClaudeHookInput {
   prompt: string;
@@ -68,17 +83,25 @@ export function buildCriticalWarning(summary: GuardHealthSummary): string | null
     (summary.byGuard[name]?.stale ? stale : live).push(name);
   }
 
+  // mt#3072 SC2: append the known cause class when the last event carries
+  // one, so a critical streak reads as immediately diagnosable ("infra" ->
+  // an external dependency, "logic" -> the guard's own code) instead of an
+  // opaque repeat count.
+  const causeClassTag = (name: string): string => {
+    const causeClass = summary.byGuard[name]?.lastEvent?.causeClass;
+    return causeClass ? ` [${causeClass}]` : "";
+  };
   const liveLine = (name: string): string => {
     const entry = summary.byGuard[name];
     const streak = entry?.consecutiveStreak ?? 0;
     const lastMessage = entry?.lastEvent?.message ?? "unknown error";
-    return `  - ${name}: ${streak} consecutive failures (last: ${lastMessage})`;
+    return `  - ${name}: ${streak} consecutive failures (last: ${lastMessage})${causeClassTag(name)}`;
   };
   const staleLine = (name: string): string => {
     const entry = summary.byGuard[name];
     const streak = entry?.consecutiveStreak ?? 0;
     const age = formatAge(entry?.lastFailureAgeMs ?? null);
-    return `  - ${name}: ${streak} failures, last ${age} ago — none since (likely stale)`;
+    return `  - ${name}: ${streak} failures, last ${age} ago — none since (likely stale)${causeClassTag(name)}`;
   };
 
   if (live.length > 0) {
@@ -122,12 +145,23 @@ export function buildCriticalWarning(summary: GuardHealthSummary): string | null
  * degrades to "no injection" (mt#2812 acceptance test: "Tracker DB/log
  * unavailable -> guards still run normally") — this guard must never be the
  * next incident it's built to warn about.
+ *
+ * mt#3072 SC3: before injecting, checks the per-session cooldown store
+ * (`guard-health-escalation-notify-store.ts`) — a critical escalation whose
+ * signature (every critical guard's name + last-failure timestamp/message)
+ * hasn't changed since it was last surfaced to THIS session within the
+ * cooldown window is suppressed. `shouldNotifyEscalation` itself fails open
+ * toward SURFACING on any cooldown-store read/write error (never the silent
+ * direction) — an unreadable cooldown store must not become a new way to
+ * hide a live critical guard.
  */
-export function run(_input: ClaudeHookInput, _ctx: DispatchContext): GuardOutcome | null {
+export function run(input: ClaudeHookInput, _ctx: DispatchContext): GuardOutcome | null {
   try {
     const summary = getGuardHealthSummary();
     const warning = buildCriticalWarning(summary);
-    return warning ? { additionalContext: warning } : null;
+    if (!warning) return null;
+    if (!shouldNotifyEscalation(input.session_id, escalationSignature(summary))) return null;
+    return { additionalContext: warning };
   } catch {
     return null;
   }
@@ -138,8 +172,10 @@ export function run(_input: ClaudeHookInput, _ctx: DispatchContext): GuardOutcom
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  let sessionId = "";
   try {
-    await readInput<UserPromptSubmitInput>();
+    const input = await readInput<UserPromptSubmitInput>();
+    sessionId = input.session_id;
   } catch {
     process.exit(0);
   }
@@ -147,7 +183,7 @@ if (import.meta.main) {
   try {
     const summary = getGuardHealthSummary();
     const warning = buildCriticalWarning(summary);
-    if (warning) {
+    if (warning && shouldNotifyEscalation(sessionId, escalationSignature(summary))) {
       const output: HookOutput = {
         hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: warning },
       };

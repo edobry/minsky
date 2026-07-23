@@ -7,7 +7,7 @@
    an assumed-unwritable literal path ("/nonexistent/..."). */
 
 import { describe, test, expect } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildCriticalWarning, run } from "./guard-health-escalation-detector";
@@ -35,6 +35,32 @@ function baseInput(): ClaudeHookInput {
 
 function emptySummary(): GuardHealthSummary {
   return { byGuard: {}, criticalGuards: [], attentionGuards: [], escalation: "none" };
+}
+
+// Shared fixture for the mt#3072 tests below — the standalone-duplicate-
+// matcher incident shape (guardName + message extracted once to avoid
+// custom/no-magic-string-duplication noise across several fixtures in this
+// file that all reproduce the same incident).
+const SUSTAINED_INCIDENT_GUARD_NAME = "standalone-duplicate-matcher";
+const SUSTAINED_INCIDENT_MESSAGE =
+  "in-process tasks search failed — probe SKIPPED for this create: ECONNREFUSED";
+
+/** A real guard-health log with a 3-consecutive-check-skip critical streak. */
+function writeSustainedCriticalLog(scratchDir: string): void {
+  const now = Date.now();
+  const lines = [0, 1, 2]
+    .map((i) =>
+      JSON.stringify({
+        timestamp: new Date(now - (2 - i) * 60_000).toISOString(),
+        guardName: SUSTAINED_INCIDENT_GUARD_NAME,
+        event: "PreToolUse",
+        kind: "check-skip",
+        message: SUSTAINED_INCIDENT_MESSAGE,
+        causeClass: "infra",
+      })
+    )
+    .join("\n");
+  writeFileSync(join(scratchDir, "guard-health-log.jsonl"), `${lines}\n`);
 }
 
 describe("buildCriticalWarning", () => {
@@ -91,6 +117,82 @@ describe("buildCriticalWarning", () => {
     expect(warning).toContain("Cannot read properties of undefined (reading 'deployConfig')");
   });
 
+  test("appends the causeClass tag when the last event carries one (mt#3072 SC2)", () => {
+    const guardName = SUSTAINED_INCIDENT_GUARD_NAME;
+    const infraSummary: GuardHealthSummary = {
+      byGuard: {
+        [guardName]: {
+          failureCount24h: 14,
+          failureCount7d: 14,
+          consecutiveStreak: 14,
+          lastEvent: {
+            timestamp: "2026-07-21T07:36:39.722Z",
+            guardName,
+            event: "PreToolUse",
+            kind: "check-skip",
+            message: "in-process tasks search failed — probe SKIPPED for this create: ECONNREFUSED",
+            causeClass: "infra",
+          },
+          escalation: "critical",
+        },
+      },
+      criticalGuards: [guardName],
+      attentionGuards: [],
+      escalation: "critical",
+    };
+    expect(buildCriticalWarning(infraSummary)).toContain("[infra]");
+
+    const logicSummary: GuardHealthSummary = {
+      byGuard: {
+        [guardName]: {
+          failureCount24h: 14,
+          failureCount7d: 14,
+          consecutiveStreak: 14,
+          lastEvent: {
+            timestamp: "2026-07-21T07:36:39.722Z",
+            guardName,
+            event: "PreToolUse",
+            kind: "check-skip",
+            message: "probe rejected: Cannot read properties of undefined (reading 'id')",
+            causeClass: "logic",
+          },
+          escalation: "critical",
+        },
+      },
+      criticalGuards: [guardName],
+      attentionGuards: [],
+      escalation: "critical",
+    };
+    expect(buildCriticalWarning(logicSummary)).toContain("[logic]");
+  });
+
+  test("omits the causeClass tag when the last event has none (older/unclassified events)", () => {
+    const guardName = "some-other-guard";
+    const summary: GuardHealthSummary = {
+      byGuard: {
+        [guardName]: {
+          failureCount24h: 3,
+          failureCount7d: 3,
+          consecutiveStreak: 3,
+          lastEvent: {
+            timestamp: "2026-07-21T07:36:39.722Z",
+            guardName,
+            event: "PreToolUse",
+            kind: "error",
+            message: "boom",
+          },
+          escalation: "critical",
+        },
+      },
+      criticalGuards: [guardName],
+      attentionGuards: [],
+      escalation: "critical",
+    };
+    const warning = buildCriticalWarning(summary) as string;
+    expect(warning).not.toContain("[infra]");
+    expect(warning).not.toContain("[logic]");
+  });
+
   test("names multiple critical guards on separate lines", () => {
     const summary: GuardHealthSummary = {
       byGuard: {
@@ -119,7 +221,7 @@ describe("buildCriticalWarning", () => {
   });
 
   test("de-alarms a stale-only critical escalation (mt#2969)", () => {
-    const guardName = "standalone-duplicate-matcher";
+    const guardName = SUSTAINED_INCIDENT_GUARD_NAME;
     const summary: GuardHealthSummary = {
       byGuard: {
         [guardName]: {
@@ -215,6 +317,61 @@ describe("run (guard-dispatcher entry point)", () => {
     try {
       const outcome = run(baseInput(), stubContext());
       expect(outcome).toBeNull();
+    } finally {
+      if (prevStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
+      else process.env.MINSKY_STATE_DIR = prevStateDir;
+      rmSync(scratchDir, { recursive: true, force: true });
+    }
+  });
+
+  test("mt#3072 SC3: a sustained critical streak surfaces once per session, not on every turn", () => {
+    // Reproduces the incident shape: a real guard-health log with a
+    // standalone-duplicate-matcher check-skip streak (3+ consecutive ->
+    // critical), then `run()` called repeatedly for the SAME session — as
+    // the escalation detector fires on every UserPromptSubmit turn. Without
+    // the mt#3072 cooldown, every one of these calls would surface
+    // (the 385/697-turn incident); with it, only the first should.
+    const scratchDir = mkdtempSync(join(tmpdir(), "mt3072-escalation-cooldown-test-"));
+    const prevStateDir = process.env.MINSKY_STATE_DIR;
+    process.env.MINSKY_STATE_DIR = scratchDir;
+    try {
+      writeSustainedCriticalLog(scratchDir);
+
+      const input: ClaudeHookInput = { ...baseInput(), session_id: "mt3072-sustained-session" };
+      const ctx = stubContext();
+
+      const first = run(input, ctx);
+      expect(first).not.toBeNull();
+      expect(first?.additionalContext).toContain(SUSTAINED_INCIDENT_GUARD_NAME);
+
+      // Simulate several more turns in the SAME session, same log state
+      // (nothing new failed) — every one of these must be suppressed.
+      let surfacedAfterFirst = 0;
+      for (let i = 0; i < 10; i++) {
+        if (run(input, ctx) !== null) surfacedAfterFirst++;
+      }
+      expect(surfacedAfterFirst).toBe(0);
+    } finally {
+      if (prevStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
+      else process.env.MINSKY_STATE_DIR = prevStateDir;
+      rmSync(scratchDir, { recursive: true, force: true });
+    }
+  });
+
+  test("mt#3072 SC3: a DIFFERENT session still sees the same critical streak at least once", () => {
+    const scratchDir = mkdtempSync(join(tmpdir(), "mt3072-escalation-cooldown-newsession-"));
+    const prevStateDir = process.env.MINSKY_STATE_DIR;
+    process.env.MINSKY_STATE_DIR = scratchDir;
+    try {
+      writeSustainedCriticalLog(scratchDir);
+      const ctx = stubContext();
+
+      const sessionA: ClaudeHookInput = { ...baseInput(), session_id: "mt3072-session-a" };
+      expect(run(sessionA, ctx)).not.toBeNull();
+      expect(run(sessionA, ctx)).toBeNull(); // A's cooldown is now running
+
+      const sessionB: ClaudeHookInput = { ...baseInput(), session_id: "mt3072-session-b" };
+      expect(run(sessionB, ctx)).not.toBeNull(); // B has never seen it
     } finally {
       if (prevStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
       else process.env.MINSKY_STATE_DIR = prevStateDir;

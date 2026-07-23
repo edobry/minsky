@@ -33,20 +33,30 @@
 // ## Failure and timeout posture
 //
 // Everything degrades to a structured `ProbeFailure` ({ failed: <actual
-// error message> } — the caller's "probe unavailable, skip" signal, whose
-// message it threads into the guard-health check-skip event per mt#2958
-// SC2), with the same message on a loud GUARD DEGRADED stderr line.
-// The overall deadline replaces the old spawn-kill: the probe races
-// STANDALONE_DUP_PROBE_TIMEOUT_MS and returns a ProbeFailure on expiry (any
-// in-flight DB/embedding work is abandoned; the hook process exits right
-// after the decision, which is exactly what the spawn-kill used to
-// guarantee). The
+// error message>, causeClass: "infra" | "logic" } — the caller's "probe
+// unavailable, skip" signal, whose message it threads into the guard-health
+// check-skip event per mt#2958 SC2), with the same message on a loud GUARD
+// DEGRADED stderr line. The overall deadline replaces the old spawn-kill: the
+// probe races STANDALONE_DUP_PROBE_TIMEOUT_MS and returns a ProbeFailure on
+// expiry (any in-flight DB/embedding work is abandoned; the hook process
+// exits right after the decision, which is exactly what the spawn-kill used
+// to guarantee). The
 // mt#2982 fail-fast Postgres connect timeout is applied programmatically
 // (env default before first config/provider resolution, operator-set value
 // wins) so a hanging-DB window fails the connect in ~2s, well inside the
 // deadline.
 //
-// @see mt#2958 — this task (in-process conversion)
+// `causeClass` (mt#3072 SC2 — "distinguish infra-unavailable from
+// probe-logic failure in the health accounting") tags every ProbeFailure so
+// a sustained streak of check-skips is diagnosable at a glance: every NAMED
+// degradation (bootstrap/persistence/vector-storage unavailable, lexical
+// fallback, deadline expiry) is "infra" by construction; anything reaching
+// the catch-all or the rejection sink is classified by `classifyCause`
+// (TypeError/ReferenceError -> "logic", everything else -> "infra"). See
+// `ProbeFailure`'s own doc comment for the full rationale.
+//
+// @see mt#2958 — the in-process conversion (this file's original shape)
+// @see mt#3072 — causeClass classification + the incident this closes
 // @see mt#2982 — the fail-fast connect timeout this probe inherits
 // @see parallel-work-guard-standalone.ts — the caller + decision logic
 // @see docs/architecture/hooks/parallel-work-guard.md — mechanism writeup
@@ -84,9 +94,44 @@ const TIMED_OUT = Symbol("standalone-dup-probe-timeout");
  * Structured probe failure — carries the ACTUAL error message so the caller
  * can put it in the guard-health check-skip event (mt#2958 SC2; PR #2152 R1),
  * not just on stderr.
+ *
+ * `causeClass` (mt#3072 SC2) distinguishes two accounting buckets so a
+ * sustained streak of check-skips is diagnosable at a glance instead of a
+ * flat "check-skip x14":
+ *   - `"infra"` — a NAMED, anticipated degradation: the domain bootstrap, the
+ *     persistence provider, or the vector-storage capability was unavailable,
+ *     the search degraded to the lexical fallback, or the probe's own
+ *     deadline expired (a slow/hanging external dependency). None of these
+ *     indicate a defect in this probe's code — they mean an external
+ *     dependency the probe depends on wasn't there or wasn't fast enough.
+ *   - `"logic"` — an UNANTICIPATED failure reached the probe's catch-all or
+ *     its rejection sink. `classifyCause` narrows this further: a
+ *     `TypeError`/`ReferenceError` is the closest runtime signature of an
+ *     actual code defect (calling a method on `undefined`, an unbound
+ *     reference) as opposed to an external-system error (connection refused,
+ *     timeout, HTTP failure), which classifies as `"infra"` even when it
+ *     surfaces through the catch-all rather than a named branch.
  */
 export interface ProbeFailure {
   failed: string;
+  causeClass: "infra" | "logic";
+}
+
+/**
+ * Heuristic classification for an error that reached a catch-all (the final
+ * `runProbe` catch, or the rejection-sink `.catch` below) rather than one of
+ * the NAMED degradation branches, which are hardcoded `"infra"` at their call
+ * site. `TypeError`/`ReferenceError` are the runtime signatures most
+ * associated with an actual programming defect (a bad property access, an
+ * unbound reference) — everything else (network errors, timeouts, DB driver
+ * errors, HTTP failures) is far more often an external-dependency condition,
+ * so it classifies as `"infra"`. Deliberately a coarse MVP, not a full error
+ * taxonomy (out of scope per the mt#3072 spec's "redesigning the guard-health
+ * tracker generally" exclusion) — good enough to stop an infra outage and a
+ * real probe bug from reading identically in the health accounting.
+ */
+export function classifyCause(err: unknown): "infra" | "logic" {
+  return err instanceof TypeError || err instanceof ReferenceError ? "logic" : "infra";
 }
 
 /**
@@ -114,14 +159,18 @@ export async function fetchSimilarActiveTasksInProcess(
   const probe = runProbe(query, limit).catch(
     (err): ProbeFailure => ({
       failed: `probe rejected: ${err instanceof Error ? err.message : String(err)}`,
+      causeClass: classifyCause(err),
     })
   );
   try {
     const outcome = await Promise.race([probe, deadline]);
     if (outcome === TIMED_OUT) {
+      // A deadline expiry is an "infra" cause (mt#3072 SC2) — the deadline
+      // exists specifically to bound a slow/hanging EXTERNAL dependency
+      // (DB connect, embedding call), not to catch a code defect.
       const failed = `in-process probe exceeded the ${STANDALONE_DUP_PROBE_TIMEOUT_MS}ms deadline`;
       process.stderr.write(`[parallel-work-guard] GUARD DEGRADED: ${failed}\n`);
-      return { failed };
+      return { failed, causeClass: "infra" };
     }
     return outcome;
   } finally {
@@ -228,7 +277,10 @@ async function runProbe(
     );
     return { results, degraded: false };
   } catch (err) {
-    return degraded(err instanceof Error ? err.message : String(err));
+    // Catch-all: nothing upstream anticipated this failure shape, so classify
+    // it rather than hardcoding "infra" (mt#3072 SC2) — see `classifyCause`'s
+    // doc comment for the TypeError/ReferenceError -> "logic" heuristic.
+    return degraded(err instanceof Error ? err.message : String(err), classifyCause(err));
   }
 }
 
@@ -260,10 +312,16 @@ async function resolveProbeProjectScope(provider: PersistenceProvider): Promise<
   }
 }
 
-/** Write the GUARD DEGRADED stderr line and build the structured failure. */
-function degraded(reason: string): ProbeFailure {
+/**
+ * Write the GUARD DEGRADED stderr line and build the structured failure.
+ * `causeClass` defaults to `"infra"` — every call site EXCEPT the final
+ * catch-all is a NAMED, anticipated degradation (bootstrap/persistence/
+ * vector-storage unavailable); the catch-all passes `classifyCause(err)`
+ * explicitly instead of relying on this default.
+ */
+function degraded(reason: string, causeClass: "infra" | "logic" = "infra"): ProbeFailure {
   process.stderr.write(
     `[parallel-work-guard] GUARD DEGRADED: in-process standalone-duplicate probe failed: ${reason}\n`
   );
-  return { failed: reason };
+  return { failed: reason, causeClass };
 }

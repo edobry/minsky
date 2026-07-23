@@ -191,6 +191,28 @@ describe("GuardHealthTracker.getSummary (real fs)", () => {
     expect(summary.byGuard["test-guard"]?.consecutiveStreak).toBe(1);
   });
 
+  test("rejects an event with an unrecognized causeClass value (mt#3072 reviewer finding)", () => {
+    const logPath = makeTempLogPath("bad-cause-class");
+    cleanupPaths.push(logPath);
+    appendLine(
+      logPath,
+      makeEvent({
+        timestamp: "2026-07-14T10:00:00.000Z",
+        kind: "check-skip",
+        causeClass: "not-a-real-value" as unknown as "infra",
+      })
+    );
+    appendLine(
+      logPath,
+      makeEvent({ timestamp: "2026-07-14T11:00:00.000Z", kind: "check-skip", causeClass: "infra" })
+    );
+    const tracker = GuardHealthTracker.resetForTest(logPath);
+    const summary = tracker.getSummary(new Date("2026-07-14T12:00:00.000Z"));
+    // Only the second (valid) event counted -- streak of 1, not 2.
+    expect(summary.byGuard["test-guard"]?.consecutiveStreak).toBe(1);
+    expect(summary.byGuard["test-guard"]?.lastEvent?.causeClass).toBe("infra");
+  });
+
   test("missing log file -> zero-filled summary (tracker/log unavailable, mt#2812 acceptance test)", () => {
     const logPath = makeTempLogPath("missing");
     // Deliberately never created — exercise the missing-file path.

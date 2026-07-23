@@ -52,9 +52,11 @@ working even when the main codebase has type errors). Exports:
 - `getGuardHealthSummary(options?)` — convenience wrapper: read + aggregate, fail-safe.
 
 **Persisted event shape:** `{ timestamp, guardName, event, kind: "error" | "check-skip",
-errorClass?, message, toolName?, sessionId? }`. One JSON object per line, append-only, at
-`~/.local/state/minsky/guard-health-log.jsonl` (honors `MINSKY_STATE_DIR` override, mirroring
-`disconnect-tracker.ts`'s `getStateDir()`).
+errorClass?, message, causeClass?: "infra" | "logic", toolName?, sessionId? }`. One JSON object
+per line, append-only, at `~/.local/state/minsky/guard-health-log.jsonl` (honors
+`MINSKY_STATE_DIR` override, mirroring `disconnect-tracker.ts`'s `getStateDir()`). `causeClass`
+(mt#3072) is optional and `check-skip`-only — see "Failure-class distinction + escalation
+cooldown" below.
 
 **Consecutive-streak semantics.** Since this tracker records only errors/check-skips (not
 every successful fire — that's mt#2597's scope, see below), a guard's "streak" is computed
@@ -117,11 +119,10 @@ mt#2294 — no per-widget enable flag, no new widget architecture.
 `GUARD_REGISTRY`'s `UserPromptSubmit` family; no dispatcher/settings.json changes needed
 beyond the family's shared host-cap budget bump, per this doc's own "Dispatcher host-cap
 budget model" section). Reads `getGuardHealthSummary()` and, only when overall escalation is
-`"critical"`, injects a warning naming every critical guard, its streak, and its last error
-message. No de-duplication or per-session "already warned" tracker — the warning re-surfaces
-every turn while any guard remains critical, mirroring `inject-current-time.ts` /
-`inject-git-state.ts`'s "fresh info every turn" posture: a dead gate silently forgotten after
-one mention would defeat the point of an escalating signal.
+`"critical"`, injects a warning naming every critical guard, its streak, its last error
+message, and (mt#3072) a `[infra]`/`[logic]` cause-class tag when known. Per-session cooldown
+(mt#3072) — see "Failure-class distinction + escalation cooldown" below — replaces the
+original unconditional every-turn re-injection.
 
 ## Test write-isolation (mt#2875)
 
@@ -220,6 +221,12 @@ aggregation, streaks, and escalation tiering; operator/agent-facing surfacing vi
   `~/.local/state/`): mt#2872 purged the original 4 fixture rows; the one additional row
   leaked during this task's own pre-fix test run was purged from the main-agent context
   2026-07-16T22:12Z, verified via `debug_systemInfo` (`guardHealth.escalation: "none"`)
+- mt#2958 — converted `standalone-duplicate-matcher`'s probe from a CLI shell-out to an
+  in-process call, fixing the underlying reliability problem this section's originating
+  incident traces to, and threading the actual error message into the check-skip reason
+- mt#3072 — `causeClass` (infra/logic) failure classification +
+  `guard-health-escalation-notify-store.ts`'s per-session cooldown (see "Failure-class
+  distinction + escalation cooldown" above)
 
 ## Stale-escalation de-alarming (mt#2969)
 
@@ -247,3 +254,47 @@ To distinguish stale from live without adding a write on every guard run:
 have fired); the banner's "verify" wording reflects that. A structural clear-on-success would remove
 the ambiguity but requires a write on every guard run (guard-health deliberately logs only failures)
 — deferred as a heavier follow-up.
+
+## Failure-class distinction + escalation cooldown (mt#3072)
+
+**Originating incident.** `standalone-duplicate-matcher` (the parallel-work guard's standalone
+duplicate-task probe, mt#2813/mt#2958) logged 14 check-skip events 2026-07-19 -> 07-21T07:36,
+each the pre-mt#2958 CLI-era generic message ("tasks_search failed or returned unparseable
+output ... see stderr for the CLI failure detail") with zero diagnostic content in the
+persisted record. The resulting critical streak drove `guard-health-escalation-detector` to
+inject its banner on 385 of 697 turns (55%) across ~3 days, because the detector re-surfaced
+unconditionally on every turn while escalation stayed `"critical"` — for one unchanging,
+already-known cause. mt#2958 (merged 2026-07-21) had already fixed the probe's underlying
+reliability (CLI shell-out -> in-process call, removing the spawn-kill/second-boot failure
+mode) and threaded the actual error message through; no check-skip has recurred since. mt#3072
+closes the two gaps mt#2958 left: failure-class diagnosability and per-turn notification noise.
+
+**`causeClass` (SC2).** `standalone-dup-probe.ts`'s `ProbeFailure` now carries
+`causeClass: "infra" | "logic"`: every NAMED, anticipated degradation (domain-bootstrap
+failure, persistence-provider unavailable, missing vector-storage capability, lexical-fallback
+degradation, deadline expiry) is `"infra"` by construction; anything reaching the catch-all or
+rejection sink is classified by `classifyCause(err)` — `TypeError`/`ReferenceError` (the
+closest runtime signature of an actual code defect) -> `"logic"`, everything else (network
+errors, timeouts, DB/HTTP failures) -> `"infra"`. Threaded through
+`StandaloneDuplicateGuardDecision`'s `skip` variant, `recordGuardCheckSkip`'s optional
+`causeClass` parameter, `GuardHealthEvent.causeClass` (both copies, kept in sync), and rendered
+as a `[infra]`/`[logic]` tag on each critical-guard line in the escalation banner. A coarse MVP
+by design (see the mt#3072 spec's explicit "not redesigning the guard-health tracker
+generally" scope boundary) — good enough to stop an infra outage and a real probe bug from
+reading identically, not a full error taxonomy.
+
+**Per-session cooldown (SC3).** `.minsky/hooks/guard-health-escalation-notify-store.ts` adds a
+per-session (keyed on the hook's `session_id`) cooldown gate in front of the injection, not a
+change to escalation computation itself. `escalationSignature(summary)` composites every
+currently-critical guard's name + its last failure's timestamp + message (deliberately
+excluding `consecutiveStreak`/`failureCount24h`/`failureCount7d`, which drift purely from the
+clock advancing and must not by themselves re-trigger a notification). `shouldNotifyEscalation`
+surfaces when: no prior record exists for this session, the signature differs from the prior
+one (a new failure, or a different set of critical guards), or `ESCALATION_NOTIFY_COOLDOWN_MS`
+(1h) has elapsed since the signature was last surfaced — otherwise it suppresses. This
+preserves the original "never silently forgotten" design intent (a genuinely new failure or the
+periodic reminder still surfaces) while bounding the every-turn repeat that was the actual
+incident. Scope is per-session, not global, mirroring `turn-end-scan-store.ts`'s per-session-file
+pattern: a brand-new conversation always sees an active critical escalation at least once, even
+if an unrelated concurrent session's cooldown is running. Fails open toward SURFACING on any
+store read/write error.

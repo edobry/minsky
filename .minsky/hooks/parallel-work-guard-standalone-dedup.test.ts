@@ -171,13 +171,55 @@ describe("decideStandaloneDuplicateGuard (mt#2813)", () => {
   it("threads the probe's ACTUAL error message into the skip reason (mt#2958 SC2)", async () => {
     const decision = await decideStandaloneDuplicateGuard(
       { title: "Some new task" },
-      { fetchSimilar: () => ({ failed: "write CONNECT_TIMEOUT 192.0.2.1:5432" }) }
+      {
+        fetchSimilar: () => ({
+          failed: "write CONNECT_TIMEOUT 192.0.2.1:5432",
+          causeClass: "infra",
+        }),
+      }
     );
     expect(decision.action).toBe("skip");
     if (decision.action === "skip") {
       expect(decision.degraded).toBe(true);
       expect(decision.reason).toContain("write CONNECT_TIMEOUT 192.0.2.1:5432");
     }
+  });
+
+  it("threads the probe's causeClass into the skip decision (mt#3072 SC2)", async () => {
+    const infraDecision = await decideStandaloneDuplicateGuard(
+      { title: "Some new task" },
+      { fetchSimilar: () => ({ failed: "persistence provider unavailable", causeClass: "infra" }) }
+    );
+    expect(infraDecision.action).toBe("skip");
+    if (infraDecision.action === "skip") expect(infraDecision.causeClass).toBe("infra");
+
+    const logicDecision = await decideStandaloneDuplicateGuard(
+      { title: "Some new task" },
+      {
+        fetchSimilar: () => ({
+          failed: "Cannot read properties of undefined (reading 'id')",
+          causeClass: "logic",
+        }),
+      }
+    );
+    expect(logicDecision.action).toBe("skip");
+    if (logicDecision.action === "skip") expect(logicDecision.causeClass).toBe("logic");
+  });
+
+  it("classifies the legacy null-return and lexical-fallback-degraded paths as infra (mt#3072 SC2)", async () => {
+    const nullDecision = await decideStandaloneDuplicateGuard(
+      { title: "Some new task" },
+      { fetchSimilar: () => null }
+    );
+    expect(nullDecision.action).toBe("skip");
+    if (nullDecision.action === "skip") expect(nullDecision.causeClass).toBe("infra");
+
+    const degradedDecision = await decideStandaloneDuplicateGuard(
+      { title: "Some new task" },
+      { fetchSimilar: () => ({ results: [result("mt#1", 0.1)], degraded: true }) }
+    );
+    expect(degradedDecision.action).toBe("skip");
+    if (degradedDecision.action === "skip") expect(degradedDecision.causeClass).toBe("infra");
   });
 
   it("accepts an ASYNC fetchSimilar (the in-process probe's shape)", async () => {
