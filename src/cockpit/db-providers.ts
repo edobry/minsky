@@ -350,26 +350,30 @@ async function getChangesetReadDeps(): Promise<ChangesetReadDeps | null> {
   const { getRepositoryBackendFromConfig } = await import(
     "@minsky/domain/session/repository-backend-detection"
   );
-  const { repoUrl } = await getRepositoryBackendFromConfig();
+  const { repoUrl, github } = await getRepositoryBackendFromConfig();
 
-  // Key off `repoUrl`, NOT the optional `github` sub-object: that sub-object is
-  // populated only when `repository.github` is explicitly set in project config
-  // (see getRepositoryBackendFromConfig), which this project does not set — it
-  // configures `repository.backend` + `repository.url` only. Gating on `github`
-  // made the reader permanently null, i.e. an inert live path that degraded
-  // silently forever. `repoUrl` is always populated, and the adapter derives
-  // owner/repo from it via extractGitHubInfoFromUrl.
-  //
-  // The github.com check mirrors GitHubChangesetAdapterFactory.canHandle —
-  // a non-GitHub remote has no adapter to build.
-  if (!repoUrl || !repoUrl.includes("github.com")) return null;
+  // `getRepositoryBackendFromConfig` has TWO return shapes, and this resolution
+  // must survive both:
+  //   1. Project-config path — `repository.url` plus an OPTIONAL
+  //      `repository.github` sub-object ({owner, repo}). This project sets both.
+  //   2. Auto-detection fallback — taken when `getConfiguration()` throws
+  //      (notably "Configuration not initialized", i.e. any process that hasn't
+  //      bootstrapped config). It returns `repoUrl` only, with NO `github`.
+  // So neither field alone is safe to gate on: prefer `repoUrl`, and compose one
+  // from `github` when only that is present.
+  const resolvedUrl =
+    repoUrl || (github ? `https://github.com/${github.owner}/${github.repo}.git` : "");
+
+  // Mirrors GitHubChangesetAdapterFactory.canHandle — a non-GitHub remote has
+  // no adapter to build.
+  if (!resolvedUrl.includes("github.com")) return null;
 
   const { getConfiguration } = await import("@minsky/domain/configuration/index");
   const { createTokenProvider } = await import("@minsky/domain/auth");
   const cfg = getConfiguration();
 
   _cachedChangesetReadDeps = {
-    repoUrl,
+    repoUrl: resolvedUrl,
     tokenProvider: createTokenProvider(cfg.github ?? {}, cfg.github?.token ?? ""),
   };
   return _cachedChangesetReadDeps;
