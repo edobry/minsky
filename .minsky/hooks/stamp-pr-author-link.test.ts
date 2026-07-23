@@ -93,4 +93,26 @@ describe("resolveWorkspaceSessionId", () => {
       resolveWorkspaceSessionId(makeInput({ tool_result: { session: "not-an-object" } }))
     ).toBeNull();
   });
+
+  it("resolves a task-only call via the tool result (PR #2232 R1)", () => {
+    // `session_pr_create` accepts `task` INSTEAD of `sessionId`, and a task id
+    // is not a workspace id — it cannot be mapped without a DB lookup. It does
+    // not need one: the successful result carries the session record. This PR
+    // is the live instance — created with `task: "mt#3101"` and no `sessionId`.
+    const r = resolveWorkspaceSessionId(
+      makeInput({
+        tool_input: { task: "mt#3101" },
+        tool_result: { session: { sessionId: WORKSPACE_ID, taskId: "mt#3101" } },
+      })
+    );
+    expect(r).toBe(WORKSPACE_ID);
+  });
+
+  it("returns null for a task-only call whose result carries no session", () => {
+    // A failed `session_pr_create` has no PR to attribute, so skipping is
+    // correct — but it must be a NAMED skip, not a silent one (the hook logs
+    // the reason).
+    const r = resolveWorkspaceSessionId(makeInput({ tool_input: { task: "mt#3101" } }));
+    expect(r).toBeNull();
+  });
 });

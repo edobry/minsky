@@ -217,6 +217,7 @@ export class ProvenanceService {
       recomputed: 0,
       tierChanged: 0,
       skippedNoTranscript: 0,
+      skippedNoLink: 0,
       errors: 0,
       tierDistribution: {},
       changes: dryRun ? [] : undefined,
@@ -256,7 +257,7 @@ export class ProvenanceService {
           log.debug(
             `recomputeAll: no conversation linked to workspace ${sessionId} — skipping (mt#3101)`
           );
-          summary.skippedNoTranscript++;
+          summary.skippedNoLink++;
           continue;
         }
 

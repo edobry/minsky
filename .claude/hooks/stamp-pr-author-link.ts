@@ -38,6 +38,17 @@ import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 const COVERED_TOOL_NAME = "mcp__minsky__session_pr_create";
 const LOG_PREFIX = "[stamp-pr-author-link]";
 
+/**
+ * Overall budget for the DB work, well inside the hook's 20s registration.
+ *
+ * `ensureHookDomainBootstrap` already caps the CONNECT phase at 2s
+ * (`HOOK_POSTGRES_CONNECT_TIMEOUT_SECONDS`, mt#2982), but nothing bounds the
+ * two inserts afterwards. This deadline covers the whole path so a hung query
+ * cannot hold PostToolUse open — the same cooperative-deadline shape mt#3019
+ * added to `record-subagent-invocation`. PR #2232 R1.
+ */
+const DB_DEADLINE_MS = 8000;
+
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
@@ -48,6 +59,16 @@ function isObject(v: unknown): v is Record<string, unknown> {
  * The tool accepts either `sessionId` or `task`, and its response carries the
  * session record. Mirrors `resolveSessionContext` in
  * `post-merge-unasked-direction-scan.ts` — same payload family, same shapes.
+ *
+ * WHY `task` IS NOT RESOLVED DIRECTLY (PR #2232 R1). A `task` value is a task
+ * id, not a workspace id; mapping one to the other needs a database lookup the
+ * hook would have to perform before it can do anything useful. It does not
+ * need to: on success `session_pr_create` returns the session record, so the
+ * `tool_result.session.sessionId` branch below already covers the task-only
+ * input shape. This PR is itself the proof — it was created with
+ * `task: "mt#3101"` and no `sessionId`, and the result carried
+ * `session.sessionId`. A task-only call that FAILS has no PR to attribute
+ * anyway. Covered by a regression test.
  *
  * Exported for tests.
  */
@@ -133,16 +154,22 @@ if (import.meta.main) {
       process.exit(0);
     }
 
-    const outcome = await writePrAuthorLink(
-      db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
-      {
+    const outcome = await Promise.race([
+      writePrAuthorLink(db as import("drizzle-orm/postgres-js").PostgresJsDatabase, {
         conversationId: conversationId as import("../../packages/domain/src/ids").ConversationId,
         workspaceSessionId,
         cwd: input.cwd,
-      }
-    );
+      }),
+      new Promise<"deadline">((resolve) => {
+        setTimeout(() => resolve("deadline"), DB_DEADLINE_MS).unref?.();
+      }),
+    ]);
 
-    if (outcome === "error") {
+    if (outcome === "deadline") {
+      process.stderr.write(
+        `${LOG_PREFIX} warn: link write exceeded ${DB_DEADLINE_MS}ms for conversation ${conversationId} / workspace ${workspaceSessionId} — abandoning so PR creation is not held up\n`
+      );
+    } else if (outcome === "error") {
       process.stderr.write(
         `${LOG_PREFIX} warn: link write failed for conversation ${conversationId} / workspace ${workspaceSessionId}\n`
       );
