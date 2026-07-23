@@ -37,6 +37,7 @@ import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 import { UnaskedDirectionAnalyzer } from "../../packages/domain/src/detectors/unasked-direction-analyzer";
 import { writeFindings } from "../../packages/domain/src/detectors/unasked-direction-store";
 import type { TranscriptMessage } from "../../packages/domain/src/provenance/transcript-service";
+import type { ConversationId } from "../../packages/domain/src/ids";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -105,7 +106,33 @@ function isObject(v: unknown): v is Record<string, unknown> {
 }
 
 /**
- * Try to fetch the stored transcript for a session.
+ * Read the harness conversation id the transcript is stored under.
+ *
+ * `agent_transcripts.agent_session_id` is keyed by the harness conversation
+ * UUID — the same value `transcript-ingest-on-session-end.ts` ingests under.
+ * The harness hands that id to every hook invocation as `input.session_id`,
+ * so this hook needs no workspace -> conversation resolution: the reader key
+ * and the writer key are the same field.
+ *
+ * mt#3066: this hook previously passed `resolveSessionContext`'s WORKSPACE
+ * session id (from the `session_pr_merge` payload) to `getTranscript`, which
+ * matches against the conversation keyspace. It never matched, `null` was
+ * treated as "this session had no transcript", and the scan silently no-opped
+ * on every merge from the day it shipped.
+ *
+ * The `as ConversationId` below is a brand mint at the harness boundary — the
+ * documented `ids.ts` "re-mint on inbound parse" case — not a cross-space
+ * cast. `input.session_id` IS a conversation id by definition of the hook
+ * contract.
+ */
+export function resolveConversationId(input: ToolHookInput): ConversationId | null {
+  const raw = input.session_id;
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  return raw as ConversationId;
+}
+
+/**
+ * Try to fetch the stored transcript for a harness conversation.
  *
  * Lazily imports the transcript service + persistence to avoid the cost
  * (and the Postgres connection setup) when the hook is in `disabled` mode.
@@ -121,12 +148,18 @@ function isObject(v: unknown): v is Record<string, unknown> {
  * evidence to notice, because the findings file was simply never written. The
  * bootstrap call below is what makes the rest of this function reachable.
  *
+ * mt#3066: fixing the bootstrap was necessary but not sufficient — the caller
+ * was ALSO passing the wrong id space. The parameter is now a `ConversationId`
+ * so a workspace id cannot be passed here again without a compile error.
+ *
  * Exported for verification (mt#3046) — the fix's whole claim is that THIS
  * function now returns a transcript, so the check has to call this function
  * rather than a re-implementation of its import sequence. Same convention as
  * `resolveMetricsTranscriptPath` in `record-subagent-invocation.ts`.
  */
-export async function loadTranscript(sessionId: string): Promise<TranscriptMessage[] | null> {
+export async function loadTranscript(
+  conversationId: ConversationId
+): Promise<TranscriptMessage[] | null> {
   try {
     const bootstrap = await ensureHookDomainBootstrap();
     if (!bootstrap.ok) {
@@ -156,7 +189,7 @@ export async function loadTranscript(sessionId: string): Promise<TranscriptMessa
     const service = new AgentTranscriptService(
       db as import("drizzle-orm/postgres-js").PostgresJsDatabase
     );
-    return await service.getTranscript(sessionId);
+    return await service.getTranscript(conversationId);
   } catch (err) {
     // PR #2184 R1 BLOCKING #1: the bare `catch { return null }` this replaces
     // is the exact mechanism that hid mt#3046's defect for the life of this
@@ -170,7 +203,7 @@ export async function loadTranscript(sessionId: string): Promise<TranscriptMessa
     // `ensureHookDomainBootstrap` itself throwing, a module resolution
     // failure, a DB error inside `getTranscript`.
     process.stderr.write(
-      `[post-merge-unasked-direction-scan] warn: transcript load failed for session ${sessionId}: ${
+      `[post-merge-unasked-direction-scan] warn: transcript load failed for conversation ${conversationId}: ${
         err instanceof Error ? err.message : String(err)
       }\n`
     );
@@ -237,16 +270,30 @@ if (import.meta.main) {
     process.exit(0);
   }
 
+  // mt#3066: the transcript is keyed by the HARNESS CONVERSATION id, which the
+  // harness supplies directly. `ctx.sessionId` is the Minsky WORKSPACE id and
+  // stays the findings-file key / analyzer label — it is only wrong as a
+  // transcript lookup key.
+  const conversationId = resolveConversationId(input);
+  if (!conversationId) {
+    process.stderr.write(
+      "[post-merge-unasked-direction-scan] Hook input carried no session_id (harness conversation id) — skipping\n"
+    );
+    process.exit(0);
+  }
+
   // mt#2710: `input.cwd` is routinely a repo SUBDIRECTORY — writeFindings
   // joins `projectRoot` with `.minsky/state/unasked-directions/`, so a raw
   // subdirectory cwd would scatter findings into a stray `.minsky/` there
   // instead of the real repo root.
   const projectRoot = findRepoRoot(input.cwd);
 
-  const transcript = await loadTranscript(ctx.sessionId);
+  const transcript = await loadTranscript(conversationId);
   if (!transcript || transcript.length === 0) {
     process.stderr.write(
-      `[post-merge-unasked-direction-scan] No transcript available for ${ctx.sessionId} — skipping\n`
+      `[post-merge-unasked-direction-scan] No transcript stored for conversation ${conversationId} ` +
+        `(workspace session ${ctx.sessionId}) — skipping. If this repeats for every merge, the ` +
+        "ingest path is behind, not the conversation empty.\n"
     );
     process.exit(0);
   }
