@@ -717,24 +717,28 @@ function InterfaceBindingIndicator({ binding }: { binding: AgentRow["interfaceBi
  * row's main Link/button, not nested inside it — the row already nests a
  * DrivenChip <Link> inside the outer row <Link> (pre-existing), and adding a
  * second nested interactive element would compound that rather than fix it.
+ *
+ * Exported for direct unit testing (Agents.hookorder.test.tsx) — mirrors the
+ * existing `resolveGoToAction` export.
  */
-function GoToActionButton({ agent }: { agent: AgentRow }) {
+export function GoToActionButton({ agent }: { agent: AgentRow }) {
   const navigate = useNavigate();
   const focusMutation = useFocusAttachment();
   const action = resolveGoToAction(agent);
 
-  if (action.type === "disabled") {
-    return (
-      <span
-        title={action.reason}
-        aria-label={`Go to (disabled — ${action.reason})`}
-        className="flex-shrink-0 p-1 text-muted-foreground/30"
-      >
-        <ArrowUpRight className="h-3.5 w-3.5" />
-      </span>
-    );
-  }
-
+  // mt#3110 fix: this hook must run unconditionally on every render. Each
+  // row's GoToActionButton instance is keyed by sessionId and persists
+  // across the widget's 5s poll ticks (Agents.tsx refetchInterval); if
+  // agent.attachState (and therefore action.type) flips between "disabled"
+  // and a non-disabled value across two poll responses, calling useEffect
+  // only on the non-disabled branch changes the hook count between renders
+  // for the SAME component instance — React's "Rendered more/fewer hooks
+  // than during the previous render" (error #310). Computing outcomeShowing
+  // and calling useEffect here, BEFORE the early return below, keeps hook
+  // count constant regardless of action.type; the effect still no-ops via
+  // `if (!outcomeShowing) return;` when there is nothing to auto-dismiss
+  // (the disabled branch never calls focusMutation.mutate, so
+  // outcomeShowing stays false there — behaviorally unchanged).
   const outcomeShowing = focusMutation.isSuccess || focusMutation.isError;
 
   // Auto-dismiss the transient outcome message (mt#2286 R1 review finding:
@@ -753,6 +757,18 @@ function GoToActionButton({ agent }: { agent: AgentRow }) {
     // effect on every render (from including the whole mutation object) would
     // restart the timer on unrelated re-renders.
   }, [outcomeShowing]);
+
+  if (action.type === "disabled") {
+    return (
+      <span
+        title={action.reason}
+        aria-label={`Go to (disabled — ${action.reason})`}
+        className="flex-shrink-0 p-1 text-muted-foreground/30"
+      >
+        <ArrowUpRight className="h-3.5 w-3.5" />
+      </span>
+    );
+  }
 
   function handleClick(e: React.MouseEvent) {
     e.preventDefault();
