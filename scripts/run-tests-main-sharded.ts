@@ -760,12 +760,21 @@ if (import.meta.main) {
     ? rawOutcomes.map((o, i) => {
         const actualFiles = collectShardActualFiles(join(shardTmpDir, `shard-${i}.xml`));
         if (!actualFiles) return o;
-        // `shards` and `rawOutcomes` are index-aligned by construction (one
-        // shard array per shard command) -- this guard exists only to satisfy
-        // `noUncheckedIndexedAccess`, not because index `i` is expected to
-        // ever be out of range.
+        // `shards` and `rawOutcomes` are index-aligned by construction (one shard
+        // array per shard command). Unlike the `!actualFiles` check above -- a
+        // legitimately best-effort, sometimes-missing report -- `shards[i]` being
+        // undefined here means that invariant broke. Fail loudly (mirrors
+        // `binPackFiles`'s invariant guards in run-tests-sharded-prototype.ts)
+        // rather than silently skip the scope-violation check, which would mask
+        // real cross-shard leakage instead of detecting it.
         const assignedFiles = shards[i];
-        if (!assignedFiles) return o;
+        if (!assignedFiles) {
+          throw new Error(
+            `run-tests-main-sharded: invariant violated -- shard ${i} missing from the bin-packed ` +
+              `shards array (shards.length=${shards.length}, rawOutcomes.length=${rawOutcomes.length}). ` +
+              "shards and rawOutcomes must be index-aligned by construction; this should never happen."
+          );
+        }
         const violations = detectShardScopeViolations(assignedFiles, actualFiles);
         return violations.length > 0 ? { ...o, scopeViolationFiles: violations } : o;
       })

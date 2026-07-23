@@ -58,10 +58,18 @@ export function parseTestcases(xml: string): TestCase[] {
   const re = /<testcase\b([^>]*?)\/?>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(xml))) {
-    // m[1] is the required capture group of the `<testcase\b([^>]*?)\/?>` regex
-    // above -- it is always present whenever the outer match succeeds, but
-    // `noUncheckedIndexedAccess` still types tuple/array indexing as
-    // `T | undefined`. Defaulting to "" is safe (an empty attribute list simply
+    // m[1] is the required (non-optional) capture group of the
+    // `<testcase\b([^>]*?)\/?>` regex above. Unlike this file's array-index
+    // invariant guards elsewhere in this PR (e.g. run-tests-main-sharded.ts's
+    // `shards[i]`, which asserts a cross-variable invariant that COULD break on
+    // a future refactor), a non-optional capture group on a regex that already
+    // matched is guaranteed by the regex engine itself to be a string (possibly
+    // ""), never `undefined` -- `noUncheckedIndexedAccess` types it that way
+    // only because array/tuple indexing is typed conservatively regardless of
+    // whether a specific index is provably in range. A loud assertion here
+    // would be dead code with no diagnostic value (its only failure mode would
+    // be a JS engine bug, not a violated assumption of ours), so this stays a
+    // defaulting narrowing: `?? ""` is safe (an empty attribute list simply
     // yields no matched attributes below) and preserves existing behavior.
     const attrs = m[1] ?? "";
     const file = attrOf(attrs, "file");
