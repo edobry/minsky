@@ -55,6 +55,13 @@
  *                          grants).
  *   --issued-by <note>    Optional. Free-form audit note identifying the
  *                          issuing agent/session.
+ *   --ask <askId>         The operator-approved `authorization.approve` Ask id
+ *                          this grant rests on. OPTIONAL for the plain
+ *                          self-serve guards; REQUIRED when
+ *                          `--guard require-review-before-merge` (mt#2989),
+ *                          whose consumer re-verifies the Ask server-side
+ *                          before honoring the grant because it gates an
+ *                          irreversible merge.
  *   --dry-run              Preview the grant that would be written without
  *                          writing it.
  *
@@ -79,6 +86,14 @@ import type { GuardGrant } from "../.minsky/hooks/guard-grant-store";
 
 const DEFAULT_TTL_MINUTES = 30;
 
+/**
+ * Guards whose grants MUST carry an `--ask` (an operator-approved
+ * `authorization.approve` Ask id). The merge-review gate re-verifies the Ask
+ * server-side before honoring the grant (mt#2989); a grant without one would
+ * be un-verifiable and is refused at issuance.
+ */
+const ASK_REQUIRED_GUARDS = new Set(["require-review-before-merge"]);
+
 function parseArgs(argv: string[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (let i = 0; i < argv.length; i++) {
@@ -99,7 +114,8 @@ function parseArgs(argv: string[]): Record<string, string> {
 function printUsage(): void {
   console.error(
     "Usage: bun scripts/grant-guard-override.ts --guard <name> --scope <qualifier> " +
-      '--reason "<note>" [--ttl-minutes 30] [--issued-by <note>] [--dry-run]'
+      '--reason "<note>" [--ttl-minutes 30] [--issued-by <note>] [--ask <askId>] [--dry-run]\n' +
+      "  --ask is REQUIRED when --guard is require-review-before-merge (mt#2989)."
   );
 }
 
@@ -123,13 +139,23 @@ export function buildGrantFromArgs(
   const ttlMinutes = ttlMinutesRaw ? Number(ttlMinutesRaw) : DEFAULT_TTL_MINUTES;
   if (!Number.isFinite(ttlMinutes) || ttlMinutes <= 0) return null;
 
+  const normalizedGuard = normalizeGuardName(guardName);
+  const askId = args["ask"];
+  // mt#2989: the merge-review gate re-verifies the Ask before honoring the
+  // grant, so a grant for it without an `--ask` would be structurally
+  // un-honorable. Refuse it at issuance rather than writing a dead grant.
+  if (ASK_REQUIRED_GUARDS.has(normalizedGuard) && (!askId || askId.trim().length === 0)) {
+    return null;
+  }
+
   return {
-    guardName: normalizeGuardName(guardName),
+    guardName: normalizedGuard,
     scope: normalizeScope(scope),
     issuedAt: nowIso,
     ttlMs: ttlMinutes * 60 * 1000,
     issuedBy: args["issued-by"],
     reason,
+    ...(askId ? { askId } : {}),
   };
 }
 
