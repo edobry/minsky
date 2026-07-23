@@ -94,21 +94,21 @@ describe("evaluateBunTestSummary (mt#2716 fail-closed pre-push gate)", () => {
   // fail-closed EVERY commit/push in such an environment: the escape codes
   // around " 0 fail" defeated the anchored /^ *\d+ fail$/ regex.
   const ansiCleanSummary = [
-    "[0m[1mbun test [0m[2mv1.2.21 (7c45ed97)[0m",
+    "\x1b[0m\x1b[1mbun test \x1b[0m\x1b[2mv1.2.21 (7c45ed97)\x1b[0m",
     "",
-    "[0m[32m 10 pass[0m",
-    "[0m[2m 0 fail[0m",
+    "\x1b[0m\x1b[32m 10 pass\x1b[0m",
+    "\x1b[0m\x1b[2m 0 fail\x1b[0m",
     " 25 expect() calls",
-    "Ran 10 tests across 1 file. [0m[2m[[1m140.00ms[0m[2m][0m",
+    "Ran 10 tests across 1 file. \x1b[0m\x1b[2m[\x1b[1m140.00ms\x1b[0m\x1b[2m]\x1b[0m",
   ].join("\n");
 
   const ansiFailingSummary = [
-    "[0m[1mbun test [0m[2mv1.2.21 (7c45ed97)[0m",
+    "\x1b[0m\x1b[1mbun test \x1b[0m\x1b[2mv1.2.21 (7c45ed97)\x1b[0m",
     "",
-    "[0m[32m 8 pass[0m",
-    "[0m[31m 2 fail[0m",
+    "\x1b[0m\x1b[32m 8 pass\x1b[0m",
+    "\x1b[0m\x1b[31m 2 fail\x1b[0m",
     " 25 expect() calls",
-    "Ran 10 tests across 1 file. [0m[2m[[1m140.00ms[0m[2m][0m",
+    "Ran 10 tests across 1 file. \x1b[0m\x1b[2m[\x1b[1m140.00ms\x1b[0m\x1b[2m]\x1b[0m",
   ].join("\n");
 
   test("passes a colorized (FORCE_COLOR) clean run — ANSI codes around '0 fail' are stripped", () => {
@@ -119,5 +119,18 @@ describe("evaluateBunTestSummary (mt#2716 fail-closed pre-push gate)", () => {
     const r = evaluateBunTestSummary(ansiFailingSummary, 1);
     expect(r.ok).toBe(false);
     expect(r.reason).toContain("2 failing test(s)");
+  });
+
+  // mt#3079: the colorized-clean/failing fixtures above both carry a
+  // completion summary. This fixture covers the case main's own regression
+  // pair doesn't: colorized output with NO completion summary at all (the
+  // silent-truncation case, mt#2716's core fix) must still fail closed once
+  // ANSI-stripped, not accidentally pass because stripping happened to make
+  // it look emptier.
+  test("FAILS closed on colorized output with no completion summary at all (mt#3079)", () => {
+    const colorized = "\x1b[0m\x1b[2msome unrelated output\x1b[0m";
+    const r = evaluateBunTestSummary(colorized, 0);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain("no completion summary");
   });
 });
