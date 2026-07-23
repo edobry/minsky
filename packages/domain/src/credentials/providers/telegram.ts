@@ -19,6 +19,7 @@
  */
 import { existsSync } from "fs";
 import { join, resolve } from "path";
+import { spawnSync as nodeSpawnSync } from "child_process";
 import type { CredentialProvider, CredentialCheckResult } from "../types";
 
 export const TELEGRAM_PULUMI_SECRET_KEY = "secrets:minsky-reviewer-telegram-bot-token";
@@ -166,19 +167,31 @@ async function storeInPulumi(token: string): Promise<{ location: string }> {
   // Out of scope here — this call isn't implicated in the observed CI flake
   // (listCredentials only calls isConfigured) — but worth applying the same
   // `timeout:` fix if this pattern recurs.
-  const proc = Bun.spawnSync(
-    ["pulumi", "-C", infraDir, "config", "set", "--secret", TELEGRAM_PULUMI_SECRET_KEY],
+  //
+  // Uses node:child_process.spawnSync (not Bun.spawnSync) because
+  // bun-types@1.2.12's Bun.spawnSync overloads hardcode stdin to the literal
+  // "ignore" on both signatures (missing the generic `In` parameter `spawn()`
+  // correctly declares) — there is no cast-free way to pass a real stdin
+  // value to it in this bun-types version, and the custom
+  // `no-excessive-as-unknown` ESLint rule (correctly) flags a cast-based
+  // workaround as risky. node:child_process.spawnSync's `input` option is
+  // properly typed for exactly this (buffer piped to the child's stdin,
+  // fully synchronous — identical semantics) and is already used elsewhere
+  // in this codebase (see src/mcp/daemon-state.ts's execSync usage). See
+  // mt#3088 spec for the full diagnosis.
+  const proc = nodeSpawnSync(
+    "pulumi",
+    ["-C", infraDir, "config", "set", "--secret", TELEGRAM_PULUMI_SECRET_KEY],
     {
-      stdin: Buffer.from(`${token}\n`),
-      stdout: "pipe",
-      stderr: "pipe",
+      input: Buffer.from(`${token}\n`),
+      stdio: ["pipe", "pipe", "pipe"],
       env: pulumiEnv(),
     }
   );
-  if (proc.exitCode !== 0) {
+  if (proc.status !== 0) {
     const err = proc.stderr.toString().trim();
     // The token rides stdin, so stderr cannot embed it; still, never echo stdout.
-    throw new Error(`pulumi config set failed: ${err || `exit ${proc.exitCode}`}`);
+    throw new Error(`pulumi config set failed: ${err || `exit ${proc.status}`}`);
   }
   return { location: `pulumi stack config (${TELEGRAM_PULUMI_SECRET_KEY})` };
 }

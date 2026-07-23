@@ -27,6 +27,7 @@ import { assembleSessionContextSnapshot } from "@minsky/domain/transcripts/sessi
 import { snapshotBlocksToConversation } from "@minsky/domain/transcripts/conversation-elements";
 import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 
 function fail(msg: string): never {
   console.error(`FAIL: ${msg}`);
@@ -91,7 +92,7 @@ if (!sessionId) {
 
 console.log(`Verifying conversation render for session ${sessionId}`);
 
-const snapshot = await assembleSessionContextSnapshot(db, sessionId);
+const snapshot = await assembleSessionContextSnapshot(db, sessionId as AgentSessionId);
 if (snapshot === null) fail(`assembleSessionContextSnapshot returned null for ${sessionId}`);
 
 const turns = snapshotBlocksToConversation(snapshot.blocks);
@@ -119,7 +120,12 @@ for (const turn of turns) {
 // Chronological order check (timestamps non-decreasing).
 let ordered = true;
 for (let i = 1; i < turns.length; i++) {
-  if (turns[i].timestamp < turns[i - 1].timestamp) {
+  const curr = turns[i];
+  const prev = turns[i - 1];
+  if (curr === undefined || prev === undefined) {
+    throw new Error(`internal: turns[${i}] or turns[${i - 1}] out of bounds`);
+  }
+  if (curr.timestamp < prev.timestamp) {
     ordered = false;
     break;
   }
