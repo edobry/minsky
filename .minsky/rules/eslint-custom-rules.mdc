@@ -14,6 +14,14 @@ tags:
 ---
 # Custom ESLint Rules
 
+This source rule's `globs` + `alwaysApply: false` above satisfy `isEligibleForClaudeRules`
+(`packages/domain/src/rules/compile/targets/claude-rules.ts:81-83`); the compiler then emits
+this rule to `.claude/rules/eslint-custom-rules.md` with `paths:` frontmatter and NO
+`alwaysApply` key — that transformation (source `globs`/`alwaysApply` -> output `paths`-only) is
+the compiler's documented design decision 2 (same file, lines 20-29) and is what every other
+`.claude/rules/*.md` file already emits (e.g. `bun-test-patterns.md`), verified by
+`claude-rules.test.ts:122-132`.
+
 Full detail for the four custom rules indexed in `code-style.mdc`. This rule loads only when
 editing files in the trees these rules police (deploy-boundary safety, hook bootstrap,
 command-param drift).

@@ -1035,8 +1035,9 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 - Max 400 lines per file (warn), 1500 (error)
 - Custom ESLint rules (`eslint-rules/`) enforce architectural patterns + deploy-boundary safety.
   Full detail, path-scoped: `eslint-custom-rules.mdc`.
-  - `custom/no-unregistered-minsky-env-var` (mt#1788) — every `process.env.MINSKY_*` read must
-    be registered in `environmentMappings`/`HOOK_ONLY_ENV_VARS`.
+  - `custom/no-unregistered-minsky-env-var` (mt#1788) — in `src/`/`.claude/hooks/` (scoped; see
+    rule), every `process.env.MINSKY_*` read must be registered in
+    `environmentMappings`/`HOOK_ONLY_ENV_VARS`.
   - `custom/no-hand-rolled-command-params` (mt#2779) — command execute handlers derive param
     types from `InferParams<typeof <map>>`, never hand-rolled `*Params`.
   - `custom/no-entity-id-param-drift` (mt#2780) — command params maps must declare the family's
