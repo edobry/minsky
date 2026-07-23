@@ -16,15 +16,27 @@
 //
 // Read-only: it loads a transcript and counts the messages. Nothing is written.
 //
-// Usage:  bun scripts/verify-unasked-direction-transcript-load.ts [sessionId]
+// SCOPE (mt#3066) — this script checks the BOOTSTRAP, not the lookup key.
+// The default id below is a CONVERSATION id picked by hand because it is known
+// to have a stored transcript. Production does not supply it: the hook used to
+// pass a WORKSPACE session id out of the `session_pr_merge` payload, so this
+// script passed while the scan was still dead — proving the repaired function
+// works given an input the caller never provides. That gap is what mt#3066
+// fixed. For the id-space check (does the hook resolve the id PRODUCTION
+// supplies?) use `scripts/verify-unasked-direction-scan-lookup.ts`, which
+// refuses to be handed a working id and builds a real payload instead.
+//
+// Usage:  bun scripts/verify-unasked-direction-transcript-load.ts [conversationId]
 // Exit:   0 = pass (or SKIP with no DB configured), non-zero = fail.
 //
 // @see mt#3046 — this task; the lint rule that found the defect
 // @see mt#3019 — the first instance of the same class
+// @see mt#3066 — the id-space defect this script's own framing helped hide
 // @see .minsky/hooks/domain-bootstrap.ts — the bootstrap under test
 
 import { loadTranscript } from "../.minsky/hooks/post-merge-unasked-direction-scan";
 import { ensureHookDomainBootstrap } from "../.minsky/hooks/domain-bootstrap";
+import type { ConversationId } from "@minsky/domain/ids";
 
 const hasDbConfig =
   Boolean(process.env.MINSKY_PERSISTENCE_POSTGRES_URL) ||
@@ -41,20 +53,22 @@ if (!bootstrap.ok && !hasDbConfig) {
   process.exit(0);
 }
 
-// A session id with a stored transcript. Override via argv for a different one.
-const sessionId = process.argv[2] ?? "6422032f-e798-4fb3-af68-fe9f981cb590";
+// A CONVERSATION id with a stored transcript — see the SCOPE note above; this
+// is deliberately not the id production passes. Override via argv.
+const conversationId = (process.argv[2] ??
+  "6422032f-e798-4fb3-af68-fe9f981cb590") as ConversationId;
 
 process.stdout.write(
-  `Loading transcript for session ${sessionId} via the hook's own loadTranscript...\n`
+  `Loading transcript for conversation ${conversationId} via the hook's own loadTranscript...\n`
 );
 
-const transcript = await loadTranscript(sessionId);
+const transcript = await loadTranscript(conversationId);
 
 if (transcript === null) {
   process.stdout.write(
     "FAIL  loadTranscript returned null — this is the exact pre-mt#3046 symptom.\n" +
-      "      Either the bootstrap is missing again, or this session genuinely has no\n" +
-      "      stored transcript (try another session id as argv[1]).\n"
+      "      Either the bootstrap is missing again, or this conversation genuinely has no\n" +
+      "      stored transcript (try another conversation id as argv[1]).\n"
   );
   process.exit(1);
 }

@@ -98,6 +98,16 @@ const FOUND_PAYLOAD: ChangesetDetailPayload = {
       url: "https://github.com/edobry/minsky/commit/abc1234abc1234abc1234abc1234abc1234abc1234",
     },
   ],
+  detail: {
+    body: "This PR adds the changeset detail route.",
+    author: "minsky-ai[bot]",
+    additions: 66,
+    deletions: 8,
+    changedFiles: 2,
+    mergedAt: null,
+    mergedBy: null,
+    reviewCount: 1,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -196,11 +206,11 @@ describe("ChangesetDetailPage — found state", () => {
     });
   });
 
-  test("renders external GitHub link as secondary affordance", async () => {
+  test("renders external GitHub link as a primary affordance", async () => {
     mockChangesetFetch("1234", { status: 200, body: FOUND_PAYLOAD });
     renderChangesetPage("1234");
     await waitFor(() => {
-      const link = screen.getByRole("link", { name: /view on github/i });
+      const link = screen.getByRole("link", { name: /open on github/i });
       expect(link).toBeDefined();
       expect((link as HTMLAnchorElement).href).toContain("/pull/1234");
       // External link opens in new tab — not a redirect
@@ -291,5 +301,126 @@ describe("ChangesetDetailPage — loading / pending state", () => {
     renderChangesetPage("1234");
     // Pending state message is present synchronously (before any microtask)
     expect(screen.getByText(/loading changeset/i)).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: mt#3096 — live-PR sourcing, title fallback, honest degradation
+// ---------------------------------------------------------------------------
+
+describe("ChangesetDetailPage — live PR sourcing (mt#3096)", () => {
+  test("renders the PR description from the live payload", async () => {
+    mockChangesetFetch("1234", { status: 200, body: FOUND_PAYLOAD });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText(/adds the changeset detail route/i)).toBeDefined();
+    });
+  });
+
+  test("renders the diffstat from the live payload", async () => {
+    mockChangesetFetch("1234", { status: 200, body: FOUND_PAYLOAD });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("+66")).toBeDefined();
+      expect(screen.getByText(/2 files/)).toBeDefined();
+    });
+  });
+
+  test("renders the author from the live payload", async () => {
+    mockChangesetFetch("1234", { status: 200, body: FOUND_PAYLOAD });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("minsky-ai[bot]")).toBeDefined();
+    });
+  });
+
+  /**
+   * The originating bug: a null PR title rendered as the literal "(no title)"
+   * even though the row this page is reached from already fell back to the
+   * task title. Both surfaces now share `changesetDisplayTitle`.
+   */
+  test("falls back to the task title instead of rendering a placeholder", async () => {
+    const noTitlePayload: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      pr: { ...FOUND_PAYLOAD.pr, title: null },
+    };
+    mockChangesetFetch("1234", { status: 200, body: noTitlePayload });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("Changeset detail page")).toBeDefined();
+    });
+    expect(screen.queryByText(/\(no title\)/i)).toBeNull();
+  });
+
+  test("falls back to the branch when neither PR title nor task title exists", async () => {
+    const barePayload: ChangesetDetailPayload = {
+      ...FOUND_PAYLOAD,
+      pr: { ...FOUND_PAYLOAD.pr, title: null },
+      session: { ...FOUND_PAYLOAD.session!, taskTitle: null, taskId: null },
+    };
+    mockChangesetFetch("1234", { status: 200, body: barePayload });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getAllByText("task/mt-2535").length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText(/\(no title\)/i)).toBeNull();
+  });
+
+  /**
+   * A merged PR whose session was cleaned up: `session` is null. The page must
+   * still render from live PR data rather than 404ing or crashing.
+   */
+  test("renders a merged PR that has no Minsky session", async () => {
+    const mergedNoSession: ChangesetDetailPayload = {
+      pr: {
+        number: 2222,
+        url: "https://github.com/edobry/minsky/pull/2222",
+        state: "merged",
+        title: "feat(mt#3055): check-premise cue",
+        headBranch: "task/mt-3055",
+        approved: null,
+      },
+      session: null,
+      commits: [],
+      detail: {
+        body: null,
+        author: "minsky-ai[bot]",
+        additions: 66,
+        deletions: 8,
+        changedFiles: 2,
+        mergedAt: new Date(Date.now() - 600_000).toISOString(),
+        mergedBy: "edobry",
+        reviewCount: 0,
+      },
+    };
+    mockChangesetFetch("2222", { status: 200, body: mergedNoSession });
+    renderChangesetPage("2222");
+    await waitFor(() => {
+      expect(screen.getByText("feat(mt#3055): check-premise cue")).toBeDefined();
+    });
+    expect(screen.getByText("Merged")).toBeDefined();
+    expect(screen.getByText("edobry")).toBeDefined();
+  });
+
+  /**
+   * Honest degradation: when the live fetch failed the page says so, rather
+   * than presenting a stale snapshot as if it were current.
+   */
+  test("shows a degraded notice when live PR data is unavailable", async () => {
+    const degraded: ChangesetDetailPayload = { ...FOUND_PAYLOAD, detail: null };
+    mockChangesetFetch("1234", { status: 200, body: degraded });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText(/live pull-request data unavailable/i)).toBeDefined();
+    });
+  });
+
+  test("does not show the degraded notice when live data is present", async () => {
+    mockChangesetFetch("1234", { status: 200, body: FOUND_PAYLOAD });
+    renderChangesetPage("1234");
+    await waitFor(() => {
+      expect(screen.getByText("feat(mt#2535): changeset detail route")).toBeDefined();
+    });
+    expect(screen.queryByText(/live pull-request data unavailable/i)).toBeNull();
   });
 });

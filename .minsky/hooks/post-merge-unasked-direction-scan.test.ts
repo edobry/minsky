@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { resolveSessionContext } from "./post-merge-unasked-direction-scan";
+import { resolveConversationId, resolveSessionContext } from "./post-merge-unasked-direction-scan";
 import type { ToolHookInput } from "./types";
 
 function makeInput(overrides: Partial<ToolHookInput>): ToolHookInput {
@@ -86,5 +86,46 @@ describe("resolveSessionContext", () => {
       })
     );
     expect(r).toBeNull();
+  });
+});
+
+describe("resolveConversationId", () => {
+  it("reads the harness-supplied session_id", () => {
+    const r = resolveConversationId(makeInput({ session_id: "conv-1" }));
+    expect(r).toBe("conv-1");
+  });
+
+  it("does NOT read the workspace session id out of the tool payload", () => {
+    // mt#3066: the bug. `tool_input.sessionId` is a Minsky WORKSPACE id and
+    // never appears in `agent_transcripts.agent_session_id`, so using it as the
+    // transcript key made the scan no-op on every merge. The conversation id
+    // must come from the harness field, independent of the payload.
+    const r = resolveConversationId(
+      makeInput({ session_id: "conv-1", tool_input: { sessionId: "workspace-1" } })
+    );
+    expect(r).toBe("conv-1");
+    expect(r).not.toBe("workspace-1");
+  });
+
+  it("returns null when the harness supplied no session_id", () => {
+    const r = resolveConversationId(makeInput({ session_id: undefined as unknown as string }));
+    expect(r).toBeNull();
+  });
+
+  it("returns null for an empty session_id rather than querying on an empty key", () => {
+    const r = resolveConversationId(makeInput({ session_id: "" }));
+    expect(r).toBeNull();
+  });
+
+  it("resolves independently of the workspace context — both ids are available", () => {
+    const input = makeInput({
+      session_id: "conv-1",
+      tool_input: { sessionId: "workspace-1", task: "mt#3066" },
+    });
+
+    // The workspace id stays the findings-file key and analyzer label; only the
+    // transcript lookup moved to the conversation id.
+    expect(resolveSessionContext(input)).toEqual({ sessionId: "workspace-1", taskId: "mt#3066" });
+    expect(resolveConversationId(input)).toBe("conv-1");
   });
 });
