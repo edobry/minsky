@@ -105,6 +105,12 @@ export const R1_PATTERNS: RegExp[] = [
   /\bI\s+missed\s+the\s+obvious\b/i,
   /\bI\s+anchored\s+on\b[^.]*\band\s+missed\b/i,
   /\bI\s+conflated\b/i,
+  // mt#3098: the 2026-07-23 admission "I improvised a reasonable-looking handoff
+  // instead of running the canonical /handoff skill" matched nothing here. The
+  // contrast clause is required — a bare "I improvised" is ordinary narration
+  // ("I improvised a fixture"), only the instead-of/rather-than shape is an
+  // admission that a known-correct path was skipped.
+  /\bI\s+improvised\b[^.]*\b(instead\s+of|rather\s+than)\b/i,
 ];
 
 // ---------------------------------------------------------------------------
@@ -128,6 +134,12 @@ export const R3_PATTERNS: RegExp[] = [
   /\bnext\s+time\s+I[''’]?(ll|\s+will)\b/i,
   /\bfuture\s+me\s+will\b/i,
   /\bI[''’]?(ll|\s+will)\s+be\s+more\s+careful\s+about\b/i,
+  // mt#3098: the same commitment with the clauses reversed. The patterns above
+  // are anchored on the temporal phrase LEADING ("going forward I'll ..."), so
+  // "I'll invoke it rather than improvise going forward" — the 2026-07-23
+  // admission — missed, while the calibration log fired on "Going forward I'll"
+  // the same day. `[^.]*` keeps the match inside one sentence.
+  /\bI[''’]?(ll|\s+will)\b[^.]*\b(going\s+forward|next\s+time|from\s+now\s+on)\b/i,
 ];
 
 // ---------------------------------------------------------------------------
