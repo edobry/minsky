@@ -34,6 +34,9 @@ import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import type { SessionProviderInterface } from "@minsky/domain/session/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import type { ChangesetService } from "@minsky/domain/changeset/changeset-service";
+import type { TokenProvider } from "@minsky/domain/auth";
+import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
 // getCachedPersistenceProvider — shared bootstrap step
@@ -305,6 +308,109 @@ export async function getServerSessionProvider(): Promise<SessionProviderInterfa
 }
 
 // ---------------------------------------------------------------------------
+// Changeset service lazy init (mt#3096) — the LIVE-PR data path used by
+// `GET /api/changeset/:id`.
+//
+// Why this exists: that endpoint used to build its entire view from the cached
+// `pullRequest` snapshot on the session record, whose `title` is almost always
+// null — so the detail page rendered the literal "(no title)" for PRs that
+// plainly have one. Reading the live PR removes that whole class of staleness.
+//
+// CREDENTIAL PATH: `ChangesetService` previously had no way to receive one —
+// `getAdapter()` called `factory.createAdapter(repositoryUrl)` with no config,
+// so the GitHub adapter fell back to `GITHUB_TOKEN` / `GH_TOKEN` env vars only.
+// The cockpit daemon keeps its GitHub credential in Minsky config, not the
+// environment, so that path yielded an adapter failing `isAvailable()`. mt#3096
+// added the `adapterConfig` parameter threaded through here; token + repo
+// resolution mirrors `deploy-smoke-sweep.ts`'s `buildRealDeps()`, the existing
+// in-cockpit precedent for config-driven GitHub access.
+//
+// A FRESH service is built per call while the deps below stay cached: the
+// adapter memoizes its Octokit on first use, so caching the service would pin a
+// GitHub App installation token past its ~1h expiry and silently start 401ing.
+// `tokenProvider` does its own caching, so rebuilding costs no extra round-trip
+// in the common case.
+//
+// Returns null (never throws) when GitHub isn't configured or credential
+// resolution fails — the caller degrades to the session-snapshot rendering.
+// ---------------------------------------------------------------------------
+
+interface ChangesetReadDeps {
+  repoUrl: string;
+  tokenProvider: TokenProvider;
+}
+
+let _cachedChangesetReadDeps: ChangesetReadDeps | null = null;
+
+async function getChangesetReadDeps(): Promise<ChangesetReadDeps | null> {
+  if (_cachedChangesetReadDeps) return _cachedChangesetReadDeps;
+
+  const { getRepositoryBackendFromConfig } = await import(
+    "@minsky/domain/session/repository-backend-detection"
+  );
+  const { repoUrl, github } = await getRepositoryBackendFromConfig();
+
+  // `getRepositoryBackendFromConfig` has TWO return shapes, and this resolution
+  // must survive both:
+  //   1. Project-config path — `repository.url` plus an OPTIONAL
+  //      `repository.github` sub-object ({owner, repo}). This project sets both.
+  //   2. Auto-detection fallback — taken when `getConfiguration()` throws
+  //      (notably "Configuration not initialized", i.e. any process that hasn't
+  //      bootstrapped config). It returns `repoUrl` only, with NO `github`.
+  // So neither field alone is safe to gate on: prefer `repoUrl`, and compose one
+  // from `github` when only that is present.
+  const resolvedUrl =
+    repoUrl || (github ? `https://github.com/${github.owner}/${github.repo}.git` : "");
+
+  // Mirrors GitHubChangesetAdapterFactory.canHandle — a non-GitHub remote has
+  // no adapter to build.
+  if (!resolvedUrl.includes("github.com")) return null;
+
+  const { getConfiguration } = await import("@minsky/domain/configuration/index");
+  const { createTokenProvider } = await import("@minsky/domain/auth");
+  const cfg = getConfiguration();
+
+  _cachedChangesetReadDeps = {
+    repoUrl: resolvedUrl,
+    tokenProvider: createTokenProvider(cfg.github ?? {}, cfg.github?.token ?? ""),
+  };
+  return _cachedChangesetReadDeps;
+}
+
+/**
+ * Build a changeset service for the project's configured repository, or null
+ * when GitHub isn't configured / the credential can't be resolved.
+ *
+ * Only the READ surface (`get`) is exercised by the cockpit — that path uses
+ * Octokit directly and needs no `sessionProvider`. (Mutation methods and
+ * `getDetails` would additionally require one; the cockpit does not call them.)
+ */
+export async function getServerChangesetService(): Promise<ChangesetService | null> {
+  try {
+    const deps = await getChangesetReadDeps();
+    if (!deps) {
+      log.debug("[cockpit] changeset service unavailable — no GitHub repository configured");
+      return null;
+    }
+    const { createChangesetService } = await import("@minsky/domain/changeset/index");
+    return await createChangesetService(deps.repoUrl, undefined, {
+      repositoryUrl: deps.repoUrl,
+      auth: { token: await deps.tokenProvider.getServiceToken() },
+    });
+  } catch (err) {
+    // Never swallow silently: a dead credential path is indistinguishable from
+    // "no live data" at the endpoint, which is exactly how a degraded page
+    // looks healthy. Log the real reason.
+    log.debug(
+      `[cockpit] changeset service construction failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Test-only reset (mt#3016) — mirrors shared-persistence.ts's
 // __resetSharedPersistenceForTests(), same rationale: this module's caches
 // are all module-level state, and bun shares module state across every test
@@ -344,4 +450,5 @@ export function __resetDbProvidersForTests(): void {
   _cachedTaskService = null;
   _cachedTaskDetailDeps = null;
   _cachedServerSessionProvider = null;
+  _cachedChangesetReadDeps = null;
 }
