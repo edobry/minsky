@@ -9,7 +9,7 @@
  */
 
 import "reflect-metadata";
-import { setupConfiguration } from "../../src/config-setup";
+import { setupConfiguration } from "@minsky/domain/config-setup";
 
 async function main() {
   await setupConfiguration();
@@ -92,7 +92,7 @@ async function main() {
   const embeddingService = await createEmbeddingServiceFromConfig();
   const vectorStorage = await createMemoryVectorStorageFromConfig(dimension, persistence);
   const memoryService = new MemoryService({
-    db: db as Parameters<typeof MemoryService>[0]["db"],
+    db: db as ConstructorParameters<typeof MemoryService>[0]["db"],
     vectorStorage,
     embeddingService,
   });
