@@ -156,6 +156,15 @@ export const environmentMappings = {
 // so the export is a parallel signal — the const stays here regardless.
 
 export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
+  // mt#3101 — NOT hook-read: this one is read by domain code
+  // (`provenance/authorship-judging-flag.ts`). It belongs in this set for the
+  // set's actual reason rather than its historical name — it is a `MINSKY_*`
+  // var with no config-schema home, so without an entry the auto-mapping
+  // fallback would route it to `authorship.tierJudging` and mt#1612
+  // strict-mode validation would reject it, crashing the CLI whenever it is
+  // set. Default-off switch for merge-time AI authorship-tier judging
+  // (ask#5581).
+  "MINSKY_AUTHORSHIP_TIER_JUDGING",
   "MINSKY_FORCE_PARALLEL", // .claude/hooks/parallel-work-guard.ts
   "MINSKY_FORCE_DUPLICATE_OK", // .claude/hooks/parallel-work-guard.ts (mt#1435 — tasks_create dup guard)
   "MINSKY_ALLOW_NESTED_FORK", // .claude/hooks/block-nested-fork-dispatch.ts (mt#3045) — launch-time-only override for an undeclared nested fork dispatch

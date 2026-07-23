@@ -35,6 +35,7 @@ import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import type { SessionProviderInterface } from "@minsky/domain/session/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import type { ChangesetService } from "@minsky/domain/changeset/changeset-service";
+import type { ChecksResult } from "@minsky/domain/repository/github-pr-checks";
 import type { TokenProvider } from "@minsky/domain/auth";
 import { log } from "@minsky/shared/logger";
 
@@ -403,6 +404,48 @@ export async function getServerChangesetService(): Promise<ChangesetService | nu
     // looks healthy. Log the real reason.
     log.debug(
       `[cockpit] changeset service construction failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+    return null;
+  }
+}
+
+/**
+ * Build a check-runs fetcher for the project's configured repository, or null
+ * when GitHub isn't configured / the credential can't be resolved (mt#3097).
+ *
+ * Reuses the same cached repo + token resolution as the changeset service.
+ * `getCheckRunsForRef` already fails CLOSED when both its underlying fetches
+ * reject (it throws rather than reporting a misleading zero-checks result), so
+ * the caller can distinguish "CI genuinely has no checks" from "we could not
+ * find out" — which is what keeps the UI from rendering an unearned green.
+ */
+export async function getServerChecksReader(): Promise<
+  ((headSha: string) => Promise<ChecksResult>) | null
+> {
+  try {
+    const deps = await getChangesetReadDeps();
+    if (!deps) {
+      log.debug("[cockpit] checks reader unavailable — no GitHub repository configured");
+      return null;
+    }
+    const { extractGitHubInfoFromUrl } = await import(
+      "@minsky/domain/session/repository-backend-detection"
+    );
+    const gh = extractGitHubInfoFromUrl(deps.repoUrl);
+    if (!gh) {
+      log.debug(`[cockpit] checks reader unavailable — unparseable repo URL`);
+      return null;
+    }
+    const { createOctokit } = await import("@minsky/domain/repository/github-pr-operations");
+    const { getCheckRunsForRef } = await import("@minsky/domain/repository/github-pr-checks");
+    const octokit = createOctokit(await deps.tokenProvider.getServiceToken());
+    return (headSha: string) =>
+      getCheckRunsForRef({ owner: gh.owner, repo: gh.repo }, headSha, octokit);
+  } catch (err) {
+    log.debug(
+      `[cockpit] checks reader construction failed: ${
         err instanceof Error ? err.message : String(err)
       }`
     );

@@ -404,6 +404,7 @@ decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
 - **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.
 - **SubagentStop recording** — writes Stop-time columns on dispatch row. none.
+- **PR-author link** — stamps workspace↔conversation link at `session_pr_create` (mt#3101). none.
 - **Session-end ingest** — ingests transcript at SessionEnd. `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK`.
 - **Calibration (log-only)** — causal-premise/cadence/silent-stretch/wall-of-text/build-claim/knowledge-acquisition. `MINSKY_ACK_*`/`MINSKY_SKIP_*`.
 - **Guard-health tracker** — guard failure streaks, tagged `infra`/`logic` when known (mt#3072); escalation banner cools down per-session for up to 1h instead of repeating every turn (mt#3072). none.
@@ -660,7 +661,7 @@ When spawning subagents, use the appropriate model and type:
 
 **Capacity:** Subagents have limited context/tool budgets with no graceful degradation. Scope to 8–12 files per wave. Instruct to commit incrementally. For multi-phase work, use subtasks (`tasks_create` with `parent`). If a subagent returns incomplete work, check session `git diff`/`git status` and finish from main agent.
 
-**Continuation.** `SendMessage` resumes a **COMPLETED** subagent from transcript with full context — prefer it over a fresh dispatch for review-fix rounds (validated `mt#2578`; memory `6038c0a1`, whose own "pending" rule-text-correction note is stale as of mt#2865 — this citation applies it). Messaging a still-RUNNING agent is untested; kill + re-dispatch there. Full mechanics: `docs/rules-rationale/subagent-routing.md §Continuation`.
+**Continuation.** `SendMessage` resumes a **COMPLETED** subagent from transcript with full context — prefer it over a fresh dispatch for review-fix rounds (validated `mt#2578`; memory `6038c0a1`, whose own "pending" rule-text-correction note is stale as of mt#2865 — this citation applies it). Messaging a still-RUNNING agent ALSO works (verified mt#3128; mem#699): delivery lands at its next tool round and it STEERS, not just informs — course-correct by messaging rather than kill + re-dispatch, redirecting REMAINING work (already-executed steps can't be undone). Mid-flight steering is a recovery path, not a substitute for a well-specified initial dispatch. Full mechanics: `docs/rules-rationale/subagent-routing.md §Continuation`.
 
 **Never fork for bounded lookups from an active implementation context (mt#2865).** A `fork`
 subagent inherits the FULL conversation context. Prompt-level containment is not sufficient once a

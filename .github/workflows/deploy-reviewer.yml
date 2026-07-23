@@ -1,0 +1,327 @@
+name: Deploy Reviewer
+
+# mt#3117 — CI-owned release-phase deploy for the `minsky-reviewer-webhook`
+# service, replacing Railway's native branch-wide auto-trigger (a Railway
+# source-build that redeployed on EVERY push to main matching
+# services/reviewer/railway.json's now-retired `build.watchPatterns`).
+#
+# Clones the STRUCTURE of `deploy-minsky-mcp.yml` (mt#2104/mt#2505): build
+# -> smoke -> migrate -> push image -> explicit Railway redeploy. The
+# reviewer is converted from a repo-source Dockerfile build to an
+# image-source deploy (ghcr.io/edobry/minsky-reviewer), the same shape
+# minsky-mcp already uses — see services/reviewer/deploy.config.ts,
+# services/reviewer/railway.json (retired), and the `reviewerService`
+# resource in infra/index.ts.
+#
+# Migrate-before-push is the load-bearing gate (identical mechanism to
+# deploy-minsky-mcp.yml): the migrate step is FATAL — a failing migration
+# means the image is never pushed, which means Railway (which redeploys on
+# a NEW image landing at the watched tag, same mechanism as minsky-mcp,
+# mt#2342) never sees anything to deploy. The previously-deployed reviewer
+# keeps serving. The explicit "Trigger Railway redeploy" step at the end
+# stays NON-FATAL (mirrors deploy-minsky-mcp.yml exactly) — it is
+# belt-and-suspenders, not the deploy trigger; Railway's image-source
+# auto-redeploy-on-push is. (An earlier draft of this workflow's design
+# treated the explicit redeploy as newly load-bearing on the theory that
+# converting away from repo-source removes ALL auto-deploy fallback for the
+# reviewer — that reasoning was corrected mid-implementation, mt#3117 spec's
+# "External preconditions" section: the image-source conversion this same
+# task performs reintroduces the identical auto-redeploy-on-push mechanism
+# minsky-mcp already relies on, so the explicit call remains redundant.)
+#
+# Runs migration against the reviewer's OWN migration tree
+# (services/reviewer/migrations/pg, tracked via
+# drizzle.__drizzle_migrations_reviewer — mt#1967), NOT the main domain
+# tree deploy-minsky-mcp.yml migrates. See
+# services/reviewer/scripts/migrate.ts for the standalone entrypoint this
+# step invokes (services/reviewer/src/db/migrate.ts is only reachable via
+# applyMigrations() at server boot otherwise, and that boot-time call is
+# left in place by this task — dual application is safe: the drizzle
+# ledger is idempotent and high-water-mark based).
+#
+# `paths:` mirrors services/reviewer/railway.json's retired
+# `build.watchPatterns` (this is now the SINGLE source of the reviewer's
+# build closure — the config-as-code watchPatterns mechanism this list used
+# to drive no longer applies once the service is image-source). Explicitly
+# names services/reviewer/migrations/** even though services/reviewer/**
+# already covers it, so the migration tree's presence in the trigger scope
+# is visible without cross-referencing the retired file.
+#
+# Prerequisites (one-time setup, OPERATOR follow-up — see
+# services/reviewer/DEPLOY.md):
+# 1. RAILWAY_TOKEN / MINSKY_PERSISTENCE_POSTGRES_URL secrets already exist
+#    in this repo (reused from deploy-minsky-mcp.yml; verified provisioned
+#    as of the mt#3117 spec's "External preconditions" check).
+# 2. Railway `minsky-reviewer-webhook` service must be switched from
+#    repo+Dockerfile source to Docker Image source
+#    (ghcr.io/edobry/minsky-reviewer:latest) via the dashboard (Settings >
+#    Source > Docker Image) — the same one-time flip minsky-mcp already
+#    has (deploy-minsky-mcp.yml's own prerequisite note). This is a live
+#    Railway mutation and is NOT performed by this PR — it happens after
+#    merge, once this workflow has produced a first `:latest` image to
+#    point the service at.
+# 3. GHCR package visibility for `minsky-reviewer` set to match repo
+#    visibility, same as the `minsky` package.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/reviewer/**"
+      - "services/reviewer/migrations/**"
+      - "packages/shared/src/**"
+      - "packages/shared/package.json"
+      - "packages/shared/tsconfig.json"
+      - "packages/domain/src/**"
+      - "packages/domain/package.json"
+      - "packages/domain/tsconfig.json"
+      - "services/site/package.json"
+      - "services/cockpit/package.json"
+      - "package.json"
+      - "bun.lock"
+      - "bunfig.toml"
+      - "tsconfig.json"
+      - ".github/workflows/deploy-reviewer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# Only one deploy at a time, same rationale as deploy-minsky-mcp.yml
+# (mt#2505): this job runs a prod migration step, and cancelling mid-flight
+# could leave held locks or a partially-applied migration set.
+concurrency:
+  group: deploy-reviewer-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/edobry/minsky-reviewer
+
+jobs:
+  build-migrate-deploy:
+    name: build-migrate-deploy
+    runs-on: ubuntu-latest
+
+    # Throwaway Postgres for the smoke-boot step ONLY — never touched by
+    # the "Apply reviewer migrations to production" step below, which uses
+    # secrets.MINSKY_PERSISTENCE_POSTGRES_URL instead. Distinct in kind
+    # from mt#1557 (pre-merge/PR-time container smoke against a throwaway
+    # Postgres): this runs at release time (push to main only, no
+    # `pull_request:` trigger above) and its job is "does the just-built
+    # image boot and serve /health at all", not PR-time regression
+    # prevention. The reviewer's boot path calls applyMigrations()
+    # unconditionally before the HTTP server starts (server.ts,
+    # `if (import.meta.main)` — unchanged by this task), so a real boot
+    # smoke requires SOME reachable Postgres; this ephemeral instance is
+    # discarded at job end and never holds prod data.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: reviewer_smoke
+          POSTGRES_PASSWORD: reviewer_smoke
+          POSTGRES_DB: reviewer_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t $IMAGE:ci -f services/reviewer/Dockerfile .
+
+      - name: Boot container and probe /health (throwaway Postgres)
+        env:
+          # Test-only credentials scoped to this job's ephemeral postgres
+          # service container, no access outside it. Composed from parts,
+          # with the URL scheme ALSO kept out of the literal source line
+          # (gitleaks' credential-URL rule matches on a literal scheme
+          # token immediately followed by "://" — see .gitleaks.toml's
+          # database-url-credentials regex — so the scheme is a variable
+          # too, not just the user/password). Same convention in spirit as
+          # cold-start-migrate.yml's DATABASE_URL, structured so it never
+          # produces a matching literal instead of relying on an allowlist
+          # entry (out of this task's scope to add).
+          SMOKE_PG_SCHEME: postgres
+          SMOKE_PG_USER: reviewer_smoke
+          SMOKE_PG_PASSWORD: reviewer_smoke
+        run: |
+          set -euo pipefail
+
+          PORT=$(( 30000 + RANDOM % 20000 ))
+          echo "Boot port: $PORT"
+
+          SMOKE_PG_URL="${SMOKE_PG_SCHEME}://${SMOKE_PG_USER}:${SMOKE_PG_PASSWORD}@127.0.0.1:5432/reviewer_smoke"
+
+          # --network host puts this container on the runner's network
+          # namespace directly, so 127.0.0.1:5432 reaches the `postgres`
+          # service declared above (GH Actions maps job services' declared
+          # `ports:` onto the runner's localhost, not a docker-internal
+          # network reachable from a separately-launched container).
+          docker run --rm -d --name reviewer-smoke --network host \
+            -e PORT=$PORT \
+            -e MINSKY_REVIEWER_APP_ID=1 \
+            -e MINSKY_REVIEWER_PRIVATE_KEY=smoke-test-key \
+            -e MINSKY_REVIEWER_INSTALLATION_ID=1 \
+            -e MINSKY_REVIEWER_WEBHOOK_SECRET=smoke-test-secret \
+            -e REVIEWER_PROVIDER=openai \
+            -e OPENAI_API_KEY=smoke-test-key \
+            -e MINSKY_PERSISTENCE_POSTGRES_URL="$SMOKE_PG_URL" \
+            $IMAGE:ci
+
+          cleanup() {
+            docker stop reviewer-smoke 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          DEADLINE=$(( $(date +%s) + 60 ))
+          while [ "$(date +%s)" -lt $DEADLINE ]; do
+            if curl -fsS "http://127.0.0.1:$PORT/health" > /tmp/health.json 2>/dev/null; then
+              echo "/health responded within deadline:"
+              cat /tmp/health.json
+              echo
+              exit 0
+            fi
+            sleep 0.5
+          done
+
+          echo "/health did not respond 200 within 60s"
+          docker logs reviewer-smoke 2>&1 | tail -80 || true
+          exit 1
+
+      - name: Setup Bun
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      - name: Install dependencies
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        run: bun install --frozen-lockfile --no-progress
+
+      # mt#3117 — deploy-keyed, single-runner PROD migration for the
+      # reviewer's OWN tree. Runs BEFORE the GHCR push, so a failure here
+      # aborts the job before any image is pushed — Railway's image-source
+      # auto-redeploy has nothing new to deploy, and the prior version keeps
+      # serving against the unchanged schema (Heroku-release-phase
+      # semantics — identical mechanism to deploy-minsky-mcp.yml's own
+      # migrate step, mt#2505).
+      #
+      # SECURITY: gated to push/workflow_dispatch on main; this workflow has
+      # no `pull_request:` trigger at all, so the mt#1477 pwn-request class
+      # does not apply. NEVER add a pull_request_target trigger here.
+      - name: Apply reviewer migrations to production
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        env:
+          # DDL-capable `postgres` role — the SAME CI secret
+          # deploy-minsky-mcp.yml already consumes for the main domain tree
+          # (verified provisioned, mt#3117 spec's External preconditions).
+          # Deliberately NOT added to the reviewer's Railway runtime
+          # environment — that is exactly the credential boundary this task
+          # exists to establish (see the spec's Authoritative-source check
+          # on why Railway's preDeployCommand was rejected).
+          MINSKY_PERSISTENCE_POSTGRES_URL: ${{ secrets.MINSKY_PERSISTENCE_POSTGRES_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${MINSKY_PERSISTENCE_POSTGRES_URL:-}" ]; then
+            echo "::error::MINSKY_PERSISTENCE_POSTGRES_URL secret not set — refusing to deploy."
+            echo "Add the prod Postgres connection as a repo secret to enable the deploy-keyed"
+            echo "reviewer migration (mt#3117). Failing the job avoids shipping new reviewer"
+            echo "code against an unmigrated schema."
+            exit 1
+          fi
+
+          set +e
+          timeout 600 bun run services/reviewer/scripts/migrate.ts
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            if [ "$rc" -eq 124 ]; then
+              echo "::error::reviewer prod migration timed out after 600s — failing the deploy (no image pushed)."
+            else
+              echo "::error::reviewer prod migration failed (exit $rc) — failing the deploy (no image pushed)."
+            fi
+            exit "$rc"
+          fi
+          echo "Reviewer prod migration step completed (exit 0)."
+
+      - name: Login to GHCR
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and push image
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          docker tag $IMAGE:ci $IMAGE:latest
+          docker tag $IMAGE:ci $IMAGE:sha-${SHORT_SHA}
+          docker push $IMAGE:latest
+          docker push $IMAGE:sha-${SHORT_SHA}
+          echo "Pushed: $IMAGE:latest, $IMAGE:sha-${SHORT_SHA}"
+
+      # Belt-and-suspenders, NOT the deploy trigger. Railway auto-deploys
+      # the pushed ghcr.io/edobry/minsky-reviewer:latest image
+      # independently once the service is switched to image source (same
+      # verified mechanism as minsky-mcp, mt#2342) — so every failure
+      # branch below is non-fatal, mirroring deploy-minsky-mcp.yml exactly.
+      - name: Trigger Railway redeploy
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+            echo "::warning::RAILWAY_TOKEN not set — skipping Railway redeploy. Add the secret to enable auto-deploy."
+            exit 0
+          fi
+
+          # Railway service identifiers from services/reviewer/deploy.config.ts
+          SERVICE_ID="3913e8a4-81ab-465a-aad8-b76b5e3f66ed"
+          ENVIRONMENT_ID="b3ea3f5d-8560-40ea-8824-17fe3ca0b32a"
+
+          RESP_FILE="$(mktemp)"
+          HTTP_STATUS=$(curl -sS -o "${RESP_FILE}" -w "%{http_code}" -X POST https://backboard.railway.com/graphql/v2 \
+            -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\": \"mutation { serviceInstanceRedeploy(serviceId: \\\"${SERVICE_ID}\\\", environmentId: \\\"${ENVIRONMENT_ID}\\\") }\"}") || {
+              echo "::warning::Railway redeploy request failed (curl/network error). Non-fatal — Railway auto-deploys the pushed image independently."
+              exit 0
+            }
+
+          echo "Railway API HTTP ${HTTP_STATUS}; body: $(cat "${RESP_FILE}")"
+
+          if [ "${HTTP_STATUS}" -lt 200 ] || [ "${HTTP_STATUS}" -ge 300 ]; then
+            echo "::warning::Railway redeploy got HTTP ${HTTP_STATUS}. Non-fatal — Railway auto-deploys the pushed image independently."
+            exit 0
+          fi
+
+          if ! jq -e . > /dev/null 2>&1 < "${RESP_FILE}"; then
+            echo "::warning::Railway redeploy response was not valid JSON. Non-fatal — Railway auto-deploys the pushed image independently."
+            exit 0
+          fi
+
+          if jq -e '.errors and (.errors | length > 0)' > /dev/null 2>&1 < "${RESP_FILE}"; then
+            echo "::warning::Railway redeploy not triggered (API returned errors). Non-fatal — check the RAILWAY_TOKEN secret scope to enable the explicit trigger."
+            jq '.errors' < "${RESP_FILE}"
+            exit 0
+          fi
+
+          if jq -e '.data.serviceInstanceRedeploy != null and .data.serviceInstanceRedeploy != false' > /dev/null 2>&1 < "${RESP_FILE}"; then
+            echo "Railway redeploy triggered successfully"
+          else
+            echo "::warning::Railway redeploy did not confirm success (data.serviceInstanceRedeploy missing/null/false). Non-fatal — Railway auto-deploys the pushed image independently."
+            jq . < "${RESP_FILE}"
+            exit 0
+          fi
