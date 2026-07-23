@@ -53,6 +53,77 @@ describe("computeDispatchStaleness", () => {
     const result = computeDispatchStaleness(START, null, now, 1000);
     expect(result.stale).toBe(true);
   });
+
+  // mt#3086 AT1: "Simulated alive-but-quiet dispatch (recent transcript
+  // activity, no commits) -> recover returns healthy." At the pure-function
+  // level, "transcript activity" is represented by `lastPresenceActivityAtMs`
+  // (the presence-claims-derived proxy — see the function's docstring for
+  // why this stands in for the harness transcript JSONL mtime).
+  test("alive-but-quiet: recent presence-claim activity, no commits, past the stale window -> NOT stale (mt#3086 AT1)", () => {
+    const now = START + DISPATCH_RECOVERY_STALE_MS + 5 * 60 * 1000; // 35 min after dispatch
+    const lastPresenceActivityAtMs = now - 2 * 60 * 1000; // an MCP tool call 2 min ago
+    const result = computeDispatchStaleness(
+      START,
+      null,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      lastPresenceActivityAtMs
+    );
+    expect(result.stale).toBe(false);
+    expect(result.lastActivityAtMs).toBe(lastPresenceActivityAtMs);
+    expect(result.activitySource).toBe("presence");
+  });
+
+  test("genuinely dead: stale commit AND stale (or absent) presence activity -> stale, recover unchanged (mt#3086 AT2)", () => {
+    const staleLastCommit = START + 1000; // long past, doesn't help
+    const stalePresence = START + 2000; // also long past the window
+    const now = stalePresence + DISPATCH_RECOVERY_STALE_MS + 1000; // well past the window from BOTH signals
+    const result = computeDispatchStaleness(
+      START,
+      staleLastCommit,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      stalePresence
+    );
+    expect(result.stale).toBe(true);
+
+    // Absent presence signal entirely (null) behaves identically to today.
+    const resultNoPresence = computeDispatchStaleness(
+      START,
+      staleLastCommit,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      null
+    );
+    expect(resultNoPresence.stale).toBe(true);
+  });
+
+  test("activitySource reports which signal produced lastActivityAtMs", () => {
+    const now = START + 10 * 60 * 1000;
+    expect(computeDispatchStaleness(START, null, now).activitySource).toBe("dispatch-start");
+    expect(computeDispatchStaleness(START, START + 5 * 60 * 1000, now).activitySource).toBe(
+      "commit"
+    );
+    expect(
+      computeDispatchStaleness(START, null, now, DISPATCH_RECOVERY_STALE_MS, START + 9 * 60 * 1000)
+        .activitySource
+    ).toBe("presence");
+  });
+
+  test("presence activity older than commit activity does not override the commit signal", () => {
+    const now = START + 20 * 60 * 1000;
+    const lastCommit = START + 15 * 60 * 1000;
+    const olderPresence = START + 1000;
+    const result = computeDispatchStaleness(
+      START,
+      lastCommit,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      olderPresence
+    );
+    expect(result.lastActivityAtMs).toBe(lastCommit);
+    expect(result.activitySource).toBe("commit");
+  });
 });
 
 describe("classifyDispatchRecoveryState", () => {

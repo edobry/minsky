@@ -24,7 +24,10 @@ import {
   promptTypeForRecovery,
   buildTrackerUnavailableResponse,
 } from "./dispatch-recover-command";
-import type { DispatchRecoveryGitOps } from "./dispatch-recover-command";
+import type {
+  DispatchRecoveryGitOps,
+  DispatchRecoveryActivityOps,
+} from "./dispatch-recover-command";
 import { FakeSessionProvider } from "@minsky/domain/session/fake-session-provider";
 import { SessionStatus } from "@minsky/domain/session/types";
 import type { SessionRecord } from "@minsky/domain/session/types";
@@ -168,6 +171,17 @@ function makeGitOps(overrides: Partial<DispatchRecoveryGitOps> = {}): DispatchRe
   };
 }
 
+// mt#3086: fake presence-claim-derived activity ops — defaults to "no
+// signal" (matches pre-mt#3086 behavior when a test doesn't care about it).
+function makeActivityOps(
+  overrides: Partial<DispatchRecoveryActivityOps> = {}
+): DispatchRecoveryActivityOps {
+  return {
+    lastPresenceActivityAtMs: async () => null,
+    ...overrides,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -201,6 +215,7 @@ function makeCommand(opts: {
   tracker: FakeTracker | null;
   sessionProvider: FakeSessionProvider;
   gitOps?: DispatchRecoveryGitOps;
+  activityOps?: DispatchRecoveryActivityOps;
   staleMs?: number;
   taskService?: TaskServiceInterface;
 }) {
@@ -208,7 +223,13 @@ function makeCommand(opts: {
     async () => opts.sessionProvider,
     () => opts.taskService ?? throwingTaskService,
     async () => opts.tracker as never,
-    { gitOps: opts.gitOps ?? makeGitOps(), now: () => NOW, staleMs: opts.staleMs }
+    () => undefined,
+    {
+      gitOps: opts.gitOps ?? makeGitOps(),
+      activityOps: opts.activityOps ?? makeActivityOps(),
+      now: () => NOW,
+      staleMs: opts.staleMs,
+    }
   );
 }
 
@@ -259,9 +280,65 @@ describe("tasks.dispatch-recover", () => {
 
     expect(result.success).toBe(true);
     expect(result.status).toBe("healthy");
+    expect(result.activitySource).toBe("commit");
     // No recovery attempt was recorded — nothing touched.
     expect(tracker.recordedAttempts).toHaveLength(0);
     expect(tracker.recordedInvocationCalls).toHaveLength(0);
+  });
+
+  // mt#3086 AT1: "Simulated alive-but-quiet dispatch (recent transcript
+  // activity, no commits) -> recover returns healthy." No commits at all —
+  // only presence-claim (session-scoped MCP tool-call) activity — is enough
+  // to keep the dispatch classified healthy, closing the false-positive gap
+  // the mt#3086 originating incident hit (a long local diagnosis loop with
+  // no commits/PR events, misclassified as dead).
+  test("alive-but-quiet dispatch (recent presence-claim activity, NO commits) -> healthy, no action (mt#3086 AT1)", async () => {
+    const tracker = new FakeTracker();
+    tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - 40 * 60 * 1000), // dispatched 40 min ago
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    const gitOps = makeGitOps({ lastCommitAtMs: async () => null }); // no commits, ever
+    const activityOps = makeActivityOps({
+      // an MCP tool call (e.g. session_exec, session_read_file) 3 minutes ago
+      lastPresenceActivityAtMs: async () => NOW.getTime() - 3 * 60 * 1000,
+    });
+    const cmd = makeCommand({ tracker, sessionProvider, gitOps, activityOps });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.success).toBe(true);
+    expect(result.status).toBe("healthy");
+    expect(result.activitySource).toBe("presence");
+    expect(tracker.recordedAttempts).toHaveLength(0);
+    expect(tracker.recordedInvocationCalls).toHaveLength(0);
+  });
+
+  // mt#3086 AT2: "Simulated dead dispatch (stale transcript, no process) ->
+  // recover with continuation prompt, as today." A stale/absent presence
+  // signal must NOT change the pre-existing recover outcome.
+  test("genuinely dead dispatch (no commits, stale/absent presence activity) -> still recover, unchanged (mt#3086 AT2)", async () => {
+    const tracker = new FakeTracker();
+    const original = tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - DISPATCH_RECOVERY_STALE_MS - 1000),
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    const gitOps = makeGitOps({ lastCommitAtMs: async () => null });
+    // Presence activity, if any, is long past the stale window too.
+    const activityOps = makeActivityOps({
+      lastPresenceActivityAtMs: async () => NOW.getTime() - DISPATCH_RECOVERY_STALE_MS - 500,
+    });
+    const cmd = makeCommand({ tracker, sessionProvider, gitOps, activityOps });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.success).toBe(true);
+    expect(result.status).toBe("recover");
+    expect(result.resumedFromInvocationId).toBe(original.id);
   });
 
   test("stale, clean tree, no commits -> crashed-no-output, continuation prompt returned, attempt recorded", async () => {

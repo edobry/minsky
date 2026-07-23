@@ -281,8 +281,14 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
       getTaskService,
       getTracker
     ),
-    // Dispatch-recover (mt#2831): server-side detect/classify/prepare for a died/stalled dispatch
-    createTasksDispatchRecoverCommand(getSessionProvider, getTaskService, getTracker),
+    // Dispatch-recover (mt#2831): server-side detect/classify/prepare for a died/stalled dispatch.
+    // getPersistenceProvider (mt#3086) — builds the presence-claim liveness signal.
+    createTasksDispatchRecoverCommand(
+      getSessionProvider,
+      getTaskService,
+      getTracker,
+      getPersistenceProvider
+    ),
     // Orchestrate (find dispatchable subtasks for a parent)
     createTasksOrchestrateCommand(getTaskGraphService, getTaskService),
     // Context commands (decompose, estimate, analyze)

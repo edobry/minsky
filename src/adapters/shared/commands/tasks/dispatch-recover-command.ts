@@ -44,8 +44,16 @@
  * have computed (see `buildTrackerUnavailableResponse`).
  *
  * ### Covers
- * - API drops mid-dispatch (the dispatch goes silent with no further commits).
- * - Watchdog stalls (>= the stale window with no commit activity).
+ * - API drops mid-dispatch (the dispatch goes silent with no further commits
+ *   AND no session-scoped MCP tool-call activity — see mt#3086 below).
+ * - Watchdog stalls (>= the stale window with no commit or tool-call activity).
+ * - mt#3086: a genuinely alive-but-quiet dispatch (working locally — reading
+ *   code, running tests, no commit yet) is NOT misclassified as dead, because
+ *   the staleness check also consults `presence_claims` session-grain
+ *   activity (refreshed by every MCP tool call the subagent makes that
+ *   touches its own session — see `computeDispatchStaleness`'s docstring
+ *   for the full mechanism and why this stands in for the harness
+ *   transcript JSONL mtime, which is unreachable here).
  *
  * ### Does NOT cover
  * - Semantically-wrong-but-alive work — a subagent that is actively
@@ -58,13 +66,24 @@
  *   orchestrator who suspects rate-limiting should check the cadence
  *   escalation tier before treating a stale read as a kill signal (per
  *   memory `5f2154cd`, "long-paused subagent != dead subagent").
+ * - A dispatch that makes literally ZERO Minsky-MCP-routed tool calls for an
+ *   entire stale window (e.g. stuck inside one very long non-MCP subprocess
+ *   call) — this remains invisible to every signal here, commit or
+ *   presence-based (mt#3086's documented residual blind spot).
+ * - A `SendMessage`-resumed continuation of an ALREADY-CLOSED invocation row
+ *   (`endedAt` set before the resume) — this command returns `not-in-flight`
+ *   before ever reaching the staleness check for that case (see
+ *   `computeDispatchStaleness`'s docstring for the SendMessage-resume
+ *   confound in full, including the case where it DOES stay visible).
  * - The full periodic sweep the dispatch-watchdog producer performs
  *   (`src/cockpit/dispatch-watchdog.ts`), including its `system_events`
- *   activity signal — this command's on-demand staleness check uses only
- *   dispatch-start-time and last-commit-time (see
- *   `computeDispatchStaleness`'s docstring for the documented tradeoff).
+ *   activity signal — this command's on-demand staleness check uses
+ *   dispatch-start-time, last-commit-time, and (mt#3086) presence-claim
+ *   activity, but not `system_events` (see `computeDispatchStaleness`'s
+ *   docstring for the documented tradeoff).
  *
  * @see mt#2831 — this task
+ * @see mt#3086 — false-positive staleness fix + double-dispatch race documentation
  * @see mt#2646 — dispatch-watchdog detection + `dispatch-recovery-probe.ts`
  * @see mt#2512 — kill+redispatch doctrine (no mid-flight correction)
  *
@@ -133,6 +152,108 @@ async function runGit(args: string[], cwd: string): Promise<{ code: number; stdo
   const stdout = await new Response(proc.stdout).text();
   await proc.exited;
   return { code: proc.exitCode ?? 1, stdout };
+}
+
+// ---------------------------------------------------------------------------
+// Activity-signal seam (mt#3086) — injectable so unit tests never spawn real
+// Postgres. Real vs. injected access to the tool-call-activity liveness
+// signal `computeDispatchStaleness` now consults alongside commit activity.
+// ---------------------------------------------------------------------------
+
+/**
+ * Real vs. injected access to the presence-claim-derived tool-call-activity
+ * signal (mt#3086). See `computeDispatchStaleness`'s docstring
+ * (`@minsky/domain/session/dispatch-recovery-classifier`) for why this
+ * signal — not the harness transcript JSONL mtime — is what the staleness
+ * check consults, and for the documented residual blind spot.
+ */
+export interface DispatchRecoveryActivityOps {
+  /**
+   * Ms epoch of the most recent `presence_claims` refresh for the given
+   * Minsky session (subject_kind = "session"), or null when unavailable
+   * (no persistence provider, no DB connection, no claim ever written for
+   * this session — e.g. every tool call so far omitted `task`/`sessionId`,
+   * or the dispatch is brand new).
+   */
+  lastPresenceActivityAtMs(subagentSessionId: string): Promise<number | null>;
+}
+
+/**
+ * Real implementation: reads the session-grain `presence_claims` row(s) for
+ * `subagentSessionId` and returns the freshest `lastRefreshedAt` across all
+ * actors that have touched this session (an MCP tool call from EITHER the
+ * subagent itself or, in principle, another actor sharing the workspace —
+ * in practice a session workspace has exactly one active occupant, so this
+ * is effectively "did the subagent make any Minsky-routed tool call
+ * recently"). Fail-open: any resolution error (no persistence provider, no
+ * DB, a query failure) returns null rather than throwing — this signal is
+ * best-effort, matching the rest of the presence-claims write/read path's
+ * posture (`src/mcp/server.ts`'s `writeSessionAttachment`,
+ * `tasks.claims.list`).
+ */
+export function createRealDispatchRecoveryActivityOps(
+  getPersistenceProvider: () => unknown
+): DispatchRecoveryActivityOps {
+  return {
+    async lastPresenceActivityAtMs(subagentSessionId) {
+      try {
+        const provider = getPersistenceProvider() as
+          | { getDatabaseConnection?: () => Promise<unknown> }
+          | undefined;
+        if (!provider?.getDatabaseConnection) {
+          // R1 (mt#3086): log every structurally-unavailable branch, not just the
+          // catch-block failure path below — a silent null here degrades the
+          // staleness check back to its pre-mt#3086 commit-only behavior with no
+          // diagnostic trail, reintroducing the original false-positive risk
+          // invisibly. debug (not warn): a persistence-less CLI/test context is a
+          // routine, expected shape, not an operational anomaly.
+          log.debug(
+            "[tasks.dispatch-recover] lastPresenceActivityAtMs: no persistence provider / getDatabaseConnection — presence signal unavailable",
+            { subagentSessionId }
+          );
+          return null;
+        }
+        const db = await provider.getDatabaseConnection();
+        if (!db) {
+          log.debug(
+            "[tasks.dispatch-recover] lastPresenceActivityAtMs: getDatabaseConnection() resolved no connection — presence signal unavailable",
+            { subagentSessionId }
+          );
+          return null;
+        }
+        const { buildPresenceClaimRepository } = await import("@minsky/domain/presence/index");
+        const repo = buildPresenceClaimRepository(db);
+        if (!repo) {
+          log.debug(
+            "[tasks.dispatch-recover] lastPresenceActivityAtMs: buildPresenceClaimRepository returned null — presence signal unavailable",
+            { subagentSessionId }
+          );
+          return null;
+        }
+        // Threshold is irrelevant here — we only read the raw timestamp and let
+        // computeDispatchStaleness's OWN staleMs decide freshness, not presence's
+        // separate 15-min TTL annotation. listClaims orders desc by
+        // lastRefreshedAt, so the first row is already the freshest.
+        const claims = await repo.listClaims("session", subagentSessionId, Number.MAX_SAFE_INTEGER);
+        const freshest = claims[0]?.lastRefreshedAt;
+        if (!freshest) return null;
+        const ms = Date.parse(freshest);
+        return Number.isFinite(ms) ? ms : null;
+      } catch (err) {
+        // R1 (mt#3086): warn (not debug) — unlike the "no persistence configured"
+        // branches above (a routine, expected shape in CLI/test contexts), reaching
+        // this catch means resolution STARTED (a provider/db/repo existed) and then
+        // threw — a DI-wiring break, an unexpected dynamic-import shape, or a real
+        // query failure. That is an operational anomaly worth surfacing, not a
+        // silent degrade.
+        log.warn(
+          "[tasks.dispatch-recover] lastPresenceActivityAtMs resolution failed unexpectedly (degrading to no presence signal)",
+          { subagentSessionId, error: err instanceof Error ? err.message : String(err) }
+        );
+        return null;
+      }
+    },
+  };
 }
 
 /** Real git-ops implementation (Bun.spawn + Bun.file). Mirrors `src/adapters/mcp/session-workspace.ts`'s probe wiring (mt#2646). */
@@ -372,13 +493,26 @@ export function createTasksDispatchRecoverCommand(
    * degraded-response branch below for what the caller gets in that case.
    */
   getTracker: () => Promise<SubagentDispatchTracker | null>,
+  /**
+   * Optional (mt#3086) — used to build the real `DispatchRecoveryActivityOps`
+   * (presence-claim liveness signal) when `deps.activityOps` is not injected.
+   * Best-effort: when omitted or when it throws/returns an unusable provider,
+   * `createRealDispatchRecoveryActivityOps`'s own try/catch degrades to
+   * `lastPresenceActivityAtMs` always resolving null — the staleness check
+   * simply falls back to its pre-mt#3086 behavior (commit + dispatch-start
+   * only), never a hard failure.
+   */
+  getPersistenceProvider: () => unknown = () => undefined,
   deps: {
     gitOps?: DispatchRecoveryGitOps;
+    activityOps?: DispatchRecoveryActivityOps;
     now?: () => Date;
     staleMs?: number;
   } = {}
 ) {
   const gitOps = deps.gitOps ?? createRealDispatchRecoveryGitOps();
+  const activityOps =
+    deps.activityOps ?? createRealDispatchRecoveryActivityOps(getPersistenceProvider);
   const now = deps.now ?? (() => new Date());
   const staleMs = deps.staleMs ?? DISPATCH_RECOVERY_STALE_MS;
 
@@ -390,10 +524,25 @@ export function createTasksDispatchRecoverCommand(
       "captures session state, classifies the outcome, and returns a ready-to-dispatch " +
       "continuation prompt. Does NOT dispatch anything — the caller must redispatch the " +
       "returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched " +
-      '(returns status: "healthy"). Refuses a 3rd attempt for the same dispatch chain ' +
-      '(returns status: "escalate"). If the dispatch tracker itself is unavailable, degrades ' +
-      "to actionable manual-recovery guidance instead of a bare error " +
-      '(returns status: "tracker-unavailable").',
+      '(returns status: "healthy") — as of mt#3086 this check ALSO consults recent ' +
+      "presence-claim (session-scoped MCP tool-call) activity, not just commits, so a " +
+      "dispatch that is quietly working (reading code, running tests, no commit yet) is " +
+      "no longer misclassified as dead; see the activitySource field on a healthy result " +
+      '("commit" | "presence" | "dispatch-start") for which signal decided it. Refuses a ' +
+      '3rd attempt for the same dispatch chain (returns status: "escalate"). If the ' +
+      "dispatch tracker itself is unavailable, degrades to actionable manual-recovery " +
+      'guidance instead of a bare error (returns status: "tracker-unavailable"). ' +
+      "DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually " +
+      "still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive " +
+      "or a hasty manual override) puts TWO agents in the SAME Minsky session workspace " +
+      "at once. Observed symptoms from the originating incident: uncommitted work " +
+      "appearing that the new attempt didn't write, a merge conflict resolving and " +
+      "committing out from under the new attempt between two of its own status checks, a " +
+      '`git push` rejected as "remote already at a newer commit," and a PR already ' +
+      "existing with the same diagnosis the new attempt was about to produce. Both " +
+      "attempts CAN converge on a correct end state (idempotent work + luck), but this is " +
+      "not guaranteed — treat any of these symptoms as a signal to stop and check whether " +
+      "another attempt is genuinely still running before continuing.",
     parameters: tasksDispatchRecoverParams,
     execute: async (params: InferParams<typeof tasksDispatchRecoverParams>) => {
       const { normalizeTaskIdInput } = await import("@minsky/domain/tasks/commands/shared-helpers");
@@ -486,25 +635,41 @@ export function createTasksDispatchRecoverCommand(
       }
 
       // ── Staleness gate: a healthy in-flight dispatch is left untouched. ──────────────
+      // mt#3086: consults presence-claim activity ALONGSIDE commit activity — a
+      // dispatch that is genuinely alive but quiet (reading code, running tests,
+      // making session-scoped MCP tool calls with no commit yet) is no longer
+      // misclassified as dead. See computeDispatchStaleness's docstring for the
+      // full signal rationale and the documented residual blind spot.
       const lastCommitAtMs = await gitOps.lastCommitAtMs(sessionDir);
+      const lastPresenceActivityAtMs =
+        await activityOps.lastPresenceActivityAtMs(subagentSessionId);
       const startedAtMs = latest.startedAt.getTime();
       const staleness = computeDispatchStaleness(
         startedAtMs,
         lastCommitAtMs,
         now().getTime(),
-        staleMs
+        staleMs,
+        lastPresenceActivityAtMs
       );
 
       if (!staleness.stale) {
+        const activityDescription =
+          staleness.activitySource === "presence"
+            ? "recent tool-call activity (no commit yet)"
+            : staleness.activitySource === "commit"
+              ? "a recent commit"
+              : "no activity beyond dispatch start (still within the stale window)";
         return {
           success: true,
           status: "healthy" as const,
           taskId,
           sessionId: subagentSessionId,
           staleForMs: staleness.staleForMs,
+          activitySource: staleness.activitySource,
           message:
-            `Dispatch for ${taskId} has recent activity (last activity ${staleness.staleForMs}ms ` +
-            `ago, below the ${staleMs}ms stale window) — treated as healthy, no action taken.`,
+            `Dispatch for ${taskId} has ${activityDescription} (last activity ` +
+            `${staleness.staleForMs}ms ago, below the ${staleMs}ms stale window) — treated as ` +
+            `healthy, no action taken.`,
         };
       }
 
