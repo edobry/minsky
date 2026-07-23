@@ -217,9 +217,9 @@ describe("agents-md target: buildContent()", () => {
 // end-to-end — with an injected mock fs — by `../check.test.ts`'s
 // "compileRules --check size budget" suite. `./size-budget.test.ts` covers
 // the evaluation logic itself in isolation.
-describe("agents-md target: DEFAULT_AGENTS_MD_SIZE_BUDGET (mt#2802)", () => {
-  it("current-corpus defaults are grounded: warn=160000, fail=200000", () => {
-    expect(DEFAULT_AGENTS_MD_SIZE_BUDGET).toEqual({ warnChars: 160_000, failChars: 200_000 });
+describe("agents-md target: DEFAULT_AGENTS_MD_SIZE_BUDGET (mt#3076)", () => {
+  it("deliberately-generous defaults for an unconfirmed-consumer target: warn=300000, fail=400000", () => {
+    expect(DEFAULT_AGENTS_MD_SIZE_BUDGET).toEqual({ warnChars: 300_000, failChars: 400_000 });
   });
 
   it("fail sits strictly above warn", () => {

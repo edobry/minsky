@@ -231,7 +231,9 @@ export function formatCadenceWarning(due: ReviewDueLog[]): string {
         ? "past review threshold (fires + diversity)"
         : d.reason === "never-reviewed"
           ? `never reviewed; first fire >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days ago`
-          : `unreviewed for >= ${Math.floor(STALE_DAYS_MS / (24 * 60 * 60 * 1000))} days`;
+          : d.reason === "never-fired"
+            ? `confirmed alive (live synthetic test) but ZERO real fires >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days since — check whether the trigger is rare or the detector has silently broken (mt#3078)`
+            : `unreviewed for >= ${Math.floor(STALE_DAYS_MS / (24 * 60 * 60 * 1000))} days`;
     lines.push(
       `  - ${d.name}: ${d.firesSinceLastReview} new fire(s) since last review ` +
         `(${d.totalFires} total, ${d.distinctPhrases} distinct) — ${reasonLabel}`

@@ -178,7 +178,8 @@ dir) -> the guarded operation still completes; a degraded marker is emitted."
 ## Known gaps (post mt#2889 — merge gates only, plus documented per-guard exclusions)
 
 mt#2889 closed every item this section previously listed except merge-gate
-instrumentation (Phase 3, no owner task filed yet). What it shipped:
+instrumentation (Phase 3). mt#3078 classified this absence (see the dedicated section
+below) and filed the owner task: **mt#3084**. What mt#2889 shipped:
 
 - **Canary declarations + runner** — `GuardRegistration.canary` (registry.ts)
   populated for 18 of 18 `GUARD_REGISTRY` entries with a feasible synthetic
@@ -232,6 +233,53 @@ fetch`, an actual `git merge` on the blocked+clean-tree auto-merge path
     low fire frequency.
 - **Phase-1 GATE verification** — see the next section; formally re-run
   against the real log post-landing.
+
+## Merge-gate fire-log absence — classification (mt#3078)
+
+**Classification: BY DESIGN, not a broken invocation path.** Every one of the ~10 standalone
+`session_pr_merge` PreToolUse hooks (`require-execution-evidence-before-merge.ts`,
+`require-deploy-verification-before-merge.ts`, `require-growth-justification-before-merge.ts`,
+`block-out-of-band-merge.ts`, `block-subagent-bypass-merge.ts`,
+`require-checks-on-bypass-merge.ts`, `block-subagent-merge-without-grant.ts`,
+`require-review-before-merge.ts`, `dispatch-intent-write-gate.ts`,
+`block-nested-fork-dispatch.ts`) runs as a standalone `settings.json` entry, not a
+`GUARD_REGISTRY` entry sharing the dispatcher's fire-log call site — this module's own opening
+comment scopes merge gates out explicitly ("eventually a merge gate — Phase 3, out of scope
+here"), and the "Known gaps" section above has documented the Phase-3 deferral since mt#2889.
+This is a deliberate scope boundary of the Phase-1/Phase-2 landings, not a silent dependency
+failure of the mt#3019/mt#3046 class.
+
+Independently reconfirmed empirically (mem#683 baseline capture, 2026-07-23): `fire-log.jsonl`
+contained **zero** `guardName` entries for any merge-gate hook and **zero** `toolName:
+mcp__minsky__session_pr_merge` entries anywhere across 50,248 lines spanning the file's entire
+available 7-day window — despite confirmed real merges in that exact window (e.g. PR #2195,
+#2199). `guard-health-log.jsonl` was checked as an alternate source and found unrelated (14
+lines, all `standalone-duplicate-matcher` check-skip events).
+
+**Alternative evidence source for merge-gate activity (named per mem#683's baseline-comparison
+protocol).** Grepping all ~10 merge-gate hook source files for their own calibration/audit
+writes found exactly ONE purpose-built log: `require-execution-evidence-before-merge.ts`'s
+mt#3033 AT-cross-reference sub-check writes `.minsky/execution-evidence-at-coverage-calibration.jsonl`.
+For the remaining ~9 gates, no purpose-built log exists at all — the only trace of a fire is the
+PreToolUse call's `permissionDecisionReason` / `additionalContext` string, which surfaces solely
+in the calling agent's own conversation transcript. Two concrete alternative sources for a
+future baseline comparison, until mt#3084 (filed by this classification) ships real
+instrumentation:
+
+1. **Ingested transcripts** — `mcp__minsky__transcripts_search-text` over `agent_transcripts`
+   (populated by the `SessionEnd` transcript-ingest hook), searching for each gate's
+   characteristic denial substring (e.g. `"Merge blocked: PR adds"` for the execution-evidence
+   file-pattern floor, `"Deploy verification:"` for the deploy-verification gate). Coarse (text
+   search, not structured counts) but works today with no code changes.
+2. **Merge-commit bodies** — for bypass-merge events specifically, the canonical audit-trail
+   signature (`"Bot self-approval bypass per feedback_self_authored_pr_merge_constraints"`) is
+   written directly into the merge-commit message by both bypass paths
+   (`block-subagent-bypass-merge.ts` / `require-checks-on-bypass-merge.ts`'s callers), so
+   `git log --grep` over merged commits is a durable, structured-enough source for that one
+   event class.
+
+Neither source covers routine `allow` decisions across the full gate family — that gap is
+exactly what mt#3084 (Phase 3 build-out) closes.
 
 ## Phase-1 GATE result (mt#2889, verified 2026-07-17)
 
@@ -340,7 +388,9 @@ fire-log JSONL record itself).
     standalone-guard coverage (7 of 12 instrumented, 5 documented exclusions),
     attention-cost population, and the Phase-1 GATE verification (37/37
     instrumented guards show ≥5 fires — see the dedicated section above).
-    Merge-gate instrumentation (Phase 3) remains unowned/unfiled.
+    Merge-gate instrumentation (Phase 3) classification is mt#3078 (by-design
+    exclusion, confirmed not a wiring bug — see the dedicated section above);
+    the actual build-out is now owned by mt#3084.
 - `.minsky/hooks/guard-health.ts` / `docs/architecture/hooks/guard-health.md` —
   the sibling failure-half tracker (mt#2812).
 - `.minsky/hooks/fire-log.ts`, `.minsky/hooks/known-override-env-vars.ts` —
@@ -355,3 +405,6 @@ fire-log JSONL record itself).
   via the step's own `HookResult.overridden` flag).
 - `packages/domain/src/configuration/sources/environment.ts` —
   `HOOK_ONLY_ENV_VARS`, the override-classification oracle.
+- mt#3078 — invocation-path audit that classified the merge-gate fire-log absence as by-design
+  (not a wiring bug) and named the alternative evidence sources (see the dedicated section
+  above); mt#3084 — the Phase-3 build-out task this classification filed.

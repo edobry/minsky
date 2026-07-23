@@ -42,113 +42,23 @@ This rule applies to all code, documentation, and configuration files in the pro
 
 # Claim Confidence
 
-When the agent claims work is done or something is true, two questions hide in one sentence:
-**how far the deliverable has progressed**, and **how the agent knows the claim**. Leaving both
-implicit is where miscalibrated "it's done" claims come from. This rule is the shared vocabulary —
-two orthogonal axes, a claim format carrying both, and a ranked ledger for high-stakes operations.
+Vocabulary for delivery progress + evidential warrant (not a per-claim mandate). Apply at the seam injection (mt#2923), the closeout format (mt#2924), or when stakes
+warrant it.
 
-It is the **vocabulary and rationale layer**: it does NOT mandate a label on every claim (that is
-the wallpaper failure mode — labels everywhere become noise the operator stops reading). Enforcement
-is conditional and lives in the siblings — a seam-only injection (mt#2923) and the
-`/implement-task` §9 / `/verify-task` closeout format (mt#2924). Apply the vocabulary where those
-fire and where miscalibration would cost the principal.
+**Axis A (delivery):** `merged → deployed → usable`. Auto-usable: `deployed == usable`.
+Build/install (CLI, tray): `deployed < usable`; name the crossing step.
 
-## Axis A — delivery state
+**Axis B (warrant):** `verified-1a` (deterministic) / `verified-1b` (live probe) /
+`strong-evidence` / `inferred` / `assumed` (never tried) / `unknown` (tried).
 
-How far the deliverable has progressed toward the principal using it: `merged → deployed →
-usable-by-principal`. **Class-conditional:**
+**Format:** `[delivery] — [warrant + basis]`. E.g. `Merged (verified-1a: PR merged this turn) —
+usable: rebuild + reinstall.`
 
-- **Auto-usable** (a running service picks up the merge; config takes effect on deploy): once
-  `deployed`, `deployed == usable`.
-- **Build/install** (a CLI or tray app the principal must rebuild/reinstall): `deployed < usable`,
-  with **no agent-observable transition** into `usable` — exactly where an unwarranted "it's done"
-  originates (the agent observes `merged`/`deployed` and narrates `usable`). State delivery at the
-  altitude the class supports; if there is a gap the agent cannot cross, name the crossing step.
+**Risk ledger:** high-stakes shared/prod ops LEAD with a ranked Risk/Magnitude/State/Evidence
+table before go-ahead. Fires: ≥2 of {irreversible, shared/prod, multi-party}, OR operator
+uncertainty alone.
 
-## Axis B — evidential warrant
-
-How the agent knows the claim:
-
-- **verified** — a tool result THIS turn proves it. Split: **verified-1a** (a deterministic
-  test/check — compile passed, unit test green) vs **verified-1b** (a live-environment probe — HTTP
-  200 read, a real API call, a route rendered). The split matters because a deterministic test can
-  pass against the wrong object while live behavior was never exercised (mt#2528 below).
-- **strong-evidence** — multiple consistent indirect signals (review APPROVE + CI green + a partial
-  observation), short of direct end-to-end proof.
-- **inferred** — a conclusion from a mechanism/premise not directly checked.
-- **assumed** — taken as given WITHOUT an attempt to determine it.
-- **unknown** — attempted and undetermined, or explicitly acknowledged as undetermined.
-
-**`assumed` vs `unknown`** (the distinction the RFC deferred here): `assumed` = never tried,
-proceeding on a default — the more dangerous label, since it hides an unmade check; `unknown` =
-tried, or consciously acknowledged, and the answer is unavailable. Prefer converting `assumed` into
-`verified` or `unknown` by actually probing.
-
-## Claim format
-
-`[delivery state] — [evidential warrant + basis]`. Worked examples:
-
-- `Merged (verified: PR merged this turn) — to reach usable, rebuild + reinstall.`
-- Executive one-liner: `Deployed (verified-1b: health probe this turn) — usable after tray reinstall.`
-- The **mt#2528 originating incident**, re-expressed: `Merged (verified-1a: deterministic test on
-  the wrong object) — live-1b probe not run.` The 1a/1b split makes the original error stateable —
-  it was reported as a live probe (1b) when only a deterministic check (1a), against the wrong
-  object, had run.
-
-## The risk-and-evidence ledger (high-stakes operations)
-
-For a high-stakes operation on shared/prod state, do NOT scatter confidence phrases through prose —
-LEAD, before requesting the operator's go, with a ranked table:
-`| # | Risk | Magnitude | State (mitigated / N-A / open) | Evidence |`. The operator scans it and
-either accepts or points at the one low-confidence row. Diagnostic (memory `b9cfd295`): scattered
-operator anxiety-probing is a symptom of agent epistemic **opacity** — the agent has a risk model
-but never exported it; the fix is agent-side (make it legible).
-
-**Fires when EITHER** ≥2 of the three OBJECTIVE criteria hold
-`{ irreversible-if-wrong, shared/prod state, multi-party impact }`, **OR
-operator-expressed-uncertainty ALONE** (if the operator is already probing, exporting the model is
-overdue — the circularity fix: the objective quorum lets the ledger lead BEFORE anyone asks).
-**Caveat:** a short ledger gives false confidence if the one row the operator would have probed was
-never enumerated — completeness of the enumeration is load-bearing, not the table's tidiness.
-
-Worked example (mt#2505 prod-migration): a prod schema migration satisfies `shared/prod state` AND
-`irreversible-if-wrong` (migrations are hard to reverse as a class) = 2 of 3 objective criteria →
-the ledger is required, independent of whether the operator asked.
-
-| # | Risk | Magnitude | State | Evidence |
-| - | ---- | --------- | ----- | -------- |
-| 1 | Data corruption | High | mitigated | no-op migration, 0 pending rows verified |
-| 2 | Deploy breaks | Med | mitigated | failure-safe rollout |
-| 3 | Irreversibility | Low | N-A | no schema change in this migration |
-
-## Reconciliation — this rule vs. the Communication-Altitude RFC
-
-"Altitude" is a sibling's word and this rule deliberately does NOT reuse it. The
-**Communication-Altitude RFC** (Notion `39e937f0-3cb4-81fe-bdea-e249014e356f`,
-https://app.notion.com/p/39e937f03cb481febdeae249014e356f, Accepted 2026-07-15) owns the *altitude
-register* — `receipts / standard / executive` — which governs **how much** a report says. This rule
-owns per-claim **confidence** (delivery state × evidential warrant). Orthogonal: a receipts-register
-report can carry an `unknown`-warrant claim, and an executive one-liner a `verified-1b` claim. The
-one non-free interaction is placement — that RFC keeps structured tables out of the chat lead, but
-the risk-and-evidence ledger leads chat by design; resolved by that RFC's **severity-piercing rule**
-(its triggers include "a destructive or hard-to-reverse action taken or refused," the ledger's
-territory), so the ledger leads chat *under* severity piercing.
-
-## Enforcement surfaces (not here) + cross-references
-
-Vocabulary only; enforcement is the conditional siblings under parent **mt#2544**: **mt#2923** (a
-seam-only `UserPromptSubmit` injection — the format reminder, not a block) and **mt#2924** (the
-`/implement-task` §9 + `/verify-task` closeout format). Keeping it conditional is the wallpaper
-answer. This practice is the **proactive front** to the **reactive** epistemic detectors
-(**mt#2197** pre-narration, **mt#2216** causal-premise, **mt#2488** tool-boundary evidence gate,
-**mt#2506** prod-state) — it complements them, it does not subsume them.
-
-- **RFC: First-class agent-reasoning practices** (Notion `3a0937f0-3cb4-81a6-8699-e419a5ce4da0`,
-  https://app.notion.com/p/3a0937f03cb481a68699e419a5ce4da0, Accepted 2026-07-18) — Part 2 is the
-  design record for this vocabulary.
-- **mt#2258** — principal-attention-scarcity, the design driver (the ledger converts operator
-  anxiety into targeted scrutiny). Memory `b9cfd295` (risk-ledger / opacity); `b0b294ab` (the
-  assertion-without-verification family this vocabulary gives a shared language to).
+Full detail + RFC reconciliation: `docs/rules-rationale/claim-confidence.md`.
 
 # Cockpit Deeplinks in Terminal Output
 
@@ -214,11 +124,17 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 - ES5 trailing commas, LF line endings
 - Prefer template literals over string concatenation
 - Max 400 lines per file (warn), 1500 (error)
-- Custom ESLint rules under `eslint-rules/` enforce architectural patterns and deploy-boundary safety
-- `custom/no-unregistered-minsky-env-var` (mt#1788, extended mt#2324) — every `process.env.MINSKY_*` read in `src/` and `.claude/hooks/`, via either bare-identifier (`process.env.MINSKY_FOO`) **or** static-string-literal bracket (`process.env["MINSKY_FOO"]` / `process.env['MINSKY_FOO']`) access, must be registered in `environmentMappings` (config-mapped) or `HOOK_ONLY_ENV_VARS` (hook-only) at `packages/domain/src/configuration/sources/environment.ts`; otherwise the env-var-to-config dot-path parser will reject it at boot when the var is set on Railway. Genuinely dynamic computed access (`process.env[someVar]`, interpolated template literals) is not statically resolvable and is not flagged. The `services/*/` tree is excluded — independent deploy packages (reviewer, site) with their own config loaders, not the main dot-path parser. Severity `error`.
-- `custom/no-hand-rolled-command-params` (mt#2779) — in `src/adapters/shared/commands/**` (test files excluded), command execute handlers must derive their param types from the command's params map: omit the annotation (contextual inference from `parameters:`) or annotate `InferParams<typeof <map>>`. Flags `*Params` interface declarations, literal-shape `*Params` type aliases (derived aliases like `type X = InferParams<typeof map>` are fine), non-`InferParams` execute annotations (named types, inline object literals, `Record<string, unknown>`), `extends BaseTaskCommand<X>` where X is not `typeof <map const>`, and `as *Params` casts. Rationale: hand-rolled param types let a handler read `params.<key>` for keys the command never declares — compiles cleanly, always `undefined` at runtime (the mt#2742 Detector-B class; TS cannot catch it: excess-property checks fire only on fresh object literals, and method-override params check bivariantly). Genuinely-non-handler `*Params` types (projection/helper inputs like `BaseTaskParams`, `CreateAskParams`) carry an `eslint-disable` with a recorded justification. Severity `error`.
-- `custom/no-entity-id-param-drift` (mt#2780) — a command params map in a covered family directory declaring the family's back-compat ALIAS entity-id name without the family's CANONICAL name is flagged at authoring time (the mt#2741 Detector-A drift class). **Coverage is DECLARED in `eslint.config.js`**: the rule's config block enumerates exactly the covered family globs (currently `commands/tasks/**` and `commands/session/**`, test files excluded); adding a family means adding BOTH its `FAMILY_CONVENTIONS` entry in `eslint-rules/no-entity-id-param-drift.js` AND its glob in the config block — directories not listed have no confirmed canonical+alias pair yet and are deliberately out of scope, not heuristically skipped. Conventions (decision record mt#2741): `tasks/` → canonical `taskId` (alias `task`); `session/` → canonical `sessionId` (alias `session`). Canonical alone or canonical+alias both pass; alias alone is drift. Alias names are family-scoped — `session` in a `tasks/` map is workspace-scoping context, `task` in a `session/` map is a legitimate co-selector; neither is flagged. Zero-false-positive conservatism: maps with spreads whose canonical is not locally visible are skipped (the spread may carry it), and the `parameters:` object/class-field detection paths require param-definition shape (a property value carrying a `schema` key) so generic objects merely named `parameters` are never checked. Severity `error`.
-- `custom/require-hook-domain-bootstrap` (mt#3046) — a file under `.minsky/hooks/**` that reaches the persistence layer (`resolvePersistenceProvider` / `PersistenceService` / `getDatabaseConnection`, or an import of `persistence/factory` / `persistence/service`, static OR dynamic) must import `ensureHookDomainBootstrap` from `./domain-bootstrap`. A hook process is its own entry point: it inherits neither the tsyringe reflect polyfill nor the domain configuration system, so without the bootstrap the domain import throws or the provider resolves to null — and in BOTH known instances the failure was swallowed, leaving the hook silently dead (mt#3019: 0 of 62 rows carried any hook-written column for two weeks; mt#3046 found a second instance, `post-merge-unasked-direction-scan`, whose `loadTranscript` returned null on every invocation since it shipped). **Coverage is DECLARED in `eslint.config.js`**: the enforced glob is the `.minsky/hooks/**` SOURCE tree, not the generated `.claude/hooks/**` copies — fixing a generated file is not a fix. Only an IMPORT satisfies the rule, never a bare identifier: an earlier draft accepted any mention of `ensureHookDomainBootstrap`, so deleting the import while leaving the call site passed (caught by the task's own negative control, now pinned by a regression test). Exempt: `.test.ts` siblings (a test is not an entry point) and `domain-bootstrap.ts` itself. Chosen over a runtime spawn-and-check-stderr smoke test, which cannot see this class — the failure is swallowed and emits nothing. Severity `error`.
+- Custom ESLint rules (`eslint-rules/`) enforce architectural patterns + deploy-boundary safety.
+  Full detail, path-scoped: `eslint-custom-rules.mdc`.
+  - `custom/no-unregistered-minsky-env-var` (mt#1788) — in `src/`/`.claude/hooks/` (scoped; see
+    rule), every `process.env.MINSKY_*` read must be registered in
+    `environmentMappings`/`HOOK_ONLY_ENV_VARS`.
+  - `custom/no-hand-rolled-command-params` (mt#2779) — command execute handlers derive param
+    types from `InferParams<typeof <map>>`, never hand-rolled `*Params`.
+  - `custom/no-entity-id-param-drift` (mt#2780) — command params maps must declare the family's
+    canonical entity-id name, not the alias alone.
+  - `custom/require-hook-domain-bootstrap` (mt#3046) — `.minsky/hooks/**` files reaching
+    persistence must import `ensureHookDomainBootstrap`.
 
 # Principal Communication Contract
 
@@ -408,167 +324,58 @@ When compacting, preserve: current task ID and the workspace session path (the `
 
 # Decision Defaults
 
-When picking a default — a number, a tool, an approach, a UX shape — check whether Minsky has its own answer before reaching for the SE-textbook one. Each entry names the Minsky answer, the generic-SE alternative it overrides, and a one-line origin pointer; full incident histories live in the cited memories and task specs.
-
-## Datastores: Postgres-via-Supabase by default
-
-When you need persistence, pubsub, or ephemeral state: **Postgres**. A second store (Redis, MinIO, Mongo, etc.) requires (a) a workload Postgres can't serve, (b) quantified evidence of the gap, (c) an ADR amendment naming the new store as a System 1 component, AND (d) operational ownership. Minsky is single-node + single-store by design.
-
-**Scope note:** this policy covers Minsky's **source-of-truth state** — places that hold authoritative product data the system owns. It does NOT cover derived analytics, observability sinks, or event streams (per `§Build vs buy`).
-
-**Generic-SE override:** "use Redis for queues, MinIO for blobs, polyglot persistence." See `feedback_postgres_default_datastore`.
-
-## Reliability: sweeper, not durable queue
-
-For single-node services with an external source of truth: a periodic sweeper + ack-immediate + drain is the default. A durable internal queue is a second source of truth you have to own — choose it only when ordering, fan-out, or backpressure are real requirements.
-
-**Generic-SE override:** "use a queue for reliability." See `feedback_reconciliation_over_replication`.
-
-## Thresholds: ground in observed cadence, not round numbers
-
-Ground every window, retry count, timeout, or budget threshold in observed cadence (memory mtimes, PR timestamps, calibration files), not generic SE defaults — round-number anchoring silently imports sprint cadences that don't match Minsky's loop.
-
-**Minsky-velocity defaults:**
-
-- **Budget windows:** 5 days
-- **Burst-detection windows:** 24h
-- **Workaround-load-bearing signal:** 2+ in 24h, OR 3+ in 5 days
-- **Stall threshold (status hasn't changed):** 5 days for active work, 10 days for lynchpin tracking
-
-**Generic-SE override:** "2-week sprint cadence, 30-day rolling window." See `feedback_threshold_grounding`.
-
-## Time estimates: don't give them
-
-Don't quote "X days," "an hour," "a week" for future work. Estimates anchored on industry velocity are reliably wrong. Substitute **scope descriptors grounded in code**: file count, LOC, comparable task IDs.
-
-**Generic-SE override:** "agile estimation, velocity-based forecasting." See `feedback_no_time_estimates`.
-
-## Task overlap: subsume when subset, coordinate when independent
-
-When two tasks describe the same outcome via different mechanisms: close one and absorb its constraints into the other (subsume). Don't subsume when the tasks address separate concerns that share only a join column — coordinate then.
-
-**Generic-SE override:** "keep tasks independent, never close active scope." See `feedback_subsume_overlapping_task`, `feedback_default_to_merge_without_subsume_signal`.
-
-## Strategic frame first
-
-Tactical asks may be instances of named strategic concepts (cockpit, mesh, attention-allocation, asks subsystem, mode-1/2 review, System 3\*). Before specking a tactical solution, run a cheap Notion/task/memory check for the named frame; if it applies, name it and structure the work as an instance of it.
-
-**Generic-SE override:** "treat the request at face value, don't reframe." See `feedback_strategic_reframe_first`.
-
-## Turnkey, not portal
-
-When a workflow needs an external-system action: check first whether Minsky tooling already automates it (manifest flow, TokenProvider, MCP tools, hosted-MCP). Default is **automation-via-Minsky**; a portal is the fallback. **In-band config edits are portals too**: telling the user to hand-edit one of Minsky's own config files to enable a feature is manual work the agent should have automated away (default-enablement, reconciliation, a settings-UI control, or removing the gate). Documenting the manual edit is not the fix; eliminating the need for it is.
-
-**In-band trigger phrases** (about to write one → STOP; it's a UX defect):
-
-- "edit `~/.config/X/Y.json`" / "add Z to your `<config-file>`"
-- "operator follow-up: add Z to your config"
-- "manually add Z to surface this feature" / "one-time config edit required"
-
-If a proper UX is missing, file the task for it before shipping the manual-edit step, and mark the step temporary per `Work Completion §Temporary mechanism budget`.
-
-**Generic-SE override:** "user goes to the portal / edits the config file." **Origins:** mt#1507; mt#2150 → mt#2294 (Cockpit widget-ID hand-edits, retired by registry-gating).
-
-## Workarounds: budget + tracking task required
-
-When introducing a "temporary," "escape hatch," "workaround," "interim," or "until X ships" mechanism: cite both a tracking task (the structural fix) AND an escalation threshold (count + window) at which the temporary framing has failed.
-
-**Generic-SE override:** "TODO: clean this up later." See `Work Completion §Temporary mechanism budget`.
-
-## Missing MCP tool — escalate, don't silently work around
-
-When you need a capability and (a) reach for bash before checking MCP, (b) the MCP tool exists but errors for the specific subject, or (c) no MCP tool covers the capability AND bash is denied: **escalate to the user** rather than silently abandoning the goal, switching to a non-equivalent workaround, or proceeding with degraded behavior. Sub-patterns: (1) bash-first reflex when an MCP tool exists — MCP-first is the default; (2) tool precondition fails for this subject — escalate, don't spelunk around it; (3) no tool AND bash denied — escalate.
-
-**Required escalation form:** capability needed (one sentence); what's missing (no tool / tool errored / bash denied); options — [a] add a new MCP tool, [b] add the config/precondition the existing tool needs, [c] non-equivalent workaround with explicit acknowledgment, [d] accept the gap. Never: silent abandon, silent workaround-switch, or undisclosed degraded behavior.
-
-**Trigger-phrase self-recognition (STOP before any of these land in user-facing output):**
-
-- "I'll skip the X check / step"
-- "There's no MCP tool for Y so I'll Z"
-- "Falling back to [CLI / shell / non-equivalent]"
-- "No MCP tool covers this — proceeding with..."
-- "The MCP tool errored — moving on"
-
-**Generic-SE override:** "keep moving — find another path." Wrong here: silent workarounds accumulate capability gaps the user can't see and therefore can't prioritize closing.
-
-**Origins:** mt#1983, shipped via mt#1988. On recurrence, escalate to hook-tier. Full incident list: `docs/rules-rationale/decision-defaults.md §Missing MCP tool`.
-
-## User does not review PRs in the loop
-
-Don't end status updates with "ready for your review/merge." User has delegated PR review to `minsky-reviewer[bot]`. Drive the PR to convergence with the bot, then surface only at merge.
-
-**Generic-SE override:** "PR awaits human review per standard GitFlow." See `feedback_user_does_not_review`.
-
-## Agent todos vs. Minsky tasks: durable to Minsky, ephemeral to harness
-
-Harnesses ship internal todo tracking (Claude Code `TaskCreate`/`TaskUpdate`, Cursor scratchpads); Minsky's task system is the durable, status-machine-driven, audit-trailed orchestration substrate. The boundary:
-
-- **Durable work → Minsky task**: anything with a spec, status transition, PR/merge milestone, cross-conversation relevance, or audit-trail requirement.
-- **Ephemeral, intra-conversation work → harness todo**: pre-task triage, subagent bookkeeping, multi-step plans benefiting from a progress view, investigation before task-filing.
-- **Inside a Minsky skill chain (`/plan-task`, `/implement-task`, `/prepare-pr`, `/merge-coordination`) → neither.** The Minsky task IS the todo; a parallel harness checklist is a sync hazard.
-- **Harness `TaskCreate` reminder during a Minsky chain → disregard silently.** The user can't see the reminder; echoing it turns harness noise into chat noise.
-
-**Generic-SE override:** "harness todos for everything" (duplicated state) or "no tracking" (loses external memory). See `feedback_agent_todos_vs_minsky_tasks`. Worked examples + the Shape A/B/C frame: `docs/rules-rationale/decision-defaults.md §Agent todos`.
-
-## Build vs buy: default to buy for non-core capabilities
-
-For any capability that is not Minsky's core differentiating value-add, the default is **buy** (or existing OSS), not build. The core is the orchestration / task / session / mesh / cockpit / attention-allocation / asks-subsystem layer; observability, analytics, eval UIs, dashboards, CI infra, and tracing are not. The bar to flip the default requires all four:
-
-1. **Core relevance** — part of Minsky's distinctive value, not an industry-standard auxiliary
-2. **No mature option** — ≥3 mature OSS/SaaS options evaluated against concrete needs, each failing on a named requirement
-3. **Build cost ≪ ongoing buy cost** — quantified at our scale, not estimated
-4. **Strategic ownership** — clear product reason to own the capability
-
-**Generic-SE override:** "build from scratch is the safe / principled / no-lock-in choice." Engineering time is the scarcest resource; that bias treats it as free.
-
-**Biases to watch for in self:** (1) **Policy-laundering** — citing `§Datastores` for auxiliary analytics (out of scope — source-of-truth only); any "per `§X`"-style claim of rule-coverage is a trigger to re-verify that section's actual scope. (2) **Build-path-as-research at action time** — "use existing signals" reads as research but IS the build path, skipping the user-sequenced evaluation step. Full detail: `docs/rules-rationale/decision-defaults.md §Build vs buy`.
-
-**Anti-pattern checklist before recommending OR executing build:**
-
-- [ ] Did I elicit user priorities (cost tolerance, time horizon, lock-in tolerance, core-vs-auxiliary stance)?
-- [ ] Did I evaluate ≥3 mature options with concrete comparison, not just name them?
-- [ ] Did I anchor on the first option named in my prior turn? If yes, force a fresh evaluation.
-- [ ] Is my "principled" framing preference-laundering? (Principled story arriving AFTER the build preference = laundering.)
-- [ ] **At action time:** is my first action "extract from existing in-house data"? That IS the build path — stop, restate the plan, name the skipped step.
-- [ ] **At action time:** multi-step direction + "do it now" → restate steps first (see `§Multi-step direction execution`).
-
-**Origins:** R1 + R2 (2026-05-12) — `feedback_build_vs_buy_default_for_non_core`, `feedback_build_path_as_research_at_action_time`.
-
-### Spec-amendment-time premise check (R4, 2026-05-13)
-
-Third confabulation surface: **spec amendment** — applying a categorization label that determines an artifact's substrate/policy treatment. Before writing such a label: (1) cite the rule that defines the label; (2) quote the definition verbatim; (3) map the artifact's properties to the criteria; (4) state the verdict (met / not met / ambiguous). If the mapping fails, don't apply the label — surface the gap. Enforcement: `/plan-task` gate (j) (mt#1820). Origin: mt#1306 — `feedback_premise_label_verification_required`; family root `88d92439`.
-
-## Subsystem-assignment verification
-
-When recommending content move FROM one subsystem TO another — rules ↔ memory, memory ↔ skill, skill ↔ rule, doc-type → doc-type, code-module ↔ code-module — run the same four-step protocol at recommendation-time: **cite** the destination subsystem's defining rule; **quote** its inclusion/exclusion criteria verbatim; **map** the source content's properties to the criteria; **state the verdict** (ambiguous → file an Ask). If NOT MET, the migration is wrong — subsystems are defined by their criteria, not their names.
-
-**Generic-SE override:** "X is for durable knowledge → durable Y belongs in X."
-
-**Origins:** R5 (2026-05-17). Phase 1 shipped via mt#1868; Phase 2 is mt#1873. Bridge: `feedback_premise_label_verification_required`.
-
-## Multi-step direction execution
-
-When the user gives multi-step direction ("X first, then Y, then Z") AND a later prompt contains action-now language ("do it now," "proceed," "go"): before any tool call advancing the plan — (1) **restate the plan**, one line per step; (2) **identify the next step explicitly**; (3) **name any skipped step** — if the cheapest immediate action skips a more expensive user-named prerequisite, stop and confirm. Action-now language is permission to act, NOT permission to compress steps.
-
-**Generic-SE override:** "act on the most recent direction; treat earlier direction as context."
-
-**Origins:** 2026-05-12 R2 — `feedback_multi_step_direction_compression`. Enforcement: `/restate-plan` skill (mt#1784).
-
-## Security-surface changes require community-practice check
-
-When a spec changes a CI/CD security surface — workflow trigger events, token scopes, secrets exposure, permission boundaries, credential flows, authentication — it must document, before the approach is encoded: (1) a **security-implications search**; (2) a **community-practice search** for the same problem class (canonical reference: [peter-evans/create-pull-request](https://github.com/peter-evans/create-pull-request)); (3) at least one authoritative **citation**, with any divergence from community practice justified.
-
-**Generic-SE override:** "I know the docs well enough to design from first principles" — docs-only reasoning produces known anti-patterns (e.g., `pull_request_target` "pwn requests").
-
-**Origins:** mt#1477 — memory `22a55d66`. Enforcement: `/plan-task` gate (l), restored + generalized via mt#2445 (original: mt#2090).
-
-## How this is enforced
-
-Today: human-consulted — read this file before any preference-encoding action. Future: the policy-coverage detector (mt#2755, successor to closed mt#1541; design in mt#1035 §Surface 1) reads this **policy corpus** and blocks uncovered preference-encoding actions.
-
-## Cross-References
-
-`humility.mdc` (the design principle this corpus operationalizes) · `work-completion.mdc §Temporary mechanism budget` · mt#1034/mt#1035 · mt#2755. Full cross-reference index: `docs/rules-rationale/decision-defaults.md §Cross-references`.
+Check for Minsky's own answer before a generic (SE) default. Full detail:
+`docs/rules-rationale/decision-defaults.md` (§ below).
+
+- **Datastores**: persistence/pubsub/state → Postgres-via-Supabase; 2nd store: ADR+gap+owner.
+  SE: "Redis/MinIO/polyglot." `feedback_postgres_default_datastore`.
+- **Reliability**: single-node svc, external source of truth → sweeper+ack-immediate+drain, not
+  a durable queue. SE: "use a queue." `feedback_reconciliation_over_replication`.
+- **Thresholds**: any window/retry/timeout/budget → observed cadence, not round numbers.
+
+  - **Budget windows:** 5 days
+  - **Burst-detection windows:** 24h
+  - **Workaround-load-bearing signal:** 2+ in 24h, OR 3+ in 5 days
+  - **Stall threshold (status hasn't changed):** 5 days for active work, 10 days for lynchpin tracking
+
+  SE: "2-week sprint, 30-day window." `feedback_threshold_grounding`.
+- **Time estimates**: asked for a time estimate → don't; use scope descriptors (files, LOC, task
+  IDs). SE: "velocity-based estimation." `feedback_no_time_estimates`.
+- **Task overlap**: two tasks, same outcome → subsume (subset) or coordinate (independent). SE:
+  "keep tasks independent." `feedback_subsume_overlapping_task`.
+- **Strategic frame**: pre-spec a fix → check for a named concept (cockpit, mesh,
+  attention-allocation, asks, System 3*). SE: "face value." `feedback_strategic_reframe_first`.
+- **Turnkey, not portal**: external-system action, or writing "edit `~/.config/…`" → Minsky
+  tooling first; portal/hand-edit is fallback (file+budget). SE: "user edits config." §Turnkey.
+- **Workarounds**: a "temporary"/"until X ships" mechanism → cite a tracking task + an
+  escalation threshold (count+window). SE: "clean up later." `work-completion.mdc §Temporary mechanism budget`.
+- **Missing MCP tool**: bash-before-MCP, MCP erroring for it, no tool+bash denied, or:
+
+  - "I'll skip the X check / step"
+  - "There's no MCP tool for Y so I'll Z"
+  - "Falling back to [CLI / shell / non-equivalent]"
+  - "No MCP tool covers this — proceeding with..."
+  - "The MCP tool errored — moving on"
+
+  → escalate: capability+gap, [a] new tool [b] add config [c] workaround [d] accept gap. SE:
+  "find another path." mt#1983/1988; §Missing MCP tool.
+- **User does not review PRs**: after PR creation → skip "ready for review"; converge via
+  `minsky-reviewer[bot]`, surface at merge. SE: "awaits human review." `feedback_user_does_not_review`.
+- **Agent todos**: durable (spec/status/PR/audit) → Minsky task; ephemeral → harness todo;
+  inside a skill chain → neither. SE: "harness todos always." §Agent todos.
+- **Build vs buy**: non-core build → default buy/OSS; flip only w/ all four (core relevance, ≥3
+  mature options failing, build≪buy quantified, ownership). SE: "build is safe/no-lock-in."
+  §Build vs buy.
+- **Premise verification**: subsystem move or spec-amendment → cite rule, quote criteria, map
+  properties, state verdict (ambiguous→Ask). SE: "durable Y belongs in durable X."
+  §Premise verification.
+- **Multi-step direction**: multi-step direction + later "do it now" → restate plan, name next
+  step, name any skipped step. SE: "latest direction only." §Multi-step direction.
+- **Security-surface**: spec changes a CI/CD security surface → security + community-practice
+  search + ≥1 citation. SE: "docs suffice." mt#1477; `/plan-task` gate (l).
+
+**Enforcement:** human-consulted; policy-coverage detector (mt#2755) will block uncovered
+actions once shipped.
 
 # Rule: Ensure ASCII Code Symbols
 
@@ -607,324 +414,49 @@ function helloWorld() {
 - **2-strikes rule: after the 2nd identical tool error from the same tool, stop.** Do not retry. Read the tool's actual error message, diagnose the root cause (permission? stale input? upstream state?), and file a bug task if the error is systemic. Resume only once you understand why it failed. Counting attempts, not classifying the situation — it's a mechanical rule.
 - **Workarounds are not fixes.** Switching to an alternative path/method without understanding the root cause may hide a systemic bug that breaks other users. If a workaround is needed to proceed, file the underlying bug task first.
 - **When any MCP tool call returns an error, stop and investigate before the next attempt.** Even on the first occurrence, don't retry blindly — retry only with a hypothesis about what the error means.
+- **Never mark a task complete with known errors outstanding** (lint, type, test, build) — see `dont-ignore-errors` (not always-loaded; `rules_get`) for the batch-verification and completion-gate detail.
 
 # Hook Files
 
-All `.claude/hooks/*.ts` files must have execute permission (`chmod +x` — the `Write` tool
-creates `644` by default; pre-commit enforces).
+PreToolUse/merge/pre-commit gate index + guard-dispatcher. Observers:
+`hook-observers`. Source `.minsky/hooks/`; `.claude/hooks/*` GENERATED — commit both. Execute
+permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
+**On denial: `docs/architecture/hooks/<name>.md` or `rules_get hook-files`.**
 
-**Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620)** — each `Doc:` pointer
-below is a file there. Entries are a terse index; narration lives in the linked doc.
-**This rule indexes the PERMISSION GATES** (PreToolUse deny/allow, merge gates, pre-commit steps)
-plus the shared framework; the non-blocking observer hooks (detectors, per-turn injection,
-reminders, trackers, SessionEnd ingest) are indexed in the sibling `hook-observers` rule
-(split mt#2987 — the combined index exceeded the per-rule compile ceiling three times in one day).
-
-## Guard-Dispatcher Framework (ADR-028)
-
-Shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts`): 17 guards share ONE
-Bun process per event (`GUARD_REGISTRY`); others are standalone `settings.json` entries.
-**Load-bearing:** timeout is the HOST CAP, guards run SEQUENTIALLY — size to the SUM of
-pre-migration timeouts. Source `.minsky/hooks/`; `.claude/hooks/*` is GENERATED, commit both.
-Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all` (migrated only). Doc: `guard-dispatcher-framework.md`.
-
-## Parallel-Work Guard
-
-PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create` (parent set): blocks session-binding
-on open-PR file overlap (advisory for recently-merged); blocks duplicate-child titles vs an
-ACTIVE sibling (terminal WARN, mt#2683); parent-less creates get a WARN-only similarity probe
-(mt#2813, in-process since mt#2958). Tier-3 ceiling (mt#1362); Tier-2 floor: `/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
-`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time-env-only) + the mid-session grant channel (mt#2658):
-`--guard parallel-work-open-pr` / `--guard duplicate-child-matcher`; probe has none. Fail: closed
-(open-PR) / open (duplicate checks warn+permit on unreadable data).
-Doc: `parallel-work-guard.md`.
-
-## Bypass-Merge Guard
-
-PreToolUse on `Bash`/`session_exec`: blocks ALL `gh api -X PUT /pulls/.../merge` — prefer
-`session_pr_merge`'s audited `forceBypass`. Subagents always blocked, no override. Hook:
-`block-subagent-bypass-merge.ts`. Override: `MINSKY_FORCE_BYPASS=1` (main-agent only). Fail:
-default-deny. Doc: `bypass-merge-guard.md`.
-
-## Out-of-Band Merge Guard
-
-PreToolUse on `session_pr_merge`/`gh api PUT merge`: blocks a merge whose PR body documents a
-coupled out-of-band step never confirmed. Hook: `block-out-of-band-merge.ts`. Override:
-`MINSKY_ACK_OOB_MERGE=1`. Fail: open (`gh` failure warns). Doc: `out-of-band-merge-guard.md`.
-
-## Generated File Edit Guard
-
-PreToolUse on file-edit tools (`Edit`/`Write`/`session_edit_file`/`session_write_file`/
-`session_search_replace`): blocks edits to files whose first 5 lines carry a generation banner.
-Hook: `check-generated-file-edit.ts`. Override: `MINSKY_FORCE_EDIT_GENERATED=1`. Fail: open
-(no-match/missing-file/read-error). Doc: `generated-file-edit-guard.md`.
-
-## Branch Freshness Guard
-
-PreToolUse on `session_commit`/`session_pr_create`/`session_pr_edit`: blocks when `origin/main`
-has commits the branch lacks; on a clean tree tries an inline `git merge --no-edit` first (clean
-merge proceeds with audit line; conflict aborts + denies). Hook: `check-branch-fresh.ts`.
-Override: `MINSKY_SKIP_FRESHNESS=1`. Fail: silent-allow on 4 routine paths + merge-in-progress;
-fetch failures warn. Doc: `branch-freshness-guard.md`.
-
-## Bundle-Boot Smoke Gate
-
-Merge-gate extension: denies `session_pr_merge` unless `bundle-boot-smoke` CI concluded `success`
-on HEAD. Override: `MINSKY_SKIP_BUNDLE_SMOKE=1` (only after verifying local boot). Fail:
-deny-by-default. Doc: `bundle-boot-smoke-gate.md`.
-
-## Required-Checks Bypass-Merge D8 Escape Valve
-
-PreToolUse on `Bash`/`session_exec` (layer 2; layer 1: `require-review-before-merge.ts`): denies
-a `gh api PUT .../merge` bypass unless every required check concluded `success` on HEAD; only
-UNKNOWN status consults the D8 grant store, a failure never does. Hook:
-`require-checks-on-bypass-merge.ts`. Overrides: `MINSKY_SKIP_REQUIRED_CHECKS=1` or a D8 grant
-(`scripts/grant-guard-override.ts`). Fail: deny-on-failure. Doc:
-`required-checks-bypass-merge-gate.md` (+ shared PR-data layer: `pr-data-fetch-layer.md`).
-
-## Execution-Evidence Merge Gate
-
-PreToolUse on `session_pr_merge`: blocks a merge adding new **test files** or **operational
-scripts** (`scripts/*.ts`) without an `Execution evidence:` block; dual-mode scripts need EACH
-branch exercised. Hook: `require-execution-evidence-before-merge.ts`. Override:
-`[unverified-tests]` title tag + follow-up task. Fail: open on unresolvable repo/PR or `gh`
-failure. Siblings: `/prepare-pr` §1b, `/implement-task` §7a.
-
-**AT-cross-reference trigger (mt#3033, calibration-first).** ADDITIVE third path: cross-references
-the bound task's `## Acceptance Tests` and WARN-logs (never blocks — mt#2263 ladder) an
-unaddressed executable AT to `.minsky/execution-evidence-at-coverage-calibration.jsonl`. Override:
-`MINSKY_SKIP_AT_COVERAGE=1`. Root incident: mt#2542. Doc: `execution-evidence-merge-gate.md`.
-
-## Deploy-Verification Merge Gate + Post-Merge Reminder
-
-PreToolUse on `session_pr_merge`: blocks a deploy-surface PR (`infra/**`, `services/*/Dockerfile`,
-`services/*/railway.json`, `.github/workflows/deploy-*.yml`, +tray `src-tauri/**`) lacking a
-`Deploy verification:` commitment; paired PostToolUse injects a `deployment_wait-for-latest`
-reminder. Hooks: `deploy-surface-detector.ts` + `require-deploy-verification-before-merge.ts` +
-`deploy-verification-after-merge.ts`. Escapes: `[no-deploy-impact]` title; a `Deploy
-verification:` marker (label+colon or any-level heading, case-insensitive); `MINSKY_SKIP_DEPLOY_VERIFY=1`.
-Fail: open (unresolvable repo/PR/non-surface); PostToolUse always exits 0.
-**Gap A extension (mt#2545):** a SECOND condition on the same hook hard-blocks a tray
-build-surface PR asserting altitude-4 usability without a rebuild+reinstall acknowledgment;
-`[no-deploy-impact]` does NOT bypass it. Override: `MINSKY_SKIP_USABILITY_CLAIM_CHECK=1`.
-Doc: `deploy-verification-merge-gate.md`.
-
-## Growth-Justification Merge Gate
-
-PreToolUse on `session_pr_merge`: when the diff touches `.minsky/rules/**` AND CLAUDE.md grows
->2,000 bytes (reductions never trigger), denies without a `Size-budget justification:` marker.
-Hook: `require-growth-justification-before-merge.ts`. Override:
-`MINSKY_SKIP_SIZE_JUSTIFICATION=1`. Fail: open on unreadable diff/PR.
-Doc: `growth-justification-merge-gate.md`.
-
-## Pre-Commit Steps (`src/hooks/pre-commit.ts`)
-
-- **NUL-byte** — blocks staged text containing NUL bytes (allowlist: binary exts +
-  `tests/fixtures/`); override `MINSKY_SKIP_NUL_CHECK=1`. Doc: `nul-byte-precommit-guard.md`.
-- **Workspace-COPY** — regenerates Dockerfiles' COPY block from the root `workspaces` glob,
-  auto-restaging; no override; blocks only on missing markers. Doc: `workspace-copy-precommit-guard.md`.
-- **Deploy-domain ownership** — blocks an asserted deploy-target domain not allowlisted in
-  `infra/controlled-domains.json`; override `MINSKY_SKIP_DEPLOY_DOMAIN_CHECK=1`.
-  Doc: `deploy-domain-ownership-guard.md`.
-- **Immutable-migration** — blocks a staged modification/rename of a journaled migration `.sql`
-  (drifts its ledger hash); additions/unjournaled edits allowed. Override
-  `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1`. Doc: `immutable-migration-precommit-guard.md`.
-- **Migration-collision** — blocks a staged migration journal drifting from origin/main (mutated
-  when on a shipped entry, reused number, or non-monotonic when; mt#2948); fails open. Override
-  MINSKY_SKIP_MIGRATION_COLLISION_CHECK=1. Doc: migration-collision-precommit-guard.md.
-- **Fast related-test gate** — maps staged files to related tests (sibling + bounded dependency
-  walk), fail-closed. Override `MINSKY_SKIP_RELATED_TESTS=1`. Doc: `fast-related-test-gate.md`.
-
-## Guessed-Session-Path Guard
-
-PreToolUse on `Bash`/`session_exec`: denies a command referencing an absolute `sessions/<id>/...`
-path that doesn't exist. Hook: `check-guessed-session-path.ts`. Override:
-`MINSKY_SKIP_SESSION_PATH_CHECK=1`. Fail: open — only a confirmed-nonexistent path denies.
-Doc: `guessed-session-path-guard.md`.
-
-## Bind/Advance Spec-Read Guard
-
-PreToolUse on `tasks_status_set` (READY) / `session_start` / `tasks_dispatch`: blocks when the
-spec was never surfaced (`tasks_spec_get` / `tasks_get includeSpec:true`). Hook:
-`check-task-spec-read.ts`. Override: `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error.
-Doc: `bind-advance-spec-read-guard.md`.
-
-## Subagent Merge Capability Guard
-
-PreToolUse on `session_pr_merge`: denies subagent-initiated merges (`agent_id` set) without an
-unexpired capability grant (`scripts/grant-subagent-merge.ts --task mt#<id>`).
-Hooks: `block-subagent-merge-without-grant.ts` + `merge-grant-store.ts`. Override:
-`MINSKY_SKIP_MERGE_GRANT_CHECK=1`. Fail: open only on genuine grant-store errors.
-Doc: `subagent-merge-capability-guard.md`.
-
-## Ask-Permission Bridge
-
-PreToolUse on `Bash`/`session_exec` (standalone, allow-emitting): when the pending command
-matches a live one-shot ask-grant AND the `authorization.approve` Ask re-verifies as
-operator-approved, emits `permissionDecision: allow` with an audit reason. Issue via
-`scripts/grant-ask-action.ts` (TTL 15m, one-shot). Hooks:
-`ask-permission-bridge.ts` + `ask-grant-store.ts` + `ask-verification.ts`. No override. Fail:
-silent defer on no-grant/store-error/unavailable; DENY only on grant-present-but-unverified.
-Doc: `ask-permission-bridge.md`.
-
-## Dispatch-Intent Write Gate
-
-PreToolUse on 6 session/PR-mutating tools (`session_pr_merge` excluded): denies a subagent call
-when a live `"read-only"` dispatch-intent covers the target session (forks included), via the
-`intent` param (default `"implementation"`, no-op). Default-ALLOW. Hooks:
-`dispatch-intent-write-gate.ts` + `dispatch-intent-store.ts`. No override; fail-open on
-store-read errors only. Doc: `dispatch-intent-write-gate.md`.
-
-## Nested-Fork Dispatch Guard
-
-PreToolUse on `Agent` (mt#3045): denies a NESTED `fork` dispatch (caller's `agent_id` already
-set — a subagent, not the main thread, is dispatching) unless a live dispatch-intent declaration
-already covers the calling subagent's session — closes the gap the opt-in write gate above left
-when an undeclared nested fork bypassed it entirely (mem#665, R2 recurrence of mt#2865).
-Top-level and non-fork nested dispatch are unaffected. Hook: `block-nested-fork-dispatch.ts`.
-Override: `MINSKY_ALLOW_NESTED_FORK=1` (launch-time-only). Fail-open on store-read errors only.
-Doc: `nested-fork-dispatch-guard.md`.
+- **Parallel-work** — PR/dup overlap. `MINSKY_FORCE_PARALLEL`/`_DUPLICATE_OK`.
+- **Bypass-merge** — `gh api PUT .../merge`. `MINSKY_FORCE_BYPASS`.
+- **Out-of-band merge** — unconfirmed OOB. `MINSKY_ACK_OOB_MERGE`.
+- **Generated-file edit** — edits to generated files. `MINSKY_FORCE_EDIT_GENERATED`.
+- **Branch-freshness** — commit/PR behind main. `MINSKY_SKIP_FRESHNESS`.
+- **Bundle-boot smoke** — merge w/o smoke pass. `MINSKY_SKIP_BUNDLE_SMOKE`.
+- **Required-checks** — bypass w/o checks pass. `MINSKY_SKIP_REQUIRED_CHECKS`.
+- **Execution-evidence** — new tests/scripts w/o evid. `[unverified-tests]`; `MINSKY_SKIP_AT_COVERAGE`.
+- **Deploy-verification** — deploy-surface w/o commit; tray usability-claim. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`/`_USABILITY_CLAIM_CHECK`.
+- **Growth-justification** — CLAUDE.md growth w/o justif. `MINSKY_SKIP_SIZE_JUSTIFICATION`.
+- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests. `MINSKY_SKIP_*`.
+- **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
+- **Bind/advance spec-read** — status/session op w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
+- **Subagent merge capability** — subagent merge w/o grant. `MINSKY_SKIP_MERGE_GRANT_CHECK`.
+- **Ask-permission bridge** — approved-Ask → allow. none.
+- **Dispatch-intent write gate** — writes under read-only intent. none.
+- **Nested-fork dispatch** — undeclared nested fork. `MINSKY_ALLOW_NESTED_FORK`.
 
 # Hook Observers
 
-Index of the NON-BLOCKING hook layer: UserPromptSubmit detectors, per-turn context injection,
-PostToolUse reminders, health trackers, and the SessionEnd ingest. None of these emit a
-permission decision. The permission gates (PreToolUse deny/allow, merge gates, pre-commit
-steps), the shared guard-dispatcher framework, the compile workflow
-(`.claude/hooks/*` GENERATED from `.minsky/hooks/`, `bun run minsky compile --target
-claude-hooks`, commit both), and the execute-permission requirement are indexed in the sibling
-`hook-files` rule — this rule was split from it (mt#2987: the combined index exceeded the
-per-rule compile ceiling three times in one day). Entries stay a terse index; per-hook
-narration lives in `docs/architecture/hooks/<name>.md` (mt#2620), each `Doc:` pointer a file
-there.
+NON-BLOCKING hooks: detectors, injection, reminders, trackers, SessionEnd ingest — no
+decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture/hooks/<name>.md`.
 
-## Skill/Agent/Rule Staleness Detector
-
-UserPromptSubmit: warns when `.claude/skills/**` / `.claude/agents/**` / `.minsky/rules/**`
-changed since session baseline mtime. Hook: `skill-staleness-detector.ts`. Override:
-`MINSKY_SKIP_SKILL_STALENESS=1`. Fail: silent-informational.
-Doc: `skill-staleness-detector.md`.
-
-## Drive-PR-To-Convergence Reminder
-
-PostToolUse on successful `session_pr_create`: injects a convergence reminder naming
-`session_pr_wait-for-review` as next action. Hook: `drive-pr-to-convergence.ts`. No override.
-Fail: always exits 0. Doc: `drive-pr-to-convergence-reminder.md`.
-
-## Substrate-Bypass Detector
-
-UserPromptSubmit: detects verbal commitments with no same-turn encoding, inline-retrospective
-prose without `/retrospective`, DB-substrate-bypass phrasing, and (log-only, mt#2263 ladder)
-`operator-instruction-after-merge` — telling the user to reinstall/rebuild/edit-config to
-activate a merged change (`§Turnkey, not portal`, mt#2303). Hook:
-`substrate-bypass-detector.ts`. Overrides: `MINSKY_ACK_SUBSTRATE_BYPASS=1`,
-`MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER=1`. Fail: open on transcript error; silent on first
-turn. Doc: `substrate-bypass-detector.md`.
-
-## Retrospective-Trigger Scanner
-
-UserPromptSubmit: scans the prior turn for retrospective-trigger phrases + user-correction
-signals; reminds to invoke `/retrospective` (suppressed if already invoked). Hook:
-`retrospective-trigger-scanner.ts`. Log: `.minsky/retrospective-trigger-calibration.jsonl`.
-Override: `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1`. Fail: open on transcript error.
-Doc: `retrospective-trigger-scanner.md`.
-Stop-event sibling (mt#2357): `turn-end-retro-scan.ts` — advisory turn-end scan (registry,
-via `dispatch-stop.ts`); dedup caps phrases at one beat; same override/log (`channel:"stop"`).
-Doc: `turn-end-retro-scan.md`.
-
-## Code-Mechanism-Assertion Detector
-
-UserPromptSubmit: flags an asserted-but-unread code-symbol behavior claim.
-mt#3002 excludes file-name/hex-id symbol FPs and flips
-`INJECTION_ENABLED=true` — LIVE since 2026-07-21 (calibration-first since mt#2486). Hook:
-`code-mechanism-assertion-detector.ts`. Override:
-`MINSKY_ACK_CODE_MECHANISM_ASSERTION=1`. Fail: open. Doc: same-name `.md`.
-
-## Ask-Routing Deferral Detector
-
-UserPromptSubmit: flags a chat-prose decision deferral that should have routed through the Ask
-substrate (`asks_create`), or a deferral-menu of options a cheap lookup / standing default
-would resolve. `INJECTION_ENABLED=true` — LIVE-INJECTING since 2026-07-08 (mt#2694 flip,
-operator-approved disposition of the mt#2471 calibration-first rollout; NOT log-only).
-Suppressed when the same assistant turn already calls `asks_create`. Calibration logging
-continues post-flip for FP monitoring (mt#2483 loop):
-`.minsky/ask-routing-deferral-calibration.jsonl`. Hook: `ask-routing-deferral-detector.ts`.
-Override: `MINSKY_ACK_ASK_ROUTING_DEFERRAL=1`. Fail: open on transcript/read error.
-Doc: `ask-routing-deferral-detector.md`.
-
-## Injection Hooks (UserPromptSubmit)
-
-- **Current time** — date/day/local/UTC every turn. `inject-current-time.ts`; override
-  `MINSKY_SKIP_TIME_INJECTION=1`. Doc: `current-time-injection-hook.md`.
-- **Git state** — branch, tree status, ahead/behind, 5 recent commits; no per-turn fetch.
-  `inject-git-state.ts`; override `MINSKY_SKIP_GIT_STATE_INJECTION=1`; silent bail on
-  non-repo/detached/timeout. Doc: `git-state-injection-hook.md`.
-- **Prod state** — migration-ledger snapshot;
-  fresh/stale/unknown shapes (never assert from memory when unknown). `inject-prod-state.ts`;
-  override `MINSKY_SKIP_PROD_STATE_INJECTION=1`; never crashes.
-  Doc: `prod-state-injection-hook.md`.
-- **Dispatch watchdog** — warns when an in-flight subagent dispatch is silent ≥30m; recovery:
-  `tasks.dispatch-recover` → `/orchestrate`. `inject-dispatch-watchdog.ts`; override
-  `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`; silent on empty cache.
-  Doc: `dispatch-watchdog-injection-hook.md`.
-
-## SubagentStop Invocation-Recording Hook
-
-`SubagentStop` (standalone, own Bun process): writes every Stop-time column of
-`subagent_invocations` — `ended_at` (the dispatch watchdog's liveness signal), `outcome`,
-`agent_session_id`, transcript metrics, `actual_model` — upserting onto the pending row
-`tasks.dispatch` wrote. Hook: `record-subagent-invocation.ts`. **A hook is its own entry point:
-DB-touching hooks MUST statically import `ensureHookDomainBootstrap` (`domain-bootstrap.ts`) —
-reflect-metadata + config init + mt#2982 fail-fast connect — or every domain import fails
-(mt#3019: this hook wrote 0 of 62 rows for two weeks). Lint-enforced since mt#3046 by
-`custom/require-hook-domain-bootstrap` (see `code-style.mdc`), which found a second silent
-instance in `post-merge-unasked-direction-scan`.** No override; fail-safe (8s deadline,
-always exits 0). Doc: `subagent-invocation-recording-hook.md`.
-
-## Session-End Transcript Ingest Hook
-
-`SessionEnd` hook: synchronously ingests the finished transcript into `agent_transcripts`
-(crash-terminated: MCP boot sweep). Hook: `transcript-ingest-on-session-end.ts`. Overrides:
-`MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK=1`; `MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED=1` (opt-in embed).
-Fail: always exits 0.
-Doc: `session-end-transcript-ingest-hook.md`.
-
-## Calibration Detectors (UserPromptSubmit, log-only)
-
-- **Causal-premise** — logs volunteered causal claims lacking same-turn verification.
-  `causal-premise-detector.ts`; log `.minsky/causal-premise-calibration.jsonl`; companion
-  `/check-premise`; override `MINSKY_ACK_CAUSAL_PREMISE=1`. Doc: `causal-premise-detector.md`.
-- **Calibration-review cadence** — warns when a calibration log crosses its review threshold
-  (≥10 fires, ≥3 phrases) or goes stale; run `/calibration-review` unless a disposition Ask is
-  open (mt#2659). `calibration-review-cadence-detector.ts`; override
-  `MINSKY_SKIP_CALIBRATION_CADENCE=1`. Doc: `calibration-review-cadence-detector.md`.
-- **Silent-stretch** — flags a tool-only stretch (no assistant text) crossing 10 min OR 15
-  consecutive tool calls (mt#2824). `silent-stretch-detector.ts`; log
-  `.minsky/silent-stretch-calibration.jsonl`; override `MINSKY_SKIP_SILENT_STRETCH=1`.
-  Doc: `silent-stretch-detector.md`.
-- **Wall-of-text** — flags a turn-end report >2x the ~200-word Tier-1 budget or label-led
-  (mt#2870). `wall-of-text-detector.ts`; log `.minsky/wall-of-text-calibration.jsonl`;
-  override `MINSKY_SKIP_WALL_OF_TEXT=1`. Doc: `wall-of-text-detector.md`.
-- **Build-claim injection** — the mt#2707-RFC build/deploy-claim seam (mt#2923): fires when an
-  in-session `session_pr_merge` touched a deploy/build surface (shared `deploy-surface.ts`
-  detection with mt#2545) AND the prior turn makes a usability/delivery claim AND no
-  rebuild/reinstall/deploy evidence (`install-local.sh`, `tauri build`,
-  `deployment_wait-for-latest`, or equivalent) appears in the session. `build-claim-injection-detector.ts`;
-  log `.minsky/build-claim-injection-calibration.jsonl`; graduation contract `reviewByDays: 30`
-  (mt#2896 never-reviewed-aging leg); override `MINSKY_ACK_BUILD_CLAIM_INJECTION=1`.
-  Doc: `build-claim-injection-detector.md`.
-
-All five: fail open on transcript/read error.
-
-## Guard-Health Tracker + Escalation Detector
-
-Not a permission gate — surfaces guard-layer failures (mt#2812): dispatcher errors land in the
-guard-health log with an `infra`/`logic` cause class (mt#3072) when known;
-`debug_systemInfo.guardHealth` reports counts/streaks/tier (critical = 3+ consecutive); the
-escalation guard (+ cockpit widget) warns once per session per unchanging critical cause, then
-cools down for up to 1h before repeating (mt#3072 — replaces the original every-turn repeat).
-Hooks: `guard-health.ts` + `guard-health-escalation-detector.ts` +
-`guard-health-escalation-notify-store.ts`. No override; fail-safe. Doc: `guard-health-tracker.md`.
+- **Skill/agent/rule staleness** — stale skill/agent/rule baseline. `MINSKY_SKIP_SKILL_STALENESS`.
+- **Drive-PR-to-convergence** — reminds wait-for-review. none.
+- **Substrate-bypass** — unencoded commitments/retro-prose/DB-bypass, + log-only post-merge instr. `MINSKY_ACK_SUBSTRATE_BYPASS`.
+- **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. `MINSKY_ACK_RETROSPECTIVE_TRIGGER`.
+- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
+- **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
+- **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.
+- **SubagentStop recording** — writes Stop-time columns on dispatch row. none.
+- **Session-end ingest** — ingests transcript at SessionEnd. `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK`.
+- **Calibration (log-only)** — causal-premise/cadence/silent-stretch/wall-of-text/build-claim. `MINSKY_ACK_*`/`MINSKY_SKIP_*`.
+- **Guard-health tracker** — guard failure streaks, tagged `infra`/`logic` when known (mt#3072); escalation banner cools down per-session for up to 1h instead of repeating every turn (mt#3072). none.
 
 # Design Principle: Humility
 
@@ -934,6 +466,7 @@ Operational corollaries already in force below are instances of this one princip
 - 2-strikes escalation (§Error Investigation)
 - User decides scope; never defer identified work (§Work Completion)
 - Trust the hooks; never bypass (§Hook Files)
+- Never confidently assert a resource/file/capability doesn't exist without tool-based verification first — see `verification-checklist` (not always-loaded; `rules_get`) for the mandatory pre-response checklist.
 
 ## Escalation packaging
 
@@ -982,6 +515,12 @@ Originating incident: ask 6807fb14 (2026-07-15, R5 of the escalation-packaging f
 - `mcp-disconnect-cadence` — disconnect cause classes, escalation thresholds, log-reading recipes (investigating MCP disconnects)
 - `subagent-dispatch-cadence` — dispatch outcome taxonomy, escalation thresholds, SQL inspection patterns (investigating subagent outcomes)
 - `documentation-taxonomy` — doc-type taxonomy, homes, title patterns (authoring docs; `/create-task`, `/draft-rfc`, `/draft-adr` carry the workflow)
+- `architectural-bypass-prevention` — encapsulation/facade/initialization-guard patterns to prevent bypass of controlled interfaces (designing modules or interfaces)
+- `efficient-database-queries` — avoiding N+1 query patterns and I/O-in-loops; bulk-query and in-memory-processing patterns (writing DB-backed domain/service code)
+- `git-safety` — destructive git operations (reset --hard, push --force, etc.) require the `git-safety` skill; ESLint `custom/no-unsafe-git-exec` backs it structurally
+- `json-parsing` — use `jq`, never `grep`/`awk`/`sed`, when parsing or filtering JSON command output
+- `ai-linter-autofix-guideline` — don't spend cycles hand-perfecting formatting the linter autofixes
+- `no-dynamic-imports` — prefer static imports; `eslint.config.js`'s `allowDynamicImports:false` enforces this mechanically
 
 # Key Workflows (via skills)
 
@@ -1154,96 +693,31 @@ minsky persistence migrate --execute
 
 # Principal Context
 
-This rule establishes the **persona frame** inside which all other decision-defaults apply. Other rules (`decision-defaults.mdc`, `humility.mdc`, `work-completion.mdc`) presuppose this frame; without it, the agent re-infers persona each turn and the inference drifts toward generic defaults that don't match the actual context.
+**Eugene is the principal of the commercial AI product Minsky** — not a hobbyist; solo
+engineering, customer-facing, multi-year horizon. **Framework implication:** weigh workflow-fit
++ time-to-customer-insight over OSS-purity — engineering time is the scarce resource.
 
-## Who Eugene is
+### Decisions Eugene reserves
 
-**Eugene Dobry is the principal of the commercial AI product Minsky.** Not a hobbyist; not a personal-research project; not a one-person consultancy. The relationship to the product is:
+Per `humility.mdc §Escalation packaging` and `decision-defaults.mdc §Multi-step direction
+execution`, principal-level decisions stay with Eugene:
 
-- **Principal owner / creator** of Minsky
-- Operating as the principal of whatever company is producing Minsky (formal business entity may evolve; "principal of commercial product" is the stable framing)
-- Currently solo on engineering, but the product is **customer-facing** — Minsky is built to be used by paying customers, not just by Eugene
-- Investment time horizon is multi-year — this is the product Eugene is building, not a side experiment
-
-## What Minsky is
-
-A commercial AI agent product. Customer-facing surfaces include MCP server, hosted MCP, CLI, eventual cockpit UI, mesh, attention-allocation subsystem. Customers experience the agent's quality directly.
-
-## Framework implications
-
-These implications follow from the principal context and override generic defaults when they conflict:
-
-### 1. Tool selection for non-core capabilities
-
-When picking a SaaS / tool / vendor for an auxiliary capability (observability, analytics, CI infra, eval platform, etc.):
-
-- **Time-to-customer-insight is the dominant metric.** How fast does "customer reports issue X" become "shipped fix Y verified to help"?
-- **Workflow fit > license alignment.** A tool Eugene fights wastes principal time; a tool that fits the workflow earns its subscription cost many times over.
-- **Switching cost has a half-life by category.** Switching observability tools (OTel-conformant sinks) is cheap; switching source-of-truth databases is expensive. Don't import lock-in concerns from the latter into the former.
-- **OSS-hedge weight is LOW for derived-analytics tools.** Eugene is not running an OSS purity audit; he is shipping a product. OSS matters when (a) data sovereignty is load-bearing, or (b) switching cost is expensive. Neither applies to most SaaS-observability decisions.
-- **Customer-logo signal is HIGH for tool fit.** If Notion / Stripe / Vercel / Ramp / similar companies running production AI products pick the tool, that's calibration data that the tool fits commercial-AI-product workflows.
-
-### 2. Trust scaling
-
-Eugene's stated goal is to **offload more Minsky work to the agent as Eugene operates at higher business levels**. This implies:
-
-- Decisions made by the agent should be made under the right framework on first pass, not after the user does framework-correction work
-- Strategic recommendations should be self-contained enough that Eugene can act on them without re-deriving the framework
-- The agent's reasoning should be explicit about the framework being applied, so Eugene can spot framework mismatches early
-
-### 3. Cost calculus
-
-- Eugene is cost-conscious but not cost-purist. $10s/mo SaaS subscriptions are acceptable when they save engineering time.
-- Engineering time is the scarcest resource. Every hour spent on auxiliary infra is an hour not on Minsky core.
-- "Two days of work" framing for in-house tooling is anti-pattern unless the tool itself is core differentiation.
-
-### 4. Decisions Eugene reserves
-
-Per `humility.mdc §Escalation packaging` and `decision-defaults.mdc §Multi-step direction execution`, principal-level decisions stay with Eugene:
-
-- Naming (product names, customer-facing terms, domain naming that sets precedent, agent self-presentation to external parties — handles, bios, attribution on third-party surfaces)
+- Naming (product names, customer-facing terms, domain naming that sets precedent, agent
+  self-presentation to external parties — handles, bios, attribution on third-party surfaces)
 - Architectural moves that affect customer experience or product surface
 - Authorization for shared / production state changes
 - Scope changes to in-flight work
 - Vendor commitments (signup actions, paid plan upgrades)
 - **Framework choices** when stakes are principal-level
 
-Craft-level choices (file structure, micro-phrasing, low-stakes naming, task-spec layout) are the agent's by default — see stakes-filter calibration in `humility.mdc`.
+### Trigger rule — before applying any framework
 
-## Trigger rule — BEFORE applying any framework
+1. **Name the framework** explicitly.
+2. **Check it matches this rule** (not OSS-purist/lock-in/research framing).
+3. **If wrong, switch** to workflow-fit + time-to-customer-insight.
+4. **Name what you switched and why.**
 
-Before making a strategic recommendation (tool selection, architectural direction, vendor commitment, scope-changing decision):
-
-1. **Name the evaluation framework you are about to apply** — make it explicit. "I'm applying a 'OSS hedge + community alignment + cost-minimization' framework" or "I'm applying a 'commercial product workflow fit + time-to-customer-insight' framework."
-2. **Check that the framework matches Eugene's position per this rule.** If the framework you defaulted to is OSS-purist, lock-in-minimization, or research-project-shaped — STOP. That's the wrong frame for Eugene's commercial-product context.
-3. **If the frame is wrong, switch.** The correct frame for tooling decisions is "what's the workflow fit for a principal shipping a commercial AI product, with paying customers as the consumer of the agent's quality?"
-4. **Name what you switched and why.** Surfacing this lets Eugene spot framework mismatches early instead of after 15 turns of recommendations under the wrong frame.
-
-**Structural enforcement.** The `/declare-framework` skill operationalizes the four steps above as numbered process steps with required user-facing output. Invoke it explicitly when about to deliver a strategic recommendation, or self-trigger via the cues in the skill (the agent recognizes it is comparing ≥ 2 named candidates / a strategic recommendation is in flight). The skill is agent-invoked discipline, not harness-fired. See `.claude/skills/declare-framework/SKILL.md`.
-
-## Anti-patterns to recognize in self
-
-- **Re-inferring persona from local signals.** If you're inferring "solo dev / hobby project" because the git user is one person and the cost-sensitivity signal is present, you're wrong. Read this rule instead.
-- **Applying OSS-hedge framework to observability tools.** Specific recent incident: 2026-05-12 conversation where I evaluated Langfuse / Phoenix / PostHog / Braintrust through an OSS-hedge framework that didn't fit Eugene's commercial-product use case. Took 15 turns + user re-framing to surface. See `feedback_explicit_framework_selection`.
-- **Treating "lock-in" as universally bad.** Lock-in is a real concern for source-of-truth state; it's near-zero for OTel-conformant event sinks. The framework needs to be category-aware.
-- **Centering open-source community signal for commercial-product tool decisions.** The community-OSS-adoption signal (e.g., "Langfuse has 12M downloads") is calibration data for the OSS category, not the deciding factor for "which SaaS fits this commercial-product loop."
-
-## Originating incidents
-
-- **2026-05-12 R3 retrospective** — across 15+ turns of platform-recommendation discussion, agent applied OSS-purist evaluation framework to a commercial-product-loop decision without ever surfacing the framework choice. User had to articulate "I, Eugene, as the principal of whatever company is producing Minsky" themselves to break the agent out of the wrong frame. Bridge memory: `feedback_explicit_framework_selection`. Structural escalation: mt#1789 — IMPLEMENTED 2026-05-13 via `/declare-framework` skill.
-
-## Cross-references
-
-- `humility.mdc` — design principle on delegation boundary; this rule provides the persona context that the boundary is drawn around
-- `decision-defaults.mdc` — policy corpus that presupposes this rule; particularly `§Build vs buy` and `§Multi-step direction execution` reference principal-context implicitly
-- `work-completion.mdc` — work-completion discipline that presupposes commercial-product framing
-- `.claude/skills/declare-framework/SKILL.md` — structural enforcement of the trigger rule (mt#1789)
-- mt#1034 — attention-allocation subsystem (eventually the structural home for persona-aware decision frameworks)
-- mt#1789 — structural escalation task (skill-step requiring explicit framework declaration) — IMPLEMENTED
-- `feedback_explicit_framework_selection` — meta-rule on naming frameworks before applying them (bridge memory, retiring with this skill)
-- `feedback_build_vs_buy_default_for_non_core` — R1 of the same pattern
-- `feedback_build_path_as_research_at_action_time` — R2 of the same pattern
-- This rule is R3 (meta) of the pattern
+`/declare-framework` operationalizes this. Detail: `docs/rules-rationale/principal-context.md`.
 
 # Sequence Dependent Tool Calls
 
@@ -1327,204 +801,37 @@ a follow-up candidate rather than done here); until it does, name the register e
 
 Task lifecycle transitions are owned by per-phase skills: `/plan-task` (planning and READY gate), `/implement-task` (session, coding, PR creation), `/verify-task` (post-merge closeout). Also: BLOCKED (from PLANNING, READY, or IN-PROGRESS), CLOSED (from any state). Multi-kind workflows (umbrella, etc.) documented in `docs/task-kinds.md`.
 
+## Related lifecycle rules (not always-loaded; read via `.minsky/rules/<name>.mdc` or `rules_get`)
+
+- `task-lifecycle-external-deliverable` — the READY → DONE direct-closeout convention for tasks whose deliverable is external to the repo (Notion pages, deployed services, hosted resources)
+- `task-lifecycle-verification` — verification surfaces (reviewer-bot, `/verify-task`) and the three-layer merge-protection model
+- `task-status-workflow-protocol` — never manually set DONE from a session; DONE is set only at PR merge
+
 # Terminal Command Best Practices
 
-## Core Guidelines for run_terminal_cmd Tool Usage
-
-When using the `run_terminal_cmd` tool, follow these practices to avoid shell parsing issues:
-
-### Quote Character Requirements
-
-- **Use ASCII quotes only**: Always use straight ASCII quotes (`"` and `'`) in commands, never smart quotes (`"` `"` `'` `'`)
-- **Prefer single quotes over double quotes** when possible to avoid shell interpretation issues
-- **Use unquoted text for simple echo statements** when special characters aren't needed
-
-### Command Structure Guidelines
-
-- **Keep commands simple**: Avoid overly complex command chains with many `&&` operators
-- **Break complex operations into multiple simple commands** rather than chaining 10+ commands together
-- **Test command syntax**: If experiencing `dquote>` or parsing issues, simplify the command structure
-
-### Problem Identification
-
-**Signs of Quote/Parsing Issues:**
-- Commands hang with `dquote>` prompt
-- Shell showing `cmdand cmdand cmdand` patterns
-- Need to type `"` and press enter to continue
-
-**Root Causes:**
-- Unicode character contamination in command strings
-- Smart quotes instead of ASCII quotes
-- Overly complex command chains
-
-### Examples
-
-**❌ Problematic:**
-```bash
-echo "Complex && command && chains && with && many && operations"
-```
-
-**✅ Preferred:**
-```bash
-echo 'Simple command'
-# or
-echo Simple unquoted text
-```
-
-**✅ For Complex Operations:**
-```bash
-echo 'Step 1 complete'
-echo 'Step 2 complete'
-echo 'Step 3 complete'
-```
-
-## Verification Commands
-
-When running a verification command — lint, `format:check`, typecheck, test, build —
-whose pass/fail result you intend to **read and act on**, optimize the command for
-**interpretability on failure**, not terseness. Two anti-patterns destroy that
-interpretability:
-
-1. **Output suppression.** `cmd >/dev/null 2>&1 && echo PASS || echo FAIL` discards the
-   diagnostic you need the moment the check fails — so a failure forces an immediate re-run
-   without `>/dev/null` just to see why. Suppressing the output of a command whose result
-   you must interpret is self-defeating.
-2. **Chaining multiple checks in one call.** `lint && format; typecheck` (or with `||`)
-   collapses several results into one ambiguous exit code — the tool returns "exitCode 1,
-   empty stdout" and you can't tell *which* check failed without re-running each separately.
-
-### Rules
-
-- **One verification command per call, output visible.** Pipe to `tail -n N` if it is chatty;
-  never `>/dev/null` a command whose pass/fail you need to read.
-- **Never chain verification commands** with `&&` / `||` / `;` in a single call. Run lint,
-  then format, then typecheck as separate calls so each result — and which one failed — is
-  unambiguous.
-- **Prefer the structured MCP tools where they exist.** `mcp__minsky__validate_lint` and
-  `mcp__minsky__validate_typecheck` return structured `{ errorCount, warningCount, errors[] }`
-  and are session-aware (pass `task` / `sessionId`, per mt#2336) — no shell, no suppression,
-  no ambiguity. For `format:check` / `lint:strict` / `test` (no MCP equivalent, or you need
-  the exact CI gate) run the bare command and READ the output rather than reducing it to a
-  PASS/FAIL echo.
-
-**❌ Problematic (output suppressed + chained — uninterpretable on failure):**
-```bash
-bun run lint:strict >/dev/null 2>&1 && echo PASS || echo FAIL; bun run format:check >/dev/null 2>&1 && echo PASS || echo FAIL
-```
-
-**✅ Preferred (separate calls, visible output):**
-```bash
-bun run lint:strict 2>&1 | tail -n 20
-```
-```bash
-bun run format:check 2>&1 | tail -n 20
-```
-
-## Bulk / loop commands
-
-When running a command **in a loop over many items** (bulk close, bulk kill, bulk
-rename, per-file checks) whose per-item pass/fail you must read, the §Verification
-Commands interpretability discipline applies — plus two shell-mechanics traps
-specific to iteration:
-
-1. **Never `>/dev/null` a per-item command in a loop whose result you must read.**
-   Per-iteration suppression turns "3 of 40 failed" into a silent "done" and forces
-   a full re-run to discover which item failed. Append each outcome to a log and read
-   it, or echo a running tally:
-
-   **❌ Problematic (per-item result suppressed):**
-   ```bash
-   for id in $ids; do gh issue close "$id" >/dev/null 2>&1; done
-   ```
-
-   **✅ Preferred (tally + log, results readable):**
-   ```bash
-   ok=0; fail=0; : >/tmp/close.err   # pre-create the log so the final cat never errors on a clean run
-   for id in ${(f)ids}; do
-     if gh issue close "$id" 2>>/tmp/close.err; then ok=$((ok+1)); else fail=$((fail+1)); echo "FAIL $id" >>/tmp/close.err; fi
-   done
-   echo "closed=$ok failed=$fail"; cat /tmp/close.err
-   ```
-
-2. **In zsh, `for x in $VAR` does NOT word-split a multiline string.** Unlike bash,
-   zsh does not split unquoted parameter expansions on whitespace/newlines, so
-   `for x in $VAR` over a multiline blob runs the body **once** with the whole blob
-   as a single `x` — e.g. `kill $pids` over a newline-separated list becomes
-   `illegal pid: 2534\n3637\n…`. Iterate by line explicitly: `for x in ${(f)VAR}`
-   (split on newlines) or `printf '%s\n' "$VAR" | while IFS= read -r x; do … done`.
-
-3. **A loop that fails where the standalone succeeds is a loop-construct bug, not a
-   sandbox/permission problem.** If `gh issue close 123` works alone but the loop
-   "does nothing" or reports one bizarre error, suspect word-splitting / the iteration
-   construct (point 2) before blaming permissions, auth, or the sandbox.
+- **ASCII quotes only**, never smart quotes; **prefer single quotes**; **no long `&&` chains** —
+  keep commands simple.
+- **One verification command per call, output visible.** Never `>/dev/null` a result you must
+  read; never chain checks with `&&`/`;` — you lose which one failed.
+- **Bulk/loop commands:** never suppress a per-item result (tally+log, not `>/dev/null`
+  per-iteration); zsh does NOT word-split `for x in $VAR` over multiline — use `${(f)VAR}`; a
+  loop failing where the standalone succeeds is word-splitting, not sandbox/permissions.
 
 ## Secret handling in shell commands
 
-Bash/`session_exec` output is persisted to disk (the harness JSONL transcript) AND ingested
-into the transcripts DB (`mcp__minsky__transcripts_ingest`, the SessionEnd hook). **Anything a
-command prints becomes durable, searchable, stored credential material** — there is no
-"just this once" scratch output. When checking whether a secret (token/key/PAT/password) is
-set, or inspecting its shape, NEVER place the raw secret-bearing variable in an **output
-position** (`echo`, `printf`, `cat`, a here-string, command substitution that gets echoed, etc.).
+Shell output is persisted AND ingested into the transcripts DB — no scratch output. NEVER place
+a secret variable in an **output position** (`echo`, `printf`, `cat`, command substitution).
 
-### The `${SECRET:-default}` footgun
-
-`${VAR:-alt}` and `${VAR:+alt}` look like a matched pair but are NOT symmetric for this
-purpose:
-
-- `${VAR:+alt}` — **alternate**-if-set: expands to the literal `alt` when `VAR` is set, empty
-  otherwise. Safe, as long as `alt` doesn't itself re-embed `$VAR`.
-- `${VAR:-alt}` — **value**-if-set, alt only if UNSET: expands to `alt` only when `VAR` is
-  *unset*; when `VAR` IS set (the common case you're actually checking), it expands to the
-  **full secret value**, not a placeholder.
-
-Mixing the two on the same variable in one interpolation is how a real leak happened
-(2026-07-13, mt#2738 Pulumi Cloud migration incident): a presence-check meant to print
-"present" printed the entire Pulumi access token instead —
+**The `${VAR:-alt}` footgun:** `${VAR:+alt}` is safe (alternate-if-set). `${VAR:-alt}` is NOT its
+mirror — substitutes `alt` only when unset; when set it expands to the **full live value**.
+Mixing both on one variable leaked mt#2738's Pulumi token.
 
 ```bash
-# LOOKS like a safe presence check. It is NOT.
-echo "pulumi token present: ${K:+yes (len ${#K}, prefix ${K:0:4})}${K:-NO}"
-#                                                                  ^^^^^^^^ prints the FULL
-#                                                                  token when $K is set
+[ -n "$K" ] && echo "present (len=${#K})" || echo "absent"  # never the value itself
 ```
 
-The `${K:+...}` half was safe; the trailing `${K:-NO}` silently expanded to the live token
-because `:-` only substitutes when the variable is *unset*, and here it was set.
-
-### Safe forms
-
-```bash
-# presence — never interpolates the value
-[ -n "$K" ] && echo "present" || echo "absent"
-
-# length — ${#K} is a length (an integer), never the value
-echo "len=${#K}"
-
-# both together, safely
-[ -n "$K" ] && echo "present (len=${#K})" || echo "absent"
-```
-
-### Rule: never interpolate a secret variable in an output position
-
-- NEVER: `echo "$SECRET"`, `echo "${SECRET}"`, `echo "${SECRET:-default}"`,
-  `printf ... "$SECRET"`, `cat <<< "$SECRET"`, or any construct where the secret's VALUE
-  (not its presence or length) can appear in stdout/stderr.
-- A prefix preview (`${K:0:4}`) is still a partial value leak — avoid it in shared/persisted
-  transcripts unless the task specifically requires identifying a credential and the operator
-  has accepted that tradeoff; presence + length is sufficient for the common "did this get
-  set correctly" check.
-- This applies equally to `session_exec` — its output is captured into the same persisted
-  transcript as Bash.
-
-Defense-in-depth for this failure class (a tool-output credential scrubber that redacts
-credential-shaped strings from tool output before it reaches the durable transcript store) is
-tracked separately — see `packages/domain/src/transcripts/credential-scrubber.ts`. This rule
-is the compose-time discipline; the scrubber is the safety net for when discipline slips.
-
-## Rationale
-
-Prevents shell parsing issues that cause commands to hang with `dquote>` prompts due to Unicode character contamination or overly complex command structures. Ensures reliable terminal command execution across all sessions. The secret-handling subsection prevents a distinct failure class — a shell interpolation footgun that leaks credential VALUES into the persisted, ingested transcript (mt#2763; originating incident 2026-07-13, mt#2738).
+Never `echo "$SECRET"` / `${SECRET:-default}` in output position — `${K:0:4}` is a partial leak.
+Detail: `docs/rules-rationale/terminal-command-best-practices.md`.
 
 # Terminology: workspace / conversation / transport session
 

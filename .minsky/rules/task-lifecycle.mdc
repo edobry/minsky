@@ -9,3 +9,9 @@ tags:
 # Task Lifecycle
 
 Task lifecycle transitions are owned by per-phase skills: `/plan-task` (planning and READY gate), `/implement-task` (session, coding, PR creation), `/verify-task` (post-merge closeout). Also: BLOCKED (from PLANNING, READY, or IN-PROGRESS), CLOSED (from any state). Multi-kind workflows (umbrella, etc.) documented in `docs/task-kinds.md`.
+
+## Related lifecycle rules (not always-loaded; read via `.minsky/rules/<name>.mdc` or `rules_get`)
+
+- `task-lifecycle-external-deliverable` — the READY → DONE direct-closeout convention for tasks whose deliverable is external to the repo (Notion pages, deployed services, hosted resources)
+- `task-lifecycle-verification` — verification surfaces (reviewer-bot, `/verify-task`) and the three-layer merge-protection model
+- `task-status-workflow-protocol` — never manually set DONE from a session; DONE is set only at PR merge

@@ -62,12 +62,15 @@ function stripAnsi(text: string): string {
  * 1.2.21; the original pattern required a literal "tests" and would have
  * fail-closed a genuinely-passing single-test run. Kept aligned with ci.yml's
  * grep logic.
+ *
+ * ANSI-stripped via `stripAnsi` before line-matching (mt#3075 / mt#3078 —
+ * fixed independently on two branches; this is the reconciled single copy).
  */
 export function evaluateBunTestSummary(
-  output: string,
+  rawOutput: string,
   exitCode: number
 ): { ok: boolean; reason: string } {
-  const clean = stripAnsi(output);
+  const clean = stripAnsi(rawOutput);
   if (!/Ran \d+ tests? across \d+ files?/.test(clean)) {
     return {
       ok: false,

@@ -1,9 +1,12 @@
 ---
 description: Use when naming code artifacts, writing comments, or reviewing variable/function names to prevent internal reasoning language from leaking into external program interfaces.
+globs:
+  - '**/*.ts'
+  - '**/*.tsx'
+alwaysApply: false
 tags:
   - code-style
   - preferences
-alwaysApply: false
 ---
 # Meta-Cognitive Boundary Protocol
 
