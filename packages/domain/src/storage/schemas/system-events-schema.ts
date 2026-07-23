@@ -74,6 +74,18 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   // event is the one-shot consumption marker. Append-only by design.
   "task.bulk_edit.dry_run",
   "task.bulk_edit.executed",
+  // mt#3021 (Layer-1 defensive-gate shared override contract) — emitted
+  // whenever a destructive-action guard (mass-deletion sanity gate on
+  // session_commit; MERGE_HEAD/uncommitted-changes guard on session
+  // delete/cleanup) was tripped AND an explicit override with a reason was
+  // supplied to proceed anyway. Generic across every guard that consumes
+  // `packages/domain/src/safety/destructive-override.ts` — the `guard`
+  // payload field names which one fired (v1: "session-commit-mass-deletion",
+  // "session-delete-git-state", "session-cleanup-git-state"; mt#3103-3106's
+  // Layer-2 liveness gates are expected to add further `guard` values without
+  // a schema change). Actionable: an operator should know a safety gate was
+  // bypassed, in case the bypass turns out to have been wrong.
+  "guard.overridden",
 ] as const;
 
 /**
@@ -154,6 +166,18 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
  *       edits: Record<string, string>; changeSet: Array<{ taskId, field, before, after }> }`
  *   - `task.bulk_edit.executed` → `{ token: string; count: number;
  *       outcomes: Array<{ taskId, field, outcome }> }`
+ *
+ * Payload shape for the mt#3021 shared destructive-override audit type:
+ *
+ *   - `guard.overridden` → `{ guard: string; reason: string; [key: string]: unknown }`
+ *       emitted by `recordDestructiveOverride`
+ *       (`packages/domain/src/safety/destructive-override.ts`) whenever a
+ *       caller supplies a valid override for a tripped destructive-action
+ *       guard. `guard` names the specific guard (e.g.
+ *       "session-commit-mass-deletion"); `reason` is the caller-supplied
+ *       justification (never empty — see `isValidDestructiveOverride`);
+ *       additional guard-specific fields (e.g. `deletionCount`, `reasonCode`,
+ *       `sessionId`) are merged in verbatim by the calling guard.
  */
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPE_VALUES)[number];
@@ -204,6 +228,7 @@ export const eventCategory = {
   "authorization.policy_covered": "informational",
   "task.bulk_edit.dry_run": "informational",
   "task.bulk_edit.executed": "informational",
+  "guard.overridden": "actionable",
 } satisfies Record<SystemEventType, EventCategory>;
 
 /** Return all event types belonging to a given category (for `WHERE IN` filters). */
