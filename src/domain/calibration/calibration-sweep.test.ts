@@ -18,6 +18,7 @@ import {
   calibrationRecordToFireLogEntry,
   calibrationLogAsFireLogEntries,
   readAllCalibrationLogsAsFireLogEntries,
+  findInvalidLiveSinceDates,
   FIRES_THRESHOLD,
   DIVERSITY_THRESHOLD,
   STALE_DAYS_MS,
@@ -169,6 +170,93 @@ describe("CALIBRATION_LOG_REGISTRY", () => {
       ".minsky/build-claim-injection-calibration.jsonl"
     );
     expect(CALIBRATION_LOG_REGISTRY[8]?.reviewByDays).toBe(30);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findInvalidLiveSinceDates (PR #2207 R1 review — liveSinceDate bit-rot guard)
+// ---------------------------------------------------------------------------
+
+describe("findInvalidLiveSinceDates", () => {
+  const NOW_MS = Date.parse("2026-08-01T00:00:00Z");
+
+  test("returns [] when no entry declares liveSinceDate", () => {
+    const entries: CalibrationLogEntry[] = [
+      { path: CAUSAL_PATH, name: "causal-premise", kind: "causal-premise" },
+    ];
+    expect(findInvalidLiveSinceDates(entries, NOW_MS)).toEqual([]);
+  });
+
+  test("returns [] when liveSinceDate is a valid past date", () => {
+    const entries: CalibrationLogEntry[] = [
+      {
+        path: CAUSAL_PATH,
+        name: "causal-premise",
+        kind: "causal-premise",
+        liveSinceDate: "2026-07-23",
+      },
+    ];
+    expect(findInvalidLiveSinceDates(entries, NOW_MS)).toEqual([]);
+  });
+
+  test("flags a liveSinceDate that is in the future relative to nowMs", () => {
+    const entries: CalibrationLogEntry[] = [
+      {
+        path: CAUSAL_PATH,
+        name: "causal-premise",
+        kind: "causal-premise",
+        liveSinceDate: "2099-01-01",
+      },
+    ];
+    const result = findInvalidLiveSinceDates(entries, NOW_MS);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({
+      name: "causal-premise",
+      liveSinceDate: "2099-01-01",
+      reason: "future",
+    });
+  });
+
+  test("flags an unparseable liveSinceDate", () => {
+    const entries: CalibrationLogEntry[] = [
+      {
+        path: CAUSAL_PATH,
+        name: "causal-premise",
+        kind: "causal-premise",
+        liveSinceDate: "not-a-date",
+      },
+    ];
+    const result = findInvalidLiveSinceDates(entries, NOW_MS);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.reason).toBe("unparseable");
+  });
+
+  test("checks every entry independently, not just the first invalid one", () => {
+    const entries: CalibrationLogEntry[] = [
+      {
+        path: CAUSAL_PATH,
+        name: "ok-entry",
+        kind: "causal-premise",
+        liveSinceDate: "2026-01-01",
+      },
+      {
+        path: RETRO_PATH,
+        name: "future-entry",
+        kind: RETRO_KIND,
+        liveSinceDate: "2099-01-01",
+      },
+    ];
+    const result = findInvalidLiveSinceDates(entries, NOW_MS);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.name).toBe("future-entry");
+  });
+
+  test("regression guard: the REAL CALIBRATION_LOG_REGISTRY has no invalid liveSinceDate entries", () => {
+    // This is the actual bit-rot guard the PR #2207 R1 review requested: run
+    // against the live registry (not a fixture) on every test run, so a
+    // future entry with a typo'd or accidentally-future-dated liveSinceDate
+    // fails CI immediately rather than silently rotting.
+    expect(findInvalidLiveSinceDates(CALIBRATION_LOG_REGISTRY, Date.now())).toEqual([]);
   });
 });
 

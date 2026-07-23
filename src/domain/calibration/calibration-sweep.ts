@@ -99,8 +99,57 @@ export interface CalibrationLogEntry {
    * fires, so "confirmed alive, still silent after N days" surfaces for
    * review instead of being invisible forever (the exact "never matched" vs
    * "never ran" ambiguity mt#3078 was filed to resolve).
+   *
+   * **Single source of truth / bit-rot guard (PR #2207 R1 review).** This value
+   * is data on the registry entry (not a sweep-logic constant) BY DESIGN — the
+   * reviewer's registry-as-data intent is already satisfied structurally. The
+   * residual risk the review flagged is drift: a hand-typed date is "asserted
+   * by code review text," not mechanically reconciled against evidence. Two
+   * requirements close that gap: (1) the date MUST be accompanied by an
+   * inline comment citing the SPECIFIC, permanent, checkable artifact that
+   * proved liveness that day — a merged PR number (e.g. "verified in PR
+   * #2207") whose body/task-spec Outcome section carries the actual
+   * positive/negative-control transcript, not a bare assertion; (2)
+   * `assertLiveSinceDatesAreSane` (below) is run in this module's test suite
+   * against the live registry on every test run, so a future entry with a
+   * missing citation-comment convention slip is a maintainer-review concern,
+   * while an outright bit-rot case (an unparseable date, or one accidentally
+   * set in the future — e.g. a copy-paste of a placeholder) is caught
+   * mechanically, not just by review.
    */
   liveSinceDate?: string;
+}
+
+/**
+ * Bit-rot guard for `liveSinceDate` (PR #2207 R1 review — see the field's own
+ * doc comment above for the full rationale). Returns the subset of registry
+ * entries whose `liveSinceDate` is either unparseable or in the future
+ * relative to `nowMs` — both are invariant violations for a field whose whole
+ * purpose is "the date we KNOW, in the past, this mechanism was proven alive."
+ * A future date can only arise from a typo or a stale copy-paste; there is no
+ * legitimate reason for one, so this is a one-directional, permanently-valid
+ * check (unlike a "must equal the ship date" check, which would itself rot).
+ *
+ * Pure — no I/O, injectable `nowMs` for deterministic testing.
+ */
+export function findInvalidLiveSinceDates(
+  entries: readonly CalibrationLogEntry[],
+  nowMs: number
+): Array<{ name: string; liveSinceDate: string; reason: "unparseable" | "future" }> {
+  const invalid: Array<{ name: string; liveSinceDate: string; reason: "unparseable" | "future" }> =
+    [];
+  for (const entry of entries) {
+    if (entry.liveSinceDate === undefined) continue;
+    const parsed = Date.parse(entry.liveSinceDate);
+    if (Number.isNaN(parsed)) {
+      invalid.push({ name: entry.name, liveSinceDate: entry.liveSinceDate, reason: "unparseable" });
+      continue;
+    }
+    if (parsed > nowMs) {
+      invalid.push({ name: entry.name, liveSinceDate: entry.liveSinceDate, reason: "future" });
+    }
+  }
+  return invalid;
 }
 
 /**
@@ -197,10 +246,19 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // when zero fires had ever been confirmed possible) to the date the
     // detector's full invocation path — dispatcher -> registry -> run() ->
     // transcript parse -> detection -> calibration write — was PROVEN alive
-    // via a live synthetic positive/negative-control test (mt#3078 PR body
-    // carries the redacted transcript + resulting calibration record). The
-    // 30-day clock now starts from a date we KNOW the mechanism could have
-    // produced data, not from an unverified ship date.
+    // via a live synthetic positive/negative-control test. The 30-day clock
+    // now starts from a date we KNOW the mechanism could have produced data,
+    // not from an unverified ship date.
+    //
+    // Evidence artifact (PR #2207 R1 review — cite the permanent record, not
+    // just this comment): github.com/edobry/minsky/pull/2207 body's "Testing"
+    // section + mt#3078 task spec's `## Outcome` §2 carry the actual
+    // positive-control (writes a record) / negative-control (writes nothing)
+    // transcript this date is derived from. If this date is ever revised,
+    // update this citation to the new evidence artifact in the same commit —
+    // `findInvalidLiveSinceDates` (above) only catches unparseable/future
+    // dates, not a stale-but-still-past one, so the citation convention is
+    // the enforcement for that residual case.
     liveSinceDate: "2026-07-23",
   },
 ];
@@ -786,11 +844,14 @@ export interface ReviewDueLog {
   /** Forwarded from the watermark's `openAskId` (mt#2659); undefined for never-reviewed (no watermark). */
   openAskId?: string;
   /**
-   * For the never-reviewed leg only (mt#2896 review): the EFFECTIVE review-by
-   * window in days used for this log's decision (per-entry `reviewByDays`, else
-   * `NEVER_REVIEWED_DAYS`). Undefined for past-threshold / time-stale. Lets the
-   * cadence warning name the log's ACTUAL window instead of the hardcoded
-   * default (which would misreport an overridden entry).
+   * For the never-reviewed AND never-fired legs (mt#2896 review; never-fired
+   * added mt#3078): the EFFECTIVE review-by window in days used for this
+   * log's decision (per-entry `reviewByDays`, else `NEVER_REVIEWED_DAYS`).
+   * Undefined for past-threshold / time-stale. Lets the cadence warning name
+   * the log's ACTUAL window instead of the hardcoded default (which would
+   * misreport an overridden entry) — see the never-fired branch in
+   * `computeReviewDueLogs` below, which populates this field identically to
+   * the never-reviewed branch.
    */
   reviewByDays?: number;
 }

@@ -1080,6 +1080,34 @@ describe("parseAcceptanceTests", () => {
     expect(items[0]?.number).toBe(1);
     expect(items[1]?.number).toBe(2);
   });
+
+  // PR #2207 R1 (non-blocking #1): GitHub-style checklist items and nested
+  // bullets under an AT must not be mis-parsed as extra top-level ATs.
+  it("strips a GitHub-style checkbox marker ('- [ ] ...') from bullet AT text", () => {
+    const spec = `${AT_SECTION_HEADING}- [ ] Unchecked test description.
+- [x] Checked test description.
+- [X] Checked (capital X) test description.
+`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(3);
+    expect(items[0]?.text).toBe("Unchecked test description.");
+    expect(items[1]?.text).toBe("Checked test description.");
+    expect(items[2]?.text).toBe("Checked (capital X) test description.");
+  });
+
+  it("folds an indented (nested) bullet into the parent item instead of counting it as a new AT", () => {
+    const spec = `${AT_SECTION_HEADING}- Parent AT covers the main behavior.
+  - Sub-detail: covers edge case A.
+  - Sub-detail: covers edge case B.
+- Second top-level AT.
+`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(2);
+    expect(items[0]?.text).toBe(
+      "Parent AT covers the main behavior. - Sub-detail: covers edge case A. - Sub-detail: covers edge case B."
+    );
+    expect(items[1]?.text).toBe("Second top-level AT.");
+  });
 });
 
 describe("isFindingsShapedAcceptanceTest", () => {
