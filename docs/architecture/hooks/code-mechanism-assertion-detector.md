@@ -126,7 +126,67 @@ closing the capability-claim coverage gap the R13 incident exposed. This
 change touches `PREDICATE_PATTERNS` only — symbol extraction, the
 `SYMBOL_STOPLIST`, and the mt#3002/mt#3042 exclusions are unchanged.
 
-**On match (now live):** the hook emits a `HookOutput` /
+## mt#3113 (2026-07-23) — four injection-layer tuning legs
+
+Operator-confirmed disposition from a calibration review (ask `109807e1` /
+ask#5425): the detector was live-injecting at ~70-80% false positives (118+
+lifetime fires as of review time). Four fixes, ALL at the INJECTION layer —
+none change `detectCodeMechanismAssertion`'s core claim-detection contract
+(the `claims` array, `hadSameTurnRead`, and `backedClaimCount` semantics are
+byte-for-byte unchanged):
+
+1. **Same-turn-read suppression.** 7 of 14 recent calibration records carried
+   `hadSameTurnRead: true` (a DIFFERENT symbol in the same turn was backed,
+   per the mt#2673 turn-level aggregate semantics) and still injected.
+   `run()`/`main()` now suppress `additionalContext` whenever
+   `hadSameTurnRead` is true, logging the reason `"same-turn-read"`. This is
+   NOT a reversal of the earlier ask#5343 decision (documented above) to keep
+   claim-level detection semantics unchanged — that decision is about what
+   counts as a logged `claim`; this is a new, separate gate on top, applied
+   only at the point of deciding whether to show `additionalContext`.
+2. **Symbol plausibility.** Generic English/tech-term words (`since`,
+   `description`, `macOS`, `CommonJS`) and bare directory references
+   (`target/`) were extracted as "symbols" because `BACKTICK_SYMBOL_RE`
+   accepts any backtick-quoted span with no requirement that it read as a
+   genuine project identifier. Extends (not replaces) mt#3002's
+   `SYMBOL_STOPLIST` with `since`/`description`/`macos`/`commonjs`
+   (case-insensitive), and adds a new `BARE_DIR_REF_RE` exclusion for a
+   single path segment plus exactly one trailing slash (`target/`, `dist/`,
+   `build/`) — multi-segment paths (`src/exec.ts`) and code-extension
+   filenames remain unaffected.
+3. **Relay-context suppression.** The detector fired on claims RELAYED from
+   a dispatched subagent's own report — the subagent performed the read, the
+   parent turn merely quotes/paraphrases its findings. `buildRelayCorpus`
+   correlates same-turn `Agent`/`Task`/`SendMessage` tool_use calls with
+   their `tool_result` by `tool_use_id`; `detectRelayContext` suppresses
+   (reason `"relayed-subagent-content"`) whenever ANY such report landed
+   this turn — deliberately NOT gated on the claim's literal symbol text
+   appearing in that report, because a claim whose symbol IS literally
+   present in a same-turn tool_result (dispatch or not) is ALREADY excluded
+   via the pre-existing `buildVerificationCorpus` backing mechanism before it
+   ever reaches `detectRelayContext`; gating on that overlap would be
+   unreachable dead code. A second, independent signal
+   (`RELAY_PREAMBLE_PATTERNS`, reason `"relayed-preamble-phrase"`) catches
+   the cross-turn case — the subagent completed in an EARLIER turn and this
+   turn merely narrates its already-reported findings, which the same-turn
+   tool_result correlation cannot see.
+4. **Per-claim-set dedup.** An identical 4-symbol claim set re-fired
+   (re-injected) on nearly every turn for ~10 hours in one session — the
+   turn-scoped scan re-matches the same claim set every time the assistant
+   repeats it. `code-mechanism-assertion-dedup-store.ts` (new file, mirrors
+   `guard-health-escalation-notify-store.ts`'s mt#3072 per-session cooldown
+   pattern) suppresses re-injection of an unchanged (claim-set signature,
+   session) pair within a 1-hour cooldown, reason `"deduped"`.
+
+All four suppressions compose independently via `computeSuppressionReasons`
+and are recorded in the calibration record's new `suppressionReasons:
+string[]` field (empty when nothing suppressed) alongside a new
+`claimSetSignature: string` field — every suppressed fire still logs, so
+calibration review can grade the suppressions themselves, not just the
+underlying detection. Pre-existing calibration fields (`claims`,
+`hadSameTurnRead`, `backedClaimCount`) are unchanged.
+
+**On match (now live), when NOT suppressed:** the hook emits a `HookOutput` /
 `GuardOutcome.additionalContext` naming each unbacked (symbol, predicate)
 claim and directing the agent to read the symbol's source before asserting
 its behavior — see `/check-premise`.
@@ -152,6 +212,14 @@ back to the harness.
 - mt#3050 — R13 sourcing/provenance predicate widening (this doc's
   "Sourcing/provenance predicates" section); family log `b0b294ab` records
   R13 itself.
+- mt#3113 — the four injection-layer suppression legs above (same-turn-read,
+  symbol-plausibility extension, relay-context, per-claim-set dedup);
+  disposition record ask `109807e1` (ask#5425).
+- `.claude/hooks/code-mechanism-assertion-dedup-store.ts` — mt#3113 leg 4's
+  cooldown store, structurally mirroring
+  `guard-health-escalation-notify-store.ts` (mt#3072).
+- mt#3072 — `guard-health-escalation-notify-store.ts`, the per-session
+  cooldown pattern mt#3113 leg 4 mirrors.
 - `.claude/hooks/causal-premise-detector.ts` — sibling pattern (mt#2216) for
   the broader, harder-precision causal-claim family this detector's
   code-symbol slice was carved out of.
