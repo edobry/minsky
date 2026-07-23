@@ -109,7 +109,7 @@ import {
 } from "./dispatch-intent-store";
 import type { DispatchIntentDeclaration } from "./dispatch-intent-store";
 import { SESSION_DIR_RE } from "./check-guessed-session-path";
-import { makeRecordAndExit } from "./merge-gate-fire-log";
+import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 
 /** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
 const GUARD_NAME = "dispatch-intent-write-gate";
@@ -252,7 +252,7 @@ if (import.meta.main) {
   // once per invocation regardless of which exit fires below. No documented
   // override env-var for this guard (CLAUDE.md: "No override; fail-open on
   // store-read errors only") — no override fields are ever populated here.
-  const recordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   if (!GATED_TOOL_NAMES.has(input.tool_name)) {
     recordAndExit("allow");

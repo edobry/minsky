@@ -14,7 +14,11 @@
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
-import { makeRecordAndExit, type MergeGateOverrideFields } from "./merge-gate-fire-log";
+import {
+  makeRecordAndExit,
+  type MergeGateOverrideFields,
+  type RecordAndExit,
+} from "./merge-gate-fire-log";
 import { classifyOverride } from "./fire-log";
 
 /** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
@@ -971,7 +975,7 @@ async function main(): Promise<void> {
   // is active in the same invocation the last one tracked wins (a rare
   // multi-override case — still records a real, non-misleading override
   // signal, just not a full enumeration of every escape hatch consulted).
-  const recordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
   let overrideFields: MergeGateOverrideFields | undefined;
 
   const task = (input.tool_input.task as string | undefined) ?? "";
@@ -1068,11 +1072,13 @@ async function main(): Promise<void> {
   // mt#2060: Smoke-status enforcement — block on Smoke: fail in any review;
   // require Smoke field in non-bot reviews. Bot reviews legitimately lack
   // a Smoke field because the bot runs in a GitHub App container with no shell.
+  // Reviewer R1 BLOCKING #2 (mt#3084): value not echoed — hook stdout is
+  // persisted to transcripts and ingested; presence/name only.
   const skipSmokeCheck = process.env[SMOKE_CHECK_OVERRIDE_ENV];
   if (skipSmokeCheck && /^(1|true|yes)$/i.test(skipSmokeCheck)) {
     process.stdout.write(
-      `[require-review-before-merge] smoke check skipped via ${SMOKE_CHECK_OVERRIDE_ENV}=${skipSmokeCheck} ` +
-        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()})\n`
+      `[require-review-before-merge] smoke check skipped via ${SMOKE_CHECK_OVERRIDE_ENV} set ` +
+        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()}, value not echoed)\n`
     );
     overrideFields = {
       overrideEnvVar: SMOKE_CHECK_OVERRIDE_ENV,
@@ -1141,11 +1147,13 @@ async function main(): Promise<void> {
   // Honors BUNDLE_BOOT_SMOKE_OVERRIDE_ENV escape valve for cases where the
   // operator has manually verified local boot but CI cannot run the workflow
   // (e.g., the workflow file itself is broken on the PR being merged).
+  // Reviewer R1 BLOCKING #2 (mt#3084): value not echoed (see the smoke-check
+  // override above for the rationale).
   const skipBundleSmoke = process.env[BUNDLE_BOOT_SMOKE_OVERRIDE_ENV];
   if (skipBundleSmoke && /^(1|true|yes)$/i.test(skipBundleSmoke)) {
     process.stdout.write(
-      `[require-review-before-merge] bundle-boot smoke skipped via ${BUNDLE_BOOT_SMOKE_OVERRIDE_ENV}=${skipBundleSmoke} ` +
-        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()})\n`
+      `[require-review-before-merge] bundle-boot smoke skipped via ${BUNDLE_BOOT_SMOKE_OVERRIDE_ENV} set ` +
+        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()}, value not echoed)\n`
     );
     overrideFields = {
       overrideEnvVar: BUNDLE_BOOT_SMOKE_OVERRIDE_ENV,
@@ -1172,11 +1180,13 @@ async function main(): Promise<void> {
   // operator-API and GitHub-UI merge paths are covered by branch protection
   // `enforce_admins: true` and the `main-watch` GitHub Action — Claude Code
   // hooks see only Claude Code tool invocations by construction.
+  // Reviewer R1 BLOCKING #2 (mt#3084): value not echoed (see the smoke-check
+  // override above for the rationale).
   const skipRequiredChecks = process.env[REQUIRED_CHECKS_OVERRIDE_ENV];
   if (skipRequiredChecks && /^(1|true|yes)$/i.test(skipRequiredChecks)) {
     process.stdout.write(
-      `[require-review-before-merge] required-checks status check skipped via ${REQUIRED_CHECKS_OVERRIDE_ENV}=${skipRequiredChecks} ` +
-        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()})\n`
+      `[require-review-before-merge] required-checks status check skipped via ${REQUIRED_CHECKS_OVERRIDE_ENV} set ` +
+        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()}, value not echoed)\n`
     );
     overrideFields = {
       overrideEnvVar: REQUIRED_CHECKS_OVERRIDE_ENV,

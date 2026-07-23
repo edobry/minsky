@@ -87,7 +87,7 @@ import {
 import { findGhApiPutMergeSegment } from "./block-subagent-bypass-merge";
 import { fetchCheckRunsRaw } from "./pr-context";
 import { checkOverride } from "./dispatcher";
-import { makeRecordAndExit } from "./merge-gate-fire-log";
+import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import { classifyOverride } from "./fire-log";
 
 /** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
@@ -335,11 +335,14 @@ export function dispatchBypassCheck(input: BypassDispatchInput): BypassDispatchO
     const safeIdentifier = overrideTarget
       ? `${overrideTarget.owner}/${overrideTarget.repo}#${overrideTarget.prNumber}`
       : "matcher:gh-api-put-merge (unparseable)";
+    // Reviewer R1 BLOCKING #2 (mt#3084): value not echoed — same posture as
+    // the segment-echo rule right above (PR #1176 R2 BLOCKING), applied to
+    // the override value too. Presence/name only.
     return {
       kind: "override",
       auditLine:
-        `[require-checks-on-bypass-merge] required-checks gate skipped via ${REQUIRED_CHECKS_OVERRIDE_ENV}=${input.overrideEnvValue} ` +
-        `(target: ${safeIdentifier}, ${new Date().toISOString()})\n`,
+        `[require-checks-on-bypass-merge] required-checks gate skipped via ${REQUIRED_CHECKS_OVERRIDE_ENV} set ` +
+        `(target: ${safeIdentifier}, ${new Date().toISOString()}, value not echoed)\n`,
     };
   }
   // Deny-on-failure: bypass-merge intent detected; if we can't resolve the
@@ -434,7 +437,7 @@ if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
   // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
   // once per invocation regardless of which exit fires below.
-  const recordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   // mt#2888: track whether the check-runs read used the forge-CLI fallback
   // (gh transport-class failure) — the audit line fires below regardless of

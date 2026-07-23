@@ -42,7 +42,7 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { execWithPath, findRepoRoot, readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
-import { makeRecordAndExit } from "./merge-gate-fire-log";
+import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import { classifyOverride } from "./fire-log";
 
 /** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
@@ -791,7 +791,7 @@ if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
   // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
   // once per invocation regardless of which exit fires below.
-  const recordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   const task = (input.tool_input.task as string | undefined) ?? "";
   if (!task) recordAndExit("allow");

@@ -46,7 +46,7 @@
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
-import { makeRecordAndExit } from "./merge-gate-fire-log";
+import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import { classifyOverride } from "./fire-log";
 import {
   deriveRepoFromGit,
@@ -309,7 +309,7 @@ if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
   // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
   // once per invocation regardless of which exit fires below.
-  const recordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   // Operator override: skip with an audit line on stdout. This is the
   // ESTABLISHED convention across this hook family, verified by direct
@@ -326,10 +326,16 @@ if (import.meta.main) {
   // is correct here; Claude Code's hook-output parser tolerates a non-JSON
   // stdout line by logging "Ignoring non-JSON line" and proceeding (verified
   // empirically by every sibling hook using this exact pattern in
-  // production). Unlike most siblings, this line does NOT echo the env
-  // value — MINSKY_SKIP_SIZE_JUSTIFICATION is a boolean flag, not a secret,
-  // but omitting the value keeps the audit line stable regardless of which
-  // truthy spelling ("1"/"true"/"yes") was used.
+  // production). This line does NOT echo the env value — MINSKY_SKIP_SIZE_
+  // JUSTIFICATION is a boolean flag, not a secret, but omitting the value
+  // keeps the audit line stable regardless of which truthy spelling
+  // ("1"/"true"/"yes") was used. (mt#3084 R1: several sibling merge-gate
+  // hooks — `require-deploy-verification-before-merge.ts`,
+  // `require-checks-on-bypass-merge.ts`, `require-review-before-merge.ts` —
+  // previously DID echo the raw value; reviewer BLOCKING #2 flagged this as
+  // a secret-handling-posture violation and all were brought in line with
+  // this file's presence-only convention. This was the correct pattern all
+  // along, not merely "unlike most siblings.")
   if (isOverrideSet()) {
     process.stdout.write(
       `[growth-justification] override active: ${OVERRIDE_ENV_VAR} set at ` +

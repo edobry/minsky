@@ -52,7 +52,7 @@ import type { ToolHookInput } from "./types";
 import { deriveRepoFromGit, fetchPrContext, formatContextFailureWarnings } from "./pr-context";
 import type { PrFile } from "./pr-context";
 import { findDeploySurfaceFiles, findLocalAppDeploySurfaceFiles } from "./deploy-surface-detector";
-import { makeRecordAndExit } from "./merge-gate-fire-log";
+import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import { classifyOverride } from "./fire-log";
 
 /** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
@@ -452,15 +452,19 @@ if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
   // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
   // once per invocation regardless of which exit fires below.
-  const recordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   // Operator override: skip with an audit line on stdout (non-JSON — Claude Code's
   // hook-output parser logs it as "Ignoring non-JSON line", matching the sibling
   // override-audit convention). Mutually exclusive with the deny path below.
+  // Reviewer R1 BLOCKING #2: does NOT echo the raw env value — hook stdout is
+  // persisted to transcripts and ingested (CLAUDE.md "Secret handling in shell
+  // commands"); presence/name only, matching `require-growth-justification-
+  // before-merge.ts` / `block-subagent-merge-without-grant.ts`.
   if (isOverrideSet()) {
     process.stdout.write(
-      `[deploy-verification] override active: ${OVERRIDE_ENV_VAR}=${process.env[OVERRIDE_ENV_VAR]} ` +
-        `at ${new Date().toISOString()} — deploy-verification gate skipped\n`
+      `[deploy-verification] override active: ${OVERRIDE_ENV_VAR} set at ` +
+        `${new Date().toISOString()} — deploy-verification gate skipped (value not echoed)\n`
     );
     recordAndExit("allow", {
       overrideEnvVar: OVERRIDE_ENV_VAR,
@@ -519,15 +523,22 @@ if (import.meta.main) {
   // so mt#3084 tracks it in `usabilityOverrideFields` and attaches it to
   // whichever recordAndExit call below actually fires (deny, warn, or the
   // final allow) rather than assuming the override implies an allow outcome.
+  //
+  // Reviewer R1 NON-BLOCKING: no simultaneous-override conflation is possible
+  // here — the top-level MINSKY_SKIP_DEPLOY_VERIFY branch above calls
+  // `recordAndExit` directly (process.exit(0)), so control never reaches this
+  // point when it fires. Only ONE override variable (`usabilityOverrideFields`)
+  // is ever live by the time the final recordAndExit calls below run.
   let usabilityResult: UsabilityClaimCheckResult;
   let usabilityOverrideFields:
     | { overrideEnvVar: string; overrideClassification: ReturnType<typeof classifyOverride> }
     | undefined;
   if (isUsabilityClaimOverrideSet()) {
+    // Reviewer R1 BLOCKING #2: value not echoed — see the rationale on the
+    // MINSKY_SKIP_DEPLOY_VERIFY override audit line above.
     process.stdout.write(
-      `[usability-claim] override active: ${USABILITY_CLAIM_OVERRIDE_ENV_VAR}=` +
-        `${process.env[USABILITY_CLAIM_OVERRIDE_ENV_VAR]} at ${new Date().toISOString()} — ` +
-        `usability-claim gate skipped\n`
+      `[usability-claim] override active: ${USABILITY_CLAIM_OVERRIDE_ENV_VAR} set ` +
+        `at ${new Date().toISOString()} — usability-claim gate skipped (value not echoed)\n`
     );
     usabilityResult = {
       blocked: false,
