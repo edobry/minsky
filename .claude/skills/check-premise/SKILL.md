@@ -57,7 +57,7 @@ to that family.)
 
 ## Additional trigger cues (Tier-3 residual slice — mt#2698)
 
-Four narrow per-surface cues, filed as cheap Tier-3 residual-slice
+Six narrow per-surface cues, filed as cheap Tier-3 residual-slice
 amendments to the "When to invoke" list above — not a new containment
 strategy. Per the `mt#2485` strategic partition (family record `b0b294ab`):
 the broad-detector tier is demoted; per-surface prose-tier cues like these
@@ -144,6 +144,60 @@ force-restart ineffective (an infinite restart storm). One `grep` of
 `cockpit-daemon*.log`, or a read of live `/api/sweeps` `lastAttemptAt` (frozen),
 would have falsified the conclusion; the task shipped DONE on the wrong root
 cause (corrected + fixed by mt#3060). See memory mem#674.
+
+### (e) Language / runtime semantics beneath first-party code
+
+Trigger: about to assert something about **evaluation order, hoisting,
+scheduling, or lifecycle** — "this runs before that", "these execute in
+declaration order", "the body runs first", "the import completes by then".
+
+Falsifier: reading the file establishes the TEXTUAL order of its statements; it
+does NOT establish WHEN they evaluate. Evaluation order is a fact about the
+**language spec**, not about the file. Consult the spec/docs, or run a minimal
+empirical probe (a three-line module that prints the order). Note this is the
+same Tier-2 blind spot cue (b) and cue (d) name: a same-turn read of the right
+file SATISFIES mt#2486's same-turn-read suppression while establishing nothing
+about the layer beneath it. Extra trap: a source COMMENT asserting the ordering
+("setup config FIRST before any other imports") is authorial INTENT — if the
+language's semantics contradict it, the comment makes the wrong answer look
+confirmed.
+
+_Origin:_ `b0b294ab` R14 (mt#3090, 2026-07-23) —
+`scripts/measure-eval-attribution.ts` was written to "mirror `src/cli.ts`'s
+eager top-level imports IN ORDER" and replicated cli.ts's textual order, which
+interleaves `setupConfiguration()` between imports. ESM evaluates a module's
+entire import graph before its body, so in reality every static import
+completes first. The harness mis-attributed ~20ms — `configuration/loader`
+measured 0.2ms against a true marginal cost of 20.7ms, and
+`setupConfiguration()` measured 36.0ms against 14.8ms — and those wrong numbers
+reached a PR body and a task spec before the reviewer caught the ordering. See
+memory mem#698.
+
+### (f) Derived-metric semantics
+
+Trigger: about to cite a **computed** metric — a tier delta, a layer
+decomposition, a ratio, a percentage — as evidence for the thing its label
+names.
+
+Falsifier: a derived metric's label is a CLAIM ABOUT ITS PROBE. Read what the
+probe actually executes and confirm it exercises the path the label names,
+before citing the number. Cross-check with a second probe on the same path; a
+confounded metric's tell is that no one has stated, in one sentence, what the
+probe does. This matters most for numbers that are about to enter a durable
+artifact, because a metric keeps looking authoritative while every downstream
+consumer silently inherits the error.
+
+_Origin:_ `b0b294ab` R14 (mt#3090, 2026-07-23) —
+`scripts/benchmark-cold-boot.ts` defines its "bundle load + runtime/DI/config
+init" layer as the tier delta `version − runtime`. But `minsky --version`
+tripped `needsAll` in `src/cli.ts`, eagerly loading all ten non-shared command
+groups (MCP SDK, AI tokenizer, …) — ~455ms that no narrow command pays. The
+layer was overstated roughly 2× (~780ms reported; ~365ms real), and the
+inflated figure hardened into three durable artifacts in sequence: mt#2968's
+`## Findings`, the mem#675 handoff's strategic conclusion, and then mt#3090's
+founding premise — a task created to attack a lever that did not exist at that
+size. Timing one narrow no-DB invocation (`completion` → ~365ms vs `--version`
+→ ~820ms) falsified it. See memory mem#698.
 
 ## Artifact-content and identity claims (mt#2534)
 
@@ -302,11 +356,20 @@ unverified premises, say "unverified — need to check X."
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference`
   (memory `88d92439`) — sibling family (strategic framing vs mechanism claims).
 - Memory `b0b294ab` — family record for the "assertion frozen as fact without
-  verification" pattern (R6–R13); R11–R13 are the origin of the four
+  verification" pattern (R6–R14); R11–R14 are the origin of the six
   cues above. `mt#2485` — the strategic partition (Tier-1 `mt#2488`, Tier-2
   `mt#2486`, Tier-3 residual = these per-surface cues). `mt#2698` — cues
-  (a)–(c)'s task; `mt#3055` — cue (d)'s task. Cue (d)'s incident memory:
-  `mem#674` (`07cb2686`).
+  (a)–(c)'s task; `mt#3055` — cue (d)'s task; `mt#3126` — cues (e)/(f)'s task.
+  Cue (d)'s incident memory: `mem#674` (`07cb2686`); cues (e)/(f)'s: `mem#698`
+  (`8f594a7e`).
+- Cues (b), (d), (e) and (f) share one structural property worth stating
+  plainly: each is a case where a same-turn read of the RIGHT first-party file
+  is present and still does not establish the claim, because the claim is about
+  a layer beneath the file (a third-party platform, the runtime record, the
+  language spec, or what a probe executes). `mt#2486`'s same-turn-read
+  suppression is therefore knowingly blind to this set — see `mt#3113`, which
+  strengthens that suppression for precision, making these cues the residual
+  coverage rather than a duplicate of it.
 - Memory `eb4411f3` — bridge memory for the artifact-content/identity family
   (`## Artifact-content and identity claims` above); originating incidents
   R1–R4 (mt#2518, plus the 2026-06-24 and 2026-06-26 recurrences).
