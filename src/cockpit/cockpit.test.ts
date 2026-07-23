@@ -189,10 +189,26 @@ describe("Cockpit server", () => {
   // operator hand-added them to cockpit.json).
   test("every registered widget's data endpoint is served (never 404); unregistered id 404s", async () => {
     const url = await server();
-    for (const id of Object.keys(WIDGET_REGISTRY)) {
-      const res = await fetch(`${url}/api/widget/${id}/data`);
-      expect(res.status).not.toBe(404);
-    }
+    const ids = Object.keys(WIDGET_REGISTRY);
+    // Probe concurrently (mt#3047). These requests are independent, but
+    // serializing ~20 of them made this test's runtime the SUM of endpoint
+    // latencies: fine in isolation (~50-70ms each), but under full-suite
+    // parallel load per-request latency inflates and the sum crossed the 15s
+    // budget — a timeout that looked like a regression in whatever PR happened
+    // to be pushing. Concurrent probing makes the runtime max-latency instead,
+    // without stubbing (this test exists to verify REAL registry-gated routing,
+    // the mt#2294 regression) and without relaxing the budget (so a genuinely
+    // slow endpoint is still caught). Collect { id, status } rather than
+    // asserting inside the map, so a failure still names the offending widget.
+    const results = await Promise.all(
+      ids.map(async (id) => ({
+        id,
+        status: (await fetch(`${url}/api/widget/${id}/data`)).status,
+      }))
+    );
+    const notFound = results.filter((r) => r.status === 404).map((r) => r.id);
+    expect(notFound).toEqual([]);
+
     const missing = await fetch(`${url}/api/widget/not-a-real-widget/data`);
     expect(missing.status).toBe(404);
   });
