@@ -575,14 +575,23 @@ function loadAlreadyLoggedDedupeKeys(cwd: string, sessionId: string | undefined)
   return keys;
 }
 
-/** Resolve the keyword map for every loaded skill (impure — reads from disk, never throws). */
+/**
+ * Resolve the keyword map for every loaded skill (impure — reads from disk,
+ * never throws). ALWAYS populates an entry for every loaded skill, even when
+ * its SKILL.md is missing/unparsable/transiently unreadable
+ * (`readSkillDescription` returns `""` in that case) — `extractSkillKeywords`
+ * derives name tokens from `skillName` independently of `description`, so a
+ * skill with no readable description still gets its own name-token keywords
+ * (e.g. "engineering", "writing" for `engineering-writing`). Gating the
+ * `map.set` on a truthy `description` (as an earlier revision did) silently
+ * dropped the name-token keywords for exactly the unreadable-file case, a
+ * false-negative path the rung-2-lite gate must not have (PR #2239 R1/R2).
+ */
 function resolveSkillKeywords(cwd: string, loadedSkills: string[]): Map<string, string[]> {
   const map = new Map<string, string[]>();
   for (const skill of loadedSkills) {
     const description = readSkillDescription(cwd, skill);
-    if (description) {
-      map.set(skill, extractSkillKeywords(skill, description));
-    }
+    map.set(skill, extractSkillKeywords(skill, description));
   }
   return map;
 }

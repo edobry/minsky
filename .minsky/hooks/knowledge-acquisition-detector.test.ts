@@ -426,4 +426,45 @@ describe("run() against the real engineering-writing skill (mt#2708 originating-
     expect(outcome?.calibration?.researchTools).toContain("WebSearch");
     expect(outcome?.additionalContext).toBeUndefined();
   });
+
+  // PR #2239 R1/R2 regression: resolveSkillKeywords must ALWAYS populate an
+  // entry for a loaded skill, even when its SKILL.md is missing/unreadable —
+  // extractSkillKeywords derives name tokens from the skill NAME independently
+  // of the description, so a skill with no readable file must still be able
+  // to match on a name-token overlap. An earlier revision gated the map
+  // entry on a truthy description, silently dropping the name tokens for
+  // exactly this case (a false-negative path the rung-2-lite gate must not
+  // have).
+  test("a loaded skill with no readable SKILL.md still matches on a name-token overlap", () => {
+    const NONEXISTENT_SKILL = "totally-nonexistent-widget-skill";
+    const lines: TranscriptLine[] = [
+      userPromptLine("please help me design something"),
+      skillLoadLine(NONEXISTENT_SKILL),
+      userPromptLine("go research it"),
+      assistantLine([
+        toolUseBlock("WebSearch", { query: "how to build a nonexistent widget prototype" }),
+      ]),
+    ];
+    for (let i = 0; i < TRAILING_WINDOW_TURNS; i++) {
+      lines.push(...fillerTurn(`turn ${i + 3}`, `continuing (${i})`));
+    }
+    lines.push(userPromptLine("current turn (triggers the hook)"));
+
+    const outcome = run(
+      {
+        session_id: "mt2708-unittest-unreadable-skill-do-not-reuse",
+        transcript_path: "/mock/transcript.jsonl",
+        cwd: import.meta.dir,
+        hook_event_name: HOOK_EVENT_NAME,
+      },
+      makeCtx(lines)
+    );
+
+    expect(outcome?.calibration).toBeDefined();
+    expect(outcome?.calibration?.matchedSkill).toBe(NONEXISTENT_SKILL);
+    // Matched on a NAME token ("nonexistent" or "widget"), not a description
+    // keyword — there is no description at all for a skill whose SKILL.md
+    // does not exist on disk.
+    expect(["nonexistent", "widget"]).toContain(outcome?.calibration?.matchedKeyword);
+  });
 });
