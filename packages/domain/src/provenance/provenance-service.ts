@@ -33,6 +33,7 @@ import {
 } from "./authorship-judge";
 import type { AgentTranscriptService } from "./transcript-service";
 import { log } from "@minsky/shared/logger";
+import { unresolvedWorkspaceIdAsConversationId } from "../transcripts/unresolved-conversation-id";
 
 /** Maps a DB row to a typed ProvenanceRecord. */
 function toProvenanceRecord(row: typeof provenanceTable.$inferSelect): ProvenanceRecord {
@@ -239,7 +240,14 @@ export class ProvenanceService {
       const sessionId = record.sessionId;
 
       try {
-        const transcript = await transcriptService.getTranscript(sessionId);
+        // mt#3066 / mt#3101: `provenance.session_id` holds Minsky WORKSPACE
+        // session ids, but `getTranscript` keys on the harness CONVERSATION id.
+        // Measured 2026-07-23: 0 of 1,303 rows resolve, so every record lands
+        // in `skippedNoTranscript` below. mt#3101 owns the id-space fix; the
+        // named helper makes the miss loggable instead of silent.
+        const transcript = await transcriptService.getTranscript(
+          unresolvedWorkspaceIdAsConversationId(sessionId, "provenance-service:recompute-tiers")
+        );
 
         if (!transcript) {
           summary.skippedNoTranscript++;

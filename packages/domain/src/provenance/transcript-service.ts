@@ -5,13 +5,20 @@
  * message statistics for authorship tier judging. Only `user` and `assistant`
  * messages are retained; metadata types are filtered out.
  *
- * Transitional note (mt#1324): During this phase, the Minsky session ID is used as
- * the `agent_session_id` and `harness` is set to `'legacy'`. The mt#1325 sweeper will
- * re-ingest transcripts under their correct Claude Code session UUIDs.
+ * ID SPACE (mt#3066): every `sessionId` parameter here is an `AgentSessionId`
+ * (= `ConversationId`, the harness conversation UUID keying
+ * `agent_transcripts.agent_session_id`) — NOT a Minsky workspace session id.
+ * These were plain `string` with internal `as AgentSessionId` casts, and that
+ * cast is what let three call sites pass a workspace id and silently get
+ * `null` back. Measured 2026-07-23: all 1,756 rows carry `harness =
+ * 'claude_code'` and zero carry the transitional `'legacy'` harness below, so
+ * the workspace-id-as-agent-session-id keying the mt#1324 note describes is
+ * not present in the data.
  *
  * @see mt#968 — Phase 4a: transcript DB schema and ingestion pipeline
  * @see mt#1324 — Foundation schema migration + TranscriptService rename
  * @see mt#1325 — Harness-agnostic ingestion (fixes agent_session_id keying)
+ * @see mt#3066 — typed this seam; @see mt#3101 — the remaining wrong-space callers
  */
 
 import { eq } from "drizzle-orm";
@@ -94,10 +101,11 @@ export class AgentTranscriptService {
    * Ingest a Claude Code JSONL transcript file into the database.
    * Filters to only user/assistant messages and stores essential fields.
    *
-   * Transitional: uses the Minsky session ID as agent_session_id with harness='legacy'.
-   * mt#1325 will re-ingest under the correct Claude Code session UUID.
+   * Transitional: writes `harness='legacy'`. No row in the live table carries
+   * that harness (measured 2026-07-23), and the only caller is
+   * `scripts/test-provenance-e2e.ts`.
    */
-  async ingestTranscript(sessionId: string, jsonlPath: string): Promise<MessageStats> {
+  async ingestTranscript(sessionId: AgentSessionId, jsonlPath: string): Promise<MessageStats> {
     const raw = String(await fs.readFile(jsonlPath, "utf-8"));
     const lines = raw
       .split("\n")
@@ -128,7 +136,7 @@ export class AgentTranscriptService {
     const existing = await this.db
       .select()
       .from(agentTranscriptsTable)
-      .where(eq(agentTranscriptsTable.agentSessionId, sessionId as AgentSessionId))
+      .where(eq(agentTranscriptsTable.agentSessionId, sessionId))
       .limit(1);
 
     if (existing.length > 0) {
@@ -138,10 +146,10 @@ export class AgentTranscriptService {
           transcript: messages,
           ingestedAt: new Date(),
         })
-        .where(eq(agentTranscriptsTable.agentSessionId, sessionId as AgentSessionId));
+        .where(eq(agentTranscriptsTable.agentSessionId, sessionId));
     } else {
       await this.db.insert(agentTranscriptsTable).values({
-        agentSessionId: sessionId as AgentSessionId,
+        agentSessionId: sessionId,
         harness: "legacy",
         transcript: messages,
       });
@@ -158,11 +166,11 @@ export class AgentTranscriptService {
   }
 
   /** Retrieve the stored transcript for a session. */
-  async getTranscript(sessionId: string): Promise<TranscriptMessage[] | null> {
+  async getTranscript(sessionId: AgentSessionId): Promise<TranscriptMessage[] | null> {
     const rows = await this.db
       .select()
       .from(agentTranscriptsTable)
-      .where(eq(agentTranscriptsTable.agentSessionId, sessionId as AgentSessionId))
+      .where(eq(agentTranscriptsTable.agentSessionId, sessionId))
       .limit(1);
 
     const row = rows[0];
@@ -170,7 +178,7 @@ export class AgentTranscriptService {
   }
 
   /** Compute message statistics from a stored transcript. */
-  async computeMessageStats(sessionId: string): Promise<MessageStats | null> {
+  async computeMessageStats(sessionId: AgentSessionId): Promise<MessageStats | null> {
     const messages = await this.getTranscript(sessionId);
     if (!messages) return null;
 
