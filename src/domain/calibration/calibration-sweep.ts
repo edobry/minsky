@@ -84,6 +84,23 @@ export interface CalibrationLogEntry {
    * this so the cadence loop can enforce that contract's time leg.
    */
   reviewByDays?: number;
+  /**
+   * ISO-8601 date the detector was CONFIRMED alive via a live, end-to-end
+   * synthetic-input test (dispatcher -> registry -> module -> transcript
+   * parse -> detection -> calibration write), as distinct from the date it
+   * merely shipped code (mt#3078). Anchors the "never-fired" review-due leg
+   * below for a detector whose real-world trigger is a rare COMPOUND
+   * condition (e.g. build-claim-injection needs an in-session merge + a
+   * chat-only usability claim + zero rebuild evidence, all at once) — such a
+   * detector may legitimately accumulate ZERO real fires for a long time
+   * without being broken, so `firstRecordTimestamp` (which requires >=1 real
+   * record) can never anchor its graduation clock. `liveSinceDate` gives
+   * `computeReviewDueLogs` a start date for that clock even at true-zero
+   * fires, so "confirmed alive, still silent after N days" surfaces for
+   * review instead of being invisible forever (the exact "never matched" vs
+   * "never ran" ambiguity mt#3078 was filed to resolve).
+   */
+  liveSinceDate?: string;
 }
 
 /**
@@ -176,6 +193,15 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // volume (per the mt#2923 spec's Planning notes; enforced via the
     // mt#2896 never-reviewed-aging leg in computeReviewDueLogs below).
     reviewByDays: 30,
+    // mt#3078: re-anchored from mt#2923's original ship date (2026-07-18,
+    // when zero fires had ever been confirmed possible) to the date the
+    // detector's full invocation path — dispatcher -> registry -> run() ->
+    // transcript parse -> detection -> calibration write — was PROVEN alive
+    // via a live synthetic positive/negative-control test (mt#3078 PR body
+    // carries the redacted transcript + resulting calibration record). The
+    // 30-day clock now starts from a date we KNOW the mechanism could have
+    // produced data, not from an unverified ship date.
+    liveSinceDate: "2026-07-23",
   },
 ];
 
@@ -756,7 +782,7 @@ export interface ReviewDueLog {
   firesSinceLastReview: number;
   totalFires: number;
   distinctPhrases: number;
-  reason: "past-threshold" | "time-stale" | "never-reviewed";
+  reason: "past-threshold" | "time-stale" | "never-reviewed" | "never-fired";
   /** Forwarded from the watermark's `openAskId` (mt#2659); undefined for never-reviewed (no watermark). */
   openAskId?: string;
   /**
@@ -789,7 +815,7 @@ function toReviewDueLog(
 }
 
 /**
- * Determine which logs are review-due, per THREE independent conditions:
+ * Determine which logs are review-due, per FOUR independent conditions:
  *   1. past-threshold — fires-since-review >= FIRES_THRESHOLD AND
  *      distinctPhrases >= DIVERSITY_THRESHOLD (the diversity-aware count bar).
  *   2. time-stale     — the log HAS a watermark (reviewed before), has >= 1 new
@@ -799,6 +825,14 @@ function toReviewDueLog(
  *      (per-entry `reviewByDays`, else `NEVER_REVIEWED_DAYS`). mt#2896 — closes
  *      the "under-threshold-forever" blind spot where a slow, low-volume log
  *      satisfied neither (1) (needs diversity) nor (2) (needs a watermark).
+ *   4. never-fired    — the log has NO watermark AND ZERO total fires (no
+ *      `firstRecordTimestamp` to anchor leg 3 from), but its registry entry
+ *      declares `liveSinceDate` (the date a live synthetic test confirmed the
+ *      invocation path works) that is >= the review-by window old. mt#3078 —
+ *      closes the residual blind spot leg 3 still has: a detector confirmed
+ *      alive whose real-world trigger is a genuinely rare compound condition
+ *      can sit at zero fires indefinitely, which is otherwise indistinguishable
+ *      from "silently broken" until a human happens to check.
  *
  * Pure over already-computed sweep results + the watermark store. `nowMs` and
  * both windows are injected for deterministic testing.
@@ -824,7 +858,30 @@ export function computeReviewDueLogs(
     // window. Dates from the earliest record's timestamp (there is no watermark
     // to date from here).
     if (!wm) {
-      if (r.totalFires <= 0 || !r.firstRecordTimestamp) continue;
+      if (r.totalFires <= 0) {
+        // never-fired (mt#3078): a detector with TRUE-ZERO fires (not just
+        // "no watermark yet") has no `firstRecordTimestamp` to anchor from,
+        // so the never-reviewed leg above would bail forever — silently
+        // indistinguishable from "confirmed broken" for as long as its rare
+        // compound trigger stays unmet. `liveSinceDate` (set once a live
+        // synthetic test proves the invocation path works) gives this case
+        // its own anchor so a confirmed-alive-but-silent detector still
+        // surfaces after its review-by window, instead of never at all.
+        const entryLiveSince = r.entry.liveSinceDate;
+        if (!entryLiveSince) continue;
+        const liveSinceMs = Date.parse(entryLiveSince);
+        if (Number.isNaN(liveSinceMs)) continue;
+        const windowMs =
+          r.entry.reviewByDays !== undefined
+            ? r.entry.reviewByDays * 24 * 60 * 60 * 1000
+            : neverReviewedMsDefault;
+        if (nowMs - liveSinceMs >= windowMs) {
+          const windowDays = Math.round(windowMs / (24 * 60 * 60 * 1000));
+          due.push(toReviewDueLog(r, "never-fired", undefined, windowDays));
+        }
+        continue;
+      }
+      if (!r.firstRecordTimestamp) continue;
       const firstMs = Date.parse(r.firstRecordTimestamp);
       if (Number.isNaN(firstMs)) continue;
       const windowMs =

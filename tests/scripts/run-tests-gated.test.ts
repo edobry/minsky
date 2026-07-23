@@ -86,4 +86,31 @@ describe("evaluateBunTestSummary (mt#2716 fail-closed pre-push gate)", () => {
     ].join("\n");
     expect(evaluateBunTestSummary(withDecoyName, 0).ok).toBe(true);
   });
+
+  // mt#3078: a colorizing shell (FORCE_COLOR set, inherited by the spawned
+  // subprocess) wraps each summary line in ANSI codes — real fixture captured
+  // from a live `bun test` run under `FORCE_COLOR=3`. Pre-fix, the exact-line
+  // regexes never matched the colorized " 0 fail" line and this genuinely
+  // clean run was fail-closed as "the <N> fail line could not be found".
+  test("passes a clean run whose summary lines are ANSI-colorized (FORCE_COLOR, mt#3078)", () => {
+    const colorizedSummary = [
+      "\x1b[0m\x1b[1mbun test \x1b[2mv1.2.21 (7c45ed97)\x1b[0m",
+      "\x1b[0m\x1b[32m 133 pass\x1b[0m",
+      "\x1b[0m\x1b[2m 0 fail\x1b[0m",
+      " 361 expect() calls",
+      "Ran 133 tests across 3 files. \x1b[0m\x1b[2m[\x1b[1m102.00ms\x1b[0m\x1b[2m]\x1b[0m",
+    ].join("\n");
+    expect(evaluateBunTestSummary(colorizedSummary, 0)).toEqual({ ok: true, reason: "" });
+  });
+
+  test("still FAILS closed on an ANSI-colorized run reporting real failures (mt#3078)", () => {
+    const colorizedFailing = [
+      "\x1b[0m\x1b[32m 5 pass\x1b[0m",
+      "\x1b[0m\x1b[31m 2 fail\x1b[0m",
+      "Ran 7 tests across 1 file. [0.05s]",
+    ].join("\n");
+    const r = evaluateBunTestSummary(colorizedFailing, 1);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain("2 failing test(s)");
+  });
 });

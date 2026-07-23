@@ -1494,6 +1494,68 @@ describe("computeReviewDueLogs (mt#2896)", () => {
     };
     expect(computeReviewDueLogs(results, watermarks, NOW)).toHaveLength(0);
   });
+
+  // -------------------------------------------------------------------------
+  // condition 4 — never-fired (mt#3078): a detector with ZERO total fires and
+  // no watermark, but its registry entry declares `liveSinceDate` (confirmed
+  // alive via a live synthetic test). Closes the residual blind spot: a
+  // detector whose real-world trigger is a rare compound condition can sit at
+  // true-zero fires forever, which condition 3 (never-reviewed) can't reach
+  // because it requires >=1 fire to anchor from.
+  // -------------------------------------------------------------------------
+
+  test("condition 4 — flags a zero-fire log whose liveSinceDate is >= the review window old", () => {
+    const entry = reviewEntry(BUILD_CLAIM_INJECTION_KIND, {
+      reviewByDays: 30,
+      liveSinceDate: new Date(NOW - 31 * DAY).toISOString(),
+    });
+    const results = [reviewResult(entry, { totalFires: 0, firesSinceLastReview: 0 })];
+    const due = computeReviewDueLogs(results, {}, NOW);
+    expect(due).toHaveLength(1);
+    expect(due[0]?.reason).toBe("never-fired");
+    expect(due[0]?.reviewByDays).toBe(30);
+  });
+
+  test("condition 4 — does NOT flag a zero-fire log whose liveSinceDate is within the review window (29 days)", () => {
+    const entry = reviewEntry(BUILD_CLAIM_INJECTION_KIND, {
+      reviewByDays: 30,
+      liveSinceDate: new Date(NOW - 29 * DAY).toISOString(),
+    });
+    const results = [reviewResult(entry, { totalFires: 0, firesSinceLastReview: 0 })];
+    expect(computeReviewDueLogs(results, {}, NOW)).toHaveLength(0);
+  });
+
+  test("condition 4 — does NOT flag a zero-fire log with no liveSinceDate declared (silent forever, unchanged pre-mt#3078 behavior)", () => {
+    const entry = reviewEntry("some-other-detector");
+    const results = [reviewResult(entry, { totalFires: 0, firesSinceLastReview: 0 })];
+    expect(computeReviewDueLogs(results, {}, NOW)).toHaveLength(0);
+  });
+
+  test("condition 4 — a malformed liveSinceDate is ignored (never flagged, not a throw)", () => {
+    const entry = reviewEntry(BUILD_CLAIM_INJECTION_KIND, {
+      reviewByDays: 30,
+      liveSinceDate: "not-a-date",
+    });
+    const results = [reviewResult(entry, { totalFires: 0, firesSinceLastReview: 0 })];
+    expect(computeReviewDueLogs(results, {}, NOW)).toHaveLength(0);
+  });
+
+  test("condition 4 — a non-zero-fire log ignores liveSinceDate entirely and takes the never-reviewed leg instead", () => {
+    const entry = reviewEntry(BUILD_CLAIM_INJECTION_KIND, {
+      reviewByDays: 30,
+      liveSinceDate: new Date(NOW - 90 * DAY).toISOString(),
+    });
+    const results = [
+      reviewResult(entry, {
+        totalFires: 1,
+        firesSinceLastReview: 1,
+        firstRecordTimestamp: new Date(NOW - 1 * DAY).toISOString(),
+      }),
+    ];
+    // firstRecordTimestamp is only 1 day old -> not past the 30-day window,
+    // so this should NOT be flagged via either leg once totalFires > 0.
+    expect(computeReviewDueLogs(results, {}, NOW)).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
