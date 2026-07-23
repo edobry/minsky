@@ -109,6 +109,48 @@ export interface ChangesetLiveDetail {
 }
 
 /**
+ * CI check-run summary for a changeset (mt#3097).
+ *
+ * Mirrors the domain `ChecksResult` shape. Carried on the detail payload as
+ * `checks`, which is **null when the check state could not be determined** —
+ * distinct from a real result reporting `total: 0`. That distinction is
+ * load-bearing: `getCheckRunsForRef` deliberately throws rather than returning
+ * an empty-but-successful result when its fetches fail, so "we could not find
+ * out" must never render as "no checks / green".
+ */
+export interface ChangesetChecksSummary {
+  allPassed: boolean;
+  total: number;
+  passed: number;
+  failed: number;
+  pending: number;
+  checks: {
+    name: string;
+    /** "completed" | "queued" | "in_progress" */
+    status: string;
+    /** "success" | "failure" | "neutral" | ... | null while pending */
+    conclusion: string | null;
+    url: string | null;
+  }[];
+}
+
+/**
+ * WHY the CI check state is unknown, when `checks` is null (mt#3097, PR #2233 R1).
+ *
+ * A bare `null` conflates two materially different situations, and telling the
+ * operator "could not read check runs for this commit" in the second case is a
+ * false statement — there was no commit to read them for:
+ *
+ * - `no-commit`     — no live PR resolved, so there is no head SHA to query.
+ *                     CI is not-applicable here, not failed.
+ * - `not-configured`— no GitHub credential/repo, so the reader could not be built.
+ * - `fetch-failed`  — a head SHA existed and the query genuinely failed.
+ *
+ * Only `fetch-failed` means "we tried and could not find out".
+ */
+export type ChangesetChecksUnavailableReason = "no-commit" | "not-configured" | "fetch-failed";
+
+/**
  * NOTE (mt#3096): the shared `changesetDisplayTitle` helper deliberately does
  * NOT live here — it lives in `web/lib/changeset-title.ts`.
  *

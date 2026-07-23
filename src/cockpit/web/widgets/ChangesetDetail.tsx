@@ -30,11 +30,14 @@ import { Prose } from "../components/Prose";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { relativeTime } from "../lib/format";
 import { changesetDisplayTitle } from "../lib/changeset-title";
+import { deriveNeedsYou, type NeedsYouState } from "../lib/changeset-status";
 import type {
   SessionPrRef,
   SessionDetailMeta,
   SessionCommitRef,
   ChangesetLiveDetail,
+  ChangesetChecksSummary,
+  ChangesetChecksUnavailableReason,
 } from "../../session-detail";
 
 // ---------------------------------------------------------------------------
@@ -48,6 +51,10 @@ export interface ChangesetDetailPayload {
   commits: SessionCommitRef[];
   /** Live-PR-only fields; null when the endpoint degraded to the snapshot. */
   detail: ChangesetLiveDetail | null;
+  /** CI check-runs; null when the state could NOT be determined (not "zero checks"). */
+  checks: ChangesetChecksSummary | null;
+  /** Why `checks` is null — distinguishes "no commit" from "the query failed". */
+  checksUnavailableReason: ChangesetChecksUnavailableReason | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -171,11 +178,148 @@ function SectionHeading({ id, children }: { id: string; children: React.ReactNod
 }
 
 // ---------------------------------------------------------------------------
+// Needs-you strip — the page's lead. One line answering "does this need me?"
+//
+// Only the `needs-you` level earns loud treatment; `waiting`/`settled` stay
+// calm so a genuinely-actionable changeset wins against a healthy one
+// (anomaly-over-inventory). Semantic tokens only — this file is not on the
+// blessed raw-palette status-file list.
+// ---------------------------------------------------------------------------
+
+function needsYouClass(state: NeedsYouState): string {
+  if (state.level !== "needs-you") {
+    return "border-border bg-muted/30 text-muted-foreground";
+  }
+  // Branch on the discriminator, never on headline text — the headline is
+  // human-facing copy and is expected to be reworded (PR #2233 R1).
+  return state.kind === "ci-failing"
+    ? "border-destructive/40 bg-destructive/10 text-destructive"
+    : "border-warn-amber/40 bg-warn-amber/10 text-warn-amber";
+}
+
+function NeedsYouStrip({ state }: { state: NeedsYouState }) {
+  return (
+    <div
+      data-testid="needs-you-strip"
+      data-level={state.level}
+      className={`flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-md border px-3 py-2 ${needsYouClass(state)}`}
+    >
+      <span className="text-sm font-medium">{state.headline}</span>
+      {state.note && <span className="text-xs opacity-80">{state.note}</span>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CI checks
+// ---------------------------------------------------------------------------
+
+function checkConclusionLabel(status: string, conclusion: string | null): string {
+  if (status !== "completed" || conclusion === null) return "running";
+  return conclusion;
+}
+
+/**
+ * Message for an unknown CI state. Each reason gets its OWN wording: saying
+ * "could not read check runs for this commit" when no commit was ever resolved
+ * states something untrue (PR #2233 R1).
+ */
+function checksUnavailableMessage(reason: ChangesetChecksUnavailableReason | null): string {
+  switch (reason) {
+    case "no-commit":
+      return "No commit resolved for this changeset — CI state does not apply.";
+    case "not-configured":
+      return "CI state unavailable — no GitHub connection is configured.";
+    case "fetch-failed":
+      return "CI state unavailable — could not read check runs for this commit.";
+    default:
+      return "CI state unavailable.";
+  }
+}
+
+function ChecksSection({
+  checks,
+  unavailableReason,
+}: {
+  checks: ChangesetChecksSummary | null;
+  unavailableReason: ChangesetChecksUnavailableReason | null;
+}) {
+  // Unknown is rendered as unknown — never as a green zero — and names WHY.
+  if (!checks) {
+    return (
+      <section aria-labelledby="ci-heading">
+        <SectionHeading id="ci-heading">CI</SectionHeading>
+        <Card>
+          <CardContent className="py-3">
+            <p className="text-sm text-muted-foreground">
+              {checksUnavailableMessage(unavailableReason)}
+            </p>
+          </CardContent>
+        </Card>
+      </section>
+    );
+  }
+
+  const failing = checks.checks.filter(
+    (c) =>
+      c.status === "completed" &&
+      c.conclusion !== null &&
+      !["success", "neutral", "skipped"].includes(c.conclusion)
+  );
+
+  return (
+    <section aria-labelledby="ci-heading">
+      <SectionHeading id="ci-heading">CI</SectionHeading>
+      <Card>
+        <CardContent className="py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-sm tabular-nums text-foreground">
+              {checks.passed}/{checks.total}
+            </span>
+            <span className="text-sm text-muted-foreground">passing</span>
+            {checks.failed > 0 && (
+              <span className="text-xs text-destructive">· {checks.failed} failing</span>
+            )}
+            {checks.pending > 0 && (
+              <span className="text-xs text-muted-foreground">· {checks.pending} running</span>
+            )}
+          </div>
+
+          {/* Only the failing checks are enumerated — a wall of 18 green rows
+              is inventory, not signal. */}
+          {failing.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {failing.map((c) => (
+                <li key={c.name} className="flex items-center gap-2 text-xs">
+                  <span className="text-destructive">{checkConclusionLabel(c.status, c.conclusion)}</span>
+                  {c.url ? (
+                    <a
+                      href={c.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      {c.name}
+                    </a>
+                  ) : (
+                    <span className="text-foreground">{c.name}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export function ChangesetDetail({ changeset }: { changeset: ChangesetDetailPayload }) {
-  const { pr, session, commits, detail } = changeset;
+  const { pr, session, commits, detail, checks, checksUnavailableReason } = changeset;
   const entityIndex = useEntityIndex();
 
   // Shared with the changesets LIST row so the two cannot drift — the
@@ -183,9 +327,13 @@ export function ChangesetDetail({ changeset }: { changeset: ChangesetDetailPaylo
   // while the row it was reached from already fell back to the task title.
   const prTitle = changesetDisplayTitle(pr, session);
   const prNumber = pr.number != null ? `#${pr.number}` : null;
+  const needsYou = deriveNeedsYou({ state: pr.state, approved: pr.approved, checks });
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Lead: what does this need from you? */}
+      <NeedsYouStrip state={needsYou} />
+
       {/* PR header card */}
       <Card>
         <CardHeader className="pb-2">
@@ -345,6 +493,9 @@ export function ChangesetDetail({ changeset }: { changeset: ChangesetDetailPaylo
           </Card>
         </section>
       )}
+
+      {/* CI check-runs */}
+      <ChecksSection checks={checks} unavailableReason={checksUnavailableReason} />
 
       {/* Commits section */}
       {commits.length > 0 && (
