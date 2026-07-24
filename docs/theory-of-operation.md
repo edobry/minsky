@@ -26,7 +26,7 @@ Three concrete examples from the codebase:
   test checks before every commit. Neither humans nor AI agents can commit code that fails these
   checks. Quality is enforced at the boundary, not delegated to memory or discipline.
 
-- **Session isolation** (`src/domain/session/`) gives each work unit its own git clone, branch,
+- **Session isolation** (`packages/domain/src/session/`) gives each work unit its own git clone, branch,
   and lifecycle. Parallel agents cannot interfere with each other's in-progress work. The
   filesystem itself is the coordination mechanism.
 
@@ -51,9 +51,9 @@ creation.
 
 **Implementation**:
 
-- `src/domain/session/` — isolated git workspaces where implementation happens. Each session is
+- `packages/domain/src/session/` — isolated git workspaces where implementation happens. Each session is
   a git clone tied to a task, with its own branch and lifecycle from `start` to `merge`.
-- `src/domain/tasks/` — task CRUD with pluggable backends (GitHub Issues, Minsky DB). Tasks
+- `packages/domain/src/tasks/` — task CRUD with pluggable backends (GitHub Issues, Minsky DB). Tasks
   are the units of work that sessions execute.
 - `src/adapters/shared/` — dual CLI/MCP interface. The same operations are exposed through
   `minsky` CLI and `mcp__minsky__*` tools without duplicating business logic.
@@ -72,15 +72,22 @@ central direction.
 
 - Pre-commit hooks (`src/hooks/pre-commit.ts`, `.husky/`) enforce consistent code quality across
   all contributors — human and AI alike. Every commit passes the same 8-step validation pipeline.
-- Session isolation (`src/domain/session/session-service.ts`) prevents parallel sessions from
+- Session isolation (`packages/domain/src/session/session-service.ts`) prevents parallel sessions from
   conflicting at the filesystem level. Each session operates in
   `~/.local/state/minsky/sessions/<UUID>/`.
 - Workflow hooks (`.claude/settings.json`) encode coordination rules for AI agents working inside
   the repo — what to check before committing, what to verify before merging.
+- Transcript substrate (`packages/domain/src/storage/schemas/agent-transcripts-schema.ts`,
+  `agent-transcript-turns-schema.ts`; ADR-017/018/019/025) durably captures each agent
+  conversation's turns and makes them queryable (`transcripts_search`, `transcripts_get`,
+  `transcripts_list` MCP tools). This is most of what a "reasoning stream" originally asked for:
+  structured logs of agent decision-making that other agents or human reviewers can consult.
 
-**Status**: Partial. Hooks and isolation exist. What is missing: cross-session coordination
-signals (a way for concurrent agents to know what other agents are currently working on) and a
-reasoning stream (structured logs of agent decision-making that other agents could consult).
+**Status**: Partial. Hooks and isolation exist, and the reasoning-stream half of this gap is now
+largely superseded by the transcript substrate above — decision-making is durably captured and
+queryable after the fact. What remains missing: a live cross-session coordination signal — a way
+for concurrent agents to know in real time what other agents are currently working on (the
+transcript substrate is queried after the fact, not a live channel).
 
 ---
 
@@ -95,13 +102,23 @@ spot-checking that reported behavior matches actual behavior.
 - CI integration — GitHub Actions runs the full build and test suite on every PR. This is the
   primary feedback mechanism: operational output (a PR) is automatically verified against quality
   criteria.
-- Session lifecycle (`src/domain/session/`) — the `pr_create → pr_approve → pr_merge → frozen`
-  state machine enforces an ordered workflow. Sessions cannot skip steps.
+- Session lifecycle (`packages/domain/src/session/`) — the `pr_create → pr_approve → pr_merge →
+frozen` state machine enforces an ordered workflow. Sessions cannot skip steps.
+- System 3\* audit/probe channel (`packages/domain/src/detectors/`, mt#1035) — the research doc's
+  starting set is built: **Surface 1** (policy-coverage, `detectors/policy-coverage/`) blocks a
+  preference-encoding tool call pre-execution until policy is consulted; **Surface 4**
+  (post-mortem, `detectors/unasked-direction-analyzer.ts` + `unasked-direction-store.ts`) runs on
+  a post-merge hook (`.minsky/hooks/post-merge-unasked-direction-scan.ts`) and surfaces findings
+  for human triage via the `unasked-direction_*` MCP tools (`list`, `mark-real`,
+  `mark-false-positive`).
 
-**Status**: Partial. Basic workflow enforcement and CI feedback exist. What is missing: a
-structured audit/probe channel — the ability to spot-check whether agent behavior matches
-declared intent (System 3\* in VSM terms), and maturity or quality scoring that would let System
-3 detect drift over time.
+**Status**: Partial. CI feedback, session lifecycle enforcement, and the System 3\* audit/probe
+channel's starting set (Surfaces 1 and 4) are built. What remains missing: Surfaces 2
+(diff-signature) and 3 (trajectory-probe) of the detector are still deferred (v0.2/v0.3 per the
+research doc), and an automated maturity/quality score for System 3 as a whole — today, drift
+monitoring is a per-detector dismissal-rate downgrade (`severity-downgrade.ts`) plus a manual,
+periodic false-positive-rate review (`calibration-review` skill), not a continuous System 3
+signal.
 
 ---
 
@@ -113,9 +130,9 @@ the operational units cannot see from inside their work.
 
 **Implementation**:
 
-- `src/domain/context/` — workspace context detection. Generates structured descriptions of the
+- `packages/domain/src/context/` — workspace context detection. Generates structured descriptions of the
   current project's configuration, active rules, and session state for consumption by AI agents.
-- `src/domain/rules/compile/` (`compile-service.ts`) — compiles Minsky's operational rules into
+- `packages/domain/src/rules/compile/` (`compile-service.ts`) — compiles Minsky's operational rules into
   formats consumed by different AI coding assistants (AGENTS.md, CLAUDE.md, Cursor rules). This
   is orientation infrastructure: it shapes how agents understand the environment before they act.
 
@@ -135,11 +152,11 @@ and policies that remain stable while the environment changes. Arbitrates betwee
 
 **Implementation**:
 
-- `src/domain/configuration/` — hierarchical configuration loading (defaults → project → user →
+- `packages/domain/src/configuration/` — hierarchical configuration loading (defaults → project → user →
   environment). The configuration schema defines what a valid Minsky deployment looks like.
   `.minsky/config.yaml` holds project-level policy: which task backend, which repository backend,
   which rules presets are active.
-- Rules system (`src/domain/rules/`) — Markdown files with YAML frontmatter that encode
+- Rules system (`packages/domain/src/rules/`) — Markdown files with YAML frontmatter that encode
   operational policy. Rules marked `alwaysApply: true` are included in every AI context.
   The rules compilation pipeline propagates policy into agent behavior across all supported
   AI assistants.
@@ -167,8 +184,8 @@ System 3.
 
 **Boyd — OODA Loop**: The observe-orient-decide-act loop is Boyd's model of how agents navigate
 uncertainty. Boyd's key insight is that orientation — making sense of incoming data — is the
-decisive step, not action speed. Minsky's context generation (`src/domain/context/`) and rules
-compilation (`src/domain/rules/compile/`) are orientation infrastructure: they shape how AI
+decisive step, not action speed. Minsky's context generation (`packages/domain/src/context/`) and rules
+compilation (`packages/domain/src/rules/compile/`) are orientation infrastructure: they shape how AI
 agents understand the environment before they decide what to do.
 
 **Minsky (Marvin) — Society of Mind**: Intelligence emerges from the coordination of many simple
@@ -196,7 +213,7 @@ as infrastructure.
 
 ### 2. "Maximum autonomy within constraints" — Session isolation
 
-Sessions (`src/domain/session/session-service.ts`) give each work unit its own git clone, branch,
+Sessions (`packages/domain/src/session/session-service.ts`) give each work unit its own git clone, branch,
 and lifecycle directory. An agent working in a session can make any change it wants — the
 environment provides maximum freedom to experiment. But the constraints still apply: pre-commit
 hooks run inside the session, PRs require CI and review before merging. Freedom within structure.
@@ -207,7 +224,7 @@ decision that falls directly out of Beer's System 2 design principle.
 
 ### 3. "Recursive structure" — Rules compilation pipeline
 
-The rules compilation pipeline (`src/domain/rules/compile/compile-service.ts`) compiles Minsky's
+The rules compilation pipeline (`packages/domain/src/rules/compile/compile-service.ts`) compiles Minsky's
 own operational rules into formats consumed by AI coding assistants: AGENTS.md (Codex), CLAUDE.md
 (Claude Code), and Cursor rule files.
 
@@ -220,7 +237,7 @@ recursive application of the VSM — each level of the hierarchy is itself a via
 
 Before an AI agent acts on a task, it needs to understand the environment: which rules are
 active, what sessions are open, what the current project configuration is. Minsky's context
-domain (`src/domain/context/`) generates this structured orientation package.
+domain (`packages/domain/src/context/`) generates this structured orientation package.
 
 This is Boyd's OODA loop applied to agent coordination: the system invests in orientation
 infrastructure so that individual decision cycles are faster and better-calibrated. The agent
@@ -232,12 +249,12 @@ doesn't reconstruct context from scratch on every interaction — Minsky provide
 
 The VSM mapping above identifies two significant gaps in the current architecture.
 
-**System 2 — The Mesh**: Cross-session coordination signals and reasoning streams. Currently,
-parallel sessions are isolated from each other but cannot observe each other. A complete System 2
+**System 2 — The Mesh**: Live cross-session coordination signals. Currently, parallel sessions
+are isolated from each other but cannot observe each other in real time. A complete System 2
 would allow concurrent agents to know what other agents are working on — not to block each other,
-but to coordinate naturally (avoid editing the same file, recognize when work overlaps). The
-reasoning stream would make agent decision-making inspectable by other agents and by human
-reviewers.
+but to coordinate naturally (avoid editing the same file, recognize when work overlaps). (The
+reasoning-stream half of this gap — agent decision-making inspectable by other agents and human
+reviewers — is now largely covered by the transcript substrate; see the System 2 section above.)
 
 **System 4 — The Horizon**: Cross-project pattern detection and ecosystem scanning. The current
 context generation looks inward (this project, this session). A complete System 4 would look
@@ -331,5 +348,5 @@ For the philosophical motivation see the Notion essay
   for System 2 (cross-session coordination signals and reasoning stream)
 - [Notion: The cockpit problem](https://www.notion.so/33a937f03cb4819a8865e11164cbb1c8) —
   founding essay on the cockpit / Locus distinction
-- `src/domain/concepts.md` — formal definitions for Repository, Session, Workspace, and URI
+- `packages/domain/src/concepts.md` — formal definitions for Repository, Session, Workspace, and URI
   handling
