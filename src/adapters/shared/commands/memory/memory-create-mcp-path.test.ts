@@ -15,12 +15,33 @@
  * so it fails against pre-fix `main` and passes after the shared-layer fix
  * in `shared-command-integration.ts`.
  */
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterEach, beforeAll, afterAll } from "bun:test";
 import { registerMemoryCommands, type MemoryCommandsDeps } from "./index";
 import { registerSharedCommandsWithMcp } from "../../../mcp/shared-command-integration";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
+import { setHostedMode } from "@minsky/domain/configuration/guard";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import type { MemoryRecord } from "@minsky/domain/memory/types";
+
+// Hermeticity (PR #2248 build-check failure): the real MCP bridge handler
+// calls `guardProjectSetup(command.id)` before execute for any command not
+// declaring `requiresSetup: false` — and the real memory.create doesn't.
+// `checkProjectSetup` is environment-dependent: it throws in a plain
+// checkout without `.minsky/config.local.yaml` (the CI condition) and skips
+// only inside session directories (guard.ts `isSessionDirectory`), so the
+// control test below was green in a session workspace and red in CI. This
+// file verifies PARAM handling, not the setup guard — make the guard
+// deterministic by toggling hosted mode, the exported production seam
+// (`setHostedMode`, already used as a test seam by guard.test.ts and
+// deployment-mode.test.ts): hosted mode skips `checkProjectSetup` entirely,
+// and its `guardHostedCapability` is a no-op for `memory.*` commands.
+// Deliberately NOT `mock.module` on the guard: bun's module mocks persist
+// across test files in a full-suite run (documented hazard in
+// observability.test.ts) and would poison guard.test.ts's real-guard tests.
+// The production guard itself is untouched, and the real command keeps its
+// default `requiresSetup` behavior.
+beforeAll(() => setHostedMode(true));
+afterAll(() => setHostedMode(false));
 
 // registerMemoryCommands registers all 9 memory.* commands each call; track
 // every id so a clean slate can be guaranteed regardless of registration
