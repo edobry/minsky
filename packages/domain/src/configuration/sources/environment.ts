@@ -319,6 +319,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_AT_COVERAGE", // .claude/hooks/require-execution-evidence-before-merge.ts (mt#3033) — override for the calibration-first acceptance-test cross-reference check (log-only; skips both detection and calibration-log write)
   "MINSKY_ACK_KNOWLEDGE_ACQUISITION", // .claude/hooks/knowledge-acquisition-detector.ts (mt#2708) — override for the knowledge-acquisition (research-relevant-to-loaded-skill, no propagation) calibration surface
   "MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH", // .claude/hooks/constructed-identifier-batch-detector.ts (mt#3125) — override for the batched id-minting + id-consuming tool-call detector
+  "MINSKY_ACK_BARE_PROHIBITION", // .claude/hooks/warn-bare-prohibition-dispatch.ts (mt#3162) — override for the bare-prohibition dispatch-prompt detector
 ]);
 
 /**

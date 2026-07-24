@@ -58,6 +58,16 @@ usable: rebuild + reinstall.`
 table before go-ahead. Fires: ≥2 of {irreversible, shared/prod, multi-party}, OR operator
 uncertainty alone.
 
+**Bound a negative claim to the channel you checked (mt#3162).** "I verified mechanism M is
+unavailable" is NOT "the capability is unavailable" — checking one channel bounds the finding to
+that channel: `verified-1a` for M, `inferred` for the capability. Write "verified unavailable via
+`<channel>`", never a bare "blocked". Before writing a negative conclusion into a durable artifact
+or a dispatch prompt, run one search for the CAPABILITY itself, not the mechanism you already
+ruled out. And a prohibition that crosses a dispatch boundary MUST carry its basis plus an
+explicit licence to falsify it ("...if that basis doesn't hold, say so and proceed") — bare, it
+strips the recipient of standing to correct you. Detector: `hook-observers.mdc §Bare-prohibition
+dispatch`.
+
 Full detail + RFC reconciliation: `docs/rules-rationale/claim-confidence.md`.
 
 # Cockpit Deeplinks in Terminal Output
@@ -405,6 +415,7 @@ decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture
 - **Operator deferral** — an ACTION deferred to the principal without a same-turn capability probe: capability-deferral prose ("requires X access") + `AskUserQuestion` option labels offering a fixable infra/credential fix (PreToolUse). Sibling of ask-routing-deferral (which covers a DECISION); the activation-instruction half is substrate-bypass's mt#2303 surface — don't cross-add patterns. Calibration-first (mt#2459). `MINSKY_SKIP_OPERATOR_DEFERRAL`.
 - **Wall-of-text** — turn-end report shape violation (over-budget/label-lead); suppressed-but-logged on a recent depth request. LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.
 - **Constructed-identifier batch** — id-minting call (tasks_create/session_start/session_pr_create/asks_create/memory_create) batched with an id-consuming call (session_commit/session_pr_create/session_pr_edit/tasks_spec_patch/memory_create) in the same parallel tool-call batch; root-tier sibling of guessed-session-path + pre-narration. Calibration-first (mt#3125). `MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH`.
+- **Bare-prohibition dispatch** — a dispatch prompt telling a subagent NOT to do something ("do not attempt X", "is blocked") without stating its basis or granting an explicit licence to falsify it; a wrong constraint that crosses a dispatch boundary removes the recipient's standing to correct it (mem#702). PreToolUse on the raw `Agent` tool, sharing one detector with the `tasks_dispatch` structuralCheck (mt#2488's gate, negative half). Calibration-first (mt#3162); graduation mt#3167. `MINSKY_ACK_BARE_PROHIBITION`.
 - **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.
 - **SubagentStop recording** — writes Stop-time columns on dispatch row. none.
 - **PR-author link** — stamps workspace↔conversation link at `session_pr_create` (mt#3101). none.
