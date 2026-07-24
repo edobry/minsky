@@ -313,17 +313,23 @@ export function normalizeCliParameters(
         continue;
       }
 
-      // Use default value if available
+      // Use default value if available. The `continue` matters (PR #2248 R1):
+      // without it, a `required: true` param whose default resolved via the
+      // sibling `defaultValue` field fell through to the throw below —
+      // setting the default and then rejecting the call as "missing" anyway,
+      // diverging from the MCP path (`convertMcpArgsToParameters`), which
+      // returns the sibling default without throwing. A resolved default
+      // (schema-level above, or sibling here) always short-circuits.
       if (paramDef.defaultValue !== undefined) {
         result[paramName] = paramDef.defaultValue;
+        continue;
       }
       // Skip optional parameters
       if (!paramDef.required) {
         continue;
       }
-      // Error for required parameters without default
-      // (mt#2705: unchanged — this path already worked correctly; the CLI
-      // path enforces `required` here, unlike the MCP path before this fix.)
+      // Required, and NO default of any kind (schema OR sibling) resolved —
+      // only then is the parameter genuinely missing.
       throw new Error(`Required parameter '${paramName}' is missing`);
     } else {
       // Record/object params have no scalar CLI representation: a `--flag

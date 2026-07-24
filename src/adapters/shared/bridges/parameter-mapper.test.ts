@@ -141,6 +141,21 @@ describe("normalizeCliParameters — schema-level defaults + required enforcemen
     expect(out.strategy).toBe("a");
   });
 
+  test("required parameter WITH a sibling defaultValue (no schema default) resolves without throwing (PR #2248 R1)", () => {
+    // Regression: the omitted-value branch set the sibling defaultValue and
+    // then STILL fell through to the "Required parameter missing" throw
+    // (the defaultValue block had no `continue`), diverging from the MCP
+    // path which correctly returns the sibling default. A resolved default
+    // of EITHER kind must short-circuit the required check.
+    const paramDef = {
+      schema: z.string(), // deliberately NO .default(...) — sibling field only
+      required: true,
+      defaultValue: "fallback",
+    } as unknown as CommandParameterDefinition;
+    const out = normalizeCliParameters({ mode: paramDef }, {});
+    expect(out.mode).toBe("fallback");
+  });
+
   test("required:false with a bare (non-.optional()) schema and no default stays omitted, not rejected", () => {
     // Guards against a stricter-than-intended regression: some commands
     // declare `required: false` with a raw schema that has no `.optional()`

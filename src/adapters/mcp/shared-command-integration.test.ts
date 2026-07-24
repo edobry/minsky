@@ -1102,6 +1102,42 @@ describe("MCP shared-command bridge", () => {
       expect(calls[0]?.params.status).toBeUndefined();
     });
 
+    test("required parameter WITH a sibling defaultValue (no schema default) resolves without throwing (PR #2248 R1 lock-in)", async () => {
+      // The reviewer treated this path as the correct reference when flagging
+      // the CLI-side fall-through (parameter-mapper.test.ts has the failing
+      // sibling case) — this test locks the reference behavior in: a resolved
+      // sibling defaultValue short-circuits the required check, no throw.
+      const id = "tasks.__mcp_bridge_required_with_sibling_default__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#2705: required + sibling defaultValue, no schema default",
+        requiresSetup: false,
+        parameters: {
+          mode: {
+            schema: z.string(), // deliberately NO .default(...) — sibling field only
+            description: "mode",
+            required: true,
+            defaultValue: "fallback",
+          },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await handler({});
+      expect(calls[0]?.params.mode).toBe("fallback");
+    });
+
     test("existing paired schema.default() + sibling defaultValue resolves identically (no regression)", async () => {
       const id = "tasks.__mcp_bridge_paired_default__";
       const calls: CapturedCall[] = [];
