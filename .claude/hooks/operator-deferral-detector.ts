@@ -136,9 +136,20 @@ export const PROBE_PROSE_PATTERNS: RegExp[] = [
 /**
  * Shell probes: capability checks an agent runs before concluding it lacks a
  * tool. Matched against a `Bash`/`session_exec` tool_use `command` input.
+ *
+ * Deliberately NARROW (PR #2263 R1). Two earlier members were removed because
+ * they suppressed on commands that are not probes at all:
+ *   - `config_get` — an MCP tool name, not a shell command; already covered by
+ *     {@link PROBE_TOOL_NAME_PATTERN}. Keeping it here meant a `Bash` command
+ *     that merely echoed the string counted as a capability probe.
+ *   - a bare trailing `-v` — matched ordinary verbose/invert flags
+ *     (`git log -v`, and any command ending in `-v`). `--version` is kept; it
+ *     is unambiguous.
+ * A false suppression here is the expensive direction: it silently hides a
+ * real deferral, which is the exact failure this detector exists to catch.
  */
 export const PROBE_COMMAND_PATTERN =
-  /\b(which|command\s+-v|type\s+-p|whoami|--version|-v\s*$|auth\s+status|config_get)\b/i;
+  /\b(which|command\s+-v|type\s+-p|whoami|--version|auth\s+status)\b/i;
 
 /**
  * MCP tools whose invocation IS a capability probe — config/credential reads,
@@ -149,8 +160,40 @@ export const PROBE_COMMAND_PATTERN =
 export const PROBE_TOOL_NAME_PATTERN =
   /^(mcp__minsky__(config_(get|list|doctor|credentials_list)|memory_search)|mcp__plugin_(railway|cloudflare)_|mcp__supabase__|mcp__github__get_me)/;
 
-/** A service-scoped skill (`railway:use-railway`, `cloudflare:wrangler`) IS the skill probe. */
-export const SERVICE_SKILL_PATTERN = /^[a-z0-9][a-z0-9-]*:/;
+/**
+ * Loading a HOSTED-INFRA skill is the skill probe `user-preferences.mdc
+ * §Probe before deferring` step 2 prescribes — the agent went looking for its
+ * own capability against the named service.
+ *
+ * An explicit prefix allowlist, NOT a generic `namespace:` shape (PR #2263
+ * R1). Namespacing is a convention across the whole skill catalog —
+ * `Notion:search`, `chrome-devtools-mcp:troubleshooting`, `plugin:skill` — so
+ * matching any `word:` prefix would let an unrelated skill load silently
+ * suppress a real deferral. Only services whose skill answers "do I have
+ * access to this infra?" belong here; add a prefix when a new hosted-infra
+ * skill family ships.
+ */
+export const PROBE_SKILL_PREFIXES: ReadonlySet<string> = new Set([
+  "railway",
+  "cloudflare",
+  "supabase",
+  "github",
+  "gh",
+  "vercel",
+  "aws",
+  "gcloud",
+  "fly",
+  "heroku",
+  "docker",
+  "kubectl",
+]);
+
+/** True iff `skill` names a hosted-infra service skill (`railway:use-railway`). */
+export function isProbeSkill(skill: string): boolean {
+  const colon = skill.indexOf(":");
+  if (colon <= 0) return false;
+  return PROBE_SKILL_PREFIXES.has(skill.slice(0, colon).toLowerCase());
+}
 
 /**
  * True when the turn contains evidence the agent actually probed its own
@@ -166,7 +209,7 @@ export function hasProbeEvidence(turnLines: TranscriptLine[]): boolean {
 
   for (const input of findToolUseInputs(turnLines, "Skill")) {
     const skill = input["skill"];
-    if (typeof skill === "string" && SERVICE_SKILL_PATTERN.test(skill)) return true;
+    if (typeof skill === "string" && isProbeSkill(skill)) return true;
   }
 
   for (const toolName of ["Bash", "mcp__minsky__session_exec"]) {

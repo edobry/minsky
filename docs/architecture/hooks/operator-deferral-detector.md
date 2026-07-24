@@ -35,11 +35,21 @@ Scans the just-completed turn's assistant prose for capability-deferral phrasing
 provide the token") and fires **only when the same turn shows no probe evidence**.
 
 Probe evidence is any of: a probe-shaped MCP call (`config_get`, `config_doctor`,
-`memory_search`, a railway/cloudflare/supabase client, `github get_me`); a service-scoped
+`memory_search`, a railway/cloudflare/supabase client, `github get_me`); a **hosted-infra**
 skill load (`railway:use-railway`); a probe-shaped shell command (`which`, `whoami`,
 `command -v`, `--version`, `auth status`); or an inline probe report in the prose
 ("Probed: ..."). A deferral that shows its probe results is the CORRECT shape — that is
 precisely what the rule prescribes — and must never fire.
+
+**Probe matching is deliberately narrow, and the asymmetry is the reason** (PR #2263 R1). A
+false positive here costs one glance at a calibration record; a false _suppression_ silently
+hides the exact failure this detector exists to catch. So the skill check is an explicit
+prefix allowlist (`PROBE_SKILL_PREFIXES` — railway, cloudflare, supabase, github, …), NOT a
+generic `namespace:` shape: namespacing is a catalog-wide convention (`Notion:search`,
+`chrome-devtools-mcp:troubleshooting`), so a shape match would let any unrelated skill load
+suppress a real deferral. For the same reason the shell pattern excludes `config_get` (an MCP
+tool name, already covered by the tool-name path) and a bare trailing `-v` (matches ordinary
+verbose/invert flags). Both directions are pinned by tests.
 
 ### B. AskUserQuestion option labels (PreToolUse)
 

@@ -4,6 +4,7 @@ import {
   detectAskDeferral,
   extractAskTexts,
   hasProbeEvidence,
+  isProbeSkill,
   buildCalibrationRecord,
   buildReminder,
   run,
@@ -126,6 +127,45 @@ describe("capability-deferral prose is suppressed by probe evidence", () => {
     expect(hasProbeEvidence(turn)).toBe(false);
     expect(detectCapabilityDeferral(turn)).toHaveLength(1);
   });
+
+  // PR #2263 R1 BLOCKING: the original `^[a-z0-9][a-z0-9-]*:/` shape treated
+  // ANY namespaced skill as a service probe. Namespacing is a catalog-wide
+  // convention, so that silently suppressed real deferrals. These pin the
+  // allowlist behavior in BOTH directions.
+  test.each([["analysis:lint"], ["Notion:search"], ["chrome-devtools-mcp:troubleshooting"]])(
+    "a namespaced but non-infra skill (%s) is NOT a probe",
+    (skill) => {
+      const turn = [assistantToolUse("Skill", { skill }), assistantText(DEFERRAL_PROSE)];
+      expect(hasProbeEvidence(turn)).toBe(false);
+      expect(detectCapabilityDeferral(turn)).toHaveLength(1);
+    }
+  );
+
+  test.each([["railway:use-railway"], ["cloudflare:wrangler"], ["supabase:agent"]])(
+    "a hosted-infra skill (%s) IS a probe",
+    (skill) => {
+      const turn = [assistantToolUse("Skill", { skill }), assistantText(DEFERRAL_PROSE)];
+      expect(isProbeSkill(skill)).toBe(true);
+      expect(detectCapabilityDeferral(turn)).toHaveLength(0);
+    }
+  );
+
+  test("isProbeSkill rejects a bare name and a leading-colon name", () => {
+    expect(isProbeSkill("railway")).toBe(false);
+    expect(isProbeSkill(":railway")).toBe(false);
+  });
+
+  // PR #2263 R1 NON-BLOCKING: `config_get` and a bare trailing `-v` were
+  // removed from PROBE_COMMAND_PATTERN — a Bash command that merely mentions
+  // them is not a capability probe.
+  test.each([['echo "run config_get mcp.auth.token"'], ["git log -v"], ["grep -v skip file.txt"]])(
+    "a Bash command that is not a probe (%s) does not suppress",
+    (command) => {
+      const turn = [assistantToolUse("Bash", { command }), assistantText(DEFERRAL_PROSE)];
+      expect(hasProbeEvidence(turn)).toBe(false);
+      expect(detectCapabilityDeferral(turn)).toHaveLength(1);
+    }
+  );
 });
 
 // ---------------------------------------------------------------------------
