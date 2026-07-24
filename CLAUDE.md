@@ -68,6 +68,17 @@ explicit licence to falsify it ("...if that basis doesn't hold, say so and proce
 strips the recipient of standing to correct you. Detector: `hook-observers.mdc §Bare-prohibition
 dispatch`.
 
+**A relayed claim is never `verified` (mt#3152).** A dispatched subagent's report, a `WebSearch`
+synthesis paragraph, and a safety-monitor's verdict are one epistemic class: evidence a claim needs
+checking, never a finding to repeat. Until you read the PRIMARY source yourself — the vendor doc
+page, the issue body via API, the installed source — such a claim is at most `strong-evidence` /
+`inferred`, and principal-facing statements must carry that status rather than assert it as fact.
+`WebSearch`'s summary paragraph is not a source; its links are. Same for your own tooling: "the tool
+accepted the param" is not evidence the param took effect — with no caller-visible signal of the
+ACTUAL value, the honest label is `unknown`, not an assumption. Detector: `hook-observers.mdc
+§Code-mechanism-assertion` now SURFACES relayed claims (it used to suppress them). Cues:
+`/check-premise` (g) and (h).
+
 Full detail + RFC reconciliation: `docs/rules-rationale/claim-confidence.md`.
 
 # Cockpit Deeplinks in Terminal Output
@@ -410,7 +421,7 @@ decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture
 - **Drive-PR-to-convergence** — reminds wait-for-review. none.
 - **Substrate-bypass** — unencoded commitments/retro-prose/DB-bypass, + log-only post-merge instr. `MINSKY_ACK_SUBSTRATE_BYPASS`.
 - **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. `MINSKY_ACK_RETROSPECTIVE_TRIGGER`.
-- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21; same-turn-read/relay/dedup suppression legs mt#3113. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
+- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21; same-turn-read/dedup suppression legs mt#3113. Relay (subagent-report/preamble) SURFACES with cue-(g) guidance rather than suppressing — mt#3113's suppression reversed by mt#3152 (mem#706: second-hand is the reason to check, not to stay quiet); still recorded as `relayReasons`. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
 - **Wall-of-text** — turn-end report shape violation (over-budget/label-lead); suppressed-but-logged on a recent depth request. LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.
 - **Constructed-identifier batch** — id-minting call (tasks_create/session_start/session_pr_create/asks_create/memory_create) batched with an id-consuming call (session_commit/session_pr_create/session_pr_edit/tasks_spec_patch/memory_create) in the same parallel tool-call batch; root-tier sibling of guessed-session-path + pre-narration. Calibration-first (mt#3125). `MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH`.

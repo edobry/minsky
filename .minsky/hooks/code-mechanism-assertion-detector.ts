@@ -68,13 +68,19 @@
 //      a genuine project identifier. Extends (does not replace) mt#3002's
 //      SYMBOL_STOPLIST + a new bare-directory-reference exclusion — see
 //      `isPlausibleSymbol` below.
-//   3. Relay-context suppression: the detector fired on claims RELAYED from
-//      a dispatched subagent's own report — the subagent performed the
-//      read, the parent turn quotes/paraphrases its findings. `buildRelayCorpus`
-//      + `detectRelayContext` detect (a) a same-turn subagent-dispatch
-//      tool_result containing the claimed symbol, or (b) a relay-preamble
-//      phrase ("the subagent reports...") near the claim, and suppress
-//      injection (still logging) when either holds.
+//   3. Relay context: the detector fired on claims RELAYED from a dispatched
+//      subagent's own report — the subagent performed the read, the parent
+//      turn quotes/paraphrases its findings. `buildRelayCorpus` +
+//      `detectRelayContext` detect (a) ANY same-turn subagent-dispatch
+//      tool_result (deliberately NOT gated on the tool_result containing the
+//      claimed symbol — that case is already excluded upstream as
+//      `hadSameTurnRead`, so such a gate would be dead code), or (b) a
+//      relay-preamble phrase ("the subagent reports...") near the claim.
+//      mt#3113 SUPPRESSED injection on either signal; **mt#3152 reversed
+//      that** — relay is now SURFACED with relay-specific guidance
+//      (check-premise cue (g)) and reported separately as `relayReasons`,
+//      because a second-hand claim is the reason to check, not to stay quiet
+//      (mem#706). See `computeSuppressionReasons` for the full rationale.
 //   4. Per-claim dedup: an identical claim set re-fired (re-injected) on
 //      nearly every turn for ~10 hours in one session. A new per-session
 //      cooldown store (`code-mechanism-assertion-dedup-store.ts`, mirroring
@@ -755,12 +761,15 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 // Injection text (gated by INJECTION_ENABLED)
 // ---------------------------------------------------------------------------
 
-function buildInjectionReminder(claims: Array<{ symbol: string; predicate: string }>): string {
+function buildInjectionReminder(
+  claims: Array<{ symbol: string; predicate: string }>,
+  relayed = false
+): string {
   const lines = claims
     .slice(0, 6)
     .map((c) => `  - "${c.symbol}" ${c.predicate}`)
     .join("\n");
-  return [
+  const base = [
     "[code-mechanism-assertion-detector] Unread code-mechanism claim detected (mt#2486/mt#3050).",
     "",
     "The prior turn asserted what a named symbol DOES (behavior) or where its",
@@ -770,9 +779,26 @@ function buildInjectionReminder(claims: Array<{ symbol: string; predicate: strin
     "",
     "Required: READ the symbol's source before asserting its behavior/capability.",
     "The cheapest falsifier is one Read/Grep of the file — see /check-premise.",
-    "",
-    "Family: 3772c77d / b0b294ab. Override: MINSKY_ACK_CODE_MECHANISM_ASSERTION=1.",
-  ].join("\n");
+  ];
+
+  // mt#3152: a relayed claim used to be SUPPRESSED here (mt#3113 leg 3). It is
+  // now surfaced with relay-specific guidance instead — being second-hand is
+  // the reason to check a claim, not to stay quiet about it.
+  if (relayed) {
+    base.push(
+      "",
+      "RELAY CONTEXT: this turn also carries a subagent report or a relay preamble",
+      '("the subagent reports…"). A subagent\'s report is EVIDENCE the claim needs',
+      "checking, never a finding to repeat — it inherits none of this page's",
+      "guarantees. Read the primary source yourself, or state the provenance and",
+      "verification status explicitly (claim-confidence.mdc: a relayed claim is at",
+      "most `inferred`/`strong-evidence`, NEVER `verified-*`). See /check-premise",
+      "cue (g)."
+    );
+  }
+
+  base.push("", "Family: 3772c77d / b0b294ab. Override: MINSKY_ACK_CODE_MECHANISM_ASSERTION=1.");
+  return base.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -802,7 +828,7 @@ export function computeSuppressionReasons(
   relay: RelayDetectionResult,
   sessionId: string | undefined,
   shouldInjectClaimSetFn: typeof shouldInjectClaimSet = shouldInjectClaimSet
-): { reasons: string[]; claimSetSignature: string } {
+): { reasons: string[]; claimSetSignature: string; relayReasons: string[] } {
   const reasons: string[] = [];
 
   // Leg 1: same-turn-read suppression. hadSameTurnRead is a TURN-level
@@ -815,8 +841,41 @@ export function computeSuppressionReasons(
   // proposal.
   if (result.hadSameTurnRead) reasons.push("same-turn-read");
 
-  // Leg 3: relay-context suppression (subagent report relay/quote).
-  if (relay.relayed && relay.reason) reasons.push(relay.reason);
+  // Leg 3 (mt#3113) NO LONGER SUPPRESSES — reversed by mt#3152.
+  //
+  // mt#3113 treated "this claim came from a subagent's report" as grounds to
+  // stay silent, reasoning that the parent's claim "is very likely a
+  // quote/paraphrase of it rather than a fresh, independently-verified
+  // assertion." mem#706 (2026-07-24, ~6h after mt#3113 merged) reaches the
+  // opposite conclusion from the same premise: a subagent's report, a
+  // search-synthesis paragraph, and a monitor's verdict are the SAME
+  // epistemic class — evidence that a claim needs checking, never a finding
+  // to repeat. "Not independently verified" is the reason to SURFACE a
+  // claim, not to suppress it.
+  //
+  // Why each leg was retired rather than narrowed:
+  //   - Leg (a) (`relayCorpus` non-empty): mt#3113's own docblock establishes
+  //     that a symbol literally present in a same-turn dispatch tool_result is
+  //     ALREADY excluded upstream by `buildVerificationCorpus` (it lands as
+  //     `hadSameTurnRead`). So leg (a)'s only REACHABLE cases are those where
+  //     the relayed report does NOT contain the claimed symbol — i.e. the
+  //     parent asserting beyond what the report substantiates, which is
+  //     exactly mem#706's failure. There is no "topical relevance" narrowing
+  //     available: the same argument that makes a literal-symbol gate dead
+  //     code leaves no in-band relevance signal.
+  //   - Leg (b) (relay-preamble phrase): suppressing on "the subagent
+  //     reports…" lets a claim be excused by ANNOUNCING that it is
+  //     second-hand — the cheapest possible thing for an agent to type, and a
+  //     marker of the very class that needs checking.
+  //
+  // Relay DETECTION is retained and still recorded (returned as
+  // `relayReasons`, logged in the calibration record) — what changed is the
+  // POLICY applied to it: the injected reminder gains relay-specific guidance
+  // (check-premise cue (g)) instead of being withheld. Detection and policy
+  // are deliberately kept separate here so a future calibration pass can
+  // re-grade the policy without re-deriving the signal.
+  const relayReasons: string[] = [];
+  if (relay.relayed && relay.reason) relayReasons.push(relay.reason);
 
   // Leg 4: per-claim-set dedup/cooldown (always evaluated, independent of
   // the other gates above — a claim set repeating across many turns is
@@ -825,7 +884,7 @@ export function computeSuppressionReasons(
   const signature = claimSetSignature(result.claims);
   if (!shouldInjectClaimSetFn(sessionId, signature)) reasons.push("deduped");
 
-  return { reasons, claimSetSignature: signature };
+  return { reasons, claimSetSignature: signature, relayReasons };
 }
 
 /**
@@ -885,12 +944,11 @@ export function run(
   if (!result.matched) return null;
 
   const shouldInjectClaimSetFn = deps.shouldInjectClaimSetFn ?? shouldInjectClaimSet;
-  const { reasons: suppressionReasons, claimSetSignature: signature } = computeSuppressionReasons(
-    result,
-    relay,
-    input.session_id,
-    shouldInjectClaimSetFn
-  );
+  const {
+    reasons: suppressionReasons,
+    claimSetSignature: signature,
+    relayReasons,
+  } = computeSuppressionReasons(result, relay, input.session_id, shouldInjectClaimSetFn);
 
   const outcome: GuardOutcome = {
     calibration: {
@@ -901,11 +959,12 @@ export function run(
       backedClaimCount: result.backedClaimCount,
       claimSetSignature: signature,
       suppressionReasons,
+      relayReasons,
     },
   };
 
   if (INJECTION_ENABLED && suppressionReasons.length === 0) {
-    outcome.additionalContext = buildInjectionReminder(result.claims);
+    outcome.additionalContext = buildInjectionReminder(result.claims, relayReasons.length > 0);
   }
 
   return outcome;
@@ -982,12 +1041,13 @@ export async function main(): Promise<void> {
 
   if (!result.matched) process.exit(0);
 
-  // mt#3113 legs 1/3/4 — identical composition to run()'s dispatcher path.
-  const { reasons: suppressionReasons, claimSetSignature: signature } = computeSuppressionReasons(
-    result,
-    relay,
-    input.session_id
-  );
+  // mt#3113 legs 1/4 (leg 3 is now surfaced, not suppressed — see mt#3152) —
+  // identical composition to run()'s dispatcher path.
+  const {
+    reasons: suppressionReasons,
+    claimSetSignature: signature,
+    relayReasons,
+  } = computeSuppressionReasons(result, relay, input.session_id);
 
   if (Date.now() < overallDeadline) {
     appendCalibrationRecord(input.cwd, {
@@ -998,6 +1058,7 @@ export async function main(): Promise<void> {
       backedClaimCount: result.backedClaimCount,
       claimSetSignature: signature,
       suppressionReasons,
+      relayReasons,
     });
   }
 
@@ -1006,7 +1067,7 @@ export async function main(): Promise<void> {
   const output: HookOutput = {
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",
-      additionalContext: buildInjectionReminder(result.claims),
+      additionalContext: buildInjectionReminder(result.claims, relayReasons.length > 0),
     },
   };
   process.stdout.write(JSON.stringify(output));

@@ -36,4 +36,15 @@ explicit licence to falsify it ("...if that basis doesn't hold, say so and proce
 strips the recipient of standing to correct you. Detector: `hook-observers.mdc §Bare-prohibition
 dispatch`.
 
+**A relayed claim is never `verified` (mt#3152).** A dispatched subagent's report, a `WebSearch`
+synthesis paragraph, and a safety-monitor's verdict are one epistemic class: evidence a claim needs
+checking, never a finding to repeat. Until you read the PRIMARY source yourself — the vendor doc
+page, the issue body via API, the installed source — such a claim is at most `strong-evidence` /
+`inferred`, and principal-facing statements must carry that status rather than assert it as fact.
+`WebSearch`'s summary paragraph is not a source; its links are. Same for your own tooling: "the tool
+accepted the param" is not evidence the param took effect — with no caller-visible signal of the
+ACTUAL value, the honest label is `unknown`, not an assumption. Detector: `hook-observers.mdc
+§Code-mechanism-assertion` now SURFACES relayed claims (it used to suppress them). Cues:
+`/check-premise` (g) and (h).
+
 Full detail + RFC reconciliation: `docs/rules-rationale/claim-confidence.md`.

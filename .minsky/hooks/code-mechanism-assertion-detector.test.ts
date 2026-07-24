@@ -978,10 +978,21 @@ describe("run() (dispatcher-compatible)", () => {
       makeRunUserLine(),
     ];
     const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
-    expect(outcome?.additionalContext).toBeUndefined();
-    const cal = outcome?.calibration as { suppressionReasons: string[]; hadSameTurnRead: boolean };
+    // mt#3152 REVERSAL: mt#3113 suppressed here. A relayed claim is now
+    // SURFACED with relay-specific guidance — being second-hand is the reason
+    // to check a claim, not to stay quiet (mem#706).
+    expect(outcome?.additionalContext).toBeDefined();
+    expect(outcome?.additionalContext).toContain("RELAY CONTEXT");
+    expect(outcome?.additionalContext).toContain("cue (g)");
+    const cal = outcome?.calibration as {
+      suppressionReasons: string[];
+      relayReasons: string[];
+      hadSameTurnRead: boolean;
+    };
     expect(cal.hadSameTurnRead).toBe(false); // confirms this is leg 3, not leg 1
-    expect(cal.suppressionReasons).toContain(REASON_RELAYED_SUBAGENT_CONTENT);
+    // Relay is still DETECTED and recorded — only the policy changed.
+    expect(cal.relayReasons).toContain(REASON_RELAYED_SUBAGENT_CONTENT);
+    expect(cal.suppressionReasons).not.toContain(REASON_RELAYED_SUBAGENT_CONTENT);
   });
 
   test("mt#3113 leg 4 (via run()): identical claim set two turns running injects at most once (AT)", () => {
@@ -1024,7 +1035,7 @@ describe("mt#3113 — computeSuppressionReasons (composition of legs 1/3/4)", ()
     expect(reasons).toEqual([]);
   });
 
-  test("all three signals compose into one reasons array", () => {
+  test("legs 1 and 4 compose into one reasons array; relay is reported separately", () => {
     const result = {
       matched: true,
       claims: [{ symbol: "foo", predicate: "clamps" }],
@@ -1036,13 +1047,15 @@ describe("mt#3113 — computeSuppressionReasons (composition of legs 1/3/4)", ()
       reason: REASON_RELAYED_PREAMBLE_PHRASE as const,
       relayedSymbols: [],
     };
-    const { reasons, claimSetSignature } = computeSuppressionReasons(
+    const { reasons, claimSetSignature, relayReasons } = computeSuppressionReasons(
       result,
       relay,
       "sess-x",
       () => false
     );
-    expect(reasons).toEqual(["same-turn-read", REASON_RELAYED_PREAMBLE_PHRASE, "deduped"]);
+    // mt#3152: relay no longer belongs in `reasons` — it does not suppress.
+    expect(reasons).toEqual(["same-turn-read", "deduped"]);
+    expect(relayReasons).toEqual([REASON_RELAYED_PREAMBLE_PHRASE]);
     expect(typeof claimSetSignature).toBe("string");
     expect(claimSetSignature.length).toBeGreaterThan(0);
   });
