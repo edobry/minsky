@@ -64,6 +64,13 @@ export interface CalibrationLogEntry {
    *   the matched usability/delivery claim phrase(s), same shape family as
    *   causal-premise. `deploySurfaceFiles: string[]` is carried as extra
    *   context (not consulted by diversity/threshold logic).
+   * "constructed-identifier-batch" → record.matches: {category, phrase, ...}[]
+   *   (mt#3125) — same matches-shape family as retrospective-trigger /
+   *   ask-routing-deferral / pre-narration (parsed by the shared fallback
+   *   branch below, no dedicated `kind === ...` branch needed); `category`
+   *   is the `${mintTool}+${consumeTool}` pair label, `phrase` is the
+   *   consuming call's free-text excerpt. `mintTool`/`consumeTool`/
+   *   `consumeField` are carried as extra context, not consulted here.
    */
   kind:
     | "causal-premise"
@@ -74,7 +81,8 @@ export interface CalibrationLogEntry {
     | "policy-coverage"
     | "silent-stretch"
     | "wall-of-text"
-    | "build-claim-injection";
+    | "build-claim-injection"
+    | "constructed-identifier-batch";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
    * trigger: the number of days a NEVER-reviewed log may accumulate fires
@@ -191,6 +199,13 @@ export function findInvalidLiveSinceDates(
  *     shape family as causal-premise). Declares `reviewByDays: 30` (the
  *     mt#2896 never-reviewed-aging leg) as its graduation contract.
  *
+ * V6 entry (mt#3125):
+ *   - constructed-identifier-batch-calibration.jsonl (mt#3125 detector) —
+ *     the root-tier sibling of pre-narration/mt#2195's family: fires on the
+ *     BATCH itself (an id-minting call + an id-consuming call in one
+ *     parallel tool-call batch), not a downstream identifier surface.
+ *     Matched-phrase shape family (same as retrospective-trigger).
+ *
  * To add another log: append one CalibrationLogEntry here.
  */
 export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
@@ -260,6 +275,11 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // dates, not a stale-but-still-past one, so the citation convention is
     // the enforcement for that residual case.
     liveSinceDate: "2026-07-23",
+  },
+  {
+    path: ".minsky/constructed-identifier-batch-calibration.jsonl",
+    name: "constructed-identifier-batch",
+    kind: "constructed-identifier-batch",
   },
 ];
 
@@ -1184,6 +1204,7 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "silent-stretch": "silent-stretch-detector",
   "wall-of-text": "wall-of-text-detector",
   "build-claim-injection": "build-claim-injection-detector",
+  "constructed-identifier-batch": "constructed-identifier-batch-detector",
 };
 
 /**
