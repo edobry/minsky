@@ -224,6 +224,17 @@ describe("Cockpit server", () => {
     // Today the override replaces an existing id, so the set is identical; this
     // keeps it correct if that ever stops being true.
     const ids = Object.keys({ ...WIDGET_REGISTRY, ...overrideRegistry });
+    // ...and cross-check that set against what the server ACTUALLY serves. R1
+    // suggested driving the sweep from /api/widgets directly; asserting equality
+    // instead gets the same server-truth guarantee without the failure mode that
+    // would introduce — if /api/widgets ever returned an empty or partial list,
+    // sourcing `ids` from it would silently shrink the sweep to nothing and pass.
+    // Here a divergence between "what the server serves" and "what we probe"
+    // fails loudly, and the sweep's size can never be set by the thing under test.
+    const servedIds = ((await (await fetch(`${url}/api/widgets`)).json()) as Array<{ id: string }>)
+      .map((w) => w.id)
+      .sort();
+    expect(servedIds).toEqual([...ids].sort());
     // Probe concurrently (mt#3047). These requests are independent, but
     // serializing ~20 of them made this test's runtime the SUM of endpoint
     // latencies: fine in isolation (~50-70ms each), but under full-suite
