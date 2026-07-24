@@ -189,8 +189,23 @@ export function registerSessionWorkspaceTools(
       try {
         const resolvedPath = await pathResolver.resolvePath(typedArgs.sessionId, typedArgs.path);
 
+        // mt#3129: the commandMapper.addCommand path passes raw args to the
+        // handler without materializing schema defaults, so an omitted
+        // `createDirs` arrives `undefined` even though the schema declares
+        // `.default(true)`. Honor the declared default here.
+        const createDirs = typedArgs.createDirs ?? true;
+
+        // mt#3129: `created` must reflect whether the file existed BEFORE this
+        // write — a hardcoded `created: true` lied on every overwrite. stat is
+        // taken before the write; a rejection (ENOENT, or any stat failure)
+        // means the file did not exist yet.
+        const existedBefore = await stat(resolvedPath).then(
+          () => true,
+          () => false
+        );
+
         // Create parent directories if requested and they don't exist
-        if (typedArgs.createDirs) {
+        if (createDirs) {
           const parentDir = dirname(resolvedPath);
           await mkdir(parentDir, { recursive: true });
         }
@@ -207,7 +222,7 @@ export function registerSessionWorkspaceTools(
           path: typedArgs.path,
           resolvedPath,
           contentLength: typedArgs.content.length,
-          createdDirs: typedArgs.createDirs,
+          createdDirs: createDirs,
         });
 
         return createSuccessResponse({
@@ -215,7 +230,7 @@ export function registerSessionWorkspaceTools(
           session: typedArgs.sessionId,
           resolvedPath: relativeResolvedPath,
           bytesWritten: typedArgs.content.length,
-          created: true, // File is being written
+          created: !existedBefore,
         });
       } catch (error) {
         const errorMessage = getErrorMessage(error);
