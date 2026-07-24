@@ -43,6 +43,7 @@ const BUILD_CLAIM_INJECTION_KIND = "build-claim-injection";
 const KNOWLEDGE_ACQUISITION_KIND = "knowledge-acquisition";
 const ENGINEERING_WRITING_SKILL_NAME = "engineering-writing";
 const CONSTRUCTED_IDENTIFIER_BATCH_KIND = "constructed-identifier-batch";
+const OPERATOR_DEFERRAL_KIND = "operator-deferral";
 const TEST_ASK_ID = "483dbcb0-788a-4159-9d8a-ba718ba1f2b0";
 const RETRO_PATH = ".minsky/retrospective-trigger-calibration.jsonl";
 const CAUSAL_GUARD_NAME = "causal-premise-detector";
@@ -112,8 +113,8 @@ function buildLines(count: number, makeLine: (i: number) => string): string {
 // ---------------------------------------------------------------------------
 
 describe("CALIBRATION_LOG_REGISTRY", () => {
-  test("has eleven entries (mt#2619 adds three; mt#2866 adds silent-stretch; mt#2870 adds wall-of-text; mt#2923 adds build-claim-injection; mt#2708 adds knowledge-acquisition; mt#3125 adds constructed-identifier-batch)", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(11);
+  test("has twelve entries (mt#2619 adds three; mt#2866 adds silent-stretch; mt#2870 adds wall-of-text; mt#2923 adds build-claim-injection; mt#2708 adds knowledge-acquisition; mt#3125 adds constructed-identifier-batch; mt#2459 adds operator-deferral)", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(12);
   });
 
   test("first entry is causal-premise", () => {
@@ -191,6 +192,12 @@ describe("CALIBRATION_LOG_REGISTRY", () => {
     expect(CALIBRATION_LOG_REGISTRY[10]?.path).toBe(
       ".minsky/constructed-identifier-batch-calibration.jsonl"
     );
+  });
+
+  test("twelfth entry is operator-deferral (mt#2459)", () => {
+    const entry = CALIBRATION_LOG_REGISTRY[11];
+    expect([entry?.kind, entry?.name]).toEqual([OPERATOR_DEFERRAL_KIND, OPERATOR_DEFERRAL_KIND]);
+    expect(entry?.path).toBe(".minsky/operator-deferral-calibration.jsonl");
   });
 });
 
@@ -1414,6 +1421,16 @@ const KIND_FIXTURES: Readonly<
     line: () => makeRetroRecord(),
     expectedGuardName: "constructed-identifier-batch-detector",
   },
+  [OPERATOR_DEFERRAL_KIND]: {
+    // mt#2459 — same matches-shape family as retrospective-trigger (see this
+    // file's CalibrationLogEntry.kind doc comment), so it reuses
+    // makeRetroRecord's shape, parsed under the "operator-deferral" kind.
+    // Written by TWO guards (the prose + AskUserQuestion surfaces); the
+    // guard-name map names the prose surface as this log's canonical guard,
+    // which is what this fixture asserts.
+    line: () => makeRetroRecord(),
+    expectedGuardName: "operator-deferral-detector",
+  },
 };
 
 describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
@@ -1439,8 +1456,8 @@ describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
     }
   });
 
-  test("CALIBRATION_LOG_REGISTRY has exactly 11 entries and every kind has a fixture above", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(11);
+  test("CALIBRATION_LOG_REGISTRY has exactly 12 entries and every kind has a fixture above", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(12);
     for (const entry of CALIBRATION_LOG_REGISTRY) {
       expect(KIND_FIXTURES[entry.kind]).toBeDefined();
     }

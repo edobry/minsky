@@ -78,6 +78,13 @@ export interface CalibrationLogEntry {
    *   is the `${mintTool}+${consumeTool}` pair label, `phrase` is the
    *   consuming call's free-text excerpt. `mintTool`/`consumeTool`/
    *   `consumeField` are carried as extra context, not consulted here.
+   * "operator-deferral"        → record.matches: {category, phrase}[] (mt#2459) —
+   *   same matches-shape family as pre-narration / constructed-identifier-batch
+   *   (parsed by the shared fallback branch below); `category` is the surface
+   *   (`capability-deferral-prose` | `ask-option-label`), `phrase` is the
+   *   matched excerpt. BOTH of the detector's surfaces write to this one log —
+   *   they are two detection surfaces on ONE failure family, so measuring them
+   *   together is what the graduation decision needs.
    */
   kind:
     | "causal-premise"
@@ -90,7 +97,8 @@ export interface CalibrationLogEntry {
     | "wall-of-text"
     | "build-claim-injection"
     | "knowledge-acquisition"
-    | "constructed-identifier-batch";
+    | "constructed-identifier-batch"
+    | "operator-deferral";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
    * trigger: the number of days a NEVER-reviewed log may accumulate fires
@@ -318,6 +326,11 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     path: ".minsky/constructed-identifier-batch-calibration.jsonl",
     name: "constructed-identifier-batch",
     kind: "constructed-identifier-batch",
+  },
+  {
+    path: ".minsky/operator-deferral-calibration.jsonl",
+    name: "operator-deferral",
+    kind: "operator-deferral",
   },
 ];
 
@@ -1294,6 +1307,15 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "build-claim-injection": "build-claim-injection-detector",
   "knowledge-acquisition": "knowledge-acquisition-detector",
   "constructed-identifier-batch": "constructed-identifier-batch-detector",
+  // mt#2459: this log is written by TWO GUARD_REGISTRY entries —
+  // `operator-deferral-detector` (UserPromptSubmit prose surface) and
+  // `operator-deferral-ask-surface` (PreToolUse AskUserQuestion surface) —
+  // because they are two detection surfaces on ONE failure family and the
+  // graduation decision needs them measured together. This map is 1:1 by
+  // construction, so it names the PROSE surface as the log's canonical guard;
+  // the per-record `matches[].category` field is what distinguishes which
+  // surface actually fired, and `/calibration-review` reads that.
+  "operator-deferral": "operator-deferral-detector",
 };
 
 /**

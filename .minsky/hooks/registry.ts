@@ -909,6 +909,71 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#2459 — operator-deferral family (probe-before-defer / operator-must-do-X).
+  // TWO surfaces from ONE module, sharing ONE calibration log (they are two
+  // detection surfaces on one failure family): the UserPromptSubmit prose scan
+  // here, and the PreToolUse `AskUserQuestion` option-label scan below it. Both
+  // calibration-first (INJECTION_ENABLED=false in the module). The
+  // ACTIVATION-instruction half of this family belongs to
+  // substrate-bypass-detector's mt#2303 surface — see that module's
+  // SCOPE BOUNDARY note before adding a pattern to either.
+  // -------------------------------------------------------------------------
+  {
+    name: "operator-deferral-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./operator-deferral-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "operator-deferral",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Deferred to operator: requires Railway access." }],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      // Calibration-first (INJECTION_ENABLED=false) — assert the calibration
+      // outcome, not additionalContext, so a future flip doesn't break the
+      // canary (it would simply gain an ADDITIONAL warn outcome).
+      expects: "calibration",
+    },
+  },
+  {
+    name: "operator-deferral-ask-surface",
+    event: "PreToolUse",
+    matcher: "AskUserQuestion",
+    module: () => import("./operator-deferral-detector").then((m) => ({ run: m.runAskSurface })),
+    timeoutMs: 10000,
+    calibrationLog: "operator-deferral",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    canary: {
+      input: {
+        transcript_path: "mt2889-canary-transcript",
+        tool_name: "AskUserQuestion",
+        tool_input: {
+          questions: [
+            {
+              question: "The reviewer service is CRASHED. How should we proceed?",
+              options: [{ label: "You recover the reviewer service" }],
+            },
+          ],
+        },
+      },
+      transcriptLines: [{ type: "user", message: { role: "user", content: "first turn" } }],
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
   // mt#2812 — new guard, not part of any legacy settings.json migration.
   // Reads the guard-health JSONL log (a pure fs read + string compare, no
   // network/git calls) and injects a warning when any guard has reached
