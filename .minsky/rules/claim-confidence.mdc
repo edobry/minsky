@@ -25,4 +25,14 @@ usable: rebuild + reinstall.`
 table before go-ahead. Fires: ≥2 of {irreversible, shared/prod, multi-party}, OR operator
 uncertainty alone.
 
+**Bound a negative claim to the channel you checked (mt#3162).** "I verified mechanism M is
+unavailable" is NOT "the capability is unavailable" — checking one channel bounds the finding to
+that channel: `verified-1a` for M, `inferred` for the capability. Write "verified unavailable via
+`<channel>`", never a bare "blocked". Before writing a negative conclusion into a durable artifact
+or a dispatch prompt, run one search for the CAPABILITY itself, not the mechanism you already
+ruled out. And a prohibition that crosses a dispatch boundary MUST carry its basis plus an
+explicit licence to falsify it ("...if that basis doesn't hold, say so and proceed") — bare, it
+strips the recipient of standing to correct you. Detector: `hook-observers.mdc §Bare-prohibition
+dispatch`.
+
 Full detail + RFC reconciliation: `docs/rules-rationale/claim-confidence.md`.
