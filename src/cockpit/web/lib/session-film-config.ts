@@ -12,9 +12,21 @@
  *   below as a Phase-1-gate-session tuning target, not an architectural
  *   commitment.
  */
+import type { EventRealm } from "@minsky/domain/transcripts/event-schema";
 
-/** Fixed compass bearings for realm trees around the agent's home (spec SC 5). Angles in degrees, 0 = north (up), clockwise. */
-export const REALM_BEARINGS_DEG = {
+/**
+ * Fixed compass bearings for realm trees around the agent's home (spec
+ * SC 5). Angles in degrees, 0 = north (up), clockwise.
+ *
+ * Typed as `Record<EventRealm, number>` (NOT a bare `as const` object
+ * literal) so this is COMPILE-TIME complete against the schema's realm
+ * union — a future realm added to `EventRealm` without a matching bearing
+ * here fails to compile, instead of silently producing `undefined` (and
+ * NaN world coordinates downstream in `session-film-layout.ts`) at
+ * runtime. Reviewer finding (PR #2269 round 1): the previous `as const`
+ * form had no structural link to `EventRealm` at all.
+ */
+export const REALM_BEARINGS_DEG: Record<EventRealm, number> = {
   repo: 315, // northwest
   "minsky-substrate": 45, // northeast
   web: 90, // east
@@ -22,7 +34,7 @@ export const REALM_BEARINGS_DEG = {
   shell: 180, // south
   agents: 225, // west (spawned agents / workspaces)
   unknown: 270, // northwest-adjacent catch-all — kept visually distinct, low DOI weight
-} as const;
+};
 
 export interface SessionFilmConfig {
   /** Degree-of-interest: fixed per-realm-depth a-priori importance weight (before recency/distance terms). */

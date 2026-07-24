@@ -65,6 +65,46 @@ describe("applyEvent — monotone under late completions", () => {
     expect(entity?.lastOutcome).toBe("ok");
   });
 
+  test("a refinement's tEnd ADVANCES lastTouchedAt — recency must not freeze on late completions (reviewer finding)", () => {
+    const inFlight = applyEvent(
+      createEmptyWorldState(),
+      ev({ outcome: undefined, tStart: "2026-07-24T00:00:00.000Z", tEnd: undefined }),
+      0
+    );
+    // Before resolution, lastTouchedAt falls back to tStart (no tEnd yet).
+    expect(inFlight.entities.get(DEFAULT_TARGET_ID)?.lastTouchedAt).toBe(
+      "2026-07-24T00:00:00.000Z"
+    );
+
+    const refined = applyEvent(
+      inFlight,
+      ev({
+        outcome: "ok",
+        tStart: "2026-07-24T00:00:00.000Z",
+        tEnd: "2026-07-24T00:05:00.000Z",
+      }),
+      0
+    );
+    // The refinement's tEnd is later and more informative — it must win.
+    expect(refined.entities.get(DEFAULT_TARGET_ID)?.lastTouchedAt).toBe("2026-07-24T00:05:00.000Z");
+  });
+
+  test("a resolved tEnd is never regressed back to an earlier value by a later re-application lacking one", () => {
+    const resolved = applyEvent(
+      createEmptyWorldState(),
+      ev({ tStart: "2026-07-24T00:00:00.000Z", tEnd: "2026-07-24T00:05:00.000Z" }),
+      0
+    );
+    const reapplied = applyEvent(
+      resolved,
+      ev({ tStart: "2026-07-24T00:00:00.000Z", tEnd: undefined }),
+      0
+    );
+    expect(reapplied.entities.get(DEFAULT_TARGET_ID)?.lastTouchedAt).toBe(
+      "2026-07-24T00:05:00.000Z"
+    );
+  });
+
   test("a resolved outcome is never regressed back to unresolved by a later re-application", () => {
     const resolved = applyEvent(createEmptyWorldState(), ev({ outcome: "error" }), 0);
     // Simulate a hypothetical "late re-derivation" of the SAME occurrence

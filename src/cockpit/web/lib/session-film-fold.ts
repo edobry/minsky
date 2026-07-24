@@ -169,14 +169,25 @@ export function applyEvent(
   // ── Entity refinement ───────────────────────────────────────────────────
   const existingEntity = entities.get(event.target.id);
   if (isRefinement && existingEntity) {
-    // Refine in place: NEVER regress an already-resolved outcome/tEnd back
-    // to unresolved — the monotone-fold obligation. `?? event.X` only ever
-    // ADDS information (fills an undefined) than it never removes it.
+    // Refine in place: NEVER regress an already-resolved OUTCOME back to
+    // unresolved (`existingEntity.lastOutcome ?? event.outcome` — existing
+    // wins once set, the monotone-fold obligation). `lastTouchedAt` is
+    // DIFFERENT: the first (unresolved) pass recorded `tStart` as the best
+    // available timestamp; a refinement's `tEnd` — once known — is always
+    // >= that `tStart` for the SAME occurrence, so preferring the new
+    // event's `tEnd` here is an ADVANCE, not a regression (reviewer finding,
+    // PR #2269 round 1: the previous unconditional
+    // `lastTouchedAt: existingEntity.lastTouchedAt` discarded a refining
+    // event's `tEnd` entirely, freezing DOI recency scoring on every
+    // late-resolved touch). `lastVerb` is `event.verb` directly — for a
+    // genuine refinement (same array index, same target) the verb is
+    // invariant across passes, so this is equivalent to keeping the
+    // existing value, just derived from the more direct source.
     entities.set(event.target.id, {
       ...existingEntity,
       lastOutcome: existingEntity.lastOutcome ?? event.outcome,
-      lastTouchedAt: existingEntity.lastTouchedAt,
-      lastVerb: existingEntity.lastVerb,
+      lastTouchedAt: event.tEnd ?? existingEntity.lastTouchedAt,
+      lastVerb: event.verb,
     });
   } else {
     entities.set(event.target.id, {

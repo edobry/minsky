@@ -101,16 +101,33 @@ export function SessionFilmPage() {
   // went wrong").
   useEffect(() => {
     if (!selectedConversationId || !hasAppliedDeepLinkPlayhead) return;
-    const next = new URLSearchParams(searchParams);
-    next.set(SESSION_PARAM, selectedConversationId);
-    next.set(PLAYHEAD_PARAM, String(playheadRowIndex));
-    // Avoid a redundant history write when nothing actually changed.
-    if (next.get(SESSION_PARAM) === searchParams.get(SESSION_PARAM) && next.get(PLAYHEAD_PARAM) === searchParams.get(PLAYHEAD_PARAM)) {
-      return;
-    }
-    setSearchParams(next, { replace: true });
+    setSearchParams(
+      (prev) => {
+        // Functional form: `prev` is ALWAYS the LIVE URLSearchParams at the
+        // moment this update actually applies, never a value captured from
+        // whichever render scheduled this effect. Reviewer finding (PR #2269
+        // round 1): reading the render-scope `searchParams` variable here
+        // risked comparing against — and silently overwriting — a URL change
+        // that happened for a reason OUTSIDE this effect (e.g. the user
+        // pressing browser back/forward) between that render and this effect
+        // actually running.
+        if (
+          prev.get(SESSION_PARAM) === selectedConversationId &&
+          prev.get(PLAYHEAD_PARAM) === String(playheadRowIndex)
+        ) {
+          return prev; // no-op — avoid a redundant history write
+        }
+        const next = new URLSearchParams(prev);
+        next.set(SESSION_PARAM, selectedConversationId);
+        next.set(PLAYHEAD_PARAM, String(playheadRowIndex));
+        return next;
+      },
+      { replace: true }
+    );
     // Intentionally excludes `searchParams`/`setSearchParams` — this effect
-    // writes to searchParams itself; including it would create a feedback loop.
+    // writes to searchParams itself; the functional form above reads FRESH
+    // state at apply-time instead of a closed-over value, which is what
+    // makes omitting it safe (no feedback loop, no staleness).
   }, [playheadRowIndex, selectedConversationId, hasAppliedDeepLinkPlayhead]);
 
   const worldState = useMemo(

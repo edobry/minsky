@@ -192,7 +192,14 @@ export function computeStageLayout(
   const allNodes: StageLayoutNode[] = [];
 
   for (const realm of EVENT_REALMS) {
-    const bearingDeg = REALM_BEARINGS_DEG[realm];
+    // `REALM_BEARINGS_DEG` is typed `Record<EventRealm, number>` (compile-time
+    // complete against the schema's realm union — see session-film-config.ts's
+    // doc comment), but the `?? 0` here is a defensive SECOND layer in case a
+    // version-skewed frontend bundle ever runs against a newer backend schema
+    // (a real deploy hazard the type system alone can't close): a missing
+    // bearing degrades to a fixed default angle rather than propagating NaN
+    // into every downstream world coordinate (reviewer finding, PR #2269 round 1).
+    const bearingDeg = REALM_BEARINGS_DEG[realm] ?? 0;
     const angleRad = (bearingDeg * Math.PI) / 180;
     // 0deg = north (up): direction vector points "away from home" along the bearing.
     const dirX = Math.sin(angleRad);
