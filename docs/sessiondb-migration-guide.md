@@ -1,511 +1,139 @@
-# SessionDB Migration Guide
+# Persistence Migration Guide
 
-> **Obsolete (2026-06-08; SQLite removal completed the same day).** This guide is historical only.
-> The JSON-file backend was removed years ago, and **SQLite support has been removed entirely**
-> (mt#2339, mt#2329) — `PersistenceConfig.backend` is now a `"postgres"` literal type, not a valid
-> `sqlite`/`json` union member. The `[sessiondb]` config keys referenced below are also retired —
-> they now throw at boot (use `persistence.*` / `MINSKY_PERSISTENCE_POSTGRES_URL`). See
-> [ADR-018](architecture/adr-018-domain-persistence-pattern.md) for the canonical persistence
-> decision and task mt#434 for the future PGlite (embedded Postgres) option. The SQLite/legacy
-> content below is retained only for historical reference — none of the `sqlite`-target commands
-> shown work against the current codebase (mt#2623 follow-up: file a full rewrite/purge task).
-> **All command / config / env-var examples below are legacy** and may reference superseded
-> names (`MINSKY_POSTGRES_URL`, `[sessiondb]` TOML keys, SQLite backends); the canonical
-> equivalents are `persistence.*` (YAML) and `MINSKY_PERSISTENCE_POSTGRES_URL`.
->
-> **Migration to a SQLite TARGET is no longer functional (mt#2329).** Sessions are
-> Postgres-only under ADR-018, and session writes go through the Postgres-only
-> `DrizzleSessionRepository`. `minsky persistence migrate ... to sqlite` (and the
-> `to: "sqlite"` target in any wrapper) now **hard-errors** with a clear message —
-> migrate **to postgres** instead. Migrating _from_ SQLite to Postgres remains the
-> valid direction. The broader SQLite removal is tracked by **mt#2349**.
+> **Renamed from "SessionDB".** The `sessiondb` CLI namespace was retired when sessions moved
+> onto the Postgres-only `DrizzleSessionRepository` (mt#2339, mt#2329) — there is no `minsky
+sessiondb` command anymore. The current command family is `minsky persistence`. Postgres is
+> the **only** supported backend ([ADR-018](architecture/adr-018-domain-persistence-pattern.md),
+> [ADR-027](architecture/adr-027-postgres-only-persistence-confirmed.md)); SQLite and the older
+> JSON-file backend have been removed entirely, not merely deprecated. See
+> [§Historical](#historical-pre-mt2339-sqlite--json-migration) for what this guide used to cover.
 
-This guide covers migrating session data between different storage backends in Minsky (SQLite, PostgreSQL).
+This guide covers the current Postgres persistence surface: configuring the connection, applying
+schema migrations, and restoring session data from a JSON backup. For connection-pool sizing,
+retry behavior, and graceful shutdown, see
+[Postgres Persistence Configuration](./persistence-configuration.md). For diagnosing a broken or
+degraded connection, see the [Troubleshooting Guide](./sessiondb-troubleshooting.md).
 
-## Overview
+## Configuration
 
-Minsky supports two session database backends:
+Persistence is configured under the `persistence` key in `.minsky/config.yaml` (repository) or
+`~/.config/minsky/config.yaml` (global):
 
-- **SQLite**: Local database with ACID transactions
-- **PostgreSQL**: Server-based database for team environments
+```yaml
+persistence:
+  backend: postgres
+  postgres:
+    connectionString: "postgresql://user:password@host:5432/minsky"
+    maxConnections: 15 # optional, default 15 — see persistence-configuration.md
+```
 
-> **Legacy note**: An older JSON-file sessiondb backend was previously supported. If you have session data in JSON format, migrate to SQLite using the instructions below.
+`backend` accepts only `postgres` — the type itself has no other member (mt#2339). Equivalent
+environment variables:
 
-## Quick Start
+| Variable                                      | Config key                                     | Notes                                                   |
+| --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------- |
+| `MINSKY_PERSISTENCE_BACKEND`                  | `persistence.backend`                          | Canonical                                               |
+| `MINSKY_PERSISTENCE_POSTGRES_URL`             | `persistence.postgres.connectionString`        | Canonical                                               |
+| `MINSKY_POSTGRES_URL`                         | `persistence.postgres.connectionString`        | Legacy alias, still read                                |
+| `MINSKY_POSTGRES_SESSION_URL`                 | `persistence.postgres.sessionConnectionString` | Session-mode pooler URL for `LISTEN`/`NOTIFY` (mt#1852) |
+| `MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT` | `persistence.postgres.connectTimeout`          | Seconds                                                 |
 
-### 1. Check Current Status
+Inspect the effective, merged configuration at any time:
 
 ```bash
-minsky sessiondb migrate status
+minsky config get persistence.backend
+minsky config get persistence.postgres.connectionString
+minsky config list --sources
 ```
 
-This shows your current backend configuration and provides recommendations.
+If no connection string is configured anywhere, Minsky boots with a placeholder
+"unconfigured" persistence provider — non-DB commands (`--version`, `config get`, `/health`)
+keep working, but any DB-backed operation fails with:
 
-### 2. Basic Migration
+```
+Persistence is not configured: ... This operation requires a Postgres connection. Set
+persistence.postgres.connectionString in config, or export MINSKY_PERSISTENCE_POSTGRES_URL
+(or legacy MINSKY_POSTGRES_URL).
+```
 
-Migrate from JSON (legacy) to SQLite:
+## Schema migrations
+
+`minsky persistence migrate` with **no target argument** runs the Drizzle schema migrations for
+the configured Postgres backend. This is the day-to-day form of the command — it's what a fresh
+clone or a cold-started deployment runs to bring the database schema up to date.
 
 ```bash
-minsky sessiondb migrate to sqlite --backup ./backups
+# Preview pending migrations (default — no changes made)
+minsky persistence migrate
+
+# Apply pending migrations
+minsky persistence migrate --execute
 ```
 
-Migrate to PostgreSQL:
+Sample output in preview mode:
+
+```
+Schema migration (dry run) for postgres
+```
+
+The migrations folder is resolved automatically for both source-tree and bundled-binary
+invocations (mt#2369) — see
+[Migration Folder Resolution](./persistence-configuration.md#migration-folder-resolution-bundle-aware-mt2369)
+if you need the resolution order.
+
+### Unmerged-migration guard
+
+Applying a migration (`--execute`) against a shared/remote database refuses to proceed if the
+pending migration's `.sql` file isn't present on `origin/main` yet — this prevents a
+feature-branch-only migration from being applied to production and then abandoned. Full detail,
+including the override flag: [Migration Safety: Unmerged-Migration Guard](./persistence-configuration.md#migration-safety-unmerged-migration-guard-mt2277).
+
+## Restoring session data from a JSON backup
+
+`minsky persistence migrate to postgres` reads session records and writes them into the
+Postgres `sessions` table as a **full replacement** (existing rows are cleared first, inside one
+transaction). `to` accepts only `postgres` — there is no other valid target.
 
 ```bash
-minsky sessiondb migrate to postgres \
-  --connection-string "postgresql://user:password@localhost:5432/minsky" \
-  --backup ./backups
+# Preview: read a JSON backup and show what would be written (default mode)
+minsky persistence migrate to postgres --from ./backups/session-backup-2026-06-01.json
+
+# Apply it, creating a fresh backup of the current Postgres state first
+minsky persistence migrate to postgres \
+  --from ./backups/session-backup-2026-06-01.json \
+  --execute
 ```
 
-### 3. Update Configuration
+If `--from` is omitted, the source is the currently configured backend (already Postgres), so
+the command re-reads and re-writes the live table — useful mainly as a "verified full rewrite"
+operation, not a cross-backend migration.
 
-After successful migration, update your configuration:
+| Option          | Description                                                           |
+| --------------- | --------------------------------------------------------------------- |
+| `to`            | Target backend argument; only `postgres` is accepted                  |
+| `--from <path>` | Read source sessions from a JSON backup file instead of the live DB   |
+| `--backup`      | Write a JSON backup of the source before migrating (default: true)    |
+| `--execute`     | Actually perform the migration (default is preview mode)              |
+| `-n, --dry-run` | Simulate a schema migration without applying it (no-target mode only) |
+| `--debug`       | Enable debug output                                                   |
 
-**Global Configuration** (`~/.config/minsky/config.toml`):
-
-```toml
-[sessiondb]
-backend = "sqlite"
-dbPath = "~/.local/state/minsky/sessions.db"
-```
-
-**Repository Configuration** (`.minsky/config.toml`):
-
-```toml
-[sessiondb]
-backend = "postgres"
-connectionString = "postgresql://team:password@db.company.com:5432/minsky_sessions"
-```
-
-## Detailed Migration Process
-
-### Pre-Migration Checklist
-
-1. **Backup existing data**
-
-   ```bash
-   # Create backup directory
-   mkdir -p ./session-backups
-
-   # Check what will be migrated (dry run)
-   minsky sessiondb migrate to sqlite --dry-run
-   ```
-
-2. **Verify target database availability** (PostgreSQL only)
-
-   ```bash
-   # Test PostgreSQL connection
-   psql "postgresql://user:password@host:5432/database" -c "SELECT 1;"
-   ```
-
-3. **Ensure sufficient disk space**
-   ```bash
-   df -h ~/.local/state/minsky/
-   ```
-
-### Step-by-Step Migration
-
-#### JSON (Legacy) to SQLite
-
-1. **Run the migration with backup**:
-
-   ```bash
-   minsky sessiondb migrate to sqlite \
-     --sqlite-path ~/.local/state/minsky/sessions.db \
-     --backup ./session-backups \
-     --verify
-   ```
-
-2. **Update configuration**:
-
-   ```toml
-   [sessiondb]
-   backend = "sqlite"
-   dbPath = "~/.local/state/minsky/sessions.db"
-   ```
-
-3. **Test session operations**:
-   ```bash
-   minsky session list
-   minsky session start --task 123
-   ```
-
-#### SQLite to PostgreSQL
-
-1. **Set up PostgreSQL database**:
-
-   ```sql
-   CREATE DATABASE minsky_sessions;
-   CREATE USER minsky_user WITH PASSWORD 'secure_password';
-   GRANT ALL PRIVILEGES ON DATABASE minsky_sessions TO minsky_user;
-   ```
-
-2. **Run the migration**:
-
-   ```bash
-   minsky sessiondb migrate to postgres \
-     --connection-string "postgresql://minsky_user:secure_password@localhost:5432/minsky_sessions" \
-     --backup ./session-backups \
-     --verify
-   ```
-
-3. **Update configuration**:
-   ```toml
-   [sessiondb]
-   backend = "postgres"
-   connectionString = "postgresql://minsky_user:secure_password@localhost:5432/minsky_sessions"
-   ```
-
-### Migration Options
-
-| Option             | Description                            | Example              |
-| ------------------ | -------------------------------------- | -------------------- |
-| `--backup <path>`  | Create backup before migration         | `--backup ./backups` |
-| `--dry-run`        | Simulate migration without changes     | `--dry-run`          |
-| `--verify`         | Verify data integrity after migration  | `--verify`           |
-| `--from <backend>` | Specify source backend (auto-detected) | `--from json`        |
-| `--json`           | Output results in JSON format          | `--json`             |
-
-### Advanced Migration Scenarios
-
-#### Cross-Environment Migration
-
-**From Development (SQLite) to Production (PostgreSQL)**:
-
-1. **Export development data as backup**:
-
-   ```bash
-   # On development machine
-   minsky sessiondb migrate to sqlite \
-     --backup ./dev-export
-   ```
-
-2. **Transfer backup to production**:
-
-   ```bash
-   scp ./dev-export/sessions.db production-server:/tmp/
-   ```
-
-3. **Import on production** (SQLite to PostgreSQL):
-   ```bash
-   # On production server
-   minsky sessiondb migrate to postgres \
-     --from sqlite \
-     --connection-string "$MINSKY_POSTGRES_URL"
-   ```
-
-## Configuration Examples
-
-### Development Setup (SQLite)
-
-```toml
-# ~/.config/minsky/config.toml
-[sessiondb]
-backend = "sqlite"
-dbPath = "~/.local/state/minsky/sessions.db"
-baseDir = "~/.local/state/minsky/sessions"
-```
-
-### Team Setup (PostgreSQL)
-
-```toml
-# .minsky/config.toml (in team repository)
-[sessiondb]
-backend = "postgres"
-connectionString = "${MINSKY_POSTGRES_URL}"
-baseDir = "/shared/minsky/sessions"
-```
-
-Environment variable:
-
-```bash
-export MINSKY_POSTGRES_URL="postgresql://team:password@db.company.com:5432/minsky"
-```
-
-### Hybrid Setup
-
-Different backends per repository:
-
-```toml
-# Global default (SQLite)
-# ~/.config/minsky/config.toml
-[sessiondb]
-backend = "sqlite"
-dbPath = "~/.local/state/minsky/sessions.db"
-```
-
-```toml
-# Team project override (PostgreSQL)
-# project/.minsky/config.toml
-[sessiondb]
-backend = "postgres"
-connectionString = "${PROJECT_POSTGRES_URL}"
-```
+Legacy session records without a `taskId` are skipped and reported in the operation summary —
+this is a carryover safeguard from the original JSON-backend migration path, not something that
+occurs with normal Postgres-native sessions.
 
 ## Troubleshooting
 
-### Common Issues
-
-#### Migration Fails with "Database locked"
-
-**Symptoms**: SQLite database locked error during migration.
-
-**Solutions**:
-
-1. Close all Minsky sessions:
-
-   ```bash
-   minsky session list --active
-   minsky session end --all
-   ```
-
-2. Check for running processes:
-
-   ```bash
-   lsof ~/.local/state/minsky/sessions.db
-   ```
-
-3. Retry migration:
-   ```bash
-   minsky sessiondb migrate to postgres --connection-string "..." --backup ./backups
-   ```
-
-#### PostgreSQL Connection Failures
-
-**Symptoms**: "Connection refused" or authentication errors.
-
-**Solutions**:
-
-1. Verify PostgreSQL is running:
-
-   ```bash
-   pg_isready -h hostname -p 5432
-   ```
-
-2. Test connection manually:
-
-   ```bash
-   psql "postgresql://user:password@host:5432/database" -c "SELECT 1;"
-   ```
-
-3. Check firewall/network settings:
-
-   ```bash
-   telnet hostname 5432
-   ```
-
-4. Verify user permissions:
-   ```sql
-   GRANT ALL PRIVILEGES ON DATABASE minsky_sessions TO your_user;
-   ```
-
-#### Verification Failures
-
-**Symptoms**: Migration completes but verification finds inconsistencies.
-
-**Solutions**:
-
-1. Check the verification report:
-
-   ```bash
-   minsky sessiondb migrate to sqlite --verify --json | jq '.verificationResult'
-   ```
-
-2. Run migration again with fresh target:
-
-   ```bash
-   rm target_database_file
-   minsky sessiondb migrate to sqlite --verify
-   ```
-
-3. Restore from backup if needed:
-   ```bash
-   minsky sessiondb restore --backup ./backups/session-backup-*.json --to sqlite
-   ```
-
-#### Disk Space Issues
-
-**Symptoms**: Migration fails with "No space left on device".
-
-**Solutions**:
-
-1. Check available space:
-
-   ```bash
-   df -h ~/.local/state/minsky/
-   ```
-
-2. Clean up old session data:
-
-   ```bash
-   minsky session clean --older-than 30d
-   ```
-
-3. Use different location:
-   ```bash
-   minsky sessiondb migrate to sqlite --sqlite-path /larger/disk/sessions.db
-   ```
-
-### Recovery Procedures
-
-#### Restore from Backup
-
-If migration fails and corrupts data:
-
-```bash
-# Restore from automatic backup
-minsky sessiondb restore \
-  --backup ./backups/session-backup-2025-01-20T10-30-00-000Z.json \
-  --to json
-```
-
-#### Manual Data Recovery
-
-For SQLite corruption:
-
-```bash
-# Try to recover using SQLite tools
-sqlite3 corrupted.db ".recover" > recovered.sql
-sqlite3 new.db < recovered.sql
-```
-
-For JSON corruption:
-
-```bash
-# Attempt to fix JSON syntax
-jq '.' broken.json > fixed.json 2>/dev/null || echo "Cannot fix JSON"
-```
-
-### Performance Optimization
-
-#### SQLite Optimizations
-
-```bash
-# Configure SQLite for better performance
-minsky config set sessiondb.sqliteOptions.journalMode WAL
-minsky config set sessiondb.sqliteOptions.synchronous NORMAL
-minsky config set sessiondb.sqliteOptions.cacheSize 10000
-```
-
-#### PostgreSQL Optimizations
-
-```sql
--- Database-level optimizations
-ALTER DATABASE minsky_sessions SET random_page_cost = 1.1;
-ALTER DATABASE minsky_sessions SET effective_cache_size = '256MB';
-
--- Create indexes for common queries
-CREATE INDEX CONCURRENTLY idx_sessions_task_id ON sessions(task_id);
-CREATE INDEX CONCURRENTLY idx_sessions_created_at ON sessions(created_at);
-```
-
-## Best Practices
-
-### Development Workflow
-
-1. **Use SQLite for local development**:
-
-   ```toml
-   [sessiondb]
-   backend = "sqlite"
-   dbPath = "~/.local/state/minsky/sessions.db"
-   ```
-
-2. **Use PostgreSQL for shared/production environments**:
-
-   ```toml
-   [sessiondb]
-   backend = "postgres"
-   connectionString = "${MINSKY_POSTGRES_URL}"
-   ```
-
-3. **Regular backups**:
-   ```bash
-   # Daily backup script
-   #!/bin/bash
-   BACKUP_DIR="$HOME/minsky-backups/$(date +%Y-%m-%d)"
-   mkdir -p "$BACKUP_DIR"
-   minsky sessiondb migrate to sqlite --backup "$BACKUP_DIR"
-   ```
-
-### Security Considerations
-
-1. **Protect connection strings**:
-
-   ```bash
-   # Use environment variables
-   export MINSKY_POSTGRES_URL="postgresql://user:password@host/db"
-
-   # Set restrictive file permissions
-   chmod 600 ~/.config/minsky/config.toml
-   ```
-
-2. **Use SSL connections for PostgreSQL**:
-
-   ```toml
-   [sessiondb]
-   connectionString = "postgresql://user:password@host/db?sslmode=require"
-   ```
-
-3. **Regular security updates**:
-   ```bash
-   # Keep Minsky updated
-   minsky --version
-   minsky self-update
-   ```
-
-### Monitoring and Maintenance
-
-1. **Monitor database size**:
-
-   ```bash
-   # SQLite
-   du -h ~/.local/state/minsky/sessions.db
-
-   # PostgreSQL
-   psql -c "SELECT pg_size_pretty(pg_database_size('minsky_sessions'));"
-   ```
-
-2. **Clean up old sessions**:
-
-   ```bash
-   # Remove sessions older than 90 days
-   minsky session clean --older-than 90d
-   ```
-
-3. **Database maintenance**:
-
-   ```bash
-   # SQLite: Vacuum database
-   sqlite3 ~/.local/state/minsky/sessions.db "VACUUM;"
-
-   # PostgreSQL: Analyze tables
-   psql -c "ANALYZE sessions;"
-   ```
-
-## FAQ
-
-**Q: Can I use different backends for different repositories?**
-A: Yes, repository-specific configuration overrides global settings.
-
-**Q: What happens to my data during migration?**
-A: Data is copied to the new backend. Original data remains until you manually remove it.
-
-**Q: Can I migrate between SQLite and PostgreSQL?**
-A: Yes, migrations work in both directions: SQLite ↔ PostgreSQL.
-
-**Q: How do I share sessions across team members?**
-A: Use PostgreSQL backend with shared database access.
-
-**Q: Is there a performance difference between backends?**
-A: PostgreSQL is better for team environments with concurrent access. SQLite is excellent for local development.
-
-**Q: Can I run migrations without downtime?**
-A: Yes, migrations don't affect running sessions. Update configuration after migration completes.
-
-**Q: How do I automate migrations in CI/CD?**
-A: Use `--json` flag for machine-readable output and `--dry-run` for validation:
-
-```bash
-minsky sessiondb migrate to postgres --connection-string "$DB_URL" --json --verify
-```
+Connection failures, authentication errors, and schema-drift issues are covered in the
+[Troubleshooting Guide](./sessiondb-troubleshooting.md). Pool exhaustion and retry behavior are
+covered in [Postgres Persistence Configuration](./persistence-configuration.md).
+
+## Historical: pre-mt#2339 SQLite / JSON migration
+
+Before mt#2339 (SQLite backend removal) and mt#2329 (sessions moved off the JSON/SQLite-capable
+`DatabaseStorage`), this guide documented migrating session data between a legacy JSON-file
+backend, a SQLite backend (`[sessiondb]` TOML config, `sqliteOptions`, `sqlite3` recovery
+commands), and PostgreSQL. None of that command surface exists anymore — `sessiondb.*` config
+keys throw at boot, and no `sqlite`-target value is accepted by any current command. See
+[ADR-018](architecture/adr-018-domain-persistence-pattern.md) for why SQLite was removed rather
+than kept as a secondary backend, and mt#434 for the deferred PGlite (embedded Postgres) option
+some of that local-database use case may eventually cover.
