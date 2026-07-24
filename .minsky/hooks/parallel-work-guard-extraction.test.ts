@@ -58,6 +58,16 @@ const SCOPE_CONSTRAINTS_FIXTURE_PATH = join(
   "session-generate-prompt-scope-constraints.txt"
 );
 
+/**
+ * mt#1279 sibling fixture: the same render WITH a `scopeNotes` prose section.
+ * Regenerate with the `--with-notes` flag on the same script.
+ */
+const SCOPE_NOTES_FIXTURE_PATH = join(
+  __dirname,
+  "fixtures",
+  "session-generate-prompt-scope-notes.txt"
+);
+
 describe("extractScopeConstraintsFiles / session_generate_prompt contract (mt#2811)", () => {
   it("parses the exact '## Scope Constraints' shape session_generate_prompt renders (checked-in fixture)", () => {
     // Checked-in test fixture read, not application state under test; see
@@ -81,6 +91,33 @@ describe("extractScopeConstraintsFiles / session_generate_prompt contract (mt#28
     expect(warnings).toHaveLength(0);
     for (const f of scopeFiles) {
       expect(files).toContain(f);
+    }
+  });
+
+  // mt#1279: `scopeNotes` renders free prose into the prompt. It is a SEPARATE
+  // `## Scope Notes` section precisely so this parser — which reads every
+  // `- ` bullet between the Scope-Constraints heading and the next `##` — can
+  // never mistake prose for a file path. This is the second half of the same
+  // fixture binding: if someone later folds the prose back into the
+  // Scope-Constraints section, this test fails.
+  it("prose from scopeNotes does not leak into the extracted file list (checked-in fixture)", () => {
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- checked-in test fixture read, not application state
+    const fixturePrompt = readFileSync(SCOPE_NOTES_FIXTURE_PATH, "utf8");
+
+    expect(fixturePrompt).toContain("## Scope Constraints");
+    expect(fixturePrompt).toContain("## Scope Notes");
+    expect(fixturePrompt).toContain("Do NOT touch the render surfaces");
+
+    const { files, warnings } = extractInScopeFiles(fixturePrompt);
+    expect(warnings).toHaveLength(0);
+    expect(files).toEqual([
+      "/Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000/src/foo.ts",
+      "/Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000/src/bar.ts",
+    ]);
+    // The prose sentence must appear nowhere in the extracted paths.
+    for (const f of files) {
+      expect(f).not.toContain("render surfaces");
+      expect(f).not.toContain(" ");
     }
   });
 
@@ -313,7 +350,9 @@ describe("shouldReportAsGuardDegraded (mt#2811 R1)", () => {
 
   it("is QUIET for a dispatch-scope-param resolution (not a parse path at all)", () => {
     expect(
-      shouldReportAsGuardDegraded(resolved({ source: "dispatch-scope-param", files: ["a.ts"] }))
+      shouldReportAsGuardDegraded(
+        resolved({ source: DISPATCH_SCOPE_PARAM_SOURCE, files: ["a.ts"] })
+      )
     ).toBe(false);
   });
 
@@ -337,6 +376,9 @@ describe("shouldReportAsGuardDegraded (mt#2811 R1)", () => {
 // resolveInScopeFiles (mt#2811)
 // ---------------------------------------------------------------------------
 
+/** `ResolvedInScopeFiles.source` when the dispatch's own `scope` param was used. */
+const DISPATCH_SCOPE_PARAM_SOURCE = "dispatch-scope-param";
+
 describe("resolveInScopeFiles (mt#2811)", () => {
   const alwaysFailSpec = () => null;
   const specWithFiles = () => "## Scope\n\n**In scope:**\n- `src/a.ts`\n\n**Out of scope:**\n";
@@ -348,9 +390,32 @@ describe("resolveInScopeFiles (mt#2811)", () => {
       alwaysFailSpec, // proves the spec fetcher is never even consulted
       "mt#1"
     );
-    expect(result.source).toBe("dispatch-scope-param");
+    expect(result.source).toBe(DISPATCH_SCOPE_PARAM_SOURCE);
     expect(result.files).toEqual(["src/a.ts", "src/b.ts"]);
     expect(result.warnings).toHaveLength(0);
+  });
+
+  // mt#1279: this guard carries its OWN comma-split of the same `scope`
+  // string — a third copy, independent of the two in the command adapters.
+  // Option B (keep `scope` as a path list; reject prose at the command
+  // boundary; route prose to `scopeNotes`) was chosen specifically so this
+  // split keeps working untouched. Pinning that here rather than assuming it:
+  // if a future change flips `scope` to prose, this fails instead of the
+  // guard silently degrading into comparing prose fragments against PR diffs.
+  it("still resolves a path-shaped scope unchanged after mt#1279", () => {
+    const result = resolveInScopeFiles(
+      DISPATCH_TOOL_NAME,
+      { taskId: "mt#1279", scope: "packages/domain/src/session/prompt-generation.ts, src/b.ts" },
+      alwaysFailSpec,
+      "mt#1279"
+    );
+    expect(result.source).toBe(DISPATCH_SCOPE_PARAM_SOURCE);
+    expect(result.files).toEqual(["packages/domain/src/session/prompt-generation.ts", "src/b.ts"]);
+    // Every resolved entry is a real path shape — no whitespace-bearing prose
+    // fragment can reach the collision comparison.
+    for (const f of result.files) {
+      expect(f).not.toContain(" ");
+    }
   });
 
   it("falls back to spec parsing when tasks_dispatch omits 'scope'", () => {
