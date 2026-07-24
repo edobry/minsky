@@ -258,12 +258,18 @@ describe("ManifestFlowProvisioner", () => {
 
       const originalSetTimeout = globalThis.setTimeout;
       const originalClearTimeout = globalThis.clearTimeout;
-      const scheduledIds = new Set<ReturnType<typeof setTimeout>>();
+      // Track ONLY the provisioner's own deadline timer, identified by its
+      // distinctive delay, rather than every timer scheduled during the window
+      // (PR #2256 R1): Bun internals, the fetch stack, and other in-flight work
+      // can schedule timers here too, and requiring all of them to be cleared
+      // would make this test flake on timers it does not own.
+      const DEADLINE_MS = 30_000;
+      const deadlineIds = new Set<ReturnType<typeof setTimeout>>();
       const clearedIds = new Set<ReturnType<typeof setTimeout>>();
 
       globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
         const id = originalSetTimeout(...args);
-        scheduledIds.add(id);
+        if (args[1] === DEADLINE_MS) deadlineIds.add(id);
         return id;
       }) as typeof setTimeout;
       globalThis.clearTimeout = ((id: Parameters<typeof clearTimeout>[0]) => {
@@ -281,20 +287,24 @@ describe("ManifestFlowProvisioner", () => {
           // cross-file leak this task fixes). Asserting the timer was
           // cleared (below) is what actually proves it can't fire, without
           // needing to wait out the deadline.
-          timeoutMs: 30_000,
+          timeoutMs: DEADLINE_MS,
           installationLookup: makeLookup(),
         });
 
         // The rejection must name the real, underlying error — not a TDZ
         // ReferenceError about `server`.
+        // Matches Bun's current phrasing plus the platform variants a
+        // port-conflict can surface as (PR #2256 R1) — broad enough not to
+        // false-negative off-macOS, still narrow enough that a TDZ
+        // ReferenceError (the actual regression) does not match.
         await expect(provisioner.provision(SAMPLE_SPEC)).rejects.toThrow(
-          new RegExp(`port ${port} in use`, "i")
+          new RegExp(`EADDRINUSE|address already in use|port ${port} in use`, "i")
         );
 
         // The construction-failure path must have scheduled the deadline
         // timer and then cleared it — leaving nothing pending.
-        expect(scheduledIds.size).toBeGreaterThan(0);
-        for (const id of scheduledIds) {
+        expect(deadlineIds.size).toBe(1);
+        for (const id of deadlineIds) {
           expect(clearedIds.has(id)).toBe(true);
         }
       } finally {
