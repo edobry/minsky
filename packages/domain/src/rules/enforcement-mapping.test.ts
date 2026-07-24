@@ -16,7 +16,6 @@ const CLAUDE_HOOK_RULE_IDS = [
   "mcp-tool-preference",
   "review-before-merge",
   "pr-identity-provenance",
-  "acceptance-test-gate",
   "incremental-typecheck",
   "task-spec-validation",
   "post-merge-sync",
@@ -240,7 +239,6 @@ describe("Claude Code hook coverage", () => {
     expect(getEnforcement("mcp-tool-preference")).toBeDefined();
     expect(getEnforcement("review-before-merge")).toBeDefined();
     expect(getEnforcement("pr-identity-provenance")).toBeDefined();
-    expect(getEnforcement("acceptance-test-gate")).toBeDefined();
   });
 
   it("has an entry for each PostToolUse hook in settings.json", () => {

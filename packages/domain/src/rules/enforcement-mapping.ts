@@ -394,21 +394,6 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
     ],
   },
 
-  // PreToolUse: require acceptance tests before marking DONE
-  {
-    ruleId: "acceptance-test-gate",
-    mechanisms: [
-      {
-        type: "claude-code-hook",
-        name: "PreToolUse[tasks_status_set]: require-acceptance-tests-before-done.ts",
-        description:
-          "Blocks tasks_status_set to DONE if the task spec has an Acceptance Tests section with executable commands that haven't been acknowledged as run",
-        configPath: ".claude/hooks/require-acceptance-tests-before-done.ts",
-        portability: "harness-trapped",
-      },
-    ],
-  },
-
   // Stop/SubagentStop: typecheck gate before completion
   {
     ruleId: "typecheck-gate",
