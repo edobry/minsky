@@ -1,7 +1,6 @@
 import { describe, expect, test, afterEach } from "bun:test";
 import { spawn } from "child_process";
 import net from "node:net";
-import type { AddressInfo } from "node:net";
 import path from "path";
 import { JSONRPCMessageSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -49,10 +48,18 @@ async function listenOnEphemeralPort(app: {
   listen: (port: number, host: string, cb: () => void) => import("http").Server;
 }): Promise<{ server: import("http").Server; port: number }> {
   const server = await new Promise<import("http").Server>((resolve, reject) => {
+    // Bind 127.0.0.1 (IPv4) EXPLICITLY, not the default any-interface bind: the
+    // fetch URLs below all target `http://127.0.0.1:${port}`, and an unspecified
+    // host can land on `::1` (IPv6), producing a bound port the IPv4 fetch cannot
+    // reach. Explicit host keeps listen and fetch on the same interface
+    // (PR #2259 R1 non-blocking).
     const s = app.listen(0, "127.0.0.1", () => resolve(s));
     s.once("error", reject);
   });
-  const addr = server.address() as AddressInfo;
+  const addr = server.address();
+  if (!addr || typeof addr === "string") {
+    throw new Error(`Expected AddressInfo from server.address(), got: ${String(addr)}`);
+  }
   return { server, port: addr.port };
 }
 
@@ -69,9 +76,25 @@ async function findFreePort(): Promise<number> {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => resolve());
   });
-  const port = (server.address() as AddressInfo).port;
+  const addr = server.address();
   await new Promise<void>((resolve) => server.close(() => resolve()));
-  return port;
+  if (!addr || typeof addr === "string") {
+    throw new Error(`Expected AddressInfo from server.address(), got: ${String(addr)}`);
+  }
+  return addr.port;
+}
+
+/**
+ * True iff a TCP port on 127.0.0.1 is currently bindable (i.e. NOT held by
+ * another listener). Lets a test positively assert a spawned server RELEASED
+ * its port after teardown — mt#2764 / mt#3123's "no orphan holding a port".
+ */
+async function isPortFree(port: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const probe = net.createServer();
+    probe.once("error", () => resolve(false));
+    probe.listen(port, "127.0.0.1", () => probe.close(() => resolve(true)));
+  });
 }
 
 /**
@@ -669,40 +692,97 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
   async function spawnHttpMcp(
     extraEnv?: Record<string, string>
   ): Promise<{ child: ReturnType<typeof spawn>; ready: Promise<void>; port: number }> {
-    const port = await findFreePort();
-    const child = spawn(
-      "bun",
-      [CLI_PATH, "mcp", "start", "--http", "--port", String(port), "--host", "127.0.0.1"],
-      {
-        stdio: ["pipe", "pipe", "pipe"],
-        env: { ...process.env, ...extraEnv },
-      }
-    );
-
-    const ready = new Promise<void>((resolve, reject) => {
-      let buffered = "";
-      const append = (chunk: Buffer | string) => {
-        buffered += typeof chunk === "string" ? chunk : String(chunk);
-        if (buffered.includes(HTTP_READY_MARKER)) {
-          resolve();
+    // mt#2764 non-blocking R1: `findFreePort()` closes its probe socket before
+    // the child re-binds that exact port, leaving a small TOCTOU window under
+    // extreme concurrency. Retry a few times on an EARLY EXIT (the shape a bind
+    // race takes — the child dies before printing the ready marker) so the
+    // residual race cannot flake the suite. A genuine ready-timeout still
+    // throws (no retry) — that is a real hang, not a bind race.
+    const MAX_ATTEMPTS = 3;
+    let lastError: Error | undefined;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const port = await findFreePort();
+      const child = spawn(
+        "bun",
+        [CLI_PATH, "mcp", "start", "--http", "--port", String(port), "--host", "127.0.0.1"],
+        {
+          stdio: ["pipe", "pipe", "pipe"],
+          env: { ...process.env, ...extraEnv },
         }
-      };
-      const stdoutEmitter = child.stdout as unknown as {
-        on(event: "data", listener: (chunk: Buffer | string) => void): void;
-      } | null;
-      const stderrEmitter = child.stderr as unknown as {
-        on(event: "data", listener: (chunk: Buffer | string) => void): void;
-      } | null;
-      if (stdoutEmitter) stdoutEmitter.on("data", append);
-      if (stderrEmitter) stderrEmitter.on("data", append);
-      const timeoutId = setTimeout(() => {
-        reject(new Error(`HTTP server did not ready within timeout. Buffered: ${buffered}`));
-      }, 15000);
-      child.on("exit", () => clearTimeout(timeoutId));
-    });
+      );
 
-    return { child, ready, port };
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      const outcome = await new Promise<"ready" | "exited" | "timeout">((resolve) => {
+        let buffered = "";
+        const append = (chunk: Buffer | string) => {
+          buffered += typeof chunk === "string" ? chunk : String(chunk);
+          if (buffered.includes(HTTP_READY_MARKER)) resolve("ready");
+        };
+        const stdoutEmitter = child.stdout as unknown as {
+          on(event: "data", listener: (chunk: Buffer | string) => void): void;
+        } | null;
+        const stderrEmitter = child.stderr as unknown as {
+          on(event: "data", listener: (chunk: Buffer | string) => void): void;
+        } | null;
+        if (stdoutEmitter) stdoutEmitter.on("data", append);
+        if (stderrEmitter) stderrEmitter.on("data", append);
+        timeoutId = setTimeout(() => resolve("timeout"), 15000);
+        child.on("exit", () => resolve("exited"));
+      });
+      // Clear the ready-timeout in every branch so a lingering timer can never
+      // fire against a healthy, already-returned child.
+      if (timeoutId) clearTimeout(timeoutId);
+
+      if (outcome === "ready") {
+        // Server is up; hand callers a pre-resolved `ready` so their existing
+        // `await ready` stays a no-op and the {child, ready, port} contract holds.
+        return { child, ready: Promise.resolve(), port };
+      }
+      if (outcome === "timeout") {
+        child.kill("SIGKILL");
+        throw new Error(`HTTP server did not ready within timeout on port ${port}`);
+      }
+      // "exited": the child died before the ready marker — typically a bind
+      // race on `port`. Retry with a freshly probed port.
+      lastError = new Error(
+        `HTTP MCP child on port ${port} exited before ready (attempt ${attempt}/${MAX_ATTEMPTS})`
+      );
+    }
+    throw lastError ?? new Error("spawnHttpMcp: exhausted retry attempts");
   }
+
+  // mt#2764 / mt#3123 (teardown half): the spec requires a test that FORCES a
+  // failure and asserts the spawned --http server is torn down unconditionally,
+  // so a failed/timed-out test cannot leak an orphan holding a port. The other
+  // spawned tests only exercise the happy-path `finally`; this one drives the
+  // throw path explicitly and positively asserts the port was released.
+  test("a spawned HTTP server is torn down even when the test body throws", async () => {
+    const { child, ready, port } = await spawnHttpMcp({ DATABASE_URL: "" });
+    await ready;
+    // Precondition: the child genuinely holds the port while up.
+    expect(await isPortFree(port)).toBe(false);
+
+    let exitObserved = false;
+    // Mirror every spawned test's shape: a body that throws, with unconditional
+    // teardown in `finally`. The throw MUST propagate (finally must not swallow
+    // it) AND teardown MUST still run on that path.
+    await expect(
+      (async () => {
+        try {
+          throw new Error("simulated in-test failure");
+        } finally {
+          child.kill("SIGTERM");
+          await waitForExit(child, 8000);
+          exitObserved = true;
+        }
+      })()
+    ).rejects.toThrow("simulated in-test failure");
+
+    // Teardown ran on the failure path: the child exited and released its port —
+    // no orphan left listening (the mt#3123 leaked-orphan mode this guards).
+    expect(exitObserved).toBe(true);
+    expect(await isPortFree(port)).toBe(true);
+  });
 
   test("GET /.well-known/oauth-authorization-server returns parseable error when DB unavailable", async () => {
     // Three valid outcomes — the test's load-bearing invariant is "route exists,
