@@ -236,15 +236,6 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     kind: "retrospective-trigger",
   },
   {
-    path: ".minsky/untaken-action-calibration.jsonl",
-    name: "untaken-action",
-    // mt#3179 — turn-end-untaken-action-scan emits `matches: {family, phrase}[]`,
-    // byte-identical to the retrospective-trigger record shape, so it reuses that
-    // parser kind rather than widening the union (and every switch over it) for a
-    // shape that already exists. `name` is what distinguishes the two logs.
-    kind: "retrospective-trigger",
-  },
-  {
     path: ".minsky/ask-routing-deferral-calibration.jsonl",
     name: "ask-routing-deferral",
     kind: "ask-routing-deferral",
@@ -327,6 +318,19 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     path: ".minsky/constructed-identifier-batch-calibration.jsonl",
     name: "constructed-identifier-batch",
     kind: "constructed-identifier-batch",
+  },
+  {
+    path: ".minsky/untaken-action-calibration.jsonl",
+    name: "untaken-action",
+    // mt#3179 — turn-end-untaken-action-scan emits `matches: {family, phrase}[]`,
+    // byte-identical to the retrospective-trigger record shape, so it reuses that
+    // parser KIND rather than widening the union (and every switch over it) for a
+    // shape that already exists. `name` is what distinguishes the two logs.
+    //
+    // Appended LAST deliberately: calibration-sweep.test.ts pins each entry by
+    // ARRAY INDEX, so inserting mid-array silently shifts every later assertion
+    // (caught by the pre-push gate when this entry first went in at position 2).
+    kind: "retrospective-trigger",
   },
 ];
 
@@ -1303,6 +1307,7 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "build-claim-injection": "build-claim-injection-detector",
   "knowledge-acquisition": "knowledge-acquisition-detector",
   "constructed-identifier-batch": "constructed-identifier-batch-detector",
+  "untaken-action": "turn-end-untaken-action-scan",
 };
 
 /**

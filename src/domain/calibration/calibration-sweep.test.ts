@@ -112,8 +112,8 @@ function buildLines(count: number, makeLine: (i: number) => string): string {
 // ---------------------------------------------------------------------------
 
 describe("CALIBRATION_LOG_REGISTRY", () => {
-  test("has eleven entries (mt#2619 adds three; mt#2866 adds silent-stretch; mt#2870 adds wall-of-text; mt#2923 adds build-claim-injection; mt#2708 adds knowledge-acquisition; mt#3125 adds constructed-identifier-batch)", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(11);
+  test("has twelve entries (mt#2619 adds three; mt#2866 adds silent-stretch; mt#2870 adds wall-of-text; mt#2923 adds build-claim-injection; mt#2708 adds knowledge-acquisition; mt#3125 adds constructed-identifier-batch; mt#3179 adds untaken-action)", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(12);
   });
 
   test("first entry is causal-premise", () => {
@@ -191,6 +191,16 @@ describe("CALIBRATION_LOG_REGISTRY", () => {
     expect(CALIBRATION_LOG_REGISTRY[10]?.path).toBe(
       ".minsky/constructed-identifier-batch-calibration.jsonl"
     );
+  });
+
+  test("twelfth entry is untaken-action (mt#3179), reusing the retrospective-trigger kind", () => {
+    // The only entry whose `kind` deliberately differs from its `name`: the
+    // turn-end-untaken-action-scan guard emits the same {family, phrase}[]
+    // record shape as retrospective-trigger, so it reuses that parser kind
+    // rather than widening the kind union. `name` is what separates the logs.
+    expect(CALIBRATION_LOG_REGISTRY[11]?.kind).toBe(RETRO_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[11]?.name).toBe("untaken-action");
+    expect(CALIBRATION_LOG_REGISTRY[11]?.path).toBe(".minsky/untaken-action-calibration.jsonl");
   });
 });
 
@@ -1417,6 +1427,15 @@ const KIND_FIXTURES: Readonly<
 };
 
 describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
+  // mt#3179: `untaken-action` deliberately reuses the retrospective-trigger
+  // KIND (byte-identical record shape) while mapping to its OWN guard, so the
+  // expected guard name must be resolved per-ENTRY (by name) rather than
+  // per-kind. The fixture below still supplies the record LINE by kind — that
+  // part is genuinely kind-shaped.
+  const NAME_GUARD_OVERRIDES: Readonly<Record<string, string>> = {
+    "untaken-action": "turn-end-untaken-action-scan",
+  };
+
   test("every CALIBRATION_LOG_REGISTRY entry maps to its canonical GUARD_REGISTRY name, not a silent fallback to entry.name", () => {
     for (const entry of CALIBRATION_LOG_REGISTRY) {
       const fixture = KIND_FIXTURES[entry.kind];
@@ -1432,15 +1451,16 @@ describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
         throw new Error(`Fixture for kind "${entry.kind}" failed to parse — fix KIND_FIXTURES.`);
       }
       const fireLogEntry = calibrationRecordToFireLogEntry(record, entry);
-      expect(fireLogEntry.guardName).toBe(fixture.expectedGuardName);
+      const expectedGuardName = NAME_GUARD_OVERRIDES[entry.name] ?? fixture.expectedGuardName;
+      expect(fireLogEntry.guardName).toBe(expectedGuardName);
       // The exact regression this test prevents: silently falling back to
       // the raw registry name instead of the canonical guard name.
       expect(fireLogEntry.guardName).not.toBe(entry.name);
     }
   });
 
-  test("CALIBRATION_LOG_REGISTRY has exactly 11 entries and every kind has a fixture above", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(11);
+  test("CALIBRATION_LOG_REGISTRY has exactly 12 entries and every kind has a fixture above", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(12);
     for (const entry of CALIBRATION_LOG_REGISTRY) {
       expect(KIND_FIXTURES[entry.kind]).toBeDefined();
     }
