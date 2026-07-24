@@ -24,18 +24,45 @@
 // post-hoc transcript-mining WRITER" for why this is a measurement only, not
 // a backfill.
 //
-// Usage:  bun scripts/verify-session-creator-link.ts [--e2e] [--measure]
+// With `--live-ui --workspace-id=<realWorkspaceSessionId>` it additionally
+// exercises the ACTUAL reader the cockpit Conversation tab consumes —
+// `GET /api/agents/<workspaceId>` (src/cockpit/routes/agents.ts) — rather than
+// the in-process `resolveConversationForWorkspace` resolver checked above.
+// This is the honest way to verify AT2 ("/agents/<id> renders the
+// conversation") without a live UI screenshot: the UI is a thin consumer of
+// this JSON endpoint's `conversations` array, and this is the SAME
+// link-class-agnostic query path mt#3101's `pr_author` links already exercise
+// in production. `--workspace-id` MUST be a real, already-existing session
+// (its own `sessions` table row) — this script does not create one, since
+// that table is outside this writer's scope; a scratch `session_creator` link
+// is attached to it temporarily and removed in the `finally` block below, so
+// the target session's own real data is untouched. Optional
+// `--cockpit-url=<url>` overrides the default `http://127.0.0.1:3737`. SKIPS
+// (does not fail) when `--workspace-id` is omitted or the cockpit is
+// unreachable — this is an additional live check, not a hard requirement.
+//
+// Usage:  bun scripts/verify-session-creator-link.ts [--e2e] [--measure] [--live-ui --workspace-id=<id>] [--cockpit-url=<url>]
 // Exit:   0 = pass (or SKIP when the domain cannot reach a DB), non-zero = fail.
 //
 // @see mt#3120 — this task
 // @see mt#3101 / scripts/verify-pr-author-link.ts — the sibling this mirrors
 // @see packages/domain/src/transcripts/session-creator-link-writer.ts — the write under test
+// @see src/cockpit/routes/agents.ts — the reader --live-ui exercises
 
 import { ensureHookDomainBootstrap } from "../.minsky/hooks/domain-bootstrap";
 import type { ConversationId } from "@minsky/domain/ids";
 
 const RUN_E2E = process.argv.includes("--e2e");
 const RUN_MEASURE = process.argv.includes("--measure");
+const RUN_LIVE_UI = process.argv.includes("--live-ui");
+const WORKSPACE_ID_ARG = process.argv.find((a) => a.startsWith("--workspace-id="));
+const LIVE_UI_WORKSPACE_ID = WORKSPACE_ID_ARG
+  ? WORKSPACE_ID_ARG.slice("--workspace-id=".length)
+  : null;
+const COCKPIT_URL_ARG = process.argv.find((a) => a.startsWith("--cockpit-url="));
+const COCKPIT_URL = COCKPIT_URL_ARG
+  ? COCKPIT_URL_ARG.slice("--cockpit-url=".length)
+  : "http://127.0.0.1:3737";
 
 interface Step {
   name: string;
@@ -95,9 +122,10 @@ const scratchConversationId = randomUUID() as ConversationId;
 const scratchWorkspaceId = randomUUID();
 const e2eConversationId = randomUUID() as ConversationId;
 const e2eWorkspaceId = randomUUID();
+const liveUiConversationId = randomUUID() as ConversationId;
 
 async function cleanup(): Promise<void> {
-  for (const conversationId of [scratchConversationId, e2eConversationId]) {
+  for (const conversationId of [scratchConversationId, e2eConversationId, liveUiConversationId]) {
     try {
       await db
         .delete(minskySessionLinksTable)
@@ -246,6 +274,66 @@ try {
       );
     }
   }
+
+  if (RUN_LIVE_UI) {
+    if (!LIVE_UI_WORKSPACE_ID) {
+      process.stdout.write(
+        "\nSKIP --live-ui: no --workspace-id=<realSessionId> provided — cannot attach a scratch " +
+          "link to a real session without one (this script does not create sessions table rows).\n"
+      );
+    } else {
+      process.stdout.write(
+        `\nRunning --live-ui: attaching a scratch session_creator link to real workspace ` +
+          `${LIVE_UI_WORKSPACE_ID} and querying ${COCKPIT_URL}/api/agents/${LIVE_UI_WORKSPACE_ID}...\n`
+      );
+
+      const attachOutcome = await writeSessionCreatorLink(db, {
+        conversationId: liveUiConversationId,
+        workspaceSessionId: LIVE_UI_WORKSPACE_ID,
+        cwd: process.cwd(),
+      });
+
+      if (attachOutcome !== "written") {
+        record(
+          "--live-ui: scratch link attached to the real workspace",
+          false,
+          `outcome=${attachOutcome}`
+        );
+      } else {
+        try {
+          const res = await fetch(`${COCKPIT_URL}/api/agents/${LIVE_UI_WORKSPACE_ID}`);
+          if (!res.ok) {
+            record(
+              "--live-ui: GET /api/agents/:id (the cockpit's actual reader) succeeds",
+              false,
+              `HTTP ${res.status} — is the cockpit running at ${COCKPIT_URL}?`
+            );
+          } else {
+            const body = (await res.json()) as {
+              conversations?: Array<{ agentSessionId?: string }>;
+            };
+            const found = (body.conversations ?? []).some(
+              (c) => c.agentSessionId === liveUiConversationId
+            );
+            record(
+              "--live-ui: /api/agents/:id's `conversations` array includes the session_creator link",
+              found,
+              found
+                ? `conversations includes ${liveUiConversationId} — the exact reader the Conversation ` +
+                    `tab consumes resolved this class correctly, live, over HTTP`
+                : `conversations=${JSON.stringify(body.conversations)} did not include ${liveUiConversationId}`
+            );
+          }
+        } catch (err) {
+          record(
+            "--live-ui: GET /api/agents/:id (the cockpit's actual reader) succeeds",
+            false,
+            `fetch failed: ${err instanceof Error ? err.message : String(err)} — is the cockpit running at ${COCKPIT_URL}?`
+          );
+        }
+      }
+    }
+  }
 } finally {
   await cleanup();
   const remaining = await db
@@ -260,6 +348,6 @@ try {
 }
 
 process.stdout.write(
-  `\n${steps.filter((s) => s.ok).length}/${steps.length} checks passed${RUN_E2E ? " (with --e2e)" : ""}${RUN_MEASURE ? " (with --measure)" : ""}\n`
+  `\n${steps.filter((s) => s.ok).length}/${steps.length} checks passed${RUN_E2E ? " (with --e2e)" : ""}${RUN_MEASURE ? " (with --measure)" : ""}${RUN_LIVE_UI ? " (with --live-ui)" : ""}\n`
 );
 process.exit(failed ? 1 : 0);
