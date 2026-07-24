@@ -16,6 +16,22 @@
  * This test reproduces that render sequence directly (mount with a
  * "disabled" agent, then `rerender` the SAME instance with a "non-disabled"
  * agent) without waiting on the real 5s poll interval.
+ *
+ * Why `rerender` exercises the SAME instance, and how that was established
+ * (PR #2253 R1 raised the opposite concern — that the rerender remounts the
+ * subtree, which would make these assertions vacuous): React reconciles by
+ * element TYPE and POSITION, not by prop identity, so re-rendering the root
+ * with fresh provider elements of the same type at the same position updates
+ * props on the existing fibers and preserves the child instance and its hook
+ * state. Rather than rest on that argument, it was verified by negative
+ * control: with the fix reverted (the early return moved back above the
+ * hooks), all three tests here AND both tests in the integration sibling
+ * fail with React's own "Rendered more hooks than during the previous
+ * render." / "Rendered fewer hooks than expected. This may be caused by an
+ * accidental early return statement." A remount would have reset the hook
+ * count and produced no error at all. Independently, `renderButton` below
+ * now holds ONE QueryClient per test and re-renders through a single wrapper,
+ * so provider identity is constant across the rerender regardless.
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { render, cleanup } from "@testing-library/react";
@@ -46,15 +62,22 @@ function baseAgent(overrides: Partial<AgentRow> = {}): AgentRow {
   };
 }
 
+/**
+ * Mounts the button and returns `rerenderWith`, which re-renders through the
+ * SAME wrapper and the SAME QueryClient — only the `agent` prop changes, which
+ * is what a poll tick does in production.
+ */
 function renderButton(agent: AgentRow) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const wrap = (a: AgentRow) => (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <GoToActionButton agent={agent} />
+        <GoToActionButton agent={a} />
       </MemoryRouter>
     </QueryClientProvider>
   );
+  const utils = render(wrap(agent));
+  return { ...utils, rerenderWith: (a: AgentRow) => utils.rerender(wrap(a)) };
 }
 
 afterEach(() => {
@@ -63,58 +86,20 @@ afterEach(() => {
 
 describe("GoToActionButton hook order across attachState transitions (mt#3110)", () => {
   test("attachState flipping from detached to attached-external does not throw (rules-of-hooks safe)", () => {
-    const { rerender } = renderButton(baseAgent({ attachState: "detached" }));
+    const { rerenderWith } = renderButton(baseAgent({ attachState: "detached" }));
 
-    expect(() =>
-      rerender(
-        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-          <MemoryRouter>
-            <GoToActionButton agent={baseAgent({ attachState: "attached-external" })} />
-          </MemoryRouter>
-        </QueryClientProvider>
-      )
-    ).not.toThrow();
+    expect(() => rerenderWith(baseAgent({ attachState: "attached-external" }))).not.toThrow();
   });
 
   test("attachState flipping from null (degraded) to in-cockpit does not throw (rules-of-hooks safe)", () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const { rerender } = render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
-          <GoToActionButton agent={baseAgent({ attachState: null })} />
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    const { rerenderWith } = renderButton(baseAgent({ attachState: null }));
 
-    expect(() =>
-      rerender(
-        <QueryClientProvider client={queryClient}>
-          <MemoryRouter>
-            <GoToActionButton agent={baseAgent({ attachState: "in-cockpit" })} />
-          </MemoryRouter>
-        </QueryClientProvider>
-      )
-    ).not.toThrow();
+    expect(() => rerenderWith(baseAgent({ attachState: "in-cockpit" }))).not.toThrow();
   });
 
   test("attachState flipping the other direction (attached-external back to detached) does not throw", () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const { rerender } = render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
-          <GoToActionButton agent={baseAgent({ attachState: "attached-external" })} />
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    const { rerenderWith } = renderButton(baseAgent({ attachState: "attached-external" }));
 
-    expect(() =>
-      rerender(
-        <QueryClientProvider client={queryClient}>
-          <MemoryRouter>
-            <GoToActionButton agent={baseAgent({ attachState: "detached" })} />
-          </MemoryRouter>
-        </QueryClientProvider>
-      )
-    ).not.toThrow();
+    expect(() => rerenderWith(baseAgent({ attachState: "detached" }))).not.toThrow();
   });
 });

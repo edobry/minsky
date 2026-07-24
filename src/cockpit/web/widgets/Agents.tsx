@@ -777,6 +777,12 @@ export function GoToActionButton({ agent }: { agent: AgentRow }) {
       navigate(action.path);
       return;
     }
+    // Unreachable at runtime — the "disabled" case returned above, before this
+    // handler was ever constructed. Kept because it is load-bearing for the
+    // TYPE: TypeScript does not carry the outer early-return narrowing of
+    // `action` into a closure, so without this guard `action.sessionId` below
+    // fails to compile (TS2339 on the disabled variant). Deleting it as dead
+    // code breaks the build — verified, PR #2253 R1.
     if (action.type === "disabled") {
       return;
     }

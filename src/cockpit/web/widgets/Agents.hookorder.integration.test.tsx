@@ -110,7 +110,13 @@ describe("agents-page ErrorBoundary survives an attachState poll-tick change (mt
     await waitFor(() => expect(screen.getByText("row-1")).toBeDefined());
     expect(screen.queryByText(/crashed/i)).toBeNull();
 
-    // Force the poll-tick refetch (rather than waiting the real 5s refetchInterval).
+    // Force the poll-tick refetch (rather than waiting the real 5s
+    // refetchInterval). The widget's own key is ["agents", selectedSlug,
+    // includeInactive] (Agents.tsx:1397); ["agents"] matches it because
+    // TanStack Query filters by key PREFIX, not exact equality. That the
+    // refetch really delivered the SECOND payload is asserted below rather
+    // than assumed — the "Raise the attached terminal" title exists only for a
+    // non-disabled (attached-external) action.
     await act(async () => {
       await queryClient.refetchQueries({ queryKey: ["agents"] });
     });
@@ -149,5 +155,8 @@ describe("agents-page ErrorBoundary survives an attachState poll-tick change (mt
 
     await waitFor(() => expect(screen.getByText("row-2")).toBeDefined());
     expect(screen.queryByText(/crashed/i)).toBeNull();
+    // Proves the refetch delivered the second payload rather than re-rendering
+    // the first: this indicator renders only for attachState "in-cockpit".
+    expect(screen.getByTitle("Attached — in-cockpit")).toBeDefined();
   });
 });
