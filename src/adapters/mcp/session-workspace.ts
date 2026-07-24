@@ -196,12 +196,14 @@ export function registerSessionWorkspaceTools(
         const createDirs = typedArgs.createDirs ?? true;
 
         // mt#3129: `created` must reflect whether the file existed BEFORE this
-        // write — a hardcoded `created: true` lied on every overwrite. stat is
-        // taken before the write; a rejection (ENOENT, or any stat failure)
-        // means the file did not exist yet.
+        // write — a hardcoded `created: true` lied on every overwrite. Only a
+        // confirmed ENOENT means "did not exist"; a successful stat means it
+        // existed, and any OTHER stat error (e.g. EACCES) is treated
+        // conservatively as "existed" so we never falsely claim a create when
+        // existence could not be determined (PR #2250 R1).
         const existedBefore = await stat(resolvedPath).then(
           () => true,
-          () => false
+          (err: unknown) => (err as { code?: string } | null)?.code !== "ENOENT"
         );
 
         // Create parent directories if requested and they don't exist
