@@ -160,7 +160,14 @@ export interface ToolUseBlock {
 export function extractToolUseBlocksByMessage(turnLines: TranscriptLine[]): ToolUseBlock[][] {
   const groups: ToolUseBlock[][] = [];
   for (const line of turnLines) {
-    if (line.type !== "assistant" && line.message?.role !== "assistant") continue;
+    // Positive assistant-line check (mirrors transcript.ts's extractAssistantText /
+    // extractToolUseNames convention) — an assistant line is identified by EITHER
+    // discriminator; only skip when NEITHER matches. Written as an explicit `isAssistantLine`
+    // boolean rather than the De Morgan-equivalent `type !== "assistant" && role !== "assistant"`
+    // continue-guard so the "OR to identify, not to exclude" intent is unambiguous at a glance
+    // (PR #2244 R1).
+    const isAssistantLine = line.type === "assistant" || line.message?.role === "assistant";
+    if (!isAssistantLine) continue;
     const content = line.message?.content;
     if (!Array.isArray(content)) continue;
     const blocks: ToolUseBlock[] = [];

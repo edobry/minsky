@@ -103,6 +103,29 @@ describe("extractToolUseBlocksByMessage", () => {
     ];
     expect(extractToolUseBlocksByMessage(turn)).toEqual([]);
   });
+
+  // PR #2244 R1: explicit regression proving a non-assistant line's tool_use-
+  // shaped content is NEVER extracted, regardless of `type`/`message.role`
+  // combination -- direct empirical evidence for the assistant-line
+  // discriminator (isAssistantLine), not just code-reading.
+  test("a non-assistant line carrying a tool_use-shaped block is NEVER extracted", () => {
+    const nonAssistantShapes: TranscriptLine[] = [
+      // type is neither "assistant" nor matches role; role is "user"
+      {
+        type: "user",
+        message: { role: "user", content: [{ type: "tool_use", name: TASKS_CREATE, input: {} }] },
+      } as TranscriptLine,
+      // type undefined, role is something other than "assistant"
+      {
+        message: { role: "system", content: [{ type: "tool_use", name: TASKS_CREATE, input: {} }] },
+      } as TranscriptLine,
+      // type is some non-assistant tag, message entirely absent
+      { type: "tool_use", name: TASKS_CREATE, input: {} } as TranscriptLine,
+    ];
+    for (const line of nonAssistantShapes) {
+      expect(extractToolUseBlocksByMessage([line])).toEqual([]);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
