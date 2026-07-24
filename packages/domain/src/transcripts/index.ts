@@ -85,3 +85,43 @@ export {
   type ConversationRole,
   type ConversationTurn,
 } from "./conversation-elements";
+// Watchable-world semantic event schema v0 + transcript adapter + Gource
+// exporter (mt#3157, Phase 0 of the watchable-world program).
+export {
+  EVENT_SCHEMA_VERSION,
+  EVENT_VERBS,
+  DEFAULT_VERB_WEIGHTS,
+  weightForVerb,
+  PATH_BEARING_VERBS,
+  isPathBearingVerb,
+  EVENT_ACTOR_KINDS,
+  EVENT_OUTCOMES,
+  EVENT_REALMS,
+  type EventSchemaVersion,
+  type EventVerb,
+  type EventActorKind,
+  type EventActor,
+  type EventOutcome,
+  type EventRealm,
+  type EventTarget,
+  type SemanticEvent,
+} from "./event-schema";
+export {
+  adaptTranscriptToEvents,
+  computeAdapterCoverage,
+  ADAPTER_VERSION,
+  type AdapterContext,
+  type AdapterCoverageResult,
+  type ToolResultInfo,
+} from "./event-adapter";
+export {
+  eventsToGourceLines,
+  formatGourceLog,
+  exportGourceLog,
+  assertScrubGate,
+  UnscrubbedSessionError,
+  CREDENTIAL_SCRUB_CUTOFF_ISO,
+  type GourceAction,
+  type GourceLogLine,
+  type ExportGourceLogOptions,
+} from "./gource-exporter";
