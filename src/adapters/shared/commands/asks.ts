@@ -594,11 +594,39 @@ export async function respondToAsk(
 // asks.create — schemas
 // ---------------------------------------------------------------------------
 
-const askOptionSchema = z.object({
-  label: z.string(),
-  value: z.unknown(),
-  description: z.string().optional(),
-});
+/**
+ * Decision-frame option accepted at the CLI/MCP boundary.
+ *
+ * `value` is declared OPTIONAL here and normalized to `label` when absent
+ * (mt#3181). It was previously `z.unknown()`, which Zod treats as optional
+ * inside `z.object` — so `{label, description}` (the shape
+ * `humility.mdc §Escalation packaging` describes, and the shape agents
+ * naturally write) validated cleanly and stored an option with NO `value`.
+ * Every response writer records the SELECTION by stringifying `option.value`,
+ * so answering such an Ask persisted an empty selection and silently lost the
+ * operator's choice — the Ask still reported `closed` with `respondedAt` set.
+ * Observed on ask#5769 (`{"chosen": "", "option": ""}`).
+ *
+ * Defaulting beats rejecting here: `{label, description}` is the documented
+ * calling convention across many agent callsites, so rejecting it would break
+ * working callers to fix a bug none of them caused. `label` is a meaningful
+ * machine value.
+ *
+ * The transform is load-bearing at BOTH boundaries: `convertMcpArgsToParameters`
+ * (`src/adapters/mcp/shared-command-integration.ts`) assigns `schema.parse(value)`
+ * — the parse OUTPUT — since mt#3155, and `normalizeCliParameters`
+ * (`src/adapters/shared/bridges/parameter-mapper.ts`) has always done the same.
+ */
+export const askOptionSchema = z
+  .object({
+    label: z.string(),
+    value: z.unknown().optional(),
+    description: z.string().optional(),
+  })
+  .transform((option) => ({
+    ...option,
+    value: option.value === undefined ? option.label : option.value,
+  }));
 
 const contextRefSchema = z.object({
   kind: z.string(),

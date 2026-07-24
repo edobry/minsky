@@ -29,6 +29,7 @@ import {
   getAskByResolvedId,
   resolveAskIdInput,
   listAsksFiltered,
+  askOptionSchema,
 } from "./asks";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { CreateAskInput } from "@minsky/domain/ask/repository";
@@ -1732,5 +1733,47 @@ describe("listAsksFiltered — asks.list id filter (mt#2965 R1)", () => {
     await expect(listAsksFiltered(repo, resolveId, { id: "ask#999" })).rejects.toThrow(
       /not found/i
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// askOptionSchema — decision-frame option normalization (mt#3181)
+// ---------------------------------------------------------------------------
+
+describe("askOptionSchema value normalization (mt#3181)", () => {
+  test("an option with no `value` gets `label` as its value", () => {
+    // The originating shape: `{label, description}`, which is what
+    // `humility.mdc §Escalation packaging` describes and what agents write.
+    // Under the previous bare `z.unknown()` declaration this parsed cleanly
+    // with `value` ABSENT from the output — every response writer then
+    // stringified `undefined`/`""` and the operator's selection was lost.
+    const label = "B - scope stays paths";
+    const description = "Non-breaking; the bad input fails loudly.";
+    const parsed = askOptionSchema.parse({ label, description });
+
+    expect(parsed.value).toBe(label);
+    expect(parsed.label).toBe(label);
+    expect(parsed.description).toBe(description);
+  });
+
+  test("an explicit `value` is preserved, not overwritten by `label`", () => {
+    const parsed = askOptionSchema.parse({ label: "Use Postgres", value: "postgres" });
+
+    expect(parsed.value).toBe("postgres");
+    expect(parsed.label).toBe("Use Postgres");
+  });
+
+  test("a falsy-but-present `value` is preserved (not treated as absent)", () => {
+    // `null`, `false`, `0`, and `""` are legitimate machine values. Only
+    // `undefined` means "the caller omitted it", so the normalization keys
+    // off `=== undefined` rather than falsiness.
+    expect(askOptionSchema.parse({ label: "No", value: false }).value).toBe(false);
+    expect(askOptionSchema.parse({ label: "Zero", value: 0 }).value).toBe(0);
+    expect(askOptionSchema.parse({ label: "Null", value: null }).value).toBe(null);
+    expect(askOptionSchema.parse({ label: "Empty", value: "" }).value).toBe("");
+  });
+
+  test("`label` is still required", () => {
+    expect(askOptionSchema.safeParse({ value: "orphan" }).success).toBe(false);
   });
 });

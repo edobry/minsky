@@ -167,7 +167,14 @@ export function composeResolvePayload(
   let payloadValue: unknown;
   if (ask.options && ask.options.length > 0) {
     const option = ask.options[letterIndex];
-    payloadValue = { option: String(option?.value ?? ""), chosen: String(option?.value ?? "") };
+    // mt#3181: fall back to `label` when `value` is absent. This surface wrote
+    // the empty selection observed on ask#5769 — `option?.value ?? ""` yields
+    // "" for an option stored without a value, so the Ask closed as answered
+    // with no record of WHICH option the operator picked. `askOptionSchema`
+    // now normalizes this at create time; the fallback covers Asks created
+    // before that fix, which are still in the store.
+    const optionValue = option?.value ?? option?.label ?? "";
+    payloadValue = { option: String(optionValue), chosen: String(optionValue) };
   } else {
     payloadValue = { approved: optionLetter === "A" };
   }
@@ -435,7 +442,10 @@ export function AskDetail({
             {ask.contextRefs.map((ref, i) => {
               const link = contextRefHref(ref.kind, ref.ref);
               return (
-                <div key={i} className="text-xs text-muted-foreground pl-2 border-l-2 border-border">
+                <div
+                  key={i}
+                  className="text-xs text-muted-foreground pl-2 border-l-2 border-border"
+                >
                   <span className="font-medium">{ref.kind}:</span>{" "}
                   {link ? (
                     link.external ? (
