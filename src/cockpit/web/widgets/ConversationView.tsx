@@ -60,10 +60,10 @@ import { friendlyToolName, parseToolName } from "../lib/tool-name";
 import { toolIconFor } from "../lib/tool-icon";
 import { summarizeToolInvocation } from "../lib/tool-summary";
 import {
+  classifySnapshotError,
   fetchSnapshot,
   snapshotQueryKey,
   snapshotRetry,
-  SnapshotError,
 } from "../lib/conversation-snapshot";
 import { splitInjectedContent, type InjectedSpan } from "../lib/injected-content";
 
@@ -1008,14 +1008,19 @@ function ConversationFetcher({
   );
   const liveBlocks = workspaceSessionId ? workspaceLive.liveBlocks : conversationLive.liveBlocks;
 
-  const snapErr = query.isError && query.error instanceof SnapshotError ? query.error : null;
-  const wrongIdSpace = snapErr?.code === "wrong_id_space" || snapErr?.status === 422;
+  // mt#3131 (PR #2245 R1): all error-code/status interpretation is centralized
+  // in `classifySnapshotError` (lib/conversation-snapshot.ts) next to the
+  // `SnapshotError` type it classifies — this component never keys on raw
+  // `code === "..."` strings or bare status numbers, so a server-side contract
+  // drift has exactly one client site to update.
+  const errClass = query.isError ? classifySnapshotError(query.error) : null;
+  const wrongIdSpace = errClass === "wrong_id_space";
   // mt#3131 (D3/D5): the server rejects a syntactically-invalid id (not even
   // UUID-shaped) BEFORE any DB lookup, so it can never mean "still running" —
   // distinguish it from a genuine "no transcript yet" so the copy below never
   // tells the reader an impossible id "may still be running".
-  const invalidId = !wrongIdSpace && snapErr?.code === "invalid_id";
-  const notFound = !wrongIdSpace && !invalidId && snapErr?.status === 404;
+  const invalidId = errClass === "invalid_id";
+  const notFound = errClass === "not_found";
 
   // Report a genuine unresolvable id to the host (mt#2769) — e.g. so a
   // URL-routed page can prune its own tab-strip entry. NOT fired for

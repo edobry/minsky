@@ -68,7 +68,9 @@ export function registerTranscriptCommands(
       "Ingest agent conversation transcripts into the agent_transcripts table. " +
       "Pass --all to sweep every discoverable conversation, or --conversationId=<uuid> to " +
       "target one (the legacy --session alias is also accepted). " +
-      "Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged.",
+      "Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged. " +
+      "--ended (single-session mode, SessionEnd hook ONLY) marks the ingest as carrying " +
+      "positive termination evidence so endedAt is recorded; routine sweeps must omit it.",
     parameters: {
       all: {
         schema: z.boolean(),
