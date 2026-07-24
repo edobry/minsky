@@ -4,6 +4,8 @@ import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
 import type { MemoryRecord, MemoryType, MemoryScope } from "@minsky/domain/memory/types";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
+import { useEntityIndex } from "../lib/use-entity-index";
+import { LinkifiedText } from "../lib/entity-linkifier";
 
 interface MemoriesListPayload {
   records: MemoryRecord[];
@@ -144,6 +146,8 @@ interface MemoriesListBodyProps {
 }
 
 function MemoriesListBody({ onRowClick, filter, setFilter, query }: MemoriesListBodyProps) {
+  const entityIndex = useEntityIndex();
+
   if (query.isLoading || !query.data) {
     return <p className="text-xs text-muted-foreground py-8 text-center">Loading…</p>;
   }
@@ -229,9 +233,8 @@ function MemoriesListBody({ onRowClick, filter, setFilter, query }: MemoriesList
                     </span>
                   </td>
                   <td className="px-3 py-1.5 text-muted-foreground max-w-[220px] hidden sm:table-cell">
-                    {/* Plain text (not <Prose>): truncated single-line row — block Markdown breaks layout. mt#2556 */}
                     <span className="truncate block" title={rec.description}>
-                      {rec.description}
+                      <LinkifiedText text={rec.description} index={entityIndex} />
                     </span>
                   </td>
                   <td className="px-3 py-1.5 text-muted-foreground hidden md:table-cell">

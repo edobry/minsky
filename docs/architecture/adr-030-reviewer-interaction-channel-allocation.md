@@ -1,4 +1,4 @@
-# ADR-020: Reviewer interaction surface as a three-channel allocation
+# ADR-030: Reviewer interaction surface as a three-channel allocation
 
 ## Status
 

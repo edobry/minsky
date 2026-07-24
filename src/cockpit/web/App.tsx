@@ -79,6 +79,11 @@ const WeldHistoryPage = lazy(() =>
 const VitalsPage = lazy(() =>
   import("./pages/VitalsPage").then((m) => ({ default: m.VitalsPage }))
 );
+// Session film (mt#3184, watchable-world Phase 1) — route name is a working
+// label; naming is principal-reserved per the RFC.
+const SessionFilmPage = lazy(() =>
+  import("./pages/SessionFilmPage").then((m) => ({ default: m.SessionFilmPage }))
+);
 
 /**
  * Legacy `/session/:id` deep-link redirect (mt#2769).
@@ -560,6 +565,17 @@ export function App() {
             element={
               <ErrorBoundary id="vitals-page">
                 <VitalsPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Session film (mt#3184, watchable-world Phase 1): scroll-driven
+              replay of a single ingested agent session — the A0 event
+              ribbon + A2 forest stage. Route name is a working label. */}
+          <Route
+            path="/session-film"
+            element={
+              <ErrorBoundary id="session-film-page">
+                <SessionFilmPage />
               </ErrorBoundary>
             }
           />
