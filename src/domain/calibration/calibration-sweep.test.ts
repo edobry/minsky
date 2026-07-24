@@ -42,6 +42,7 @@ const SILENT_STRETCH_KIND = "silent-stretch";
 const BUILD_CLAIM_INJECTION_KIND = "build-claim-injection";
 const KNOWLEDGE_ACQUISITION_KIND = "knowledge-acquisition";
 const ENGINEERING_WRITING_SKILL_NAME = "engineering-writing";
+const CONSTRUCTED_IDENTIFIER_BATCH_KIND = "constructed-identifier-batch";
 const TEST_ASK_ID = "483dbcb0-788a-4159-9d8a-ba718ba1f2b0";
 const RETRO_PATH = ".minsky/retrospective-trigger-calibration.jsonl";
 const CAUSAL_GUARD_NAME = "causal-premise-detector";
@@ -111,8 +112,8 @@ function buildLines(count: number, makeLine: (i: number) => string): string {
 // ---------------------------------------------------------------------------
 
 describe("CALIBRATION_LOG_REGISTRY", () => {
-  test("has ten entries (mt#2619 adds three; mt#2866 adds silent-stretch; mt#2870 adds wall-of-text; mt#2923 adds build-claim-injection; mt#2708 adds knowledge-acquisition)", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(10);
+  test("has eleven entries (mt#2619 adds three; mt#2866 adds silent-stretch; mt#2870 adds wall-of-text; mt#2923 adds build-claim-injection; mt#2708 adds knowledge-acquisition; mt#3125 adds constructed-identifier-batch)", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(11);
   });
 
   test("first entry is causal-premise", () => {
@@ -182,6 +183,14 @@ describe("CALIBRATION_LOG_REGISTRY", () => {
     );
     expect(CALIBRATION_LOG_REGISTRY[9]?.reviewByDays).toBe(14);
     expect(CALIBRATION_LOG_REGISTRY[9]?.liveSinceDate).toBeDefined();
+  });
+
+  test("eleventh entry is constructed-identifier-batch (mt#3125)", () => {
+    expect(CALIBRATION_LOG_REGISTRY[10]?.kind).toBe(CONSTRUCTED_IDENTIFIER_BATCH_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[10]?.name).toBe(CONSTRUCTED_IDENTIFIER_BATCH_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[10]?.path).toBe(
+      ".minsky/constructed-identifier-batch-calibration.jsonl"
+    );
   });
 });
 
@@ -1398,6 +1407,13 @@ const KIND_FIXTURES: Readonly<
       }),
     expectedGuardName: "knowledge-acquisition-detector",
   },
+  "constructed-identifier-batch": {
+    // Same matches-shape family as retrospective-trigger (see this file's
+    // CalibrationLogEntry.kind doc comment) — reuses makeRetroRecord's shape,
+    // parsed under the "constructed-identifier-batch" kind.
+    line: () => makeRetroRecord(),
+    expectedGuardName: "constructed-identifier-batch-detector",
+  },
 };
 
 describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
@@ -1423,8 +1439,8 @@ describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
     }
   });
 
-  test("CALIBRATION_LOG_REGISTRY has exactly 10 entries and every kind has a fixture above", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(10);
+  test("CALIBRATION_LOG_REGISTRY has exactly 11 entries and every kind has a fixture above", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(11);
     for (const entry of CALIBRATION_LOG_REGISTRY) {
       expect(KIND_FIXTURES[entry.kind]).toBeDefined();
     }

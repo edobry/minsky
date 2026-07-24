@@ -71,6 +71,13 @@ export interface CalibrationLogEntry {
    *   the mt#2708 spec's Graduation contract — a tool-use-pattern detector
    *   has no natural "phrase," and distinct loaded-skill names are more
    *   semantically meaningful than tool names for this detector).
+   * "constructed-identifier-batch" → record.matches: {category, phrase, ...}[]
+   *   (mt#3125) — same matches-shape family as retrospective-trigger /
+   *   ask-routing-deferral / pre-narration (parsed by the shared fallback
+   *   branch below, no dedicated `kind === ...` branch needed); `category`
+   *   is the `${mintTool}+${consumeTool}` pair label, `phrase` is the
+   *   consuming call's free-text excerpt. `mintTool`/`consumeTool`/
+   *   `consumeField` are carried as extra context, not consulted here.
    */
   kind:
     | "causal-premise"
@@ -82,7 +89,8 @@ export interface CalibrationLogEntry {
     | "silent-stretch"
     | "wall-of-text"
     | "build-claim-injection"
-    | "knowledge-acquisition";
+    | "knowledge-acquisition"
+    | "constructed-identifier-batch";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
    * trigger: the number of days a NEVER-reviewed log may accumulate fires
@@ -207,6 +215,12 @@ export function findInvalidLiveSinceDates(
  *     tighter than mt#2923's 30 — research-tool calls are routine, so the
  *     count/diversity leg should bind first; the time leg is a backstop, not
  *     the primary trigger, per the mt#2708 spec's Graduation contract).
+ * V7 entry (mt#3125):
+ *   - constructed-identifier-batch-calibration.jsonl (mt#3125 detector) —
+ *     the root-tier sibling of pre-narration/mt#2195's family: fires on the
+ *     BATCH itself (an id-minting call + an id-consuming call in one
+ *     parallel tool-call batch), not a downstream identifier surface.
+ *     Matched-phrase shape family (same as retrospective-trigger).
  *
  * To add another log: append one CalibrationLogEntry here.
  */
@@ -299,6 +313,11 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // carries the actual positive-control (writes a record) / negative-
     // control (writes nothing) transcript this date is derived from.
     liveSinceDate: "2026-07-23",
+  },
+  {
+    path: ".minsky/constructed-identifier-batch-calibration.jsonl",
+    name: "constructed-identifier-batch",
+    kind: "constructed-identifier-batch",
   },
 ];
 
@@ -1274,6 +1293,7 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "wall-of-text": "wall-of-text-detector",
   "build-claim-injection": "build-claim-injection-detector",
   "knowledge-acquisition": "knowledge-acquisition-detector",
+  "constructed-identifier-batch": "constructed-identifier-batch-detector",
 };
 
 /**
