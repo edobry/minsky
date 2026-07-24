@@ -7,10 +7,10 @@ description: >-
   public blog posts, shared design docs meant to persuade, RFCs with
   argumentative structure. Provides structural patterns (lead with position,
   justify after), section-heading heuristics (sentence case, specific,
-  opinionated), an AI-voice-tells checklist (em dashes, tricolons, vocabulary,
-  heading patterns), and a revision workflow. Skip for task specs (use
-  create-task), rule files (use create-rule), code comments, or short
-  internal-only docs.
+  opinionated), an AI-voice-tells checklist (cadence uniformity, reveal-
+  signposting, contrast sentences and rule of three, vocabulary, heading
+  patterns), and a revision workflow. Skip for task specs (use create-task),
+  rule files (use create-rule), code comments, or short internal-only docs.
 user-invocable: true
 ---
 
@@ -417,7 +417,7 @@ Original inventory, plus the 2026-07-24 refresh sources cited in §AI-voice tell
 - [Wikipedia — Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing) — systematic inventory
 - [The Em Dash Dilemma](https://medium.com/@brentcsutoras/the-em-dash-dilemma-how-a-punctuation-mark-became-ais-stubborn-signature-684fbcc9f559)
 - [Washington Post — AI em dash writing](https://www.washingtonpost.com/technology/2025/04/09/ai-em-dash-writing-punctuation-chatgpt/)
-- [vrid.ai — Signs of AI writing (Feb 2026)](https://vrid.ai/blog/signs-of-ai-writing) — cadence/burstiness as the surviving tell, per-model em-dash and paragraph-length fingerprints
+- [vrid.ai — Signs of AI writing (Feb 2026)](https://vrid.ai/blog/signs-of-ai-writing) — per-model fingerprint table (em-dash frequency, paragraph length by model); lists identical sentence length and rule of three among its 27 signs
 - [oliviacal.com — AI writing tells](https://oliviacal.com/post/ai-writing-tells) — "low burstiness," rule-of-three, contrast-sentence framing
 - [Hunting the Muse — the 6 elements of robot style](https://huntingthemuse.net/library/how-to-tell-if-writing-is-ai) — reveal-signposting ("here's the thing"), contrast frames, rule of three
 - [Pangram Labs — why perplexity and burstiness fail to detect AI](https://www.pangram.com/blog/why-perplexity-and-burstiness-fail-to-detect-ai) — the caveat behind automated cadence detection
