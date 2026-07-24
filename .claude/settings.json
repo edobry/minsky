@@ -245,6 +245,17 @@
             "statusMessage": "Checking dispatch-intent write gate..."
           }
         ]
+      },
+      {
+        "_comment": "mt#3161 run-state writer — records the in-flight tool call (name + start time) so elapsed time is renderable, which the mt#3130 vocabulary makes mandatory rather than optional. matcher '*' fires on EVERY tool. No statusMessage: this runs on every tool call and a per-call status line would be pure UI noise. Budget: the hook's own forward is capped at 500ms internally; timeout 5 covers process spawn.",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -272,6 +283,16 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-stop.ts",
             "timeout": 15,
             "statusMessage": "Running guard dispatcher (Stop)..."
+          }
+        ]
+      },
+      {
+        "_comment": "mt#3161 run-state writer — records the turn going idle. Standalone, not a GUARD_REGISTRY entry (observer, not a guard).",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
           }
         ]
       }
@@ -302,6 +323,16 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/transcript-ingest-on-session-end.ts",
             "timeout": 45,
             "statusMessage": "Ingesting finished session transcript..."
+          }
+        ]
+      },
+      {
+        "_comment": "mt#3161 run-state writer — records a SessionEnd HINT only. Per ADR-017, /exit and /clear do NOT fire SessionEnd, so its absence proves nothing; authoritative end/stall detection is the Phase 2 absence sweep.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
           }
         ]
       }
@@ -396,6 +427,17 @@
             "statusMessage": "Recording 2-strikes streak..."
           }
         ]
+      },
+      {
+        "_comment": "mt#3161 run-state writer — clears the in-flight tool call so a finished call does not read as running for the rest of the turn. matcher '*' fires on EVERY tool; no statusMessage, same per-call-noise reason as the PreToolUse sibling.",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -407,6 +449,77 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-userpromptsubmit.ts",
             "timeout": 175,
             "statusMessage": "Running guard dispatcher (UserPromptSubmit)..."
+          }
+        ]
+      },
+      {
+        "_comment": "mt#3161 conversation run-state writer. Deliberately STANDALONE rather than a GUARD_REGISTRY entry: it makes no permission decision and denies nothing, so it is an observer in the record-subagent-invocation.ts family, not a guard. Registering it inside the dispatcher would also put a fleet-wide per-event forward behind the dispatcher's 175s host cap. Fail-open: exits 0 on every path.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "_comment": "mt#3161: the harness-native turn-failure signal (error_type/error_message). Ten documented matchers; no matcher here so every failure class is recorded. Stored raw — the Rate-limited-vs-Errored split is a render-layer mapping.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "_comment": "mt#3161: source for the NEEDS INPUT reason sub-label (permission_prompt / idle_prompt / agent_needs_input). Registered for capture only — no render logic is built on it yet (mt#3130 subscribe-only discipline).",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "_comment": "mt#3161: the unambiguous source for NEEDS INPUT (permission). Without it that reason sub-label — which mt#3130 decision (2) makes mandatory — would have to be inferred.",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "_comment": "mt#3161: records the compaction trigger (manual/auto) ONLY. The harness exposes no token-usage field on this event.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "_comment": "mt#3161: records when compaction completed, so a context-boundary divider can be placed against a real interval rather than an inferred one.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-conversation-run-state.ts",
+            "timeout": 5
           }
         ]
       }

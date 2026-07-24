@@ -78,6 +78,7 @@ import { mountEmbeddingsRoutes } from "./routes/embeddings";
 import { mountSweepRoutes } from "./routes/sweeps";
 import { mountFollowUpRoutes } from "./routes/follow-ups";
 import { mountDrivenSessionRoutes } from "./routes/driven-sessions";
+import { mountConversationRunStateRoutes } from "./routes/conversation-run-state";
 import type { DrivenSessionRoutesOptions } from "./routes/driven-sessions";
 import {
   buildAllowedHosts,
@@ -315,6 +316,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountAskRoutes(app, { askRepoOverride });
   mountCredentialRoutes(app, { credModuleOverride });
   mountContextInspectorRoutes(app);
+  mountConversationRunStateRoutes(app);
   mountEmbeddingsRoutes(app);
   mountSweepRoutes(app); // mt#2894 — GET /api/sweeps (per-sweep liveness registry)
   mountFollowUpRoutes(app); // mt#2322 — GET/POST /api/follow-ups (scheduled-follow-up primitive)

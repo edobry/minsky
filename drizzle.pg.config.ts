@@ -72,6 +72,7 @@ export default {
     "./packages/domain/src/detectors/dismissal-store.ts",
     "./packages/domain/src/storage/schemas/presence-claims-schema.ts",
     "./packages/domain/src/storage/schemas/scheduled-follow-ups-schema.ts",
+    "./packages/domain/src/storage/schemas/conversation-run-state-schema.ts",
   ],
   out: "./packages/domain/src/storage/migrations/pg",
   dialect: "postgresql",
