@@ -103,7 +103,14 @@ After pushing a follow-up commit that addresses BLOCKING findings, \`minsky-revi
 
 1. Confirm the latest push reached GitHub: \`mcp__minsky__session_pr_get\` and check \`head.sha\` matches your local HEAD.
 2. Check whether CI fired on the same push: \`mcp__minsky__session_pr_checks\` (or \`mcp__github__pull_request_read\` with \`method: "get_check_runs"\` if the Minsky tool is unavailable). If CI also produced 0 check_runs, that's a separate \`webhook/CI-trigger\` problem — note both classes when filing a reliability issue. The merge gate enforces this independently as of mt#1309. The CI-check-never-ran class (zero check_runs) is distinct from this section's reviewer-webhook-miss class and can co-occur on the same PR: work \`docs/ci-check-never-ran-playbook.md\` (mt#2800) for the CI piece, and continue this section's remaining steps below for the reviewer-silence piece.
-3. Wait at most 5 minutes. Do not loop indefinitely.
+3. **Check the service is serving the RIGHT app — read the health BODY, not just the status code (mt#3154).** A 200 from the reviewer host does NOT mean the reviewer is running there. A Railway source-cutover can leave the service building a DIFFERENT app from the repo, which boots fine and answers \`/health\` with 200 — so a status-only check reports "healthy" for a service that cannot review anything. Discriminate on the body:
+   - reviewer (correct): \`{"provider":"openai","model":"gpt-5","tier2Enabled":true}\`
+   - wrong app (the Minsky MCP server): \`{"server":"Minsky MCP Server"}\`
+
+   If the body lacks the reviewer signature, **stop working this ladder** — this is not a webhook miss, and neither retriggering nor bypassing addresses it. It is a deploy/source problem: route to the \`railway:use-railway\` skill and memory \`mem#700\`, and recover by forcing a fresh deploy from the CURRENT source via a service-VARIABLE change (e.g. set then remove a throwaway variable).
+
+   **Do NOT reach for \`railway redeploy\`.** It replays the last build artifact — which on a source-cutover IS the wrong app — so it cheerfully re-deploys the same wrong image and reports success. Two exit-0 attempts that leave the served app unchanged is a wrong-OUTCOME 2-strikes trip: stop improvising and load the skill (see \`error-investigation.mdc\`).
+4. Wait at most 5 minutes. Do not loop indefinitely.
 
 **Unblock options** (in preference order):
 
