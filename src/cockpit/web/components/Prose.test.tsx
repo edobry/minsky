@@ -8,8 +8,9 @@
  * `bun run test:components`).
  */
 import { describe, test, expect, afterEach } from "bun:test";
-import { render, cleanup } from "@testing-library/react";
+import { render, cleanup, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Prose } from "./Prose";
 import { buildEntityIndex } from "../lib/entity-linkifier";
 
@@ -22,8 +23,22 @@ function makeIndex() {
   return buildEntityIndex({ taskIds: [TASK_ID], sessionIds: [], askIds: [], memoryIds: [] });
 }
 
+// Entity-attributed anchors render through <EntityRef>, which resolves a
+// label via TanStack Query (mt#3174) — so every render needs a QueryClient
+// in scope, mirroring ConversationView.windowing.test.tsx's provider
+// wrapper. `retry: false` keeps a failing/absent fetch from retrying and
+// dragging out the test.
+function createTestQueryClient(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+}
+
 function renderProse(ui: React.ReactElement) {
-  return render(<MemoryRouter>{ui}</MemoryRouter>);
+  const client = createTestQueryClient();
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>{ui}</MemoryRouter>
+    </QueryClientProvider>
+  );
 }
 
 describe("Prose — Markdown structure", () => {
@@ -139,5 +154,55 @@ describe("Prose — safety and edge cases", () => {
   test("empty / whitespace-only content renders nothing", () => {
     const { container } = renderProse(<Prose>{"   "}</Prose>);
     expect(container.textContent).toBe("");
+  });
+});
+
+describe("Prose — entity-reference label channel (mt#3174)", () => {
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test(
+    "acceptance test: label channel stubbed to fail — renders, links, shows the bare id; " +
+      "no badge shell, no spinner, no layout shift",
+    async () => {
+      global.fetch = (async () => {
+        throw new Error("label channel down");
+      }) as unknown as typeof fetch;
+
+      const { container } = renderProse(
+        <Prose entityIndex={makeIndex()}>{`see ${TASK_ID} for details`}</Prose>
+      );
+
+      const anchor = container.querySelector(`a[href="${TASK_PATH}"]`);
+      expect(anchor).not.toBeNull();
+      // Bare id, unchanged — no title/status appended, no loading indicator.
+      expect(anchor?.textContent).toBe(TASK_ID);
+
+      // Give the (failing) label fetch a tick to settle and confirm the
+      // rendered anchor is unchanged afterward too (no shell -> content swap).
+      await new Promise((r) => setTimeout(r, 0));
+      const anchorAfter = container.querySelector(`a[href="${TASK_PATH}"]`);
+      expect(anchorAfter?.textContent).toBe(TASK_ID);
+      expect(container.querySelector('[role="status"]')).toBeNull();
+      expect(container.querySelectorAll("svg")).toHaveLength(0); // no spinner icon
+    }
+  );
+
+  test("the entity-linked anchor is routed through EntityRef's hover-card trigger (Radix data-state marker present)", () => {
+    global.fetch = (async () => {
+      throw new Error("label channel down");
+    }) as unknown as typeof fetch;
+
+    const { container } = renderProse(
+      <Prose entityIndex={makeIndex()}>{`see ${TASK_ID} for details`}</Prose>
+    );
+    const anchor = container.querySelector(`a[href="${TASK_PATH}"]`);
+    // Radix's HoverCardTrigger stamps `data-state` on its (asChild) trigger
+    // element — present only when Prose's `a` override actually routed this
+    // anchor through <EntityRef> (the makeAnchor data-entity-* read path),
+    // not the plain <Link> branch used for ordinary internal links.
+    expect(anchor?.hasAttribute("data-state")).toBe(true);
   });
 });

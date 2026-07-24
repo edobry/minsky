@@ -1,9 +1,11 @@
 /**
  * Cockpit task routes (mt#2615 — extracted from server.ts).
  *
- *   GET /api/tasks/ids — uncapped ids-only endpoint for the linkifier (mt#2518 R5)
- *   GET /api/tasks/:id — task detail for the drill-down page (mt#1918)
- *   GET /api/tasks     — lightweight task list for the command palette (mt#1917)
+ *   GET /api/tasks/ids  — uncapped ids-only endpoint for the linkifier (mt#2518 R5)
+ *   GET /api/tasks/meta — batch {id,title,status} label channel for the entity-
+ *                         reference layer (mt#3174); lazy over requested ids
+ *   GET /api/tasks/:id  — task detail for the drill-down page (mt#1918)
+ *   GET /api/tasks      — lightweight task list for the command palette (mt#1917)
  */
 import type express from "express";
 import { log } from "@minsky/shared/logger";
@@ -12,9 +14,96 @@ import {
   getServerTaskDetailDeps,
   getServerSessionProvider,
 } from "../db-providers";
+import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
+
+/**
+ * Task-meta provider (mt#3174) — adapts `getServerTaskService()` to
+ * `TaskProviderLike`'s batch shape, returning `{id, title, status}` (status
+ * included, unlike the title-only providers `widgets/agents.ts` and
+ * `widgets/context-inspector.ts` construct for their own `TaskTitleCache`
+ * instances). Module-level singleton cache, separate instance from those two
+ * widgets' caches — no shared state, no cross-contamination.
+ */
+async function taskMetaProvider(): Promise<TaskProviderLike> {
+  const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
+  return {
+    async getTask(taskId: string) {
+      const taskService = await getServerTaskService();
+      if (!taskService) return null;
+      const task = await taskService.getTask(taskId);
+      if (!task) return null;
+      return { title: task.title ?? "", status: (task.status ?? "TODO").toUpperCase() };
+    },
+    async getTasks(ids: string[]) {
+      const taskService = await getServerTaskService();
+      if (!taskService) return [];
+      const tasks = await taskService.getTasks(ids);
+      return tasks.map((t) => ({
+        id: formatTaskIdForDisplay(t.id),
+        title: t.title ?? "",
+        status: ((t.status ?? "TODO") as string).toUpperCase(),
+      }));
+    },
+  };
+}
+
+const taskMetaCache = new TaskTitleCache(taskMetaProvider);
+
+/**
+ * Parse the `?ids=` query param for `GET /api/tasks/meta` into a clean id
+ * list — comma-separated, each segment percent-decoded and trimmed, empty
+ * segments dropped. Pure (no I/O) so it's unit-testable without a running
+ * server or task service (mt#3174).
+ */
+export function parseTaskMetaIds(rawIds: unknown): string[] {
+  if (typeof rawIds !== "string" || rawIds.length === 0) return [];
+  return rawIds
+    .split(",")
+    .map((s) => {
+      try {
+        return decodeURIComponent(s.trim());
+      } catch {
+        return "";
+      }
+    })
+    .filter((s) => s.length > 0);
+}
 
 /** Mount the /api/tasks* routes on `app`. */
 export function mountTaskRoutes(app: express.Express): void {
+  /**
+   * GET /api/tasks/meta?ids=mt%231,mt%232 — batch task-label channel (mt#3174).
+   *
+   * Returns: { tasks: {id, title, status}[] } for whichever of the requested
+   * ids resolve — unknown/missing ids are simply omitted (never an error),
+   * so a caller degrades to bare-id rendering for anything not returned.
+   *
+   * Built on `TaskTitleCache` (TTL-cached batch resolution, mt#2770) rather
+   * than a widened `/api/tasks/ids` — this channel is lazy over the ids
+   * actually requested, not a comprehensive/uncapped list (that property
+   * belongs to `/api/tasks/ids` alone; see its doc comment below).
+   *
+   * IMPORTANT: registered BEFORE /api/tasks/:id so "meta" is not interpreted
+   * as a task id parameter by Express's first-match-wins routing (same
+   * reasoning as the /api/tasks/ids route below).
+   */
+  app.get("/api/tasks/meta", async (req, res) => {
+    try {
+      const ids = parseTaskMetaIds(req.query.ids);
+      if (ids.length === 0) {
+        res.json({ tasks: [] });
+        return;
+      }
+      const meta = await taskMetaCache.getTaskMeta(ids);
+      const tasks = Array.from(meta, ([id, m]) => ({ id, title: m.title, status: m.status }));
+      res.json({ tasks });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`[tasks] GET /api/tasks/meta — internal error: ${message}`);
+      res.status(500).json({ error: "An internal error occurred while resolving task labels." });
+    }
+  });
+
   /**
    * GET /api/tasks/ids — uncapped ids-only endpoint for the linkifier (mt#2518 R5).
    *
