@@ -27,7 +27,6 @@ import { SessionFilmPicker } from "../components/session-film/SessionFilmPicker"
 import { SessionFilmMinimap } from "../components/session-film/SessionFilmMinimap";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 import {
-  SessionFilmError,
   fetchSessionFilmEvents,
   fetchSessionFilmSessions,
   sessionFilmEventsQueryKey,
