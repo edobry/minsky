@@ -23,8 +23,17 @@
  * the harness transcript JSONL mtime was evaluated and rejected in favor of
  * the `presence_claims` table) and the documented residual blind spot.
  *
+ * mt#3149 update: `classifyDispatchRecoveryState` below now ALSO consults
+ * PR existence as a liveness signal, not just `commitsAheadOfBase` — see
+ * that function's docstring for the originating incident (a dispatch with
+ * an open PR and pushed commits was classified `crashed-no-output` twice,
+ * because the CALLER never re-probed live state at all for the second
+ * classification — see `dispatch-recover-command.ts`'s escalate-branch
+ * restructuring for the other half of this fix).
+ *
  * @see mt#2831 — this task (original staleness/classification/prompt logic)
  * @see mt#3086 — false-positive staleness fix (presence-claim liveness signal)
+ * @see mt#3149 — false-positive crashed-no-output fix (PR-existence liveness signal)
  * @see mt#2646 — dispatch-watchdog detection + the recovery-probe shape reused here
  * @see packages/domain/src/session/dispatch-recovery-probe.ts — the probe shape
  * @see packages/domain/src/storage/schemas/subagent-invocations-schema.ts — the outcome enum
@@ -198,6 +207,23 @@ export interface DispatchRecoveryClassificationInput {
   commitsAheadOfBase: number | null;
   /** Whether `.minsky/sessions/<id>/handoff.md` exists. */
   handoffExists: boolean;
+  /**
+   * Whether a still-open (or draft) PR exists for the session branch
+   * (mt#3149). This is DIRECT, POSITIVE evidence of prior output — a PR
+   * cannot exist without a push having happened — and is deliberately
+   * consulted INDEPENDENTLY of `commitsAheadOfBase`, which is a `git
+   * rev-list`-derived proxy that can misreport zero for reasons unrelated to
+   * whether the dispatch actually produced anything (e.g. the caller not
+   * re-probing live state before reporting a classification — see the
+   * mt#3149 originating incident: a dispatch with PR #2244 open and commits
+   * pushed was classified `crashed-no-output` because the CALLER never
+   * re-ran the commits-ahead probe for that classification at all, not
+   * because the probe itself misread a ref/worktree). A caller that cannot
+   * determine PR state should pass `false` — this is the conservative
+   * default that preserves the pre-mt#3149 behavior for the case where no
+   * PR information is available.
+   */
+  hasOpenPr: boolean;
 }
 
 /**
@@ -214,15 +240,25 @@ export interface DispatchRecoveryClassificationInput {
  *   2. Dirty tree, no handoff.md        -> `partial-uncommitted-no-handoff`
  *      (the failure class per `subagent-dispatch-cadence.mdc` — lost/stranded
  *      work a successor can't find automatically without this probe).
- *   3. Clean tree, commits ahead of base -> `committed-no-pr`
+ *   3. Clean tree, commits ahead of base OR an open PR exists -> `committed-no-pr`
  *      (work landed cleanly; the dispatch died before `session_pr_create`,
  *      or — when a PR already exists — before driving it to convergence;
  *      the continuation-prompt builder differentiates those two shapes via
  *      the caller-supplied `prExists`/`prNumber`, since both map to this
- *      same persisted outcome value).
- *   4. Clean tree, no commits            -> `crashed-no-output`
+ *      same persisted outcome value). mt#3149: an open PR is checked HERE,
+ *      as an alternative to `commitsAheadOfBase > 0` rather than a
+ *      replacement for it — either signal alone is sufficient, since a PR
+ *      implies commits were pushed even when `commitsAheadOfBase`'s
+ *      `git rev-list` comparison happens to read stale or zero.
+ *   4. Clean tree, no commits, no PR     -> `crashed-no-output`
  *      (nothing was ever produced — the dispatch died at or before its
- *      first commit).
+ *      first commit). This is the ONLY path to `crashed-no-output` — a
+ *      dispatch with an open PR or commits ahead of base can never reach it
+ *      (mt#3149 SC1/SC2), and this is the class the hard constraint (mt#3149
+ *      Acceptance Test 4) pins: a genuinely dead dispatch (no PR, no
+ *      commits, no dirty tree) must still land here — this branch is not
+ *      weakened by the mt#3149 fix, only the OTHER branches gained a new
+ *      way to be reached.
  *
  * Pure — no I/O.
  */
@@ -230,6 +266,10 @@ export function classifyDispatchRecoveryState(
   input: DispatchRecoveryClassificationInput
 ): DispatchRecoveryClassification {
   const hasCommits = (input.commitsAheadOfBase ?? 0) > 0;
+  // mt#3149: an open PR is positive, direct evidence of prior output,
+  // independent of (and not overridden by) a possibly-stale/zero
+  // `commitsAheadOfBase` reading. See this function's docstring, step 3.
+  const hasPositiveLivenessEvidence = hasCommits || input.hasOpenPr;
 
   if (input.dirtyFileCount > 0) {
     return input.handoffExists
@@ -237,7 +277,7 @@ export function classifyDispatchRecoveryState(
       : "partial-uncommitted-no-handoff";
   }
 
-  if (hasCommits) {
+  if (hasPositiveLivenessEvidence) {
     return "committed-no-pr";
   }
 

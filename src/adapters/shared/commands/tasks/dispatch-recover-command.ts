@@ -54,6 +54,14 @@
  *   touches its own session — see `computeDispatchStaleness`'s docstring
  *   for the full mechanism and why this stands in for the harness
  *   transcript JSONL mtime, which is unreachable here).
+ * - mt#3149: a dispatch with an open PR or commits ahead of base is NEVER
+ *   classified `crashed-no-output`, including at the 2-attempt-bound
+ *   escalate path — the probe (git status, commits-ahead, PR state) is now
+ *   built and consulted BEFORE that check, not only on the "recover" branch,
+ *   so an escalation can no longer echo a stale/pessimistic-default DB
+ *   `outcome` value for a row that was never actually re-classified against
+ *   live state (see `classifyDispatchRecoveryState`'s docstring and the
+ *   escalate branch below for the full incident and fix).
  *
  * ### Does NOT cover
  * - Semantically-wrong-but-alive work — a subagent that is actively
@@ -84,6 +92,7 @@
  *
  * @see mt#2831 — this task
  * @see mt#3086 — false-positive staleness fix + double-dispatch race documentation
+ * @see mt#3149 — false-positive crashed-no-output fix (PR/commit liveness at escalate time)
  * @see mt#2646 — dispatch-watchdog detection + `dispatch-recovery-probe.ts`
  * @see mt#2512 — kill+redispatch doctrine (no mid-flight correction)
  *
@@ -323,6 +332,18 @@ export function createRealDispatchRecoveryGitOps(): DispatchRecoveryGitOps {
       }
     },
   };
+}
+
+/**
+ * Whether a PR `state` (as recorded on the session record / probe) represents
+ * a still-open (or draft) PR — i.e. one whose existence is direct, positive
+ * evidence the dispatch pushed something (mt#3149 SC1/SC2). A draft PR still
+ * required a push to create, so it counts. `null`/`undefined`/`"closed"`/
+ * `"merged"` are not live — no PR, or a PR that no longer represents
+ * in-flight work.
+ */
+export function isLivePrState(state: string | null | undefined): boolean {
+  return state === "open" || state === "draft";
 }
 
 // ---------------------------------------------------------------------------
@@ -673,39 +694,19 @@ export function createTasksDispatchRecoverCommand(
         };
       }
 
-      // ── 2-attempt bound: refuse a 3rd attempt, return an escalation package. ─────────
-      const attemptNumber = latest.attemptNumber ?? 1;
-      if (attemptNumber >= 2) {
-        const chain = await tracker.getInvocationChainForTask(taskId);
-        const attempts: DispatchRecoveryEscalationAttempt[] = (
-          chain.length > 0 ? chain : [latest]
-        ).map((row) => ({
-          invocationId: row.id,
-          attemptNumber: row.attemptNumber ?? 1,
-          startedAt: row.startedAt.toISOString(),
-          outcome: row.outcome ?? null,
-        }));
-        return {
-          success: true,
-          status: "escalate" as const,
-          taskId,
-          sessionId: subagentSessionId,
-          escalation: {
-            taskId,
-            attempts,
-            message:
-              `Dispatch for ${taskId} has gone silent again after a prior auto-resume ` +
-              `(attempt ${attemptNumber}). The 2-attempt bound is reached — no further ` +
-              `auto-resume will be attempted. An operator/orchestrator decision is needed: ` +
-              `diagnose why this dispatch keeps stalling (repeated infra failure? a task ` +
-              `that genuinely exceeds a single dispatch's capacity? rate-limiting — check ` +
-              `SubagentDispatchTracker.getEscalation() before assuming death) before retrying ` +
-              `manually.`,
-          },
-        };
-      }
-
-      // ── Build the probe (git-diff presence, commits-ahead, handoff.md). ─────────────
+      // ── Build the probe (git-diff presence, commits-ahead, handoff.md, PR). ─────────
+      // mt#3149: this block was MOVED ABOVE the 2-attempt-bound check below (it used
+      // to run only on the "recover" path, AFTER that check). That ordering was the
+      // actual root cause of the mt#3149 incident: once a dispatch reached its 2nd
+      // stale classification, the code took the escalate branch and returned WITHOUT
+      // EVER calling `gitOps.commitsAheadOfBase` or looking at `sessionRecord.pullRequest`
+      // — it just echoed whatever `outcome` was already stored on the DB row, which for
+      // a row created by a prior recovery attempt is a hardcoded PESSIMISTIC DEFAULT
+      // (`"crashed-no-output"`, see `recordDispatchRecoveryAttempt` below), never a real,
+      // live-probed classification. This was NOT a "wrong ref/worktree" bug in the git
+      // probe itself (the probe code was correct) — the probe was simply never reached
+      // for the escalate case. Computing it here, unconditionally, before either branch
+      // is decided, closes that gap for both paths.
       const gitStatus = await gitOps.status(sessionDir);
       const baseBranch =
         sessionRecord?.pullRequest?.baseBranch ?? (await gitOps.detectDefaultBranch(sessionDir));
@@ -733,11 +734,78 @@ export function createTasksDispatchRecoverCommand(
         handoffMaxLines: DISPATCH_RECOVERY_PROBE_HANDOFF_MAX_LINES,
       });
 
+      // mt#3149 SC1/SC2: an open (or draft) PR is direct, positive evidence of prior
+      // output, consulted INDEPENDENTLY of `commitsAheadOfBase` — see
+      // `classifyDispatchRecoveryState`'s docstring for the full rationale.
+      const hasOpenPr = isLivePrState(probe.pr.state);
+      const hasLivenessEvidence = hasOpenPr || (probe.commitsAheadOfBase ?? 0) > 0;
+
       const classification = classifyDispatchRecoveryState({
         dirtyFileCount: probe.dirtyFileCount,
         commitsAheadOfBase: probe.commitsAheadOfBase,
         handoffExists: probe.handoff.exists,
+        hasOpenPr,
       });
+
+      // ── 2-attempt bound: refuse a 3rd attempt, return an escalation package. ─────────
+      const attemptNumber = latest.attemptNumber ?? 1;
+      if (attemptNumber >= 2) {
+        const chain = await tracker.getInvocationChainForTask(taskId);
+        const rows = chain.length > 0 ? chain : [latest];
+        // mt#3149 SC1/SC2: the LATEST row is still open (`endedAt` unset) — its stored
+        // `outcome` was never produced by a live classification (see the probe-ordering
+        // comment above), so substitute the classification just computed from THIS
+        // call's live probe. Every OTHER (already-closed) row in the chain keeps its
+        // stored outcome, since those genuinely were classified — with a live probe —
+        // at closure time.
+        const attempts: DispatchRecoveryEscalationAttempt[] = rows.map((row) => ({
+          invocationId: row.id,
+          attemptNumber: row.attemptNumber ?? 1,
+          startedAt: row.startedAt.toISOString(),
+          outcome: row.id === latest.id ? classification : (row.outcome ?? null),
+        }));
+
+        // mt#3149 SC4: distinguish "we observed it die" (this command never has a
+        // process-level signal — only workspace/PR proxies, so that phrase is never
+        // accurate) from "we saw no activity in the window," and do not recommend
+        // redispatch-into-the-same-session on the weaker signal — especially not when
+        // there IS positive evidence (an open PR, or commits ahead) that the dispatch
+        // produced real output and may simply be between tool calls or wrapping up.
+        const message = hasLivenessEvidence
+          ? `Dispatch for ${taskId} went quiet again after a prior auto-resume ` +
+            `(attempt ${attemptNumber}) — no activity was observed in the stale window. ` +
+            `This is NOT confirmed death: the dispatch has ${
+              hasOpenPr && probe.pr.number
+                ? `an open PR (#${probe.pr.number})`
+                : `${probe.commitsAheadOfBase ?? 0} commit(s) ahead of base`
+            }, positive evidence it produced real output. Do NOT redispatch the ` +
+            `continuation prompt into this session on the strength of this escalation alone — ` +
+            `doing so risks running two agents against the same workspace/branch at once. ` +
+            `Verify independently (check for further pushes, PR/review activity, or ask the ` +
+            `operator) before taking any action.`
+          : `Dispatch for ${taskId} has gone silent again after a prior auto-resume ` +
+            `(attempt ${attemptNumber}) — no activity, no PR, and no commits were observed in ` +
+            `the stale window. This reflects an absence of observed output, not a confirmed ` +
+            `process crash. The 2-attempt bound is reached — no further auto-resume will be ` +
+            `attempted. An operator/orchestrator decision is needed: diagnose why this ` +
+            `dispatch keeps stalling (repeated infra failure? a task that genuinely exceeds a ` +
+            `single dispatch's capacity? rate-limiting — check ` +
+            `SubagentDispatchTracker.getEscalation() before assuming death) before retrying ` +
+            `manually.`;
+
+        return {
+          success: true,
+          status: "escalate" as const,
+          taskId,
+          sessionId: subagentSessionId,
+          escalation: {
+            taskId,
+            attempts,
+            hasLivenessEvidence,
+            message,
+          },
+        };
+      }
 
       const recoveryInstructions = buildDispatchRecoveryContinuationPrompt({
         taskId,
