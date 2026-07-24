@@ -3,14 +3,14 @@
  *
  * Interface-agnostic read operations: list, get, getStatus, getSpecContent.
  *
- * IMPORTANT (mt#2762 / mt#2783): this module's `listTasksFromParams` is a SEPARATE
- * implementation from `packages/domain/src/tasks.ts`'s function of the same name.
- * This one is reached via the `taskCommands.ts` barrel (e.g. by
- * `index-embeddings-command.ts`); the actual CLI/MCP `tasks_list` command imports
- * `@minsky/domain/tasks`, which resolves to `tasks/index.ts` → `../tasks.ts` — NOT
- * this file. A filter change here does not automatically reach the CLI/MCP surface;
- * mirror it in `tasks.ts` too. mt#2783 tracks consolidating these into one
- * implementation.
+ * `listTasksFromParams` here is the canonical implementation (mt#2783): both the
+ * CLI/MCP `tasks_list` command (`src/adapters/shared/commands/tasks/crud-commands.ts`,
+ * via `@minsky/domain/tasks` → `tasks/index.ts` → `../tasks.ts`, which now delegates
+ * here) and the `taskCommands.ts` barrel (e.g. `index-embeddings-command.ts`)
+ * terminate at this function body. It resolves ADR-021 project scope (mt#2416,
+ * ported from the former `tasks.ts`-only duplicate) and forwards
+ * status/kind/tags/projectScope filters to `taskService.listTasks` — see
+ * `packages/domain/src/tasks.ts`'s header for the mt#2704 precedent this follows.
  */
 
 import { z } from "zod";
@@ -36,6 +36,9 @@ import {
 import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
 import type { BasePersistenceProvider } from "../../persistence/types";
 import { assertKnownKind } from "../workflows";
+import { ALL_PROJECTS, type ProjectScope } from "../../project/scope";
+import { resolveProjectIdentity } from "../../project/identity";
+import { resolveProjectScope } from "../../project/scope-resolver";
 
 function requirePersistence(
   provider: BasePersistenceProvider | undefined
@@ -105,12 +108,48 @@ export async function listTasksFromParams(
           });
     }
 
+    // Resolve project scope (ADR-021, mt#2416; ported from the former tasks.ts-only
+    // duplicate — mt#2783). Uses process.cwd() rather than the session/repo-aware
+    // workspacePath above so the CLI/MCP path's behavior is unchanged by this
+    // consolidation: allProjects=true skips the scope filter; otherwise resolve
+    // per-process identity and fall back to ALL_PROJECTS on any resolution failure.
+    let projectScope: ProjectScope = ALL_PROJECTS;
+    if (!validParams.allProjects) {
+      const persistenceProvider = deps?.persistenceProvider;
+      try {
+        const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+        if (
+          identity.kind === "resolved" &&
+          persistenceProvider &&
+          "getDatabaseConnection" in persistenceProvider
+        ) {
+          const sqlProvider =
+            persistenceProvider as import("../../persistence/types").SqlCapablePersistenceProvider;
+          const db = await sqlProvider.getDatabaseConnection?.();
+          if (db) {
+            projectScope = await resolveProjectScope(identity, db);
+          }
+        }
+      } catch (err) {
+        log.debug(
+          "[listTasksFromParams] Project scope resolution failed; defaulting to ALL_PROJECTS",
+          {
+            error: err instanceof Error ? err.message : String(err),
+          }
+        );
+      }
+    }
+
     // Get tasks with filters - delegate filtering to domain layer (server-side;
-    // kind is forwarded to taskService.listTasks so backends filter it in the
-    // query itself rather than the adapter post-filtering the result, mt#2762).
+    // kind/tags/projectScope are forwarded to taskService.listTasks so backends
+    // filter server-side rather than the adapter post-filtering the result,
+    // mt#2762 / mt#2783).
     let tasks = await taskService.listTasks({
       status: validParams.status,
       all: validParams.all,
+      backend: validParams.backend,
+      tags: validParams.tags,
+      projectScope,
       kind: validParams.kind,
     });
     // Apply limit client-side if provided
