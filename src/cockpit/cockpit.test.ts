@@ -203,21 +203,27 @@ describe("Cockpit server", () => {
     // only. The other 19 widgets keep their real fetch, so the "a registered
     // widget whose backend is unavailable degrades to 200, never 404" property
     // above stays live for them.
-    const url = await server({
-      overrideRegistry: {
-        "mcp-server-status": createMcpServerStatusWidget({
-          probeHealth: async () => ({ ok: true, statusCode: 200 }),
-          getDeploymentData: async () => null,
-          getMetricsData: async () => null,
-          readHistory: () => ({ samples: [] }),
-          writeHistory: () => {
-            // no-op: a routing test must not write probe history to disk
-          },
-          now: () => Date.UTC(2026, 0, 1),
-        }),
-      },
-    });
-    const ids = Object.keys(WIDGET_REGISTRY);
+    const overrideRegistry = {
+      "mcp-server-status": createMcpServerStatusWidget({
+        probeHealth: async () => ({ ok: true, statusCode: 200 }),
+        getDeploymentData: async () => null,
+        getMetricsData: async () => null,
+        readHistory: () => ({ samples: [] }),
+        writeHistory: () => {
+          // no-op: a routing test must not write probe history to disk
+        },
+        now: () => Date.UTC(2026, 0, 1),
+      }),
+    };
+    const url = await server({ overrideRegistry });
+    // Probe the EFFECTIVE registry the server resolved, not the static builtin
+    // map (PR #2243 R1). `createCockpitServer` serves `{...WIDGET_REGISTRY,
+    // ...overrideRegistry}`, so enumerating only the builtins would silently
+    // skip any override-only widget — a gap that was unreachable before this
+    // test started passing an override, and is now one line away from mattering.
+    // Today the override replaces an existing id, so the set is identical; this
+    // keeps it correct if that ever stops being true.
+    const ids = Object.keys({ ...WIDGET_REGISTRY, ...overrideRegistry });
     // Probe concurrently (mt#3047). These requests are independent, but
     // serializing ~20 of them made this test's runtime the SUM of endpoint
     // latencies: fine in isolation (~50-70ms each), but under full-suite
