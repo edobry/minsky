@@ -54,7 +54,10 @@ export const defaultFsDeps: DisconnectSweepFsDeps = {
   existsSync: (p) => fs.existsSync(p),
   readFileSync: (p) => fs.readFileSync(p, { encoding: "utf-8" }) as string,
   writeFileSync: (p, content) => fs.writeFileSync(p, content, { encoding: "utf-8" }),
-  mkdirSync: (p, options) => fs.mkdirSync(p, options ?? { recursive: true }),
+  mkdirSync: (p, options) => {
+    const recursive = options?.recursive ?? true;
+    fs.mkdirSync(p, { ...options, recursive });
+  },
 };
 
 function getHwmPath(): string {
