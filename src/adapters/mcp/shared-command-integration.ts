@@ -167,7 +167,29 @@ function convertMcpArgsToParameters(
         // wrong-typed value identically, naming the offending parameter.
         const detail =
           error instanceof z.ZodError ? formatZodError(error, key) : getErrorMessage(error);
-        throw new Error(`Invalid value for parameter '${key}': ${detail}`);
+
+        // Emergency rollback, mirroring the sibling key-set gate's
+        // MINSKY_MCP_ALLOW_UNKNOWN_PARAMS (mt#2778) at this same boundary.
+        // This gate tightens EVERY MCP tool call at once, so a single
+        // over-strict declared schema could break callers fleet-wide; the
+        // hatch restores pre-mt#3155 passthrough without a revert + redeploy.
+        // The offending VALUE is deliberately not logged — only the parameter
+        // name and the Zod message, which describes types rather than content.
+        if (process.env.MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES === "1") {
+          log.warn("mcp.invalid_param_value_allowed", {
+            event: "mcp.invalid_param_value_allowed",
+            parameter: key,
+            detail,
+          });
+          result[key] = value;
+          continue;
+        }
+
+        throw new Error(
+          `Invalid value for parameter '${key}': ${detail}. ` +
+            `Provided values are validated against the declared schema at the MCP boundary (mt#3155); ` +
+            `set MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES=1 to temporarily downgrade this to a warning.`
+        );
       }
       continue;
     }

@@ -1235,6 +1235,48 @@ describe("MCP shared-command bridge", () => {
       expect(calls[0]?.params.limit).toBe(50);
     });
 
+    test("escape hatch MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES=1 downgrades rejection to passthrough", async () => {
+      // Mirrors the sibling key-set gate's MINSKY_MCP_ALLOW_UNKNOWN_PARAMS
+      // (mt#2778). This gate tightens every MCP tool call at once, so an
+      // in-band rollback is required: with the hatch set, the wrong-typed
+      // value is passed through as-is instead of rejected.
+      const ENV_KEY = "MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES";
+      const previous = process.env[ENV_KEY];
+      process.env[ENV_KEY] = "1";
+      try {
+        const id = "tasks.__mcp_bridge_provided_escape_hatch__";
+        const calls: CapturedCall[] = [];
+        registerTestCommand({
+          id,
+          name: id,
+          category: CommandCategory.TASKS,
+          description: "mt#3155: escape hatch",
+          requiresSetup: false,
+          parameters: {
+            limit: { schema: z.number(), description: "limit", required: false },
+          },
+          execute: async (params, context) => {
+            calls.push({ params: params as Record<string, unknown>, context });
+            return { success: true };
+          },
+        });
+        const { mapper, captured } = makeMockMapper(id);
+        registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+        const handler = captured.handler;
+        expect(handler).toBeDefined();
+        if (!handler) return;
+
+        await handler({ limit: "fifty" });
+        expect(calls[0]?.params.limit).toBe("fifty");
+      } finally {
+        if (previous === undefined) {
+          delete process.env[ENV_KEY];
+        } else {
+          process.env[ENV_KEY] = previous;
+        }
+      }
+    });
+
     test("assigns the parse OUTPUT so schema coercions apply, mirroring the CLI path", async () => {
       // Decided semantics (spec SC2): assign `schema.parse(value)`'s RETURN,
       // not the raw value — matching `normalizeCliParameters`, which does
