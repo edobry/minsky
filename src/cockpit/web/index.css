@@ -3,6 +3,84 @@
 @tailwind utilities;
 
 /* -----------------------------------------------------------------------------
+ * Self-hosted design-system webfonts (mt#3111)
+ *
+ * Previously loaded from fonts.googleapis.com/fonts.gstatic.com via a
+ * <link> in index.html — the CSP added by mt#2538 (style-src 'self'
+ * 'unsafe-inline', no font-src) blocks that external stylesheet, so the
+ * fonts silently fell back to system fonts on every page since mt#2538
+ * shipped. Self-hosting removes the third-party runtime dependency (a
+ * local-only operator tool has no reason to phone Google on every load),
+ * keeps the CSP posture unchanged (no widened style-src/font-src — a
+ * same-origin @font-face needs neither, since an unset font-src falls back
+ * to default-src 'self'), and renders correctly offline.
+ *
+ * Files vendored under public/fonts/ (Vite serves public/ at the site
+ * root, same convention as favicon.svg) are the LATIN-only subset of each
+ * family, fetched from Google's own CDN so they are byte-identical to what
+ * index.html previously loaded (no visual regression risk) — the cockpit is
+ * an English-only operator UI, and the existing font-stack fallbacks below
+ * (ui-sans-serif / ui-monospace / system fonts) already cover any glyph
+ * outside the latin subset. All three families are SIL OFL 1.1 licensed,
+ * which permits embedding/redistribution in commercial software. Geist and
+ * JetBrains Mono are variable fonts — Google's own CSS API serves the SAME
+ * file for every discrete weight it lists (verified during planning), so
+ * one vendored file per family covers every weight the design system uses;
+ * the discrete per-weight @font-face rules below mirror that exactly rather
+ * than guessing a `font-weight` axis range.
+ * --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/geist-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/geist-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/geist-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/geist-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono-italic-latin.woff2") format("woff2");
+}
+
+/* -----------------------------------------------------------------------------
  * Brand tokens (mt#1935)
  *
  * Migration HSL -> OKLCH per docs/brand-system.md §7. Tokens are stored as raw
@@ -30,25 +108,25 @@
      (mt#2915) — mirrors the dark-theme fix below for consistency, though this
      light-theme block is placeholder-only (cockpit ships dark-first via
      <html class="dark">). */
-  --secondary: 0.900 0 0;
+  --secondary: 0.9 0 0;
   --secondary-foreground: 0.078 0 0;
-  --muted: 0.960 0 0;
+  --muted: 0.96 0 0;
   --muted-foreground: 0.717 0 0;
-  --accent: 0.830 0 0;
+  --accent: 0.83 0 0;
   --accent-foreground: 0.078 0 0;
   --destructive: 0.585 0.219 27;
   --destructive-foreground: 0.946 0 0;
-  --border: 0.910 0 0;
-  --input: 0.910 0 0;
+  --border: 0.91 0 0;
+  --input: 0.91 0 0;
   --ring: 0.745 0.124 215;
   --radius: 0.5rem;
 
   /* Brand palette additions (mt#1935; docs/brand-system.md §2) */
   --signal-cyan: 0.745 0.124 215;
-  --signal-cyan-dim: 0.560 0.092 220;
-  --warn-amber: 0.756 0.180 70;
+  --signal-cyan-dim: 0.56 0.092 220;
+  --warn-amber: 0.756 0.18 70;
   --warn-red: 0.585 0.219 27;
-  --iso-pastel: 0.911 0.030 75;
+  --iso-pastel: 0.911 0.03 75;
   --text-subtle: 0.517 0 0;
   --bg-warm: 0.142 0.012 95;
 
@@ -60,20 +138,22 @@
      These are the five VSM-organ colors + seam + learn, mapped from the
      design reference mock. No raw hex; stored as OKLCH triplets per the
      brand token convention above. */
-  --vsm-s1: 0.720 0.120 185;   /* S1 Operations — teal (from mock --s1:#4db6ac) */
-  --vsm-s2: 0.756 0.180 70;    /* S2 Coordination — amber (reuses --warn-amber) */
-  --vsm-s3: 0.745 0.124 215;   /* S3 Management+3★ — signal-cyan (reuses --signal-cyan) */
-  --vsm-s4: 0.620 0.110 295;   /* S4 Future — purple (from mock --s4:#9d7cd8) */
-  --vsm-s5: 0.717 0 0;         /* S5 Identity — neutral, near muted-foreground */
-  --vsm-seam: 0.680 0.210 355; /* Attention seam — pink (from mock --seam:#ff6b9d) */
-  --vsm-learn: 0.740 0.148 152;/* Learning loop — emerald (from mock --learn:#6ee7b7) */
+  --vsm-s1: 0.72 0.12 185; /* S1 Operations — teal (from mock --s1:#4db6ac) */
+  --vsm-s2: 0.756 0.18 70; /* S2 Coordination — amber (reuses --warn-amber) */
+  --vsm-s3: 0.745 0.124 215; /* S3 Management+3★ — signal-cyan (reuses --signal-cyan) */
+  --vsm-s4: 0.62 0.11 295; /* S4 Future — purple (from mock --s4:#9d7cd8) */
+  --vsm-s5: 0.717 0 0; /* S5 Identity — neutral, near muted-foreground */
+  --vsm-seam: 0.68 0.21 355; /* Attention seam — pink (from mock --seam:#ff6b9d) */
+  --vsm-learn: 0.74 0.148 152; /* Learning loop — emerald (from mock --learn:#6ee7b7) */
 
-  /* Typography stacks (docs/brand-system.md §1; fonts loaded in index.html) */
+  /* Typography stacks (docs/brand-system.md §1; fonts self-hosted via
+     @font-face above, mt#3111 — previously loaded in index.html) */
   --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
-  --font-warm-mono: "Berkeley Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
-    monospace;
+  --font-mono:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  --font-warm-mono:
+    "Berkeley Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
 
   /* Type scale (docs/design-system.md §2; mt#2915) — cockpit-specific concrete
      scale, mirroring services/site/src/styles/global.css's technique (named
@@ -117,9 +197,9 @@
      previously inverted: stale rendered red at volume (audit finding,
      mt#2914) while the truly-dead orphaned state rendered a muted
      blue-gray. */
-  --liveness-healthy: 0.638 0.150 145;
-  --liveness-idle: 0.756 0.180 70;
-  --liveness-stale: 0.680 0.190 55;
+  --liveness-healthy: 0.638 0.15 145;
+  --liveness-idle: 0.756 0.18 70;
+  --liveness-stale: 0.68 0.19 55;
   --liveness-orphaned: 0.585 0.219 27;
 }
 
@@ -128,7 +208,7 @@
   --foreground: 0.946 0 0;
   --card: 0.155 0 0;
   --card-foreground: 0.946 0 0;
-  --popover: 0.200 0 0;
+  --popover: 0.2 0 0;
   --popover-foreground: 0.946 0 0;
   --primary: 0.745 0.124 215;
   --primary-foreground: 0.078 0 0;
@@ -143,24 +223,24 @@
      Principle: prominence tracks distance from --background (0.078) —
      same principle the card(0.155)/popover(0.200)/border(0.270) ladder
      already uses. */
-  --secondary: 0.240 0 0;
+  --secondary: 0.24 0 0;
   --secondary-foreground: 0.946 0 0;
-  --muted: 0.180 0 0;
+  --muted: 0.18 0 0;
   --muted-foreground: 0.717 0 0;
-  --accent: 0.300 0 0;
+  --accent: 0.3 0 0;
   --accent-foreground: 0.946 0 0;
   --destructive: 0.585 0.219 27;
   --destructive-foreground: 0.946 0 0;
-  --border: 0.270 0 0;
-  --input: 0.270 0 0;
+  --border: 0.27 0 0;
+  --input: 0.27 0 0;
   --ring: 0.745 0.124 215;
 
   /* Liveness — tuned slightly down for dark elevation. See the :root block's
      comment above for the mt#2917 stale/orphaned recalibration rationale. */
-  --liveness-healthy: 0.580 0.140 145;
-  --liveness-idle: 0.720 0.175 70;
-  --liveness-stale: 0.640 0.185 55;
-  --liveness-orphaned: 0.560 0.215 27;
+  --liveness-healthy: 0.58 0.14 145;
+  --liveness-idle: 0.72 0.175 70;
+  --liveness-stale: 0.64 0.185 55;
+  --liveness-orphaned: 0.56 0.215 27;
 }
 
 @layer base {
