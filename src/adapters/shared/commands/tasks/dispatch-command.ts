@@ -108,7 +108,22 @@ const tasksDispatchParams = {
   },
   scope: {
     schema: z.string().optional(),
-    description: "Comma-separated file paths to constrain the subagent to",
+    description:
+      "Comma-separated FILE PATHS to constrain the subagent to. Paths only — this value is " +
+      "comma-split, each chunk is rendered as a bullet under 'Only modify the following " +
+      "files:', and the parallel-work guard re-reads it directly to detect PR collisions. " +
+      "A chunk that is not path-shaped (contains whitespace, and has neither a '/' nor a " +
+      "file extension) is REJECTED with an error rather than rendered as a fabricated path " +
+      "(mt#1279). Put prose scope descriptions in `scopeNotes` instead.",
+    required: false,
+  },
+  scopeNotes: {
+    schema: z.string().optional(),
+    description:
+      "Free-prose description of what this dispatch covers (mt#1279). Renders as its own " +
+      "'## Scope Notes' section in the generated prompt, kept separate from the `scope` " +
+      "file list so prose can never be mistaken for a path. Use this for qualifications " +
+      "like 'plus tests' or 'do NOT convert the render sites'.",
     required: false,
   },
   intent: {
@@ -594,7 +609,9 @@ export function createTasksDispatchCommand(
 
       // Step 4: Generate the subagent prompt
       log.debug("[tasks.dispatch] Generating prompt", { taskId, type: p.type });
-      const { generateSubagentPrompt } = await import("@minsky/domain/session/prompt-generation");
+      const { generateSubagentPrompt, parseScopeFileList } = await import(
+        "@minsky/domain/session/prompt-generation"
+      );
       const { resolveSessionDirectory } = await import(
         "@minsky/domain/session/resolve-session-directory"
       );
@@ -603,13 +620,9 @@ export function createTasksDispatchCommand(
       const sessionDir = await resolveSessionDirectory(sessionId, sessionProvider);
       const plainTaskId = taskId.replace(/^mt#/, "").replace(/^#/, "");
 
-      const scope = p.scope
-        ? p.scope
-            .split(",")
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0)
-            .map((s) => (s.startsWith("/") ? s : `${sessionDir}/${s}`))
-        : undefined;
+      // mt#1279: shared with session.generate_prompt — one split, one prose
+      // rejection, one session-dir prefixing rule.
+      const scope = parseScopeFileList(p.scope, sessionDir);
 
       const promptResult = generateSubagentPrompt({
         sessionDir,
@@ -618,6 +631,7 @@ export function createTasksDispatchCommand(
         type: p.type,
         instructions: p.instructions,
         scope,
+        scopeNotes: p.scopeNotes,
         intent: p.intent,
         model: p.model,
       });
