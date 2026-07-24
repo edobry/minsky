@@ -192,6 +192,41 @@ describe("adaptTranscriptToEvents — AT2: principal + policy actors", () => {
   });
 });
 
+describe("adaptTranscriptToEvents — unpaired tool call: outcome is unresolved, not 'ok'", () => {
+  test("a tool_use with no matching tool_result in the following line has outcome undefined", () => {
+    const transcript: TranscriptMessage[] = [
+      assistantMsg(
+        [{ type: "tool_use", id: "call-unpaired", name: READ_FILE_TOOL, input: { path: "x.ts" } }],
+        "2026-07-24T11:09:00.000Z",
+        "line-unpaired"
+      ),
+      // No following user line at all — the call is never paired with a completion.
+    ];
+    const events = adaptTranscriptToEvents(transcript, PRINCIPAL_CONTEXT);
+    const read = events.find((e) => e.verb === "read");
+    expect(read).toBeDefined();
+    expect(read?.outcome).toBeUndefined();
+    expect(read?.tEnd).toBeUndefined();
+  });
+
+  test("a tool_use followed by a user line with an UNRELATED tool_result id is still unresolved", () => {
+    const transcript: TranscriptMessage[] = [
+      assistantMsg(
+        [{ type: "tool_use", id: "call-a", name: READ_FILE_TOOL, input: { path: "a.ts" } }],
+        "2026-07-24T11:10:00.000Z",
+        "line-a"
+      ),
+      userMsg(
+        [{ type: "tool_result", tool_use_id: "call-different", content: "ok", is_error: false }],
+        "2026-07-24T11:10:01.000Z"
+      ),
+    ];
+    const events = adaptTranscriptToEvents(transcript, PRINCIPAL_CONTEXT);
+    const read = events.find((e) => e.verb === "read");
+    expect(read?.outcome).toBeUndefined();
+  });
+});
+
 describe("adaptTranscriptToEvents — AT3: unknown-tool fallback + coverage metric", () => {
   test("a novel tool name maps to the execute fallback with unmapped=true", () => {
     const transcript: TranscriptMessage[] = [

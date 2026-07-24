@@ -37,10 +37,15 @@ import type { ConversationId } from "@minsky/domain/ids";
 import {
   adaptTranscriptToEvents,
   computeAdapterCoverage,
+  extractLeadingUserTexts,
   type AdapterContext,
 } from "@minsky/domain/transcripts/event-adapter";
 import { exportGourceLog } from "@minsky/domain/transcripts/gource-exporter";
 import type { EventActor } from "@minsky/domain/transcripts/event-schema";
+import {
+  computeConversationLabel,
+  pickSubstantiveUserText,
+} from "@minsky/domain/transcripts/conversation-label";
 
 async function getDb(): Promise<PostgresJsDatabase | null> {
   try {
@@ -112,14 +117,39 @@ async function exportSession(
   }
 
   const rows = await db
-    .select({ ingestedAt: agentTranscriptsTable.ingestedAt })
+    .select({
+      ingestedAt: agentTranscriptsTable.ingestedAt,
+      cwd: agentTranscriptsTable.cwd,
+      startedAt: agentTranscriptsTable.startedAt,
+    })
     .from(agentTranscriptsTable)
     .where(eq(agentTranscriptsTable.agentSessionId, conversationId as never))
     .limit(1);
-  const ingestedAt = rows[0]?.ingestedAt ?? null;
+  const row = rows[0];
+  const ingestedAt = row?.ingestedAt ?? null;
+
+  // Readable Gource actor label (cheap tiers only — no extra query beyond
+  // what's already fetched above/loaded into `transcript`): a bound-task
+  // title (tier 1) is NOT cheaply available here (would need an extra
+  // minsky_session_links/tasks join), so this resolves tiers 2 (first
+  // substantive user prompt) and 4 (timestamp-cwd-short-id fallback) of
+  // mt#2770's precedence. A bare conversation UUID is unreadable as a
+  // rendered Gource avatar name (the concrete complaint this fixes).
+  const agentDisplayLabel = computeConversationLabel({
+    agentSessionId: conversationId,
+    cwd: row?.cwd ?? null,
+    startedAt: row?.startedAt ?? null,
+    linkedTaskTitle: null,
+    firstUserText: pickSubstantiveUserText(extractLeadingUserTexts(transcript)),
+    subagentDescriptor: null,
+  });
 
   const userTurnActor = await resolveUserTurnActor(db, conversationId);
-  const context: AdapterContext = { agentSessionId: conversationId, userTurnActor };
+  const context: AdapterContext = {
+    agentSessionId: conversationId,
+    userTurnActor,
+    agentDisplayLabel,
+  };
   const events = adaptTranscriptToEvents(transcript, context);
   const log = exportGourceLog(events, { ingestedAt, verifiedRescrubbed });
 
@@ -181,8 +211,46 @@ async function reportCoverage(db: PostgresJsDatabase, limit: number): Promise<vo
   );
 }
 
+const HELP_TEXT = `
+export-gource-log.ts — export a Gource custom-log for an ingested agent session (mt#3157)
+
+What it does:
+  Fetches a session's transcript via the getTranscript() service seam, adapts it to
+  a SemanticEvent[] stream (packages/domain/src/transcripts/event-adapter.ts), and
+  serializes the path-bearing events to Gource's custom log format
+  (packages/domain/src/transcripts/gource-exporter.ts).
+
+Usage:
+  bun scripts/export-gource-log.ts <conversationId> [--out <path>] [--verified-rescrubbed]
+  bun scripts/export-gource-log.ts --coverage [--limit N]
+  bun scripts/export-gource-log.ts --help
+
+Options:
+  <conversationId>       Harness conversation id (agent_transcripts.agent_session_id).
+  --out <path>           Write the log to <path> instead of stdout.
+  --verified-rescrubbed  Bypass the credential-scrub-cutoff gate (see below) after
+                          confirming this specific session was re-scrubbed.
+  --coverage             Report the adapter's tool-name coverage metric (mapped vs.
+                          fallback verb) over the N most-recently-ingested sessions.
+  --limit N              Session count for --coverage (default 50).
+
+Credential-scrub gate:
+  Export refuses a session ingested before 2026-07-18 (the mt#2864 sweep's confirmed
+  residue=0 date) unless --verified-rescrubbed is passed. See
+  gource-exporter.ts's CREDENTIAL_SCRUB_CUTOFF_ISO / assertScrubGate for the full
+  rationale (conservative ingestion-date cutoff — no per-row scrub flag exists).
+
+Viewing the exported log:
+  gource --log-format custom session.gource.log
+`.trim();
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(HELP_TEXT);
+    return;
+  }
 
   const db = await getDb();
   if (!db) {
@@ -199,10 +267,7 @@ async function main(): Promise<void> {
 
   const conversationId = args[0];
   if (!conversationId) {
-    console.error(
-      "Usage: bun scripts/export-gource-log.ts <conversationId> [--out <path>] [--verified-rescrubbed]\n" +
-        "       bun scripts/export-gource-log.ts --coverage [--limit N]"
-    );
+    console.error(HELP_TEXT);
     process.exit(1);
   }
 

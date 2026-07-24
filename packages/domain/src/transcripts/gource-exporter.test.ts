@@ -16,6 +16,9 @@ import { EVENT_SCHEMA_VERSION, type SemanticEvent } from "./event-schema";
 /** Realm literal reused across fixtures (avoids magic-string duplication). */
 const MINSKY_SUBSTRATE_REALM = "minsky-substrate";
 
+/** Sample conversation id reused across actor-label fixtures (avoids magic-string duplication). */
+const SAMPLE_CONVERSATION_ID = "0b3f9fe1-7d77-4c35-8fc8-d708ecc0d205";
+
 function event(overrides: Partial<SemanticEvent>): SemanticEvent {
   return {
     schemaVersion: EVENT_SCHEMA_VERSION,
@@ -117,6 +120,73 @@ describe("eventsToGourceLines — AT4: path-bearing verbs only, no query strings
       const parts = row.split("|");
       expect(parts).toHaveLength(4);
     }
+  });
+});
+
+describe("eventsToGourceLines — only confirmed-successful (outcome === 'ok') events export", () => {
+  test("excludes denied, error, and unresolved (outcome undefined) events", () => {
+    const events: SemanticEvent[] = [
+      event({
+        verb: "write",
+        outcome: "ok",
+        target: { realm: "repo", id: "file:workspace:ok.ts" },
+      }),
+      event({
+        verb: "write",
+        outcome: "denied",
+        target: { realm: "repo", id: "file:workspace:denied.ts" },
+      }),
+      event({
+        verb: "write",
+        outcome: "error",
+        target: { realm: "repo", id: "file:workspace:errored.ts" },
+      }),
+      event({
+        verb: "write",
+        outcome: undefined,
+        target: { realm: "repo", id: "file:workspace:unresolved.ts" },
+      }),
+    ];
+    const lines = eventsToGourceLines(events);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.path).toBe("ok.ts");
+  });
+});
+
+describe("eventsToGourceLines — actor label rendering", () => {
+  test("uses displayLabel when present instead of the raw conversation id", () => {
+    const events: SemanticEvent[] = [
+      event({
+        actor: {
+          kind: "agent",
+          agentSessionId: SAMPLE_CONVERSATION_ID,
+          displayLabel: "investigate mt#2544",
+        },
+      }),
+    ];
+    const lines = eventsToGourceLines(events);
+    expect(lines[0]?.actor).toBe("investigate mt#2544");
+  });
+
+  test("falls back to a short-id form (not the full UUID) when no displayLabel is set", () => {
+    const events: SemanticEvent[] = [
+      event({
+        actor: { kind: "agent", agentSessionId: SAMPLE_CONVERSATION_ID },
+      }),
+    ];
+    const lines = eventsToGourceLines(events);
+    expect(lines[0]?.actor).toBe("agent:0b3f9fe1");
+    expect(lines[0]?.actor).not.toContain("7d77-4c35-8fc8-d708ecc0d205");
+  });
+
+  test("the short-id fallback is deterministic across repeated exports of the same session", () => {
+    const makeEvent = (): SemanticEvent =>
+      event({
+        actor: { kind: "agent", agentSessionId: SAMPLE_CONVERSATION_ID },
+      });
+    const first = eventsToGourceLines([makeEvent()])[0]?.actor;
+    const second = eventsToGourceLines([makeEvent()])[0]?.actor;
+    expect(first).toBe(second);
   });
 });
 

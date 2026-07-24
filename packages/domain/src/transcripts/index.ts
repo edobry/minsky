@@ -109,6 +109,7 @@ export {
 export {
   adaptTranscriptToEvents,
   computeAdapterCoverage,
+  extractLeadingUserTexts,
   ADAPTER_VERSION,
   type AdapterContext,
   type AdapterCoverageResult,

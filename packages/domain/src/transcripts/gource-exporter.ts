@@ -29,6 +29,11 @@
  *     file-system-like path to visualize (see `event-schema.ts`'s
  *     `PATH_BEARING_VERBS`). These verbs remain first-class in the semantic
  *     stream; only the Gource projection drops them.
+ *   - Only `outcome === "ok"` events are exported — a `denied`/`error`
+ *     outcome, or an unresolved (`undefined`) one (the adapter could not
+ *     pair the call with its completion), means the mutation is not
+ *     confirmed to have happened, so rendering an A/M/D for it would depict
+ *     a change that never occurred.
  *
  * Web targets are exported at DOMAIN grain with any query string stripped
  * (Amendment 3) — `event-adapter.ts`'s web target extractors already produce
@@ -148,10 +153,24 @@ function pathForTarget(target: EventTarget): string | null {
   return null;
 }
 
+/** Chars of a conversation id kept in the short-id fallback (deterministic — same session, same label). */
+const SHORT_ID_LENGTH = 8;
+
+/**
+ * Render an `agent` actor's display name. Prefers `displayLabel` (e.g. the
+ * mt#2770 content-derived conversation label, when the caller cheaply
+ * resolved one — see `event-adapter.ts`'s `AdapterContext.agentDisplayLabel`
+ * and `scripts/export-gource-log.ts`), falling back to a short-id form of
+ * the raw conversation UUID. The FULL UUID is never used as the display
+ * name: Gource renders this string as the floating avatar label, and a full
+ * UUID is unreadable there. The short-id fallback is a deterministic
+ * substring (same session -> same label every export run).
+ */
 function actorLabel(actor: EventActor): string {
   if (actor.kind === "principal") return "principal";
   if (actor.kind === "policy") return `policy:${actor.guardName ?? "unknown"}`;
-  return actor.agentSessionId ? `agent:${actor.agentSessionId}` : "agent";
+  if (actor.displayLabel) return actor.displayLabel;
+  return actor.agentSessionId ? `agent:${actor.agentSessionId.slice(0, SHORT_ID_LENGTH)}` : "agent";
 }
 
 // ── Action derivation ─────────────────────────────────────────────────────────
@@ -195,6 +214,14 @@ export interface GourceLogLine {
  * Convert a semantic event stream into Gource log lines. Filters to
  * path-bearing verbs only (RFC Amendment 3), sorted ascending by timestamp
  * (Gource requires non-decreasing order).
+ *
+ * Only CONFIRMED-SUCCESSFUL events (`outcome === "ok"`) are exported. A
+ * `denied` or `error` outcome means the mutation never actually happened to
+ * the target — rendering it as an A/M/D action would depict a change that
+ * did not occur. An `undefined` outcome (the adapter could not pair the
+ * call with a completion — see `event-schema.ts`'s doc comment on
+ * `SemanticEvent.outcome`) is unresolved, not confirmed, so it is excluded
+ * for the same reason rather than optimistically rendered.
  */
 export function eventsToGourceLines(events: readonly SemanticEvent[]): GourceLogLine[] {
   const touchedPaths = new Set<string>();
@@ -202,6 +229,7 @@ export function eventsToGourceLines(events: readonly SemanticEvent[]): GourceLog
 
   for (const event of events) {
     if (!isPathBearingVerb(event.verb)) continue;
+    if (event.outcome !== "ok") continue;
 
     const path = pathForTarget(event.target);
     if (!path) continue;

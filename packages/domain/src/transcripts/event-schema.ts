@@ -142,6 +142,15 @@ export interface EventActor {
   kind: EventActorKind;
   /** Set when `kind === "agent"` — the acting agent's harness conversation id. */
   agentSessionId?: string;
+  /**
+   * Optional human-readable label for an `agent` actor (e.g. the mt#2770
+   * content-derived conversation label — a bound task title or first-prompt
+   * snippet). Callers with cheap access to it (see
+   * `scripts/export-gource-log.ts`) should set it; display consumers (e.g.
+   * the Gource exporter's actor field) should prefer this over the raw
+   * `agentSessionId`, which is unreadable as a rendered avatar name.
+   */
+  displayLabel?: string;
   /** Set when `kind === "policy"` — the guard/hook name, when extractable. */
   guardName?: string;
 }
@@ -209,7 +218,20 @@ export interface SemanticEvent {
   actor: EventActor;
   verb: EventVerb;
   target: EventTarget;
-  outcome: EventOutcome;
+  /**
+   * `undefined` means UNRESOLVED/in-flight — the adapter observed a tool
+   * call but could not pair it with a completion (no matching `tool_result`
+   * in the following user-role line) within its read window. This is
+   * intentionally distinct from `"ok"`: an unpaired call is unknown, not
+   * successful, and overstating it as `"ok"` is exactly the "confident
+   * misreading" the RFC's affect goal warns against. Consistent with the
+   * module doc comment's monotone-fold obligation — `outcome` (like `tEnd`)
+   * is one of the fields a later-arriving completion REFINES; a fold must
+   * never treat an absent `outcome` as `"ok"` by default. Conversational
+   * events (`speak`/`think`/`ask`) are point events with no pairing step, so
+   * they always carry a resolved `"ok"` outcome.
+   */
+  outcome?: EventOutcome;
   /** Defaults to {@link weightForVerb}`(verb)` when omitted by a consumer. */
   weight?: number;
   /**

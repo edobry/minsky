@@ -89,6 +89,15 @@ export interface AdapterContext {
    * `{ kind: "principal" }`.
    */
   userTurnActor: EventActor;
+  /**
+   * Optional human-readable label for THIS transcript's own agent (see
+   * `EventActor.displayLabel`). Set on every `agent` actor this adapter
+   * constructs for `agentSessionId` (assistant-role turns' `speak`/`think`
+   * events and tool-call events). Callers cheaply compute this from data
+   * they already fetch (mt#2770's `computeConversationLabel`) — see
+   * `scripts/export-gource-log.ts`.
+   */
+  agentDisplayLabel?: string;
   /** Overrides {@link ADAPTER_VERSION} for events emitted in this call (test seam). */
   adapterVersion?: string;
   /** Prefix used to compose `file:<repoRoot>:<path>` target ids. Defaults to `"workspace"`. */
@@ -173,6 +182,33 @@ function extractPlainText(blocks: readonly ContentBlock[]): string | null {
 
 function isSyntheticInterruptText(text: string): boolean {
   return SYNTHETIC_INTERRUPT_MARKERS.has(text.trim());
+}
+
+/**
+ * Extract the earliest genuine (non-tool-result, non-synthetic-interrupt)
+ * user-turn texts from a transcript, earliest-first, bounded by `limit`.
+ *
+ * Exported for callers that need a cheap "first prompt" signal without
+ * re-implementing this module's content-shape handling — e.g.
+ * `scripts/export-gource-log.ts` feeds this into mt#2770's
+ * `pickSubstantiveUserText` / `computeConversationLabel` to compute a
+ * readable display label for the Gource exporter's actor field (a bare
+ * conversation UUID is unreadable as a rendered avatar name).
+ */
+export function extractLeadingUserTexts(
+  messages: readonly TranscriptMessage[],
+  limit = 5
+): string[] {
+  const texts: string[] = [];
+  for (const msg of messages) {
+    if (texts.length >= limit) break;
+    if (msg.type !== "user") continue;
+    const blocks = normalizeContent(resolveInnerContent(msg));
+    if (blocks.some((b) => b.type === "tool_result")) continue;
+    const text = extractPlainText(blocks);
+    if (text && !isSyntheticInterruptText(text)) texts.push(text);
+  }
+  return texts;
 }
 
 function asRecord(v: unknown): Record<string, unknown> | undefined {
@@ -631,15 +667,24 @@ function emitToolCallEvents(
 
   const actor: EventActor = denial
     ? { kind: "policy", guardName: denial.guardName }
-    : { kind: "agent", agentSessionId: context.agentSessionId };
+    : {
+        kind: "agent",
+        agentSessionId: context.agentSessionId,
+        displayLabel: context.agentDisplayLabel,
+      };
 
-  const outcome: EventOutcome = denial
+  // An unpaired call (no matching tool_result found in the following
+  // user-role line) is UNRESOLVED, not successful — leaving `outcome`
+  // undefined represents that honestly (see event-schema.ts's doc comment
+  // on `SemanticEvent.outcome`) rather than overstating an unknown
+  // completion as "ok".
+  const outcome: EventOutcome | undefined = denial
     ? "denied"
     : resultInfo
       ? resultInfo.isError
         ? "error"
         : "ok"
-      : "ok";
+      : undefined;
 
   return targets.map((target) => ({
     schemaVersion: EVENT_SCHEMA_VERSION,
@@ -700,7 +745,11 @@ export function adaptTranscriptToEvents(
             emitSimpleEvent(
               "speak",
               tStart,
-              { kind: "agent", agentSessionId: context.agentSessionId },
+              {
+                kind: "agent",
+                agentSessionId: context.agentSessionId,
+                displayLabel: context.agentDisplayLabel,
+              },
               context
             )
           );
@@ -709,7 +758,11 @@ export function adaptTranscriptToEvents(
             emitSimpleEvent(
               "think",
               tStart,
-              { kind: "agent", agentSessionId: context.agentSessionId },
+              {
+                kind: "agent",
+                agentSessionId: context.agentSessionId,
+                displayLabel: context.agentDisplayLabel,
+              },
               context
             )
           );
