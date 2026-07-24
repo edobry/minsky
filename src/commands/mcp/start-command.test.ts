@@ -1,5 +1,6 @@
 import { describe, expect, test, afterEach } from "bun:test";
 import { spawn } from "child_process";
+import net from "node:net";
 import path from "path";
 import { JSONRPCMessageSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -28,6 +29,91 @@ import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 /** Resolve the absolute path to src/cli.ts from this test file's location. */
 const CLI_PATH = path.resolve(__dirname, "../../cli.ts");
+
+// ---------------------------------------------------------------------------
+// Port allocation (mt#2764): every listener binds an OS-assigned ephemeral
+// port instead of a fixed 41xxx literal. Fixed literals collide deterministically
+// whenever two suite runs overlap — routine in this repo, where multiple agent
+// sessions run the full suite concurrently. `lsof` on a live failure caught a
+// peer session's `mcp start --http` holding one of the fixed literals.
+// Mirrors src/cockpit/port-recovery.test.ts's bind-0-then-read pattern.
+// ---------------------------------------------------------------------------
+
+/**
+ * Bind an in-process HTTP app on an OS-assigned port and return the app's
+ * server plus the concrete port it landed on. Awaits the `listening` event so
+ * `server.address()` is populated before the port is read.
+ */
+async function listenOnEphemeralPort(app: {
+  listen: (port: number, host: string, cb: () => void) => import("http").Server;
+}): Promise<{ server: import("http").Server; port: number }> {
+  const server = await new Promise<import("http").Server>((resolve, reject) => {
+    // Bind 127.0.0.1 (IPv4) EXPLICITLY, not the default any-interface bind: the
+    // fetch URLs below all target `http://127.0.0.1:${port}`, and an unspecified
+    // host can land on `::1` (IPv6), producing a bound port the IPv4 fetch cannot
+    // reach. Explicit host keeps listen and fetch on the same interface
+    // (PR #2259 R1 non-blocking).
+    const s = app.listen(0, "127.0.0.1", () => resolve(s));
+    s.once("error", reject);
+  });
+  const addr = server.address();
+  if (!addr || typeof addr === "string") {
+    throw new Error(`Expected AddressInfo from server.address(), got: ${String(addr)}`);
+  }
+  return { server, port: addr.port };
+}
+
+/**
+ * Find an unused TCP port WITHOUT holding it: bind 0, read the assigned port,
+ * close. Used for the spawned-child MCP server, whose CLI validates `--port`
+ * as 1–65535 (so it cannot accept `--port 0` directly). A small
+ * bind-then-close-then-spawn window remains, but it is vastly safer than a
+ * fixed literal and matches the repo's existing free-port pattern.
+ */
+async function findFreePort(): Promise<number> {
+  const server = net.createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const addr = server.address();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  if (!addr || typeof addr === "string") {
+    throw new Error(`Expected AddressInfo from server.address(), got: ${String(addr)}`);
+  }
+  return addr.port;
+}
+
+/**
+ * True iff a TCP port on 127.0.0.1 is currently bindable (i.e. NOT held by
+ * another listener). Lets a test positively assert a spawned server RELEASED
+ * its port after teardown — mt#2764 / mt#3123's "no orphan holding a port".
+ */
+async function isPortFree(port: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const probe = net.createServer();
+    probe.once("error", () => resolve(false));
+    probe.listen(port, "127.0.0.1", () => probe.close(() => resolve(true)));
+  });
+}
+
+/**
+ * Bind an in-process HTTP app on a SPECIFIC, already-known port and resolve
+ * once listening. Used by the audience-bound OAuth tests below, where the
+ * port must be minted with `findFreePort()` BEFORE the app starts listening
+ * (the port is baked into the JWT audience claim and the app's configured
+ * `endpointUrl` ahead of the listen call), so `listenOnEphemeralPort`'s
+ * bind-0-then-read pattern doesn't apply.
+ */
+async function listenOnKnownPort(
+  app: { listen: (port: number, host: string, cb: () => void) => import("http").Server },
+  port: number
+): Promise<import("http").Server> {
+  return new Promise<import("http").Server>((resolve, reject) => {
+    const s = app.listen(port, "127.0.0.1", () => resolve(s));
+    s.once("error", reject);
+  });
+}
 
 /** Log line printed by the cleanup path; tests assert it appears to prove the
  * shutdown handler ran (vs the kernel default action terminating the process). */
@@ -414,9 +500,11 @@ describe("OAuth route handlers — with provider (mt#1664 unit)", () => {
     };
 
     const app = await buildTestApp(mockProvider);
-    const server = app.listen(41020);
+    const { server, port } = await listenOnEphemeralPort(app);
     try {
-      const response = await fetch("http://127.0.0.1:41020/.well-known/oauth-authorization-server");
+      const response = await fetch(
+        `http://127.0.0.1:${port}/.well-known/oauth-authorization-server`
+      );
       expect(response.status).toBe(200);
       const body = (await response.json()) as Record<string, unknown>;
       // RFC 8414 required fields
@@ -469,9 +557,9 @@ describe("OAuth route handlers — with provider (mt#1664 unit)", () => {
     };
 
     const app = await buildTestApp(mockProvider);
-    const server = app.listen(41021);
+    const { server, port } = await listenOnEphemeralPort(app);
     try {
-      const response = await fetch("http://127.0.0.1:41021/.well-known/oauth-protected-resource");
+      const response = await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`);
       expect(response.status).toBe(200);
       const body = (await response.json()) as Record<string, unknown>;
       // RFC 9728 required fields
@@ -519,9 +607,9 @@ describe("OAuth route handlers — with provider (mt#1664 unit)", () => {
     };
 
     const app = await buildTestApp(mockProvider);
-    const server = app.listen(41022);
+    const { server, port } = await listenOnEphemeralPort(app);
     try {
-      const response = await fetch("http://127.0.0.1:41022/register", {
+      const response = await fetch(`http://127.0.0.1:${port}/register`, {
         method: "POST",
         headers: { "Content-Type": APPLICATION_JSON },
         body: JSON.stringify({
@@ -568,9 +656,9 @@ describe("OAuth route handlers — with provider (mt#1664 unit)", () => {
     };
 
     const app = await buildTestApp(mockProvider);
-    const server = app.listen(41023);
+    const { server, port } = await listenOnEphemeralPort(app);
     try {
-      const response = await fetch("http://127.0.0.1:41023/register", {
+      const response = await fetch(`http://127.0.0.1:${port}/register`, {
         method: "POST",
         headers: { "Content-Type": APPLICATION_JSON },
         body: JSON.stringify({}),
@@ -595,56 +683,106 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
   const HTTP_READY_MARKER = "Ready to receive MCP requests via HTTP";
 
   /**
-   * Spawn the MCP server in --http mode on `port`. Returns the child + a
+   * Spawn the MCP server in --http mode on an OS-assigned free port (mt#2764:
+   * `findFreePort()` picks the port since the CLI's `--port` validation
+   * rejects `0`). Returns the child, the port it was launched on, and a
    * promise that resolves when the ready-log line is seen, or rejects on
    * timeout. The child is the caller's responsibility to terminate.
    */
-  function spawnHttpMcp(
-    port: number,
+  async function spawnHttpMcp(
     extraEnv?: Record<string, string>
-  ): { child: ReturnType<typeof spawn>; ready: Promise<void> } {
-    const child = spawn(
-      "bun",
-      [CLI_PATH, "mcp", "start", "--http", "--port", String(port), "--host", "127.0.0.1"],
-      {
-        stdio: ["pipe", "pipe", "pipe"],
-        env: { ...process.env, ...extraEnv },
-      }
-    );
-
-    const ready = new Promise<void>((resolve, reject) => {
-      let buffered = "";
-      const append = (chunk: Buffer | string) => {
-        buffered += typeof chunk === "string" ? chunk : String(chunk);
-        if (buffered.includes(HTTP_READY_MARKER)) {
-          resolve();
+  ): Promise<{ child: ReturnType<typeof spawn>; ready: Promise<void>; port: number }> {
+    // mt#2764 non-blocking R1: `findFreePort()` closes its probe socket before
+    // the child re-binds that exact port, leaving a small TOCTOU window under
+    // extreme concurrency. Retry a few times on an EARLY EXIT (the shape a bind
+    // race takes — the child dies before printing the ready marker) so the
+    // residual race cannot flake the suite. A genuine ready-timeout still
+    // throws (no retry) — that is a real hang, not a bind race.
+    const MAX_ATTEMPTS = 3;
+    let lastError: Error | undefined;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const port = await findFreePort();
+      const child = spawn(
+        "bun",
+        [CLI_PATH, "mcp", "start", "--http", "--port", String(port), "--host", "127.0.0.1"],
+        {
+          stdio: ["pipe", "pipe", "pipe"],
+          env: { ...process.env, ...extraEnv },
         }
-      };
-      const stdoutEmitter = child.stdout as unknown as {
-        on(event: "data", listener: (chunk: Buffer | string) => void): void;
-      } | null;
-      const stderrEmitter = child.stderr as unknown as {
-        on(event: "data", listener: (chunk: Buffer | string) => void): void;
-      } | null;
-      if (stdoutEmitter) stdoutEmitter.on("data", append);
-      if (stderrEmitter) stderrEmitter.on("data", append);
-      const timeoutId = setTimeout(() => {
-        reject(new Error(`HTTP server did not ready within timeout. Buffered: ${buffered}`));
-      }, 15000);
-      child.on("exit", () => clearTimeout(timeoutId));
-    });
+      );
 
-    return { child, ready };
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      const outcome = await new Promise<"ready" | "exited" | "timeout">((resolve) => {
+        let buffered = "";
+        const append = (chunk: Buffer | string) => {
+          buffered += typeof chunk === "string" ? chunk : String(chunk);
+          if (buffered.includes(HTTP_READY_MARKER)) resolve("ready");
+        };
+        const stdoutEmitter = child.stdout as unknown as {
+          on(event: "data", listener: (chunk: Buffer | string) => void): void;
+        } | null;
+        const stderrEmitter = child.stderr as unknown as {
+          on(event: "data", listener: (chunk: Buffer | string) => void): void;
+        } | null;
+        if (stdoutEmitter) stdoutEmitter.on("data", append);
+        if (stderrEmitter) stderrEmitter.on("data", append);
+        timeoutId = setTimeout(() => resolve("timeout"), 15000);
+        child.on("exit", () => resolve("exited"));
+      });
+      // Clear the ready-timeout in every branch so a lingering timer can never
+      // fire against a healthy, already-returned child.
+      if (timeoutId) clearTimeout(timeoutId);
+
+      if (outcome === "ready") {
+        // Server is up; hand callers a pre-resolved `ready` so their existing
+        // `await ready` stays a no-op and the {child, ready, port} contract holds.
+        return { child, ready: Promise.resolve(), port };
+      }
+      if (outcome === "timeout") {
+        child.kill("SIGKILL");
+        throw new Error(`HTTP server did not ready within timeout on port ${port}`);
+      }
+      // "exited": the child died before the ready marker — typically a bind
+      // race on `port`. Retry with a freshly probed port.
+      lastError = new Error(
+        `HTTP MCP child on port ${port} exited before ready (attempt ${attempt}/${MAX_ATTEMPTS})`
+      );
+    }
+    throw lastError ?? new Error("spawnHttpMcp: exhausted retry attempts");
   }
 
-  // Fixed port per test in the 41000-41100 ephemeral range. Hardcoded
-  // (rather than Math.random()) so test isolation isn't reliant on chance,
-  // and so the project's `custom/no-real-fs-in-tests` lint rule doesn't
-  // false-positive on Math.random() usage in non-fs contexts.
-  const PORT_AUTH_SERVER = 41001;
-  const PORT_PROTECTED_RESOURCE = 41002;
-  const PORT_X_FORWARDED = 41003;
-  const PORT_REGISTER = 41004;
+  // mt#2764 / mt#3123 (teardown half): the spec requires a test that FORCES a
+  // failure and asserts the spawned --http server is torn down unconditionally,
+  // so a failed/timed-out test cannot leak an orphan holding a port. The other
+  // spawned tests only exercise the happy-path `finally`; this one drives the
+  // throw path explicitly and positively asserts the port was released.
+  test("a spawned HTTP server is torn down even when the test body throws", async () => {
+    const { child, ready, port } = await spawnHttpMcp({ DATABASE_URL: "" });
+    await ready;
+    // Precondition: the child genuinely holds the port while up.
+    expect(await isPortFree(port)).toBe(false);
+
+    let exitObserved = false;
+    // Mirror every spawned test's shape: a body that throws, with unconditional
+    // teardown in `finally`. The throw MUST propagate (finally must not swallow
+    // it) AND teardown MUST still run on that path.
+    await expect(
+      (async () => {
+        try {
+          throw new Error("simulated in-test failure");
+        } finally {
+          child.kill("SIGTERM");
+          await waitForExit(child, 8000);
+          exitObserved = true;
+        }
+      })()
+    ).rejects.toThrow("simulated in-test failure");
+
+    // Teardown ran on the failure path: the child exited and released its port —
+    // no orphan left listening (the mt#3123 leaked-orphan mode this guards).
+    expect(exitObserved).toBe(true);
+    expect(await isPortFree(port)).toBe(true);
+  });
 
   test("GET /.well-known/oauth-authorization-server returns parseable error when DB unavailable", async () => {
     // Three valid outcomes — the test's load-bearing invariant is "route exists,
@@ -656,11 +794,11 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
     // the persistence layer reads from ~/.config/minsky/config.yaml independently
     // (mt#1987: empirically observed during the test-fixup pass; the env var alone is
     // insufficient to fully disable persistence).
-    const { child, ready } = spawnHttpMcp(PORT_AUTH_SERVER, { DATABASE_URL: "" });
+    const { child, ready, port } = await spawnHttpMcp({ DATABASE_URL: "" });
     try {
       await ready;
       const response = await fetch(
-        `http://127.0.0.1:${PORT_AUTH_SERVER}/.well-known/oauth-authorization-server`
+        `http://127.0.0.1:${port}/.well-known/oauth-authorization-server`
       );
       expect([200, 500, 503]).toContain(response.status);
       expect(response.headers.get("content-type")).toMatch(/application\/json/);
@@ -687,12 +825,10 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
     //   - 200 with {resource, authorization_servers} (provider succeeded)
     //   - 503 service_unavailable (provider not constructed; clean no-DB path)
     //   - 500 server_error (provider constructed but errored at metadata-build time)
-    const { child, ready } = spawnHttpMcp(PORT_PROTECTED_RESOURCE, { DATABASE_URL: "" });
+    const { child, ready, port } = await spawnHttpMcp({ DATABASE_URL: "" });
     try {
       await ready;
-      const response = await fetch(
-        `http://127.0.0.1:${PORT_PROTECTED_RESOURCE}/.well-known/oauth-protected-resource`
-      );
+      const response = await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`);
       expect([200, 500, 503]).toContain(response.status);
       expect(response.headers.get("content-type")).toMatch(/application\/json/);
       const body = (await response.json()) as Record<string, unknown>;
@@ -715,11 +851,11 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
     // (not a 404 / routing miss). Any of 200, 500, or 503 confirms the handler ran.
     // The 200 path additionally proves the issuer is constructed from the forwarded
     // proto/host (the trust-proxy contract under test).
-    const { child, ready } = spawnHttpMcp(PORT_X_FORWARDED, { DATABASE_URL: "" });
+    const { child, ready, port } = await spawnHttpMcp({ DATABASE_URL: "" });
     try {
       await ready;
       const response = await fetch(
-        `http://127.0.0.1:${PORT_X_FORWARDED}/.well-known/oauth-authorization-server`,
+        `http://127.0.0.1:${port}/.well-known/oauth-authorization-server`,
         {
           headers: {
             [HDR_X_FORWARDED_PROTO]: "https",
@@ -749,10 +885,10 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
     //   - registration_not_supported (provider not constructed; no-DB path)
     //   - invalid_client_metadata (provider constructed but registerClient threw)
     // Both are RFC 7591-shaped errors with parseable JSON.
-    const { child, ready } = spawnHttpMcp(PORT_REGISTER, { DATABASE_URL: "" });
+    const { child, ready, port } = await spawnHttpMcp({ DATABASE_URL: "" });
     try {
       await ready;
-      const response = await fetch(`http://127.0.0.1:${PORT_REGISTER}/register`, {
+      const response = await fetch(`http://127.0.0.1:${port}/register`, {
         method: "POST",
         headers: { "Content-Type": APPLICATION_JSON },
         body: "{}",
@@ -775,9 +911,6 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
   // both 503 (no provider) and 500 (provider wired but errored) — same pattern
   // as the discovery endpoint tests above.
 
-  const PORT_OAUTH_AUTHORIZE = 41005;
-  const PORT_OAUTH_TOKEN = 41006;
-
   test("GET /oauth/authorize returns parseable error when DB unavailable (mt#1665)", async () => {
     // Three valid outcomes — the test's load-bearing invariant is "route exists,
     // handler ran, response body is parseable JSON":
@@ -789,10 +922,10 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
     // mt#1987: the 400 path was added when authorize() picked up parameter-shape
     // validation upstream of persistence access; the prior 500/503-only assertion
     // assumed the provider would fail at request handling.
-    const { child, ready } = spawnHttpMcp(PORT_OAUTH_AUTHORIZE, { DATABASE_URL: "" });
+    const { child, ready, port } = await spawnHttpMcp({ DATABASE_URL: "" });
     try {
       await ready;
-      const response = await fetch(`http://127.0.0.1:${PORT_OAUTH_AUTHORIZE}/oauth/authorize`);
+      const response = await fetch(`http://127.0.0.1:${port}/oauth/authorize`);
       expect([400, 500, 503]).toContain(response.status);
       expect(response.headers.get("content-type")).toMatch(/application\/json/);
       const body = (await response.json()) as Record<string, unknown>;
@@ -813,10 +946,10 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
     //   - 503 service_unavailable (provider not constructed)
     //   - 500 server_error (provider constructed but token() threw)
     // mt#1987: this test was updated alongside /oauth/authorize for the same reason.
-    const { child, ready } = spawnHttpMcp(PORT_OAUTH_TOKEN, { DATABASE_URL: "" });
+    const { child, ready, port } = await spawnHttpMcp({ DATABASE_URL: "" });
     try {
       await ready;
-      const response = await fetch(`http://127.0.0.1:${PORT_OAUTH_TOKEN}/oauth/token`, {
+      const response = await fetch(`http://127.0.0.1:${port}/oauth/token`, {
         method: "POST",
         headers: { "Content-Type": APPLICATION_JSON },
         body: "{}",
@@ -1107,23 +1240,15 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
     return expressApp;
   };
 
-  const PORT_MCP_STATIC = 41030;
-  const PORT_MCP_OAUTH_VALID = 41031;
-  const PORT_MCP_OAUTH_EXPIRED = 41032;
-  const PORT_MCP_OAUTH_REVOKED = 41033;
-  const PORT_MCP_OAUTH_AUDIENCE = 41034;
-  const PORT_MCP_MALFORMED = 41035;
-
   const VALID_SUB = "test-user-abc";
   const VALID_AGENT_ID = `oauth:claude-ai:user-${VALID_SUB}`;
-  const VALID_ENDPOINT_URL = `http://127.0.0.1:${PORT_MCP_OAUTH_VALID}/mcp`;
 
   test("static-bearer path continues to work with valid token (no regression)", async () => {
     const staticToken = "static-test-token-12345";
     const app = await buildMcpAuthApp({ staticToken });
-    const server = app.listen(PORT_MCP_STATIC);
+    const { server, port } = await listenOnEphemeralPort(app);
     try {
-      const response = await fetch(`http://127.0.0.1:${PORT_MCP_STATIC}/mcp`, {
+      const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
         method: "POST",
         headers: {
           "Content-Type": APPLICATION_JSON,
@@ -1142,20 +1267,22 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
   });
 
   test("OAuth-issued token authenticates and agentId is set correctly", async () => {
+    const port = await findFreePort();
+    const endpointUrl = `http://127.0.0.1:${port}/mcp`;
     const provider = buildMockProvider({
       valid: true,
       principal: { sub: VALID_SUB, clientId: "c1", agentId: VALID_AGENT_ID },
       scopes: ["mcp"],
-      audience: VALID_ENDPOINT_URL,
+      audience: endpointUrl,
     });
     const app = await buildMcpAuthApp({
       staticToken: "static-token",
       provider,
-      endpointUrl: VALID_ENDPOINT_URL,
+      endpointUrl,
     });
-    const server = app.listen(PORT_MCP_OAUTH_VALID);
+    const server = await listenOnKnownPort(app, port);
     try {
-      const response = await fetch(`http://127.0.0.1:${PORT_MCP_OAUTH_VALID}/mcp`, {
+      const response = await fetch(endpointUrl, {
         method: "POST",
         headers: {
           "Content-Type": APPLICATION_JSON,
@@ -1176,9 +1303,9 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
   test("expired OAuth token returns 401", async () => {
     const provider = buildMockProvider({ valid: false, reason: "expired" });
     const app = await buildMcpAuthApp({ staticToken: "static-token", provider });
-    const server = app.listen(PORT_MCP_OAUTH_EXPIRED);
+    const { server, port } = await listenOnEphemeralPort(app);
     try {
-      const response = await fetch(`http://127.0.0.1:${PORT_MCP_OAUTH_EXPIRED}/mcp`, {
+      const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
         method: "POST",
         headers: {
           "Content-Type": APPLICATION_JSON,
@@ -1197,9 +1324,9 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
   test("revoked OAuth token returns 401", async () => {
     const provider = buildMockProvider({ valid: false, reason: "revoked" });
     const app = await buildMcpAuthApp({ staticToken: "static-token", provider });
-    const server = app.listen(PORT_MCP_OAUTH_REVOKED);
+    const { server, port } = await listenOnEphemeralPort(app);
     try {
-      const response = await fetch(`http://127.0.0.1:${PORT_MCP_OAUTH_REVOKED}/mcp`, {
+      const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
         method: "POST",
         headers: {
           "Content-Type": APPLICATION_JSON,
@@ -1216,6 +1343,8 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
   });
 
   test("wrong-audience OAuth token returns 401 with invalid_token", async () => {
+    const port = await findFreePort();
+    const endpointUrl = `http://127.0.0.1:${port}/mcp`;
     const provider = buildMockProvider({
       valid: true,
       principal: { sub: VALID_SUB, clientId: "c1", agentId: VALID_AGENT_ID },
@@ -1225,11 +1354,11 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
     const app = await buildMcpAuthApp({
       staticToken: "static-token",
       provider,
-      endpointUrl: VALID_ENDPOINT_URL,
+      endpointUrl,
     });
-    const server = app.listen(PORT_MCP_OAUTH_AUDIENCE);
+    const server = await listenOnKnownPort(app, port);
     try {
-      const response = await fetch(`http://127.0.0.1:${PORT_MCP_OAUTH_AUDIENCE}/mcp`, {
+      const response = await fetch(endpointUrl, {
         method: "POST",
         headers: {
           "Content-Type": APPLICATION_JSON,
@@ -1249,10 +1378,10 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
   test("malformed bearer header returns 401", async () => {
     const provider = buildMockProvider({ valid: false, reason: "not_found" });
     const app = await buildMcpAuthApp({ staticToken: "static-token", provider });
-    const server = app.listen(PORT_MCP_MALFORMED);
+    const { server, port } = await listenOnEphemeralPort(app);
     try {
       // Send a non-Bearer Authorization header
-      const response = await fetch(`http://127.0.0.1:${PORT_MCP_MALFORMED}/mcp`, {
+      const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
         method: "POST",
         headers: {
           "Content-Type": APPLICATION_JSON,
@@ -1273,12 +1402,10 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
   // configured), leaving /mcp unauthenticated when ONLY OAuth was configured.
   // This test enforces that OAuth tokens are honored at the gate even when no
   // static token is set, AND that missing/invalid bearers return 401.
-  const PORT_MCP_OAUTH_ONLY_VALID = 41036;
-  const PORT_MCP_OAUTH_ONLY_MISSING = 41037;
-
   test("OAuth-only mode (no staticToken): valid OAuth token authenticates and injects agentId", async () => {
     const sub = "oauth-only-user";
-    const endpointUrl = `http://127.0.0.1:${PORT_MCP_OAUTH_ONLY_VALID}/mcp`;
+    const port = await findFreePort();
+    const endpointUrl = `http://127.0.0.1:${port}/mcp`;
     const provider = buildMockProvider({
       valid: true,
       principal: { sub, clientId: "c", agentId: `oauth:claude-ai:user-${sub}` },
@@ -1286,9 +1413,9 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
       audience: endpointUrl,
     });
     const app = await buildMcpAuthApp({ provider, endpointUrl }); // NB: no staticToken
-    const server = app.listen(PORT_MCP_OAUTH_ONLY_VALID);
+    const server = await listenOnKnownPort(app, port);
     try {
-      const response = await fetch(`http://127.0.0.1:${PORT_MCP_OAUTH_ONLY_VALID}/mcp`, {
+      const response = await fetch(endpointUrl, {
         method: "POST",
         headers: { "Content-Type": APPLICATION_JSON, Authorization: "Bearer oauth-jwt-token" },
         body: JSON.stringify({ method: "tools/list" }),
@@ -1305,10 +1432,10 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
   test("OAuth-only mode (no staticToken): missing bearer header returns 401 (NOT pass-through)", async () => {
     const provider = buildMockProvider({ valid: false, reason: "not_found" });
     const app = await buildMcpAuthApp({ provider }); // NB: no staticToken
-    const server = app.listen(PORT_MCP_OAUTH_ONLY_MISSING);
+    const { server, port } = await listenOnEphemeralPort(app);
     try {
       // No Authorization header at all — must be rejected, NOT passed through.
-      const response = await fetch(`http://127.0.0.1:${PORT_MCP_OAUTH_ONLY_MISSING}/mcp`, {
+      const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
         method: "POST",
         headers: { "Content-Type": APPLICATION_JSON },
         body: JSON.stringify({}),
@@ -1323,16 +1450,14 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
 
   // ---- mt#2493: WWW-Authenticate header on the OAuth 401 (RFC 9728 §5.1) ----
 
-  const PORT_WWWAUTH_MISSING = 41080;
-  const PORT_WWWAUTH_INVALID = 41081;
   const FORWARDED_HOST = "minsky-mcp-production.up.railway.app";
 
   test("401 (missing bearer) carries WWW-Authenticate with the https resource_metadata URL (mt#2493)", async () => {
     const provider = buildMockProvider({ valid: false, reason: "not_found" });
     const app = await buildMcpAuthApp({ provider });
-    const server = app.listen(PORT_WWWAUTH_MISSING);
+    const { server, port } = await listenOnEphemeralPort(app);
     try {
-      const response = await fetch(`http://127.0.0.1:${PORT_WWWAUTH_MISSING}/mcp`, {
+      const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
         method: "POST",
         headers: {
           "Content-Type": APPLICATION_JSON,
@@ -1355,9 +1480,9 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
   test("401 (invalid token) carries WWW-Authenticate with the RFC 6750 error + resource_metadata (mt#2493)", async () => {
     const provider = buildMockProvider({ valid: false, reason: "expired" });
     const app = await buildMcpAuthApp({ provider });
-    const server = app.listen(PORT_WWWAUTH_INVALID);
+    const { server, port } = await listenOnEphemeralPort(app);
     try {
-      const response = await fetch(`http://127.0.0.1:${PORT_WWWAUTH_INVALID}/mcp`, {
+      const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
         method: "POST",
         headers: {
           "Content-Type": APPLICATION_JSON,

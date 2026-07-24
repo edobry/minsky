@@ -185,6 +185,38 @@ parameters: taskId, ...` — self-healing for agent callers.
   redeploy).
 - **CLI is unaffected** — commander already rejects unknown flags by default.
 
+## MCP Boundary: Provided Values Are Validated Against the Declared Schema (mt#3155)
+
+The sibling of the key-set check above, on the value axis. `convertMcpArgsToParameters`
+(`src/adapters/mcp/shared-command-integration.ts`) runs `paramDef.schema.parse(value)` on
+every PROVIDED value before `execute()` runs. Previously it copied the value in as-is
+("Use the value as-is since it should already be validated by MCP"), and nothing upstream
+made that true: `src/mcp/server.ts` registers CallTool via the low-level
+`setRequestHandler(CallToolRequestSchema, ...)`, which checks only the JSON-RPC envelope,
+and the per-tool `inputSchema` is merely ADVERTISED in `tools/list` — which harness clients
+demonstrably do not enforce (mt#2737). So a wrong-typed value reached the handler and failed
+wherever it was first consumed.
+
+Semantics:
+
+- **Parse output is assigned, not just checked.** `result[key] = schema.parse(value)`, so Zod
+  coercions/transforms apply — mirroring `normalizeCliParameters`. Check-only validation
+  would leave MCP returning the raw value while CLI returns the coerced one.
+- **Error matches the CLI verbatim.** `Invalid value for parameter 'limit': ...` via the same
+  `formatZodError`. The error deliberately does NOT name the escape hatch below: that is an
+  operator action on the server process, not something an MCP caller can perform.
+- **Omitted values are untouched.** The `.default()` / `required` branch (mt#2705) runs only
+  when the value is absent; provided-value validation never fires for it.
+- **Skip path (fail-open):** plain-object legacy schemas (mt#1200) have no `.parse()` and are
+  passed through unvalidated, matching `convertParametersToZodSchema`'s existing tolerance.
+- **Escape hatch:** `MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES=1` downgrades rejection to a
+  structured `mcp.invalid_param_value_allowed` warn log and passes the raw value through
+  (emergency rollback without a redeploy). This gate tightens every MCP tool call at once, so
+  a single over-strict declared schema could break callers fleet-wide; the hatch restores
+  pre-mt#3155 behavior in-band. The offending VALUE is never logged — only the parameter name
+  and the Zod message, which describes types rather than content.
+- **CLI is unaffected** — `normalizeCliParameters` has always validated provided values.
+
 ## Testing Strategy
 
 Testing the interface-agnostic architecture involves:

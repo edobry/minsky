@@ -209,6 +209,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS", // src/mcp (server config — promote to mcp.sessionIdleTimeoutMs)
   "MINSKY_MCP_TOOL_NAMES", // src/mcp/server.ts (naming convention flag)
   "MINSKY_MCP_ALLOW_UNKNOWN_PARAMS", // src/mcp/command-mapper.ts (mt#2778 — escape hatch: downgrade undeclared-param rejection to a warn log; promote to mcp.allowUnknownParams if it grows)
+  "MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES", // src/adapters/mcp/shared-command-integration.ts (mt#3155 — escape hatch: downgrade wrong-typed provided-value rejection to a warn log; promote to mcp.allowInvalidParamValues if it grows)
   "MINSKY_MCP_MEMORY_ENRICHMENT", // src/mcp (feature flag)
   "MINSKY_MCP_MEMORY_ENRICHMENT_TIMEOUT_MS", // src/mcp (feature config)
   "MINSKY_MCP_INSTRUCTIONS_BUNDLE", // src/mcp/middleware/memory-bundle.ts (mt#1625 spike — opt-in flag)
@@ -318,6 +319,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_AT_COVERAGE", // .claude/hooks/require-execution-evidence-before-merge.ts (mt#3033) — override for the calibration-first acceptance-test cross-reference check (log-only; skips both detection and calibration-log write)
   "MINSKY_ACK_KNOWLEDGE_ACQUISITION", // .claude/hooks/knowledge-acquisition-detector.ts (mt#2708) — override for the knowledge-acquisition (research-relevant-to-loaded-skill, no propagation) calibration surface
   "MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH", // .claude/hooks/constructed-identifier-batch-detector.ts (mt#3125) — override for the batched id-minting + id-consuming tool-call detector
+  "MINSKY_ACK_BARE_PROHIBITION", // .claude/hooks/warn-bare-prohibition-dispatch.ts (mt#3162) — override for the bare-prohibition dispatch-prompt detector
 ]);
 
 /**

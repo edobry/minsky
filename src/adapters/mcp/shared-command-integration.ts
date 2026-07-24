@@ -17,6 +17,8 @@ import { log } from "@minsky/shared/logger";
 import { redact } from "../../utils/redaction";
 import { z } from "zod";
 import { guardProjectSetup } from "@minsky/domain/configuration/guard";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import { formatZodError } from "@minsky/domain/schemas/validation-utils";
 import type { StrikeTracker } from "@minsky/domain/ask/strike-tracker";
 import { normalizeErrorSignature } from "@minsky/domain/ask/strike-tracker";
 import type { AskRepository } from "@minsky/domain/ask/repository";
@@ -137,8 +139,62 @@ function convertMcpArgsToParameters(
     const value = args[key];
 
     if (value !== undefined) {
-      // Use the value as-is since it should already be validated by MCP
-      result[key] = value;
+      // mt#3155: validate the PROVIDED value against its declared schema and
+      // assign the PARSE OUTPUT, so Zod coercions/transforms apply — mirroring
+      // `normalizeCliParameters` (parameter-mapper.ts), which has always done
+      // this on the CLI side. Nothing upstream on the MCP dispatch path
+      // validates values: `src/mcp/server.ts`'s CallTool handler is registered
+      // via the low-level `setRequestHandler(CallToolRequestSchema, ...)`,
+      // which checks only the JSON-RPC envelope, and the per-tool
+      // `inputSchema` is merely ADVERTISED in `tools/list` — which harness
+      // clients demonstrably do not enforce (mt#2737). `enforceDeclaredParams`
+      // (mt#2778) checks the KEY SET only. So this is the single point where a
+      // wrong-typed provided value can be rejected before `execute()` runs.
+      const providedSchema = paramDef.schema as z.ZodTypeAny | undefined;
+
+      // Plain-object (non-Zod) legacy schemas have no `.parse()` — pass them
+      // through unvalidated, matching `convertParametersToZodSchema`'s
+      // existing tolerance for commands registered with `{ type: "string" }`.
+      if (typeof providedSchema?.parse !== "function") {
+        result[key] = value;
+        continue;
+      }
+
+      try {
+        result[key] = providedSchema.parse(value);
+      } catch (error) {
+        // Same message shape as the CLI path so both boundaries report a
+        // wrong-typed value identically, naming the offending parameter.
+        const detail =
+          error instanceof z.ZodError ? formatZodError(error, key) : getErrorMessage(error);
+
+        // Emergency rollback, mirroring the sibling key-set gate's
+        // MINSKY_MCP_ALLOW_UNKNOWN_PARAMS (mt#2778) at this same boundary.
+        // This gate tightens EVERY MCP tool call at once, so a single
+        // over-strict declared schema could break callers fleet-wide; the
+        // hatch restores pre-mt#3155 passthrough without a revert + redeploy.
+        // The offending VALUE is deliberately not logged — only the parameter
+        // name and the Zod message, which describes types rather than content.
+        if (process.env.MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES === "1") {
+          log.warn("mcp.invalid_param_value_allowed", {
+            event: "mcp.invalid_param_value_allowed",
+            parameter: key,
+            detail,
+          });
+          result[key] = value;
+          continue;
+        }
+
+        // Message matches the CLI path's exactly (`normalizeCliParameters`) so
+        // both boundaries report a wrong-typed value identically. The
+        // MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES hatch is deliberately NOT named
+        // here (PR #2261 R1): it is an OPERATOR action on the server process —
+        // an MCP client cannot set a server env var, so telling callers how to
+        // disable a validation gate is guidance they can neither act on nor
+        // should follow. It is documented for operators in
+        // `docs/architecture/interface-agnostic-commands.md` instead.
+        throw new Error(`Invalid value for parameter '${key}': ${detail}`);
+      }
       continue;
     }
 
