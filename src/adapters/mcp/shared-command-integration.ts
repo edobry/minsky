@@ -185,11 +185,15 @@ function convertMcpArgsToParameters(
           continue;
         }
 
-        throw new Error(
-          `Invalid value for parameter '${key}': ${detail}. ` +
-            `Provided values are validated against the declared schema at the MCP boundary (mt#3155); ` +
-            `set MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES=1 to temporarily downgrade this to a warning.`
-        );
+        // Message matches the CLI path's exactly (`normalizeCliParameters`) so
+        // both boundaries report a wrong-typed value identically. The
+        // MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES hatch is deliberately NOT named
+        // here (PR #2261 R1): it is an OPERATOR action on the server process —
+        // an MCP client cannot set a server env var, so telling callers how to
+        // disable a validation gate is guidance they can neither act on nor
+        // should follow. It is documented for operators in
+        // `docs/architecture/interface-agnostic-commands.md` instead.
+        throw new Error(`Invalid value for parameter '${key}': ${detail}`);
       }
       continue;
     }
