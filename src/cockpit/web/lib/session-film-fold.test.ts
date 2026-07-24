@@ -12,6 +12,7 @@ import { DEFAULT_SESSION_FILM_CONFIG } from "./session-film-config";
 import {
   actorKey,
   applyEvent,
+  applyRow,
   buildKeyframes,
   createEmptyWorldState,
   foldAtBatchIndex,
@@ -20,6 +21,8 @@ import {
 
 /** Shared fixture target id — extracted to avoid magic-string duplication across this file's cases. */
 const DEFAULT_TARGET_ID = "file:workspace:foo.ts";
+/** Shared fixture-setup-bug message — extracted to avoid magic-string duplication across this file's cases. */
+const FIXTURE_ROW_MISSING_MESSAGE = "fixture row missing — test setup bug";
 
 function ev(overrides: Partial<SemanticEvent> = {}): SemanticEvent {
   return {
@@ -165,7 +168,7 @@ describe("keyframes + foldAtBatchIndex — cheap reverse scrolling", () => {
     const target = 37;
     const viaKeyframe = foldAtBatchIndex(events, rows, keyframes, target);
     const fromScratchRow = rows[target];
-    if (!fromScratchRow) throw new Error("fixture row missing — test setup bug");
+    if (!fromScratchRow) throw new Error(FIXTURE_ROW_MISSING_MESSAGE);
     const lastEventOfRow = fromScratchRow.eventIndices.at(-1);
     if (lastEventOfRow === undefined) throw new Error("fixture row has no events — test setup bug");
     const fromScratch = foldEvents(events, lastEventOfRow);
@@ -180,5 +183,70 @@ describe("keyframes + foldAtBatchIndex — cheap reverse scrolling", () => {
     const keyframes = buildKeyframes(events, rows, DEFAULT_SESSION_FILM_CONFIG);
     const state = foldAtBatchIndex(events, rows, keyframes, -1);
     expect(state.entities.size).toBe(0);
+  });
+});
+
+describe("applyRow — fan-out signal (spec SC5/SC10, AT1's stage half)", () => {
+  test("a parallel batch row sets lastRowIsParallelBatch and records ALL targets for the acting agent", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", target: { realm: "repo", id: "file:ws:a.ts" } }),
+      ev({ batchId: "b1", target: { realm: "repo", id: "file:ws:b.ts" } }),
+      ev({ batchId: "b1", target: { realm: "web", id: "web:example.com" } }),
+    ];
+    const rows = groupEventsIntoBatchRows(events);
+    const row = rows[0];
+    if (!row) throw new Error(FIXTURE_ROW_MISSING_MESSAGE);
+    const state = applyRow(createEmptyWorldState(), events, row);
+
+    expect(state.lastRowIsParallelBatch).toBe(true);
+    const targets = state.lastRowTargetsByActor.get("agent:a1");
+    expect(targets).toEqual(["file:ws:a.ts", "file:ws:b.ts", "web:example.com"]);
+  });
+
+  test("a singleton row is NOT a parallel batch", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1" })];
+    const rows = groupEventsIntoBatchRows(events);
+    const row = rows[0];
+    if (!row) throw new Error(FIXTURE_ROW_MISSING_MESSAGE);
+    const state = applyRow(createEmptyWorldState(), events, row);
+    expect(state.lastRowIsParallelBatch).toBe(false);
+  });
+
+  test("the fan-out signal reflects the CURRENT row, not a stale earlier one", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", target: { realm: "repo", id: "file:ws:a.ts" } }),
+      ev({ batchId: "b1", target: { realm: "repo", id: "file:ws:b.ts" } }),
+      ev({ batchId: "b2", target: { realm: "repo", id: "file:ws:c.ts" } }),
+    ];
+    const rows = groupEventsIntoBatchRows(events);
+    let state = createEmptyWorldState();
+    for (const row of rows) state = applyRow(state, events, row);
+    expect(state.lastRowIsParallelBatch).toBe(false); // last row (b2) is a singleton
+    expect(state.lastRowTargetsByActor.get("agent:a1")).toEqual(["file:ws:c.ts"]);
+  });
+
+  test("buildKeyframes + foldAtBatchIndex carry the fan-out signal for the target row", () => {
+    const events: SemanticEvent[] = [];
+    for (let i = 0; i < 30; i++) {
+      events.push(ev({ batchId: `b${i}`, target: { realm: "repo", id: `file:ws:${i}.ts` } }));
+    }
+    // Insert a parallel batch at index 15 (3 events sharing one batchId).
+    events.splice(
+      15,
+      0,
+      ev({ batchId: "parallel", target: { realm: "repo", id: "file:ws:p1.ts" } }),
+      ev({ batchId: "parallel", target: { realm: "repo", id: "file:ws:p2.ts" } })
+    );
+    const rows = groupEventsIntoBatchRows(events);
+    const parallelRowIndex = rows.findIndex((r) => r.batchId === "parallel");
+    expect(parallelRowIndex).toBeGreaterThan(0);
+
+    const keyframes = buildKeyframes(events, rows, {
+      ...DEFAULT_SESSION_FILM_CONFIG,
+      keyframeIntervalBatches: 10,
+    });
+    const state = foldAtBatchIndex(events, rows, keyframes, parallelRowIndex);
+    expect(state.lastRowIsParallelBatch).toBe(true);
+    expect(state.lastRowTargetsByActor.get("agent:a1")).toEqual(["file:ws:p1.ts", "file:ws:p2.ts"]);
   });
 });

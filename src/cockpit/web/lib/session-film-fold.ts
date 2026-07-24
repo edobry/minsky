@@ -103,6 +103,23 @@ export interface WorldFoldState {
   appliedIndex: Map<number, { targetId: string; actorKey: ActorKey }>;
   /** Highest event-array index folded so far, or -1 if none. */
   lastEventIndex: number;
+  /**
+   * Target ids touched by the MOST RECENTLY folded batch row, grouped by
+   * actor — the stage's fan-out rendering signal (spec SC 5/SC 10). Set by
+   * {@link applyRow}, never by bare `applyEvent` calls (which don't know
+   * row boundaries) — `foldEvents`, a row-unaware event-level fold used
+   * only by tests, leaves this at its initial empty state. Empty when no
+   * row has been folded yet via `applyRow`.
+   */
+  lastRowTargetsByActor: Map<ActorKey, string[]>;
+  /**
+   * True when the most recently folded row (via {@link applyRow}) was a
+   * genuine parallel batch (>1 event sharing a `batchId`) — the stage must
+   * render simultaneous fan-out beams for such a row, never an avatar
+   * walking sequentially through the targets (spec SC 5/SC 10, AT 1's stage
+   * half: "never a sequential walk, never last-target-only").
+   */
+  lastRowIsParallelBatch: boolean;
 }
 
 export function createEmptyWorldState(): WorldFoldState {
@@ -111,6 +128,8 @@ export function createEmptyWorldState(): WorldFoldState {
     agents: new Map(),
     appliedIndex: new Map(),
     lastEventIndex: -1,
+    lastRowTargetsByActor: new Map(),
+    lastRowIsParallelBatch: false,
   };
 }
 
@@ -121,6 +140,8 @@ function cloneWorldState(state: WorldFoldState): WorldFoldState {
     agents: new Map(state.agents),
     appliedIndex: new Map(state.appliedIndex),
     lastEventIndex: state.lastEventIndex,
+    lastRowTargetsByActor: new Map(state.lastRowTargetsByActor),
+    lastRowIsParallelBatch: state.lastRowIsParallelBatch,
   };
 }
 
@@ -204,6 +225,53 @@ export function applyEvent(
     agents,
     appliedIndex,
     lastEventIndex: Math.max(state.lastEventIndex, eventIndex),
+    // Pass through unchanged — only `applyRow` (row-aware) sets these;
+    // per-event `applyEvent` has no row-boundary information of its own.
+    lastRowTargetsByActor: state.lastRowTargetsByActor,
+    lastRowIsParallelBatch: state.lastRowIsParallelBatch,
+  };
+}
+
+/**
+ * Apply a full batch ROW to a WorldFoldState: folds every event in the row
+ * (in array order — never inventing an order WITHIN the row, since a
+ * parallel batch's events are genuinely simultaneous), then records the
+ * row's fan-out signal (`lastRowTargetsByActor` / `lastRowIsParallelBatch`)
+ * for the stage to render simultaneous beams rather than a sequential walk.
+ *
+ * This is the row-grain counterpart to `applyEvent` — `buildKeyframes` and
+ * `foldAtBatchIndex` (the paths the real page uses) fold row-by-row via
+ * this function so the fan-out signal is always current for whatever row
+ * the playhead landed on. `foldEvents` (event-index-grain, used only by
+ * tests that don't care about row boundaries) does NOT use this — it calls
+ * `applyEvent` directly and leaves the fan-out fields at their initial
+ * empty state.
+ */
+export function applyRow(
+  state: WorldFoldState,
+  events: readonly SemanticEvent[],
+  row: BatchRow
+): WorldFoldState {
+  let next = state;
+  for (const eventIdx of row.eventIndices) {
+    const event = events[eventIdx];
+    if (event) next = applyEvent(next, event, eventIdx);
+  }
+
+  const targetsByActor = new Map<ActorKey, string[]>();
+  for (const eventIdx of row.eventIndices) {
+    const event = events[eventIdx];
+    if (!event) continue;
+    const key = actorKey(event.actor);
+    const list = targetsByActor.get(key) ?? [];
+    list.push(event.target.id);
+    targetsByActor.set(key, list);
+  }
+
+  return {
+    ...next,
+    lastRowTargetsByActor: targetsByActor,
+    lastRowIsParallelBatch: row.isParallelBatch,
   };
 }
 
@@ -245,10 +313,7 @@ export function buildKeyframes(
   for (let rowIdx = 0; rowIdx < batchRows.length; rowIdx++) {
     const row = batchRows[rowIdx];
     if (!row) continue;
-    for (const eventIdx of row.eventIndices) {
-      const event = events[eventIdx];
-      if (event) state = applyEvent(state, event, eventIdx);
-    }
+    state = applyRow(state, events, row);
     const interval = Math.max(1, config.keyframeIntervalBatches);
     if ((rowIdx + 1) % interval === 0) {
       keyframes.push({ batchRowIndex: rowIdx, state: cloneWorldState(state) });
@@ -281,10 +346,7 @@ export function foldAtBatchIndex(
   for (let rowIdx = base.batchRowIndex + 1; rowIdx <= targetBatchIndex; rowIdx++) {
     const row = batchRows[rowIdx];
     if (!row) break;
-    for (const eventIdx of row.eventIndices) {
-      const event = events[eventIdx];
-      if (event) state = applyEvent(state, event, eventIdx);
-    }
+    state = applyRow(state, events, row);
   }
   return state;
 }

@@ -156,6 +156,7 @@
     "@xyflow/react": "^12.11.0",
     "ai": "^4.1.5",
     "braintrust": "^3.10.0",
+    "bubblesets-js": "^3.0.1",
     "chalk": "^5.4.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

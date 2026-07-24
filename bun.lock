@@ -27,6 +27,7 @@
         "@xyflow/react": "^12.11.0",
         "ai": "^4.1.5",
         "braintrust": "^3.10.0",
+        "bubblesets-js": "^3.0.1",
         "chalk": "^5.4.1",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -1175,6 +1176,8 @@
     "braintrust": ["braintrust@3.10.0", "", { "dependencies": { "@ai-sdk/provider": "^1.1.3", "@apm-js-collab/code-transformer": "^0.12.0", "@next/env": "^14.2.3", "@vercel/functions": "^1.0.2", "ajv": "^8.17.1", "argparse": "^2.0.1", "boxen": "^8.0.1", "chalk": "^4.1.2", "cli-progress": "^3.12.0", "cli-table3": "^0.6.5", "cors": "^2.8.5", "dc-browser": "^1.0.4", "dotenv": "^16.4.5", "esbuild": "^0.27.0", "eventsource-parser": "^1.1.2", "express": "^4.21.2", "graceful-fs": "^4.2.11", "http-errors": "^2.0.0", "minimatch": "^9.0.3", "module-details-from-path": "^1.0.4", "mustache": "^4.2.0", "pluralize": "^8.0.0", "simple-git": "^3.21.0", "source-map": "^0.7.4", "termi-link": "^1.0.1", "unplugin": "^2.3.5", "uuid": "^9.0.1", "zod-to-json-schema": "^3.25.0" }, "peerDependencies": { "zod": "^3.25.34 || ^4.0" }, "bin": { "braintrust": "dist/cli.js" } }, "sha512-On1OyvjBoatLI6BRWIQJ2Qpt4ed5MHXonH4vPzrQ3E5d7wiNGQ5DDw0dvEQhPVDIx9+u8f9h14JBCgv2fDMQyQ=="],
 
     "browserslist": ["browserslist@4.28.2", "", { "dependencies": { "baseline-browser-mapping": "^2.10.12", "caniuse-lite": "^1.0.30001782", "electron-to-chromium": "^1.5.328", "node-releases": "^2.0.36", "update-browserslist-db": "^1.2.3" }, "bin": { "browserslist": "cli.js" } }, "sha512-48xSriZYYg+8qXna9kwqjIVzuQxi+KYWp2+5nCYnYKPTr0LvD89Jqk2Or5ogxz0NUMfIjhh2lIUX/LyX9B4oIg=="],
+
+    "bubblesets-js": ["bubblesets-js@3.0.1", "", {}, "sha512-EKPfysvIU5+u5RLW3mOr94wxzA3nKzqMBX0F95L95BPBDZPVgLBUnT0kJNz4UK/TXbGs8G7yEgl5MvibRBCQoQ=="],
 
     "buffer": ["buffer@6.0.3", "", { "dependencies": { "base64-js": "^1.3.1", "ieee754": "^1.2.1" } }, "sha512-FTiCpNxtwiZZHEZbcbTIcZjERVICn9yq/pDFkTl95/AxzD1naBctN7YO68riM/gLSDY7sdrMby8hofADYuuqOA=="],
 
