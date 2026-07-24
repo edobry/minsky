@@ -4,7 +4,21 @@
  * Mirrors the DisconnectTracker pattern (mt#1645/mt#1682): in-memory ring buffer
  * of error events, summary for debug_systemInfo, and event emission on degradation.
  *
- * @see mt#2147 — this task
+ * mt#2568: the one-shot `setEventEmitter()` fast-path wired fire-and-forget by
+ * the MCP start-command has no retry. Because `emitDegradationEvent` only
+ * fires ONCE per degradation cycle (`emittedForCurrentDegradation` latches to
+ * true regardless of whether the emit actually succeeded), a degradation that
+ * races the startup wiring — e.g. on a proxy/staleness-respawned server, the
+ * exact race mt#2562/mt#2567 diagnosed for the presence write-path — loses
+ * that `embeddings.provider_degraded` event PERMANENTLY for the cycle, not
+ * just until the wiring catches up. `registerEventEmitterBuilder` gives
+ * `emitDegradationEvent` a per-call fallback that builds a fresh EventEmitter
+ * from the container on demand (mirrors the `buildAskRepository` /
+ * `getPresenceClaimRepo` remedy from mt#2567), so the very call that would
+ * have raced the wiring still emits correctly.
+ *
+ * @see mt#2147 — this task (original wiring)
+ * @see mt#2568 — per-call fallback for the startup-wiring race
  * @see src/mcp/disconnect-tracker.ts — architectural precedent
  */
 
@@ -30,11 +44,23 @@ export interface EmbeddingsHealthSummary {
   fallbackProvider: string | null;
 }
 
+/** Per-call fallback builder registered by the MCP start-command (mt#2568). */
+export type EmbeddingsEventEmitterBuilder = () => Promise<EventEmitter | null>;
+
 const MAX_EVENTS = 100;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
 export class EmbeddingsHealthTracker {
   private static instance: EmbeddingsHealthTracker | null = null;
+
+  /**
+   * Per-call fallback builder (mt#2568). Class-level (not per-instance) —
+   * there is exactly one EmbeddingsHealthTracker singleton per process, same
+   * lifetime assumption `instance` already makes. Registered once by the MCP
+   * start-command; invoked by `emitDegradationEvent` whenever the one-shot
+   * `setEventEmitter()` fast-path hasn't fired yet (or failed outright).
+   */
+  private static eventEmitterBuilder: EmbeddingsEventEmitterBuilder | null = null;
 
   private events: EmbeddingsErrorEvent[] = [];
   private eventEmitter: EventEmitter | null = null;
@@ -56,6 +82,17 @@ export class EmbeddingsHealthTracker {
 
   static resetForTest(): void {
     EmbeddingsHealthTracker.instance = null;
+    EmbeddingsHealthTracker.eventEmitterBuilder = null;
+  }
+
+  /**
+   * Register the per-call fallback builder `emitDegradationEvent` invokes
+   * whenever the one-shot `setEventEmitter()` fast-path hasn't fired yet
+   * (mt#2568). Called once by the MCP server's startup path. Pass `null` to
+   * clear the registration.
+   */
+  static registerEventEmitterBuilder(builder: EmbeddingsEventEmitterBuilder | null): void {
+    EmbeddingsHealthTracker.eventEmitterBuilder = builder;
   }
 
   setEventEmitter(emitter: EventEmitter): void {
@@ -129,8 +166,27 @@ export class EmbeddingsHealthTracker {
     return this.events.filter((e) => new Date(e.timestamp).getTime() >= cutoff).length;
   }
 
+  /**
+   * Resolve the EventEmitter to use for this emit: the pre-set fast-path
+   * emitter if wiring already completed, otherwise a fresh per-call build
+   * via the registered fallback builder (mt#2568). Never throws.
+   */
+  private async resolveEventEmitter(): Promise<EventEmitter | null> {
+    if (this.eventEmitter) return this.eventEmitter;
+    if (!EmbeddingsHealthTracker.eventEmitterBuilder) return null;
+    try {
+      return await EmbeddingsHealthTracker.eventEmitterBuilder();
+    } catch (err) {
+      log.debug("embeddings-health-tracker: per-call event emitter build failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  }
+
   private async emitDegradationEvent(triggerEvent: EmbeddingsErrorEvent): Promise<void> {
-    if (!this.eventEmitter) return;
+    const emitter = await this.resolveEventEmitter();
+    if (!emitter) return;
 
     const eventInput: SystemEventInput = {
       eventType: "embeddings.provider_degraded",
@@ -144,7 +200,7 @@ export class EmbeddingsHealthTracker {
     };
 
     try {
-      await this.eventEmitter.emit(eventInput);
+      await emitter.emit(eventInput);
       log.warn("Embeddings provider degraded — event emitted", {
         provider: triggerEvent.provider,
         status: this.currentStatus,

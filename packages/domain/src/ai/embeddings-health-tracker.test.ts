@@ -151,3 +151,112 @@ describe("EmbeddingsHealthTracker", () => {
     expect(tracker.getSummary().errorCountLastHour).toBeLessThanOrEqual(100);
   });
 });
+
+/**
+ * Regression tests for mt#2568: emitDegradationEvent per-call event-emitter
+ * fallback.
+ *
+ * Pre-fix bug: emitDegradationEvent had `if (!this.eventEmitter) return;`,
+ * and emittedForCurrentDegradation latches to true BEFORE that check runs —
+ * so whenever the one-shot setEventEmitter() startup wiring in
+ * start-command.ts hadn't fired yet (e.g. on proxy/staleness-respawned
+ * servers, mirroring the mt#2562/mt#2567 presence write-path race), the
+ * embeddings.provider_degraded event for that degradation cycle was lost
+ * PERMANENTLY — no retry, even after the wiring eventually completed.
+ *
+ * Fix: build the emitter per-call via a registered fallback builder when
+ * this.eventEmitter is not pre-set — mirrors the buildAskRepository /
+ * getPresenceClaimRepo per-call fallback pattern from mt#2567.
+ * setEventEmitter() becomes a warm-up fast-path only.
+ */
+describe("emitDegradationEvent per-call event-emitter fallback (mt#2568 regression)", () => {
+  beforeEach(() => {
+    EmbeddingsHealthTracker.resetForTest();
+  });
+
+  test("REGRESSION: emits via per-call builder when setEventEmitter was never called", async () => {
+    // This test reproduces the mt#2568 bug:
+    // - Pre-fix code: `if (!this.eventEmitter) return;` — emitted stays empty.
+    // - Post-fix code: per-call fallback builds an emitter from the
+    //   registered builder → the event is emitted even though the one-shot
+    //   setter never fired.
+    const emitter = new NoopEventEmitter();
+    let builderCallCount = 0;
+
+    EmbeddingsHealthTracker.registerEventEmitterBuilder(async () => {
+      builderCallCount++;
+      return emitter;
+    });
+
+    // CRITICAL: do NOT call tracker.setEventEmitter(...) — this simulates
+    // the one-shot startup wiring in start-command.ts never completing
+    // before the first embeddings-provider error, the exact mt#2568
+    // failure scenario.
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
+
+    expect(builderCallCount).toBeGreaterThanOrEqual(1);
+    expect(emitter.emitted).toHaveLength(1);
+    expect(emitter.emitted[0].eventType).toBe("embeddings.provider_degraded");
+    expect(emitter.emitted[0].payload).toMatchObject({
+      provider: PROVIDER,
+      errorCode: QUOTA_CODE,
+      status: "exhausted",
+    });
+  });
+
+  test("fast-path: uses pre-set emitter without going through the builder", async () => {
+    const emitter = new NoopEventEmitter();
+    let builderCallCount = 0;
+
+    EmbeddingsHealthTracker.registerEventEmitterBuilder(async () => {
+      builderCallCount++;
+      return emitter;
+    });
+
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    tracker.setEventEmitter(emitter);
+
+    await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
+
+    expect(emitter.emitted).toHaveLength(1);
+    // The fast-path emitter was used directly — the fallback builder was
+    // never invoked.
+    expect(builderCallCount).toBe(0);
+  });
+
+  test("no-ops gracefully when neither a fast-path emitter nor a builder is registered", async () => {
+    const tracker = EmbeddingsHealthTracker.getInstance();
+
+    await expect(
+      tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted")
+    ).resolves.toBeUndefined();
+    expect(tracker.getSummary().status).toBe("exhausted");
+  });
+
+  test("no-ops gracefully when the builder throws", async () => {
+    EmbeddingsHealthTracker.registerEventEmitterBuilder(async () => {
+      throw new Error("container has no persistence provider");
+    });
+
+    const tracker = EmbeddingsHealthTracker.getInstance();
+
+    await expect(
+      tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted")
+    ).resolves.toBeUndefined();
+    expect(tracker.getSummary().status).toBe("exhausted");
+  });
+
+  test("resetForTest clears a registered builder", async () => {
+    const emitter = new NoopEventEmitter();
+    EmbeddingsHealthTracker.registerEventEmitterBuilder(async () => emitter);
+
+    EmbeddingsHealthTracker.resetForTest();
+
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
+
+    // Builder was cleared by resetForTest — nothing to fall back to.
+    expect(emitter.emitted).toHaveLength(0);
+  });
+});
