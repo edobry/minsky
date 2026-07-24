@@ -155,7 +155,7 @@ Falsifier: reading the file establishes the TEXTUAL order of its statements; it
 does NOT establish WHEN they evaluate. Evaluation order is a fact about the
 **language spec**, not about the file. Consult the spec/docs, or run a minimal
 empirical probe (a three-line module that prints the order). Note this is the
-same Tier-2 blind spot cue (b) and cue (d) name: a same-turn read of the right
+same Tier-2 blind spot as cues (b) and (d): a same-turn read of the right
 file SATISFIES mt#2486's same-turn-read suppression while establishing nothing
 about the layer beneath it. Extra trap: a source COMMENT asserting the ordering
 ("setup config FIRST before any other imports") is authorial INTENT — if the
