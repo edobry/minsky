@@ -40,6 +40,9 @@ const DEFERRAL_CLASS = "principal-reserved";
 const CODE_MECHANISM_KIND = "code-mechanism-assertion";
 const SILENT_STRETCH_KIND = "silent-stretch";
 const BUILD_CLAIM_INJECTION_KIND = "build-claim-injection";
+const KNOWLEDGE_ACQUISITION_KIND = "knowledge-acquisition";
+const ENGINEERING_WRITING_SKILL_NAME = "engineering-writing";
+const CONSTRUCTED_IDENTIFIER_BATCH_KIND = "constructed-identifier-batch";
 const TEST_ASK_ID = "483dbcb0-788a-4159-9d8a-ba718ba1f2b0";
 const RETRO_PATH = ".minsky/retrospective-trigger-calibration.jsonl";
 const CAUSAL_GUARD_NAME = "causal-premise-detector";
@@ -109,8 +112,8 @@ function buildLines(count: number, makeLine: (i: number) => string): string {
 // ---------------------------------------------------------------------------
 
 describe("CALIBRATION_LOG_REGISTRY", () => {
-  test("has nine entries (mt#2619 adds three; mt#2866 adds silent-stretch; mt#2870 adds wall-of-text; mt#2923 adds build-claim-injection)", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(9);
+  test("has eleven entries (mt#2619 adds three; mt#2866 adds silent-stretch; mt#2870 adds wall-of-text; mt#2923 adds build-claim-injection; mt#2708 adds knowledge-acquisition; mt#3125 adds constructed-identifier-batch)", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(11);
   });
 
   test("first entry is causal-premise", () => {
@@ -170,6 +173,24 @@ describe("CALIBRATION_LOG_REGISTRY", () => {
       ".minsky/build-claim-injection-calibration.jsonl"
     );
     expect(CALIBRATION_LOG_REGISTRY[8]?.reviewByDays).toBe(30);
+  });
+
+  test("tenth entry is knowledge-acquisition (mt#2708) with a reviewByDays graduation contract + diversity axis", () => {
+    expect(CALIBRATION_LOG_REGISTRY[9]?.kind).toBe(KNOWLEDGE_ACQUISITION_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[9]?.name).toBe(KNOWLEDGE_ACQUISITION_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[9]?.path).toBe(
+      ".minsky/knowledge-acquisition-calibration.jsonl"
+    );
+    expect(CALIBRATION_LOG_REGISTRY[9]?.reviewByDays).toBe(14);
+    expect(CALIBRATION_LOG_REGISTRY[9]?.liveSinceDate).toBeDefined();
+  });
+
+  test("eleventh entry is constructed-identifier-batch (mt#3125)", () => {
+    expect(CALIBRATION_LOG_REGISTRY[10]?.kind).toBe(CONSTRUCTED_IDENTIFIER_BATCH_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[10]?.name).toBe(CONSTRUCTED_IDENTIFIER_BATCH_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[10]?.path).toBe(
+      ".minsky/constructed-identifier-batch-calibration.jsonl"
+    );
   });
 });
 
@@ -577,6 +598,43 @@ describe("extractDistinctPhrases", () => {
     const distinct = extractDistinctPhrases(records);
     expect(distinct.size).toBe(1);
     expect(distinct.has(UNKNOWN_SILENT_STRETCH_SESSION_LABEL)).toBe(true);
+  });
+
+  test("collects distinct `loadedSkills` values from knowledge-acquisition records (mt#2708)", () => {
+    // Declared diversity axis per the mt#2708 spec's Graduation contract —
+    // distinct loaded-skill names, NOT matched phrases or session/conversation
+    // ids, so a single skill firing across many sessions still surfaces as
+    // low-diversity while a genuinely varied set of skills does not.
+    const records: CalibrationRecord[] = [
+      {
+        timestamp: "t",
+        session_id: "conv-a",
+        detectionRung: "1+2-lite",
+        researchTools: ["WebSearch"],
+        loadedSkills: [ENGINEERING_WRITING_SKILL_NAME],
+        hadPropagation: false,
+      },
+      {
+        timestamp: "t",
+        session_id: "conv-b",
+        detectionRung: "1+2-lite",
+        researchTools: ["WebFetch"],
+        loadedSkills: ["cockpit-design"],
+        hadPropagation: false,
+      },
+      {
+        timestamp: "t",
+        session_id: "conv-c",
+        detectionRung: "1+2-lite",
+        researchTools: ["WebSearch"],
+        loadedSkills: [ENGINEERING_WRITING_SKILL_NAME], // dup skill, different conversation
+        hadPropagation: false,
+      },
+    ];
+    const distinct = extractDistinctPhrases(records);
+    expect(distinct.size).toBe(2);
+    expect(distinct.has(ENGINEERING_WRITING_SKILL_NAME)).toBe(true);
+    expect(distinct.has("cockpit-design")).toBe(true);
   });
 });
 
@@ -1337,6 +1395,25 @@ const KIND_FIXTURES: Readonly<
       }),
     expectedGuardName: "build-claim-injection-detector",
   },
+  [KNOWLEDGE_ACQUISITION_KIND]: {
+    line: () =>
+      JSON.stringify({
+        timestamp: "2026-07-23T12:00:00Z",
+        session_id: "test-session",
+        detectionRung: "1+2-lite",
+        researchTools: ["WebSearch"],
+        loadedSkills: [ENGINEERING_WRITING_SKILL_NAME],
+        hadPropagation: false,
+      }),
+    expectedGuardName: "knowledge-acquisition-detector",
+  },
+  "constructed-identifier-batch": {
+    // Same matches-shape family as retrospective-trigger (see this file's
+    // CalibrationLogEntry.kind doc comment) — reuses makeRetroRecord's shape,
+    // parsed under the "constructed-identifier-batch" kind.
+    line: () => makeRetroRecord(),
+    expectedGuardName: "constructed-identifier-batch-detector",
+  },
 };
 
 describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
@@ -1362,8 +1439,8 @@ describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
     }
   });
 
-  test("CALIBRATION_LOG_REGISTRY has exactly 9 entries and every kind has a fixture above", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(9);
+  test("CALIBRATION_LOG_REGISTRY has exactly 11 entries and every kind has a fixture above", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(11);
     for (const entry of CALIBRATION_LOG_REGISTRY) {
       expect(KIND_FIXTURES[entry.kind]).toBeDefined();
     }

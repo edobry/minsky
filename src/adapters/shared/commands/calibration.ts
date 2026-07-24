@@ -147,6 +147,11 @@ function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]
               `${rec.leadLabelHits && rec.leadLabelHits.length > 0 ? ` labels=${rec.leadLabelHits.join("+")}` : ""} ` +
               `conversation=${rec.session_id ?? UNKNOWN_SILENT_STRETCH_SESSION_LABEL}`
           );
+        } else if ("loadedSkills" in rec) {
+          lines.push(
+            `    [${rec.timestamp}] rung=${rec.detectionRung} skills=${rec.loadedSkills.slice(0, 3).join(", ")} ` +
+              `tools=${rec.researchTools.slice(0, 3).join(", ")} hadPropagation=${rec.hadPropagation}`
+          );
         } else {
           lines.push(
             `    [${rec.timestamp}] families: ${rec.matches
