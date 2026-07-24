@@ -31,8 +31,17 @@ export interface SessionFilmConfig {
     rootImportance: number;
     /** a-priori importance decays this much per additional tree depth level. */
     depthDecay: number;
-    /** Recency weight: how much a touch's "distance from playhead" subtracts per batch-row of distance. */
-    recencyDecayPerBatch: number;
+    /**
+     * Recency decay RATE, per elapsed second between a touch and the
+     * playhead's current wall-clock time (`exp(-rate * elapsedSeconds)`).
+     * Deliberately elapsed-TIME-based rather than batch-row-distance-based:
+     * `WorldFoldState`'s `EntityFoldState` tracks `lastTouchedAt` as a
+     * timestamp, not a batch-row ordinal (see session-film-fold.ts) — using
+     * wall-clock recency is also consistent with the RFC's "honest time
+     * alongside honest motion" principle (a 40-minute-old touch and a
+     * 2-second-old touch must not read as equally "fresh").
+     */
+    recencyDecayPerSecond: number;
     /** DOI threshold above which a node renders expanded. */
     expandThreshold: number;
     /** Visible-node budget across all realms combined (spec: ~60-80). */
@@ -61,7 +70,7 @@ export const DEFAULT_SESSION_FILM_CONFIG: SessionFilmConfig = {
   doi: {
     rootImportance: 0.8,
     depthDecay: 0.15,
-    recencyDecayPerBatch: 0.1,
+    recencyDecayPerSecond: 0.01,
     expandThreshold: 0.35,
     visibleNodeBudget: 70,
   },
