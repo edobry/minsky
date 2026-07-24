@@ -24,7 +24,7 @@ import { useState } from "react";
 // Types — mirrors of server SystemEvent shape
 // ---------------------------------------------------------------------------
 
-type SystemEventType =
+export type SystemEventType =
   | "ask.created"
   | "task.auto_created"
   | "pr.review_posted"
@@ -35,7 +35,7 @@ type SystemEventType =
   | "subagent.completed"
   | "session.started";
 
-interface SystemEvent {
+export interface SystemEvent {
   id: string;
   eventType: SystemEventType;
   payload: Record<string, unknown>;
@@ -187,7 +187,9 @@ function eventSummary(event: SystemEvent): string {
 // Event row
 // ---------------------------------------------------------------------------
 
-function EventRow({ event }: { event: SystemEvent }) {
+// Exported for direct testing (mt#3175) — the entity-reference change lives
+// entirely in this row component.
+export function EventRow({ event }: { event: SystemEvent }) {
   const style = eventStyle(event.eventType);
 
   return (

@@ -16,7 +16,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
-import { tokenizeEntities, type EntityIndex } from "../lib/entity-linkifier";
+import { tokenizeEntities, type EntityIndex, type EntityToken } from "../lib/entity-linkifier";
+import { EntityRef } from "./EntityRef";
+import type { RoutableEntityType } from "../lib/entity-codec";
 
 // Recognized task/ask status enums → subtle leaf color.
 const STATUS_COLORS: Record<string, string> = {
@@ -32,6 +34,62 @@ const STATUS_COLORS: Record<string, string> = {
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
 const URL_RE = /^https?:\/\/\S+$/;
+
+// Reverses the `to` path an EntityToken carries (built by entityToPath in
+// entity-codec.ts) back into `{type, id}`, so a resolved token can render
+// through the shared <EntityRef> (adds the hover-card badge treatment,
+// mt#3175) instead of a bare react-router <Link>. Mirrors entity-linkifier's
+// private (unexported) `tokenEntity` helper — entityToPath is the single
+// source of truth this segment map matches; it changes only alongside a
+// deliberate route-registry edit, at which point entity-linkifier.test.ts /
+// tabs.test.tsx would need updating too.
+const PATH_SEGMENT_TO_TYPE: Record<string, RoutableEntityType> = {
+  tasks: "task",
+  ask: "ask",
+  memory: "memory",
+  agents: "session",
+  changeset: "changeset",
+  conversation: "conversation",
+};
+
+function tokenToEntity(to: string): { type: RoutableEntityType; id: string } | null {
+  const match = /^\/(tasks|ask|memory|agents|changeset|conversation)\/(.+)$/.exec(to);
+  if (!match) return null;
+  const [, segment, encodedId] = match;
+  const type = PATH_SEGMENT_TO_TYPE[segment as string];
+  if (!type) return null;
+  try {
+    return { type, id: decodeURIComponent(encodedId as string) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Render one resolved entity token as a link. Routes through the shared
+ * <EntityRef> (hover-card title + status) when the token's path resolves to
+ * a known entity type; falls back to a bare <Link> otherwise (defensive —
+ * every token produced by tokenizeEntities' "link" kind is built via
+ * entityToPath, so this should always resolve in practice).
+ */
+function TokenLink({ token }: { token: Extract<EntityToken, { kind: "link" }> }) {
+  const entity = tokenToEntity(token.to);
+  if (entity) {
+    return (
+      <EntityRef type={entity.type} id={entity.id}>
+        {token.text}
+      </EntityRef>
+    );
+  }
+  return (
+    <Link
+      to={token.to}
+      className={cn("text-primary underline-offset-2 hover:underline", token.mono && "font-mono")}
+    >
+      {token.text}
+    </Link>
+  );
+}
 
 function relativeTime(iso: string): string {
   const ms = Date.parse(iso);
@@ -71,20 +129,7 @@ function MultilineStringLeaf({
     <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-border/30 bg-muted/20 px-2 py-1 text-emerald-300/90">
       {hasLinks && tokens
         ? tokens.map((t, i) =>
-            t.kind === "text" ? (
-              <span key={i}>{t.value}</span>
-            ) : (
-              <Link
-                key={i}
-                to={t.to}
-                className={cn(
-                  "text-primary underline-offset-2 hover:underline",
-                  t.mono && "font-mono"
-                )}
-              >
-                {t.text}
-              </Link>
-            )
+            t.kind === "text" ? <span key={i}>{t.value}</span> : <TokenLink key={i} token={t} />
           )
         : value}
     </pre>
@@ -130,20 +175,7 @@ function StringLeaf({ value, entityIndex }: { value: string; entityIndex?: Entit
         <span className="text-emerald-300">
           &quot;
           {tokens.map((t, i) =>
-            t.kind === "text" ? (
-              <span key={i}>{t.value}</span>
-            ) : (
-              <Link
-                key={i}
-                to={t.to}
-                className={cn(
-                  "text-primary underline-offset-2 hover:underline",
-                  t.mono && "font-mono"
-                )}
-              >
-                {t.text}
-              </Link>
-            )
+            t.kind === "text" ? <span key={i}>{t.value}</span> : <TokenLink key={i} token={t} />
           )}
           &quot;
         </span>

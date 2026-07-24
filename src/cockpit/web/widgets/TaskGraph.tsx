@@ -244,7 +244,10 @@ interface SelectedPanelProps {
   onClose: () => void;
 }
 
-function SelectedPanel({ node, onClose }: SelectedPanelProps) {
+// Exported for direct testing (mt#3175) — avoids exercising the full
+// react-flow canvas (unreliable under jsdom) just to assert on the
+// selected-node panel's entity-reference treatment.
+export function SelectedPanel({ node, onClose }: SelectedPanelProps) {
   if (!node) return null;
 
   return (
