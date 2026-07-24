@@ -1483,9 +1483,39 @@ export function createStartCommand(
         }
 
         // mt#2265: wire the ask state-counts provider so debug.systemInfo
-        // surfaces asks count-by-state (the stuck-pipeline detector). Same
-        // fire-and-forget pattern as SubagentDispatchTracker above.
+        // surfaces asks count-by-state (the stuck-pipeline detector).
+        //
+        // mt#2568: the eager setAskStateCountsRepository() attempt below has
+        // no retry of its own — if it hasn't completed (or fails outright)
+        // by the time getAskStateCounts() is first called (e.g. a proxy/
+        // staleness-respawned server, the exact race mt#2562/mt#2567
+        // diagnosed for the presence write-path), the provider would stay
+        // permanently unavailable for the life of the process, silently
+        // defeating the stuck-pipeline detector. registerAskStateCountsBuilder
+        // gives getAskStateCounts() a per-call fallback that builds a fresh
+        // AskRepository from the container on demand (mirrors
+        // buildAskRepository / server.ts's getPresenceClaimRepo, mt#2567) so
+        // every call is correct regardless of startup-wiring timing.
+        // Registration is AWAITED (not fire-and-forget) so it is in place
+        // before server.start() — mirrors the mt#3044
+        // SubagentDispatchTracker.registerWireAttempt ordering fix.
         if (container) {
+          try {
+            const { registerAskStateCountsBuilder } = await import(
+              "@minsky/domain/ask/state-counts-provider"
+            );
+            registerAskStateCountsBuilder(async () => {
+              const { buildAskRepository } = await import("../../adapters/shared/commands/asks");
+              return buildAskRepository(container);
+            });
+          } catch (err) {
+            log.debug("[mt#2568] Could not register Ask state-counts builder", {
+              error: getErrorMessage(err),
+            });
+          }
+
+          // Eager fast-path attempt (fire-and-forget warm-up; the per-call
+          // fallback above means this is purely a perf optimization now).
           import("../../adapters/shared/commands/asks")
             .then(async ({ buildAskRepository }) => {
               const repo = await buildAskRepository(container);
