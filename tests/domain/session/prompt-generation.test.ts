@@ -422,18 +422,15 @@ describe("generateSubagentPrompt", () => {
       }
 
       for (const type of MUTATING_TYPES) {
-        // quarantined: pre-existing failure, tracked in mt#2712. Asserts the
-        // prompt contains the literal "wip(mt#456)" commit-prefix example,
-        // but the commit-msg hook now rejects `wip(...)` prefixes (status
-        // lives in the description via a `partial:` marker instead -- see
-        // this repo's own operating-envelope template) -- the generator was
-        // updated and this test wasn't. Unmasked by mt#2665's CI fix, not
-        // caused by it; unrelated to this PR's scope.
-        // eslint-disable-next-line custom/no-skipped-tests -- genuine quarantine of a pre-existing failure (mt#2712), not a placeholder; see comment above.
-        it.skip(`includes checkpoint cadence for ${type} (mutating)`, () => {
+        // mt#2712: this test previously asserted the literal "wip(mt#456)"
+        // commit-prefix example, but the commit-msg hook now rejects
+        // `wip(...)` prefixes -- status lives in the description via a
+        // `partial:` marker instead (see the generator's current template).
+        // Updated to assert the current marker.
+        it(`includes checkpoint cadence for ${type} (mutating)`, () => {
           const result = generateSubagentPrompt({ ...baseParams, type });
           expect(result.prompt).toContain("**Checkpoint cadence.**");
-          expect(result.prompt).toContain("wip(mt#456)");
+          expect(result.prompt).toContain("partial:");
         });
       }
 
