@@ -627,6 +627,81 @@ describe("serviceWindow", () => {
     expect(stillA3?.state).toBe("suspended");
   });
 
+  // mt#3181: an Ask stored with valueless options (created before
+  // askOptionSchema's normalization landed) must still record WHICH option
+  // was picked. Without the label fallback this wrote `String(undefined)`
+  // — the literal string "undefined" — as the operator's decision.
+  test("records the label when a stored option carries no `value`", async () => {
+    const repo = new FakeAskRepository();
+    const pickedLabel = "B - split the parameter";
+    const valuelessOptions = [
+      { label: "A - keep the current shape" },
+      { label: pickedLabel },
+    ] as unknown as typeof TWO_OPTIONS;
+
+    const a1 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#3181",
+      title: "valueless",
+      question: "Which shape?",
+      options: valuelessOptions,
+    });
+
+    const stdin = makeFakeStdinReader(["1B", "done"]);
+    const result = await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      () => {},
+      Date.now(),
+      async () => [a1]
+    );
+
+    expect(result.responded).toBe(1);
+
+    const closed = await repo.getById(a1.id);
+    expect(closed?.state).toBe("closed");
+    expect(closed?.response?.payload).toEqual({ option: pickedLabel, chosen: pickedLabel });
+  });
+
+  // PR #2266 R1 BLOCKING #1: `??` treats an explicitly stored `null` value as
+  // nullish, so it would incorrectly fall back to `label` and discard a
+  // legitimate falsy-but-present machine value. Only an absent (`undefined`)
+  // `value` should trigger the label fallback.
+  test("preserves an explicit `null` option value instead of falling back to label", async () => {
+    const repo = new FakeAskRepository();
+    const optionsWithExplicitNull = [
+      { label: "A - keep the current shape", value: null },
+      { label: "B - split the parameter", value: "split" },
+    ] as unknown as typeof TWO_OPTIONS;
+
+    const a1 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#3181",
+      title: "explicit-null",
+      question: "Which shape?",
+      options: optionsWithExplicitNull,
+    });
+
+    const stdin = makeFakeStdinReader(["1A", "done"]);
+    const result = await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      () => {},
+      Date.now(),
+      async () => [a1]
+    );
+
+    expect(result.responded).toBe(1);
+
+    const closed = await repo.getById(a1.id);
+    expect(closed?.state).toBe("closed");
+    // String(null) === "null" — the explicit null must be preserved, not
+    // replaced by the label "A - keep the current shape".
+    expect(closed?.response?.payload).toEqual({ option: "null", chosen: "null" });
+  });
+
   // Acceptance test 3: reply done after 1 → remaining stay suspended
   test("`done` after responding to 1 → 2 remain suspended for next window", async () => {
     const repo = new FakeAskRepository();
