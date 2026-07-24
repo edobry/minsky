@@ -36,7 +36,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transcript-attachments-schema";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
 import { writeTurnsForTranscript } from "./turn-writer";
@@ -502,7 +502,7 @@ export class AgentTranscriptIngestService {
           // insert — best-effort). Count it honestly (mt#1444).
           sessionsErrored++;
           log.warn(`Session ${session.agentSessionId} reported a degraded ingest`, {
-            error: getErrorMessage(result.error),
+            error: getLoggableErrorSummary(result.error),
             ingested: result.ingested,
           });
         }
