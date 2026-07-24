@@ -25,17 +25,36 @@ import { generateSubagentPrompt } from "../packages/domain/src/session/prompt-ge
 const FIXTURE_SESSION_ID = "00000000-0000-0000-0000-000000000000";
 const FIXTURE_SESSION_DIR = `/Users/example/.local/state/minsky/sessions/${FIXTURE_SESSION_ID}`;
 
+/**
+ * mt#1279 added a second variant. `--with-notes` emits a prompt that ALSO
+ * carries a `scopeNotes` prose section, binding the parser's stop-at-the-
+ * next-`##` behavior to the real render: the prose must never leak into the
+ * extracted file list. Both variants must be regenerated when the prompt
+ * shape changes — see the two commands in each fixture's header.
+ */
+const withNotes = process.argv.includes("--with-notes");
+
+const FIXTURE_SCOPE_NOTES =
+  "Convert the three call sites only. Do NOT touch the render surfaces — that is a separate task.";
+
 const result = generateSubagentPrompt({
   sessionDir: FIXTURE_SESSION_DIR,
   sessionId: FIXTURE_SESSION_ID,
-  taskId: "2811",
+  taskId: withNotes ? "1279" : "2811",
   type: "implementation",
   instructions: "Fix the thing.",
   scope: [`${FIXTURE_SESSION_DIR}/src/foo.ts`, `${FIXTURE_SESSION_DIR}/src/bar.ts`],
+  ...(withNotes ? { scopeNotes: FIXTURE_SCOPE_NOTES } : {}),
   // Lean (native-harness) path — no filesystem skill-loading side effects,
   // keeps the fixture deterministic regardless of the machine it's run on.
   harness: "claude-code",
 });
+
+const fixtureName = withNotes
+  ? "session-generate-prompt-scope-notes.txt"
+  : "session-generate-prompt-scope-constraints.txt";
+const variantFlag = withNotes ? " --with-notes" : "";
+const scopeNotesLine = withNotes ? `\n    scopeNotes:   "${FIXTURE_SCOPE_NOTES}"` : "";
 
 const header = `<!--
   FIXTURE (mt#2811, PR #1953 review 4708851338 R1 BLOCKING #2).
@@ -52,18 +71,21 @@ const header = `<!--
   updated to match (or vice versa).
 
   Regenerate with:
-    bun run scripts/regenerate-mt2811-prompt-fixture.ts > .minsky/hooks/fixtures/session-generate-prompt-scope-constraints.txt
+    bun run scripts/regenerate-mt2811-prompt-fixture.ts${variantFlag} > .minsky/hooks/fixtures/${fixtureName}
+
+  Both variants must be regenerated together when the prompt shape changes —
+  the sibling is the same command with the flag toggled (mt#1279).
 
   Generated with:
     sessionDir:   "${FIXTURE_SESSION_DIR}"
     sessionId:    "${FIXTURE_SESSION_ID}"
-    taskId:       "2811"
+    taskId:       "${withNotes ? "1279" : "2811"}"
     type:         "implementation"
     instructions: "Fix the thing."
     scope: [
       "${FIXTURE_SESSION_DIR}/src/foo.ts",
       "${FIXTURE_SESSION_DIR}/src/bar.ts",
-    ]
+    ]${scopeNotesLine}
     harness: "claude-code"  (lean/native-harness path — no filesystem skill-loading)
 -->
 `;
