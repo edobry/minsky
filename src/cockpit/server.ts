@@ -74,6 +74,7 @@ import { mountActivityRoutes } from "./routes/activity";
 import { mountAskRoutes } from "./routes/asks";
 import { mountCredentialRoutes } from "./routes/credentials";
 import { mountContextInspectorRoutes } from "./routes/context-inspector";
+import { mountSessionFilmRoutes } from "./routes/session-film";
 import { mountEmbeddingsRoutes } from "./routes/embeddings";
 import { mountSweepRoutes } from "./routes/sweeps";
 import { mountFollowUpRoutes } from "./routes/follow-ups";
@@ -316,6 +317,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountAskRoutes(app, { askRepoOverride });
   mountCredentialRoutes(app, { credModuleOverride });
   mountContextInspectorRoutes(app);
+  mountSessionFilmRoutes(app); // mt#3184 — GET /api/cockpit/session-film/{events,sessions}
   mountConversationRunStateRoutes(app);
   mountEmbeddingsRoutes(app);
   mountSweepRoutes(app); // mt#2894 — GET /api/sweeps (per-sweep liveness registry)

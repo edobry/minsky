@@ -12,7 +12,9 @@ import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Prose } from "../components/Prose";
 import { CopyId } from "../components/CopyId";
+import { EntityRef } from "../components/EntityRef";
 import { useEntityIndex } from "../lib/use-entity-index";
+import { LinkifiedText } from "../lib/entity-linkifier";
 import { formatRequestor } from "../lib/entity-labels";
 import { Link } from "react-router-dom";
 import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
@@ -427,7 +429,7 @@ export function AskDetail({
           {ask.parentTaskId && (
             <div>
               <span className="font-medium">Task:</span>{" "}
-              <span className="font-mono">{ask.parentTaskId}</span>
+              <EntityRef type="task" id={ask.parentTaskId} />
             </div>
           )}
           {ask.windowKey && (
@@ -496,12 +498,13 @@ export function AskDetail({
                         {letter})
                       </span>
                       <div>
-                        {/* Plain text (not <Prose>): short inline option label/description — block Markdown breaks layout. mt#2556 */}
-                        <span className="text-foreground font-medium">{opt.label}</span>
+                        <span className="text-foreground font-medium">
+                          <LinkifiedText text={opt.label} index={entityIndex} />
+                        </span>
                         {opt.description && (
                           <span className="ml-1 text-muted-foreground text-xs">
                             {" "}
-                            — {opt.description}
+                            — <LinkifiedText text={opt.description} index={entityIndex} />
                           </span>
                         )}
                       </div>

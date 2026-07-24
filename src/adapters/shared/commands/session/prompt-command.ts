@@ -23,7 +23,23 @@ const promptCommandParams = {
   },
   scope: {
     schema: z.string(),
-    description: "Comma-separated list of file paths to constrain to",
+    description:
+      "Comma-separated list of FILE PATHS to constrain the subagent to. Paths only — this " +
+      "value is comma-split, each chunk is rendered as a bullet under 'Only modify the " +
+      "following files:', and the parallel-work guard re-reads it to detect PR collisions. " +
+      "A chunk is path-shaped when it has NO internal whitespace AND either contains a '/' " +
+      "or ends in a file extension; anything else (a prose fragment, or a bare word like " +
+      "'tests') is REJECTED with an error naming it, rather than rendered as a fabricated " +
+      "path (mt#1279). Put prose scope descriptions in `scopeNotes` instead.",
+    required: false,
+  },
+  scopeNotes: {
+    schema: z.string(),
+    description:
+      "Free-prose description of what this dispatch covers (mt#1279). Renders as its own " +
+      "'## Scope Notes' section in the generated prompt, kept separate from the `scope` " +
+      "file list so prose can never be mistaken for a path. Use this for qualifications " +
+      "like 'plus tests' or 'do NOT convert the render sites'.",
     required: false,
   },
   omitOperatingEnvelope: {
@@ -63,7 +79,9 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
     parameters: promptCommandParams,
     execute: withErrorLogging("session.generate_prompt", async (params) => {
       const { SessionService } = await import("@minsky/domain/session/session-service");
-      const { generateSubagentPrompt } = await import("@minsky/domain/session/prompt-generation");
+      const { generateSubagentPrompt, parseScopeFileList } = await import(
+        "@minsky/domain/session/prompt-generation"
+      );
       const { resolveSessionDirectory } = await import(
         "@minsky/domain/session/resolve-session-directory"
       );
@@ -75,6 +93,7 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
       const type = params.type as "implementation" | "refactor" | "review" | "cleanup" | "audit";
       const instructions = params.instructions as string;
       const scopeRaw = params.scope as string | undefined;
+      const scopeNotes = params.scopeNotes as string | undefined;
       const omitOperatingEnvelope = params.omitOperatingEnvelope as boolean | undefined;
       const intent = (params.intent as "read-only" | "implementation" | undefined) ?? undefined;
 
@@ -87,14 +106,9 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
       const sessionId = session.sessionId;
       const sessionDir = await resolveSessionDirectory(sessionId, deps.sessionProvider);
 
-      const scope =
-        scopeRaw && scopeRaw.trim().length > 0
-          ? scopeRaw
-              .split(",")
-              .map((s) => s.trim())
-              .filter((s) => s.length > 0)
-              .map((s) => (s.startsWith("/") ? s : `${sessionDir}/${s}`))
-          : undefined;
+      // mt#1279: one shared parser for the split + prose rejection + session-dir
+      // prefixing, so this command and tasks.dispatch cannot drift.
+      const scope = parseScopeFileList(scopeRaw, sessionDir);
 
       const taskId = task.replace(/^mt#/, "").replace(/^#/, "");
 
@@ -105,6 +119,7 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
         type,
         instructions,
         scope,
+        scopeNotes,
         omitOperatingEnvelope,
         intent,
       });

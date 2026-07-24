@@ -16,6 +16,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "../components/ui/card";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
+import { EntityRef } from "../components/EntityRef";
 import { cn } from "../lib/utils";
 import { useState } from "react";
 
@@ -23,7 +24,7 @@ import { useState } from "react";
 // Types — mirrors of server SystemEvent shape
 // ---------------------------------------------------------------------------
 
-type SystemEventType =
+export type SystemEventType =
   | "ask.created"
   | "task.auto_created"
   | "pr.review_posted"
@@ -34,7 +35,7 @@ type SystemEventType =
   | "subagent.completed"
   | "session.started";
 
-interface SystemEvent {
+export interface SystemEvent {
   id: string;
   eventType: SystemEventType;
   payload: Record<string, unknown>;
@@ -186,7 +187,9 @@ function eventSummary(event: SystemEvent): string {
 // Event row
 // ---------------------------------------------------------------------------
 
-function EventRow({ event }: { event: SystemEvent }) {
+// Exported for direct testing (mt#3175) — the entity-reference change lives
+// entirely in this row component.
+export function EventRow({ event }: { event: SystemEvent }) {
   const style = eventStyle(event.eventType);
 
   return (
@@ -210,7 +213,12 @@ function EventRow({ event }: { event: SystemEvent }) {
         <div className="flex items-center gap-2 mt-0.5">
           <span className="text-xs text-muted-foreground">{style.label}</span>
           {event.relatedTaskId && (
-            <span className="text-xs font-mono text-muted-foreground">{event.relatedTaskId}</span>
+            // children mode preserves the exact prior text (no inline label/status
+            // chip) so this dense row's line height is unchanged (mt#3175) — hover
+            // still surfaces title + status.
+            <EntityRef type="task" id={event.relatedTaskId} className="text-xs">
+              {event.relatedTaskId}
+            </EntityRef>
           )}
           {event.actor && (
             <span className="text-xs text-muted-foreground truncate max-w-[150px]">
