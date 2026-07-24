@@ -133,6 +133,7 @@ describe("classifyDispatchRecoveryState", () => {
         dirtyFileCount: 3,
         commitsAheadOfBase: 0,
         handoffExists: false,
+        hasOpenPr: false,
       })
     ).toBe("partial-uncommitted-no-handoff");
   });
@@ -143,6 +144,7 @@ describe("classifyDispatchRecoveryState", () => {
         dirtyFileCount: 1,
         commitsAheadOfBase: 2,
         handoffExists: true,
+        hasOpenPr: false,
       })
     ).toBe("partial-committed-handoff-written");
   });
@@ -153,6 +155,7 @@ describe("classifyDispatchRecoveryState", () => {
         dirtyFileCount: 0,
         commitsAheadOfBase: 4,
         handoffExists: false,
+        hasOpenPr: false,
       })
     ).toBe("committed-no-pr");
   });
@@ -163,6 +166,7 @@ describe("classifyDispatchRecoveryState", () => {
         dirtyFileCount: 0,
         commitsAheadOfBase: 0,
         handoffExists: false,
+        hasOpenPr: false,
       })
     ).toBe(CRASHED_NO_OUTPUT);
   });
@@ -173,6 +177,7 @@ describe("classifyDispatchRecoveryState", () => {
         dirtyFileCount: 0,
         commitsAheadOfBase: null,
         handoffExists: false,
+        hasOpenPr: false,
       })
     ).toBe(CRASHED_NO_OUTPUT);
   });
@@ -183,8 +188,71 @@ describe("classifyDispatchRecoveryState", () => {
         dirtyFileCount: 2,
         commitsAheadOfBase: 5,
         handoffExists: false,
+        hasOpenPr: false,
       })
     ).toBe(PARTIAL_UNCOMMITTED_NO_HANDOFF);
+  });
+
+  // ---------------------------------------------------------------------------
+  // mt#3149: PR-existence liveness signal (SC1/SC2 + Acceptance Test 1/4)
+  // ---------------------------------------------------------------------------
+
+  test("mt#3149 SC1: clean tree, ZERO commits ahead of base, but an open PR exists -> committed-no-pr, NOT crashed-no-output", () => {
+    // Reproduces the originating incident's exact shape: commitsAheadOfBase reads 0
+    // (whether from a stale probe or simply never having been re-run) while a PR is
+    // demonstrably open. The PR alone must be enough to avoid crashed-no-output.
+    expect(
+      classifyDispatchRecoveryState({
+        dirtyFileCount: 0,
+        commitsAheadOfBase: 0,
+        handoffExists: false,
+        hasOpenPr: true,
+      })
+    ).toBe("committed-no-pr");
+  });
+
+  test("mt#3149 SC1: clean tree, null (undeterminable) commitsAheadOfBase, but an open PR exists -> committed-no-pr", () => {
+    expect(
+      classifyDispatchRecoveryState({
+        dirtyFileCount: 0,
+        commitsAheadOfBase: null,
+        handoffExists: false,
+        hasOpenPr: true,
+      })
+    ).toBe("committed-no-pr");
+  });
+
+  test("mt#3149: dirty tree + open PR -> still a partial-* classification, never crashed-no-output", () => {
+    expect(
+      classifyDispatchRecoveryState({
+        dirtyFileCount: 1,
+        commitsAheadOfBase: 0,
+        handoffExists: false,
+        hasOpenPr: true,
+      })
+    ).toBe(PARTIAL_UNCOMMITTED_NO_HANDOFF);
+  });
+
+  // mt#3149 Acceptance Test 4 (HARD CONSTRAINT): the fix must not make the
+  // classifier permissive — a genuinely dead dispatch (no PR, no commits, no
+  // dirty tree) must still land on crashed-no-output.
+  test("mt#3149 AT4 (hard constraint): genuinely dead dispatch (no PR, no commits, clean tree) -> still crashed-no-output", () => {
+    expect(
+      classifyDispatchRecoveryState({
+        dirtyFileCount: 0,
+        commitsAheadOfBase: 0,
+        handoffExists: false,
+        hasOpenPr: false,
+      })
+    ).toBe(CRASHED_NO_OUTPUT);
+    expect(
+      classifyDispatchRecoveryState({
+        dirtyFileCount: 0,
+        commitsAheadOfBase: null,
+        handoffExists: false,
+        hasOpenPr: false,
+      })
+    ).toBe(CRASHED_NO_OUTPUT);
   });
 });
 
