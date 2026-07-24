@@ -107,6 +107,89 @@ describe("adaptTranscriptToEvents — AT2: principal + policy actors", () => {
     expect(merge?.actor.guardName).toBe("require-review-before-merge");
     expect(merge?.outcome).toBe("denied");
   });
+
+  test("real-corpus phrasing: 'Subagent merge denied (ADR-028 D5): ...' maps to policy/denied", () => {
+    const transcript: TranscriptMessage[] = [
+      assistantMsg(
+        [
+          {
+            type: "tool_use",
+            id: "call-merge2",
+            name: "session_pr_merge",
+            input: { task: "mt#2" },
+          },
+        ],
+        "2026-07-24T11:06:00.000Z",
+        "line-merge2"
+      ),
+      userMsg(
+        [
+          {
+            type: "tool_result",
+            tool_use_id: "call-merge2",
+            content: "Subagent merge denied (ADR-028 D5): no valid capability grant for mt#2.",
+            is_error: true,
+          },
+        ],
+        "2026-07-24T11:06:01.000Z"
+      ),
+    ];
+    const events = adaptTranscriptToEvents(transcript, PRINCIPAL_CONTEXT);
+    const merge = events.find((e) => e.verb === "write");
+    expect(merge?.actor.kind).toBe("policy");
+    expect(merge?.actor.guardName).toBe("ADR-028 D5");
+    expect(merge?.outcome).toBe("denied");
+  });
+
+  test("real-corpus phrasing: '<hook> hook blocked the commit (<reason>)' maps to policy/denied", () => {
+    const transcript: TranscriptMessage[] = [
+      assistantMsg(
+        [{ type: "tool_use", id: "call-commit", name: "session_commit", input: {} }],
+        "2026-07-24T11:07:00.000Z",
+        "line-commit"
+      ),
+      userMsg(
+        [
+          {
+            type: "tool_result",
+            tool_use_id: "call-commit",
+            content: "MCP error: pre-commit hook blocked the commit (ESLint warning threshold)",
+            is_error: true,
+          },
+        ],
+        "2026-07-24T11:07:01.000Z"
+      ),
+    ];
+    const events = adaptTranscriptToEvents(transcript, PRINCIPAL_CONTEXT);
+    const commit = events.find((e) => e.verb === "write");
+    expect(commit?.actor.kind).toBe("policy");
+    expect(commit?.outcome).toBe("denied");
+  });
+
+  test("a genuine (non-guard) tool error does not get attributed to policy", () => {
+    const transcript: TranscriptMessage[] = [
+      assistantMsg(
+        [{ type: "tool_use", id: "call-err", name: READ_FILE_TOOL, input: { path: "missing.ts" } }],
+        "2026-07-24T11:08:00.000Z",
+        "line-err"
+      ),
+      userMsg(
+        [
+          {
+            type: "tool_result",
+            tool_use_id: "call-err",
+            content: "ENOENT: no such file or directory",
+            is_error: true,
+          },
+        ],
+        "2026-07-24T11:08:01.000Z"
+      ),
+    ];
+    const events = adaptTranscriptToEvents(transcript, PRINCIPAL_CONTEXT);
+    const read = events.find((e) => e.verb === "read");
+    expect(read?.actor.kind).toBe("agent");
+    expect(read?.outcome).toBe("error");
+  });
 });
 
 describe("adaptTranscriptToEvents — AT3: unknown-tool fallback + coverage metric", () => {

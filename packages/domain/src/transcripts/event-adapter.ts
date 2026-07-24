@@ -527,39 +527,62 @@ function extractTargets(
 // ── Guard-denial detection ────────────────────────────────────────────────────
 
 /**
- * Heuristic markers for a tool_result representing a PreToolUse hook denial.
+ * Whole-word markers for a tool_result representing a policy/guard denial —
+ * a PreToolUse hook deny, a blocked Bash command, a pre-commit/commit-msg
+ * hook rejection, a capability-grant refusal, etc.
  *
- * ASSUMPTION (Phase-0 best-effort, no independently-confirmed wire sample):
- * Claude Code's transcript carries no structured field distinguishing "the
- * tool ran and failed" from "a PreToolUse hook denied the call before it
- * ran" — both surface as a `tool_result` block with `is_error: true`. This
- * matches on the phrasing convention Minsky's own guard hooks use when they
- * deny (`.claude/hooks/types.ts`'s `HookOutput.hookSpecificOutput.
- * permissionDecisionReason`, surfaced to the model as denial text). Revisit
- * against a real corpus sample if the false-positive/false-negative rate
- * turns out to matter for the coverage metric.
+ * VERIFIED AGAINST A REAL CORPUS SAMPLE (mt#3157 implementation,
+ * 2026-07-24): scanning `is_error: true` tool_result blocks across the 15
+ * most-recently-ingested real sessions found 13 genuine denial results,
+ * spanning at least four distinct guard mechanisms with FOUR DIFFERENT
+ * phrasings — none of which matched an earlier, purely speculative marker
+ * list based on `.claude/hooks/types.ts`'s `permissionDecisionReason`
+ * field name:
+ *   - `<tool_use_error>Blocked: sleep 40 ...` (a Bash-command guard)
+ *   - `MCP error ...: pre-commit hook blocked the commit (ESLint ...)`
+ *   - `Main workspace edit blocked: /path/to/file ...`
+ *   - `Subagent merge denied (ADR-028 D5): no valid capability grant ...`
+ * All four contain the WHOLE WORD "blocked" or "denied" (word-boundary
+ * matched, so "unblocked" does not false-positive). This is a broader net
+ * than a hook-name-keyed list could ever be — this repo alone carries ~50
+ * distinct guard hooks, each with its own free-text phrasing — and is the
+ * pragmatic Phase-0 choice: false positives (a genuine tool error that
+ * happens to say "permission denied", e.g. an OS EACCES message) still
+ * describe SOMETHING external gating the action, which is directionally
+ * the right actor attribution even when the wording isn't literally a
+ * Minsky guard hook.
  */
-const GUARD_DENIAL_MARKERS: readonly string[] = [
-  "blocked by hook",
-  "blocked by a hook",
-  "denied by a pretooluse hook",
-  "denied by hook",
-  "permission denied by hook",
-  "hook denied this",
-  "blocked by a guard",
-  "operation blocked",
-];
+const GUARD_DENIAL_MARKER_RE = /\b(?:blocked|denied)\b/i;
 
+/**
+ * Best-effort extraction of a guard/hook name or receipt ref from denial
+ * text (mt#3157 SC 1's "receipt ref to the guard doc"). Tries, in order:
+ * the originally-assumed explicit `blocked by hook: <name>` shape; Minsky's
+ * own `<class> hook blocked the commit (<reason>)` pre-commit/commit-msg
+ * phrasing; and a trailing parenthetical immediately after the verb (e.g.
+ * `Subagent merge denied (ADR-028 D5): ...` → `"ADR-028 D5"`). Returns
+ * `undefined` when none match — not every denial names its own mechanism
+ * (e.g. the bash-guard's free-text `Blocked: <command>` message).
+ */
 function extractGuardName(text: string): string | undefined {
-  const m = /blocked by (?:a )?hook:?\s*([a-z0-9_.-]+)/i.exec(text);
-  return m?.[1];
+  const explicit = /(?:blocked|denied) by (?:a )?(?:pretooluse )?hook:?\s*([a-z0-9_.-]+)/i.exec(
+    text
+  );
+  if (explicit?.[1]) return explicit[1];
+
+  const hookBlockedCommit = /([a-z0-9-]+) hook blocked the commit(?:\s*\(([^)]+)\))?/i.exec(text);
+  if (hookBlockedCommit) return hookBlockedCommit[2] ?? hookBlockedCommit[1];
+
+  const parenthetical = /(?:blocked|denied)\s*\(([^)]+)\)/i.exec(text);
+  if (parenthetical?.[1]) return parenthetical[1];
+
+  return undefined;
 }
 
 function detectGuardDenial(resultBlock: ContentBlock): { guardName?: string } | null {
   if (resultBlock.is_error !== true) return null;
   const text = resultContentText(resultBlock.content);
-  const lower = text.toLowerCase();
-  if (!GUARD_DENIAL_MARKERS.some((marker) => lower.includes(marker))) return null;
+  if (!GUARD_DENIAL_MARKER_RE.test(text)) return null;
   return { guardName: extractGuardName(text) };
 }
 
