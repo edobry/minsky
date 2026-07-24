@@ -31,6 +31,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
+import { EntityRef } from "../components/EntityRef";
 import { statusStyle } from "../lib/status-colors";
 
 // ---------------------------------------------------------------------------
@@ -253,7 +254,13 @@ function SelectedPanel({ node, onClose }: SelectedPanelProps) {
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <p className="text-xs text-muted-foreground font-mono mb-1">{node.id}</p>
+          <p className="text-xs mb-1">
+            {/* Link only — node.label (title) and the status chip below already
+                identify this node; no duplicated title here (mt#3175). */}
+            <EntityRef type="task" id={node.id}>
+              {node.id}
+            </EntityRef>
+          </p>
           <p className="text-sm font-medium leading-snug break-words">{node.label}</p>
         </div>
         <button
