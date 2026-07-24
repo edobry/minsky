@@ -81,7 +81,21 @@ export type AskState =
 export interface AskOption {
   /** Short human-readable label for this option. */
   label: string;
-  /** Machine-readable value stored in the response payload. */
+  /**
+   * Machine-readable value stored in the response payload.
+   *
+   * Required here and guaranteed present on any Ask created through the
+   * CLI/MCP boundary: `askOptionSchema`
+   * (`src/adapters/shared/commands/asks.ts`) normalizes an omitted `value`
+   * to `label` (mt#3181). Before that normalization the boundary declared
+   * this field as bare `z.unknown()`, which Zod treats as OPTIONAL inside
+   * `z.object` — so options could be stored without a value, and the
+   * response writers (which record the operator's selection by stringifying
+   * `option.value`) persisted an empty selection while the Ask still
+   * reported as answered. TypeScript callers constructing an `AskOption`
+   * directly must still supply a value; the boundary normalization does not
+   * reach them.
+   */
   value: unknown;
   /** Optional longer description of this option's tradeoffs. */
   description?: string;

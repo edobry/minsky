@@ -730,7 +730,13 @@ async function serviceWindowImpl(
         );
         continue;
       }
-      payloadValue = { option: String(option.value), chosen: String(option.value) };
+      // mt#3181: fall back to `label` when `value` is absent. `askOptionSchema`
+      // now normalizes this at create time, so an option reaching here should
+      // always carry a value — but Asks created BEFORE that fix are still in
+      // the store, and `String(undefined)` would record the literal string
+      // "undefined" as the operator's choice rather than an identifiable one.
+      const optionValue = option.value ?? option.label;
+      payloadValue = { option: String(optionValue), chosen: String(optionValue) };
     } else {
       // Approve/review kinds expose exactly two synthetic options: A=approve, B=deny/changes.
       // Reject any other letter — silently mapping non-A to "denial" risks recording the
