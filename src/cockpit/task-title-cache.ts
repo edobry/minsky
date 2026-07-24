@@ -190,9 +190,17 @@ export class TaskTitleCache {
    * getting `Map<string, string>` back. This method reuses the SAME
    * TTL/attempted bookkeeping as `getTitles` (so a mixed caller population
    * doesn't double-fetch), but reads/writes `statusCache` in addition to
-   * `cache`. IDs the provider has no status for (only `title`) are simply
-   * absent from the returned map's per-entry `status` — never surfaced as
-   * an error.
+   * `cache`. An id the provider resolved a TITLE for but no STATUS is omitted
+   * from the returned map ENTIRELY — not returned as an entry with a missing
+   * `status` field. This is deliberate: `getTaskMeta` never fabricates a
+   * status, and `TaskMeta.status` is required. Callers must therefore treat a
+   * missing entry as "no label available" and degrade to the bare id, exactly
+   * as they do for an unresolvable id. Asserted by `task-title-cache.test.ts`
+   * ("must not fabricate a status; the id is simply absent").
+   *
+   * In practice the route-backed provider (`routes/tasks.ts`'s
+   * `taskMetaProvider`) always supplies a status (defaulting to `"TODO"`), so
+   * this path is only reachable by a future provider that returns title-only.
    */
   async getTaskMeta(taskIds: string[]): Promise<Map<string, TaskMeta>> {
     const titles = await this.getTitles(taskIds);
