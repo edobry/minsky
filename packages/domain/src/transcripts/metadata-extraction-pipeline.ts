@@ -23,7 +23,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import { extractMetadataFromJsonb } from "./metadata-extractor";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ export class MetadataExtractionPipeline {
         .from(agentTranscriptsTable);
     } catch (err) {
       log.error("MetadataExtractionPipeline: failed to load transcripts", {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       return result;
     }
@@ -119,7 +119,7 @@ export class MetadataExtractionPipeline {
       } catch (err) {
         result.rowsErrored++;
         log.warn(`MetadataExtractionPipeline: failed to process row ${agentSessionId}`, {
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
       }
     }

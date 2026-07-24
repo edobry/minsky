@@ -1,0 +1,62 @@
+{
+  "_provenance": {
+    "task": "mt#3127",
+    "capturedAt": "2026-07-23",
+    "how": "The SHAPE of each payload below was copied from actual `mcp__minsky__session_pr_merge` tool returns (the merges of PR #2227 and PR #2232). Only the shape is the fixture; see `_sanitization`.",
+    "why": "These fixtures exist because the previous ones did NOT. mt#3066's verification script authored its own `ToolHookInput` with `tool_result.session.sessionId` — a shape invented to match the resolver rather than captured from a real call. It passed while production skipped every merge. A hand-written fixture tests the reader against itself; only a captured one tests the reader against reality.",
+    "_sanitization": "IDs are placeholders and the absolute session-directory path was removed (PR #2246 R1). The resolver keys off STRUCTURE — which key holds the id, at which nesting depth, as which type — so substituting the id values costs the fixture nothing and keeps a developer's home path and real conversation ids out of VCS. Do NOT restore real values when re-capturing.",
+    "recapture": "Call `session_pr_merge`, copy its return's STRUCTURE into `toolResult`, replace ids with placeholders of the same shape, drop any absolute path, and record the `tool_input` form you passed. If the structure differs from what is here, that is a real envelope change — update the resolver's accessor list, not just the fixture."
+  },
+
+  "taskInvoked": {
+    "_description": "The COMMON form: merge invoked with `task:` and no `sessionId`. This is the shape that never resolved — the id is a string at tool_result.result.session, one level deeper than the old resolver looked.",
+    "toolName": "mcp__minsky__session_pr_merge",
+    "toolInput": { "task": "mt#0000" },
+    "toolResult": {
+      "success": true,
+      "result": {
+        "session": "00000000-0000-4000-8000-000000000001",
+        "taskId": "mt#0000",
+        "mergeInfo": {
+          "commitHash": "0000000000000000000000000000000000000001",
+          "mergeDate": "2026-01-01T00:00:00.000Z",
+          "mergedBy": "minsky-ai[bot]",
+          "metadata": {
+            "pr_number": 1,
+            "merge_method": "merge",
+            "owner": "OWNER",
+            "repo": "REPO",
+            "head_ref": "task/mt-0000",
+            "base_ref": "main"
+          }
+        },
+        "sessionCleanup": {
+          "performed": true,
+          "directoriesRemoved": ["<session-workspace-path>"],
+          "errors": []
+        }
+      }
+    },
+    "expected": { "sessionId": "00000000-0000-4000-8000-000000000001", "taskId": "mt#0000" }
+  },
+
+  "sessionIdInvoked": {
+    "_description": "The same tool invoked with an explicit `sessionId`. This form always resolved, via tool_input — which is why the defect was invisible whenever a merge happened to be called this way.",
+    "toolName": "mcp__minsky__session_pr_merge",
+    "toolInput": { "sessionId": "00000000-0000-4000-8000-000000000002" },
+    "toolResult": {
+      "success": true,
+      "result": {
+        "session": "00000000-0000-4000-8000-000000000002",
+        "taskId": "mt#0001",
+        "mergeInfo": {
+          "commitHash": "0000000000000000000000000000000000000002",
+          "mergeDate": "2026-01-01T00:00:00.000Z",
+          "mergedBy": "minsky-ai[bot]",
+          "metadata": { "pr_number": 2, "merge_method": "merge" }
+        }
+      }
+    },
+    "expected": { "sessionId": "00000000-0000-4000-8000-000000000002", "taskId": "mt#0001" }
+  }
+}

@@ -865,6 +865,54 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#3125 — root-tier sibling of the guidance-detector family above. Fires
+  // on the BATCH itself (an id-minting call + an id-consuming call in the
+  // same parallel tool-call batch) rather than a downstream symptom surface
+  // (mt#2195's fs path, mt#2197's narrated prose). Calibration-first
+  // (INJECTION_ENABLED=false in the module) — see the module header.
+  // -------------------------------------------------------------------------
+  {
+    name: "constructed-identifier-batch-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./constructed-identifier-batch-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "constructed-identifier-batch",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                name: "mcp__minsky__tasks_create",
+                input: { title: "canary task" },
+              },
+              {
+                type: "tool_use",
+                name: "mcp__minsky__session_commit",
+                input: { message: "fix(mt#0000): canary commit referencing the minted id" },
+              },
+            ],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      // Calibration-first (INJECTION_ENABLED=false) — same posture as
+      // causal-premise-detector's canary above: assert the calibration
+      // outcome, not additionalContext, so a future INJECTION_ENABLED flip
+      // doesn't silently break this canary (it would simply gain an
+      // ADDITIONAL warn outcome).
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
   // mt#2812 — new guard, not part of any legacy settings.json migration.
   // Reads the guard-health JSONL log (a pure fs read + string compare, no
   // network/git calls) and injects a warning when any guard has reached
@@ -1059,6 +1107,73 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
           },
         },
         { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#2708 — knowledge-acquisition detector (mt#2707 RFC's B proactive-
+  // trigger half of the learn-capture primitive). New guard, not part of any
+  // legacy settings.json migration. Fires on in-task research relevant to a
+  // loaded skill with no propagation (memory_create / /learn / tasks_create)
+  // in a trailing window of turns. Needs transcriptLines (D6) to scan the
+  // WHOLE session (loaded skills + research occurrences), not just the last
+  // turn — mirrors build-claim-injection-detector.ts's widening.
+  // -------------------------------------------------------------------------
+  {
+    name: "knowledge-acquisition-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./knowledge-acquisition-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "knowledge-acquisition",
+    denyCapable: false,
+    needsTranscript: true,
+    // mt#2708: INJECTION_ENABLED=false — calibration-first, same rationale as
+    // causal-premise-detector/build-claim-injection-detector above; canary
+    // asserts calibration, not warn.
+    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    canary: {
+      // input.cwd defaults to the canary runner's real process.cwd() (a real
+      // repo checkout, per baseCanaryInput) — readSkillDescription resolves
+      // the REAL `.claude/skills/engineering-writing/SKILL.md` frontmatter,
+      // so the canary exercises the rung-2-lite keyword-overlap gate against
+      // real skill data, not a synthetic stand-in. `session_id` is a
+      // canary-only literal, distinct from any real conversation id, so the
+      // dedupe read in `loadAlreadyLoggedDedupeKeys` can never match a
+      // genuine prior record and silently suppress this canary forever.
+      input: { session_id: "mt2708-canary-session", transcript_path: "mt2708-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", name: "Skill", input: { skill: "engineering-writing" } }],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                name: "WebSearch",
+                input: { query: "argumentative prose AI writing tells overused phrases" },
+              },
+            ],
+          },
+        },
+        // TRAILING_WINDOW_TURNS (5) filler turns so the grace period has elapsed.
+        ...Array.from({ length: 5 }, (_, i) => [
+          { type: "user", message: { role: "user", content: `filler turn ${i}` } },
+          {
+            type: "assistant",
+            message: { role: "assistant", content: [{ type: "text", text: "continuing" }] },
+          },
+        ]).flat(),
+        { type: "user", message: { role: "user", content: "current turn" } },
       ],
       expects: "calibration",
     },

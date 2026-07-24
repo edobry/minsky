@@ -100,6 +100,32 @@ export function convertParametersToZodSchema(
 
 /**
  * Convert MCP args to the format expected by shared commands
+ *
+ * mt#2705: the omitted-value branch consults the parameter's Zod schema
+ * FIRST via `schema.safeParse(undefined)`, so a schema-embedded
+ * `.default(...)` is authoritative. Previously only the sibling
+ * `defaultValue` field (below) was ever consulted here, silently leaving a
+ * `.default(...)`-only parameter `undefined` at runtime — see
+ * `normalizeCliParameters` in `parameter-mapper.ts` for the CLI-side mirror
+ * of the same gap.
+ *
+ * This also closes the MCP-only "required is unenforced" gap (mt#3144): the
+ * MCP dispatch pipeline never runs `.parse()`/`.safeParse()` against incoming
+ * tool-call args anywhere else. `src/mcp/server.ts`'s CallTool handler passes
+ * `request.params.arguments` straight to `tool.handler(...)` with no schema
+ * validation (server.ts:1032-1150), and `src/mcp/command-mapper.ts`'s
+ * `enforceDeclaredParams` (mt#2778) checks only the KEY SET, not values —
+ * its own comment says so explicitly: "Value/type/required/default
+ * enforcement is deliberately out of scope here (mt#2705 / mt#1638 own that
+ * trajectory)" (command-mapper.ts:111-112). So a `required: true` parameter
+ * previously reached `execute()` as `undefined` when omitted and crashed on
+ * first dereference with an unhelpful raw error (the memory.create
+ * incident: `content: z.string()`, `required: true`, no defensive guard,
+ * threw `undefined is not an object (evaluating '$.trimStart')`). The
+ * `paramDef.required` check below rejects it here instead, naming the field
+ * — mirroring the CLI path's pre-existing, unchanged
+ * `Required parameter '<name>' is missing` behavior
+ * (`normalizeCliParameters`, parameter-mapper.ts:311).
  */
 function convertMcpArgsToParameters(
   args: Record<string, unknown>,
@@ -113,11 +139,37 @@ function convertMcpArgsToParameters(
     if (value !== undefined) {
       // Use the value as-is since it should already be validated by MCP
       result[key] = value;
-    } else if (paramDef.defaultValue !== undefined) {
-      // Use default value
-      result[key] = paramDef.defaultValue;
+      continue;
     }
-    // For required parameters, rely on Zod validation to catch missing values
+
+    // Omitted value: try to materialize a Zod-level default first.
+    const schema = paramDef.schema as z.ZodTypeAny | undefined;
+    const parsed =
+      typeof schema?.safeParse === "function" ? schema.safeParse(undefined) : undefined;
+
+    if (parsed?.success && parsed.data !== undefined) {
+      // Zod-level `.default(...)` materialized from `undefined`.
+      result[key] = parsed.data;
+      continue;
+    }
+
+    if (paramDef.defaultValue !== undefined) {
+      // Sibling `defaultValue` field (legacy convention, or a schema with no
+      // Zod-level default). Applied regardless of `required` to preserve
+      // pre-mt#2705 behavior for that (unusual) combination.
+      result[key] = paramDef.defaultValue;
+      continue;
+    }
+
+    if (paramDef.required) {
+      const issues =
+        parsed && !parsed.success
+          ? parsed.error.issues.map((i) => i.message).join("; ")
+          : undefined;
+      throw new Error(`Required parameter '${key}' is missing${issues ? `: ${issues}` : ""}`);
+    }
+    // Genuinely optional, no default of any kind — leave omitted so the
+    // handler sees `undefined`, matching prior behavior.
   }
 
   return result;

@@ -1,0 +1,176 @@
+#!/usr/bin/env bun
+// PostToolUse hook — record which CONVERSATION created a workspace session (mt#3120).
+//
+// `minsky_session_links` had writers for the daemon-launched case (`driven_spawn`,
+// mt#2752) and the PR-authoring case (`pr_author`, mt#3101), but none for the
+// ordinary `session_start` case — the dominant creation path by far. Measured
+// 2026-07-23: 2 of 230 workspace sessions have ANY link row.
+//
+// This hook supplies the missing writer. It is the only place that sees both ids
+// at once: the harness hands it the conversation id as `input.session_id`, and
+// the `session_start` result payload carries the minted workspace id.
+//
+// Fires at SESSION-START time, immediately, with no dependency on transcript
+// ingest cadence — the link exists before the creating conversation's own
+// transcript is next ingested.
+//
+// Best-effort and silent on success: it must never disturb session creation
+// (which has, by construction, already returned successfully by the time
+// PostToolUse fires). Every failure path writes a DISTINGUISHABLE reason to
+// stderr rather than exiting quietly.
+//
+// @see mt#3120 — this hook
+// @see mt#3101 — stamp-pr-author-link.ts, the sibling this file mirrors file-for-file
+// @see packages/domain/src/transcripts/session-creator-link-writer.ts — the write it performs
+
+import { readInput } from "./types";
+import type { ToolHookInput } from "./types";
+// mt#3046: STATIC — installs the tsyringe reflect polyfill before any domain
+// module loads. The dynamic persistence import below needs it, and a dynamic
+// import cannot install it retroactively.
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+
+const COVERED_TOOL_NAME = "mcp__minsky__session_start";
+const LOG_PREFIX = "[stamp-session-creator-link]";
+
+/**
+ * Overall budget for the DB work, well inside the hook's own timeout.
+ *
+ * Mirrors `stamp-pr-author-link.ts`'s deadline: `ensureHookDomainBootstrap`
+ * caps the CONNECT phase at 2s (mt#2982), but nothing bounds the two inserts
+ * afterwards. This deadline covers the whole path so a hung query cannot hold
+ * PostToolUse open.
+ */
+const DB_DEADLINE_MS = 8000;
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+/**
+ * Pull the minted Minsky workspace session id out of the `session_start`
+ * payload.
+ *
+ * The tool accepts an OPTIONAL caller-supplied `sessionId`; when absent, the
+ * id is minted internally and only exists on the RESULT. Priority order
+ * mirrors `stamp-pr-author-link.ts`'s `resolveWorkspaceSessionId` exactly —
+ * an explicit caller-supplied id is authoritative when present, and the
+ * successful result's echoed `session.sessionId` covers every other case
+ * (including the common one: no `sessionId` param at all).
+ *
+ * Exported for tests.
+ */
+export function resolveWorkspaceSessionId(input: ToolHookInput): string | null {
+  const params = input.tool_input ?? {};
+  const result = input.tool_result ?? {};
+
+  if (typeof params["sessionId"] === "string" && params["sessionId"]) {
+    return params["sessionId"];
+  }
+  if (typeof params["session"] === "string" && params["session"]) {
+    return params["session"];
+  }
+  if (isObject(result["session"]) && typeof result["session"]["sessionId"] === "string") {
+    return result["session"]["sessionId"] || null;
+  }
+  if (typeof result["sessionId"] === "string" && result["sessionId"]) {
+    return result["sessionId"];
+  }
+  return null;
+}
+
+/**
+ * The harness conversation id — the id the transcript is stored under.
+ *
+ * Exported for tests. The `as ConversationId` at the call site is a brand mint
+ * at the harness boundary (the documented `ids.ts` "re-mint on inbound parse"
+ * case), not a cross-space cast.
+ */
+export function resolveConversationId(input: ToolHookInput): string | null {
+  const raw = input.session_id;
+  return typeof raw === "string" && raw.length > 0 ? raw : null;
+}
+
+if (import.meta.main) {
+  const input = await readInput<ToolHookInput>();
+
+  if (input.tool_name !== COVERED_TOOL_NAME) {
+    process.exit(0);
+  }
+
+  const conversationId = resolveConversationId(input);
+  const workspaceSessionId = resolveWorkspaceSessionId(input);
+
+  if (!conversationId || !workspaceSessionId) {
+    process.stderr.write(
+      `${LOG_PREFIX} skipped: ${
+        !conversationId
+          ? "hook input carried no session_id (harness conversation id)"
+          : "could not resolve a minted workspace session id from the session_start result"
+      } — no link recorded\n`
+    );
+    process.exit(0);
+  }
+
+  try {
+    const bootstrap = await ensureHookDomainBootstrap();
+    if (!bootstrap.ok) {
+      process.stderr.write(
+        `${LOG_PREFIX} warn: domain bootstrap failed: ${bootstrap.error} — no link recorded\n`
+      );
+      process.exit(0);
+    }
+
+    const { resolvePersistenceProvider } = await import(
+      "../../packages/domain/src/persistence/factory"
+    );
+    const { writeSessionCreatorLink } = await import(
+      "../../packages/domain/src/transcripts/session-creator-link-writer"
+    );
+
+    const provider = await resolvePersistenceProvider();
+    if (!provider || !("getDatabaseConnection" in provider)) {
+      process.stderr.write(`${LOG_PREFIX} warn: no SQL-capable persistence provider\n`);
+      process.exit(0);
+    }
+
+    const db = await (
+      provider as { getDatabaseConnection(): Promise<unknown> }
+    ).getDatabaseConnection();
+    if (!db) {
+      process.stderr.write(`${LOG_PREFIX} warn: persistence provider returned no connection\n`);
+      process.exit(0);
+    }
+
+    const outcome = await Promise.race([
+      writeSessionCreatorLink(db as import("drizzle-orm/postgres-js").PostgresJsDatabase, {
+        conversationId: conversationId as import("../../packages/domain/src/ids").ConversationId,
+        workspaceSessionId,
+        cwd: input.cwd,
+      }),
+      new Promise<"deadline">((resolve) => {
+        setTimeout(() => resolve("deadline"), DB_DEADLINE_MS).unref?.();
+      }),
+    ]);
+
+    if (outcome === "deadline") {
+      process.stderr.write(
+        `${LOG_PREFIX} warn: link write exceeded ${DB_DEADLINE_MS}ms for conversation ${conversationId} / workspace ${workspaceSessionId} — abandoning so session creation is not held up\n`
+      );
+    } else if (outcome === "error") {
+      process.stderr.write(
+        `${LOG_PREFIX} warn: link write failed for conversation ${conversationId} / workspace ${workspaceSessionId}\n`
+      );
+    }
+  } catch (err) {
+    // Surfaced, not swallowed: a bare `catch {}` here is the mechanism that hid
+    // mt#3046's defect for the life of that hook.
+    process.stderr.write(
+      `${LOG_PREFIX} warn: link stamping failed for workspace ${workspaceSessionId}: ${
+        err instanceof Error ? err.message : String(err)
+      }\n`
+    );
+  }
+
+  process.exit(0);
+}

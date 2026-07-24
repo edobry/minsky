@@ -11,9 +11,15 @@
 // DB and was only locatable by grepping the raw JSONL on disk.
 //
 // This hook fires on SessionEnd and runs `minsky transcripts ingest
-// --session=<id>` synchronously. Ingest is HWM-gated and incremental, so it is a
-// cheap no-op for an already-ingested session and an incremental top-up
-// otherwise. FTS search (`transcripts_search-text`) works immediately after
+// --session=<id> --ended` synchronously. Ingest is HWM-gated and incremental, so
+// it is a cheap no-op for an already-ingested session and an incremental top-up
+// otherwise. `--ended` (mt#3131, D2) is the ONE call site with genuine positive
+// evidence the conversation has terminated — the harness's own SessionEnd
+// lifecycle event — so this is the only ingest caller that should ever cause
+// `agent_transcripts.ended_at` to be set; every other ingest path (this hook's
+// siblings: the boot sweep, the cockpit watcher, the cadence sweep) must leave
+// it alone. See `AgentTranscriptIngestService.ingestSession`'s `sessionEnded`
+// doc comment for the full rationale. FTS search (`transcripts_search-text`) works immediately after
 // ingest and needs no external API — which is exactly the surface the originating
 // incident needed (the session was ultimately found by text grep). Semantic
 // search (`transcripts_search`) additionally needs embeddings; that is a heavier,
@@ -144,7 +150,14 @@ export function runTranscriptIngestOnSessionEnd(
   let ingest: CommandResult;
   try {
     ingest = deps.runCommand(
-      [deps.minskyBin, "transcripts", "ingest", `--session=${sessionId}`, "--harness=claude_code"],
+      [
+        deps.minskyBin,
+        "transcripts",
+        "ingest",
+        `--session=${sessionId}`,
+        "--harness=claude_code",
+        "--ended",
+      ],
       { timeoutMs: INGEST_TIMEOUT_MS }
     );
   } catch (err) {
