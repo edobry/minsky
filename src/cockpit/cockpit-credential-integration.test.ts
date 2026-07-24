@@ -160,12 +160,21 @@ describe("Credential schema integration", () => {
     });
   }
 
-  // quarantined: pre-existing failure, tracked in mt#2664 (ConfigWriter /
-  // Zod strictObject schema gap -- see docs/testing-patterns.md mt#2662
-  // entry for the original discovery). Unmasked by mt#2665's CI-truncation
-  // fix, not caused by it; unrelated to this PR's scope.
-  // eslint-disable-next-line custom/no-skipped-tests -- genuine quarantine of a pre-existing failure (mt#2664), not a placeholder; see comment above.
-  test.skip("unknown top-level key is rejected by strictObject schema", async () => {
+  // mt#2664: this test's original premise ("unknown top-level key is rejected
+  // by strictObject schema") is stale. mt#2161 deliberately replaced the root
+  // `configurationSchema`'s top-level shape from `z.strictObject` to
+  // `z.object` -- see packages/domain/src/configuration/schemas/index.ts's
+  // "Strictness policy (mt#2161, replaces mt#1612)" docstring -- so that an
+  // unrecognized top-level key is warn-and-continue (stripped, with a
+  // loader-level warning) rather than a hard validation failure. That change
+  // shipped in commit 5860fbc4c ("fix(mt#2161): warn-and-continue on unknown
+  // top-level config keys"), landing AFTER this test was authored in mt#2146
+  // (commit f23fa0b6f, whose own message still describes "the real Zod
+  // strictObject schema"). Live-verified on this schema
+  // (`configurationSchema.safeParse`): an unrecognized top-level key no
+  // longer produces `success: false` -- it parses successfully. Updated to
+  // assert the current, intentional behavior instead of quarantining.
+  test("unknown top-level key is accepted (warn-and-continue), not rejected -- mt#2161", async () => {
     const tempDir = makeTempConfigDir();
     try {
       const writer = createConfigWriter({
@@ -175,8 +184,8 @@ describe("Credential schema integration", () => {
         createBackup: false,
       });
       const result = await writer.setConfigValue("bogusTopLevel.key", "value");
-      expect(result.success).toBe(false);
-      expect(result.error).toBeDefined();
+      expect(result.success).toBe(true);
+      expect(result.error).toBeUndefined();
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
