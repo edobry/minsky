@@ -173,7 +173,13 @@ export function composeResolvePayload(
     // with no record of WHICH option the operator picked. `askOptionSchema`
     // now normalizes this at create time; the fallback covers Asks created
     // before that fix, which are still in the store.
-    const optionValue = option?.value ?? option?.label ?? "";
+    // Strict `=== undefined` check (not `??`): `??` also treats an explicitly
+    // provided `null` as nullish, which would silently discard a legitimate
+    // falsy-but-present machine value (PR #2266 R1 BLOCKING #2). `option`
+    // itself can be `undefined` when `optionLetter` is out of range — that
+    // case still falls back to `""`.
+    const optionValue =
+      option === undefined ? "" : option.value === undefined ? option.label : option.value;
     payloadValue = { option: String(optionValue), chosen: String(optionValue) };
   } else {
     payloadValue = { approved: optionLetter === "A" };

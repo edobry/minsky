@@ -735,7 +735,10 @@ async function serviceWindowImpl(
       // always carry a value — but Asks created BEFORE that fix are still in
       // the store, and `String(undefined)` would record the literal string
       // "undefined" as the operator's choice rather than an identifiable one.
-      const optionValue = option.value ?? option.label;
+      // Strict `=== undefined` check (not `??`): `??` also treats an explicitly
+      // provided `null` as nullish, which would silently discard a legitimate
+      // falsy-but-present machine value (PR #2266 R1 BLOCKING #1).
+      const optionValue = option.value === undefined ? option.label : option.value;
       payloadValue = { option: String(optionValue), chosen: String(optionValue) };
     } else {
       // Approve/review kinds expose exactly two synthetic options: A=approve, B=deny/changes.
