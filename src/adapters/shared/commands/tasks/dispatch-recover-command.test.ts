@@ -23,6 +23,7 @@ import {
   createTasksDispatchRecoverCommand,
   promptTypeForRecovery,
   buildTrackerUnavailableResponse,
+  isLivePrState,
 } from "./dispatch-recover-command";
 import type {
   DispatchRecoveryGitOps,
@@ -636,6 +637,15 @@ describe("tasks.dispatch-recover", () => {
       expect(escalation.message).toContain("NOT confirmed death");
       expect(escalation.message).toContain(DO_NOT_REDISPATCH_WARNING);
       expect(escalation.message).toContain("#2244");
+
+      // mt#3149 R1 BLOCKING: the correction must be PERSISTED to the DB row too,
+      // not only reflected in the response payload above — and the row must stay
+      // OPEN (no endedAt) since the dispatch has not actually stopped.
+      const persistedCorrection = tracker.recordedInvocationCalls.find(
+        (call) => call.id === resumed.id
+      );
+      expect(persistedCorrection?.outcome).toBe("committed-no-pr");
+      expect(persistedCorrection?.endedAt).toBeUndefined();
     });
 
     test("dispatch has commits ahead of base (no PR yet) -> escalate reports committed-no-pr for the latest attempt, warns against redispatch (mt#3149 AT2)", async () => {
@@ -683,6 +693,10 @@ describe("tasks.dispatch-recover", () => {
       expect(escalation.hasLivenessEvidence).toBe(false);
       expect(escalation.message).toContain("2-attempt bound");
       expect(escalation.message).not.toContain(DO_NOT_REDISPATCH_WARNING);
+
+      // No correction write is needed (or made) when the fresh classification
+      // matches the already-stored outcome — avoid a no-op DB write.
+      expect(tracker.recordedInvocationCalls).toHaveLength(0);
     });
 
     test("older (already-closed) attempts in the chain keep their stored outcome — only the latest open row is re-probed", async () => {
@@ -900,5 +914,35 @@ describe("promptTypeForRecovery", () => {
 
   test("unmapped/legacy agent type (e.g. general-purpose) falls back to implementation", () => {
     expect(promptTypeForRecovery("general-purpose", agentTypeToPromptType)).toBe("implementation");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isLivePrState (mt#3149)
+// ---------------------------------------------------------------------------
+
+describe("isLivePrState", () => {
+  test("open -> live", () => {
+    expect(isLivePrState("open")).toBe(true);
+  });
+
+  test("draft -> live (a draft PR still required a push to create)", () => {
+    expect(isLivePrState("draft")).toBe(true);
+  });
+
+  test("closed -> not live", () => {
+    expect(isLivePrState("closed")).toBe(false);
+  });
+
+  test("merged -> not live (the dispatch's task would have gone DONE already, but defensively not live)", () => {
+    expect(isLivePrState("merged")).toBe(false);
+  });
+
+  test("null -> not live (no PR at all)", () => {
+    expect(isLivePrState(null)).toBe(false);
+  });
+
+  test("undefined -> not live", () => {
+    expect(isLivePrState(undefined)).toBe(false);
   });
 });

@@ -222,6 +222,13 @@ export interface DispatchRecoveryClassificationInput {
    * determine PR state should pass `false` — this is the conservative
    * default that preserves the pre-mt#3149 behavior for the case where no
    * PR information is available.
+   *
+   * Safe to add as a REQUIRED field (not optional): this module's sole
+   * consumer is `dispatch-recover-command.ts` (grep-verified 2026-07-24, the
+   * mt#3149 spec's gate-h consumer enumeration) — no other production or
+   * test code constructs a `DispatchRecoveryClassificationInput` literal
+   * outside this module's own test file, so there is no unseen call site
+   * that a required field could silently break.
    */
   hasOpenPr: boolean;
 }

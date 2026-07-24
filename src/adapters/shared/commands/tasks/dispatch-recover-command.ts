@@ -765,6 +765,45 @@ export function createTasksDispatchRecoverCommand(
           outcome: row.id === latest.id ? classification : (row.outcome ?? null),
         }));
 
+        // mt#3149 R1 BLOCKING: persist the corrected classification onto the LATEST
+        // (still-open) row too — not just the response payload above. Without this,
+        // `subagent_invocations.outcome` for this row keeps reading the stale
+        // pessimistic-default value until the eventual SubagentStop overwrites it,
+        // so downstream consumers (debug.systemInfo's `subagentDispatches` aggregates,
+        // `SubagentDispatchTracker.getEscalation()`'s cadence thresholds) would keep
+        // seeing a false `crashed-no-output`/`partial-uncommitted-no-handoff` in the
+        // meantime — the exact "falsely-confident derived field" pathology this task
+        // exists to fix, just relocated from the response to the DB. Deliberately
+        // OMITS `endedAt` (the row stays open — this dispatch has not actually
+        // stopped, only gone quiet) so the eventual SubagentStop can still close it
+        // out normally; `recordSubagentInvocation`'s UPDATE path leaves a column
+        // untouched when the input omits it (see `_buildUpdateFields`). Best-effort:
+        // a persistence failure here must not break the escalation response itself.
+        if (classification !== latest.outcome) {
+          try {
+            await tracker.recordSubagentInvocation({
+              id: latest.id,
+              taskId,
+              subagentSessionId,
+              agentType: latest.agentType,
+              suggestedModel: latest.suggestedModel,
+              startedAt: latest.startedAt,
+              outcome: classification,
+              summary:
+                `Corrected from stale outcome '${latest.outcome}' to '${classification}' by a ` +
+                `live re-probe at 2-attempt-bound escalation (mt#3149) — row left open ` +
+                `(not ended) pending the eventual SubagentStop.`,
+            });
+          } catch (err) {
+            log.warn("[tasks.dispatch-recover] Failed to persist corrected escalation outcome", {
+              taskId,
+              invocationId: latest.id,
+              classification,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
         // mt#3149 SC4: distinguish "we observed it die" (this command never has a
         // process-level signal — only workspace/PR proxies, so that phrase is never
         // accurate) from "we saw no activity in the window," and do not recommend
