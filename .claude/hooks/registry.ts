@@ -1112,6 +1112,73 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#2708 — knowledge-acquisition detector (mt#2707 RFC's B proactive-
+  // trigger half of the learn-capture primitive). New guard, not part of any
+  // legacy settings.json migration. Fires on in-task research relevant to a
+  // loaded skill with no propagation (memory_create / /learn / tasks_create)
+  // in a trailing window of turns. Needs transcriptLines (D6) to scan the
+  // WHOLE session (loaded skills + research occurrences), not just the last
+  // turn — mirrors build-claim-injection-detector.ts's widening.
+  // -------------------------------------------------------------------------
+  {
+    name: "knowledge-acquisition-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./knowledge-acquisition-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "knowledge-acquisition",
+    denyCapable: false,
+    needsTranscript: true,
+    // mt#2708: INJECTION_ENABLED=false — calibration-first, same rationale as
+    // causal-premise-detector/build-claim-injection-detector above; canary
+    // asserts calibration, not warn.
+    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    canary: {
+      // input.cwd defaults to the canary runner's real process.cwd() (a real
+      // repo checkout, per baseCanaryInput) — readSkillDescription resolves
+      // the REAL `.claude/skills/engineering-writing/SKILL.md` frontmatter,
+      // so the canary exercises the rung-2-lite keyword-overlap gate against
+      // real skill data, not a synthetic stand-in. `session_id` is a
+      // canary-only literal, distinct from any real conversation id, so the
+      // dedupe read in `loadAlreadyLoggedDedupeKeys` can never match a
+      // genuine prior record and silently suppress this canary forever.
+      input: { session_id: "mt2708-canary-session", transcript_path: "mt2708-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", name: "Skill", input: { skill: "engineering-writing" } }],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                name: "WebSearch",
+                input: { query: "argumentative prose AI writing tells overused phrases" },
+              },
+            ],
+          },
+        },
+        // TRAILING_WINDOW_TURNS (5) filler turns so the grace period has elapsed.
+        ...Array.from({ length: 5 }, (_, i) => [
+          { type: "user", message: { role: "user", content: `filler turn ${i}` } },
+          {
+            type: "assistant",
+            message: { role: "assistant", content: [{ type: "text", text: "continuing" }] },
+          },
+        ]).flat(),
+        { type: "user", message: { role: "user", content: "current turn" } },
+      ],
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
   // Stop event (mt#2357) — the framework's FIRST Stop-event guard. Runs via
   // the new `dispatch-stop.ts` entrypoint. Placed BEFORE the
   // calibration-review-cadence-detector entry to preserve that entry's

@@ -74,6 +74,11 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       // build/deploy-claim seam detector; same new-guard-appended-after-
       // legacy-order rationale as its calibration-first siblings above.
       "build-claim-injection-detector",
+      // mt#2708 — knowledge-acquisition-detector, the mt#2707-RFC (B)
+      // proactive-trigger half of the learn-capture primitive; same
+      // new-guard-appended-after-legacy-order rationale as its
+      // calibration-first siblings above.
+      "knowledge-acquisition-detector",
       // calibration-review-cadence-detector is relocated to stay the true
       // LAST entry across the mt#2812 x mt#2824 merge (2026-07-16) — see
       // registry.ts's comment on this registration.

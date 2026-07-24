@@ -64,6 +64,13 @@ export interface CalibrationLogEntry {
    *   the matched usability/delivery claim phrase(s), same shape family as
    *   causal-premise. `deploySurfaceFiles: string[]` is carried as extra
    *   context (not consulted by diversity/threshold logic).
+   * "knowledge-acquisition"    → record.loadedSkills: string[] (mt#2708) —
+   *   a per-fire record of in-task research relevant to a loaded skill with
+   *   no propagation in the trailing window. NOT a matched-phrase record:
+   *   diversity is measured over distinct `loadedSkills` values (declared per
+   *   the mt#2708 spec's Graduation contract — a tool-use-pattern detector
+   *   has no natural "phrase," and distinct loaded-skill names are more
+   *   semantically meaningful than tool names for this detector).
    * "constructed-identifier-batch" → record.matches: {category, phrase, ...}[]
    *   (mt#3125) — same matches-shape family as retrospective-trigger /
    *   ask-routing-deferral / pre-narration (parsed by the shared fallback
@@ -82,6 +89,7 @@ export interface CalibrationLogEntry {
     | "silent-stretch"
     | "wall-of-text"
     | "build-claim-injection"
+    | "knowledge-acquisition"
     | "constructed-identifier-batch";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
@@ -199,7 +207,15 @@ export function findInvalidLiveSinceDates(
  *     shape family as causal-premise). Declares `reviewByDays: 30` (the
  *     mt#2896 never-reviewed-aging leg) as its graduation contract.
  *
- * V6 entry (mt#3125):
+ * V6 entry (mt#2708):
+ *   - knowledge-acquisition-calibration.jsonl (mt#2708 detector, the
+ *     mt#2707-RFC (B) proactive-trigger half of the learn-capture primitive)
+ *     — NOT a matched-phrase log; diversity is measured over distinct
+ *     `loadedSkills` values. Declares `reviewByDays: 14` (deliberately
+ *     tighter than mt#2923's 30 — research-tool calls are routine, so the
+ *     count/diversity leg should bind first; the time leg is a backstop, not
+ *     the primary trigger, per the mt#2708 spec's Graduation contract).
+ * V7 entry (mt#3125):
  *   - constructed-identifier-batch-calibration.jsonl (mt#3125 detector) —
  *     the root-tier sibling of pre-narration/mt#2195's family: fires on the
  *     BATCH itself (an id-minting call + an id-consuming call in one
@@ -274,6 +290,28 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // `findInvalidLiveSinceDates` (above) only catches unparseable/future
     // dates, not a stale-but-still-past one, so the citation convention is
     // the enforcement for that residual case.
+    liveSinceDate: "2026-07-23",
+  },
+  {
+    path: ".minsky/knowledge-acquisition-calibration.jsonl",
+    name: "knowledge-acquisition",
+    kind: "knowledge-acquisition",
+    // mt#2708 graduation contract: dispose within 14 days — deliberately
+    // NOT mt#2923's 30. Research-tool calls are routine (unlike mt#2923's
+    // rare compound merge+claim trigger), so the count/diversity leg should
+    // bind first; the time leg here is a backstop, grounded in the existing
+    // STALE_DAYS_MS re-warn bar (10 days) plus operational slack for
+    // /calibration-review to actually run.
+    reviewByDays: 14,
+    // mt#2708: re-anchored to the date the detector's full invocation path —
+    // dispatcher -> registry -> run() -> transcript parse -> detection ->
+    // calibration write — was PROVEN alive via a live synthetic
+    // positive/negative-control test (mt#3078 re-anchoring precedent).
+    //
+    // Evidence artifact (mt#3078 precedent — cite the permanent record, not
+    // just this comment): this task's (mt#2708) PR body's "Testing" section
+    // carries the actual positive-control (writes a record) / negative-
+    // control (writes nothing) transcript this date is derived from.
     liveSinceDate: "2026-07-23",
   },
   {
@@ -475,6 +513,26 @@ export interface BuildClaimInjectionRecord {
   deploySurfaceFiles: string[];
 }
 
+/**
+ * Parsed knowledge-acquisition calibration record (mt#2708).
+ *
+ * NOT a matched-phrase record — a per-fire record of in-task research
+ * relevant to a loaded skill with no propagation in the trailing window.
+ * `loadedSkills` is the diversity axis (see `extractDistinctPhrases` below).
+ * Mirrors the exact fields `.minsky/hooks/knowledge-acquisition-detector.ts`
+ * appends (`detectionRung`/`researchTools`/`loadedSkills`/`hadPropagation`
+ * are the spec-required fields; `matchedSkill`/`matchedKeyword`/`dedupeKey`
+ * are additional bookkeeping fields the parser ignores).
+ */
+export interface KnowledgeAcquisitionRecord {
+  timestamp: string;
+  session_id?: string;
+  detectionRung: string;
+  researchTools: string[];
+  loadedSkills: string[];
+  hadPropagation: boolean;
+}
+
 /** Union of all record types. */
 export type CalibrationRecord =
   | CausalPremiseRecord
@@ -483,7 +541,8 @@ export type CalibrationRecord =
   | PolicyCoverageRecord
   | SilentStretchRecord
   | WallOfTextRecord
-  | BuildClaimInjectionRecord;
+  | BuildClaimInjectionRecord
+  | KnowledgeAcquisitionRecord;
 
 // ---------------------------------------------------------------------------
 // Per-log result
@@ -660,6 +719,25 @@ export function parseCalibrationRecord(
       } satisfies WallOfTextRecord;
     }
 
+    if (kind === "knowledge-acquisition") {
+      // Shape: { timestamp, session_id?, detectionRung, researchTools: string[],
+      //          loadedSkills: string[], hadPropagation: boolean, ... }
+      // Mirrors the exact record `.minsky/hooks/knowledge-acquisition-detector.ts`
+      // appends (mt#2708). Not a matched-phrase record — `loadedSkills` is the
+      // diversity axis (see extractDistinctPhrases).
+      if (!Array.isArray(raw["loadedSkills"])) return null;
+      return {
+        timestamp: String(raw["timestamp"] ?? ""),
+        session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
+        detectionRung: String(raw["detectionRung"] ?? ""),
+        researchTools: Array.isArray(raw["researchTools"])
+          ? (raw["researchTools"] as unknown[]).map(String)
+          : [],
+        loadedSkills: (raw["loadedSkills"] as unknown[]).map(String),
+        hadPropagation: Boolean(raw["hadPropagation"]),
+      } satisfies KnowledgeAcquisitionRecord;
+    }
+
     // retrospective-trigger, ask-routing-deferral (mt#2498), OR pre-narration
     // (mt#2197) — same matches-shape family. retrospective-trigger labels each
     // match with `family`; ask-routing-deferral labels it with `class`;
@@ -750,6 +828,16 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
       // silent-stretch; the fallback label's VALUE is the shared generic
       // "unknown-session" string.
       phrases.add(rec.session_id ?? UNKNOWN_SILENT_STRETCH_SESSION_LABEL);
+    } else if ("loadedSkills" in rec) {
+      // knowledge-acquisition (mt#2708): diversity axis = distinct loaded-
+      // skill names, not matched phrases or a session/conversation id —
+      // declared per the spec's Graduation contract. Without this axis the
+      // log could sit `lowDiversity` forever (the mt#2896
+      // under-threshold-forever trap, reopened here on the diversity axis
+      // rather than the count axis mt#2896 originally closed).
+      for (const skill of rec.loadedSkills) {
+        phrases.add(skill);
+      }
     } else {
       for (const m of rec.matches) {
         phrases.add(m.phrase);
@@ -1204,6 +1292,7 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "silent-stretch": "silent-stretch-detector",
   "wall-of-text": "wall-of-text-detector",
   "build-claim-injection": "build-claim-injection-detector",
+  "knowledge-acquisition": "knowledge-acquisition-detector",
   "constructed-identifier-batch": "constructed-identifier-batch-detector",
 };
 
