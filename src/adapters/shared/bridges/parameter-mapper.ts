@@ -299,6 +299,20 @@ export function normalizeCliParameters(
 
     // Handle undefined values
     if (rawValue === undefined) {
+      // mt#2705: consult the Zod schema FIRST via `safeParse(undefined)` so a
+      // schema-embedded `.default(...)` is authoritative — mirrors the MCP
+      // fix in `convertMcpArgsToParameters` (shared-command-integration.ts).
+      // Previously only the sibling `defaultValue` field below was ever
+      // consulted here, silently leaving a `.default(...)`-only parameter
+      // `undefined` on the CLI path too.
+      const schema = paramDef.schema as z.ZodTypeAny | undefined;
+      const parsed =
+        typeof schema?.safeParse === "function" ? schema.safeParse(undefined) : undefined;
+      if (parsed?.success && parsed.data !== undefined) {
+        result[paramName] = parsed.data;
+        continue;
+      }
+
       // Use default value if available
       if (paramDef.defaultValue !== undefined) {
         result[paramName] = paramDef.defaultValue;
@@ -308,6 +322,8 @@ export function normalizeCliParameters(
         continue;
       }
       // Error for required parameters without default
+      // (mt#2705: unchanged — this path already worked correctly; the CLI
+      // path enforces `required` here, unlike the MCP path before this fix.)
       throw new Error(`Required parameter '${paramName}' is missing`);
     } else {
       // Record/object params have no scalar CLI representation: a `--flag
