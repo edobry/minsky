@@ -52,6 +52,29 @@ import { log } from "@minsky/shared/logger";
  */
 export const DISPATCH_WATCHDOG_STALE_MS = 30 * 60 * 1000;
 
+/**
+ * Age bound (mt#3062) on the in-flight query/flag surface: a row whose
+ * dispatch `startedAt` is older than this cannot be flagged as a stalled
+ * in-flight dispatch, regardless of its computed staleness. This closes the
+ * gap the mt#3019 writer fix didn't: a row whose Stop event genuinely never
+ * fires (process kill, machine sleep, harness crash) stays `ended_at IS
+ * NULL` forever, and if its task is later reopened/resumed to
+ * IN-PROGRESS/IN-REVIEW it would otherwise re-enter the flag surface and
+ * report a multi-week "stall" for a dispatch that concluded (one way or
+ * another) long ago.
+ *
+ * Grounded per `decision-defaults.mdc §Thresholds` rather than picked as a
+ * round number: the longest legitimate dispatch duration observed as of
+ * 2026-07-24 is ~108 minutes (mt#3125); the watchdog's own stale window
+ * (`DISPATCH_WATCHDOG_STALE_MS`) is 30 minutes. 24h sits nearly 13x above
+ * the longest observed legitimate run — a wide safety margin against
+ * measurement noise or an unusually long future dispatch — and matches the
+ * burst-detection window used elsewhere in the corpus
+ * (`decision-defaults.mdc §Thresholds`), rather than an arbitrary distinct
+ * value.
+ */
+export const DISPATCH_WATCHDOG_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 /** Cache filename under the Minsky state dir (consumer hook duplicates this literal — see its header comment). */
 export const DISPATCH_WATCHDOG_CACHE_FILENAME = "dispatch-watchdog-cache.json";
 
@@ -100,6 +123,19 @@ export interface ActivitySources {
   lastCommitAtMs: (subagentSessionId: string | null) => number | null;
   /** Ms epoch of the last related system_events row (PR events, subagent events, etc.), or null. */
   lastEventAtMs: (taskId: string, subagentSessionId: string | null) => number | null;
+  /**
+   * Whether the subagent's session workspace still exists on disk (mt#3062).
+   * Distinguishes "session gone" (workspace deleted — cleanup after a merge
+   * or completion, or an explicit session_delete; the dispatch has already
+   * concluded even if its Stop hook never wrote `ended_at`) from "session
+   * silent" (workspace still present, but no recent commit — a genuinely
+   * worth-flagging condition). Returns `null` when existence can't be
+   * determined (e.g. no `subagentSessionId` was recorded on the row) —
+   * treated as "unknown", not "gone", so it does NOT suppress the flag.
+   * Optional so existing fakes/tests that predate this check keep compiling;
+   * omitting it is equivalent to always returning `null` (unknown).
+   */
+  sessionExists?: (subagentSessionId: string | null) => boolean | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +152,16 @@ export interface ActivitySources {
  * once `nowMs - startedAt >= staleMs` — dispatch time is always a valid
  * (if pessimistic) baseline.
  *
+ * Two additional guards (mt#3062) run before the staleness computation and
+ * unconditionally suppress a flag regardless of computed staleness:
+ *
+ * 1. **Age bound** — a row whose `startedAt` is older than `maxAgeMs` cannot
+ *    be flagged. Protects a reopened/resumed task from re-arming a
+ *    weeks-old orphan row into a "multi-week stall" report.
+ * 2. **Session existence** — a row whose subagent session workspace is
+ *    confirmed gone (not merely silent) cannot be flagged. The dispatch
+ *    already concluded one way or another; there is nothing left to stall.
+ *
  * Pure and synchronous: no I/O. Unit-testable with an injected clock and
  * fake `ActivitySources`.
  */
@@ -124,7 +170,8 @@ export function computeDispatchWatchdogFlags(
   taskStatuses: Record<string, string | null | undefined>,
   activity: ActivitySources,
   nowMs: number,
-  staleMs: number = DISPATCH_WATCHDOG_STALE_MS
+  staleMs: number = DISPATCH_WATCHDOG_STALE_MS,
+  maxAgeMs: number = DISPATCH_WATCHDOG_MAX_AGE_MS
 ): DispatchWatchdogFlag[] {
   const flags: DispatchWatchdogFlag[] = [];
 
@@ -134,6 +181,16 @@ export function computeDispatchWatchdogFlags(
 
     const startedMs = Date.parse(row.startedAt);
     if (Number.isNaN(startedMs)) continue; // malformed row — skip rather than mis-flag
+
+    // Age bound (mt#3062) — see DISPATCH_WATCHDOG_MAX_AGE_MS for the basis.
+    // >= (not >), matching the staleForMs >= staleMs convention below: a row
+    // exactly at the bound is treated as too old, not as a borderline pass.
+    if (nowMs - startedMs >= maxAgeMs) continue;
+
+    // Session-existence robustness (mt#3062) — a confirmed-gone session
+    // workspace means the dispatch already concluded; only a confirmed
+    // `false` suppresses (null/undefined = unknown, does not suppress).
+    if (activity.sessionExists?.(row.subagentSessionId) === false) continue;
 
     const commitMs = activity.lastCommitAtMs(row.subagentSessionId);
     const eventMs = activity.lastEventAtMs(row.taskId, row.subagentSessionId);
@@ -174,6 +231,12 @@ export interface DispatchWatchdogDeps {
   getLastCommitAtMs: (subagentSessionId: string | null) => Promise<number | null>;
   /** Ms epoch of the last system_events row related to this task/session, or null. */
   getLastEventAtMs: (taskId: string, subagentSessionId: string | null) => Promise<number | null>;
+  /**
+   * Whether the subagent's session workspace still exists on disk (mt#3062).
+   * `null` when existence can't be determined (e.g. no `subagentSessionId`
+   * recorded) — treated as "unknown", never as "gone".
+   */
+  getSessionExists: (subagentSessionId: string | null) => Promise<boolean | null>;
 }
 
 /**
@@ -192,6 +255,7 @@ export async function buildDispatchWatchdogSnapshot(
   const taskStatuses: Record<string, string | null | undefined> = {};
   const commitAt: Record<string, number | null> = {};
   const eventAt: Record<string, number | null> = {};
+  const existsAt: Record<string, boolean | null> = {};
 
   for (const row of rows) {
     if (!(row.taskId in taskStatuses)) {
@@ -200,6 +264,9 @@ export async function buildDispatchWatchdogSnapshot(
     const sidKey = row.subagentSessionId ?? "";
     if (!(sidKey in commitAt)) {
       commitAt[sidKey] = await deps.getLastCommitAtMs(row.subagentSessionId);
+    }
+    if (!(sidKey in existsAt)) {
+      existsAt[sidKey] = await deps.getSessionExists(row.subagentSessionId);
     }
     const evKey = `${row.taskId}::${sidKey}`;
     if (!(evKey in eventAt)) {
@@ -213,6 +280,7 @@ export async function buildDispatchWatchdogSnapshot(
     {
       lastCommitAtMs: (sid) => commitAt[sid ?? ""] ?? null,
       lastEventAtMs: (taskId, sid) => eventAt[`${taskId}::${sid ?? ""}`] ?? null,
+      sessionExists: (sid) => existsAt[sid ?? ""] ?? null,
     },
     nowMs,
     staleMs
@@ -246,6 +314,26 @@ export async function getSessionLastCommitAtMs(
     const epochSeconds = Number.parseInt(output.trim(), 10);
     if (!Number.isFinite(epochSeconds)) return null;
     return epochSeconds * 1000;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve whether a subagent session's on-disk workspace still exists
+ * (mt#3062). Returns `null` (unknown) rather than `false` (confirmed gone)
+ * when there is no `subagentSessionId` to check, or when the existence
+ * check itself throws (e.g. a permission error) — only a definite,
+ * successfully-observed absence should suppress a flag; an inconclusive
+ * check must not be conflated with "gone".
+ */
+export async function getSessionWorkspaceExists(
+  subagentSessionId: string | null
+): Promise<boolean | null> {
+  if (!subagentSessionId) return null;
+  const sessionDir = path.join(getSessionsDir(), subagentSessionId);
+  try {
+    return fs.existsSync(sessionDir);
   } catch {
     return null;
   }
@@ -326,6 +414,7 @@ export async function buildRealDispatchWatchdogDeps(): Promise<DispatchWatchdogD
       }
     },
     getLastCommitAtMs: getSessionLastCommitAtMs,
+    getSessionExists: getSessionWorkspaceExists,
     getLastEventAtMs: async (taskId, subagentSessionId) => {
       const rows = (await sql.unsafe(LAST_EVENT_AT_QUERY, [taskId, subagentSessionId])) as Array<{
         latest_at: string | number | null;
