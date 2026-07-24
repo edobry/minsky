@@ -317,8 +317,37 @@ export default [
             // Migration command needs dual task services for source + target
             "**/src/adapters/shared/commands/tasks/migrate-backend-command.ts",
           ],
+          // DI-fallback-shape check (mt#2642, generalizing ADR-026 rule 3): `x ?? create<X>(...)`
+          // / `x?.y ?? new <X>(...)` across src/ + packages/domain/src/. Existing instances
+          // found by the initial repo-wide scan (18 violations, 10 files) — allowlisted per
+          // the ADR-026 precedent ("allowlist, don't decorate") since mass-rewriting call sites
+          // to make these deps required is out of this task's scope. Each entry below is a
+          // test-injection override parameter (production default via a factory/constructor,
+          // test override via the param) — the same architectural shape as the ADR-026-named
+          // `octokitOverride` instances, not a new pattern.
+          allowedFallbackFiles: [
+            // ADR-026's 6 named instances: `octokitOverride ?? createOctokit(...)`.
+            "**/packages/domain/src/repository/github-pr-review.ts",
+            "**/packages/domain/src/repository/github-labels.ts",
+            "**/packages/domain/src/repository/github-workflow-runs.ts",
+            "**/packages/domain/src/repository/github-checks-run.ts",
+            "**/packages/domain/src/repository/github-branch-protection.ts",
+            "**/packages/domain/src/repository/github-pr-operations.ts",
+            // `notifierOverride ?? createPostgresWindowNotifier(...)` — test-injection
+            // override for window.open/window.close's Postgres NOTIFY notifier.
+            "**/src/adapters/shared/commands/window/index.ts",
+            // `onHarnessSessionLinked ?? createDrivenInitLinkObserver()` — test-injection
+            // override for the driven-session task-link observer.
+            "**/src/cockpit/routes/driven-sessions.ts",
+            // `options?.retryService ?? new IntelligentRetryService(...)` — test-injection
+            // override for NotionProvider's retry strategy.
+            "**/packages/domain/src/knowledge/providers/notion-provider.ts",
+            // `deps?.ruleService ?? new RuleService(...)` — test-injection override in the
+            // rules CRUD-operations compile path.
+            "**/packages/domain/src/rules/operations/crud-operations.ts",
+          ],
         },
-      ], // Prevent direct construction of domain services in adapter layer (mt#911)
+      ], // Prevent direct construction of domain services in adapter layer (mt#911), and the generalized DI-fallback shape (mt#2642 / ADR-026)
       "custom/no-validation-error-in-execute": "error", // ADR-004: ValidationError belongs in validate(), not execute()
       "custom/no-domain-singleton": [
         "error",
