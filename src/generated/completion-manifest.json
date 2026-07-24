@@ -6360,7 +6360,7 @@
       "subcommands": [
         {
           "name": "ingest",
-          "description": "Ingest agent conversation transcripts into the agent_transcripts table. Pass --all to sweep every discoverable conversation, or --conversationId=<uuid> to target one (the legacy --session alias is also accepted). Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged.",
+          "description": "Ingest agent conversation transcripts into the agent_transcripts table. Pass --all to sweep every discoverable conversation, or --conversationId=<uuid> to target one (the legacy --session alias is also accepted). Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged. --ended (single-session mode, SessionEnd hook ONLY) marks the ingest as carrying positive termination evidence so endedAt is recorded; routine sweeps must omit it.",
           "options": [
             {
               "flags": ["--all"],
@@ -6380,6 +6380,10 @@
               "flags": ["--harness"],
               "description": "Source harness label (default: claude_code)",
               "takesValue": true
+            },
+            {
+              "flags": ["--ended"],
+              "description": "mt#3131 (D2): mark this ingest as carrying positive evidence the session has terminated (the harness's own SessionEnd event) — ONLY the SessionEnd hook should pass this. A routine sweep/poll must omit it, or `endedAt` will falsely assert termination for a still-running conversation. Single-session mode only."
             }
           ]
         },
