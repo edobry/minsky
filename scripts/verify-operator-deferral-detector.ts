@@ -79,7 +79,10 @@ for (const name of GUARD_NAMES) {
   }
   const result = await runGuardCanary(registration);
   process.stdout.write(`${formatCanaryResult(result)}\n`);
-  check(`${name} canary passes`, result.passed);
+  // `passed` is `boolean | undefined` — undefined means MISSING (no declared
+  // canary), which is NOT a pass. Compare explicitly rather than relying on
+  // truthiness so a guard that loses its canary declaration fails this check.
+  check(`${name} canary passes`, result.passed === true);
 }
 
 // --- 2. Positive controls --------------------------------------------------
