@@ -99,8 +99,25 @@ export function extractPrompt(input: ToolHookInput): string | null {
 }
 
 export type BareProhibitionDecision =
-  | { decision: "allow"; reason: string; report?: NegativeConstraintReport }
-  | { decision: "deny"; reason: string; report: NegativeConstraintReport };
+  | {
+      decision: "allow";
+      reason: string;
+      /**
+       * The enforcement flag ACTUALLY used for this decision (PR #2260 R1). Carried on the
+       * result rather than re-read from the module constant downstream, so the calibration
+       * record can never disagree with the behavior it is describing — the exact defect R1
+       * caught: `buildCalibrationRecord` logged the constant while the decision had used an
+       * injected value.
+       */
+      enforcementEnabled: boolean;
+      report?: NegativeConstraintReport;
+    }
+  | {
+      decision: "deny";
+      reason: string;
+      enforcementEnabled: boolean;
+      report: NegativeConstraintReport;
+    };
 
 /**
  * Core decision logic (pure — exported for testing). Mirrors the sibling guards' shape: every
@@ -113,28 +130,47 @@ export function decideBareProhibitionGate(
   enforcementEnabled: boolean = ENFORCEMENT_ENABLED
 ): BareProhibitionDecision {
   if (isOverrideActive(env)) {
-    return { decision: "allow", reason: `${OVERRIDE_ENV_VAR} override active` };
+    return {
+      decision: "allow",
+      reason: `${OVERRIDE_ENV_VAR} override active`,
+      enforcementEnabled,
+    };
   }
 
   const prompt = extractPrompt(input);
   if (prompt === null) {
-    return { decision: "allow", reason: "no prompt on this Agent-tool call" };
+    return {
+      decision: "allow",
+      reason: "no prompt on this Agent-tool call",
+      enforcementEnabled,
+    };
   }
 
   const report = analyzeNegativeConstraints(prompt);
   if (report.bare.length === 0) {
-    return { decision: "allow", reason: "no bare prohibition detected", report };
+    return {
+      decision: "allow",
+      reason: "no bare prohibition detected",
+      enforcementEnabled,
+      report,
+    };
   }
 
   if (!enforcementEnabled) {
     return {
       decision: "allow",
       reason: `bare prohibition detected (${report.bare.length}) — calibration mode, not blocking`,
+      enforcementEnabled,
       report,
     };
   }
 
-  return { decision: "deny", reason: buildBareProhibitionMessage(report), report };
+  return {
+    decision: "deny",
+    reason: buildBareProhibitionMessage(report),
+    enforcementEnabled,
+    report,
+  };
 }
 
 /** Append one calibration record; never throws (a logging failure must not break a dispatch). */
@@ -154,15 +190,21 @@ export function appendCalibrationRecord(cwd: string, record: Record<string, unkn
   }
 }
 
-/** Build the calibration record for a report, in the shared "matches"-shape family. */
+/**
+ * Build the calibration record for a report, in the shared "matches"-shape family.
+ *
+ * `enforcementEnabled` is a REQUIRED parameter, not a module-constant read (PR #2260 R1): the
+ * logged flag must describe the decision that actually happened.
+ */
 export function buildCalibrationRecord(
   input: ToolHookInput,
-  report: NegativeConstraintReport
+  report: NegativeConstraintReport,
+  enforcementEnabled: boolean
 ): Record<string, unknown> {
   return {
     timestamp: new Date().toISOString(),
     session_id: input.session_id,
-    enforcement_enabled: ENFORCEMENT_ENABLED,
+    enforcement_enabled: enforcementEnabled,
     has_licence_to_falsify: report.hasLicenceToFalsify,
     matches: report.bare.map((f) => ({
       category: f.hasBasis ? "no-licence" : "no-basis",
@@ -193,7 +235,10 @@ if (import.meta.main) {
   }
 
   if (decision.report && decision.report.bare.length > 0) {
-    appendCalibrationRecord(input.cwd, buildCalibrationRecord(input, decision.report));
+    appendCalibrationRecord(
+      input.cwd,
+      buildCalibrationRecord(input, decision.report, decision.enforcementEnabled)
+    );
   }
 
   if (decision.decision === "allow") {

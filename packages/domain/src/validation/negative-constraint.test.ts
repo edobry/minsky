@@ -167,3 +167,63 @@ describe("buildBareProhibitionMessage", () => {
     expect(noBasis).toContain("no basis stated");
   });
 });
+
+describe("PR #2260 R1 — regex corrections", () => {
+  test('both "let me know if" and "tell me if" count as a licence', () => {
+    // The prior single pattern matched the ungrammatical "tell me know if" and MISSED "tell me if".
+    const letMeKnow = analyzeNegativeConstraints(
+      "Do not attempt the migration because the ledger is locked. Let me know if that is wrong."
+    );
+    expect(letMeKnow.hasLicenceToFalsify).toBe(true);
+    expect(letMeKnow.bare).toEqual([]);
+
+    const tellMe = analyzeNegativeConstraints(
+      "Do not attempt the migration because the ledger is locked. Tell me if that is wrong."
+    );
+    expect(tellMe.hasLicenceToFalsify).toBe(true);
+    expect(tellMe.bare).toEqual([]);
+  });
+
+  test("benign scoping prose is not a prohibition", () => {
+    // These are ordinary task-step instructions, not epistemic constraints on an approach.
+    // The generic `skip` pattern and `avoid using` were removed for exactly this reason.
+    for (const text of [
+      "Skip the integration tests for now and focus on the unit layer.",
+      "Skip this step if the fixture already exists.",
+      "Avoid touching unrelated files in this PR.",
+      "Avoid using the deprecated helper where a modern one exists.",
+    ]) {
+      const report = analyzeNegativeConstraints(text);
+      expect(report.findings).toEqual([]);
+      expect(report.bare).toEqual([]);
+    }
+  });
+
+  test("benign scoping prose stays unflagged even with no licence text present", () => {
+    const report = analyzeNegativeConstraints("Skip the integration tests.");
+    expect(report.hasLicenceToFalsify).toBe(false);
+    expect(report.bare).toEqual([]);
+  });
+
+  test("an approach-level prohibition is still caught after narrowing", () => {
+    const report = analyzeNegativeConstraints("Do not pursue the polling approach in this task.");
+    expect(report.bare.length).toBeGreaterThan(0);
+  });
+
+  test('the word "override" in technical prose does not grant a licence', () => {
+    // A bare /\boverride\b/ marked this prompt as licenced, SUPPRESSING a true positive.
+    const report = analyzeNegativeConstraints(
+      "The creation-time approach is blocked; do not attempt it. Set the override env var to 1."
+    );
+    expect(report.hasLicenceToFalsify).toBe(false);
+    expect(report.bare.length).toBeGreaterThan(0);
+  });
+
+  test('an instructional "override this" still grants a licence', () => {
+    const report = analyzeNegativeConstraints(
+      "Do not attempt it because the identity chain is unavailable. Override this if you find otherwise."
+    );
+    expect(report.hasLicenceToFalsify).toBe(true);
+    expect(report.bare).toEqual([]);
+  });
+});

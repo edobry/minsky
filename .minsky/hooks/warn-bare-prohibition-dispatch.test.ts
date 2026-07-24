@@ -123,7 +123,7 @@ describe("extractPrompt / isOverrideActive", () => {
 describe("buildCalibrationRecord", () => {
   test("labels each match by which property was missing", () => {
     const report = analyzeNegativeConstraints(MT3120_BARE_PROMPT);
-    const record = buildCalibrationRecord(agentCall(MT3120_BARE_PROMPT), report);
+    const record = buildCalibrationRecord(agentCall(MT3120_BARE_PROMPT), report, false);
     const matches = record["matches"] as Array<Record<string, unknown>>;
 
     expect(matches.length).toBeGreaterThan(0);
@@ -134,10 +134,44 @@ describe("buildCalibrationRecord", () => {
   test("a basis-carrying but licence-less prompt is categorized no-licence", () => {
     const text = "Do not build the polling path because the webhook already covers it.";
     const report = analyzeNegativeConstraints(text);
-    const record = buildCalibrationRecord(agentCall(text), report);
+    const record = buildCalibrationRecord(agentCall(text), report, false);
     const matches = record["matches"] as Array<Record<string, unknown>>;
 
     expect(matches[0]?.["category"]).toBe("no-licence");
+  });
+
+  // PR #2260 R1: the record previously read the module constant, so a decision made with an
+  // injected flag logged the WRONG value — telemetry that contradicts the behavior it describes.
+  test("the logged flag matches the flag the decision actually used, not the module constant", () => {
+    const call = agentCall(MT3120_BARE_PROMPT);
+
+    const enforced = decideBareProhibitionGate(call, {}, true);
+    expect(enforced.enforcementEnabled).toBe(true);
+    const enforcedReport = enforced.report;
+    expect(enforcedReport).toBeDefined();
+    if (!enforcedReport) throw new Error("expected a report on an enforced deny");
+    const enforcedRecord = buildCalibrationRecord(
+      call,
+      enforcedReport,
+      enforced.enforcementEnabled
+    );
+    expect(enforcedRecord["enforcement_enabled"]).toBe(true);
+
+    const calibrating = decideBareProhibitionGate(call, {}, false);
+    expect(calibrating.enforcementEnabled).toBe(false);
+    const calibratingReport = calibrating.report;
+    expect(calibratingReport).toBeDefined();
+    if (!calibratingReport) throw new Error("expected a report in calibration mode");
+    const calibratingRecord = buildCalibrationRecord(
+      call,
+      calibratingReport,
+      calibrating.enforcementEnabled
+    );
+    expect(calibratingRecord["enforcement_enabled"]).toBe(false);
+
+    // The two records describe genuinely different decisions — deny vs allow.
+    expect(enforced.decision).toBe("deny");
+    expect(calibrating.decision).toBe("allow");
   });
 });
 

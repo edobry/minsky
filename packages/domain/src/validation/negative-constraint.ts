@@ -73,21 +73,31 @@ export const EXCERPT_CHARS = 200;
 /**
  * Prohibition patterns — an instruction telling the recipient NOT to pursue an approach.
  *
- * Deliberately broader than the incident's literal wording so the calibration pass measures a
- * real false-positive rate rather than a rate tuned to one example. `avoid` and `skip` are the
- * known-noisy members (they legitimately appear in scoping prose: "skip the integration tests",
- * "avoid touching unrelated files"); they are included on purpose so calibration can tell us
- * whether to keep them, not dropped on an untested hunch.
+ * Scoped to prohibitions on an APPROACH or CAPABILITY, which is the failure shape mem#702
+ * describes ("the creation-time approach is BLOCKED"). Deliberately NOT scoped to ordinary
+ * task-step scoping instructions.
+ *
+ * **Revised after PR #2260 R1.** v1 also carried a generic `/\bskip\s+\w+/` pattern and
+ * `avoid using`, on the rationale that including noisy members would let calibration measure
+ * their real rate. That rationale was wrong on the merits: "skip the integration tests" /
+ * "avoid using the deprecated helper" are routine scoping prose, so those patterns would have
+ * fired on a large fraction of ordinary dispatches. That does not *measure* noise — it
+ * SWAMPS the log, burying the signal patterns the calibration pass (mt#3167) needs to judge,
+ * and it produces Path A warn-fatigue immediately rather than only post-graduation. A
+ * detector whose telemetry is unusable is worse than a narrower one.
+ *
+ * (For the record: the R1 finding's example "avoid touching unrelated files" never matched —
+ * the `avoid` pattern was already gerund-scoped and has no `touching` alternative. The real
+ * defects were generic `skip` and the over-general `using` alternative, both removed here.)
  */
 export const PROHIBITION_PATTERNS: readonly RegExp[] = [
-  /\bdo(?:\s+not|n't)\s+(?:attempt|try|build|implement|pursue|explore|use|add)\b/gi,
-  /\bmust\s+not\s+(?:attempt|try|build|implement|pursue|explore|use|add)\b/gi,
+  /\bdo(?:\s+not|n't)\s+(?:attempt|try|build|implement|pursue|explore)\b/gi,
+  /\bmust\s+not\s+(?:attempt|try|build|implement|pursue|explore)\b/gi,
   /\bdo(?:\s+not|n't)\s+bother\b/gi,
-  /\bavoid\s+(?:attempting|trying|building|implementing|pursuing|exploring|using)\b/gi,
+  /\bavoid\s+(?:attempting|trying|building|implementing|pursuing|exploring)\b/gi,
   /\bis\s+(?:currently\s+)?blocked\b/gi,
   /\b(?:is|are)\s+not\s+(?:possible|feasible|available|supported)\b/gi,
   /\b(?:isn't|aren't)\s+(?:possible|feasible|available|supported)\b/gi,
-  /\bskip\s+(?:the\s+|this\s+|that\s+)?\w+/gi,
 ];
 
 /**
@@ -144,10 +154,17 @@ export const LICENCE_PATTERNS: readonly RegExp[] = [
   /\bsay\s+so\b/i,
   /\bpush\s+back\b/i,
   /\bamend\s+the\s+spec\b/i,
-  /\b(?:override|overrule)\b/i,
+  // Tightened after PR #2260 R1 (non-blocking note): a bare /\boverride\b/ matched ordinary
+  // technical prose — this repo is full of "override env var", "the override is registered" —
+  // which would falsely credit a prompt with a licence it never granted, SUPPRESSING a true
+  // positive. Require the instructional object.
+  /\b(?:override|overrule)\s+(?:this|that|it|me|the\s+(?:above|constraint|instruction|guidance|call))\b/i,
   /\bdisagree/i,
   /\breport\s+back\b/i,
-  /\b(?:let|tell)\s+me\s+know\s+if\b/i,
+  // Split after PR #2260 R1: the prior single pattern `(?:let|tell)\s+me\s+know\s+if` matched
+  // the ungrammatical "tell me know if" while MISSING the very common "tell me if".
+  /\blet\s+me\s+know\s+if\b/i,
+  /\btell\s+me\s+if\b/i,
   /\bthat\s+is\s+expected\b/i,
   /\bif\s+you\s+find\b/i,
   /\bif\s+(?:the\s+)?basis\b/i,
