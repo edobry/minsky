@@ -60,6 +60,12 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-nested-fork-dispatch.ts",
             "timeout": 10,
             "statusMessage": "Checking for undeclared nested fork dispatch..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/warn-bare-prohibition-dispatch.ts",
+            "timeout": 10,
+            "statusMessage": "Checking dispatch prompt for bare prohibitions..."
           }
         ]
       },
@@ -181,6 +187,17 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/loop-preflight-pr-merge-check.ts",
             "timeout": 15,
             "statusMessage": "Checking loop preflight (PR/task terminal state)..."
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
+            "timeout": 15,
+            "statusMessage": "Checking the ask for an unprobed operator deferral..."
           }
         ]
       },
@@ -438,10 +455,10 @@
       {
         "hooks": [
           {
-            "_comment": "ADR-028 D1 guard-dispatcher Phase 2a+2b+mt#2812+mt#2824+mt#2870+mt#2923+mt#2708 (mt#2652, mt#2687, mt#2812, mt#2824, mt#2870, mt#2923, mt#2708): the SOLE settings.json entry for EVERY UserPromptSubmit guard, all migrated (or, for mt#2812/mt#2824/mt#2870/mt#2923/mt#2708, authored directly) onto .minsky/hooks/dispatch-userpromptsubmit.ts's in-process registry (Phase 2a: substrate-bypass-detector, retrospective-trigger-scanner, pre-narration-detector, causal-premise-detector, code-mechanism-assertion-detector, ask-routing-deferral-detector; Phase 2b: auto-session-title, inject-current-time, inject-git-state, inject-prod-state, inject-dispatch-watchdog, memory-search, skill-staleness-detector, mcp-daemon-staleness-detector; mt#2812: guard-health-escalation-detector; mt#2824: silent-stretch-detector; mt#2870: wall-of-text-detector; mt#2923: build-claim-injection-detector; mt#2708: knowledge-acquisition-detector; mt#3125: constructed-identifier-batch-detector; calibration-review-cadence-detector kept last per registry.ts). Do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead. Timeout=165 (host-cap budget model, hook-files.mdc \"Dispatcher host-cap budget model\"): this ONE process now runs all twenty-one UserPromptSubmit guards SEQUENTIALLY, so the host cap must cover the family's worst-case SUM, not one guard's budget. Re-verified 2026-07-23 (mt#2708) by summing every UserPromptSubmit registry.ts timeoutMs: the 145s computed 2026-07-17 (mt#2870; see that computation's own breakdown, unchanged) + build-claim-injection-detector 10s (mt#2923 — omitted from the 2026-07-17 figure; that PR predates this comment's own resizing step) + knowledge-acquisition-detector 10s (mt#2708) + constructed-identifier-batch-detector 10s (mt#3125) = 145+10+10+10=175s.",
+            "_comment": "ADR-028 D1 guard-dispatcher Phase 2a+2b+mt#2812+mt#2824+mt#2870+mt#2923+mt#2708 (mt#2652, mt#2687, mt#2812, mt#2824, mt#2870, mt#2923, mt#2708): the SOLE settings.json entry for EVERY UserPromptSubmit guard, all migrated (or, for mt#2812/mt#2824/mt#2870/mt#2923/mt#2708, authored directly) onto .minsky/hooks/dispatch-userpromptsubmit.ts's in-process registry (Phase 2a: substrate-bypass-detector, retrospective-trigger-scanner, pre-narration-detector, causal-premise-detector, code-mechanism-assertion-detector, ask-routing-deferral-detector; Phase 2b: auto-session-title, inject-current-time, inject-git-state, inject-prod-state, inject-dispatch-watchdog, memory-search, skill-staleness-detector, mcp-daemon-staleness-detector; mt#2812: guard-health-escalation-detector; mt#2824: silent-stretch-detector; mt#2870: wall-of-text-detector; mt#2923: build-claim-injection-detector; mt#2708: knowledge-acquisition-detector; mt#3125: constructed-identifier-batch-detector; mt#2459: operator-deferral-detector; calibration-review-cadence-detector kept last per registry.ts). Do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead. Timeout=185 (host-cap budget model, hook-files.mdc \"Dispatcher host-cap budget model\"): this ONE process now runs all twenty-two UserPromptSubmit guards SEQUENTIALLY, so the host cap must cover the family's worst-case SUM, not one guard's budget. Re-verified 2026-07-24 (mt#2459) by SUMMING the live registry rather than trusting this comment's own arithmetic — `GUARD_REGISTRY.filter(g => g.event === 'UserPromptSubmit').reduce((a, g) => a + g.timeoutMs, 0)` returns 185000ms across 22 guards. That check also caught a pre-existing drift this comment had carried since mt#2708: the prose said \"Timeout=165\" while its own breakdown computed 175s and the field was already 175 — so the narrative figure, not the field, was stale. Prior breakdown, unchanged and still additive: 145s computed 2026-07-17 (mt#2870) + build-claim-injection-detector 10s (mt#2923) + knowledge-acquisition-detector 10s (mt#2708) + constructed-identifier-batch-detector 10s (mt#3125) = 175s, + operator-deferral-detector 10s (mt#2459) = 185s. The sibling PreToolUse dispatcher entries stay at timeout=15: that family's registry sum is 15s total (check-guessed-session-path 5s + operator-deferral-ask-surface 10s), and no single matcher selects both.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-userpromptsubmit.ts",
-            "timeout": 175,
+            "timeout": 185,
             "statusMessage": "Running guard dispatcher (UserPromptSubmit)..."
           }
         ]

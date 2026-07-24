@@ -23,6 +23,31 @@ The `/implement-task` skill's §7 Convergence Checklist has a paired Preventive-
 that enforces the same probe at the PR-creation gate. This rule covers all artifact surfaces;
 the skill step covers the implement-task pipeline specifically.
 
+## Probe before self-improvising (mt#3154)
+
+**Originating incident:** the 2026-07-24 reviewer outage (mem#707). An mt#3117 source-cutover left
+the reviewer Railway service building a DIFFERENT app from the repo — the Minsky MCP server — which
+booted fine and answered `/health` with 200. Bot review was down fleet-wide for hours.
+
+The root cause was identified early. The ~2 hours were lost entirely in the RECOVERY step: the
+agent improvised `railway redeploy`, which replays the last build artifact and therefore
+re-deployed the same wrong image, three times, reporting success each time. Both the
+`railway:use-railway` skill and mem#700 documented the actual recovery — force a fresh deploy from
+CURRENT source via a service-VARIABLE change. Neither was loaded.
+
+**Why the existing rule did not catch it.** `§Probe before deferring` keys on deferral prose ("I
+lack access", "operator follow-up"). None was emitted here — the agent never claimed it _couldn't_
+act; it acted, confidently and wrongly. mt#2459's planned deferral-prose detector would also have
+missed it for the same reason. The tell on this path is an ACTION taken without the probe, which is
+why the generalization is to the act path rather than a wider vocabulary of deferral phrases.
+
+**Two failure directions, one probe.** Deferring assumes you lack a capability you have;
+self-improvising assumes you have knowledge you lack. The skill probe and memory probe answer both.
+
+**The compounding factor** was that 2-strikes counted only tool ERRORS. Three redeploys all exited
+0, so nothing tripped — the agent had no mechanical signal to stop. `error-investigation.mdc
+§2-strikes counts wrong OUTCOMES` closes that half; this section closes the other.
+
 ## Probe before claiming a shared resource (mt#1965 → mt#1990)
 
 **Originating incident:** mt#1965 closeout (2026-05-20). After completing mt#1965 (OOB-merge

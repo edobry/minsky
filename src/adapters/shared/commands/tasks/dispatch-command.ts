@@ -50,6 +50,11 @@ import {
   validateEvidenceArgument,
   type EvidenceArgument,
 } from "@minsky/domain/validation/evidence-argument";
+import {
+  analyzeNegativeConstraints,
+  buildBareProhibitionMessage,
+  ENFORCEMENT_ENABLED as BARE_PROHIBITION_ENFORCEMENT_ENABLED,
+} from "@minsky/domain/validation/negative-constraint";
 
 const tasksDispatchParams = {
   title: {
@@ -216,6 +221,41 @@ function validateDispatchMode(p: DispatchParams): void {
 }
 
 /**
+ * Bare-prohibition check for the dispatch `instructions` body (mt#3162).
+ *
+ * The mt#2488 evidence gate binds the dispatch's own POSITIVE premise ("the load-bearing
+ * assumption this action rests on"). It never looks at `instructions`, where a NEGATIVE
+ * constraint lives — and a prohibition written into a subagent's prompt is the worse failure:
+ * it removes the receiving agent's standing to falsify it (mem#702). This closes that half.
+ *
+ * Declared at module scope (not inline in `execute()`) for the same ADR-004 /
+ * `custom/no-validation-error-in-execute` reason as `validateDispatchMode` above, and wired via
+ * `validateEvidenceArgument`'s existing `structuralCheck` option — the callback closes over the
+ * call's `instructions`, so the shared primitive needs no signature change.
+ *
+ * CALIBRATION-FIRST (mt#3162 SC5, graduation tracked by mt#3167): while
+ * `ENFORCEMENT_ENABLED` is false this WARNS and returns null (never blocks). Returning the
+ * message instead is the one-line flip.
+ */
+function checkInstructionsForBareProhibition(instructions: string | undefined): string | null {
+  const report = analyzeNegativeConstraints(instructions);
+  if (report.bare.length === 0) return null;
+
+  const message = buildBareProhibitionMessage(report);
+
+  if (!BARE_PROHIBITION_ENFORCEMENT_ENABLED) {
+    log.warn("[tasks.dispatch] Bare prohibition in dispatch instructions (mt#3162, calibration)", {
+      phrases: report.bare.map((f) => f.phrase),
+      hasLicenceToFalsify: report.hasLicenceToFalsify,
+      enforcementEnabled: BARE_PROHIBITION_ENFORCEMENT_ENABLED,
+    });
+    return null;
+  }
+
+  return message;
+}
+
+/**
  * Bound applied ON TOP OF `getTracker`'s own (registry-setup.ts) timeout,
  * scoped specifically to Step 5's best-effort telemetry write (mt#3017 R1
  * BLOCKING #2). Deliberately much shorter than registry-setup.ts's 5s bound
@@ -313,7 +353,12 @@ export function createTasksDispatchCommand(
           falsifier: p.premiseFalsifier,
           evidence: p.premiseEvidence,
         },
-        { action: "tasks.dispatch" }
+        {
+          action: "tasks.dispatch",
+          // mt#3162: the negative half of the same gate — a prohibition in `instructions`
+          // must carry its basis and an explicit licence to falsify.
+          structuralCheck: () => checkInstructionsForBareProhibition(p.instructions),
+        }
       );
       log.info("[tasks.dispatch] Evidence gate passed", {
         claim: premise.claim,
