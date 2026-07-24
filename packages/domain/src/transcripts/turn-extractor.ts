@@ -99,6 +99,38 @@ function extractUserText(blocks: ContentBlock[]): string | null {
 }
 
 /**
+ * Claude Code-synthesized markers recorded as a `user`-role line whose sole
+ * content is one of these exact strings — NOT actual human input, but a
+ * harness-internal event marking that the user cancelled an in-flight
+ * response/tool call (mt#3131 D6). Left un-excluded, this line starts (or
+ * silently clobbers) a pending turn like any other "user" line, corrupting
+ * turn-count aggregates with a synthetic non-prompt. Present in 73/165
+ * sampled transcripts (44%) per the mt#3131 investigation.
+ *
+ * Mirrors `.minsky/hooks/transcript.ts`'s `SYNTHETIC_INTERRUPT_MARKERS`
+ * (mt#2824, a harness-hook-side discovery of the same two literal variants) —
+ * duplicated rather than imported because that file lives outside
+ * `packages/domain` in a separate hook-script bundling context, matching the
+ * existing precedent of `RETAINED_TYPES` being deliberately non-shared
+ * (see `single-file-transcript-source.ts`).
+ */
+const SYNTHETIC_INTERRUPT_MARKERS: ReadonlySet<string> = new Set([
+  "[Request interrupted by user for tool use]",
+  "[Request interrupted by user]",
+]);
+
+/** True iff a `user` line's raw message content is EXACTLY one synthetic interrupt marker. */
+function isSyntheticInterruptLine(blocks: ContentBlock[]): boolean {
+  if (blocks.length !== 1) return false;
+  const block = blocks[0];
+  return (
+    block?.type === "text" &&
+    typeof block.text === "string" &&
+    SYNTHETIC_INTERRUPT_MARKERS.has(block.text.trim())
+  );
+}
+
+/**
  * Extract `tool_use` blocks from the assistant message. These represent
  * tool invocations made during the turn.
  */
@@ -190,6 +222,17 @@ export function extractTurns(transcript: RawTurnLine[]): ExtractedTurn[] {
 
   for (const line of transcript) {
     if (line.type === "user") {
+      const msg = line.message as Record<string, unknown> | undefined;
+      const content = msg?.["content"];
+      const blocks = normalizeContent(content);
+
+      // mt#3131 (D6): a synthetic interrupt marker is harness plumbing, not a
+      // real user prompt or a real turn boundary — skip it entirely (don't
+      // flush, don't overwrite pending state, don't count it). Left
+      // unexcluded, it can pair with a following assistant line and inflate
+      // turnCount with a synthetic non-turn.
+      if (isSyntheticInterruptLine(blocks)) continue;
+
       if (hasPendingUser && hasPendingAssistant) {
         // We have a complete (user, assistant) pair — flush before starting a new user.
         flushTurn();
@@ -197,9 +240,6 @@ export function extractTurns(transcript: RawTurnLine[]): ExtractedTurn[] {
       // If we have a pending user but no assistant, we overwrite it with the new user line
       // (back-to-back user lines; the last one wins).
 
-      const msg = line.message as Record<string, unknown> | undefined;
-      const content = msg?.["content"];
-      const blocks = normalizeContent(content);
       const text = extractUserText(blocks);
 
       pendingUserText = text;

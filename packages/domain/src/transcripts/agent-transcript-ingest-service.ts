@@ -50,7 +50,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transcript-attachments-schema";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
 import { writeTurnsForTranscript } from "./turn-writer";
@@ -97,7 +97,7 @@ async function resolveIngestProjectId(
   } catch (err) {
     log.debug("[transcripts] Project id resolution failed for ingest; leaving unscoped", {
       cwd,
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
     });
     return null;
   }
@@ -129,11 +129,21 @@ export class AgentTranscriptIngestService {
    * in `sessionsErrored` honestly (mt#1444).
    *
    * @param session - The discovered session metadata (from discoverSessions() or a direct lookup).
+   * @param opts.sessionEnded - mt#3131 (D2): true ONLY when this ingest call
+   *   corresponds to genuine positive evidence the session has terminated —
+   *   the harness's own SessionEnd lifecycle event, not a routine incremental
+   *   poll/sweep. Every other caller (the boot sweep, the filesystem watcher,
+   *   the cadence sweep, a manual `--all`/`--conversationId` ingest) MUST omit
+   *   this or pass `false`. See `endedAt` derivation below for why.
    * @returns `{ ingested: number; error?: Error }` — `ingested` is the number of new
    *   lines written (0 on idempotent re-run or on an abort path); `error` is set
    *   when any of the five internal paths above hit a failure.
    */
-  async ingestSession(session: DiscoveredSession): Promise<IngestSessionResult> {
+  async ingestSession(
+    session: DiscoveredSession,
+    opts?: { sessionEnded?: boolean }
+  ): Promise<IngestSessionResult> {
+    const sessionEnded = opts?.sessionEnded ?? false;
     const { agentSessionId, harness, jsonlPath, mtime } = session;
 
     // ── 1. Read the current high-water-mark ──────────────────────────────────
@@ -151,7 +161,7 @@ export class AgentTranscriptIngestService {
     } catch (err) {
       const hwmReadError = err instanceof Error ? err : new Error(String(err));
       log.warn(`Failed to read high-water-mark for session ${agentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       // mt#2789: abort this session's ingest rather than proceeding with
       // highWaterMark=null. Proceeding used to mean "treat as no prior
@@ -227,7 +237,7 @@ export class AgentTranscriptIngestService {
       }
     } catch (err) {
       log.warn(`Failed to stream lines for session ${agentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       // Return 0 — don't partially-commit a broken read.
       // Surface the error so the sweep can count it (mt#1444).
@@ -261,7 +271,20 @@ export class AgentTranscriptIngestService {
 
     // ── 3. Derive metadata from the source's DiscoveredSession ───────────────
     const startedAt = extractStartedAt(newLines, this.source);
-    const endedAt = latestTs ?? mtime;
+    // mt#3131 (D2): `endedAt` asserts TERMINATION, not "last observed". Every
+    // ingest call used to set it to `latestTs ?? mtime` unconditionally — since
+    // ingest runs on every incremental poll/sweep for a conversation, this made
+    // `endedAt` advance on every call, including for a conversation that is
+    // still actively running. A consumer reading `endedAt` non-null had no way
+    // to tell "this finished" from "this is the last line we happened to see."
+    // Only set it when THIS call carries positive termination evidence
+    // (`opts.sessionEnded`, wired from the harness's own SessionEnd hook —
+    // see transcripts.ts's `ended` param and
+    // .minsky/hooks/transcript-ingest-on-session-end.ts). Routine polls never
+    // touch it (see the onConflictDoUpdate SET clause below); `lastIngestedJsonlTimestamp`
+    // already carries the "last observed" signal for every caller (exposed to
+    // the frontend as `lastActivityAt`, routes/conversations.ts).
+    const endedAt = sessionEnded ? (latestTs ?? mtime) : null;
 
     // ── 4. Upsert into agent_transcripts ─────────────────────────────────────
     // Single atomic statement: INSERT … ON CONFLICT (agent_session_id) DO UPDATE.
@@ -367,7 +390,15 @@ export class AgentTranscriptIngestService {
                   WHERE existing_elem->>'uuid' = new_elem->>'uuid'
                 )
             )`,
-            endedAt: sql`EXCLUDED.ended_at`,
+            // mt#3131 (D2): only overwrite the stored `endedAt` when THIS call
+            // carries genuine termination evidence. A routine poll
+            // (`sessionEnded` false) must leave whatever is already stored
+            // untouched — it must never REGRESS an already-recorded end time
+            // back toward "unknown" (a stale/duplicate SessionEnd delivery is
+            // not evidence the conversation is live again), and it must not
+            // advance a not-yet-ended conversation's endedAt just because a
+            // sweep happened to observe new lines.
+            endedAt: sessionEnded ? sql`EXCLUDED.ended_at` : sql`${agentTranscriptsTable.endedAt}`,
             // NULL-safety: Postgres GREATEST *ignores* NULL arguments (result
             // is NULL only when ALL args are NULL) — unlike MySQL, where any
             // NULL poisons the result. GREATEST(NULL, ts) = ts here, so a
@@ -383,7 +414,7 @@ export class AgentTranscriptIngestService {
         });
     } catch (err) {
       log.error(`Failed to upsert transcript for session ${agentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       return { ingested: 0, error: err instanceof Error ? err : new Error(String(err)) };
     }
@@ -435,7 +466,7 @@ export class AgentTranscriptIngestService {
     } catch (err) {
       turnExtractError = err instanceof Error ? err : new Error(String(err));
       log.warn(`Failed to materialize turn rows for session ${agentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       // Don't fail the whole ingest — the transcript upsert already succeeded.
       // Surface the error so the sweep can count degraded ingests.
@@ -462,7 +493,7 @@ export class AgentTranscriptIngestService {
       await writeCwdMatchLink(this.db, agentSessionId, session.cwd ?? persistedCwd);
     } catch (err) {
       log.warn(`Failed to write cwd_match link for session ${agentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
     }
 
@@ -508,7 +539,7 @@ export class AgentTranscriptIngestService {
         attachmentError = err instanceof Error ? err : new Error(String(err));
         log.warn(
           `Failed to insert ${newAttachmentRows.length} attachment rows for session ${agentSessionId}`,
-          { error: getErrorMessage(err) }
+          { error: getLoggableErrorSummary(err) }
         );
         // Don't fail the whole ingest — turn-row upsert already succeeded.
         // Surface the error so the sweep can count degraded ingests.
@@ -560,7 +591,7 @@ export class AgentTranscriptIngestService {
           // insert — best-effort). Count it honestly (mt#1444).
           sessionsErrored++;
           log.warn(`Session ${session.agentSessionId} reported a degraded ingest`, {
-            error: getErrorMessage(result.error),
+            error: getLoggableErrorSummary(result.error),
             ingested: result.ingested,
           });
         }
@@ -569,7 +600,7 @@ export class AgentTranscriptIngestService {
         // an unexpected throw escapes (e.g., an iterator boundary), still count it.
         sessionsErrored++;
         log.warn(`Session ${session.agentSessionId} failed during sweep`, {
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
       }
     }

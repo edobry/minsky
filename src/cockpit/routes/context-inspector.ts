@@ -6,7 +6,12 @@
  */
 import type express from "express";
 import { log } from "@minsky/shared/logger";
-import { classifySnapshotMiss, WRONG_ID_SPACE_MESSAGE } from "../conversation-id-space";
+import {
+  classifySnapshotMiss,
+  looksLikeConversationId,
+  withBoundedTimeout,
+  WRONG_ID_SPACE_MESSAGE,
+} from "../conversation-id-space";
 import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 import { getContextInspectorDb, getServerSessionProvider } from "../db-providers";
 
@@ -19,7 +24,17 @@ type ContextInspectorErrorCode =
   | "unsupported_provider"
   | "session_not_found"
   | "wrong_id_space"
+  | "invalid_id"
   | "internal";
+
+/**
+ * Bound for the full snapshot-assembly call (mt#3131 D3) — a DB query under
+ * contention (e.g. a live conversation's own polling load) must not leave
+ * this route's response pending indefinitely. Generous relative to
+ * `SNAPSHOT_MISS_PROBE_TIMEOUT_MS` (5s) because a legitimate large-transcript
+ * assembly does real, non-trivial work.
+ */
+const SNAPSHOT_ASSEMBLY_TIMEOUT_MS = 15_000;
 
 function contextInspectorError(
   res: express.Response,
@@ -45,10 +60,14 @@ export function mountContextInspectorRoutes(app: express.Express): void {
    *   ?sessionId=<agent_session_id>   — required; the harness-native session UUID.
    *
    * Response: SessionContextSnapshot JSON (categorized chronological block list);
-   *   404 `session_not_found` when no transcript exists for the id; or 422
-   *   `wrong_id_space` when the id is actually a Minsky WORKSPACE session id
-   *   (not a harness conversation id) — the mt#2420 / mt#2525 fail-loud branch,
-   *   so a misrouted id surfaces a clear error instead of "no transcript yet".
+   *   404 `session_not_found` when no transcript exists for a syntactically
+   *   plausible id; 404 `invalid_id` when the id isn't even UUID-shaped and so
+   *   could never resolve (mt#3131 D3/D5 — rejected before any DB/provider
+   *   call, distinguishing "not found" from "not yet ingested" for the
+   *   client); or 422 `wrong_id_space` when the id is actually a Minsky
+   *   WORKSPACE session id (not a harness conversation id) — the mt#2420 /
+   *   mt#2525 fail-loud branch, so a misrouted id surfaces a clear error
+   *   instead of "no transcript yet".
    *
    * The widget framework's single-payload shape doesn't fit the interactive
    * picker → detail pattern, so this endpoint lives as a sibling to the
@@ -63,6 +82,21 @@ export function mountContextInspectorRoutes(app: express.Express): void {
     const sessionId = req.query["sessionId"];
     if (typeof sessionId !== "string" || sessionId.length === 0) {
       contextInspectorError(res, 400, "missing_field", "`sessionId` is required.");
+      return;
+    }
+
+    // mt#3131 (D3/D5): a syntactically-invalid conversation id can NEVER
+    // resolve — reject immediately, before any DB query or provider probe.
+    // Zero I/O, so this can never be the hang site, and it lets the client
+    // (ConversationView) render "not found" instead of the misleading
+    // "may still be running" copy that only makes sense for a plausible id.
+    if (!looksLikeConversationId(sessionId)) {
+      contextInspectorError(
+        res,
+        404,
+        "invalid_id",
+        `"${sessionId}" is not a valid conversation id.`
+      );
       return;
     }
 
@@ -85,7 +119,12 @@ export function mountContextInspectorRoutes(app: express.Express): void {
       const { assembleSessionContextSnapshot } = await import(
         "@minsky/domain/transcripts/session-context-snapshot"
       );
-      const snapshot = await assembleSessionContextSnapshot(db, sessionId as AgentSessionId);
+      // mt#3131 (D3): bound the assembly call itself — a DB pool under
+      // contention must not hang this response forever.
+      const snapshot = await withBoundedTimeout(
+        assembleSessionContextSnapshot(db, sessionId as AgentSessionId),
+        SNAPSHOT_ASSEMBLY_TIMEOUT_MS
+      );
 
       if (snapshot === null) {
         // Fail LOUD on the mt#2420 id-space mistake: a Minsky WORKSPACE id

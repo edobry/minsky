@@ -38,7 +38,7 @@ import { formatTaskIdForDisplay } from "../tasks/task-id-utils";
 import type { WorkspaceId } from "../ids";
 import { applyListCap, type ListTruncationMetadata } from "../utils/list-pagination";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 // mt#2818: reuse the same bound `pickSubstantiveUserText` (mt#2784) scans by
 // — both modules live in this package now, so there is no reason to keep an
 // independently-drifting duplicate of this constant.
@@ -315,7 +315,7 @@ export class TranscriptListService {
       // zeroed turn stats + no label inputs (tier 4 fallback), never a
       // failed `transcripts.list` call.
       log.warn(
-        `TranscriptListService.fetchEnrichment: enrichment query failed: ${getErrorMessage(err)}`
+        `TranscriptListService.fetchEnrichment: enrichment query failed: ${getLoggableErrorSummary(err)}`
       );
       return new Map<string, Enrichment>();
     }
