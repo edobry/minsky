@@ -371,6 +371,7 @@ function helloWorld() {
 # Error Investigation
 
 - **2-strikes rule: after the 2nd identical tool error from the same tool, stop.** Do not retry. Read the tool's actual error message, diagnose the root cause (permission? stale input? upstream state?), and file a bug task if the error is systemic. Resume only once you understand why it failed. Counting attempts, not classifying the situation — it's a mechanical rule.
+- **2-strikes counts wrong OUTCOMES, not just errors (mt#3154).** A call that succeeds — exit 0, HTTP 200, no exception — but leaves the target state unchanged is a strike; two on the same objective trips the same stop-and-reassess as two errors. Verify the outcome, not the invocation: re-read the state you meant to change (query the setting, re-read the health BODY, count the rows). On a trip, STOP improvising and load the surface's skill (`user-preferences.mdc §Probe before SELF-IMPROVISING`). Incident: three `railway redeploy` calls each reported success while re-deploying the same wrong image — zero strikes under the old error-only wording.
 - **Workarounds are not fixes.** Switching to an alternative path/method without understanding the root cause may hide a systemic bug that breaks other users. If a workaround is needed to proceed, file the underlying bug task first.
 - **When any MCP tool call returns an error, stop and investigate before the next attempt.** Even on the first occurrence, don't retry blindly — retry only with a hypothesis about what the error means.
 - **Never mark a task complete with known errors outstanding** (lint, type, test, build) — see `dont-ignore-errors` (not always-loaded; `rules_get`) for the batch-verification and completion-gate detail.
@@ -815,6 +816,14 @@ origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-work
   **If a probe returns "tooling is available"**, proceed with the action ONLY when it's in-scope under the current task's acceptance criteria AND safe (no destructive side-effects the spec hasn't authorized, no scope-expansion beyond what was planned). The probe just unblocks the assumption-of-unavailability; it doesn't override scope/safety gates.
 
   **If all probes fail OR the action is out-of-scope/unsafe even with tooling available**, state both the probe results AND the scope/safety basis inline so the deferral has visible justification: e.g., `"Probed: which gh → not on PATH; no GitHub-org-admin skill; no scripts/gh-admin/; no memory matches. Deferred — requires user with GitHub org-admin access."` OR `"Probed: railway CLI available and authenticated. Action out-of-scope for this task (spec §Out of scope explicitly lists Railway env-var changes as a separate concern). Deferred."` A bare deferral without inline probe results AND scope/safety basis is unjustified.
+
+  **Probe before SELF-IMPROVISING, not only before deferring (mt#3154).** The same probe fires on
+  the opposite failure: not "I wrongly claim I lack access" but "I wrongly assume I know how to use
+  it." Before hand-rolling a recovery on a hosted-infra surface (Railway, Cloudflare, Supabase, any
+  external service), run the **skill probe** and **memory probe** first — a plausible-looking
+  command can succeed and still do nothing. No deferral prose is emitted on this path, so the tell
+  is the ACTION, not the wording. Pairs with `error-investigation.mdc §2-strikes counts wrong
+  OUTCOMES`. Incident: `docs/rules-rationale/user-preferences.md §Probe before self-improvising`.
 
   Dual of `decision-defaults.mdc §Build vs buy` step 4 (build-path-as-research); enforced also at
   `/implement-task` §7 Preventive phase. Full incident + cross-reference detail:
