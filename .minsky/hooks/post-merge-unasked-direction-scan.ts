@@ -130,16 +130,29 @@ function firstString(values: readonly unknown[]): string | undefined {
  * replay. Names the keys actually present rather than dumping values, which
  * may carry repo paths.
  *
+ * BOUNDED (PR #2246 R1): a payload with many keys would otherwise produce an
+ * unbounded stderr line. At most {@link MAX_DESCRIBED_KEYS} names are listed
+ * per object, with the elided count reported — enough to recognize an envelope,
+ * without a log line nobody reads.
+ *
  * Exported for tests.
  */
+export const MAX_DESCRIBED_KEYS = 12;
+
+function describeKeys(source: Record<string, unknown>): string {
+  const keys = Object.keys(source);
+  if (keys.length <= MAX_DESCRIBED_KEYS) return keys.join(",");
+  return `${keys.slice(0, MAX_DESCRIBED_KEYS).join(",")},…+${keys.length - MAX_DESCRIBED_KEYS} more`;
+}
+
 export function describeToolResultShape(input: ToolHookInput): string {
   const params = input.tool_input ?? {};
   const result = input.tool_result ?? {};
-  const nested = isObject(result["result"]) ? Object.keys(result["result"]) : null;
+  const nested = isObject(result["result"]) ? describeKeys(result["result"]) : null;
   return (
-    `tool_input keys=[${Object.keys(params).join(",")}] ` +
-    `tool_result keys=[${Object.keys(result).join(",")}]${
-      nested ? ` tool_result.result keys=[${nested.join(",")}]` : ""
+    `tool_input keys=[${describeKeys(params)}] ` +
+    `tool_result keys=[${describeKeys(result)}]${
+      nested === null ? "" : ` tool_result.result keys=[${nested}]`
     } (tried: ${SESSION_ID_ACCESSORS.map((a) => a.where).join(", ")})`
   );
 }

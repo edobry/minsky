@@ -12,6 +12,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   describeToolResultShape,
+  MAX_DESCRIBED_KEYS,
   resolveConversationId,
   resolveSessionContext,
 } from "./post-merge-unasked-direction-scan";
@@ -150,8 +151,8 @@ describe("resolveSessionContext against CAPTURED real payloads (mt#3127)", () =>
   for (const [name, fixture] of cases) {
     it(`resolves the real ${name} payload`, () => {
       const input = {
-        session_id: "f00dfb7d-17e6-42ce-b0d9-00716e2fa10b",
-        cwd: "/Users/edobry/Projects/minsky",
+        session_id: "00000000-0000-4000-8000-0000000000ff",
+        cwd: "/repo",
         hook_event_name: "PostToolUse",
         tool_name: fixture.toolName,
         tool_input: fixture.toolInput,
@@ -205,5 +206,24 @@ describe("unresolvable payload diagnostics (mt#3127)", () => {
     } as unknown as ToolHookInput;
 
     expect(describeToolResultShape(input)).not.toContain("/Users/someone/private");
+  });
+
+  it("bounds the description for a payload with many keys (PR #2246 R1)", () => {
+    const manyKeys: Record<string, unknown> = {};
+    for (let i = 0; i < MAX_DESCRIBED_KEYS + 20; i++) manyKeys[`k${i}`] = i;
+
+    const input = {
+      session_id: "conv-1",
+      cwd: "/tmp/repo",
+      hook_event_name: "PostToolUse",
+      tool_name: MERGE_TOOL_NAME,
+      tool_input: { task: "mt#3127" },
+      tool_result: { success: true, result: manyKeys },
+    } as unknown as ToolHookInput;
+
+    const described = describeToolResultShape(input);
+    expect(described).toContain(`+20 more`);
+    // The elided keys must not appear in full.
+    expect(described).not.toContain(`k${MAX_DESCRIBED_KEYS + 19}`);
   });
 });
