@@ -3,6 +3,7 @@ import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
 import {
   parseNewDisconnectEvents,
   triggerMcpDisconnectEventSweep,
+  ensureDirSync,
   type DisconnectSweepFsDeps,
 } from "./disconnect-event-sweep";
 
@@ -119,6 +120,48 @@ describe("parseNewDisconnectEvents (mt#2537)", () => {
     ].join("\n");
     const events = parseNewDisconnectEvents(raw, null);
     expect(events).toHaveLength(0);
+  });
+});
+
+describe("ensureDirSync (mt#2633 — TOCTOU fix)", () => {
+  it("does not throw when called twice in a row for the same directory", () => {
+    // Fake fs whose mkdirSync mimics real fs.mkdirSync semantics: throws
+    // EEXIST when the directory already exists and `recursive` is not
+    // passed as true, but is a no-op when `recursive: true` is passed.
+    // This reproduces the shape a non-hardcoded-recursive implementation of
+    // DisconnectSweepFsDeps would have, so the test actually exercises the
+    // fix (always passing `{ recursive: true }`) rather than passing
+    // vacuously because of an unrelated idempotent fake.
+    const dirs = new Set<string>();
+    const strictMkdirDeps: DisconnectSweepFsDeps = {
+      existsSync: (p) => dirs.has(p),
+      readFileSync: () => {
+        throw new Error("not used by this test");
+      },
+      writeFileSync: () => {
+        // not used by this test
+      },
+      mkdirSync: (p, options) => {
+        if (dirs.has(p) && !options?.recursive) {
+          throw Object.assign(new Error(`EEXIST: file already exists, mkdir '${p}'`), {
+            code: "EEXIST",
+          });
+        }
+        dirs.add(p);
+      },
+    };
+
+    // First call: directory does not exist yet.
+    expect(() => ensureDirSync("/fake/state-dir", strictMkdirDeps)).not.toThrow();
+    expect(strictMkdirDeps.existsSync("/fake/state-dir")).toBe(true);
+
+    // Second call: directory already exists (simulating a concurrent
+    // process having created it, or simply a second sweep run). The old
+    // `if (!existsSync) mkdirSync` shape would still be safe here since the
+    // check would short-circuit — the real risk was a *concurrent* creation
+    // between check and use, which this second call stands in for by
+    // calling mkdirSync directly against an already-existing directory.
+    expect(() => ensureDirSync("/fake/state-dir", strictMkdirDeps)).not.toThrow();
   });
 });
 

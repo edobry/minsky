@@ -47,18 +47,32 @@ export interface DisconnectSweepFsDeps {
   existsSync: (p: string) => boolean;
   readFileSync: (p: string) => string;
   writeFileSync: (p: string, content: string) => void;
-  mkdirSync: (p: string) => void;
+  mkdirSync: (p: string, options?: { recursive?: boolean }) => void;
 }
 
 export const defaultFsDeps: DisconnectSweepFsDeps = {
   existsSync: (p) => fs.existsSync(p),
   readFileSync: (p) => fs.readFileSync(p, { encoding: "utf-8" }) as string,
   writeFileSync: (p, content) => fs.writeFileSync(p, content, { encoding: "utf-8" }),
-  mkdirSync: (p) => fs.mkdirSync(p, { recursive: true }),
+  mkdirSync: (p, options) => fs.mkdirSync(p, options ?? { recursive: true }),
 };
 
 function getHwmPath(): string {
   return path.join(path.dirname(getDisconnectLogPath()), "mcp-disconnect-sweep-hwm.json");
+}
+
+/**
+ * Ensure `dir` exists, creating it (and any missing parent directories) if
+ * necessary. `mkdirSync(dir, { recursive: true })` is idempotent — it does
+ * not throw `EEXIST` if the directory already exists, including in the
+ * TOCTOU (time-of-check-time-of-use) window where a concurrent process
+ * creates the directory between an `existsSync` check and a subsequent
+ * `mkdirSync` call. Callers must not precede this with an `existsSync`
+ * check (mt#2633) — the recursive `mkdirSync` call already handles the
+ * "already exists" case safely on its own.
+ */
+export function ensureDirSync(dir: string, deps: DisconnectSweepFsDeps): void {
+  deps.mkdirSync(dir, { recursive: true });
 }
 
 function readHwm(deps: DisconnectSweepFsDeps): string | null {
@@ -74,7 +88,7 @@ function readHwm(deps: DisconnectSweepFsDeps): string | null {
 function writeHwm(timestamp: string, deps: DisconnectSweepFsDeps): void {
   try {
     const dir = path.dirname(getHwmPath());
-    if (!deps.existsSync(dir)) deps.mkdirSync(dir);
+    ensureDirSync(dir, deps);
     deps.writeFileSync(getHwmPath(), JSON.stringify({ lastSweptTimestamp: timestamp } as HwmState));
   } catch (err) {
     log.warn("mcp-disconnect-sweep: failed to persist HWM (best-effort)", {
