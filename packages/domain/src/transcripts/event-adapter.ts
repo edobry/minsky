@@ -121,6 +121,36 @@ function normalizeContent(content: unknown): ContentBlock[] {
 }
 
 /**
+ * Resolve a `TranscriptMessage`'s actual content payload.
+ *
+ * DISCOVERY (verified against live `agent_transcripts` rows, mt#3157
+ * implementation): despite `TranscriptMessage`'s declared shape (`content`
+ * flattened directly onto the message), the REAL production ingestion path
+ * (`agent-transcript-ingest-service.ts`, not the transitional/legacy
+ * `AgentTranscriptService.ingestTranscript`) writes the raw harness JSONL
+ * line verbatim — `{ type, message: { role, content }, timestamp, uuid, cwd,
+ * ... }` — matching `transcript-source.ts`'s `RawTurnLine` shape, i.e. the
+ * SAME nested shape `turn-extractor.ts` reads (`line.message.content`), not
+ * the flattened `TranscriptMessage.content` the seam's TS type promises.
+ * This resolver reads the nested `message.content` when present (the live
+ * shape) and falls back to the flat `.content` field (the seam's documented
+ * type, and this module's own test fixtures) otherwise — defensive against
+ * either shape rather than trusting the seam's type annotation.
+ */
+interface RawTranscriptLineShape extends TranscriptMessage {
+  /** Present on real production rows (see the resolver doc comment above). */
+  message?: { content?: unknown; [key: string]: unknown };
+}
+
+function resolveInnerContent(msg: TranscriptMessage): unknown {
+  const raw = msg as RawTranscriptLineShape;
+  if (raw.message !== null && typeof raw.message === "object" && "content" in (raw.message ?? {})) {
+    return raw.message?.content;
+  }
+  return msg.content;
+}
+
+/**
  * Claude Code's synthesized "user cancelled" marker (mt#3131 D6) — harness
  * plumbing, not a real prompt. Duplicated (not imported) from
  * `turn-extractor.ts`'s `SYNTHETIC_INTERRUPT_MARKERS`, matching that file's
@@ -621,15 +651,16 @@ export function adaptTranscriptToEvents(
     if (!msg) continue;
 
     if (msg.type === "assistant") {
-      const blocks = normalizeContent(msg.content);
+      const blocks = normalizeContent(resolveInnerContent(msg));
       const batchId = makeBatchId(msg, i);
       const tStart = msg.timestamp ?? "";
 
       const next = messages[i + 1];
       const nextIsUser = next?.type === "user";
-      const resultBlocks = nextIsUser
-        ? normalizeContent(next.content).filter((b) => b.type === "tool_result")
-        : [];
+      const resultBlocks =
+        nextIsUser && next
+          ? normalizeContent(resolveInnerContent(next)).filter((b) => b.type === "tool_result")
+          : [];
       const resultById = new Map<string, ContentBlock>();
       for (const rb of resultBlocks) {
         if (typeof rb.tool_use_id === "string") resultById.set(rb.tool_use_id, rb);
@@ -667,7 +698,7 @@ export function adaptTranscriptToEvents(
         }
       }
     } else if (msg.type === "user") {
-      const blocks = normalizeContent(msg.content);
+      const blocks = normalizeContent(resolveInnerContent(msg));
       const hasToolResult = blocks.some((b) => b.type === "tool_result");
       if (hasToolResult) continue; // a completion, not a fresh prompt — handled above.
 
