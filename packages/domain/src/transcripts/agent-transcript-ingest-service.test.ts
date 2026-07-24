@@ -373,6 +373,60 @@ describe("AgentTranscriptIngestService", () => {
       expect(row?.lastIngestedJsonlTimestamp?.toISOString()).toBe(TS3);
     });
 
+    // mt#3131 (D2): endedAt must assert TERMINATION, not "last observed".
+    describe("endedAt semantics (mt#3131 D2)", () => {
+      test("a routine ingest (no sessionEnded) leaves endedAt null", async () => {
+        const lines = makeLines([TS1, TS2]);
+        const source = new FakeTranscriptSource();
+        source.addSession(SESSION_A, lines);
+        const state = new Map<string, FakeRow>();
+        const db = makeDb(state);
+        db._primeSession(SESSION_A);
+
+        const svc = makeSvc(db, source);
+        await svc.ingestSession(makeDiscovered(SESSION_A));
+
+        const row = state.get(SESSION_A);
+        expect(row?.endedAt).toBeNull();
+      });
+
+      test("sessionEnded: true records a real endedAt", async () => {
+        const lines = makeLines([TS1, TS2]);
+        const source = new FakeTranscriptSource();
+        source.addSession(SESSION_A, lines);
+        const state = new Map<string, FakeRow>();
+        const db = makeDb(state);
+        db._primeSession(SESSION_A);
+
+        const svc = makeSvc(db, source);
+        await svc.ingestSession(makeDiscovered(SESSION_A), { sessionEnded: true });
+
+        const row = state.get(SESSION_A);
+        expect(row?.endedAt?.toISOString()).toBe(TS2);
+      });
+
+      test("a routine poll after sessionEnded:true does not regress endedAt back to null", async () => {
+        const source = new FakeTranscriptSource();
+        source.addSession(SESSION_A, makeLines([TS1, TS2]));
+        const state = new Map<string, FakeRow>();
+        const db = makeDb(state);
+        db._primeSession(SESSION_A);
+        const svc = makeSvc(db, source);
+
+        await svc.ingestSession(makeDiscovered(SESSION_A), { sessionEnded: true });
+        expect(state.get(SESSION_A)?.endedAt?.toISOString()).toBe(TS2);
+
+        // A later incremental poll (e.g. the boot sweep re-observing the same
+        // session) picks up a NEW line but carries no termination evidence.
+        source.addSession(SESSION_A, makeLines([TS1, TS2, TS3]));
+        await svc.ingestSession(makeDiscovered(SESSION_A));
+
+        const row = state.get(SESSION_A);
+        expect(row?.endedAt?.toISOString()).toBe(TS2);
+        expect(row?.lastIngestedJsonlTimestamp?.toISOString()).toBe(TS3);
+      });
+    });
+
     test("incremental: skips lines at or before high-water-mark", async () => {
       // Pre-seed state with TS1+TS2 already ingested; HWM = TS2.
       const state = new Map<string, FakeRow>();

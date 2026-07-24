@@ -12,6 +12,7 @@ import {
 } from "./lib/widget-client";
 import { createCockpitSseClient } from "./lib/sse-client";
 import { queryKeysForChannel } from "./lib/sse-invalidation";
+import { createInFlightGate } from "./lib/in-flight-gate";
 import { HomePage } from "./pages/HomePage";
 
 // Lazy-loaded page routes — each becomes its own chunk on first visit.
@@ -241,10 +242,37 @@ export function App() {
   // ---------------------------------------------------------------------------
   // App-level polling for prop-driven widgets (including promoted ones so their
   // pages receive data immediately without a separate fetch setup).
+  //
+  // mt#3131 (D4): reproduced via direct code reading, not a live browser
+  // session — the ORIGINAL "missing dependency array or cleanup" hypothesis
+  // is REFUTED by this effect's own code: the dependency array is `[]` (runs
+  // once) and every `setInterval` id is cleared in the cleanup function
+  // below. The actual firing site is the interval CALLBACK itself: it fires
+  // `fetchWidgetData(meta.id)` unconditionally on every tick with no guard
+  // against the PREVIOUS tick's fetch still being in flight. The task-graph
+  // widget's own comment ("~1K nodes; 5s is too aggressive for a heavy
+  // render") flags its fetch as expensive — if a live conversation's DB load
+  // makes one fetch take longer than the 10s interval, ticks pile up
+  // unbounded (a browser caps concurrent same-origin connections at ~6, so a
+  // backlog of pending fetches starves unrelated tabs' requests too, matching
+  // the observed "stalling unrelated tabs" symptom). `createInFlightGate`
+  // below closes this gap: at most one outstanding fetch per widget id at any
+  // time (see `lib/in-flight-gate.ts` for the unit-tested guard logic).
   // ---------------------------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
     const intervalIds: ReturnType<typeof setInterval>[] = [];
+    const gate = createInFlightGate();
+
+    function fetchAndApply(widgetId: string): void {
+      gate.run(widgetId, () =>
+        fetchWidgetData(widgetId).then((data) => {
+          if (!cancelled) {
+            setWidgets((prev) => prev.map((w) => (w.meta.id === widgetId ? { ...w, data } : w)));
+          }
+        })
+      );
+    }
 
     async function init() {
       let metas: WidgetMeta[];
@@ -267,26 +295,12 @@ export function App() {
         }
 
         // Initial fetch for prop-driven widgets (including promoted ones)
-        fetchWidgetData(meta.id)
-          .then((data) => {
-            if (!cancelled) {
-              setWidgets((prev) => prev.map((w) => (w.meta.id === meta.id ? { ...w, data } : w)));
-            }
-          })
-          .catch(() => {});
+        fetchAndApply(meta.id);
 
         // Polling for polling-mode widgets
         if (meta.updateMode.type === "polling") {
           const id = setInterval(() => {
-            fetchWidgetData(meta.id)
-              .then((data) => {
-                if (!cancelled) {
-                  setWidgets((prev) =>
-                    prev.map((w) => (w.meta.id === meta.id ? { ...w, data } : w))
-                  );
-                }
-              })
-              .catch(() => {});
+            fetchAndApply(meta.id);
           }, meta.updateMode.intervalMs);
           intervalIds.push(id);
         }
