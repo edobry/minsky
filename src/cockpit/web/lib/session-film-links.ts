@@ -78,3 +78,15 @@ export function resolveEntityLink(target: { id: string }): ResolvedEntityLink {
   // entities with a home page). Render as a plain non-navigable label.
   return { kind: "none", label: id };
 }
+
+/**
+ * Receipt path for a policy-actor denial (spec SC 8 / AT 4: "policy denials
+ * link to guard docs"). Mirrors `hook-files.mdc`'s documented convention —
+ * "On denial: `docs/architecture/hooks/<name>.md`" — this is a repo path,
+ * not a browser URL, so the stage renders it as a receipt LABEL (title/data
+ * attribute) rather than an `<a href>`; there is no in-cockpit doc viewer
+ * route in v0.
+ */
+export function guardDocReceiptPath(guardName: string): string {
+  return `docs/architecture/hooks/${guardName}.md`;
+}
