@@ -30,7 +30,12 @@ export interface ToolBreakdownEntry {
 export interface ConversationStats {
   /** Total tool-call count across every turn in `blocks`. */
   toolCallCount: number;
-  /** Count of tool-result elements with `isError: true`. */
+  /**
+   * Count of tool-result elements with `isError: true`, EXCLUDING
+   * interruption-rejections (mt#3131 D6) — the user cancelling a pending
+   * tool call is not a genuine tool failure, even though the harness marks
+   * it `is_error: true` too.
+   */
   toolErrorCount: number;
   /** Top-N tools by call count, descending (ties broken alphabetically). */
   toolBreakdown: ToolBreakdownEntry[];
@@ -77,7 +82,11 @@ export function computeConversationStats(
         const label = friendlyToolName(el.name);
         breakdown.set(label, (breakdown.get(label) ?? 0) + 1);
       } else if (el.kind === "tool-result") {
-        if (el.isError) toolErrorCount += 1;
+        // mt#3131 (D6): an interruption-rejection carries `isError: true` at
+        // the harness level (the user cancelled a pending tool call) but is
+        // not a genuine tool FAILURE — exclude it from the aggregate so the
+        // red "errors" tally isn't inflated by every interrupted call.
+        if (el.isError && !el.isInterruptionRejection) toolErrorCount += 1;
       } else if (el.kind === "text") {
         const text = el.text.trim();
         if (!text) continue;

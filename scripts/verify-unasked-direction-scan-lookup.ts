@@ -45,6 +45,7 @@ import {
 } from "../.minsky/hooks/post-merge-unasked-direction-scan";
 import { ensureHookDomainBootstrap } from "../.minsky/hooks/domain-bootstrap";
 import type { ToolHookInput } from "../.minsky/hooks/types";
+import capturedPayloads from "../.minsky/hooks/fixtures/session-pr-merge-payloads.json";
 import { mkdtempSync, mkdirSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -94,14 +95,31 @@ const workspaceId =
     ? process.argv[3]
     : "00000000-0000-0000-0000-000000000000";
 
+// mt#3127: the payload envelope is taken from a CAPTURED real
+// `session_pr_merge` return, with only the ids substituted. The previous
+// version of this script AUTHORED its own `tool_result: { session: { sessionId
+// } }` — a shape the tool does not return — so it validated the conversation-id
+// half while production skipped every merge at the workspace-id half. A
+// hand-written fixture tests the reader against itself.
+interface CapturedMergePayload {
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  toolResult: { success: boolean; result: Record<string, unknown> };
+}
+
+const captured: CapturedMergePayload = capturedPayloads.taskInvoked;
+
 const payload: ToolHookInput = {
   session_id: conversationId,
   cwd: process.cwd(),
   hook_event_name: "PostToolUse",
-  tool_name: "mcp__minsky__session_pr_merge",
-  tool_input: { sessionId: workspaceId, task: "mt#3066" },
-  tool_result: { session: { sessionId: workspaceId, taskId: "mt#3066" } },
-} as ToolHookInput;
+  tool_name: captured.toolName,
+  tool_input: { ...captured.toolInput },
+  tool_result: {
+    ...captured.toolResult,
+    result: { ...captured.toolResult.result, session: workspaceId },
+  },
+};
 
 // 1. The hook still resolves the workspace context (findings key / analyzer label).
 const ctx = resolveSessionContext(payload);
@@ -120,12 +138,40 @@ record(
 );
 
 // 3. The lookup that was dead: it must resolve for the id production supplies.
+//
+// mt#3127: probe reachability FIRST. A transient
+// `CONNECT_TIMEOUT ...pooler.supabase.com:6543` makes `loadTranscript` return
+// null, which is indistinguishable from "no such transcript" at this seam — and
+// reporting that as "the lookup is still broken" would be the same conflation
+// this whole task family exists to remove, committed by the checker itself.
+// Observed live 2026-07-23: the row existed with 979 turns while this check
+// read null, purely because the 2s hook connect budget was exceeded.
+let dbReachable = true;
+try {
+  const { resolvePersistenceProvider } = await import("../packages/domain/src/persistence/factory");
+  const provider = await resolvePersistenceProvider();
+  dbReachable = Boolean(
+    provider &&
+      "getDatabaseConnection" in provider &&
+      (await (provider as { getDatabaseConnection(): Promise<unknown> }).getDatabaseConnection())
+  );
+} catch {
+  dbReachable = false;
+}
+
+if (!dbReachable) {
+  skip(
+    "database unreachable from this process (connect timeout) — cannot distinguish a broken " +
+      "lookup from an absent row, so this check is inconclusive rather than failed. Retry."
+  );
+}
+
 const transcript = resolved ? await loadTranscript(resolved) : null;
 record(
   "loadTranscript resolves a stored transcript for that conversation id",
   Array.isArray(transcript) && transcript.length > 0,
   transcript === null
-    ? "null — the conversation is not ingested yet, or the lookup is still broken"
+    ? "null WITH the database reachable — the conversation is genuinely not ingested, or the lookup is broken"
     : `${transcript.length} message(s)`
 );
 

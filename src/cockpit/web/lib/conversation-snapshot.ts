@@ -84,3 +84,34 @@ export function snapshotRetry(failureCount: number, error: Error): boolean {
   if (status !== undefined && status >= 400 && status < 500) return false;
   return failureCount < 3;
 }
+
+/**
+ * Renderable classification of a failed snapshot fetch (mt#3131 PR #2245 R1
+ * hardening). The ONE place the server's error-code/status contract is
+ * interpreted — UI components branch on the returned class, never on raw
+ * `code === "..."` strings or bare status numbers, so a server-side drift in
+ * either dimension has exactly one client-side site to update.
+ *
+ *   - `"wrong_id_space"` — a Minsky WORKSPACE session id used where a harness
+ *     conversation id is required (mt#2525 fail-loud). Matched by code OR by
+ *     the 422 status alone (an intermediary/proxy that drops the JSON body
+ *     but preserves the status still classifies correctly — reviewer #1729).
+ *   - `"invalid_id"` — the id is not even conversation-id-shaped and could
+ *     never resolve (mt#3131 D3/D5). Matched by code regardless of status,
+ *     so a server-side status change (404 → 400, say) cannot silently
+ *     downgrade this to the misleading "may still be running" copy.
+ *   - `"not_found"` — a syntactically plausible id with no transcript (yet).
+ *     Any OTHER 404 lands here, including an unrecognized future code — the
+ *     honest fallback for "the server said the entity doesn't exist."
+ *   - `"other"` — everything else (500s, network shapes, non-Snapshot
+ *     errors); callers render a generic error state.
+ */
+export type SnapshotErrorClass = "wrong_id_space" | "invalid_id" | "not_found" | "other";
+
+export function classifySnapshotError(error: Error): SnapshotErrorClass {
+  if (!(error instanceof SnapshotError)) return "other";
+  if (error.code === "wrong_id_space" || error.status === 422) return "wrong_id_space";
+  if (error.code === "invalid_id") return "invalid_id";
+  if (error.status === 404) return "not_found";
+  return "other";
+}

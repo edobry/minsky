@@ -48,11 +48,21 @@ const MODE_ENV_VAR = "MINSKY_UNASKED_DIRECTION_DETECTOR";
 
 type DetectorMode = "log-only" | "disabled";
 
-/** Tool names the hook reacts to. */
-const COVERED_TOOL_NAMES = new Set([
-  "mcp__minsky__session_pr_merge",
-  "mcp__github__merge_pull_request",
-]);
+/** Tool names the hook reacts to.
+ *
+ * mt#3127: `mcp__github__merge_pull_request` was REMOVED. Its schema takes
+ * `owner` / `repo` / `pullNumber` and nothing else, and its result is a raw
+ * GitHub merge response — there is no Minsky workspace session id anywhere in
+ * the payload, so `resolveSessionContext` could never succeed for it and the
+ * findings file (keyed by workspace session id) could never be written. Every
+ * invocation of that tool since mt#1543 hit the could-not-resolve exit. A
+ * permanently-dead branch that logs like a recoverable one is the exact defect
+ * class this hook has now been fixed for three times; keeping it "just in
+ * case" would preserve it. Re-adding it means first resolving a workspace from
+ * the PR number (the `sessions` table carries `pullRequest.number`), which is a
+ * real feature, not a coverage list entry.
+ */
+const COVERED_TOOL_NAMES = new Set(["mcp__minsky__session_pr_merge"]);
 
 function readMode(): DetectorMode {
   const raw = process.env[MODE_ENV_VAR];
@@ -65,13 +75,101 @@ function readMode(): DetectorMode {
 // ---------------------------------------------------------------------------
 
 /**
- * Pull the session ID + task ID out of the tool input/response.
+ * The payload locations a workspace session id has actually been observed in,
+ * most-specific first. Each entry is named so an unresolvable payload can say
+ * WHICH shapes were tried rather than just "could not resolve".
  *
- * `mcp__minsky__session_pr_merge` accepts either `sessionId` or `task`.
- * The tool response typically includes the session record under
- * `tool_result.session.{sessionId,taskId}`.
+ * mt#3127: the `tool_result.result.session` entry is the one that was missing,
+ * and it is the one production uses. `session_pr_merge` returns
+ * `{ success, result: { session: "<workspaceId>", taskId, mergeInfo, ... } }` —
+ * the id is a STRING nested under `result`, not an object with a `sessionId`
+ * field. The resolver only looked at `tool_result.session.sessionId`, so a
+ * `task:`-invoked merge (the common form) matched nothing and the hook exited
+ * before any of mt#3019's, mt#3046's or mt#3066's fixes were reached.
  *
- * Returns `null` if neither input nor response yields a session ID.
+ * These shapes are pinned by fixtures CAPTURED FROM REAL INVOCATIONS
+ * (`fixtures/session-pr-merge-payloads.json`), not authored from expectation —
+ * a hand-written fixture tests the reader against itself, which is how this
+ * defect survived mt#3066's verification.
+ */
+const SESSION_ID_ACCESSORS: ReadonlyArray<{
+  readonly where: string;
+  readonly read: (params: Record<string, unknown>, result: Record<string, unknown>) => unknown;
+}> = [
+  { where: "tool_input.sessionId", read: (params) => params["sessionId"] },
+  { where: "tool_input.session", read: (params) => params["session"] },
+  {
+    where: "tool_result.result.session",
+    read: (_params, result) =>
+      isObject(result["result"]) ? result["result"]["session"] : undefined,
+  },
+  {
+    where: "tool_result.session.sessionId",
+    read: (_params, result) =>
+      isObject(result["session"]) ? result["session"]["sessionId"] : undefined,
+  },
+  { where: "tool_result.sessionId", read: (_params, result) => result["sessionId"] },
+];
+
+/** Task-id locations, mirroring the session-id list above. */
+const TASK_ID_ACCESSORS: ReadonlyArray<
+  (params: Record<string, unknown>, result: Record<string, unknown>) => unknown
+> = [
+  (params) => params["task"],
+  (_params, result) => (isObject(result["result"]) ? result["result"]["taskId"] : undefined),
+  (_params, result) => (isObject(result["session"]) ? result["session"]["taskId"] : undefined),
+];
+
+function firstString(values: readonly unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return undefined;
+}
+
+/**
+ * Describe the shape of a payload that yielded no session id, so a future
+ * envelope change is diagnosable from the log alone instead of requiring a
+ * replay. Names the keys actually present rather than dumping values, which
+ * may carry repo paths.
+ *
+ * BOUNDED (PR #2246 R1): a payload with many keys would otherwise produce an
+ * unbounded stderr line. At most {@link MAX_DESCRIBED_KEYS} names are listed
+ * per object, with the elided count reported — enough to recognize an envelope,
+ * without a log line nobody reads.
+ *
+ * Exported for tests.
+ */
+export const MAX_DESCRIBED_KEYS = 12;
+
+function describeKeys(source: Record<string, unknown>): string {
+  const keys = Object.keys(source);
+  if (keys.length <= MAX_DESCRIBED_KEYS) return keys.join(",");
+  return `${keys.slice(0, MAX_DESCRIBED_KEYS).join(",")},…+${keys.length - MAX_DESCRIBED_KEYS} more`;
+}
+
+export function describeToolResultShape(input: ToolHookInput): string {
+  const params = input.tool_input ?? {};
+  const result = input.tool_result ?? {};
+  const nested = isObject(result["result"]) ? describeKeys(result["result"]) : null;
+  return (
+    `tool_input keys=[${describeKeys(params)}] ` +
+    `tool_result keys=[${describeKeys(result)}]${
+      nested === null ? "" : ` tool_result.result keys=[${nested}]`
+    } (tried: ${SESSION_ID_ACCESSORS.map((a) => a.where).join(", ")})`
+  );
+}
+
+/**
+ * Pull the workspace session id + task id out of the tool input/response.
+ *
+ * `mcp__minsky__session_pr_merge` accepts either `sessionId` or `task`; on
+ * success its response carries the session record. See
+ * {@link SESSION_ID_ACCESSORS} for the observed locations and why the list
+ * exists.
+ *
+ * Returns `null` if no location yields a session id — the caller logs
+ * {@link describeToolResultShape} so the miss is diagnosable.
  */
 export function resolveSessionContext(input: ToolHookInput): {
   sessionId: string;
@@ -80,25 +178,14 @@ export function resolveSessionContext(input: ToolHookInput): {
   const params = input.tool_input ?? {};
   const result = input.tool_result ?? {};
 
-  const sessionId =
-    typeof params["sessionId"] === "string"
-      ? params["sessionId"]
-      : typeof params["session"] === "string"
-        ? params["session"]
-        : isObject(result["session"]) && typeof result["session"]["sessionId"] === "string"
-          ? result["session"]["sessionId"]
-          : undefined;
-
+  const sessionId = firstString(
+    SESSION_ID_ACCESSORS.map((accessor) => accessor.read(params, result))
+  );
   if (!sessionId) return null;
 
-  const taskId =
-    typeof params["task"] === "string"
-      ? params["task"]
-      : isObject(result["session"]) && typeof result["session"]["taskId"] === "string"
-        ? result["session"]["taskId"]
-        : undefined;
+  const taskId = firstString(TASK_ID_ACCESSORS.map((read) => read(params, result)));
 
-  return { sessionId, taskId };
+  return taskId ? { sessionId, taskId } : { sessionId };
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -264,8 +351,12 @@ if (import.meta.main) {
 
   const ctx = resolveSessionContext(input);
   if (!ctx) {
+    // mt#3127: name the shapes tried and the keys actually present. The bare
+    // "could not resolve" this replaces hid a payload-envelope mismatch for the
+    // entire life of the hook — the message looked like a legitimate skip.
     process.stderr.write(
-      "[post-merge-unasked-direction-scan] Could not resolve sessionId from tool input — skipping\n"
+      `[post-merge-unasked-direction-scan] Could not resolve a workspace sessionId — skipping. ` +
+        `${describeToolResultShape(input)}\n`
     );
     process.exit(0);
   }

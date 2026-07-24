@@ -28,7 +28,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-turns-schema";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 // Type-only import (erased at compile time → no runtime cycle with the services
 // that import this module's value exports).
 import type { TranscriptTurnResult } from "./transcript-similarity-service";
@@ -154,7 +154,7 @@ export async function assessWindowCoverage(
         `searchable after \`transcripts index-embeddings\` runs (owned by mt#2234).`,
     };
   } catch (err) {
-    log.warn(`assessWindowCoverage: coverage check failed: ${getErrorMessage(err)}`);
+    log.warn(`assessWindowCoverage: coverage check failed: ${getLoggableErrorSummary(err)}`);
     return { unindexedSessionsInWindow: 0 };
   }
 }
