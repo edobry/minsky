@@ -3,6 +3,7 @@ import {
   computeDispatchWatchdogFlags,
   buildDispatchWatchdogSnapshot,
   DISPATCH_WATCHDOG_STALE_MS,
+  DISPATCH_WATCHDOG_MAX_AGE_MS,
   LAST_EVENT_AT_QUERY,
   DispatchWatchdogSweepTracker,
   type InFlightInvocationRow,
@@ -163,6 +164,84 @@ describe("computeDispatchWatchdogFlags", () => {
     expect(flags).toHaveLength(1);
     expect(flags[0]?.taskId).toBe("mt#1");
   });
+
+  // mt#3062 AT: a row orphaned weeks ago whose task is moved back to
+  // IN-PROGRESS does not produce a multi-week stall flag (age-bound).
+  test("a row started weeks ago on a reopened task is suppressed by the age bound", () => {
+    const weeksAgo = new Date(NOW_MS - 21 * 24 * 60 * 60 * 1000).toISOString(); // 3 weeks ago
+    const flags = computeDispatchWatchdogFlags(
+      [row({ startedAt: weeksAgo })],
+      { "mt#2646": "IN-PROGRESS" }, // reopened/resumed back to IN-PROGRESS
+      noActivity,
+      NOW_MS,
+      DISPATCH_WATCHDOG_STALE_MS,
+      DISPATCH_WATCHDOG_MAX_AGE_MS
+    );
+    expect(flags).toHaveLength(0);
+  });
+
+  // mt#3062 AT: a still-fresh in-flight dispatch of a genuinely live task IS
+  // still flagged when it exceeds the stale window — the age bound must not
+  // over-suppress ordinary stalls well within the age bound.
+  test("a fresh dispatch well within the age bound is still flagged once stale", () => {
+    const twoHoursAgo = new Date(NOW_MS - 2 * 60 * 60 * 1000).toISOString();
+    const flags = computeDispatchWatchdogFlags(
+      [row({ startedAt: twoHoursAgo })],
+      { "mt#2646": "IN-PROGRESS" },
+      noActivity,
+      NOW_MS,
+      DISPATCH_WATCHDOG_STALE_MS,
+      DISPATCH_WATCHDOG_MAX_AGE_MS
+    );
+    expect(flags).toHaveLength(1);
+  });
+
+  // mt#3062 AT: a row whose session workspace is absent is not flagged
+  // (distinguishes "session gone" from "session silent").
+  test("a row whose session workspace is confirmed gone is not flagged", () => {
+    const activity: ActivitySources = {
+      lastCommitAtMs: () => null,
+      lastEventAtMs: () => null,
+      sessionExists: () => false, // workspace confirmed deleted/gone
+    };
+    const flags = computeDispatchWatchdogFlags(
+      [row()], // startedAt 60m ago — well past the 30m stale window
+      { "mt#2646": "IN-PROGRESS" },
+      activity,
+      NOW_MS,
+      DISPATCH_WATCHDOG_STALE_MS
+    );
+    expect(flags).toHaveLength(0);
+  });
+
+  test("a row whose session existence is unknown (null) is still flagged — unknown is not gone", () => {
+    const activity: ActivitySources = {
+      lastCommitAtMs: () => null,
+      lastEventAtMs: () => null,
+      sessionExists: () => null, // can't determine — must not suppress
+    };
+    const flags = computeDispatchWatchdogFlags(
+      [row()],
+      { "mt#2646": "IN-PROGRESS" },
+      activity,
+      NOW_MS,
+      DISPATCH_WATCHDOG_STALE_MS
+    );
+    expect(flags).toHaveLength(1);
+  });
+
+  test("ActivitySources without a sessionExists method behaves as unknown (backward compatible)", () => {
+    // noActivity predates the sessionExists field entirely — omitting it
+    // must not suppress flags (equivalent to always returning null).
+    const flags = computeDispatchWatchdogFlags(
+      [row()],
+      { "mt#2646": "IN-PROGRESS" },
+      noActivity,
+      NOW_MS,
+      DISPATCH_WATCHDOG_STALE_MS
+    );
+    expect(flags).toHaveLength(1);
+  });
 });
 
 describe("buildDispatchWatchdogSnapshot", () => {
@@ -170,6 +249,7 @@ describe("buildDispatchWatchdogSnapshot", () => {
     let taskStatusCalls = 0;
     let commitCalls = 0;
     let eventCalls = 0;
+    let sessionExistsCalls = 0;
 
     const deps: DispatchWatchdogDeps = {
       listInFlightInvocations: async () => [
@@ -185,6 +265,10 @@ describe("buildDispatchWatchdogSnapshot", () => {
         commitCalls += 1;
         return null;
       },
+      getSessionExists: async () => {
+        sessionExistsCalls += 1;
+        return true;
+      },
       getLastEventAtMs: async () => {
         eventCalls += 1;
         return null;
@@ -196,6 +280,7 @@ describe("buildDispatchWatchdogSnapshot", () => {
     expect(taskStatusCalls).toBe(1);
     expect(commitCalls).toBe(1);
     expect(eventCalls).toBe(1);
+    expect(sessionExistsCalls).toBe(1);
     expect(snapshot.checkedAt).toBe(new Date(NOW_MS).toISOString());
     expect(snapshot.staleMs).toBe(DISPATCH_WATCHDOG_STALE_MS);
     expect(snapshot.flags).toHaveLength(2);
@@ -206,9 +291,26 @@ describe("buildDispatchWatchdogSnapshot", () => {
       listInFlightInvocations: async () => [],
       getTaskStatus: async () => null,
       getLastCommitAtMs: async () => null,
+      getSessionExists: async () => null,
       getLastEventAtMs: async () => null,
     };
     const snapshot = await buildDispatchWatchdogSnapshot(deps, NOW_MS);
+    expect(snapshot.flags).toHaveLength(0);
+  });
+
+  // mt#3062 AT (end-to-end): a row whose session workspace is confirmed
+  // gone via the real dependency wiring is not flagged.
+  test("suppresses a flag when getSessionExists resolves false", async () => {
+    const deps: DispatchWatchdogDeps = {
+      listInFlightInvocations: async () => [
+        row({ taskId: "mt#2646", subagentSessionId: "s1", startedAt: "2026-07-07T11:00:00.000Z" }),
+      ],
+      getTaskStatus: async () => "IN-PROGRESS",
+      getLastCommitAtMs: async () => null,
+      getSessionExists: async () => false,
+      getLastEventAtMs: async () => null,
+    };
+    const snapshot = await buildDispatchWatchdogSnapshot(deps, NOW_MS, DISPATCH_WATCHDOG_STALE_MS);
     expect(snapshot.flags).toHaveLength(0);
   });
 });
