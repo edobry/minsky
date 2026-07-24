@@ -10,15 +10,23 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { resolveConversationId, resolveSessionContext } from "./post-merge-unasked-direction-scan";
+import {
+  describeToolResultShape,
+  MAX_DESCRIBED_KEYS,
+  resolveConversationId,
+  resolveSessionContext,
+} from "./post-merge-unasked-direction-scan";
 import type { ToolHookInput } from "./types";
+import capturedPayloads from "./fixtures/session-pr-merge-payloads.json";
+
+const MERGE_TOOL_NAME = "mcp__minsky__session_pr_merge";
 
 function makeInput(overrides: Partial<ToolHookInput>): ToolHookInput {
   return {
     session_id: "abc",
     cwd: "/tmp/repo",
     hook_event_name: "PostToolUse",
-    tool_name: "mcp__minsky__session_pr_merge",
+    tool_name: MERGE_TOOL_NAME,
     tool_input: {},
     ...overrides,
   };
@@ -127,5 +135,95 @@ describe("resolveConversationId", () => {
     // transcript lookup moved to the conversation id.
     expect(resolveSessionContext(input)).toEqual({ sessionId: "workspace-1", taskId: "mt#3066" });
     expect(resolveConversationId(input)).toBe("conv-1");
+  });
+});
+
+describe("resolveSessionContext against CAPTURED real payloads (mt#3127)", () => {
+  // These fixtures are copied from actual `session_pr_merge` returns, not
+  // authored to match the resolver. The distinction is the whole point: the
+  // previous verification invented `tool_result.session.sessionId`, which the
+  // tool does not return, and passed while production skipped every merge.
+  const cases = [
+    ["task-invoked (the form that never resolved)", capturedPayloads.taskInvoked],
+    ["sessionId-invoked", capturedPayloads.sessionIdInvoked],
+  ] as const;
+
+  for (const [name, fixture] of cases) {
+    it(`resolves the real ${name} payload`, () => {
+      const input = {
+        session_id: "00000000-0000-4000-8000-0000000000ff",
+        cwd: "/repo",
+        hook_event_name: "PostToolUse",
+        tool_name: fixture.toolName,
+        tool_input: fixture.toolInput,
+        tool_result: fixture.toolResult,
+      } as unknown as ToolHookInput;
+
+      expect(resolveSessionContext(input)).toEqual({
+        sessionId: fixture.expected.sessionId,
+        taskId: fixture.expected.taskId,
+      });
+    });
+  }
+
+  it("reads the session id from tool_result.result.session — the location production uses", () => {
+    // Pinning the specific accessor that was missing. If a refactor drops it,
+    // the task-invoked case above fails too, but this test names the cause.
+    const fixture = capturedPayloads.taskInvoked;
+    expect(fixture.toolResult.result.session).toBe(fixture.expected.sessionId);
+    expect(typeof fixture.toolResult.result.session).toBe("string");
+  });
+});
+
+describe("unresolvable payload diagnostics (mt#3127)", () => {
+  it("names the keys present and the shapes tried", () => {
+    const input = {
+      session_id: "conv-1",
+      cwd: "/tmp/repo",
+      hook_event_name: "PostToolUse",
+      tool_name: MERGE_TOOL_NAME,
+      tool_input: { task: "mt#3127" },
+      tool_result: { success: true, result: { unexpectedKey: "x" } },
+    } as unknown as ToolHookInput;
+
+    expect(resolveSessionContext(input)).toBeNull();
+
+    const described = describeToolResultShape(input);
+    expect(described).toContain("tool_input keys=[task]");
+    expect(described).toContain("tool_result keys=[success,result]");
+    expect(described).toContain("tool_result.result keys=[unexpectedKey]");
+    expect(described).toContain("tool_result.result.session");
+  });
+
+  it("does not leak values, only key names", () => {
+    const input = {
+      session_id: "conv-1",
+      cwd: "/tmp/repo",
+      hook_event_name: "PostToolUse",
+      tool_name: MERGE_TOOL_NAME,
+      tool_input: { task: "mt#3127" },
+      tool_result: { success: true, result: { secretPath: "/Users/someone/private" } },
+    } as unknown as ToolHookInput;
+
+    expect(describeToolResultShape(input)).not.toContain("/Users/someone/private");
+  });
+
+  it("bounds the description for a payload with many keys (PR #2246 R1)", () => {
+    const manyKeys: Record<string, unknown> = {};
+    for (let i = 0; i < MAX_DESCRIBED_KEYS + 20; i++) manyKeys[`k${i}`] = i;
+
+    const input = {
+      session_id: "conv-1",
+      cwd: "/tmp/repo",
+      hook_event_name: "PostToolUse",
+      tool_name: MERGE_TOOL_NAME,
+      tool_input: { task: "mt#3127" },
+      tool_result: { success: true, result: manyKeys },
+    } as unknown as ToolHookInput;
+
+    const described = describeToolResultShape(input);
+    expect(described).toContain(`+20 more`);
+    // The elided keys must not appear in full.
+    expect(described).not.toContain(`k${MAX_DESCRIBED_KEYS + 19}`);
   });
 });
