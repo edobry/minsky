@@ -123,11 +123,21 @@ export class ManifestFlowProvisioner implements AppProvisioner {
       // an installationId. Stash them here so /check-install can pick up where
       // /callback left off.
       let pendingApp: AppCredentials | null = null;
+      // Declared with `let` (not `const`) and initialized to `undefined` so
+      // every closure below can safely reference it even if `serve()` throws
+      // before this variable is ever assigned. A `const server = serve(...)`
+      // declared after these closures leaves `server` in the temporal dead
+      // zone for as long as construction is in flight; if `serve()` throws,
+      // the already-scheduled `timer` callback (and any other closure that
+      // captured `server`) later throws `ReferenceError: Cannot access
+      // 'server' before initialization` instead of running cleanly — masking
+      // the real error and leaking an orphaned timer (mt#3124).
+      let server: ReturnType<typeof serve> | undefined;
 
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
-        server.stop(true);
+        server?.stop(true);
         // Two failure modes share the same deadline: (a) user never approved
         // the manifest at all, (b) user approved + we got creds but never
         // came back to /check-install. In case (b) we still reject with
@@ -143,7 +153,7 @@ export class ManifestFlowProvisioner implements AppProvisioner {
         settled = true;
         clearTimeout(timer);
         // Brief delay so the browser receives its response before the socket dies.
-        setTimeout(() => server.stop(true), 2000);
+        setTimeout(() => server?.stop(true), 2000);
         // `port` is captured for /check-install message reconstruction; not used here
         void port;
         resolve(creds);
@@ -153,142 +163,159 @@ export class ManifestFlowProvisioner implements AppProvisioner {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        server.stop(true);
+        server?.stop(true);
         reject(err instanceof Error ? err : new Error(String(err)));
       };
 
-      const server = serve({
-        port: this.port,
-        fetch: async (req) => {
-          const url = new URL(req.url);
+      try {
+        server = serve({
+          port: this.port,
+          fetch: async (req) => {
+            const url = new URL(req.url);
 
-          if (url.pathname === "/" && !settled) {
-            return new Response(html, {
-              headers: { "Content-Type": "text/html" },
-            });
-          }
-
-          if (url.pathname === "/callback") {
-            const code = url.searchParams.get("code");
-            if (!code) {
-              return new Response("No code in redirect. Check the URL for errors.", {
-                status: 400,
+            if (url.pathname === "/" && !settled) {
+              return new Response(html, {
+                headers: { "Content-Type": "text/html" },
               });
             }
 
-            try {
-              const resp = await fetch(`https://api.github.com/app-manifests/${code}/conversions`, {
-                method: "POST",
-                headers: {
-                  Accept: "application/vnd.github+json",
-                  "User-Agent": `${name}-setup`,
-                },
-              });
-
-              if (!resp.ok) {
-                const err = await resp.text();
-                fail(new Error(`GitHub API error during manifest conversion: ${err}`));
-                return new Response(`GitHub API error: ${err}`, { status: 500 });
+            if (url.pathname === "/callback") {
+              const code = url.searchParams.get("code");
+              if (!code) {
+                return new Response("No code in redirect. Check the URL for errors.", {
+                  status: 400,
+                });
               }
 
-              const app = (await resp.json()) as {
-                id: number;
-                slug: string;
-                pem: string;
-                client_id: string;
-                client_secret: string;
-                html_url: string;
-              };
-
-              // Attempt to look up the installation ID immediately. Apps just
-              // created via manifest are usually NOT yet installed; this path
-              // covers the rare case where the user pre-installed and we get
-              // lucky.
-              let installationId: number | undefined;
               try {
-                installationId = await this.installationLookup(app.id, app.pem, owner, name);
-              } catch {
-                // Non-fatal — fall through to the /check-install path below
-              }
+                const resp = await fetch(
+                  `https://api.github.com/app-manifests/${code}/conversions`,
+                  {
+                    method: "POST",
+                    headers: {
+                      Accept: "application/vnd.github+json",
+                      "User-Agent": `${name}-setup`,
+                    },
+                  }
+                );
 
-              const creds: AppCredentials = {
-                appId: app.id,
-                slug: app.slug,
-                clientId: app.client_id,
-                clientSecret: app.client_secret,
-                pem: app.pem,
-                htmlUrl: app.html_url,
-                installationId,
-              };
+                if (!resp.ok) {
+                  const err = await resp.text();
+                  fail(new Error(`GitHub API error during manifest conversion: ${err}`));
+                  return new Response(`GitHub API error: ${err}`, { status: 500 });
+                }
 
-              if (installationId !== undefined) {
-                // Happy path: App created AND already installed.
-                settle(creds, this.port);
-                const okHtml = `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:600px;margin:40px auto;padding:0 20px">
+                const app = (await resp.json()) as {
+                  id: number;
+                  slug: string;
+                  pem: string;
+                  client_id: string;
+                  client_secret: string;
+                  html_url: string;
+                };
+
+                // Attempt to look up the installation ID immediately. Apps just
+                // created via manifest are usually NOT yet installed; this path
+                // covers the rare case where the user pre-installed and we get
+                // lucky.
+                let installationId: number | undefined;
+                try {
+                  installationId = await this.installationLookup(app.id, app.pem, owner, name);
+                } catch {
+                  // Non-fatal — fall through to the /check-install path below
+                }
+
+                const creds: AppCredentials = {
+                  appId: app.id,
+                  slug: app.slug,
+                  clientId: app.client_id,
+                  clientSecret: app.client_secret,
+                  pem: app.pem,
+                  htmlUrl: app.html_url,
+                  installationId,
+                };
+
+                if (installationId !== undefined) {
+                  // Happy path: App created AND already installed.
+                  settle(creds, this.port);
+                  const okHtml = `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:600px;margin:40px auto;padding:0 20px">
 <h1>Done!</h1>
 <p><b>App ID:</b> ${app.id}</p>
 <p><b>Installation ID:</b> ${installationId}</p>
 <p>You can close this tab. Everything has been saved.</p>
 </body></html>`;
-                return new Response(okHtml, {
-                  headers: { "Content-Type": "text/html" },
-                });
-              }
+                  return new Response(okHtml, {
+                    headers: { "Content-Type": "text/html" },
+                  });
+                }
 
-              // App created but not yet installed. Stash creds, present the
-              // install link + /check-install round-trip, keep server alive.
-              pendingApp = creds;
-              const installUrl = `${app.html_url}/installations/new`;
-              const checkUrl = `http://localhost:${this.port}/check-install`;
-              const partialHtml = `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:600px;margin:40px auto;padding:0 20px">
+                // App created but not yet installed. Stash creds, present the
+                // install link + /check-install round-trip, keep server alive.
+                pendingApp = creds;
+                const installUrl = `${app.html_url}/installations/new`;
+                const checkUrl = `http://localhost:${this.port}/check-install`;
+                const partialHtml = `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:600px;margin:40px auto;padding:0 20px">
 <h1>App Created!</h1>
 <p><b>App ID:</b> ${app.id}</p>
 <p>Now install it on <code>${repo}</code>:</p>
 <a href="${installUrl}" style="display:inline-block;padding:12px 24px;font-size:16px;background:#238636;color:#fff;text-decoration:none;border-radius:6px">Install App</a>
 <p style="margin-top:20px;color:#666">After installing, return to this tab and visit <a href="${checkUrl}">${checkUrl}</a> to finish setup.</p>
 </body></html>`;
-              return new Response(partialHtml, {
-                headers: { "Content-Type": "text/html" },
-              });
-            } catch (err) {
-              fail(err);
-              return new Response("Internal error", { status: 500 });
-            }
-          }
-
-          if (url.pathname === "/check-install" && pendingApp && !settled) {
-            try {
-              const installationId = await this.installationLookup(
-                pendingApp.appId,
-                pendingApp.pem,
-                owner,
-                name
-              );
-              if (installationId === undefined) {
-                return new Response(
-                  `Installation not found yet. Make sure you installed the App on ${repo}, then refresh this page.`,
-                  { status: 404 }
-                );
+                return new Response(partialHtml, {
+                  headers: { "Content-Type": "text/html" },
+                });
+              } catch (err) {
+                fail(err);
+                return new Response("Internal error", { status: 500 });
               }
-              const completed: AppCredentials = { ...pendingApp, installationId };
-              settle(completed, this.port);
-              const doneHtml = `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:600px;margin:40px auto;padding:0 20px">
+            }
+
+            if (url.pathname === "/check-install" && pendingApp && !settled) {
+              try {
+                const installationId = await this.installationLookup(
+                  pendingApp.appId,
+                  pendingApp.pem,
+                  owner,
+                  name
+                );
+                if (installationId === undefined) {
+                  return new Response(
+                    `Installation not found yet. Make sure you installed the App on ${repo}, then refresh this page.`,
+                    { status: 404 }
+                  );
+                }
+                const completed: AppCredentials = { ...pendingApp, installationId };
+                settle(completed, this.port);
+                const doneHtml = `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:600px;margin:40px auto;padding:0 20px">
 <h1>All Done!</h1>
 <p><b>App ID:</b> ${pendingApp.appId}</p>
 <p><b>Installation ID:</b> ${installationId}</p>
 <p>You can close this tab.</p></body></html>`;
-              return new Response(doneHtml, {
-                headers: { "Content-Type": "text/html" },
-              });
-            } catch (err) {
-              fail(err);
-              return new Response("Internal error", { status: 500 });
+                return new Response(doneHtml, {
+                  headers: { "Content-Type": "text/html" },
+                });
+              } catch (err) {
+                fail(err);
+                return new Response("Internal error", { status: 500 });
+              }
             }
-          }
 
-          return new Response("Not found", { status: 404 });
-        },
-      });
+            return new Response("Not found", { status: 404 });
+          },
+        });
+      } catch (err) {
+        // serve() failed synchronously (e.g. the port is already bound —
+        // EADDRINUSE). `server` was never assigned, so surface the ORIGINAL
+        // error and clear the pending timer now — otherwise it fires later,
+        // unguarded, into whatever test or process happens to be running
+        // when its deadline elapses (mt#3124).
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
+        return;
+      }
 
       // Best-effort browser open
       const openCmd =
