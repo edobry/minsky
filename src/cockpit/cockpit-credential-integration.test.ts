@@ -164,17 +164,23 @@ describe("Credential schema integration", () => {
   // by strictObject schema") is stale. mt#2161 deliberately replaced the root
   // `configurationSchema`'s top-level shape from `z.strictObject` to
   // `z.object` -- see packages/domain/src/configuration/schemas/index.ts's
-  // "Strictness policy (mt#2161, replaces mt#1612)" docstring -- so that an
-  // unrecognized top-level key is warn-and-continue (stripped, with a
-  // loader-level warning) rather than a hard validation failure. That change
-  // shipped in commit 5860fbc4c ("fix(mt#2161): warn-and-continue on unknown
-  // top-level config keys"), landing AFTER this test was authored in mt#2146
-  // (commit f23fa0b6f, whose own message still describes "the real Zod
-  // strictObject schema"). Live-verified on this schema
-  // (`configurationSchema.safeParse`): an unrecognized top-level key no
-  // longer produces `success: false` -- it parses successfully. Updated to
-  // assert the current, intentional behavior instead of quarantining.
-  test("unknown top-level key is accepted (warn-and-continue), not rejected -- mt#2161", async () => {
+  // "Strictness policy (mt#2161, replaces mt#1612)" docstring -- so an
+  // unrecognized top-level key no longer fails `configurationSchema.safeParse`.
+  // That change shipped in commit 5860fbc4c ("fix(mt#2161): warn-and-continue
+  // on unknown top-level config keys"), landing AFTER this test was authored
+  // in mt#2146 (commit f23fa0b6f, whose own message still describes "the real
+  // Zod strictObject schema").
+  //
+  // Note this ConfigWriter code path itself does NOT strip the unknown key --
+  // `setConfigValue` writes the raw `currentConfig` object to disk (see
+  // config-writer.ts), not `validationResult.data`, so the unrecognized key is
+  // persisted verbatim. The "stripped, with a warning" half of mt#2161's
+  // warn-and-continue policy is implemented separately, at config-LOAD time,
+  // by `loader.ts`'s `KNOWN_TOP_LEVEL_KEYS` check -- not exercised by this
+  // ConfigWriter-focused test. What changed here, and what this test now
+  // asserts, is narrower: an unrecognized top-level key no longer makes
+  // `setConfigValue` reject the write.
+  test("unknown top-level key no longer fails schema validation on write -- mt#2161", async () => {
     const tempDir = makeTempConfigDir();
     try {
       const writer = createConfigWriter({
