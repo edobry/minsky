@@ -4,6 +4,8 @@ import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
 import type { MemoryRecord, MemoryType } from "@minsky/domain/memory/types";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
+import { useEntityIndex } from "../lib/use-entity-index";
+import { LinkifiedText } from "../lib/entity-linkifier";
 
 interface MemorySearchResult {
   record: MemoryRecord;
@@ -51,6 +53,7 @@ function MemorySearchBody({
   handleInput,
   query,
 }: MemorySearchBodyProps) {
+  const entityIndex = useEntityIndex();
   const data = query.data;
   const payload = data?.state === "ok" ? (data.payload as MemoriesSearchPayload) : null;
 
@@ -162,12 +165,11 @@ function MemorySearchBody({
                     )}
                   </div>
                   {record.description && (
-                    // Plain text (not <Prose>): truncated single-line snippet — block Markdown breaks layout. mt#2556
                     <p
                       className="text-[11px] text-muted-foreground mt-0.5 truncate"
                       title={record.description}
                     >
-                      {record.description}
+                      <LinkifiedText text={record.description} index={entityIndex} />
                     </p>
                   )}
                 </li>
