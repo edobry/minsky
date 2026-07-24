@@ -183,7 +183,9 @@ export function computeDispatchWatchdogFlags(
     if (Number.isNaN(startedMs)) continue; // malformed row — skip rather than mis-flag
 
     // Age bound (mt#3062) — see DISPATCH_WATCHDOG_MAX_AGE_MS for the basis.
-    if (nowMs - startedMs > maxAgeMs) continue;
+    // >= (not >), matching the staleForMs >= staleMs convention below: a row
+    // exactly at the bound is treated as too old, not as a borderline pass.
+    if (nowMs - startedMs >= maxAgeMs) continue;
 
     // Session-existence robustness (mt#3062) — a confirmed-gone session
     // workspace means the dispatch already concluded; only a confirmed

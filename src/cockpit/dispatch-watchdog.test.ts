@@ -196,6 +196,35 @@ describe("computeDispatchWatchdogFlags", () => {
     expect(flags).toHaveLength(1);
   });
 
+  // Reviewer finding (PR #2254 R1, non-blocking): pin the equality-at-threshold
+  // behavior explicitly. A row exactly maxAgeMs old is treated as too old
+  // (>=, not >), matching the staleForMs >= staleMs convention.
+  test("a row exactly at the age bound is suppressed (>=, not >)", () => {
+    const exactlyAtBound = new Date(NOW_MS - DISPATCH_WATCHDOG_MAX_AGE_MS).toISOString();
+    const flags = computeDispatchWatchdogFlags(
+      [row({ startedAt: exactlyAtBound })],
+      { "mt#2646": "IN-PROGRESS" },
+      noActivity,
+      NOW_MS,
+      DISPATCH_WATCHDOG_STALE_MS,
+      DISPATCH_WATCHDOG_MAX_AGE_MS
+    );
+    expect(flags).toHaveLength(0);
+  });
+
+  test("a row 1ms inside the age bound is still eligible to be flagged", () => {
+    const justInsideBound = new Date(NOW_MS - DISPATCH_WATCHDOG_MAX_AGE_MS + 1).toISOString();
+    const flags = computeDispatchWatchdogFlags(
+      [row({ startedAt: justInsideBound })],
+      { "mt#2646": "IN-PROGRESS" },
+      noActivity,
+      NOW_MS,
+      DISPATCH_WATCHDOG_STALE_MS,
+      DISPATCH_WATCHDOG_MAX_AGE_MS
+    );
+    expect(flags).toHaveLength(1);
+  });
+
   // mt#3062 AT: a row whose session workspace is absent is not flagged
   // (distinguishes "session gone" from "session silent").
   test("a row whose session workspace is confirmed gone is not flagged", () => {
