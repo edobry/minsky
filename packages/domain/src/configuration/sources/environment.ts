@@ -199,6 +199,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_VERBOSE", // src/adapters/cli/utils/error-handler.ts (debug flag)
   "MINSKY_SHOW_SQL", // (debug flag — promote to logger.* if it grows)
   "MINSKY_STATE_DIR", // src/mcp/disconnect-tracker.ts (process-local path override)
+  "MINSKY_COCKPIT_URL", // .claude/hooks/record-conversation-run-state.ts (mt#3161) — cockpit daemon origin override for the run-state writer
   "MINSKY_DEPLOY_MEMORY_FILE", // (deployment-time bootstrap; not config)
   "MINSKY_MAIN_WORKSPACE", // (test-fixture constant)
   "MINSKY_SESSIONDB_POSTGRES_URL", // legacy detection (post-mt#1610 retire)
