@@ -24,7 +24,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-turns-schema";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import type { EmbeddingService } from "../ai/embeddings/types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -112,7 +112,7 @@ export class PerTurnEmbeddingPipeline {
         .where(and(...conditions));
     } catch (err) {
       log.error("PerTurnEmbeddingPipeline: failed to load candidate turns", {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       return result;
     }
@@ -141,7 +141,7 @@ export class PerTurnEmbeddingPipeline {
         result.turnsErrored += batch.length;
         log.warn(
           `PerTurnEmbeddingPipeline: embedding batch failed (turns ${i}-${i + batch.length - 1})`,
-          { error: getErrorMessage(err) }
+          { error: getLoggableErrorSummary(err) }
         );
         continue;
       }
@@ -168,7 +168,7 @@ export class PerTurnEmbeddingPipeline {
           result.turnsErrored++;
           log.warn(
             `PerTurnEmbeddingPipeline: failed to update embedding ${c.agentSessionId}[${c.turnIndex}]`,
-            { error: getErrorMessage(err) }
+            { error: getLoggableErrorSummary(err) }
           );
         }
       }
