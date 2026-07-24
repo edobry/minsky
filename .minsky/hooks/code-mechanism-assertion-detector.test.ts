@@ -193,6 +193,13 @@ describe("mt#2673 — truncated-substring extraction + backed-claim accounting",
 // spec's AT3/AT4) — reused across the pure-function and E2E CLI tests below.
 const GENUINE_UNBACKED_CLAIM_TEXT = "`tasks_create` guards against duplicate task creation.";
 
+/**
+ * Relay-fixture `tool_result` body, shared by the `run()` and CLI-path relay tests.
+ * Deliberately UNRELATED to either fixture's claim — that is the whole point: mt#3113 leg (a)
+ * suppressed turn-wide on ANY subagent report, however irrelevant to the claim (mt#3152).
+ */
+const RELAY_TOOL_RESULT_TEXT = "Investigated mt#9999: found 3 stale sessions to clean up.";
+
 describe("mt#3002 — file-name and hex-id symbol-class exclusions", () => {
   test("AT1: 2026-07-21T08:13-shaped fixture (hook-files.mdc + override/trim verbs) -> no claim extracted", () => {
     const text =
@@ -969,7 +976,7 @@ describe("run() (dispatcher-compatible)", () => {
             {
               type: "tool_result",
               tool_use_id: "toolu_relay_1",
-              content: "Investigated mt#9999: found 3 stale sessions to clean up.",
+              content: RELAY_TOOL_RESULT_TEXT,
             },
           ],
         },
@@ -1071,6 +1078,35 @@ describe("mt#3113 — computeSuppressionReasons (composition of legs 1/3/4)", ()
     const a = computeSuppressionReasons(result, relay, "sess-x", () => true);
     const b = computeSuppressionReasons(result, relay, "sess-x", () => true);
     expect(a.claimSetSignature).toBe(b.claimSetSignature);
+  });
+
+  // PR #2267 R1 (non-blocking): negative control for the mt#3152 reversal.
+  // Relay reporting must be INDEPENDENT of whether some OTHER gate suppresses
+  // injection — otherwise a deduped or same-turn-read turn would silently lose
+  // the relay signal the calibration pass needs to re-grade this policy.
+  test("relay is still recorded when a DIFFERENT gate suppresses injection", () => {
+    const result = {
+      matched: true,
+      claims: [{ symbol: "foo", predicate: "clamps" }],
+      hadSameTurnRead: false,
+      backedClaimCount: 0,
+    };
+    const relay = {
+      relayed: true,
+      reason: REASON_RELAYED_SUBAGENT_CONTENT as const,
+      relayedSymbols: ["foo"],
+    };
+    // Dedup gate says "do not inject" — injection is suppressed for a reason
+    // that has nothing to do with relay.
+    const { reasons, relayReasons } = computeSuppressionReasons(
+      result,
+      relay,
+      "sess-x",
+      () => false
+    );
+
+    expect(reasons).toEqual(["deduped"]);
+    expect(relayReasons).toEqual([REASON_RELAYED_SUBAGENT_CONTENT]);
   });
 });
 
@@ -1252,5 +1288,63 @@ describe("code-mechanism-assertion-detector main()/CLI-path E2E (mt#3002 R1)", (
     const { exitCode, stdout } = await invokeCliHook(makeCliHookInput(p));
     expect(exitCode).toBe(0);
     expect(stdout.trim()).toBe("");
+  });
+
+  // PR #2267 R1 (non-blocking): the mt#3152 reversal must reach the REAL stdout
+  // contract, not just run()'s return shape. Under mt#3113 this fixture emitted
+  // nothing at all (relay suppressed it); it must now emit the reminder WITH the
+  // relay-specific paragraph.
+  test("relayed claim emits the reminder WITH relay-specific copy via the CLI path (mt#3152)", async () => {
+    const p = join(dir, "relay.jsonl");
+    writeFileSync(
+      p,
+      buildCliTranscriptJSONL([
+        cliUserLine(),
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                name: "Agent",
+                id: "toolu_relay_cli_1",
+                input: { prompt: "investigate" },
+              },
+            ],
+          },
+        },
+        {
+          type: "user",
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_relay_cli_1",
+                // Deliberately UNRELATED to the claim below — this is the case
+                // mt#3113 leg (a) suppressed turn-wide.
+                content: RELAY_TOOL_RESULT_TEXT,
+              },
+            ],
+          },
+        },
+        cliAssistantLine(GENUINE_UNBACKED_CLAIM_TEXT),
+        cliUserLine(),
+      ]),
+      "utf8"
+    );
+    const { exitCode, stdout } = await invokeCliHook(makeCliHookInput(p));
+    expect(exitCode).toBe(0);
+
+    const parsed = JSON.parse(stdout) as {
+      hookSpecificOutput?: { hookEventName?: string; additionalContext?: string };
+    };
+    expect(parsed.hookSpecificOutput?.hookEventName).toBe(RUN_HOOK_EVENT_NAME);
+    const ctx = parsed.hookSpecificOutput?.additionalContext ?? "";
+    expect(ctx).toContain("RELAY CONTEXT");
+    expect(ctx).toContain("cue (g)");
+    // The base reminder is still present — relay copy AUGMENTS, not replaces.
+    expect(ctx).toContain("code-mechanism-assertion-detector");
   });
 });
