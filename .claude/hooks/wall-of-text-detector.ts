@@ -16,10 +16,12 @@
 // a four-part premise audit and a 14-row criterion table, prompting "This is
 // too much information."
 //
-// **Calibration-first (mt#2263 detector ladder / ADR-024).** v1 logs matches
-// to JSONL and injects NOTHING — `additionalContext` is never emitted here.
-// Graduating to injection is a follow-up decision made after reviewing the
-// false-positive rate accumulated in the calibration log.
+// **Calibration-first (mt#2263 detector ladder / ADR-024), graduated to LIVE
+// by mt#3112.** v1 logged matches to JSONL and injected nothing while the FP
+// rate was measured. mt#3112 (below) flips `INJECTION_ENABLED` to `true` —
+// every matched fire still logs unconditionally, and `additionalContext` is
+// now emitted too, EXCEPT when the depth-request override (also mt#3112)
+// determines the principal recently asked for exactly this depth.
 //
 // **Measured signals (v1 — deterministic, no LLM):**
 //   - word/line count of the turn's FINAL assistant text block (the report);
@@ -74,8 +76,37 @@
 // while the bounded tail keeps the lookback window finite rather than
 // "forever" (PR #2165 R1 BLOCKING #2).
 //
+// **mt#3112 — flip to live injection + depth-request override-awareness
+// (2026-07-23, operator-confirmed disposition, ask 109807e1 / ask#5425).**
+// The mt#2483 calibration-review sweep found 60 lifetime fires, all
+// over-budget-shaped, including a confirmed operator-bounced true positive on
+// 07-22 ("way too much for me to read") — the same failure drew operator
+// correction 4x in 14 days, tripping mt#2838's escalation budget.
+// `INJECTION_ENABLED` flips to `true` below, graduating this detector off the
+// mt#2263 calibration-first ladder, paired with the override the review
+// required as a CONDITION of the flip: suppress (but still LOG)
+// `additionalContext` when the principal recently asked for depth
+// in-conversation — "walk me through everything", "show me the detail",
+// "give me the full breakdown" (see `DEPTH_REQUEST_PATTERNS`) — so a report
+// that is long BECAUSE it was asked for does not train the operator to tune
+// out the reminder. The lookback scans the last
+// `DEPTH_REQUEST_LOOKBACK_TURNS` real user prompts up to and including the
+// one that opened the measured turn (never the CURRENT prompt, which arrives
+// AFTER the report and so cannot have caused it — `findOpeningPromptIndex`
+// fails CLOSED, i.e. treats the fire as unsuppressed, when fewer than 2 real
+// prompts exist to anchor on, rather than guessing an index). Every DISTINCT
+// (measured text, suppression state) matched fire logs a calibration record
+// — now carrying a `suppressedByDepthRequest` field — whether or not
+// injection actually fires; the mt#3028 dedupe (below) now keys on BOTH
+// dimensions (`sessionHasLoggedTextAndSuppression`) so a report that
+// coincidentally repeats verbatim under a DIFFERENT depth-request context
+// still logs its own record, instead of silently inheriting a stale
+// suppression verdict from an unrelated earlier turn (PR #2228 R1 BLOCKING).
+//
 // @see .minsky/hooks/silent-stretch-detector.ts — the under-signaling sibling this file mirrors structurally
-// @see .minsky/rules/communication-contract.mdc — the Tier-1 contract shape being measured
+// @see .minsky/rules/communication-contract.mdc — the Tier-1 contract shape being measured; its
+//   rationale doc (docs/rules-rationale/communication-contract.md §Override) names the
+//   altitude-register override vocabulary DEPTH_REQUEST_PATTERNS is calibrated from
 // @see mt#2263 — detector ladder (calibration before injection)
 // @see mt#2713 — the contract this measures against
 // @see mt#2870 — this task (origin)
@@ -85,7 +116,9 @@
 //   helpers (`resolveParentTranscriptLines`/`sessionHasLoggedKey`/`readLogTailText`) that
 //   silent-stretch-detector.ts now also consumes — this file's own exported functions/behavior are
 //   unchanged, they just delegate internally now.
-// @see mt#3028 — this task (the two fixes above)
+// @see mt#3028 — the two fixes above
+// @see mt#3112 — this task (live-injection flip + depth-request override); mt#2838 — the
+//   escalation budget this flip's disposition tripped; mt#2870 — RFC Phase-3 enforcement pair
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard; D6 `DispatchContext` doc comment sanctions the per-candidate re-parse pattern used here
 
 import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
@@ -94,6 +127,7 @@ import {
   parseTranscript,
   extractLastAssistantTurn,
   extractAssistantText,
+  findRealPromptIndices,
   resolveParentTranscriptLines,
   resolveParentTranscriptLinesForPath,
   readLogTailText,
@@ -107,15 +141,21 @@ import { createHash } from "node:crypto";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
-// Calibration gate — v1 is log-only, no injection
+// Calibration gate — LIVE since mt#3112
 // ---------------------------------------------------------------------------
 
 /**
- * When false (v1/calibration mode), the hook logs matches to JSONL and
- * injects NO additionalContext. Flip to true only after reviewing the FP
- * rate from the calibration log (mt#2263 ladder).
+ * LIVE since mt#3112 (2026-07-23) — flipped from calibration-only after the
+ * mt#2483 review (ask 109807e1 / ask#5425) disposed the residual signal as a
+ * confirmed operator-bounced true positive plus a 4x/14-day recurrence
+ * (tripping the mt#2838 escalation budget). Paired, in the same flip, with
+ * the depth-request override below: a matched fire LOGS (unless it is a
+ * stale re-measurement of an already-logged (text, suppression-state) pair —
+ * see `sessionHasLoggedTextAndSuppression`), but `additionalContext` is
+ * withheld when the principal recently asked for depth (see
+ * `detectDepthRequest` / `DEPTH_REQUEST_PATTERNS`).
  */
-export const INJECTION_ENABLED = false;
+export const INJECTION_ENABLED = true;
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -243,6 +283,157 @@ export function measureWallOfText(finalText: string): WallOfTextMeasurement {
 }
 
 // ---------------------------------------------------------------------------
+// mt#3112 — depth-request override-awareness
+// ---------------------------------------------------------------------------
+
+/**
+ * How many of the RECENT real user prompts (up to and including the one that
+ * opened the measured turn) are scanned for an explicit depth request. Bounded
+ * so a depth request many turns back does not stay "recent" forever — this is
+ * a lookback over the immediate conversational stretch that plausibly caused
+ * the just-measured over-budget report, not the whole session history.
+ */
+export const DEPTH_REQUEST_LOOKBACK_TURNS = 3;
+
+/**
+ * Phrasings the principal uses to explicitly ask for MORE depth/detail than
+ * the Tier-1 default — calibrated from the altitude-register override
+ * vocabulary in communication-contract.mdc's rationale doc
+ * (`docs/rules-rationale/communication-contract.md §Override`: "walk me
+ * through everything", "show me the detail") plus the mt#3112 spec's third
+ * named example ("give me the full breakdown"). Deliberately does NOT include
+ * "background this" — that phrase moves the OTHER direction (toward less
+ * detail, the executive register), so it is not a reason to suppress a
+ * too-long-report reminder.
+ *
+ * **Deliberately narrow (PR #2228 R1 non-blocking).** Limited to exactly the
+ * three phrasings named above rather than also matching adjacent variants
+ * ("deep dive", "go into detail", "be exhaustive", bare "give me details").
+ * This is a v1 calibration-informed choice, not an oversight: an
+ * OVER-suppression false negative here (the reminder fires when it
+ * shouldn't) recreates the exact operator-friction incident this flip
+ * responds to; an under-suppression false positive (a phrase we should have
+ * matched doesn't) is the SAFER failure — the reminder still fires and the
+ * calibration log's `suppressedByDepthRequest: false` on that record is
+ * itself the signal a future calibration pass uses to justify widening this
+ * list, per the mt#2263 detector ladder's evidence-before-expansion
+ * discipline. `show-the-detail` intentionally accepts the SINGULAR "detail"
+ * (not just "details") because that is the literal wording of the
+ * rationale-doc example ("show me the detail") this pattern is calibrated
+ * from, not an idiomatic slip.
+ */
+export const DEPTH_REQUEST_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
+  // "walk me through everything" / "walk me through it all" / "... the whole thing/story/process"
+  {
+    name: "walk-me-through",
+    re: /\bwalk me through (?:everything|it all|the whole (?:thing|story|process))\b/i,
+  },
+  // "show me the detail(s)" / "show me all the detail(s)" / "show me the full/complete detail(s)"
+  {
+    name: "show-the-detail",
+    re: /\bshow me (?:all )?(?:the )?(?:full |complete )?detail(?:s)?\b/i,
+  },
+  // "give me the full breakdown" / "give me a complete breakdown" / "want/need the full breakdown"
+  {
+    name: "full-breakdown",
+    re: /\b(?:give me|want|need)\s+(?:the |a )?(?:full|complete)\s+breakdown\b/i,
+  },
+];
+
+/** Text content of a single user-role transcript line (string or text-block-array content). */
+function extractUserPromptText(line: TranscriptLine): string {
+  const content = line.message?.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (
+        block &&
+        typeof block === "object" &&
+        block["type"] === "text" &&
+        typeof block["text"] === "string"
+      ) {
+        parts.push(block["text"] as string);
+      }
+    }
+    return parts.join("\n");
+  }
+  return "";
+}
+
+/**
+ * The transcript-line INDEX of the real user prompt that opened the
+ * just-measured turn — the SAME boundary `extractLastAssistantTurn` slices
+ * from (`promptIndices[length - 2]`). Returns `undefined` when fewer than 2
+ * real prompts exist, mirroring `extractLastAssistantTurn`'s own guard and
+ * `silent-stretch-detector.ts`'s `findTurnBoundaryTimestamps` (PR #2228 R1
+ * BLOCKING): fails CLOSED rather than defaulting to an arbitrary index (a
+ * bare `?? 0` fallback previously here could point at a transcript line that
+ * is not actually the measured turn's opening prompt, in any future
+ * refactor that reordered or removed the caller's own >=2-prompt guard). A
+ * caller that gets `undefined` back must treat the fire as unsuppressed —
+ * NOT default to index 0 — since there is no reliable anchor to check.
+ */
+export function findOpeningPromptIndex(lines: TranscriptLine[]): number | undefined {
+  const promptIndices = findRealPromptIndices(lines);
+  if (promptIndices.length < 2) return undefined;
+  return promptIndices[promptIndices.length - 2];
+}
+
+/**
+ * Text of the last `lookback` REAL user prompts at or before `throughIndex`
+ * (inclusive) — the lookback window for the depth-request override. Callers
+ * pass {@link findOpeningPromptIndex}'s result as `throughIndex` so the
+ * window never reaches into the CURRENT prompt (which arrives after the
+ * report being measured and so cannot have caused it).
+ */
+export function recentUserPromptTexts(
+  lines: TranscriptLine[],
+  throughIndex: number,
+  lookback: number = DEPTH_REQUEST_LOOKBACK_TURNS
+): string[] {
+  const promptIndices = findRealPromptIndices(lines).filter((i) => i <= throughIndex);
+  const recent = promptIndices.slice(-lookback);
+  return recent
+    .map((i) => extractUserPromptText(lines[i] as TranscriptLine))
+    .filter((t) => t.length > 0);
+}
+
+export interface DepthRequestResult {
+  /** true iff any of `userTexts` matched a DEPTH_REQUEST_PATTERNS entry. */
+  matched: boolean;
+  /** Name of the first matching pattern, for calibration/debugging. */
+  matchedPattern?: string;
+}
+
+/** Scan recent user-prompt texts for an explicit depth request. */
+export function detectDepthRequest(userTexts: string[]): DepthRequestResult {
+  for (const text of userTexts) {
+    for (const p of DEPTH_REQUEST_PATTERNS) {
+      if (p.re.test(text)) return { matched: true, matchedPattern: p.name };
+    }
+  }
+  return { matched: false };
+}
+
+/**
+ * Single entry point composing {@link findOpeningPromptIndex} +
+ * {@link recentUserPromptTexts} + {@link detectDepthRequest} — the exact
+ * three-step sequence `run()` and `main()` both need. Centralizing it here
+ * (rather than duplicating the sequence at each call site, per PR #2228 R1
+ * BLOCKING) is itself part of the anchoring-robustness fix: there is now
+ * exactly one place that can get the fail-closed behavior wrong. Returns
+ * `{ matched: false }` — i.e. treats the fire as unsuppressed — when
+ * `findOpeningPromptIndex` cannot anchor (fewer than 2 real prompts), rather
+ * than guessing at an index.
+ */
+export function resolveDepthCheck(lines: TranscriptLine[]): DepthRequestResult {
+  const openingPromptIdx = findOpeningPromptIndex(lines);
+  if (openingPromptIdx === undefined) return { matched: false };
+  return detectDepthRequest(recentUserPromptTexts(lines, openingPromptIdx));
+}
+
+// ---------------------------------------------------------------------------
 // mt#3028 fix (1) — scope turn extraction to the PARENT transcript alone
 // ---------------------------------------------------------------------------
 
@@ -327,6 +518,51 @@ export function sessionHasLoggedHash(
 }
 
 /**
+ * mt#3112 (PR #2228 R1 BLOCKING) — dedupe check extended to ALSO require the
+ * suppression dimension to match, not just `textHash`. Plain `textHash`-only
+ * matching (the function above) treats two occurrences of BYTE-IDENTICAL
+ * report text as "the same turn re-measured" and skips logging the second —
+ * correct for the mt#3028 case this was built for (the SAME turn observed
+ * twice, e.g. via re-parse/contamination, where the recent-user-prompt
+ * window is necessarily identical too). It is WRONG for a report that
+ * coincidentally repeats verbatim from a genuinely DIFFERENT turn with a
+ * DIFFERENT depth-request context — that record would silently vanish,
+ * along with the very `suppressedByDepthRequest` variance this override
+ * exists to make reviewable. Requiring both `textHash` AND
+ * `suppressedByDepthRequest` to match before treating a record as "already
+ * logged" fixes this: a coincidental text repeat under a NEW suppression
+ * state is no longer swallowed.
+ *
+ * A record predating mt#3112 (no `suppressedByDepthRequest` field — every
+ * fire before this task was, by construction, never suppressed) is treated
+ * as `suppressed: false` for this comparison, matching its actual observed
+ * behavior; this keeps mt#3028/PR #2165's original dedupe tests
+ * (hand-built log fixtures with a bare `textHash` field) passing unchanged.
+ */
+export function sessionHasLoggedTextAndSuppression(
+  logText: string | undefined,
+  sessionId: string | undefined,
+  textHash: string,
+  suppressed: boolean
+): boolean {
+  if (!logText || !sessionId) return false;
+  for (const raw of logText.split("\n")) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    let rec: Record<string, unknown>;
+    try {
+      rec = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (rec["session_id"] !== sessionId || rec["textHash"] !== textHash) continue;
+    const recSuppressed = rec["suppressedByDepthRequest"] === true;
+    if (recSuppressed === suppressed) return true;
+  }
+  return false;
+}
+
+/**
  * Real on-disk read of (at most) the last `MAX_DEDUPE_READ_BYTES` of the
  * calibration log, resolved against the repo root (never throws). Bounded
  * per-invocation cost regardless of total log size (PR #2165 R1 BLOCKING #2).
@@ -366,7 +602,8 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 function buildCalibrationRecord(
   input: ClaudeHookInput,
   m: WallOfTextMeasurement,
-  textHash: string
+  textHash: string,
+  suppressedByDepthRequest: boolean
 ): Record<string, unknown> {
   return {
     timestamp: new Date().toISOString(),
@@ -381,6 +618,11 @@ function buildCalibrationRecord(
     // (within the bounded lookback) carrying the same hash means an
     // unchanged report is being re-measured, not a genuinely new turn.
     textHash,
+    // mt#3112: true when a recent user prompt matched DEPTH_REQUEST_PATTERNS
+    // — additionalContext was withheld for this fire even though it matched,
+    // so this field is what lets a future calibration pass measure the
+    // override's OWN accuracy (recorded on every fire, live or suppressed).
+    suppressedByDepthRequest,
   };
 }
 
@@ -403,10 +645,14 @@ export interface RunDeps {
  * dispatched subagent's own final report is never measured as this
  * session's turn-end report. Before logging, checks the dedupe hash
  * (mt#3028 fix (2)) so an unchanged report already logged for this session
- * is not re-logged. Only calibration logging happens here (via the returned
- * `calibration` field, forwarded to `logCalibrationRecord` per this guard's
- * `calibrationLog: "wall-of-text"` registration) — `additionalContext` is
- * never set while `INJECTION_ENABLED` is false.
+ * is not re-logged. The `calibration` field is always returned on a match
+ * (forwarded to `logCalibrationRecord` per this guard's
+ * `calibrationLog: "wall-of-text"` registration); `additionalContext` (LIVE
+ * since mt#3112) is ALSO returned, UNLESS the depth-request override
+ * (mt#3112 — `detectDepthRequest` over the recent real user prompts) found
+ * the principal recently asked for exactly this depth, in which case the
+ * fire still logs (with `suppressedByDepthRequest: true`) but injects
+ * nothing.
  */
 export function run(
   input: ClaudeHookInput,
@@ -456,22 +702,36 @@ export function run(
 
   if (!measurement.matched) return null;
 
+  // mt#3112: depth-request override-awareness, computed BEFORE the dedupe
+  // check (PR #2228 R1 BLOCKING) — the dedupe key below needs the
+  // suppression verdict to key on, so it must be known first.
+  // `resolveDepthCheck` fails CLOSED (treats the fire as unsuppressed) when
+  // fewer than 2 real prompts anchor the measured turn.
+  const depthCheck = resolveDepthCheck(lines);
+
   const textHash = hashText(finalText);
-  if (sessionHasLoggedHash(readCalibrationLogTextFn(input.cwd), input.session_id, textHash)) {
-    // mt#3028 fix (2): a record for this session already carries this exact
-    // measured text (within the bounded lookback window) — an unchanged
-    // report already logged; skip re-logging.
+  if (
+    sessionHasLoggedTextAndSuppression(
+      readCalibrationLogTextFn(input.cwd),
+      input.session_id,
+      textHash,
+      depthCheck.matched
+    )
+  ) {
+    // mt#3028 fix (2), extended by mt#3112: a record for this session
+    // already carries this exact measured text AND the same suppression
+    // state (within the bounded lookback window) — an unchanged report
+    // already logged; skip re-logging. A textHash match with a DIFFERENT
+    // suppression state is treated as new — see
+    // `sessionHasLoggedTextAndSuppression`'s doc comment.
     return null;
   }
 
   const outcome: GuardOutcome = {
-    calibration: buildCalibrationRecord(input, measurement, textHash),
+    calibration: buildCalibrationRecord(input, measurement, textHash, depthCheck.matched),
   };
 
-  if (INJECTION_ENABLED) {
-    // v1 never reaches here — kept structurally symmetric with sibling
-    // calibration-first detectors so flipping the flag later is a one-line
-    // change plus this reminder-text helper, not a restructure.
+  if (INJECTION_ENABLED && !depthCheck.matched) {
     outcome.additionalContext = buildInjectionReminder(measurement);
   }
 
@@ -583,21 +843,31 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // mt#3112: depth-request override-awareness (see run()'s equivalent check).
+  // Computed BEFORE the dedupe check — the dedupe key needs the suppression
+  // verdict to key on (PR #2228 R1 BLOCKING).
+  const depthCheck = resolveDepthCheck(lines);
+
   const textHash = hashText(finalText);
   if (Date.now() < overallDeadline) {
-    // mt#3028 fix (2): skip re-logging an unchanged report already recorded
-    // for this session (see the header comment + run()'s equivalent check).
-    const alreadyLogged = sessionHasLoggedHash(
+    // mt#3028 fix (2), extended by mt#3112: skip re-logging an unchanged
+    // report + suppression state already recorded for this session (see the
+    // header comment + run()'s equivalent check).
+    const alreadyLogged = sessionHasLoggedTextAndSuppression(
       readCalibrationLogText(input.cwd),
       input.session_id,
-      textHash
+      textHash,
+      depthCheck.matched
     );
     if (!alreadyLogged) {
-      appendCalibrationRecord(input.cwd, buildCalibrationRecord(input, measurement, textHash));
+      appendCalibrationRecord(
+        input.cwd,
+        buildCalibrationRecord(input, measurement, textHash, depthCheck.matched)
+      );
     }
   }
 
-  if (!INJECTION_ENABLED) {
+  if (!INJECTION_ENABLED || depthCheck.matched) {
     process.exit(0);
   }
 

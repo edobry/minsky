@@ -70,7 +70,9 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
 
 FAIL-CLOSED (mt#2400): editing an EXISTING file with content that has NO '// ... existing code ...' marker is REFUSED, because it would silently overwrite the whole file. For an intentional full rewrite, use session_write_file, or pass fullReplace=true.
 
-COLLAPSE-GUARD (mt#2577): a marker edit whose apply result is dramatically smaller than the original is also REFUSED — the apply model likely mis-resolved a marker and dropped content it should have preserved. Re-issue with tighter, smaller marker regions, or pass allowShrink=true for an intentional large deletion.`,
+COLLAPSE-GUARD (mt#2577): a marker edit whose apply result is dramatically smaller than the original is also REFUSED — the apply model likely mis-resolved a marker and dropped content it should have preserved. Re-issue with tighter, smaller marker regions, or pass allowShrink=true for an intentional large deletion.
+
+CHECK WHERE IT LANDED (mt#3071): the response reports \`changedRange\` ({originalStart, originalCount, finalStart, finalCount}, diff-hunk coordinates; null when the apply changed nothing) plus \`diff\` and \`diffSummary\` for the region actually written. A marker apply can fail at its intended anchor and write its replacement at a DIFFERENT, structurally-similar anchor while still reporting success — the two guards above only catch MAGNITUDE anomalies, and a mislocated edit is small and well-formed. Compare \`changedRange\` against the region you meant to edit; if they disagree, the edit landed somewhere else.`,
     parameters: SessionFileEditSchema,
     getHandler: async () => {
       // mt#1792: defer heavy runtime imports until first call.
@@ -78,7 +80,7 @@ COLLAPSE-GUARD (mt#2577): a marker edit whose apply result is dramatically small
       const [
         { Buffer },
         { createSuccessResponse, createErrorResponse },
-        { generateUnifiedDiff, generateDiffSummary },
+        { generateUnifiedDiff, generateDiffSummary, computeChangedRange },
         { applySessionFileEditOperation },
       ] = await Promise.all([
         import("buffer"),
@@ -136,6 +138,7 @@ COLLAPSE-GUARD (mt#2577): a marker edit whose apply result is dramatically small
               proposedContent: result.finalContent,
               diff,
               diffSummary,
+              changedRange: computeChangedRange(result.originalContent, result.finalContent),
               edited: result.fileExisted,
               created: !result.fileExisted,
             });
@@ -149,12 +152,22 @@ COLLAPSE-GUARD (mt#2577): a marker edit whose apply result is dramatically small
             contentLength: result.finalContent.length,
           });
 
+          // mt#3071: the apply path reports WHERE the edit landed, not just that
+          // it happened. A marker apply can fail at its intended anchor and write
+          // its replacement at a different, structurally-similar one; `edited:
+          // true` + a byte count cannot distinguish that from a correct apply, so
+          // catching it used to depend on the caller separately diffing the file.
+          // The diff here is bounded by the size of the CHANGE (one hunk, ±3 lines
+          // of context), not the size of the file.
           return createSuccessResponse({
             path: args.path,
             session: args.sessionId,
-            edited: true,
+            edited: result.fileExisted,
             created: !result.fileExisted,
             bytesWritten: Buffer.from(result.finalContent, "utf8").byteLength,
+            diff: generateUnifiedDiff(result.originalContent, result.finalContent, args.path),
+            diffSummary: generateDiffSummary(result.originalContent, result.finalContent),
+            changedRange: computeChangedRange(result.originalContent, result.finalContent),
           });
         } catch (error) {
           const errorMessage = getErrorMessage(error);
