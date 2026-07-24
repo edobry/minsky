@@ -63,6 +63,7 @@ import { resolveProjectIdentity } from "../project/identity";
 import { resolveProjectScope } from "../project/scope-resolver";
 import { isAllProjects } from "../project/scope";
 import { SYNTHETIC_MODEL_SENTINEL } from "../subagent/transcript-metrics";
+import { getErrorMessage } from "../errors/index";
 
 /**
  * Narrow seam for the per-session spawn-extraction call `ingestSession` makes
