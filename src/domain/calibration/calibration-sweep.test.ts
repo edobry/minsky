@@ -43,6 +43,7 @@ const BUILD_CLAIM_INJECTION_KIND = "build-claim-injection";
 const KNOWLEDGE_ACQUISITION_KIND = "knowledge-acquisition";
 const ENGINEERING_WRITING_SKILL_NAME = "engineering-writing";
 const CONSTRUCTED_IDENTIFIER_BATCH_KIND = "constructed-identifier-batch";
+const OPERATOR_DEFERRAL_KIND = "operator-deferral";
 const TEST_ASK_ID = "483dbcb0-788a-4159-9d8a-ba718ba1f2b0";
 const RETRO_PATH = ".minsky/retrospective-trigger-calibration.jsonl";
 const CAUSAL_GUARD_NAME = "causal-premise-detector";
@@ -112,9 +113,13 @@ function buildLines(count: number, makeLine: (i: number) => string): string {
 // ---------------------------------------------------------------------------
 
 describe("CALIBRATION_LOG_REGISTRY", () => {
-  test("has eleven entries (mt#2619 adds three; mt#2866 adds silent-stretch; mt#2870 adds wall-of-text; mt#2923 adds build-claim-injection; mt#2708 adds knowledge-acquisition; mt#3125 adds constructed-identifier-batch)", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(11);
-  });
+  // PR #2263 R1 BLOCKING: the exact-count assertion that lived here
+  // (`toHaveLength(12)`) was a hand-maintained magic number — every detector PR
+  // had to bump it, and two landing in the same window broke each other's CI
+  // for no functional reason. What it was actually protecting (no log silently
+  // DROPPED, no two entries colliding, every kind covered) now lives in the
+  // KIND_FIXTURES completeness test at the bottom of this file, derived rather
+  // than hand-counted. Each entry additionally has its own presence test below.
 
   test("first entry is causal-premise", () => {
     expect(CALIBRATION_LOG_REGISTRY[0]?.kind).toBe("causal-premise");
@@ -191,6 +196,16 @@ describe("CALIBRATION_LOG_REGISTRY", () => {
     expect(CALIBRATION_LOG_REGISTRY[10]?.path).toBe(
       ".minsky/constructed-identifier-batch-calibration.jsonl"
     );
+  });
+
+  // Located by NAME, not by index (PR #2263 R1) — an index assertion is the
+  // same brittleness the count assertion above was flagged for: a concurrent
+  // detector PR appending its own entry would shift it.
+  test("operator-deferral is registered (mt#2459)", () => {
+    const entry = CALIBRATION_LOG_REGISTRY.find((e) => e.name === OPERATOR_DEFERRAL_KIND);
+    expect(entry).toBeDefined();
+    expect(entry?.kind).toBe(OPERATOR_DEFERRAL_KIND);
+    expect(entry?.path).toBe(".minsky/operator-deferral-calibration.jsonl");
   });
 });
 
@@ -1414,6 +1429,16 @@ const KIND_FIXTURES: Readonly<
     line: () => makeRetroRecord(),
     expectedGuardName: "constructed-identifier-batch-detector",
   },
+  [OPERATOR_DEFERRAL_KIND]: {
+    // mt#2459 — same matches-shape family as retrospective-trigger (see this
+    // file's CalibrationLogEntry.kind doc comment), so it reuses
+    // makeRetroRecord's shape, parsed under the "operator-deferral" kind.
+    // Written by TWO guards (the prose + AskUserQuestion surfaces); the
+    // guard-name map names the prose surface as this log's canonical guard,
+    // which is what this fixture asserts.
+    line: () => makeRetroRecord(),
+    expectedGuardName: "operator-deferral-detector",
+  },
 };
 
 describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
@@ -1439,8 +1464,15 @@ describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
     }
   });
 
-  test("CALIBRATION_LOG_REGISTRY has exactly 11 entries and every kind has a fixture above", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(11);
+  // PR #2263 R1 BLOCKING: derived from KIND_FIXTURES instead of a magic number,
+  // so adding a registry entry + its fixture stays a one-place change and two
+  // concurrent detector PRs cannot break each other on the count alone.
+  test("every CALIBRATION_LOG_REGISTRY kind has a fixture above (and vice versa)", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(Object.keys(KIND_FIXTURES).length);
+    for (const f of ["name", "path", "kind"] as const) {
+      const vals = CALIBRATION_LOG_REGISTRY.map((e) => e[f]);
+      expect(new Set(vals).size).toBe(vals.length);
+    }
     for (const entry of CALIBRATION_LOG_REGISTRY) {
       expect(KIND_FIXTURES[entry.kind]).toBeDefined();
     }
