@@ -23,6 +23,7 @@ import {
   createTasksDispatchRecoverCommand,
   promptTypeForRecovery,
   buildTrackerUnavailableResponse,
+  isLivePrState,
 } from "./dispatch-recover-command";
 import type {
   DispatchRecoveryGitOps,
@@ -50,6 +51,8 @@ const CRASHED_NO_OUTPUT: SubagentInvocationOutcome = "crashed-no-output";
 const PARTIAL_UNCOMMITTED_NO_HANDOFF: SubagentInvocationOutcome = "partial-uncommitted-no-handoff";
 /** mt#3017: the dispatch-recover command's degraded-response status when the tracker is unavailable. */
 const TRACKER_UNAVAILABLE_STATUS = "tracker-unavailable";
+/** mt#3149: the escalation message's redispatch-warning fragment, asserted from multiple tests. */
+const DO_NOT_REDISPATCH_WARNING = "Do NOT redispatch";
 
 // ---------------------------------------------------------------------------
 // Fake tracker — duck-typed, implements only what the command calls.
@@ -566,6 +569,189 @@ describe("tasks.dispatch-recover", () => {
     expect(tracker.recordedInvocationCalls).toHaveLength(0);
   });
 
+  // ---------------------------------------------------------------------------
+  // mt#3149: escalate path must re-probe live state, not echo a stale/
+  // pessimistic-default DB outcome — the originating incident (PR #2244 open
+  // with pushed commits, reported crashed-no-output twice at the 2-attempt
+  // bound) happened entirely inside this branch.
+  // ---------------------------------------------------------------------------
+  describe("mt#3149: escalate path re-probes live state (PR/commits liveness)", () => {
+    function seedTwoAttemptChain(tracker: FakeTracker) {
+      const original = tracker.seed({
+        taskId: "mt#2831",
+        subagentSessionId: "sess-1",
+        startedAt: new Date(NOW.getTime() - 3 * DISPATCH_RECOVERY_STALE_MS),
+        endedAt: new Date(NOW.getTime() - 2 * DISPATCH_RECOVERY_STALE_MS),
+        outcome: CRASHED_NO_OUTPUT,
+        attemptNumber: 1,
+      });
+      const resumed = tracker.seed({
+        taskId: "mt#2831",
+        subagentSessionId: "sess-1",
+        startedAt: new Date(NOW.getTime() - DISPATCH_RECOVERY_STALE_MS - 1000),
+        resumedFromInvocationId: original.id,
+        attemptNumber: 2,
+        // Pessimistic placeholder written at resume time — matches the real
+        // tracker's `recordDispatchRecoveryAttempt` convention. This is the
+        // exact stale value the pre-mt#3149 code echoed unchanged.
+        outcome: CRASHED_NO_OUTPUT,
+      });
+      return { original, resumed };
+    }
+
+    test("replay: dispatch opened a PR and continues working past the stale window -> escalate reports committed-no-pr for the latest attempt, NOT crashed-no-output (mt#3149 AT1)", async () => {
+      const tracker = new FakeTracker();
+      const { resumed } = seedTwoAttemptChain(tracker);
+      const sessionProvider = new FakeSessionProvider({
+        initialSessions: [
+          makeSessionRecord({
+            pullRequest: {
+              number: 2244,
+              url: "https://github.com/edobry/minsky/pull/2244",
+              state: "open",
+              createdAt: new Date().toISOString(),
+              headBranch: "task/mt-2831",
+              baseBranch: "main",
+              lastSynced: new Date().toISOString(),
+            },
+          }),
+        ],
+      });
+      // commitsAheadOfBase deliberately reads 0 here — reproducing the exact
+      // originating-incident shape where the PR alone must be enough.
+      const gitOps = makeGitOps({ commitsAheadOfBase: async () => 0 });
+      const cmd = makeCommand({ tracker, sessionProvider, gitOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("escalate");
+      const escalation = result.escalation as {
+        attempts: Array<{ invocationId: string; outcome: string | null }>;
+        hasLivenessEvidence: boolean;
+        message: string;
+      };
+      const latestEntry = escalation.attempts.find((a) => a.invocationId === resumed.id);
+      expect(latestEntry?.outcome).toBe("committed-no-pr");
+      expect(latestEntry?.outcome).not.toBe(CRASHED_NO_OUTPUT);
+      expect(escalation.hasLivenessEvidence).toBe(true);
+      expect(escalation.message).toContain("NOT confirmed death");
+      expect(escalation.message).toContain(DO_NOT_REDISPATCH_WARNING);
+      expect(escalation.message).toContain("#2244");
+
+      // mt#3149 R1 BLOCKING: the correction must be PERSISTED to the DB row too,
+      // not only reflected in the response payload above — and the row must stay
+      // OPEN (no endedAt) since the dispatch has not actually stopped.
+      const persistedCorrection = tracker.recordedInvocationCalls.find(
+        (call) => call.id === resumed.id
+      );
+      expect(persistedCorrection?.outcome).toBe("committed-no-pr");
+      expect(persistedCorrection?.endedAt).toBeUndefined();
+    });
+
+    test("dispatch has commits ahead of base (no PR yet) -> escalate reports committed-no-pr for the latest attempt, warns against redispatch (mt#3149 AT2)", async () => {
+      const tracker = new FakeTracker();
+      const { resumed } = seedTwoAttemptChain(tracker);
+      const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+      const gitOps = makeGitOps({ commitsAheadOfBase: async () => 7 });
+      const cmd = makeCommand({ tracker, sessionProvider, gitOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("escalate");
+      const escalation = result.escalation as {
+        attempts: Array<{ invocationId: string; outcome: string | null }>;
+        hasLivenessEvidence: boolean;
+        message: string;
+      };
+      const latestEntry = escalation.attempts.find((a) => a.invocationId === resumed.id);
+      expect(latestEntry?.outcome).toBe("committed-no-pr");
+      expect(escalation.hasLivenessEvidence).toBe(true);
+      expect(escalation.message).toContain(DO_NOT_REDISPATCH_WARNING);
+      expect(escalation.message).toContain("7 commit(s) ahead of base");
+    });
+
+    // Acceptance Test 4 (HARD CONSTRAINT): the fix must not make the escalate
+    // path permissive — a genuinely dead dispatch (no PR, no commits, no dirty
+    // files) must still escalate with crashed-no-output for the latest attempt.
+    test("genuinely dead dispatch (no PR, no commits, clean tree) -> escalate still reports crashed-no-output (mt#3149 AT4 hard constraint)", async () => {
+      const tracker = new FakeTracker();
+      const { resumed } = seedTwoAttemptChain(tracker);
+      const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+      const gitOps = makeGitOps({ commitsAheadOfBase: async () => 0 });
+      const cmd = makeCommand({ tracker, sessionProvider, gitOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("escalate");
+      const escalation = result.escalation as {
+        attempts: Array<{ invocationId: string; outcome: string | null }>;
+        hasLivenessEvidence: boolean;
+        message: string;
+      };
+      const latestEntry = escalation.attempts.find((a) => a.invocationId === resumed.id);
+      expect(latestEntry?.outcome).toBe(CRASHED_NO_OUTPUT);
+      expect(escalation.hasLivenessEvidence).toBe(false);
+      expect(escalation.message).toContain("2-attempt bound");
+      expect(escalation.message).not.toContain(DO_NOT_REDISPATCH_WARNING);
+
+      // No correction write is needed (or made) when the fresh classification
+      // matches the already-stored outcome — avoid a no-op DB write.
+      expect(tracker.recordedInvocationCalls).toHaveLength(0);
+    });
+
+    test("older (already-closed) attempts in the chain keep their stored outcome — only the latest open row is re-probed", async () => {
+      const tracker = new FakeTracker();
+      const { original, resumed } = seedTwoAttemptChain(tracker);
+      const sessionProvider = new FakeSessionProvider({
+        initialSessions: [
+          makeSessionRecord({
+            pullRequest: {
+              number: 55,
+              url: "https://github.com/edobry/minsky/pull/55",
+              state: "open",
+              createdAt: new Date().toISOString(),
+              headBranch: "task/mt-2831",
+              baseBranch: "main",
+              lastSynced: new Date().toISOString(),
+            },
+          }),
+        ],
+      });
+      const cmd = makeCommand({ tracker, sessionProvider });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      const escalation = result.escalation as {
+        attempts: Array<{ invocationId: string; outcome: string | null }>;
+      };
+      const originalEntry = escalation.attempts.find((a) => a.invocationId === original.id);
+      const latestEntry = escalation.attempts.find((a) => a.invocationId === resumed.id);
+      // The original row's stored outcome (a real classification from its own
+      // closure) is untouched.
+      expect(originalEntry?.outcome).toBe(CRASHED_NO_OUTPUT);
+      // The latest (open) row is corrected from its placeholder to the live probe.
+      expect(latestEntry?.outcome).toBe("committed-no-pr");
+    });
+  });
+
+  test("mt#3149 Acceptance Test: a dispatch whose branch has commits ahead of base reports that count in stateSummary on the recover path, not commitsAheadOfBase: 0", async () => {
+    const tracker = new FakeTracker();
+    tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - DISPATCH_RECOVERY_STALE_MS - 1000),
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    const gitOps = makeGitOps({ commitsAheadOfBase: async () => 9 });
+    const cmd = makeCommand({ tracker, sessionProvider, gitOps });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.status).toBe("recover");
+    const stateSummary = result.stateSummary as { commitsAheadOfBase: number | null };
+    expect(stateSummary.commitsAheadOfBase).toBe(9);
+  });
+
   test("missing subagentSessionId on the latest row -> a clear error, not a crash", async () => {
     const tracker = new FakeTracker();
     tracker.seed({ taskId: "mt#2831", subagentSessionId: null });
@@ -728,5 +914,35 @@ describe("promptTypeForRecovery", () => {
 
   test("unmapped/legacy agent type (e.g. general-purpose) falls back to implementation", () => {
     expect(promptTypeForRecovery("general-purpose", agentTypeToPromptType)).toBe("implementation");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isLivePrState (mt#3149)
+// ---------------------------------------------------------------------------
+
+describe("isLivePrState", () => {
+  test("open -> live", () => {
+    expect(isLivePrState("open")).toBe(true);
+  });
+
+  test("draft -> live (a draft PR still required a push to create)", () => {
+    expect(isLivePrState("draft")).toBe(true);
+  });
+
+  test("closed -> not live", () => {
+    expect(isLivePrState("closed")).toBe(false);
+  });
+
+  test("merged -> not live (the dispatch's task would have gone DONE already, but defensively not live)", () => {
+    expect(isLivePrState("merged")).toBe(false);
+  });
+
+  test("null -> not live (no PR at all)", () => {
+    expect(isLivePrState(null)).toBe(false);
+  });
+
+  test("undefined -> not live", () => {
+    expect(isLivePrState(undefined)).toBe(false);
   });
 });
