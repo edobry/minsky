@@ -865,6 +865,54 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#3125 — root-tier sibling of the guidance-detector family above. Fires
+  // on the BATCH itself (an id-minting call + an id-consuming call in the
+  // same parallel tool-call batch) rather than a downstream symptom surface
+  // (mt#2195's fs path, mt#2197's narrated prose). Calibration-first
+  // (INJECTION_ENABLED=false in the module) — see the module header.
+  // -------------------------------------------------------------------------
+  {
+    name: "constructed-identifier-batch-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./constructed-identifier-batch-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "constructed-identifier-batch",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                name: "mcp__minsky__tasks_create",
+                input: { title: "canary task" },
+              },
+              {
+                type: "tool_use",
+                name: "mcp__minsky__session_commit",
+                input: { message: "fix(mt#0000): canary commit referencing the minted id" },
+              },
+            ],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      // Calibration-first (INJECTION_ENABLED=false) — same posture as
+      // causal-premise-detector's canary above: assert the calibration
+      // outcome, not additionalContext, so a future INJECTION_ENABLED flip
+      // doesn't silently break this canary (it would simply gain an
+      // ADDITIONAL warn outcome).
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
   // mt#2812 — new guard, not part of any legacy settings.json migration.
   // Reads the guard-health JSONL log (a pure fs read + string compare, no
   // network/git calls) and injects a warning when any guard has reached
