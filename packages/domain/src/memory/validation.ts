@@ -110,9 +110,7 @@ export function checkDerivation(content: string): DerivationIssue | null {
   if (typeof content !== "string") {
     return {
       source: "invalid-input",
-      message:
-        `Memory content must be a string (received ${content === null ? "null" : typeof content}). ` +
-        "This should already be rejected at the command boundary before reaching the derivation check.",
+      message: `Memory content must be a string (received ${content === null ? "null" : typeof content}). This should already be rejected at the command boundary before reaching the derivation check.`,
     };
   }
 

@@ -961,4 +961,177 @@ describe("MCP shared-command bridge", () => {
       }
     });
   });
+
+  // mt#2705: schema-level `.default(...)` is authoritative at the MCP
+  // boundary (previously only the sibling `defaultValue` field was ever
+  // consulted), and a missing `required: true` param is rejected before
+  // execute() runs (closing the mt#3144 required-enforcement gap).
+  describe("schema-level defaults + required enforcement (mt#2705)", () => {
+    test("materializes a schema-only .default(...) when the caller omits the param (no sibling defaultValue)", async () => {
+      const id = "tasks.__mcp_bridge_schema_default_only__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#2705: schema-only default",
+        requiresSetup: false,
+        parameters: {
+          limit: {
+            schema: z.number().default(20),
+            description: "limit",
+            required: false,
+            // Deliberately no `defaultValue` field — the schema-level
+            // default is the only source of truth exercised here.
+          },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await handler({});
+      expect(calls[0]?.params.limit).toBe(20);
+    });
+
+    test("rejects a missing required parameter before execute() runs, naming the field", async () => {
+      // Regression test for the mt#3144 memory.create incident: a
+      // `required: true` param with no defensive handler guard used to
+      // reach execute() as `undefined` and crash on first dereference
+      // (checkDerivation's `content.trimStart()` TypeError).
+      const id = "tasks.__mcp_bridge_required_missing__";
+      let executed = false;
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#2705: required param missing",
+        requiresSetup: false,
+        parameters: {
+          content: {
+            schema: z.string(),
+            description: "content",
+            required: true,
+          },
+        },
+        execute: async (params) => {
+          executed = true;
+          return { content: (params as { content: string }).content.trimStart() };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await expect(handler({})).rejects.toThrow(/Required parameter 'content' is missing/);
+      expect(executed).toBe(false);
+    });
+
+    test("leaves a genuinely optional parameter with no default omitted (unchanged behavior)", async () => {
+      const id = "tasks.__mcp_bridge_optional_no_default__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#2705: optional, no default",
+        requiresSetup: false,
+        parameters: {
+          status: {
+            schema: z.string().optional(),
+            description: "status",
+            required: false,
+          },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await handler({});
+      expect(calls[0]?.params.status).toBeUndefined();
+    });
+
+    test("required:false with a bare (non-.optional()) schema and no default stays omitted, not rejected", async () => {
+      // Guards against a stricter-than-intended regression: some commands
+      // declare `required: false` with a raw schema that has no `.optional()`
+      // wrapper (e.g. deps-visualization-commands.ts's `status: z.string()`).
+      // The `required` FLAG — not raw schema shape — must gate rejection.
+      const id = "tasks.__mcp_bridge_optional_bare_schema__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#2705: required:false, bare schema",
+        requiresSetup: false,
+        parameters: {
+          status: {
+            schema: z.string(),
+            description: "status",
+            required: false,
+          },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      const result = await handler({});
+      expect(result).toEqual({ success: true });
+      expect(calls[0]?.params.status).toBeUndefined();
+    });
+
+    test("existing paired schema.default() + sibling defaultValue resolves identically (no regression)", async () => {
+      const id = "tasks.__mcp_bridge_paired_default__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#2705: paired default, no regression",
+        requiresSetup: false,
+        parameters: {
+          format: {
+            schema: z.enum(["yaml", "json"]).default("yaml"),
+            description: "format",
+            required: false,
+            defaultValue: "yaml",
+          },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await handler({});
+      expect(calls[0]?.params.format).toBe("yaml");
+    });
+  });
 });

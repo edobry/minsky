@@ -113,3 +113,57 @@ describe("normalizeCliParameters — non-structured params are unaffected", () =
     expect("payload" in out).toBe(false);
   });
 });
+
+describe("normalizeCliParameters — schema-level defaults + required enforcement (mt#2705)", () => {
+  test("materializes a schema-only .default(...) when the flag is omitted (no sibling defaultValue)", () => {
+    // Deliberately no `defaultValue` field — the schema-level default is the
+    // only source of truth exercised here.
+    const schema = { limit: def(z.number().default(20)) };
+    const out = normalizeCliParameters(schema, {});
+    expect(out.limit).toBe(20);
+  });
+
+  test("required parameter missing still throws (unchanged behavior)", () => {
+    // The CLI path already enforced this correctly pre-mt#2705; the new
+    // schema-default-materialization branch above it must not change this.
+    const schema = { name: def(z.string(), true) };
+    expect(() => normalizeCliParameters(schema, {})).toThrow(
+      /Required parameter 'name' is missing/
+    );
+  });
+
+  test("required parameter WITH a schema-level default materializes the default instead of throwing", () => {
+    // Precedence check: a schema-embedded default takes priority over the
+    // `required` flag — if the schema itself provides a value for
+    // `undefined`, the parameter is no longer effectively "missing".
+    const schema = { strategy: def(z.enum(["a", "b"]).default("a"), true) };
+    const out = normalizeCliParameters(schema, {});
+    expect(out.strategy).toBe("a");
+  });
+
+  test("required:false with a bare (non-.optional()) schema and no default stays omitted, not rejected", () => {
+    // Guards against a stricter-than-intended regression: some commands
+    // declare `required: false` with a raw schema that has no `.optional()`
+    // wrapper (e.g. deps-visualization-commands.ts's `status: z.string()`).
+    // The `required` FLAG — not raw schema shape — must gate rejection.
+    const schema = { status: def(z.string(), false) };
+    const out = normalizeCliParameters(schema, {});
+    expect("status" in out).toBe(false);
+  });
+
+  test("existing paired schema.default() + sibling defaultValue resolves identically (no regression)", () => {
+    const paramDef = {
+      schema: z.enum(["yaml", "json"]).default("yaml"),
+      required: false,
+      defaultValue: "yaml",
+    } as unknown as CommandParameterDefinition;
+    const out = normalizeCliParameters({ format: paramDef }, {});
+    expect(out.format).toBe("yaml");
+  });
+
+  test("a supplied value still goes through the normal parse/validate path (unaffected by the omitted-branch change)", () => {
+    const schema = { limit: def(z.number().default(20)) };
+    const out = normalizeCliParameters(schema, { limit: 5 });
+    expect(out.limit).toBe(5);
+  });
+});
