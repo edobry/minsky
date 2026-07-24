@@ -400,7 +400,7 @@ decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture
 - **Drive-PR-to-convergence** — reminds wait-for-review. none.
 - **Substrate-bypass** — unencoded commitments/retro-prose/DB-bypass, + log-only post-merge instr. `MINSKY_ACK_SUBSTRATE_BYPASS`.
 - **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. `MINSKY_ACK_RETROSPECTIVE_TRIGGER`.
-- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
+- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21; same-turn-read/relay/dedup suppression legs mt#3113. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
 - **Wall-of-text** — turn-end report shape violation (over-budget/label-lead); suppressed-but-logged on a recent depth request. LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.
 - **Constructed-identifier batch** — id-minting call (tasks_create/session_start/session_pr_create/asks_create/memory_create) batched with an id-consuming call (session_commit/session_pr_create/session_pr_edit/tasks_spec_patch/memory_create) in the same parallel tool-call batch; root-tier sibling of guessed-session-path + pre-narration. Calibration-first (mt#3125). `MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH`.
