@@ -7,7 +7,8 @@
 import { describe, test, expect, afterEach, mock } from "bun:test";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
-import { foldEvents } from "../../lib/session-film-fold";
+import { buildKeyframes, foldAtBatchIndex, foldEvents } from "../../lib/session-film-fold";
+import { groupEventsIntoBatchRows } from "../../lib/session-film-batches";
 import { computeStageLayout } from "../../lib/session-film-layout";
 import { DEFAULT_SESSION_FILM_CONFIG } from "../../lib/session-film-config";
 import { SessionFilmStage } from "./SessionFilmStage";
@@ -30,6 +31,22 @@ function ev(overrides: Partial<SemanticEvent> = {}): SemanticEvent {
 
 function buildFixture(events: SemanticEvent[]) {
   const world = foldEvents(events, events.length - 1);
+  const nowIso = events.at(-1)?.tStart ?? "2026-07-24T00:00:00.000Z";
+  const layout = computeStageLayout(world, nowIso, DEFAULT_SESSION_FILM_CONFIG);
+  return { world, layout };
+}
+
+/**
+ * Row-aware fixture builder — unlike `buildFixture` (event-grain `foldEvents`,
+ * which never populates the fan-out signal), this folds row-by-row via
+ * `applyRow` (through `buildKeyframes` + `foldAtBatchIndex`, the SAME path
+ * the real page uses) so `world.lastRowIsParallelBatch` /
+ * `lastRowTargetsByActor` reflect the LAST row folded.
+ */
+function buildRowAwareFixture(events: SemanticEvent[]) {
+  const rows = groupEventsIntoBatchRows(events);
+  const keyframes = buildKeyframes(events, rows, DEFAULT_SESSION_FILM_CONFIG);
+  const world = foldAtBatchIndex(events, rows, keyframes, rows.length - 1);
   const nowIso = events.at(-1)?.tStart ?? "2026-07-24T00:00:00.000Z";
   const layout = computeStageLayout(world, nowIso, DEFAULT_SESSION_FILM_CONFIG);
   return { world, layout };
@@ -109,5 +126,139 @@ describe("SessionFilmStage — reduced motion (AT7)", () => {
     render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
     const avatar = screen.getByTestId("session-film-avatar-agent:a1");
     expect(avatar.getAttribute("class")).toContain("transition");
+  });
+});
+
+describe("SessionFilmStage — batch fan-out (SC5/SC10, AT1's stage half)", () => {
+  test("a parallel batch renders beams to ALL targets simultaneously, avatar stays at home", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", target: { realm: "repo", id: "file:ws:a.ts" } }),
+      ev({ batchId: "b1", target: { realm: "repo", id: "file:ws:b.ts" } }),
+      ev({ batchId: "b1", target: { realm: "web", id: "web:example.com" } }),
+    ];
+    const { world, layout } = buildRowAwareFixture(events);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+
+    // All three beams render simultaneously — no sequencing, no single walk.
+    expect(screen.getByTestId("session-film-beam-agent:a1-file:ws:a.ts")).toBeDefined();
+    expect(screen.getByTestId("session-film-beam-agent:a1-file:ws:b.ts")).toBeDefined();
+    expect(screen.getByTestId("session-film-beam-agent:a1-web:example.com")).toBeDefined();
+
+    // The avatar itself never walks to a single target during a fan-out.
+    const avatar = screen.getByTestId("session-film-avatar-agent:a1");
+    expect(avatar.getAttribute("data-at-home")).toBe("true");
+  });
+
+  test("a singleton row does NOT render fan-out beams — the avatar makes an ordinary excursion", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1" })];
+    const { world, layout } = buildRowAwareFixture(events);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    expect(screen.queryAllByTestId(/session-film-beam-/).length).toBe(0);
+    const avatar = screen.getByTestId("session-film-avatar-agent:a1");
+    expect(avatar.getAttribute("data-at-home")).toBeNull();
+  });
+});
+
+describe("SessionFilmStage — touched-set contour (SC7, AT5)", () => {
+  function crossRealmEvents(): SemanticEvent[] {
+    return [
+      ev({ batchId: "b1", target: { realm: "repo", id: "file:ws:a.ts" } }),
+      ev({
+        batchId: "b2",
+        verb: "write",
+        target: { realm: "minsky-substrate", id: "minsky:task:mt#1" },
+      }),
+    ];
+  }
+
+  test("off by default — no contour renders without hover/click", () => {
+    const { world, layout } = buildRowAwareFixture(crossRealmEvents());
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    expect(screen.queryByTestId("session-film-contour-agent:a1")).toBeNull();
+  });
+
+  test("hovering the avatar draws the contour, labeled 'touched', spanning >=2 realm trees", () => {
+    const { world, layout } = buildRowAwareFixture(crossRealmEvents());
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const avatar = screen.getByTestId("session-film-avatar-agent:a1");
+    fireEvent.mouseEnter(avatar);
+    const contour = screen.getByTestId("session-film-contour-agent:a1");
+    expect(contour.getAttribute("aria-label")).toBe("touched");
+    expect(contour.getAttribute("d")).toBeTruthy();
+  });
+
+  test("mouse leave hides the (un-pinned) contour again", () => {
+    const { world, layout } = buildRowAwareFixture(crossRealmEvents());
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const avatar = screen.getByTestId("session-film-avatar-agent:a1");
+    fireEvent.mouseEnter(avatar);
+    expect(screen.getByTestId("session-film-contour-agent:a1")).toBeDefined();
+    fireEvent.mouseLeave(avatar);
+    expect(screen.queryByTestId("session-film-contour-agent:a1")).toBeNull();
+  });
+
+  test("clicking the avatar PINS the contour open even after the mouse leaves", () => {
+    const { world, layout } = buildRowAwareFixture(crossRealmEvents());
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const avatar = screen.getByTestId("session-film-avatar-agent:a1");
+    fireEvent.click(avatar);
+    fireEvent.mouseEnter(avatar);
+    fireEvent.mouseLeave(avatar);
+    expect(screen.getByTestId("session-film-contour-agent:a1")).toBeDefined();
+    fireEvent.click(avatar); // click again unpins
+    expect(screen.queryByTestId("session-film-contour-agent:a1")).toBeNull();
+  });
+
+  test("the contour uses the agent's brand agent-identity color (iso.pastel)", () => {
+    const { world, layout } = buildRowAwareFixture(crossRealmEvents());
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    fireEvent.mouseEnter(screen.getByTestId("session-film-avatar-agent:a1"));
+    const contour = screen.getByTestId("session-film-contour-agent:a1");
+    expect(contour.getAttribute("class")).toContain("iso-pastel");
+  });
+});
+
+describe("SessionFilmStage — spawn buds + workspace-clone sub-territory (SC5)", () => {
+  test("a spawn event renders a distinct badge with its kind label, not a plain circle", () => {
+    const events: SemanticEvent[] = [
+      ev({
+        batchId: "b1",
+        verb: "spawn",
+        target: { realm: "agents", id: "agents:Explore", raw: { subagent_type: "Explore" } },
+        outcome: "ok",
+      }),
+    ];
+    const { world, layout } = buildFixture(events);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const node = layout.nodes.find((n) => n.entityId === "agents:Explore");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    const el = screen.getByTestId(`session-film-node-${node.id}`);
+    expect(el.getAttribute("data-spawn-bud")).toBe("true");
+    expect(el.getAttribute("data-spawn-kind")).toBe("Explore");
+    // A spawn bud is a <rect> badge, not a <circle> node.
+    expect(el.querySelector("rect")).toBeDefined();
+  });
+
+  test("a clone event renders a bordered sub-territory with a tree glyph and a clone-of arc to the repo root", () => {
+    const events: SemanticEvent[] = [
+      ev({
+        batchId: "b1",
+        verb: "clone",
+        target: { realm: "minsky-substrate", id: "minsky:workspace:mt-9999" },
+        outcome: "ok",
+      }),
+    ];
+    const { world, layout } = buildFixture(events);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const node = layout.nodes.find((n) => n.entityId === "minsky:workspace:mt-9999");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+
+    const el = screen.getByTestId(`session-film-node-${node.id}`);
+    expect(el.getAttribute("data-clone-territory")).toBe("true");
+    expect(screen.getByTestId("session-film-clone-border")).toBeDefined();
+    expect(screen.getByTestId("session-film-clone-tree-glyph")).toBeDefined();
+
+    const arc = screen.getByTestId(`session-film-clone-arc-${node.id}`);
+    expect(arc.getAttribute("aria-label")).toBe("clone-of");
   });
 });
