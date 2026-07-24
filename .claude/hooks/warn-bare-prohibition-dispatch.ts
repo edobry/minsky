@@ -48,10 +48,11 @@
 // ## CALIBRATION-FIRST
 //
 // `ENFORCEMENT_ENABLED` (shared with the `tasks_dispatch` path) is false in v1: this hook
-// RECORDS matches to a calibration log and ALLOWS the dispatch. The prohibition patterns
-// include deliberately-noisy members (`avoid`, `skip`) whose false-positive rate is unmeasured;
-// blocking on an unmeasured regex trains callers to route around the gate. Graduation — the
-// per-pattern FP review and the flip/tune/retire decision — is mt#3167.
+// RECORDS matches to a calibration log and ALLOWS the dispatch. The pattern set's real-world
+// false-positive rate is unmeasured, and blocking on an unmeasured regex trains callers to route
+// around the gate. (The generic `skip X` and `avoid using` patterns v1 originally carried were
+// REMOVED before merge — PR #2260 R1 — so there is no deliberate noise floor here.) Graduation —
+// the per-pattern FP review and the flip/tune/retire decision — is mt#3167.
 //
 // @see mt#3162 — this hook's task
 // @see mt#3167 — calibration graduation

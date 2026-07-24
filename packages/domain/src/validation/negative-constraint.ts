@@ -53,12 +53,15 @@
  * about whether this mechanism is blocking.
  *
  * When `false` (v1), a bare prohibition is RECORDED and surfaced as a warning but never blocks a
- * dispatch. The prohibition patterns include deliberately-noisy members (`avoid`, `skip`) whose
- * false-positive rate is unmeasured; blocking on an unmeasured regex would train callers to
- * route around the gate, which is worse than not having it. Flip to `true` only after a
- * `/calibration-review` pass over the fire log shows an acceptable rate — the same
- * calibration -> injection ladder the causal-premise (mt#2216/mt#2263) and
- * constructed-identifier-batch (mt#3125) detectors follow.
+ * dispatch. The pattern set's real-world false-positive rate is unmeasured; blocking on an
+ * unmeasured regex would train callers to route around the gate, which is worse than not having
+ * it. Flip to `true` only after a `/calibration-review` pass over the fire log shows an
+ * acceptable rate — the same calibration -> injection ladder the causal-premise
+ * (mt#2216/mt#2263) and constructed-identifier-batch (mt#3125) detectors follow.
+ *
+ * Note the patterns are narrower than they look from the ladder alone: the generic `skip X` and
+ * `avoid using` members were REMOVED before merge (PR #2260 R1, see {@link PROHIBITION_PATTERNS}),
+ * so there is no deliberate noise floor for the calibration pass to subtract.
  *
  * Graduation is tracked by mt#3167.
  */
