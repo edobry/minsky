@@ -112,9 +112,10 @@ const tasksDispatchParams = {
       "Comma-separated FILE PATHS to constrain the subagent to. Paths only — this value is " +
       "comma-split, each chunk is rendered as a bullet under 'Only modify the following " +
       "files:', and the parallel-work guard re-reads it directly to detect PR collisions. " +
-      "A chunk that is not path-shaped (contains whitespace, and has neither a '/' nor a " +
-      "file extension) is REJECTED with an error rather than rendered as a fabricated path " +
-      "(mt#1279). Put prose scope descriptions in `scopeNotes` instead.",
+      "A chunk is path-shaped when it has NO internal whitespace AND either contains a '/' " +
+      "or ends in a file extension; anything else (a prose fragment, or a bare word like " +
+      "'tests') is REJECTED with an error naming it, rather than rendered as a fabricated " +
+      "path (mt#1279). Put prose scope descriptions in `scopeNotes` instead.",
     required: false,
   },
   scopeNotes: {
