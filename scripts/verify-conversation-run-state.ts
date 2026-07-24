@@ -37,6 +37,23 @@
  * handle is therefore acquired BEFORE the first write, so the cleanup path can
  * never be unreachable.
  *
+ * ## Preconditions vs failures (mt#3176 R1)
+ *
+ * These are different things and must not share an exit code:
+ *
+ *   - **Precondition absent** — no cockpit token, daemon not running, no
+ *     database. The thing under test could not be reached at all, so there is
+ *     nothing to assert. SKIP, exit 0.
+ *   - **Failure** — every precondition was met and an assertion did not hold.
+ *     Exit 1.
+ *
+ * The distinction matters because `postRunState` is fail-open by design: it
+ * returns false for "daemon is not running" AND for "daemon is running but the
+ * ingest path is broken". Collapsing those would make this script either cry
+ * wolf whenever the daemon happens to be down, or — far worse — stay quiet
+ * about a genuinely broken binding. So reachability is probed separately,
+ * BEFORE any assertion runs, and only a reachable-but-wrong daemon fails.
+ *
  * Usage:
  *   bun scripts/verify-conversation-run-state.ts
  *
@@ -44,8 +61,7 @@
  *   MINSKY_COCKPIT_URL   optional — cockpit origin (default: resolved from the
  *                        cockpit state file, else http://127.0.0.1:3737)
  *
- * Exits 0 on pass, 1 on fail, 0 with a SKIP message when the preconditions
- * (cockpit token / reachable daemon) are absent.
+ * Exits 0 on pass, 0 with a SKIP when a precondition is absent, 1 on failure.
  */
 import { ensureHookDomainBootstrap } from "../.minsky/hooks/domain-bootstrap";
 import type { ClaudeHookInput } from "../.minsky/hooks/types";
@@ -69,6 +85,24 @@ function record(step: string, ok: boolean, detail: string): boolean {
 function skip(reason: string): never {
   process.stdout.write(`SKIP: ${reason}\n`);
   process.exit(0);
+}
+
+/**
+ * Is a cockpit daemon actually listening at `origin`?
+ *
+ * `/api/health` is a GET, so it is exempt from `mutationAuthMiddleware` and
+ * answers without a token — which makes it a clean reachability probe that
+ * cannot be confused with an auth problem.
+ */
+async function probeDaemonReachable(origin: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${origin.replace(/\/$/, "")}/api/health`, {
+      signal: AbortSignal.timeout(2_000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -97,13 +131,16 @@ if (!token) {
 const origin = resolveCockpitOrigin();
 process.stdout.write(`cockpit origin: ${origin}\n`);
 
+if (!(await probeDaemonReachable(origin))) {
+  skip(`no cockpit daemon reachable at ${origin} — start it first`);
+}
+
 // ---------------------------------------------------------------------------
 // Acquire the DB handle BEFORE the first write, so cleanup is always reachable.
 // ---------------------------------------------------------------------------
 const provider = await resolvePersistenceProvider();
 if (!provider || !("getDatabaseConnection" in provider)) {
-  record("acquire db handle", false, "no SQL persistence provider available");
-  process.exit(1);
+  skip("no SQL persistence provider available — nothing to verify against");
 }
 const db = await (
   provider as {
