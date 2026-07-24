@@ -17,6 +17,8 @@ import { log } from "@minsky/shared/logger";
 import { redact } from "../../utils/redaction";
 import { z } from "zod";
 import { guardProjectSetup } from "@minsky/domain/configuration/guard";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import { formatZodError } from "@minsky/domain/schemas/validation-utils";
 import type { StrikeTracker } from "@minsky/domain/ask/strike-tracker";
 import { normalizeErrorSignature } from "@minsky/domain/ask/strike-tracker";
 import type { AskRepository } from "@minsky/domain/ask/repository";
@@ -137,8 +139,36 @@ function convertMcpArgsToParameters(
     const value = args[key];
 
     if (value !== undefined) {
-      // Use the value as-is since it should already be validated by MCP
-      result[key] = value;
+      // mt#3155: validate the PROVIDED value against its declared schema and
+      // assign the PARSE OUTPUT, so Zod coercions/transforms apply — mirroring
+      // `normalizeCliParameters` (parameter-mapper.ts), which has always done
+      // this on the CLI side. Nothing upstream on the MCP dispatch path
+      // validates values: `src/mcp/server.ts`'s CallTool handler is registered
+      // via the low-level `setRequestHandler(CallToolRequestSchema, ...)`,
+      // which checks only the JSON-RPC envelope, and the per-tool
+      // `inputSchema` is merely ADVERTISED in `tools/list` — which harness
+      // clients demonstrably do not enforce (mt#2737). `enforceDeclaredParams`
+      // (mt#2778) checks the KEY SET only. So this is the single point where a
+      // wrong-typed provided value can be rejected before `execute()` runs.
+      const providedSchema = paramDef.schema as z.ZodTypeAny | undefined;
+
+      // Plain-object (non-Zod) legacy schemas have no `.parse()` — pass them
+      // through unvalidated, matching `convertParametersToZodSchema`'s
+      // existing tolerance for commands registered with `{ type: "string" }`.
+      if (typeof providedSchema?.parse !== "function") {
+        result[key] = value;
+        continue;
+      }
+
+      try {
+        result[key] = providedSchema.parse(value);
+      } catch (error) {
+        // Same message shape as the CLI path so both boundaries report a
+        // wrong-typed value identically, naming the offending parameter.
+        const detail =
+          error instanceof z.ZodError ? formatZodError(error, key) : getErrorMessage(error);
+        throw new Error(`Invalid value for parameter '${key}': ${detail}`);
+      }
       continue;
     }
 

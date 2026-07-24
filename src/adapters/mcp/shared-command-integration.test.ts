@@ -1170,4 +1170,171 @@ describe("MCP shared-command bridge", () => {
       expect(calls[0]?.params.format).toBe("yaml");
     });
   });
+
+  // mt#3155: PROVIDED values are validated against the declared Zod schema.
+  // mt#2705 (above) closed the OMITTED-value half (schema defaults + required
+  // enforcement); this closes the PROVIDED-value half. The CLI path has always
+  // done this — `normalizeCliParameters` runs `paramDef.schema.parse(value)`
+  // on every provided value (parameter-mapper.ts) — so before this fix the two
+  // boundaries disagreed about what they accept.
+  describe("provided-value validation (mt#3155)", () => {
+    test("rejects a wrong-typed provided value before execute() runs, naming the field", async () => {
+      const id = "tasks.__mcp_bridge_provided_wrong_type__";
+      let executed = false;
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#3155: wrong-typed provided value",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async () => {
+          executed = true;
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await expect(handler({ limit: "fifty" })).rejects.toThrow(
+        /Invalid value for parameter 'limit'/
+      );
+      // The rejection must happen at the boundary, not inside the handler.
+      expect(executed).toBe(false);
+    });
+
+    test("passes a correctly-typed provided value through to execute()", async () => {
+      const id = "tasks.__mcp_bridge_provided_right_type__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#3155: correctly-typed provided value",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await handler({ limit: 50 });
+      expect(calls[0]?.params.limit).toBe(50);
+    });
+
+    test("assigns the parse OUTPUT so schema coercions apply, mirroring the CLI path", async () => {
+      // Decided semantics (spec SC2): assign `schema.parse(value)`'s RETURN,
+      // not the raw value — matching `normalizeCliParameters`, which does
+      // `result[paramName] = paramDef.schema.parse(valueToParse)`. Check-only
+      // validation would leave MCP returning the raw value while CLI returns
+      // the coerced one, re-creating the divergence this task removes.
+      const id = "tasks.__mcp_bridge_provided_coercion__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#3155: coercion output is assigned",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.coerce.number(), description: "limit", required: false },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await handler({ limit: "50" });
+      expect(calls[0]?.params.limit).toBe(50);
+      expect(typeof calls[0]?.params.limit).toBe("number");
+    });
+
+    test("leaves a plain-object (non-Zod) schema unvalidated (legacy tolerance)", async () => {
+      // Mirrors convertParametersToZodSchema's existing tolerance for commands
+      // registered with a plain { type: "string" } object instead of a Zod
+      // schema — such a schema has no .parse(), so validation must be skipped
+      // rather than crashing with "schema.parse is not a function".
+      const id = "tasks.__mcp_bridge_provided_plain_schema__";
+      const calls: CapturedCall[] = [];
+      sharedCommandRegistry.registerCommand(
+        {
+          id,
+          name: id,
+          category: CommandCategory.TASKS,
+          description: "mt#3155: plain-object schema tolerance",
+          requiresSetup: false,
+          parameters: {
+            query: { schema: { type: "string" } as any, description: "query", required: false },
+          },
+          execute: async (params, context) => {
+            calls.push({ params: params as Record<string, unknown>, context });
+            return { success: true };
+          },
+        },
+        { allowOverwrite: true }
+      );
+      registeredIds.add(id);
+
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      // A value that would fail a z.string() is passed through untouched.
+      await handler({ query: 123 });
+      expect(calls[0]?.params.query).toBe(123);
+    });
+
+    test("does not regress the omitted-value branch: a schema default still materializes", async () => {
+      // Explicit no-regression guard for mt#2705's branch: provided-value
+      // validation must not run for an OMITTED value (schema.parse(undefined)
+      // would reject a non-optional schema and break every default).
+      const id = "tasks.__mcp_bridge_provided_omitted_unaffected__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "mt#3155: omitted-value branch unaffected",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number().default(20), description: "limit", required: false },
+          status: { schema: z.string(), description: "status", required: false },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await handler({});
+      expect(calls[0]?.params.limit).toBe(20);
+      expect(calls[0]?.params.status).toBeUndefined();
+    });
+  });
 });
