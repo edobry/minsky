@@ -1010,15 +1010,21 @@ function ConversationFetcher({
 
   const snapErr = query.isError && query.error instanceof SnapshotError ? query.error : null;
   const wrongIdSpace = snapErr?.code === "wrong_id_space" || snapErr?.status === 422;
-  const notFound = !wrongIdSpace && snapErr?.status === 404;
+  // mt#3131 (D3/D5): the server rejects a syntactically-invalid id (not even
+  // UUID-shaped) BEFORE any DB lookup, so it can never mean "still running" —
+  // distinguish it from a genuine "no transcript yet" so the copy below never
+  // tells the reader an impossible id "may still be running".
+  const invalidId = !wrongIdSpace && snapErr?.code === "invalid_id";
+  const notFound = !wrongIdSpace && !invalidId && snapErr?.status === 404;
 
   // Report a genuine unresolvable id to the host (mt#2769) — e.g. so a
   // URL-routed page can prune its own tab-strip entry. NOT fired for
   // wrong_id_space: that's a routing mistake (a valid workspace id used on
-  // the wrong route), not an invalid entity.
+  // the wrong route), not an invalid entity. `invalidId` (mt#3131 D3/D5) is
+  // the strongest case of "genuinely unresolvable" — it fires too.
   useEffect(() => {
-    if (notFound) onNotFound?.();
-  }, [notFound, onNotFound]);
+    if (notFound || invalidId) onNotFound?.();
+  }, [notFound, invalidId, onNotFound]);
 
   if (query.isError) {
     // Fail LOUD on the wrong-id-space mistake (mt#2525 / mt#2420): a workspace
@@ -1042,6 +1048,20 @@ function ConversationFetcher({
               Open its workspace detail page
             </Link>{" "}
             and use its &ldquo;View conversation&rdquo; link to reach the transcript.
+          </p>
+        </div>
+      );
+    }
+    // mt#3131 (D5): a syntactically-invalid id is definitively NOT FOUND —
+    // it could never have resolved, so the copy must not suggest it "may
+    // still be running" (that framing only makes sense for a plausible id
+    // whose transcript simply hasn't landed yet).
+    if (invalidId) {
+      return (
+        <div className={cn("flex flex-col items-center gap-1 py-10 text-center", className)}>
+          <p className="text-sm text-muted-foreground">Conversation not found.</p>
+          <p className="max-w-md text-xs text-muted-foreground/70">
+            &ldquo;{sessionId}&rdquo; is not a valid conversation id.
           </p>
         </div>
       );
