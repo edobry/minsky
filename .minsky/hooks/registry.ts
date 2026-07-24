@@ -1220,6 +1220,54 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       },
     },
   },
+  {
+    // mt#3179 — the family's THIRD recurrence (mem#394 R1/R2/R3) landed at
+    // turn-end with an announced-but-untaken action. Its sibling above scans
+    // for retrospective triggers; this one scans for a turn that ends by
+    // NAMING a next action without taking it. Keyed on position (the text sits
+    // in `last_assistant_message`, so nothing followed it) rather than on the
+    // agent's stated reason — R2 stopped by asking permission, R3 by
+    // announcing intent, and a reason-keyed check catches only one.
+    name: "turn-end-untaken-action-scan",
+    event: "Stop",
+    module: () => import("./turn-end-untaken-action-scan").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    calibrationLog: "untaken-action",
+    denyCapable: false,
+    // True only for the dedup turn-key: DETECTION reads `last_assistant_message`
+    // alone (position is the signal — see the guard's header). The turn-key
+    // derives from the transcript's opening prompt and degrades to a stable
+    // default when absent, so a missing transcript costs dedup precision, never
+    // detection.
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 700, optionCount: 2 },
+    canary: {
+      input: {
+        session_id: "mt3179-untaken-action-canary",
+        transcript_path: "/nonexistent/mt3179-canary.jsonl",
+        // Verbatim tail of the R3 incident this guard exists to catch.
+        last_assistant_message:
+          "mt#3179 is incident-response, so I'm taking it forward rather than leaving it filed — that's the next step, not a question.",
+      },
+      transcriptLines: [
+        {
+          type: "user",
+          message: { role: "user", content: "do a retro on this too" },
+          uuid: "mt3179-canary-prompt",
+          timestamp: "2026-07-24T20:40:00.000Z",
+        },
+        {
+          type: "assistant",
+          message: { role: "assistant", content: [{ type: "text", text: "Retro complete." }] },
+        },
+      ],
+      expects: "warn",
+      setup: async () => {
+        const store = await import("./turn-end-scan-store");
+        store.clearFlagged("mt3179-untaken-action-canary");
+      },
+    },
+  },
   // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the
   // Phase 2a dispatcher slot in the pre-migration settings.json order. Kept

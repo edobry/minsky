@@ -41,7 +41,16 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 
 **Manual gate** (does NOT auto-walk, even in auto mode):
 
-- bot review → merge: bot review never triggers merge automatically. Merge is a separate destructive action that requires explicit invocation. This carve-out is consistent with auto-mode's "do not take overly destructive actions" principle.
+- bot review → merge: a bot review never triggers merge automatically — no hook, watcher, or
+  review event calls `session_pr_merge` on your behalf. **The AGENT must invoke it explicitly.**
+  "Explicit invocation" means the agent makes the call deliberately; it does **NOT** mean asking
+  the principal for permission. An APPROVED review on the current HEAD with checks green **IS**
+  the authorization — `/implement-task` §9 lists "I'll wait for you to merge." among its
+  *forbidden turn-closers*, and `decision-defaults.mdc §User does not review PRs in the loop` says
+  to converge with the bot and surface at merge. Do not end a turn asking for merge authorization
+  on an approved, green PR: merge it, then report. The only legitimate reasons to stop are the
+  explicit halt conditions below (the destructive-action principle this carve-out cites is what
+  makes merge a deliberate call rather than an automatic side effect — not a consent requirement).
 
 **Explicit halt conditions** that override the chain-walk default at any transition:
 

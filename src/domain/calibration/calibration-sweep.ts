@@ -236,6 +236,15 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     kind: "retrospective-trigger",
   },
   {
+    path: ".minsky/untaken-action-calibration.jsonl",
+    name: "untaken-action",
+    // mt#3179 — turn-end-untaken-action-scan emits `matches: {family, phrase}[]`,
+    // byte-identical to the retrospective-trigger record shape, so it reuses that
+    // parser kind rather than widening the union (and every switch over it) for a
+    // shape that already exists. `name` is what distinguishes the two logs.
+    kind: "retrospective-trigger",
+  },
+  {
     path: ".minsky/ask-routing-deferral-calibration.jsonl",
     name: "ask-routing-deferral",
     kind: "ask-routing-deferral",
