@@ -265,6 +265,18 @@ export function truncateForLog(text: string, maxChars: number = MAX_LOGGED_ERROR
  * joined string would therefore cut off precisely the diagnostic worth keeping.
  * Bounding each cause level separately keeps the driver error visible no matter
  * how large the wrapper's message is.
+ *
+ * ## When to use this, vs. leaving a site alone (PR #2242 R1)
+ *
+ * Use it at every site that WRITES an error into a log record — BOTH shapes:
+ * an `error:` field, and string interpolation inside the message. The
+ * interpolated shape is easy to miss when sweeping for call sites, and is
+ * equally unbounded.
+ *
+ * Do NOT reach for it at a `throw` site that re-wraps with `{ cause: err }`.
+ * Those propagate the chain intact, so whatever eventually LOGS them bounds
+ * them here; truncating at the throw would permanently discard detail from
+ * callers that never log at all.
  */
 export function getLoggableErrorSummary(
   error: unknown,
