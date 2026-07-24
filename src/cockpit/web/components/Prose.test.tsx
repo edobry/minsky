@@ -8,8 +8,9 @@
  * `bun run test:components`).
  */
 import { describe, test, expect, afterEach } from "bun:test";
-import { render, cleanup } from "@testing-library/react";
+import { render, cleanup, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Prose } from "./Prose";
 import { buildEntityIndex } from "../lib/entity-linkifier";
 
@@ -22,8 +23,22 @@ function makeIndex() {
   return buildEntityIndex({ taskIds: [TASK_ID], sessionIds: [], askIds: [], memoryIds: [] });
 }
 
+// Entity-attributed anchors render through <EntityRef>, which resolves a
+// label via TanStack Query (mt#3174) — so every render needs a QueryClient
+// in scope, mirroring ConversationView.windowing.test.tsx's provider
+// wrapper. `retry: false` keeps a failing/absent fetch from retrying and
+// dragging out the test.
+function createTestQueryClient(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+}
+
 function renderProse(ui: React.ReactElement) {
-  return render(<MemoryRouter>{ui}</MemoryRouter>);
+  const client = createTestQueryClient();
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>{ui}</MemoryRouter>
+    </QueryClientProvider>
+  );
 }
 
 describe("Prose — Markdown structure", () => {

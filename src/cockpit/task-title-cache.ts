@@ -19,16 +19,37 @@
  * - `getTasks(ids)` — optional batch look-up. IDs are in display form. Returns
  *   only found tasks (missing IDs are omitted, not returned as null). Returned
  *   `id` values must match the input display-form IDs.
+ *
+ * `status` is OPTIONAL on both (mt#3174): existing providers (the two
+ * pre-existing consumers of this interface, `widgets/agents.ts` and
+ * `widgets/context-inspector.ts`) return `{id, title}` with no status field
+ * and remain valid implementations unchanged. Providers backing the new
+ * `getTaskMeta` batch method (below) supply `status` so the hover primitive
+ * can show it.
  */
 export interface TaskProviderLike {
-  getTask(taskId: string): Promise<{ title: string } | null>;
-  getTasks?(ids: string[]): Promise<{ id: string; title: string }[]>;
+  getTask(taskId: string): Promise<{ title: string; status?: string } | null>;
+  getTasks?(ids: string[]): Promise<{ id: string; title: string; status?: string }[]>;
+}
+
+/** `{title, status}` pair returned by {@link TaskTitleCache.getTaskMeta}. */
+export interface TaskMeta {
+  title: string;
+  status: string;
 }
 
 const DEFAULT_TASK_TITLE_TTL_MS = 60_000;
 
 export class TaskTitleCache {
   private cache = new Map<string, string>();
+  /**
+   * Status sibling to `cache` above (mt#3174) — populated alongside title
+   * whenever the underlying provider supplies a `status` field. Kept as a
+   * SEPARATE map (not folded into `cache`) so `getTitles`'s existing
+   * `Map<string, string>` return shape and behavior are completely
+   * unchanged — this is purely additive internal bookkeeping.
+   */
+  private statusCache = new Map<string, string>();
   private attempted = new Set<string>();
   private lastPopulatedAt = 0;
   private populatePromise: Promise<void> | null = null;
@@ -98,17 +119,19 @@ export class TaskTitleCache {
         const tasks = await taskProvider.getTasks(ids);
         for (const task of tasks) {
           this.cache.set(task.id, task.title);
+          if (task.status != null) this.statusCache.set(task.id, task.status);
         }
       } else {
         const results = await Promise.all(
           ids.map(async (displayId) => {
             const task = await taskProvider.getTask(displayId);
-            return { displayId, title: task?.title ?? null };
+            return { displayId, title: task?.title ?? null, status: task?.status ?? null };
           })
         );
-        for (const { displayId, title } of results) {
+        for (const { displayId, title, status } of results) {
           if (title != null) {
             this.cache.set(displayId, title);
+            if (status != null) this.statusCache.set(displayId, status);
           }
         }
       }
@@ -133,17 +156,19 @@ export class TaskTitleCache {
         const tasks = await taskProvider.getTasks(taskIds);
         for (const task of tasks) {
           this.cache.set(task.id, task.title);
+          if (task.status != null) this.statusCache.set(task.id, task.status);
         }
       } else {
         const results = await Promise.all(
           taskIds.map(async (displayId) => {
             const task = await taskProvider.getTask(displayId);
-            return { displayId, title: task?.title ?? null };
+            return { displayId, title: task?.title ?? null, status: task?.status ?? null };
           })
         );
-        for (const { displayId, title } of results) {
+        for (const { displayId, title, status } of results) {
           if (title != null) {
             this.cache.set(displayId, title);
+            if (status != null) this.statusCache.set(displayId, status);
           }
         }
       }
@@ -154,5 +179,28 @@ export class TaskTitleCache {
     } catch {
       // Task provider failure is non-fatal — rows degrade to taskTitle: null.
     }
+  }
+
+  /**
+   * Batch-resolve `{title, status}` for a set of task IDs (mt#3174).
+   *
+   * Added ALONGSIDE `getTitles` (not a signature change to it) so the two
+   * existing consumers (`widgets/agents.ts`, `widgets/context-inspector.ts`)
+   * are completely untouched — they keep calling `getTitles` and keep
+   * getting `Map<string, string>` back. This method reuses the SAME
+   * TTL/attempted bookkeeping as `getTitles` (so a mixed caller population
+   * doesn't double-fetch), but reads/writes `statusCache` in addition to
+   * `cache`. IDs the provider has no status for (only `title`) are simply
+   * absent from the returned map's per-entry `status` — never surfaced as
+   * an error.
+   */
+  async getTaskMeta(taskIds: string[]): Promise<Map<string, TaskMeta>> {
+    const titles = await this.getTitles(taskIds);
+    const result = new Map<string, TaskMeta>();
+    for (const [id, title] of titles) {
+      const status = this.statusCache.get(id);
+      if (status != null) result.set(id, { title, status });
+    }
+    return result;
   }
 }
