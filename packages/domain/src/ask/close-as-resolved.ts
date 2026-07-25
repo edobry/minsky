@@ -120,6 +120,27 @@ async function closeByCurrentState(
   return { kind: "cancelled", askId: ask.id };
 }
 
+/**
+ * True when `responder` names an automated system closure — the
+ * `system:<event>` convention documented on {@link CloseAsResolvedInput.responder}
+ * (e.g. `system:commit-landed`, `system:pr-merged`, `system:parent-task-terminal`,
+ * `system:superseded-by-later-commit`) — rather than a genuine operator
+ * response or another agent's answer.
+ *
+ * Answer-surfaces (the cockpit ask detail page, the `asks.wait-for-response`
+ * render helper) use this to distinguish "closed by the system, never
+ * actually answered" from a real response. Both `responded` and `closed`
+ * are response-BEARING states (see `wait-for-response.ts`), so without this
+ * check a system-driven closure and a genuine operator answer are
+ * indistinguishable to a caller that only checks `ask.response` is present
+ * (mt#3215 — the ask#6024 incident: an operator was told their pending
+ * authorization ask had "already been responded to" when it had actually
+ * been auto-closed, unanswered, by the parent-terminal sweep).
+ */
+export function isAutomatedClosureResponder(responder: string): boolean {
+  return responder.startsWith("system:");
+}
+
 export async function closeAskAsResolved(
   repo: AskRepository,
   askId: string,

@@ -6,7 +6,11 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import { FakeAskRepository } from "./repository";
 import type { Ask, AskState } from "./types";
-import { closeAskAsResolved, selectOpenReviewAsksForMergedPr } from "./close-as-resolved";
+import {
+  closeAskAsResolved,
+  selectOpenReviewAsksForMergedPr,
+  isAutomatedClosureResponder,
+} from "./close-as-resolved";
 
 // Repeated literals extracted to satisfy custom/no-magic-string-duplication.
 const COMMIT_LANDED = "system:commit-landed";
@@ -152,6 +156,21 @@ describe("closeAskAsResolved", () => {
     const closed = await repo.getById(ask.id);
     expect(closed?.state).toBe("closed");
     expect(closed?.response?.responder).toBe(REVIEW_RESPONDER);
+  });
+});
+
+describe("isAutomatedClosureResponder (mt#3215)", () => {
+  it("recognizes the system:<event> convention as an automated closure", () => {
+    expect(isAutomatedClosureResponder(COMMIT_LANDED)).toBe(true);
+    expect(isAutomatedClosureResponder(PR_MERGED)).toBe(true);
+    expect(isAutomatedClosureResponder("system:parent-task-terminal")).toBe(true);
+    expect(isAutomatedClosureResponder("system:superseded-by-later-commit")).toBe(true);
+  });
+
+  it("does not flag a genuine operator or agent responder", () => {
+    expect(isAutomatedClosureResponder("operator")).toBe(false);
+    expect(isAutomatedClosureResponder(REVIEW_RESPONDER)).toBe(false);
+    expect(isAutomatedClosureResponder("policy")).toBe(false);
   });
 });
 

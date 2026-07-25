@@ -1624,6 +1624,24 @@ describe("formatAskWaitMessage", () => {
     expect(msg).not.toContain('"proceed with option B"');
   });
 
+  test("a system-auto-closed result (mt#3215) is NOT rendered as an operator response", () => {
+    const result: AskWaitForResponseResult = {
+      resolved: true,
+      ask: {} as never,
+      response: {
+        responder: "system:parent-task-terminal",
+        payload: { sweep: "stale-suspended-close", task: "mt#3001" },
+      },
+      state: "closed",
+      elapsedMs: 1000,
+      pollCount: 1,
+    };
+    const msg = formatAskWaitMessage(result);
+    expect(msg).toContain("⚠ Ask auto-closed (closed) by system:parent-task-terminal");
+    expect(msg).toContain("NOT an operator response");
+    expect(msg).not.toContain("✓ Ask resolved");
+  });
+
   test("terminal-without-response result names the terminal state", () => {
     const result: AskWaitForResponseResult = {
       resolved: false,
