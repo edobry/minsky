@@ -17,6 +17,9 @@ import {
   classifyOctokitError,
   looksLikeHtmlBody,
   sanitizeOctokitMessage,
+  selectErrorDetail,
+  formatErrorDetailLine,
+  NO_DETAIL_PLACEHOLDER,
   type ErrorContext,
 } from "./github-error-handler";
 import { MinskyError } from "../errors/index";
@@ -229,5 +232,159 @@ describe("handleOctokitError — rate-limit reset time (mt#2888)", () => {
       expect(msg).toContain(RATE_LIMIT_EXCEEDED_MSG);
       expect(msg).not.toContain("(resets");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3171 — the trailing `Error:` line must carry the SERVER's detail, and must
+// never be bare.
+//
+// Originating incident (2026-07-24): a GitHub 500 during PR creation surfaced an
+// error ending in a bare `Error:` with nothing after it. The handler was not
+// discarding the body — it interpolated `info.message` (the Error object's own
+// message), which was empty, while `info.ghMessage` (GitHub's
+// `response.data.message`) held the server's actual text and went unread.
+// ---------------------------------------------------------------------------
+
+/** Build an Octokit-shaped error with independent control of every message source. */
+function makeDetailError(
+  status: number,
+  opts: { message?: string; ghMessage?: string; ghErrors?: Record<string, unknown>[] } = {}
+): Error {
+  const err = new Error(opts.message ?? "") as Error & {
+    status: number;
+    response: { status: number; data: Record<string, unknown> };
+  };
+  err.status = status;
+  err.response = {
+    status,
+    data: {
+      ...(opts.ghMessage !== undefined ? { message: opts.ghMessage } : {}),
+      ...(opts.ghErrors !== undefined ? { errors: opts.ghErrors } : {}),
+    },
+  };
+  return err;
+}
+
+function messageFromThrow(fn: () => void): string {
+  try {
+    fn();
+  } catch (err) {
+    return (err as Error).message;
+  }
+  throw new Error("expected the call to throw");
+}
+
+describe("mt#3171 — selectErrorDetail preference order", () => {
+  test("AT1: a 5xx with an EMPTY .message but a populated response.data.message surfaces the latter", () => {
+    const msg = messageFromThrow(() =>
+      handleOctokitError(
+        makeDetailError(500, { message: "", ghMessage: "Server Error: request id abc123" }),
+        CTX
+      )
+    );
+
+    expect(msg).toContain("Server Error: request id abc123");
+    // The headline is a parsed contract (merge-error-classification.ts) — it must survive.
+    expect(msg).toContain("GitHub API degraded/unavailable (HTTP 500)");
+  });
+
+  test("ghMessage is preferred over .message when BOTH are populated", () => {
+    const info = classifyOctokitError(
+      makeDetailError(500, { message: "generic client restatement", ghMessage: "the real cause" })
+    );
+    expect(selectErrorDetail(info)).toBe("the real cause");
+  });
+
+  test("falls back to .message when ghMessage is absent", () => {
+    const info = classifyOctokitError(makeDetailError(500, { message: "only the client message" }));
+    expect(selectErrorDetail(info)).toBe("only the client message");
+  });
+
+  test("falls back to structured response.data.errors when both messages are empty", () => {
+    const info = classifyOctokitError(
+      makeDetailError(500, {
+        message: "",
+        ghMessage: "",
+        ghErrors: [{ message: "upstream timeout", code: "custom", field: "base" }],
+      })
+    );
+    // Rendered for DISPLAY — not the lowercased `ghErrorsText` used for substring matching.
+    expect(selectErrorDetail(info)).toBe("upstream timeout custom base");
+  });
+
+  // PR #2313 R1 (BLOCKING): the original implementation put `.message` SECOND, ahead of
+  // `ghErrors`. That contradicted both SC1 and the stated server-before-client principle —
+  // `ghErrors` comes from GitHub's response body, `.message` is whatever Octokit put on the
+  // Error. This pins the corrected order so it cannot silently regress.
+  test("server-supplied ghErrors outranks the client-supplied .message", () => {
+    const info = classifyOctokitError(
+      makeDetailError(500, {
+        message: "client-side restatement",
+        ghMessage: "",
+        ghErrors: [{ message: "server-side detail", code: "custom" }],
+      })
+    );
+    expect(selectErrorDetail(info)).toBe("server-side detail custom");
+    expect(selectErrorDetail(info)).not.toContain("client-side restatement");
+  });
+
+  test("whitespace-only candidates do not count as detail", () => {
+    const info = classifyOctokitError(makeDetailError(500, { message: "   ", ghMessage: "\n\t" }));
+    expect(selectErrorDetail(info)).toBeNull();
+  });
+});
+
+describe("mt#3171 — no bare `Error:` line ever renders", () => {
+  test("AT2: a 5xx with message, ghMessage and errors[] all empty carries the explicit placeholder", () => {
+    const msg = messageFromThrow(() =>
+      handleOctokitError(makeDetailError(503, { message: "", ghMessage: "", ghErrors: [] }), CTX)
+    );
+
+    expect(msg).toContain(NO_DETAIL_PLACEHOLDER);
+    // The specific regression: a trailing "Error:" with nothing after it.
+    expect(msg).not.toMatch(/Error:\s*$/);
+  });
+
+  test("formatErrorDetailLine never returns a bare `Error:`", () => {
+    const empty = classifyOctokitError(makeDetailError(500, { message: "", ghMessage: "" }));
+    expect(formatErrorDetailLine(empty)).toBe(`Error: ${NO_DETAIL_PLACEHOLDER}`);
+    expect(formatErrorDetailLine(empty)).not.toMatch(/Error:\s*$/);
+  });
+});
+
+describe("mt#3171 — AT3: the network/timeout branch gets the same treatment (class-not-instance)", () => {
+  test("network branch surfaces ghMessage when .message lacks detail beyond the trigger word", () => {
+    // `.message` must contain a trigger word for this branch to be selected at all, and the
+    // error must NOT be a 5xx (no status) or the degraded branch would take it first.
+    const err = new Error("network") as Error & {
+      response: { data: Record<string, unknown> };
+    };
+    err.response = { data: { message: "getaddrinfo ENOTFOUND api.github.com" } };
+
+    const msg = messageFromThrow(() => handleOctokitError(err, CTX));
+    expect(msg).toContain("Network Connection Error");
+    expect(msg).toContain("getaddrinfo ENOTFOUND api.github.com");
+  });
+
+  test("network branch renders the placeholder rather than a bare `Error:`", () => {
+    // A trigger word in `.message` with no server-side detail at all.
+    const msg = messageFromThrow(() => handleOctokitError(new Error("timeout"), CTX));
+    expect(msg).toContain("Network Connection Error");
+    expect(msg).not.toMatch(/Error:\s*$/);
+    // `.message` is "timeout" — non-empty, so it IS the detail; the placeholder is not needed.
+    expect(msg).toContain("Error: timeout");
+  });
+});
+
+describe("mt#3171 — AT4: the 5xx text no longer asserts credentials/PR are fine", () => {
+  test("the unconditional 'not a problem with your PR or credentials' claim is gone", () => {
+    const msg = messageFromThrow(() =>
+      handleOctokitError(makeDetailError(500, { message: "boom" }), CTX)
+    );
+
+    expect(msg).not.toContain("not a problem with your PR or credentials");
+    // What replaced it states only what a 5xx actually establishes.
+    expect(msg).toContain("does not, by itself, establish");
   });
 });

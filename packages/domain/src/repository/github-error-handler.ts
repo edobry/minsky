@@ -108,6 +108,71 @@ export function classifyOctokitError(error: unknown): OctokitErrorInfo {
   };
 }
 
+/**
+ * Placeholder for the trailing detail line when GitHub supplied no usable text.
+ *
+ * An EMPTY `Error:` line is worse than no line: it reads as "the tool has nothing to say"
+ * when the truth is "the server said nothing," and it gives the reader no way to tell those
+ * apart. Naming the absence explicitly is what makes the difference legible (mt#3171).
+ *
+ * Kept SHORT (PR #2313 R1): this string is excerpted into one-line summaries by
+ * `withOriginalMessage` at the adapter layer, where a long parenthetical crowds out the
+ * headline it is attached to.
+ */
+export const NO_DETAIL_PLACEHOLDER = "(no message from GitHub)";
+
+/**
+ * Pick the most informative human-readable detail available for a failed request.
+ *
+ * Preference order, most-specific first:
+ *   1. `ghMessage` — GitHub's OWN `response.data.message`. The server's account of what went
+ *      wrong is strictly more useful than the client library's, which is often a generic
+ *      restatement of the status line.
+ *   2. A display rendering of `ghErrors` (`response.data.errors[]`) — also SERVER-supplied,
+ *      so it outranks the client-side `.message` below.
+ *   3. `message` — the Error object's own `.message`, the client library's account.
+ *
+ * The ordering principle is server-before-client (PR #2313 R1): both (1) and (2) come from
+ * GitHub's response body; (3) is whatever Octokit chose to put on the Error. The original
+ * implementation put (3) second, which contradicted that principle and this task's own SC1.
+ *
+ * NOTE on (2): this re-renders `ghErrors` rather than reusing {@link OctokitErrorInfo.ghErrorsText},
+ * because that field is lowercased and space-joined for SUBSTRING MATCHING — displaying it would
+ * show the user mangled text. Matching text and display text are different products of the same
+ * source. (SC1 originally named `ghErrorsText` directly; the spec was corrected to name the
+ * display rendering, since the matching field is unfit for display.)
+ *
+ * Returns null when every candidate is empty, so callers can decide how to render the absence.
+ *
+ * mt#3171: before this existed, the 5xx branch interpolated `info.message` directly. During the
+ * 2026-07-24 GitHub outage that field was an empty string while `ghMessage` held the server's
+ * actual text — so the surfaced error ended in a bare `Error:` and the useful detail, already
+ * parsed and sitting one field away, was never shown.
+ */
+export function selectErrorDetail(info: OctokitErrorInfo): string | null {
+  if (typeof info.ghMessage === "string" && info.ghMessage.trim().length > 0) {
+    return info.ghMessage.trim();
+  }
+
+  const structured = info.ghErrors
+    .map((e) => [e?.["message"], e?.["code"], e?.["field"]].filter(Boolean).join(" ").trim())
+    .filter((s) => s.length > 0);
+  if (structured.length > 0) {
+    return structured.join("; ");
+  }
+
+  if (typeof info.message === "string" && info.message.trim().length > 0) {
+    return info.message.trim();
+  }
+
+  return null;
+}
+
+/** Build the trailing `Error: …` line, never bare. See {@link NO_DETAIL_PLACEHOLDER}. */
+export function formatErrorDetailLine(info: OctokitErrorInfo): string {
+  return `Error: ${selectErrorDetail(info) ?? NO_DETAIL_PLACEHOLDER}`;
+}
+
 // ── Context passed to the error handler so messages are specific ────────
 
 export interface ErrorContext {
@@ -231,12 +296,12 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
   if (info.status !== undefined && info.status >= 500 && info.status < 600) {
     throw new MinskyError(
       `GitHub API degraded/unavailable (HTTP ${info.status})\n\n` +
-        `GitHub's API returned a server error for this request. This is not a problem with ` +
-        `your PR or credentials — GitHub's service is temporarily degraded.\n\n` +
+        `GitHub's API returned a server error for this request. A 5xx is a server-side ` +
+        `failure; it does not, by itself, establish whether your request, credentials, or ` +
+        `repository state were involved.\n\n` +
         `To fix this:\n` +
         `  - Check GitHub status: https://www.githubstatus.com/\n` +
-        `  - Retry the operation in a few minutes\n\n` +
-        `Error: ${info.message}`
+        `  - Retry the operation in a few minutes\n\n${formatErrorDetailLine(info)}`
     );
   }
 
@@ -252,8 +317,7 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `To fix this:\n` +
         `  - Check your internet connection\n` +
         `  - Verify GitHub is accessible (https://githubstatus.com)\n` +
-        `  - Try again in a few moments\n\n` +
-        `Error: ${info.message}`
+        `  - Try again in a few moments\n\n${formatErrorDetailLine(info)}`
     );
   }
 
