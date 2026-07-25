@@ -12,6 +12,7 @@ import { readTextFileSync } from "@minsky/shared/fs";
 import { dirname, join } from "path";
 import { getErrorMessage, ensureError } from "@minsky/domain/errors/index";
 import { sharedCommandRegistry, CommandCategory } from "../../shared/command-registry";
+import type { SharedCommandRegistry } from "../../shared/command-registry";
 import { PersistenceProviderFactory } from "@minsky/domain/persistence/factory";
 import { log } from "@minsky/shared/logger";
 import type { SessionRecord } from "@minsky/domain/session/session-db";
@@ -103,9 +104,38 @@ export function resolveMigratePreviewMode(params: {
 }
 
 /**
- * Register all persistence commands
+ * Test-only override hooks for `registerPersistenceCommands`.
+ *
+ * `runSchemaMigrations` lets a handler-level test stub out the real
+ * migration runner (which otherwise requires a live Postgres connection)
+ * while still exercising the actual `persistence.migrate` command handler —
+ * DI-via-optional-parameter, per the project's `custom/no-global-module-mocks`
+ * ESLint rule (mirrors the `listReviewsImpl` pattern in
+ * `asks-github-client.ts`). Defaults to the real imported function in
+ * production; unused outside tests.
  */
-export function registerPersistenceCommands(container?: AppContainerInterface): void {
+export interface PersistenceCommandOverrides {
+  runSchemaMigrations?: typeof runSchemaMigrationsForConfiguredBackend;
+}
+
+/**
+ * Register all persistence commands.
+ *
+ * `registry` mirrors the `registerProvenanceCommands(container?, registry?)`
+ * convention (`./provenance.ts`) — defaults to the shared singleton in
+ * production, but accepts an isolated `createSharedCommandRegistry()`
+ * instance so handler-level tests can register + exercise the real command
+ * without touching global registry state.
+ */
+export function registerPersistenceCommands(
+  container?: AppContainerInterface,
+  registry?: SharedCommandRegistry,
+  overrides?: PersistenceCommandOverrides
+): void {
+  const targetRegistry = registry ?? sharedCommandRegistry;
+  const runSchemaMigrations =
+    overrides?.runSchemaMigrations ?? runSchemaMigrationsForConfiguredBackend;
+
   // Lazy-deps closure — matches session/git commands pattern (mt#929)
   const getPersistenceDeps = () => ({
     sessionProvider: container?.has("sessionProvider")
@@ -115,7 +145,7 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
   });
 
   // Register persistence migrate command
-  sharedCommandRegistry.registerCommand({
+  targetRegistry.registerCommand({
     id: "persistence.migrate",
     category: CommandCategory.PERSISTENCE,
     name: "migrate",
@@ -136,7 +166,7 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
       // (Postgres-only, ADR-018 / mt#2349) backend.
       if (!to) {
         try {
-          const result = await runSchemaMigrationsForConfiguredBackend({ dryRun: isPreviewMode });
+          const result = await runSchemaMigrations({ dryRun: isPreviewMode });
 
           if (context.format === "human") {
             // eslint-disable-next-line custom/no-excessive-as-unknown -- migration result union lacks index signature; cast required for backward-compatible key-based rendering
@@ -361,7 +391,7 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
   });
 
   // Register persistence check command
-  sharedCommandRegistry.registerCommand({
+  targetRegistry.registerCommand({
     id: "persistence.check",
     category: CommandCategory.PERSISTENCE,
     name: "check",
