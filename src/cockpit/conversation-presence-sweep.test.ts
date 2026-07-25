@@ -13,6 +13,11 @@ import {
   type PresenceSweepDeps,
 } from "./conversation-presence-sweep";
 import { PRESENCE_STALL_THRESHOLD_MS } from "@minsky/domain/conversation-run-state/presence";
+import {
+  startConversationPresenceSweeper,
+  getSweepLivenessSnapshot,
+  _resetSweepLivenessRegistryForTest,
+} from "./sweepers";
 import type { ConversationRunStateRecord } from "@minsky/domain/storage/schemas/conversation-run-state-schema";
 
 const NOW = new Date("2026-07-25T12:00:00.000Z");
@@ -184,5 +189,35 @@ describe("runPresenceSweepTick", () => {
     const transitions = await runPresenceSweepTick(state, deps);
 
     expect(transitions[0]?.to).toBe("NEEDS_INPUT");
+  });
+});
+
+describe("startConversationPresenceSweeper registration (AT9)", () => {
+  test("registers in the sweep-liveness registry that backs GET /api/sweeps, with an advancing lastAttemptAt", async () => {
+    _resetSweepLivenessRegistryForTest();
+    // Long interval: the boot tick fires immediately (createIntervalSweeper's
+    // contract), which is what stamps lastAttemptAt — no timer wait needed,
+    // and no second tick during the test.
+    const stop = startConversationPresenceSweeper(60 * 60 * 1000);
+    try {
+      // The boot tick is dispatched as a microtask; let it settle. Its DOMAIN
+      // work fails open here (no persistence in-process) — which is exactly
+      // the point: lastAttemptAt is stamped at the TOP of runTick, before any
+      // guard, so a sweep whose work cannot run is still visibly ATTEMPTING.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const snapshot = getSweepLivenessSnapshot();
+      const entry = snapshot.find((s) => s.name === "conversation presence");
+      expect(entry).toBeDefined();
+      expect(entry?.lastAttemptAt).not.toBeNull();
+    } finally {
+      stop();
+    }
+
+    // stop() deregisters it from the public snapshot, so a stopped daemon does
+    // not leave a phantom sweep on /api/sweeps.
+    expect(
+      getSweepLivenessSnapshot().find((s) => s.name === "conversation presence")
+    ).toBeUndefined();
   });
 });
