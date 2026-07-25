@@ -9,6 +9,7 @@
 
 import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import { regenerateStagedClaudeHooks } from "./claude-hooks-compile-regen";
+import { regenerateDockerfileBunBuild, checkBunBuildSync } from "./bun-build-sync-regen";
 import { execGitWithTimeout } from "@minsky/domain/utils/git-exec";
 import { stat, readdir, readFile } from "fs/promises";
 import { join } from "path";
@@ -312,6 +313,35 @@ export class PreCommitHook {
       );
       if (!dockerfileWorkspaceCopyResult.success) {
         return dockerfileWorkspaceCopyResult;
+      }
+
+      // Step 3c-2: Dockerfile bun-build invocation regeneration (mt#3091).
+      // Regenerates the root Dockerfile's `RUN bun build ...` line from
+      // `scripts/cli-entry.ts`'s canonical `bunBuildArgs()` and re-stages it
+      // if it changed — same auto-fix-and-restage shape as Step 3c above,
+      // for the same reason: the Dockerfile invocation can no longer drift
+      // out of sync by hand once it's generated instead of hand-typed.
+      const dockerfileBunBuildResult = await this.instrumented("dockerfile-bun-build-regen", () =>
+        this.runDockerfileBunBuildRegen()
+      );
+      if (!dockerfileBunBuildResult.success) {
+        return dockerfileBunBuildResult;
+      }
+
+      // Step 3c-3: package.json bun-build sync check (mt#3091). Unlike the
+      // regen step above, package.json's `scripts.build` is a flat JSON
+      // string that isn't safely auto-rewritable the same way a
+      // comment-delimited Dockerfile block is — so this step BLOCKS the
+      // commit instead of auto-fixing when it diverges from the canonical
+      // `bunBuildCommand()` (the same "compile --check" block-instead-of-
+      // autofix shape used for content this repo's generators don't rewrite
+      // in place). Also re-verifies the Dockerfile as a defense-in-depth
+      // backstop for the regen step just above.
+      const bunBuildSyncResult = await this.instrumented("bun-build-sync-check", () =>
+        this.runBunBuildSyncCheck()
+      );
+      if (!bunBuildSyncResult.success) {
+        return bunBuildSyncResult;
       }
 
       // Step 3d: Migration journal consistency (mt#2087). Verify that every
@@ -1198,6 +1228,41 @@ export class PreCommitHook {
       message: "Dockerfile workspace-COPY blocks regenerated and staged",
       exitCode: 0,
     };
+  }
+
+  /**
+   * Thin wrapper over {@link regenerateDockerfileBunBuild} (the logic lives
+   * in `./bun-build-sync-regen`, extracted for the max-lines ceiling,
+   * mt#3091 mirroring mt#2977): regenerate the root Dockerfile's
+   * `RUN bun build ...` line from `scripts/cli-entry.ts`'s canonical
+   * `bunBuildArgs()` and re-stage it if changed — same auto-fix-and-restage
+   * shape as Step 3c above.
+   */
+  private async runDockerfileBunBuildRegen(): Promise<HookResult> {
+    return regenerateDockerfileBunBuild({
+      projectRoot: this.projectRoot,
+      runGit: (args) => this.runGitArgv(args),
+      logLine: (line) => log.cli(line),
+      exec: execAsync,
+    });
+  }
+
+  /**
+   * Thin wrapper over {@link checkBunBuildSync} (mt#3091): block the commit
+   * if package.json's `scripts.build` (or, as a defense-in-depth backstop,
+   * the Dockerfile's generated block) diverges from the canonical
+   * `bunBuildCommand()`. Unlike {@link runDockerfileBunBuildRegen}, this
+   * does NOT auto-fix — package.json's build script is a flat JSON string,
+   * not a comment-delimited block, so rewriting it in place risks
+   * formatting drift a generator shouldn't introduce.
+   */
+  private async runBunBuildSyncCheck(): Promise<HookResult> {
+    return checkBunBuildSync({
+      projectRoot: this.projectRoot,
+      runGit: (args) => this.runGitArgv(args),
+      logLine: (line) => log.cli(line),
+      exec: execAsync,
+    });
   }
 
   /**
@@ -2109,6 +2174,10 @@ export function classifyDockerfileWorkspaceCopyRegenError(error: unknown): {
     message: `Dockerfile workspace-COPY regeneration failed: ${errorDetail.split("\n")[0]}`,
   };
 }
+
+// `classifyDockerfileBunBuildRegenError` moved to `./bun-build-sync-regen`
+// (mt#3091, extracted for the max-lines ceiling alongside the regen/check
+// functions it classifies errors for — see that module's header).
 
 /**
  * Maps which `.minsky/` source dirs are present to the compile targets the
