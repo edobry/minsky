@@ -1211,12 +1211,26 @@ export function validateAsksEditParams(
  * failures rather than throwing from a resolution helper).
  *
  * Deliberately narrow, matching `validateAuthorizationApproveOptions`'s own
- * scope: only fires when the caller is replacing `options` (checked by the
- * `validate` hook before calling this — see the `asks.edit` command
- * registration) — editing title/question/contextRefs/metadata on an
+ * scope in one respect: only fires when the caller is replacing `options`
+ * (checked by the `validate` hook before calling this — see the `asks.edit`
+ * command registration) — editing title/question/contextRefs/metadata on an
  * `authorization.approve` Ask is unaffected, even when its EXISTING options
  * already lack an approve-shaped value (pre-existing state; not this
  * function's job to retroactively enforce).
+ *
+ * Diverges from `validateAuthorizationApproveOptions` on ONE point (mt#3209
+ * review R1): an EDIT that replaces `options` with an empty array is
+ * rejected here even though the create-time function treats empty/absent
+ * `options` as out of scope. That create-time skip encodes a real,
+ * deliberate case — a caller creating an ask that has never had options
+ * intends a free-text `authorization.approve` Ask (which correctly fails
+ * verification on its own, since `.minsky/hooks/ask-verification.ts` never
+ * treats a free-text `message` as approval). But an EDIT that sets
+ * `options: []` on an ask that previously had a valid approve-shaped option
+ * is STRIPPING it, not authoring a free-text ask from birth — and matches
+ * the spec's literal wording ("no option carries an approve-shaped value")
+ * vacuously for the empty set. Silently allowing it here would let the same
+ * mt#3203 footgun back in through a one-character `options: []` edit.
  *
  * Exported for direct testing with a `FakeAskRepository`, mirroring the
  * rest of this file's conventions.
@@ -1242,6 +1256,20 @@ export async function validateEditOptionsAgainstExistingAsk(
     return;
   }
   if (!existing) return; // not-found surfaces from execute()'s own lookup
+
+  // mt#3209 review R1: reject an edit that strips ALL options from an
+  // authorization.approve Ask. validateAuthorizationApproveOptions
+  // deliberately skips empty/absent options (a legitimate CREATE-time
+  // "free-text ask" case), but that carve-out does not extend to an EDIT
+  // that empties out options previously present — see the docstring above.
+  if (existing.kind === "authorization.approve" && options.length === 0) {
+    throw new ValidationError(
+      `authorization.approve Ask edit would strip all options, leaving none with an ` +
+        `approve-shaped value (${APPROVAL_TOKEN_EXAMPLES.join("/")}). Add at least one option ` +
+        `with an explicit approve-shaped value, e.g. {label: "...", value: "approve"}, or omit ` +
+        `"options" from this edit to leave the existing ones untouched.`
+    );
+  }
 
   validateAuthorizationApproveOptions({ kind: existing.kind, options });
 }

@@ -39,6 +39,9 @@ import {
   editRequiresApproveOptionsGuard,
 } from "./asks";
 import { APPROVAL_TOKEN, isApproveShapedToken } from "@minsky/shared/ask-approval";
+// Cross-boundary parity import (mirrors asks.test.ts's mt#3203 usage): the
+// redemption-time verifier this authoring/edit-time guard must agree with.
+import { isApprovingPayload } from "../../../../.minsky/hooks/ask-verification";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";
 import type { Ask, AskKind } from "@minsky/domain/ask/types";
 import { ValidationError } from "@minsky/domain/errors/index";
@@ -85,6 +88,27 @@ describe("validateEditOptionsAgainstExistingAsk (mt#3209)", () => {
         { label: FIXTURE_DECLINE_LABEL, value: FIXTURE_DECLINE_LABEL },
       ])
     ).rejects.toThrow(ValidationError);
+  });
+
+  test("rejects replacing options on an existing authorization.approve Ask with an empty array (mt#3209 review R1)", async () => {
+    // validateAuthorizationApproveOptions (mt#3203, create-time) treats
+    // empty/absent options as out of scope — a legitimate "free-text ask"
+    // case AT CREATE TIME. That carve-out must NOT extend to an EDIT that
+    // empties out options: doing so vacuously satisfies "no option carries
+    // an approve-shaped value" and would let the mt#3203 footgun back in
+    // through a one-character `options: []` edit that strips a previously
+    // valid approve-shaped option.
+    const { repo, id } = await seedAsk(KIND_AUTHORIZATION_APPROVE);
+
+    await expect(validateEditOptionsAgainstExistingAsk(repo, id, [])).rejects.toThrow(
+      ValidationError
+    );
+  });
+
+  test("is unaffected replacing options with an empty array on a non-authorization.approve Ask", async () => {
+    const { repo, id } = await seedAsk(KIND_DIRECTION_DECIDE);
+
+    await expect(validateEditOptionsAgainstExistingAsk(repo, id, [])).resolves.toBeUndefined();
   });
 
   test("passes replacing options on an existing authorization.approve Ask when one option carries an approve-shaped value", async () => {
@@ -147,17 +171,26 @@ describe("validateEditOptionsAgainstExistingAsk (mt#3209)", () => {
     ).resolves.toBeUndefined();
   });
 
-  test("vocabulary parity: the edit-time check and validateAuthorizationApproveOptions (mt#3203, create-time) agree on every accepted/rejected token", async () => {
-    // Proves the edit-time path (this function) and the create-time path
-    // (validateAuthorizationApproveOptions, imported directly here too)
-    // resolve to the SAME @minsky/shared/ask-approval vocabulary — not two
-    // independently-maintained copies.
+  test("vocabulary parity: the edit-time check, validateAuthorizationApproveOptions (mt#3203, create-time), and the redemption-time verifier agree on every accepted/rejected token", async () => {
+    // Proves THREE surfaces resolve to the SAME @minsky/shared/ask-approval
+    // vocabulary — not independently-maintained copies: the edit-time path
+    // (this function), the create-time path (validateAuthorizationApproveOptions,
+    // imported directly here too), and .minsky/hooks/ask-verification.ts's
+    // isApprovingPayload — the ACTUAL redemption-time verifier an operator's
+    // response is checked against (mt#3209 review R1: don't just assert
+    // APPROVAL_TOKEN.test() accepts a case-variant like "Approve"/"YES" —
+    // confirm the real verifier does too).
     const acceptedTokens = ["approve", "approved", "yes", "Approve", "YES"];
     const rejectedTokens = ["ok", "sure", "affirmative", FIXTURE_APPROVE_LABEL];
 
     for (const value of [...acceptedTokens, ...rejectedTokens]) {
       const expectAccept = isApproveShapedToken(value);
       expect(APPROVAL_TOKEN.test(value)).toBe(expectAccept);
+
+      // redemption-time path: simulates the inbox response shape (mt#3007)
+      // an operator's selection would produce — {chosen, option} carrying
+      // the SELECTED option's value.
+      expect(isApprovingPayload({ chosen: value, option: value })).toBe(expectAccept);
 
       // create-time path (mt#3203)
       const createTimeCheck = () =>
