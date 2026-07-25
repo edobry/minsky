@@ -10,6 +10,7 @@
  *
  * Usage:
  *   bun scripts/verify-session-film-endpoint.ts [conversationId] [--port N]
+ *   bun scripts/verify-session-film-endpoint.ts [conversationId] [--base-url http://host:port]
  *
  * With no `conversationId`, picks the most-recently-ingested conversation
  * with a scrub-gate-OK transcript (via the events endpoint's own DB path —
@@ -26,8 +27,14 @@
  *      actor.kind, verb, target.realm/id, adapterVersion).
  *
  * This script does NOT start a server itself — point it at an already-running
- * cockpit daemon (`bun src/cli.ts cockpit start`) via --port, or default
- * to the standard local port.
+ * cockpit daemon (`bun src/cli.ts cockpit start`). `--port N` (default 3737,
+ * matching the daemon's own default — see `src/commands/cockpit/start-
+ * command.ts`'s `DEFAULT_PORT`) builds `http://127.0.0.1:<port>`; `--base-url
+ * <url>` overrides the whole base URL (host/protocol included) and takes
+ * precedence over `--port` when both are given. A plain CLI flag is used
+ * instead of a `MINSKY_*` env var so this override needs no entry in the
+ * `no-unregistered-minsky-env-var`-enforced environment-mappings registry
+ * (mt#3188).
  */
 
 interface SessionRow {
@@ -45,25 +52,37 @@ interface SemanticEventShape {
   adapterVersion: string;
 }
 
-function parseArgs(argv: string[]): { conversationId: string | undefined; port: number } {
+/** Matches the cockpit daemon's own default (`DEFAULT_PORT` in `src/commands/cockpit/start-command.ts`). */
+const DEFAULT_PORT = 3737;
+
+function parseArgs(argv: string[]): {
+  conversationId: string | undefined;
+  port: number;
+  baseUrl: string | undefined;
+} {
   let conversationId: string | undefined;
-  let port = 4317;
+  let port = DEFAULT_PORT;
+  let baseUrl: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--port") {
       const next = argv[i + 1];
       if (next) port = Number(next);
       i++;
+    } else if (arg === "--base-url") {
+      const next = argv[i + 1];
+      if (next) baseUrl = next;
+      i++;
     } else if (arg && !arg.startsWith("--")) {
       conversationId = arg;
     }
   }
-  return { conversationId, port };
+  return { conversationId, port, baseUrl };
 }
 
 async function main(): Promise<void> {
-  const { conversationId: explicitId, port } = parseArgs(process.argv.slice(2));
-  const base = `http://127.0.0.1:${port}`;
+  const { conversationId: explicitId, port, baseUrl } = parseArgs(process.argv.slice(2));
+  const base = baseUrl ?? `http://127.0.0.1:${port}`;
 
   console.error(`Probing ${base}/api/cockpit/session-film/sessions ...`);
   let sessionsRes: Response;
