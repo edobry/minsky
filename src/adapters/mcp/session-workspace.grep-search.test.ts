@@ -36,6 +36,19 @@ function expected(relativePath: string): string {
 }
 
 beforeAll(() => {
+  // Declare the dependency loudly rather than skipping (PR #2298 R1). `rg` is a
+  // hard RUNTIME requirement of session.grep_search itself, not merely of this
+  // test, so on a machine without it the honest outcome is a named failure
+  // pointing at the missing binary — not a silently skipped suite that reports
+  // green while the tool it covers cannot work at all.
+  const probe = Bun.spawnSync(["rg", "--version"], { stdout: "pipe", stderr: "pipe" });
+  if (probe.exitCode !== 0) {
+    throw new Error(
+      "ripgrep (`rg`) is not available on PATH. session.grep_search requires it at runtime, " +
+        "so these tests require it too. Install ripgrep to run this suite."
+    );
+  }
+
   workspace = fs.mkdtempSync(path.join(os.tmpdir(), "grep-search-"));
   fs.mkdirSync(path.join(workspace, "src", "cockpit"), { recursive: true });
   fs.mkdirSync(path.join(workspace, "src", "other"), { recursive: true });
@@ -62,6 +75,20 @@ function runRg(globArgs: string[], opts: { absoluteRoot?: boolean } = {}): strin
     ["rg", "--color", "never", "--line-number", "--no-heading", ...globArgs, NEEDLE, target],
     { cwd: workspace, stdout: "pipe", stderr: "pipe" }
   );
+
+  // rg exits 0 on matches and 1 on "no matches"; anything else means it did not
+  // actually run the search (missing binary -> ENOENT, bad glob -> 2). Throwing
+  // here is load-bearing, not defensive (PR #2298 R1): without it a missing `rg`
+  // yields empty stdout, and the two cases that ASSERT emptiness — the negative
+  // control and AT6 — would pass VACUOUSLY while everything else failed. That is
+  // the same "absence of output read as a real answer" confusion this whole task
+  // is about, so it must not be reproduced in the tests for it.
+  if (proc.exitCode !== 0 && proc.exitCode !== 1) {
+    throw new Error(
+      `ripgrep did not run (exit ${proc.exitCode}): ${proc.stderr.toString().trim() || "no stderr"}`
+    );
+  }
+
   const out = proc.stdout.toString().trim();
   return out ? out.split("\n") : [];
 }
