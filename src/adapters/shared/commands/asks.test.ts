@@ -24,6 +24,7 @@ import {
   respondToAsk,
   validateAsksCreateParams,
   validateAsksEditParams,
+  validateAuthorizationApproveOptions,
   formatAskWaitMessage,
   toAskSummary,
   getAskByResolvedId,
@@ -31,6 +32,14 @@ import {
   listAsksFiltered,
   askOptionSchema,
 } from "./asks";
+import { APPROVAL_TOKEN } from "@minsky/shared/ask-approval";
+// Cross-boundary parity import (mt#3203): the redemption-time verifier this
+// authoring-time guard must agree with. A pure function import from a test
+// file — the compiled `.claude/hooks/*` runtime output never includes
+// `*.test.ts`, so this does not violate the hook's "self-contained, no
+// src/ import at runtime" constraint (that constraint binds the SOURCE
+// script, not its test suite).
+import { isApprovingPayload } from "../../../../.minsky/hooks/ask-verification";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { CreateAskInput } from "@minsky/domain/ask/repository";
 import type { AskWaitForResponseResult } from "@minsky/domain/ask/wait-for-response";
@@ -76,6 +85,12 @@ const FIXTURE_RESPONDER_ID = "com.anthropic.claude-code:proc:abc123";
 // custom/no-magic-string-duplication now that it's reused across the
 // original asks.create tests and the mt#2748 toAskSummary/asks.get tests.
 const FIXTURE_QUESTION = "Which approach should we ship?";
+
+// mt#3203 fixture labels — extracted to defang custom/no-magic-string-duplication
+// across the validateAuthorizationApproveOptions describe block, which reuses
+// the originating incident's exact option labels in several tests.
+const FIXTURE_APPROVE_LABEL = "Approve the override and merge";
+const FIXTURE_DECLINE_LABEL = "Leave it blocked — I'll look at the PR myself";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -898,6 +913,163 @@ describe("validateAsksCreateParams", () => {
     expect(() => validateAsksCreateParams({ serviceStrategy: "scheduled" })).not.toThrow();
     expect(() => validateAsksCreateParams({ serviceStrategy: "deadline-bound" })).not.toThrow();
     expect(() => validateAsksCreateParams({})).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateAuthorizationApproveOptions — mt#3203: reject an authorization.approve
+// Ask whose options can never satisfy the redemption-time approval verifier.
+// ---------------------------------------------------------------------------
+
+describe("validateAuthorizationApproveOptions (mt#3203)", () => {
+  test("rejects an authorization.approve Ask whose options carry only descriptive labels", () => {
+    // The originating incident's exact shape: both options' `value` defaulted
+    // to their `label` (asks_create's mt#3181 defaulting), so neither could
+    // ever satisfy the verifier's APPROVAL_TOKEN.
+    expect(() =>
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [
+          { label: FIXTURE_APPROVE_LABEL, value: FIXTURE_APPROVE_LABEL },
+          { label: FIXTURE_DECLINE_LABEL, value: FIXTURE_DECLINE_LABEL },
+        ],
+      })
+    ).toThrow(ValidationError);
+  });
+
+  test("error message names the accepted tokens and echoes the offending labels", () => {
+    let caught: unknown;
+    try {
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [{ label: FIXTURE_APPROVE_LABEL, value: FIXTURE_APPROVE_LABEL }],
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ValidationError);
+    const error = caught as ValidationError;
+    expect(error.message).toContain("approve");
+    expect(error.message).toContain(FIXTURE_APPROVE_LABEL);
+  });
+
+  test("passes when an explicit approve-shaped value accompanies an arbitrary descriptive label", () => {
+    // The label stays fully descriptive; only the value is constrained.
+    expect(() =>
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [
+          { label: FIXTURE_APPROVE_LABEL, value: "approve" },
+          { label: FIXTURE_DECLINE_LABEL, value: "decline" },
+        ],
+      })
+    ).not.toThrow();
+  });
+
+  test("passes for any of the accepted tokens (approve/approved/yes, case-insensitive)", () => {
+    for (const value of ["approve", "approved", "Approved", "yes", "YES"]) {
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: KIND_AUTHORIZATION_APPROVE,
+          options: [{ label: "Go ahead", value }],
+        })
+      ).not.toThrow();
+    }
+  });
+
+  test("does not fire for other ask kinds, regardless of option shape", () => {
+    // Out of scope per spec: only authorization.approve feeds the grant verifier.
+    for (const kind of [
+      KIND_DIRECTION_DECIDE,
+      KIND_CAPABILITY_ESCALATE,
+      KIND_COORDINATION_NOTIFY,
+      KIND_QUALITY_REVIEW,
+      KIND_STUCK_UNBLOCK,
+      KIND_INFORMATION_RETRIEVE,
+    ]) {
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind,
+          options: [{ label: "Use Postgres", value: "Use Postgres" }],
+        })
+      ).not.toThrow();
+    }
+  });
+
+  test("does not fire when options are absent (free-text authorization asks are out of scope)", () => {
+    expect(() =>
+      validateAuthorizationApproveOptions({ kind: KIND_AUTHORIZATION_APPROVE, options: undefined })
+    ).not.toThrow();
+    expect(() =>
+      validateAuthorizationApproveOptions({ kind: KIND_AUTHORIZATION_APPROVE, options: [] })
+    ).not.toThrow();
+  });
+
+  test("vocabulary parity with the redemption-time verifier's APPROVAL_TOKEN (drift guard)", () => {
+    // Both this authoring-time guard and .minsky/hooks/ask-verification.ts's
+    // isApprovingPayload import APPROVAL_TOKEN from the SAME
+    // @minsky/shared/ask-approval module. This test proves the authoring
+    // guard's accept/reject boundary tracks that shared regex directly,
+    // rather than a second, independently-maintained copy that could drift.
+    const acceptedTokens = ["approve", "approved", "yes", "Approve", "YES"];
+    const rejectedTokens = ["ok", "sure", "affirmative", FIXTURE_APPROVE_LABEL];
+
+    for (const token of acceptedTokens) {
+      expect(APPROVAL_TOKEN.test(token)).toBe(true);
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: KIND_AUTHORIZATION_APPROVE,
+          options: [{ label: "whatever label", value: token }],
+        })
+      ).not.toThrow();
+    }
+    for (const token of rejectedTokens) {
+      expect(APPROVAL_TOKEN.test(token)).toBe(false);
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: KIND_AUTHORIZATION_APPROVE,
+          options: [{ label: "whatever label", value: token }],
+        })
+      ).toThrow(ValidationError);
+    }
+  });
+
+  test("end-to-end: an option that passes this guard also verifies as approved at redemption time", () => {
+    // Closes the loop the spec's acceptance tests describe: an option shaped
+    // like {label: "Approve the override and merge", value: "approve"} both
+    // (a) passes asks_create's authoring-time guard, and (b) verifies as
+    // approved when .minsky/hooks/ask-verification.ts's isApprovingPayload
+    // evaluates the response payload an operator's selection would produce.
+    const option = askOptionSchema.parse({
+      label: FIXTURE_APPROVE_LABEL,
+      value: "approve",
+    });
+
+    expect(() =>
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [option],
+      })
+    ).not.toThrow();
+
+    // Simulate the inbox response shape (mt#3007): {chosen, option} carrying
+    // the SELECTED option's value.
+    expect(isApprovingPayload({ chosen: option.value, option: option.value })).toBe(true);
+  });
+
+  test("end-to-end: the ORIGINATING incident's malformed ask fails both the guard and the verifier", () => {
+    const option = askOptionSchema.parse({ label: FIXTURE_APPROVE_LABEL });
+
+    expect(() =>
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [option],
+      })
+    ).toThrow(ValidationError);
+
+    // Had the guard not fired, this is the exact payload shape that produced
+    // the confusing "not approved" error after the operator already approved.
+    expect(isApprovingPayload({ chosen: option.value, option: option.value })).toBe(false);
   });
 });
 

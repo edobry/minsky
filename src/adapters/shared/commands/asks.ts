@@ -38,6 +38,7 @@ import {
 } from "../command-registry";
 import { ValidationError } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
+import { APPROVAL_TOKEN_EXAMPLES, isApproveShapedToken } from "@minsky/shared/ask-approval";
 import {
   DrizzleAskRepository,
   type AskRepository,
@@ -757,6 +758,65 @@ export function validateAsksCreateParams(params: {
 }
 
 /**
+ * Authoring-time guard against the mt#3203 footgun: an `authorization.approve`
+ * Ask whose options can never satisfy the redemption-time approval verifier.
+ *
+ * `.minsky/hooks/ask-verification.ts` anchors approval to an exact
+ * approve-shaped token (`APPROVAL_TOKEN`, imported from
+ * `@minsky/shared/ask-approval` — the SAME constant this function checks
+ * against, so the two cannot drift apart). `askOptionSchema` defaults an
+ * option's `value` to its `label` when no explicit `value` is supplied
+ * (mt#3181), so a purely descriptive button label — e.g. "Approve the
+ * override and merge" — silently becomes the recorded value and can never
+ * verify. Left undetected, this surfaces only at REDEMPTION time (a merge
+ * or guard-override attempt), after the operator has already approved, with
+ * an error that reads as though they declined.
+ *
+ * Deliberately narrow in scope, matching the spec's "Does NOT cover":
+ *   - Only fires for `kind === "authorization.approve"`. Every other kind's
+ *     options are free-form decision frames with no approval verifier to
+ *     satisfy.
+ *   - Only fires when `options` is non-empty. A free-text (no-options)
+ *     `authorization.approve` Ask is a different, already-out-of-scope
+ *     failure mode (it correctly fails verification on its own).
+ *
+ * A caller supplying an explicit approve-shaped `value` alongside an
+ * arbitrary human-readable `label` passes: this checks `value`, never
+ * `label`, so operator-facing wording is never constrained.
+ *
+ * Exported for direct testing without requiring the full command factory
+ * setup. The `asks.create` command's `validate` hook delegates to this
+ * function, matching `validateAsksCreateParams`'s pattern above.
+ *
+ * @throws {ValidationError} when kind is `authorization.approve`, options are
+ *   present, and none of them carries an approve-shaped `value`
+ */
+export function validateAuthorizationApproveOptions(params: {
+  kind?: AskKind;
+  options?: Array<{ label: string; value?: unknown }>;
+}): void {
+  if (params.kind !== "authorization.approve") return;
+  if (!params.options || params.options.length === 0) return;
+
+  const hasApproveShapedOption = params.options.some((option) =>
+    isApproveShapedToken(option.value)
+  );
+  if (hasApproveShapedOption) return;
+
+  const labels = params.options.map((option) => `"${option.label}"`).join(", ");
+  throw new ValidationError(
+    `authorization.approve Ask has no option whose value is an approve-shaped token ` +
+      `(${APPROVAL_TOKEN_EXAMPLES.join("/")}). Options given: ${labels}. ` +
+      `A descriptive label alone is not enough: asks_create defaults an option's "value" ` +
+      `to its "label" when no explicit value is supplied, and the redemption-time verifier ` +
+      `(.minsky/hooks/ask-verification.ts) only recognizes an exact approve-shaped value — ` +
+      `never the label text or "any chosen option". Add an explicit value to the approving ` +
+      `option, e.g. {label: "Approve the override and merge", value: "approve"} — the label ` +
+      `can stay descriptive; only value must be one of: ${APPROVAL_TOKEN_EXAMPLES.join(", ")}.`
+  );
+}
+
+/**
  * Typed input for `createAsk` — the internal helper exposed for testing.
  *
  * Mirrors `CreateAskInput` plus the producer-specific defaults that
@@ -1399,6 +1459,11 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // Cross-field coherence: windowKey is only meaningful when serviceStrategy='scheduled'.
         // Reject at the parameter boundary so callers get immediate, actionable feedback.
         validateAsksCreateParams(params);
+        // mt#3203: reject an authorization.approve Ask whose options can never
+        // satisfy the redemption-time approval verifier — catch the footgun at
+        // authoring time, not at merge/guard-override time after the operator
+        // has already approved.
+        validateAuthorizationApproveOptions(params);
       },
       execute: async (params, ctx: CommandExecutionContext): Promise<AsksCreateResult> => {
         const repo = await buildAskRepository(container);
