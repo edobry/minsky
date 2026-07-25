@@ -20,13 +20,23 @@
  * the same cycle, rather than reintroducing a narrower version of the same
  * permanent-loss bug one layer down.
  *
+ * PR #2284 R2: "confirmed successful emit" required switching from
+ * `EventEmitter.emit()` to `EventEmitterWithTryEmit.tryEmit()`. `emit()`'s
+ * documented contract is "always resolves, never rejects, even on a DB
+ * write failure" — so the R1 fix's `try { await emitter.emit(...); return
+ * true } catch { return false }` could NEVER observe a real insert failure;
+ * the latch would still incorrectly flip to `true` on a dead DB. `tryEmit`
+ * (already the established pattern for retry-gating callers — see
+ * `emit-best-effort.ts`, `bulk-edit-command.ts`) returns the actual
+ * persistence signal.
+ *
  * @see mt#2147 — this task (original wiring)
  * @see mt#2568 — per-call fallback for the startup-wiring race
  * @see src/mcp/disconnect-tracker.ts — architectural precedent
  */
 
 import { log } from "@minsky/shared/logger";
-import type { EventEmitter, SystemEventInput } from "../events/emitter";
+import type { EventEmitterWithTryEmit, SystemEventInput } from "../events/emitter";
 
 export type EmbeddingsHealthStatus = "healthy" | "degraded" | "exhausted";
 
@@ -48,7 +58,7 @@ export interface EmbeddingsHealthSummary {
 }
 
 /** Per-call fallback builder registered by the MCP start-command (mt#2568). */
-export type EmbeddingsEventEmitterBuilder = () => Promise<EventEmitter | null>;
+export type EmbeddingsEventEmitterBuilder = () => Promise<EventEmitterWithTryEmit | null>;
 
 const MAX_EVENTS = 100;
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -66,7 +76,7 @@ export class EmbeddingsHealthTracker {
   private static eventEmitterBuilder: EmbeddingsEventEmitterBuilder | null = null;
 
   private events: EmbeddingsErrorEvent[] = [];
-  private eventEmitter: EventEmitter | null = null;
+  private eventEmitter: EventEmitterWithTryEmit | null = null;
   private emittedForCurrentDegradation = false;
   private currentStatus: EmbeddingsHealthStatus = "healthy";
   private currentReason: string | null = null;
@@ -98,7 +108,7 @@ export class EmbeddingsHealthTracker {
     EmbeddingsHealthTracker.eventEmitterBuilder = builder;
   }
 
-  setEventEmitter(emitter: EventEmitter): void {
+  setEventEmitter(emitter: EventEmitterWithTryEmit): void {
     this.eventEmitter = emitter;
   }
 
@@ -185,7 +195,7 @@ export class EmbeddingsHealthTracker {
    * emitter if wiring already completed, otherwise a fresh per-call build
    * via the registered fallback builder (mt#2568). Never throws.
    */
-  private async resolveEventEmitter(): Promise<EventEmitter | null> {
+  private async resolveEventEmitter(): Promise<EventEmitterWithTryEmit | null> {
     if (this.eventEmitter) return this.eventEmitter;
     if (!EmbeddingsHealthTracker.eventEmitterBuilder) return null;
     try {
@@ -199,11 +209,18 @@ export class EmbeddingsHealthTracker {
   }
 
   /**
-   * Emit the `embeddings.provider_degraded` event. Returns whether the emit
-   * actually succeeded (mt#2568 PR #2284 R1) so the caller only latches
-   * `emittedForCurrentDegradation` on confirmed success — a failed attempt
-   * (no emitter resolvable, or the emit call itself threw) must remain
-   * retriable by a later call in the same degradation cycle.
+   * Emit the `embeddings.provider_degraded` event. Returns whether the
+   * event was ACTUALLY PERSISTED (mt#2568 PR #2284 R2) so the caller only
+   * latches `emittedForCurrentDegradation` on confirmed success.
+   *
+   * Uses `tryEmit`, not `emit` (PR #2284 R2 fix): `EventEmitter.emit()`'s
+   * documented contract is "always resolves, never rejects" even when the
+   * underlying DB write fails — so wrapping `emit()` in try/catch (the R1
+   * fix) could never actually observe a real insert failure, and the latch
+   * would still incorrectly flip to `true` on a dead DB. `tryEmit` returns
+   * the real persistence signal (`DrizzleEventEmitter.tryEmit` returns
+   * `false` on a caught DB error; `NoopEventEmitter.tryEmit` always
+   * succeeds since pushing to an array cannot fail).
    */
   private async emitDegradationEvent(triggerEvent: EmbeddingsErrorEvent): Promise<boolean> {
     const emitter = await this.resolveEventEmitter();
@@ -220,14 +237,23 @@ export class EmbeddingsHealthTracker {
       },
     };
 
+    // tryEmit never throws (same best-effort contract as emit), but this
+    // defensive wrapper protects against a non-conforming custom
+    // EventEmitterWithTryEmit implementation (e.g. in a test fake).
     try {
-      await emitter.emit(eventInput);
-      log.warn("Embeddings provider degraded — event emitted", {
-        provider: triggerEvent.provider,
-        status: this.currentStatus,
-        reason: this.currentReason,
-      });
-      return true;
+      const persisted = await emitter.tryEmit(eventInput);
+      if (persisted) {
+        log.warn("Embeddings provider degraded — event emitted", {
+          provider: triggerEvent.provider,
+          status: this.currentStatus,
+          reason: this.currentReason,
+        });
+      } else {
+        log.debug("embeddings.provider_degraded event was not persisted; will retry", {
+          provider: triggerEvent.provider,
+        });
+      }
+      return persisted;
     } catch (err) {
       log.debug("Failed to emit embeddings.provider_degraded event", {
         error: err instanceof Error ? err.message : String(err),

@@ -43,7 +43,7 @@ import { setHostedMode } from "@minsky/domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
-import type { EventEmitter } from "@minsky/domain/events/emitter";
+import type { EventEmitterWithTryEmit } from "@minsky/domain/events/emitter";
 import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
 import {
   isInstructionsBundleEnabled,
@@ -1103,7 +1103,7 @@ export function wireSubagentDispatchTrackerWithRetry(
  */
 async function buildEmbeddingsEventEmitter(
   container: AppContainerInterface
-): Promise<EventEmitter | null> {
+): Promise<EventEmitterWithTryEmit | null> {
   try {
     const persistence = container.has("persistence") ? container.get("persistence") : undefined;
     if (!persistence) return null;

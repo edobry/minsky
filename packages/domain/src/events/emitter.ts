@@ -44,6 +44,25 @@ export interface EventEmitter {
   emit(event: SystemEventInput): Promise<void>;
 }
 
+/**
+ * `EventEmitter` extended with a persistence-signaling `tryEmit` (mt#2568
+ * PR #2284 R2). `emit()` ALWAYS resolves regardless of whether the
+ * underlying write succeeded — that is its documented best-effort contract,
+ * not a bug — so a caller that needs to know whether the row was actually
+ * persisted (to gate its own retry/dedup state, e.g.
+ * `EmbeddingsHealthTracker`'s `emittedForCurrentDegradation` latch) MUST use
+ * `tryEmit`, not `emit`. Matches the existing pattern already used by
+ * `emit-best-effort.ts` and `bulk-edit-command.ts`.
+ */
+export interface EventEmitterWithTryEmit extends EventEmitter {
+  /**
+   * Emit a system event with a persistence signal: resolves `true` when the
+   * row was actually written, `false` when the write failed. Never rejects
+   * — same best-effort contract as `emit`.
+   */
+  tryEmit(event: SystemEventInput): Promise<boolean>;
+}
+
 // ---------------------------------------------------------------------------
 // DrizzleEventEmitter — Postgres implementation
 // ---------------------------------------------------------------------------
@@ -55,7 +74,7 @@ export interface EventEmitter {
  * any DB error is caught, logged, and swallowed — never re-thrown.
  * This ensures EventEmitter failure is non-fatal for the calling domain action.
  */
-export class DrizzleEventEmitter implements EventEmitter {
+export class DrizzleEventEmitter implements EventEmitterWithTryEmit {
   constructor(private readonly db: PostgresJsDatabase) {}
 
   /**
@@ -106,12 +125,23 @@ export class DrizzleEventEmitter implements EventEmitter {
  * Captures emitted events in `emitted` so tests that DO care can assert
  * on them without needing a real DB.
  */
-export class NoopEventEmitter implements EventEmitter {
+export class NoopEventEmitter implements EventEmitterWithTryEmit {
   /** All events that have been emitted (for test assertions). */
   readonly emitted: SystemEventInput[] = [];
 
   async emit(event: SystemEventInput): Promise<void> {
+    await this.tryEmit(event);
+  }
+
+  /**
+   * Always "succeeds" — pushing to an in-memory array cannot fail
+   * (mt#2568 PR #2284 R2: implements `EventEmitterWithTryEmit` so tests can
+   * inject this in place of `DrizzleEventEmitter` for retry-on-failure
+   * callers).
+   */
+  async tryEmit(event: SystemEventInput): Promise<boolean> {
     this.emitted.push(event);
+    return true;
   }
 
   /** Clear captured events (useful in beforeEach). */
@@ -126,7 +156,13 @@ export class NoopEventEmitter implements EventEmitter {
 
 /**
  * Build a production `DrizzleEventEmitter` from a Drizzle DB connection.
+ *
+ * Return type widened to `EventEmitterWithTryEmit` (mt#2568 PR #2284 R2) so
+ * retry-gating callers (e.g. `EmbeddingsHealthTracker`) can use `tryEmit`
+ * without needing a separate `DrizzleEventEmitter`-specific factory —
+ * `DrizzleEventEmitter` already implements the wider interface, so this is
+ * purely additive for existing `EventEmitter`-typed consumers.
  */
-export function createEventEmitter(db: PostgresJsDatabase): EventEmitter {
+export function createEventEmitter(db: PostgresJsDatabase): EventEmitterWithTryEmit {
   return new DrizzleEventEmitter(db);
 }

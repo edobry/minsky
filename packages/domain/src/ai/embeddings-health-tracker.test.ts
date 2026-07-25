@@ -1,6 +1,34 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { EmbeddingsHealthTracker, type EmbeddingsHealthSummary } from "./embeddings-health-tracker";
-import { NoopEventEmitter } from "../events/emitter";
+import {
+  NoopEventEmitter,
+  type EventEmitterWithTryEmit,
+  type SystemEventInput,
+} from "../events/emitter";
+
+/**
+ * Fake emitter whose `tryEmit` reports a REAL persistence failure (like
+ * `DrizzleEventEmitter.tryEmit` returning `false` on a caught DB error) —
+ * distinct from a builder that throws before an emitter is even resolved.
+ * Used by the PR #2284 R2 regression test below.
+ */
+class FailThenSucceedEmitter implements EventEmitterWithTryEmit {
+  readonly emitted: SystemEventInput[] = [];
+  callCount = 0;
+
+  async emit(event: SystemEventInput): Promise<void> {
+    await this.tryEmit(event);
+  }
+
+  async tryEmit(event: SystemEventInput): Promise<boolean> {
+    this.callCount++;
+    if (this.callCount === 1) {
+      return false; // simulates a caught-and-swallowed DB insert failure
+    }
+    this.emitted.push(event);
+    return true;
+  }
+}
 
 const PROVIDER = "openai";
 const QUOTA_CODE = "insufficient_quota";
@@ -277,6 +305,31 @@ describe("emitDegradationEvent per-call event-emitter fallback (mt#2568 regressi
     // the builder now succeeds — this call must retry and emit.
     await tracker.recordError(PROVIDER, QUOTA_CODE, QUOTA_MSG_AGAIN);
     expect(callCount).toBe(2);
+    expect(emitter.emitted).toHaveLength(1);
+    expect(emitter.emitted[0].eventType).toBe(DEGRADED_EVENT_TYPE);
+  });
+
+  test("REGRESSION (PR #2284 R2): a real tryEmit persistence failure (DB insert failed) does not latch either -- retries on the next call", async () => {
+    // R2 finding: emitDegradationEvent's R1 fix wrapped emitter.emit() in
+    // try/catch, but EventEmitter.emit()'s documented contract is "always
+    // resolves, never rejects" EVEN when the underlying DB write fails --
+    // so that try/catch could never observe a real insert failure, and the
+    // latch still flipped to true. This test exercises tryEmit's boolean
+    // failure signal directly (no builder involved at all -- the emitter
+    // resolves fine, its OWN persistence attempt is what fails first).
+    const emitter = new FailThenSucceedEmitter();
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    tracker.setEventEmitter(emitter);
+
+    // First call: tryEmit signals failure (false) -- must NOT latch.
+    await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
+    expect(emitter.emitted).toHaveLength(0);
+    expect(emitter.callCount).toBe(1);
+
+    // Second call, same degradation cycle: tryEmit now succeeds -- must
+    // retry and actually persist the event.
+    await tracker.recordError(PROVIDER, QUOTA_CODE, QUOTA_MSG_AGAIN);
+    expect(emitter.callCount).toBe(2);
     expect(emitter.emitted).toHaveLength(1);
     expect(emitter.emitted[0].eventType).toBe(DEGRADED_EVENT_TYPE);
   });
