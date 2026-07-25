@@ -207,23 +207,13 @@ export interface SessionPrParams {
 // This function was a wrapper around sessionPrFromParams (legacy implementation).
 // All callers should use the modern sessionPr() from ./commands/pr-command.ts instead.
 
-/**
- * Session update interface with explicit parameters
- */
-export interface SessionUpdateParams {
-  session: string; // ✅ ALWAYS required
-  branch?: string;
-  force?: boolean;
-  dryRun?: boolean;
-  noStash?: boolean;
-  noPush?: boolean;
-  skipConflictCheck?: boolean;
-  skipIfAlreadyMerged?: boolean;
-  autoResolveDeleteConflicts?: boolean;
-  /** Override the push-phase wall-clock bound (mt#3205). See
-   * `SessionUpdateParametersSchema`'s field of the same name. */
-  pushTimeoutMs?: number;
-}
+// mt#3211: the hand-written `SessionUpdateParams` interface that used to live here
+// was deleted — it was a second, independently-maintained definition of the same
+// name as `packages/domain/src/schemas/session.ts`'s `SessionUpdateParams`
+// (`z.infer<typeof sessionUpdateParamsSchema>`), had zero consumers, and let a
+// parameter (mt#3205's `pushTimeoutMs`) go missing from it silently because
+// nothing pointed here. The schema-derived type in `../schemas/session` is now
+// the single source of truth; import it from there.
 
 /**
  * Pure domain interface for session approval
