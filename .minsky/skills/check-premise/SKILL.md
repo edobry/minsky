@@ -56,7 +56,7 @@ to that family.)
 
 ## Additional trigger cues (Tier-3 residual slice — mt#2698)
 
-Six narrow per-surface cues, filed as cheap Tier-3 residual-slice
+Eight narrow per-surface cues, filed as cheap Tier-3 residual-slice
 amendments to the "When to invoke" list above — not a new containment
 strategy. Per the `mt#2485` strategic partition (family record `b0b294ab`):
 the broad-detector tier is demoted; per-surface prose-tier cues like these
@@ -197,6 +197,64 @@ inflated figure hardened into three durable artifacts in sequence: mt#2968's
 founding premise — a task created to attack a lever that did not exist at that
 size. Timing one narrow no-DB invocation (`completion` → ~365ms vs `--version`
 → ~820ms) falsified it. See memory mem#698.
+
+### (g) A claim relayed from an intermediary
+
+Trigger: about to state, to the principal or into a durable artifact, a
+mechanism/behavior claim whose source is an **intermediary** rather than the
+primary source — a dispatched subagent's report, a `WebSearch` synthesis
+paragraph, a safety-monitor's verdict, or a memory's paraphrase of a doc.
+
+Falsifier: ask "did I read the PRIMARY source THIS turn?" — the actual vendor
+doc page, the issue body via API, the installed source, the config file. If
+not, either read it, or state the provenance and verification status
+explicitly. Per `claim-confidence.mdc`, a relayed claim is at most
+`inferred` / `strong-evidence`, **never `verified-*`**, until
+primary-source-checked.
+
+Specific falsifiers for the two commonest intermediaries:
+
+- **`WebSearch`'s summary paragraph is not a source.** It is a synthesis to
+  verify against the pages it links. The links are the leads; opening them
+  (`WebFetch`, or the GitHub API on the actual issue) is the work. Read the
+  issue BODY and its state/date, not the title — a closed-as-stale issue and
+  an active bug read identically in a title list.
+- **A subagent saying "I read the docs" is a claim, not verification.** The
+  subagent is subject to every cue on this page; its report inherits none of
+  their guarantees. Treat it as evidence the claim is worth checking.
+
+_Origin:_ `b0b294ab` R15 (mt#3152, 2026-07-24, memory mem#706) — across one
+session three claims were stated to the principal as fact from intermediaries
+and each was corrected only after pushback: that dispatched advisors were
+running on Fable (they ran on Sonnet), that a documented env var overrides the
+per-call model param (relayed from a subagent report plus a search synthesis,
+asserted before reading the docs — it later held up), and that the behavior
+was "a known upstream bug" (it is documented-intended). mem#686 named this for
+safety-monitor verdicts — "a monitor's verdict is evidence that an artifact
+needs checking, never a finding about it"; this cue generalizes it to every
+intermediary.
+
+### (h) Your own tooling's actual effect
+
+Trigger: about to assert what YOUR OWN tool call actually did — the model a
+dispatch ran on, the config a command actually resolved, the branch a push
+actually landed on — where the assertion rests on the call having been
+_accepted_ rather than on a signal of what it _did_.
+
+Falsifier: read a caller-visible signal of the ACTUAL value. "The tool
+accepted the param" is not evidence the param took effect; a silently-clamped
+value and an honored one produce identical tool results. Where no such signal
+exists, say the claim is UNVERIFIED — do not infer it from acceptance.
+
+_Origin:_ same session as (g). `.claude/settings.json`'s
+`CLAUDE_CODE_SUBAGENT_MODEL` sits ABOVE the per-invocation `model` param in
+Claude Code's documented resolution order, so every dispatch requesting a
+tier was silently resolved to the pinned one, with no error and no
+caller-visible notice; the agent read "the tool accepted `model: fable`" as
+"it is running Fable" and attached extra epistemic weight to those advisors'
+conclusions when representing them to the principal. mt#3151 tracks both the
+project's own pin and the missing caller-visible signal (its SC4); until a
+signal exists, this cue's honest output is "unverified," not an assumption.
 
 ## Artifact-content and identity claims (mt#2534)
 
@@ -355,12 +413,13 @@ unverified premises, say "unverified — need to check X."
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference`
   (memory `88d92439`) — sibling family (strategic framing vs mechanism claims).
 - Memory `b0b294ab` — family record for the "assertion frozen as fact without
-  verification" pattern (R6–R14); R11–R14 are the origin of the six
+  verification" pattern (R6–R15); R11–R15 are the origin of the eight
   cues above. `mt#2485` — the strategic partition (Tier-1 `mt#2488`, Tier-2
   `mt#2486`, Tier-3 residual = these per-surface cues). `mt#2698` — cues
-  (a)–(c)'s task; `mt#3055` — cue (d)'s task; `mt#3126` — cues (e)/(f)'s task.
-  Cue (d)'s incident memory: `mem#674` (`07cb2686`); cues (e)/(f)'s: `mem#698`
-  (`8f594a7e`).
+  (a)–(c)'s task; `mt#3055` — cue (d)'s task; `mt#3126` — cues (e)/(f)'s task;
+  `mt#3152` — cues (g)/(h)'s task. Cue (d)'s incident memory: `mem#674`
+  (`07cb2686`); cues (e)/(f)'s: `mem#698` (`8f594a7e`); cues (g)/(h)'s:
+  `mem#706` (`a28844c1`).
 - Cues (b), (d), (e) and (f) share one structural property worth stating
   plainly: each is a case where a same-turn read of the RIGHT first-party file
   is present and still does not establish the claim, because the claim is about

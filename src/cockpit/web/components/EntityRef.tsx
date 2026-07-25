@@ -16,6 +16,13 @@
  *     of mismatch, and is what keeps the failure-tolerance guarantee: with
  *     the label channel down, the rendered output is byte-identical to a
  *     plain anchor — no badge shell, no spinner, no layout shift.
+ *
+ *     With `appendLabel` set, a resolved label is additionally appended after
+ *     the matched text, TRUNCATED (mt#3189). The matched substring is still
+ *     rendered verbatim — a prose citation of a resolved prefix (`bd38be2c`)
+ *     is never rewritten to the full id. Callers that must not grow their
+ *     line height (dense list rows: ActivityPage, MemoriesList, TaskGraph)
+ *     simply omit the flag and are unaffected.
  *   - `children` omitted (the Shape-3 structured-field usage): EntityRef
  *     derives its own inline text — the bare `id` until/unless a label
  *     resolves, then `id · label` (tasks additionally show a small status
@@ -28,7 +35,8 @@
  * HoverCard is documented as inaccessible to keyboard navigation and ignored
  * by screen readers): the inline text above never depends on the hover card
  * having been triggered. Nothing load-bearing lives only in
- * `HoverCardContent`.
+ * `HoverCardContent`. `appendLabel` exists precisely to honor that rule in
+ * prose, where children mode previously left the title hover-only (mt#3189).
  */
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -39,6 +47,20 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from "./ui/hover-card";
 import { statusStyle } from "../lib/status-colors";
 
 const LINK_CLASS = "font-mono text-primary underline-offset-2 hover:underline";
+
+/**
+ * Inline-label budget for `appendLabel` (mt#3189). Bounds a prose reference to
+ * roughly one line at cockpit's prose width; the untruncated title remains in
+ * the hover card. Deliberately a single constant — this is the tuning knob the
+ * spec calls out, adjustable without touching render logic.
+ */
+const MAX_INLINE_LABEL_CHARS = 48;
+
+/** Truncate `label` to the inline budget, with an ellipsis when shortened. */
+export function truncateLabel(label: string, max: number = MAX_INLINE_LABEL_CHARS): string {
+  const trimmed = label.trim();
+  return trimmed.length <= max ? trimmed : `${trimmed.slice(0, max).trimEnd()}…`;
+}
 
 const TYPE_LABEL: Record<RoutableEntityType, string> = {
   task: "Task",
@@ -57,6 +79,12 @@ export interface EntityRefProps {
    * text). When omitted, EntityRef derives its own `id [+ label]` text.
    */
   children?: ReactNode;
+  /**
+   * Append the resolved label (truncated) after `children` (mt#3189). Only
+   * meaningful alongside `children`; ignored in derived-text mode, which
+   * already renders the label. Opt-in so dense rows keep their line height.
+   */
+  appendLabel?: boolean;
   className?: string;
 }
 
@@ -110,15 +138,34 @@ function EntityHoverContent({
  * Renders `{type, id}` as an in-SPA link. See the module doc above for the
  * two rendering modes (`children` provided vs. omitted).
  */
-export function EntityRef({ type, id, children, className }: EntityRefProps) {
+export function EntityRef({ type, id, children, appendLabel, className }: EntityRefProps) {
   const info = useResolvedEntityLabel(type, id);
   const to = entityToPath(type, id);
+
+  // Children mode with appendLabel: matched text verbatim, then the truncated
+  // label. With no resolved label the appended span is absent entirely, so the
+  // output is byte-identical to plain children mode — the failure-tolerance
+  // guarantee is preserved, not newly traded away (mt#3189).
+  const inline =
+    children != null ? (
+      <>
+        {children}
+        {appendLabel && info?.label ? (
+          <span className="font-sans font-normal text-muted-foreground">
+            {" · "}
+            {truncateLabel(info.label)}
+          </span>
+        ) : null}
+      </>
+    ) : (
+      defaultInline(type, id, info)
+    );
 
   return (
     <HoverCard openDelay={200} closeDelay={100}>
       <HoverCardTrigger asChild>
         <Link to={to} className={cn(LINK_CLASS, className)}>
-          {children ?? defaultInline(type, id, info)}
+          {inline}
         </Link>
       </HoverCardTrigger>
       <HoverCardContent>

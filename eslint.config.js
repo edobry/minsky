@@ -317,8 +317,50 @@ export default [
             // Migration command needs dual task services for source + target
             "**/src/adapters/shared/commands/tasks/migrate-backend-command.ts",
           ],
+          // DI-fallback-shape check (mt#2642, generalizing ADR-026 rule 3): `x ?? create<X>(...)`
+          // / `x?.y ?? new <X>(...)` across src/ + packages/domain/src/. Existing instances
+          // found by the initial repo-wide scan (18 violations, 10 files) — allowlisted per
+          // the ADR-026 precedent ("allowlist, don't decorate") since mass-rewriting call sites
+          // to make these deps required is out of this task's scope. Each entry below is a
+          // test-injection override parameter (production default via a factory/constructor,
+          // test override via the param) — the same architectural shape as the ADR-026-named
+          // `octokitOverride` instances, not a new pattern.
+          allowedFallbackFiles: [
+            // ADR-026's 6 named instances: `octokitOverride ?? createOctokit(...)`.
+            "**/packages/domain/src/repository/github-pr-review.ts",
+            "**/packages/domain/src/repository/github-labels.ts",
+            "**/packages/domain/src/repository/github-workflow-runs.ts",
+            "**/packages/domain/src/repository/github-checks-run.ts",
+            "**/packages/domain/src/repository/github-branch-protection.ts",
+            "**/packages/domain/src/repository/github-pr-operations.ts",
+            // `notifierOverride ?? createPostgresWindowNotifier(...)` — test-injection
+            // override for window.open/window.close's Postgres NOTIFY notifier.
+            "**/src/adapters/shared/commands/window/index.ts",
+            // `onHarnessSessionLinked ?? createDrivenInitLinkObserver()` — test-injection
+            // override for the driven-session task-link observer.
+            "**/src/cockpit/routes/driven-sessions.ts",
+            // `options?.retryService ?? new IntelligentRetryService(...)` — test-injection
+            // override for NotionProvider's retry strategy.
+            "**/packages/domain/src/knowledge/providers/notion-provider.ts",
+            // `deps?.ruleService ?? new RuleService(...)` — test-injection override in the
+            // rules CRUD-operations compile path.
+            "**/packages/domain/src/rules/operations/crud-operations.ts",
+          ],
+          // mt#2642 reconciliation note re: the mt#2642 spec's mt#1024-scope carve-out
+          // ("src/domain/tasks.ts, query-commands.ts, mutation-commands.ts — not already
+          // cleaned up by mt#1024 at the time this task is picked up"): `src/domain/tasks.ts`
+          // no longer exists (moved under packages/domain/src/ by mt#2108's domain-package
+          // extraction). `packages/domain/src/tasks/commands/{query,mutation}-commands.ts`
+          // DO still have a deps-optional-fallback to createConfiguredTaskService, but in an
+          // `if (!taskService) { taskService = deps?.createConfiguredTaskService ? ... : ... }`
+          // shape — a conditional/ternary, not this rule's literal `x ?? create<X>(...)` /
+          // `x?.y ?? new <X>(...)` LogicalExpression shapes, so it is not (and per the
+          // Acceptance Tests' two required fixtures, should not be) matched here. mt#1024
+          // (still TODO) remains the owner of eliminating that fallback, per ADR-026's
+          // migration policy and this task's explicit Scope carve-out ("the broader DI-tier
+          // migration is owned by mt#1024/mt#1804").
         },
-      ], // Prevent direct construction of domain services in adapter layer (mt#911)
+      ], // Prevent direct construction of domain services in adapter layer (mt#911), and the generalized DI-fallback shape (mt#2642 / ADR-026)
       "custom/no-validation-error-in-execute": "error", // ADR-004: ValidationError belongs in validate(), not execute()
       "custom/no-domain-singleton": [
         "error",
@@ -416,36 +458,41 @@ export default [
         "warn",
         {
           allowedFiles: [
+            // mt#2643 — paths updated from the pre-mt#2108 `src/domain/...` location to
+            // the post-mt#2108 `packages/domain/src/...` location (the domain-package
+            // extraction flips the path segment order from `src/domain` to `domain/src`;
+            // same root cause as the require-injectable.js/no-domain-singleton.js fix in
+            // ADR-026 / mt#2623). Four entries were dropped entirely because their
+            // referenced files no longer exist anywhere in the repo (verified via
+            // repo-wide filename search): session-provider-cache.ts,
+            // storage/backends/postgres-storage.ts, tasks-importer-service.ts, and
+            // tasks/operations/base-task-operation.ts.
             // PersistenceService composition roots
-            "**/src/domain/persistence/service.ts",
-            "**/src/domain/persistence/validation-operations.ts",
+            "**/packages/domain/src/persistence/service.ts",
+            "**/packages/domain/src/persistence/validation-operations.ts",
             // Session provider composition roots
-            "**/src/domain/session/session-service.ts",
-            "**/src/domain/session/session-provider-cache.ts",
-            "**/src/domain/session/drizzle-session-repository.ts",
+            "**/packages/domain/src/session/session-service.ts",
+            "**/packages/domain/src/session/drizzle-session-repository.ts",
             // Session path resolver (lazy fallback for MCP handlers without DI context)
-            "**/src/domain/session/session-path-resolver.ts",
+            "**/packages/domain/src/session/session-path-resolver.ts",
             // Domain-level facade files that re-export/wire providers
-            "**/src/domain/session.ts",
-            "**/src/domain/git.ts",
+            "**/packages/domain/src/session.ts",
+            "**/packages/domain/src/git.ts",
             // Git operations base class (lazy fallback for session resolution)
-            "**/src/domain/git/operations/base-git-operation.ts",
+            "**/packages/domain/src/git/operations/base-git-operation.ts",
             // Storage backends that need direct provider access
-            "**/src/domain/storage/backends/postgres-storage.ts",
-            "**/src/domain/storage/vector/vector-storage-factory.ts",
-            "**/src/domain/storage/vector/postgres-vector-storage.ts",
+            "**/packages/domain/src/storage/vector/vector-storage-factory.ts",
+            "**/packages/domain/src/storage/vector/postgres-vector-storage.ts",
             // Task domain composition roots
-            "**/src/domain/tasks/tasks-importer-service.ts",
-            "**/src/domain/tasks/taskService.ts",
-            "**/src/domain/tasks/github-issues-api.ts",
+            "**/packages/domain/src/tasks/taskService.ts",
+            "**/packages/domain/src/tasks/github-issues-api.ts",
             // Rules domain
-            "**/src/domain/rules/rule-similarity-service.ts",
+            "**/packages/domain/src/rules/rule-similarity-service.ts",
             // Changeset adapters (resolve session provider for PR operations)
-            "**/src/domain/changeset/adapters/*.ts",
+            "**/packages/domain/src/changeset/adapters/*.ts",
             // Session domain (command orchestration and provider resolution)
-            "**/src/domain/tasks/operations/base-task-operation.ts",
-            "**/src/domain/tasks/taskCommands.ts",
-            "**/src/domain/tasks/commands/shared-helpers.ts",
+            "**/packages/domain/src/tasks/taskCommands.ts",
+            "**/packages/domain/src/tasks/commands/shared-helpers.ts",
             // DI composition roots (the canonical place for singleton resolution)
             "**/src/composition/**/*.ts",
             // Hook entry points (run outside DI container — legitimate bootstrap)

@@ -15,6 +15,9 @@
   Regenerate with:
     bun run scripts/regenerate-mt2811-prompt-fixture.ts > .minsky/hooks/fixtures/session-generate-prompt-scope-constraints.txt
 
+  Both variants must be regenerated together when the prompt shape changes —
+  the sibling is the same command with the flag toggled (mt#1279).
+
   Generated with:
     sessionDir:   "/Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000"
     sessionId:    "00000000-0000-0000-0000-000000000000"
