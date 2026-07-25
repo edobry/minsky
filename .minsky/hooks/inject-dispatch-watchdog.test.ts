@@ -11,8 +11,10 @@ import {
   formatAge,
   formatDispatchWatchdogState,
   readCache,
+  RECOGNIZED_ACTIVITY_SOURCES,
   type DispatchWatchdogCacheRecord,
 } from "./inject-dispatch-watchdog";
+import { DISPATCH_WATCHDOG_ACTIVITY_SOURCES } from "../../src/cockpit/dispatch-watchdog";
 
 const NOW = "2026-07-07T12:00:00.000Z";
 
@@ -107,6 +109,17 @@ describe("parseDispatchWatchdogCache", () => {
     expect(rec?.flags[0]?.activitySource).toBe("presence");
   });
 
+  // mt#3193: "workspace-mtime" must be preserved, not normalized away — an
+  // operator reading the banner needs to see the NEW signal name, not have
+  // it silently collapse to "dispatch-start" (which would misreport WHY a
+  // dispatch was flagged healthy/stale).
+  test("preserves the mt#3193 'workspace-mtime' activitySource", () => {
+    const rec = parseDispatchWatchdogCache(
+      JSON.stringify(cacheAt([flag({ activitySource: "workspace-mtime" })]))
+    );
+    expect(rec?.flags[0]?.activitySource).toBe("workspace-mtime");
+  });
+
   test("normalizes an unrecognized activitySource value to 'dispatch-start'", () => {
     const raw = { ...flag(), activitySource: "not-a-real-source" };
     const rec = parseDispatchWatchdogCache(JSON.stringify(cacheAt([raw as never])));
@@ -173,6 +186,14 @@ describe("formatDispatchWatchdogState", () => {
     expect(out).toMatch(/source=dispatch-start/);
   });
 
+  // mt#3193: the banner names the new workspace-mtime signal too — an
+  // operator seeing this flag knows a non-MCP file write, not a commit or
+  // MCP tool call, was the freshest evidence.
+  test("mt#3193: the banner names the flag's 'workspace-mtime' activitySource", () => {
+    const out = formatDispatchWatchdogState(cacheAt([flag({ activitySource: "workspace-mtime" })]));
+    expect(out).toMatch(/source=workspace-mtime/);
+  });
+
   test("multiple flags each get their own line", () => {
     const out = formatDispatchWatchdogState(
       cacheAt([flag({ taskId: "mt#1" }), flag({ taskId: "mt#2" })])
@@ -228,5 +249,28 @@ describe("readCache (R1 non-blocking #1: missing vs malformed distinction)", () 
 
     const result = readCache(path);
     expect(result.kind).toBe("malformed");
+  });
+});
+
+// PR #2307 R1 non-blocking: this hook duplicates the producer's
+// DispatchWatchdogActivitySource union as its own
+// DispatchWatchdogActivitySourceRecord (module-graph-isolation convention —
+// see this file's own header comment on why it can't just import the type).
+// A TS union has no runtime representation to diff automatically, so this
+// test cross-imports each side's runtime-reflectable const array and
+// asserts SET EQUALITY — the mechanical guard against exactly the drift
+// that produced the original bug this PR fixes (this hook silently
+// normalized "workspace-mtime" to "dispatch-start" before the mt#3193 fix
+// landed, because it simply didn't know the new value existed).
+describe("activitySource vocabulary parity with the producer (PR #2307 R1 non-blocking)", () => {
+  test("RECOGNIZED_ACTIVITY_SOURCES (hook) matches DISPATCH_WATCHDOG_ACTIVITY_SOURCES (producer) exactly", () => {
+    const hookSet = new Set<string>(RECOGNIZED_ACTIVITY_SOURCES);
+    const producerSet = new Set<string>(DISPATCH_WATCHDOG_ACTIVITY_SOURCES);
+
+    const missingFromHook = [...producerSet].filter((v) => !hookSet.has(v));
+    const missingFromProducer = [...hookSet].filter((v) => !producerSet.has(v));
+
+    expect(missingFromHook).toEqual([]);
+    expect(missingFromProducer).toEqual([]);
   });
 });

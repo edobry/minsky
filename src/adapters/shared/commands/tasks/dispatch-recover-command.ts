@@ -62,6 +62,17 @@
  *   `outcome` value for a row that was never actually re-classified against
  *   live state (see `classifyDispatchRecoveryState`'s docstring and the
  *   escalate branch below for the full incident and fix).
+ * - mt#3193: a dispatch working entirely through non-MCP harness tools
+ *   (`Read`/`Edit`/`Write`/`Glob`/`Grep` — no commit, no MCP tool call) is
+ *   NOT misclassified as dead, because the staleness check ALSO consults a
+ *   workspace-mtime signal (dirty-file filesystem timestamps in the session's
+ *   git working tree — see `computeDispatchStaleness`'s docstring and
+ *   `@minsky/domain/session/workspace-activity` for the full mechanism).
+ * - mt#3193: a dispatch whose task is IN-REVIEW with a still-open (or draft)
+ *   PR is returned as `healthy` UNCONDITIONALLY (before the staleness check
+ *   even runs) — idling on review is the DESIRED state there, and "no
+ *   commits for a while" inverts the signal if treated as staleness. See the
+ *   IN-REVIEW + open-PR gate below.
  *
  * ### Does NOT cover
  * - Semantically-wrong-but-alive work — a subagent that is actively
@@ -74,10 +85,12 @@
  *   orchestrator who suspects rate-limiting should check the cadence
  *   escalation tier before treating a stale read as a kill signal (per
  *   memory `5f2154cd`, "long-paused subagent != dead subagent").
- * - A dispatch that makes literally ZERO Minsky-MCP-routed tool calls for an
- *   entire stale window (e.g. stuck inside one very long non-MCP subprocess
- *   call) — this remains invisible to every signal here, commit or
- *   presence-based (mt#3086's documented residual blind spot).
+ * - A dispatch that makes literally ZERO Minsky-MCP-routed tool calls AND
+ *   writes/touches ZERO files in its workspace for an entire stale window
+ *   (e.g. stuck inside one very long non-MCP subprocess call, or a pure-
+ *   reasoning stretch) — this remains invisible to every signal here,
+ *   commit-, presence-, or workspace-mtime-based (mt#3086's originally
+ *   documented residual blind spot, narrowed but not closed by mt#3193).
  * - A `SendMessage`-resumed continuation of an ALREADY-CLOSED invocation row
  *   (`endedAt` set before the resume) — this command returns `not-in-flight`
  *   before ever reaching the staleness check for that case (see
@@ -86,20 +99,24 @@
  * - The full periodic sweep the dispatch-watchdog producer performs
  *   (`src/cockpit/dispatch-watchdog.ts`), including its `system_events`
  *   activity signal — this command's on-demand staleness check uses
- *   dispatch-start-time, last-commit-time, and (mt#3086) presence-claim
- *   activity, but not `system_events` (see `computeDispatchStaleness`'s
- *   docstring for the documented tradeoff). mt#3172: the watchdog producer's
- *   OWN staleness computation now ALSO consults presence-claim activity
- *   (via the same `resolveLastPresenceActivityAtMs` helper this command
- *   uses) — the two staleness checks are no longer divergent on that one
- *   signal, even though the watchdog's `system_events` signal is still not
- *   consulted here.
+ *   dispatch-start-time, last-commit-time, (mt#3086) presence-claim
+ *   activity, and (mt#3193) workspace-mtime activity, but not
+ *   `system_events` (see `computeDispatchStaleness`'s docstring for the
+ *   documented tradeoff). mt#3172/mt#3193: the watchdog producer's OWN
+ *   staleness computation now ALSO consults presence-claim and
+ *   workspace-mtime activity (via the same shared helpers this command
+ *   uses) — the two staleness checks are no longer divergent on those
+ *   signals, even though the watchdog's `system_events` signal is still not
+ *   consulted here, and the watchdog's IN-REVIEW+open-PR exclusion is a
+ *   separate (parallel, not shared-code) implementation of the same rule
+ *   this command's gate enforces.
  *
  * @see mt#2831 — this task
  * @see mt#3086 — false-positive staleness fix + double-dispatch race documentation
  * @see mt#3149 — false-positive crashed-no-output fix (PR/commit liveness at escalate time)
  * @see mt#3172 — extracted the presence-claim lookup into a shared helper and
  *   wired it into the watchdog PRODUCER's own staleness computation too
+ * @see mt#3193 — workspace-mtime signal + IN-REVIEW-with-open-PR healthy gate
  * @see mt#2646 — dispatch-watchdog detection + `dispatch-recovery-probe.ts`
  * @see mt#2512 — kill+redispatch doctrine (no mid-flight correction)
  *
@@ -143,6 +160,7 @@ import {
   DISPATCH_RECOVERY_STALE_MS,
 } from "@minsky/domain/session/dispatch-recovery-classifier";
 import { resolveLastPresenceActivityAtMs } from "@minsky/domain/session/presence-activity";
+import { resolveLastWorkspaceMtimeAtMs } from "@minsky/domain/session/workspace-activity";
 import type { PromptType } from "@minsky/domain/session/prompt-generation";
 
 // ---------------------------------------------------------------------------
@@ -193,6 +211,17 @@ export interface DispatchRecoveryActivityOps {
    * or the dispatch is brand new).
    */
   lastPresenceActivityAtMs(subagentSessionId: string): Promise<number | null>;
+  /**
+   * Ms epoch of the freshest dirty-file mtime in the session's git working
+   * tree (mt#3193), or null when unavailable (workspace missing, not a git
+   * repo, no dirty files, or every dirty path failed to `stat`). See
+   * `resolveLastWorkspaceMtimeAtMs` (`@minsky/domain/session/workspace-activity`)
+   * for the full mechanism and its documented residual blind spot — this is
+   * the signal that closes the "non-MCP harness-tool activity" gap
+   * `lastPresenceActivityAtMs` alone leaves open (presence-claims only
+   * refresh on Minsky-MCP-routed tool calls).
+   */
+  lastWorkspaceMtimeAtMs(sessionDir: string): Promise<number | null>;
 }
 
 /**
@@ -218,6 +247,15 @@ export function createRealDispatchRecoveryActivityOps(
         | { getDatabaseConnection?: () => Promise<unknown> }
         | undefined;
       return resolveLastPresenceActivityAtMs(subagentSessionId, provider, {
+        source: "tasks.dispatch-recover",
+      });
+    },
+    // mt#3193: delegates to the shared `resolveLastWorkspaceMtimeAtMs` helper
+    // (`@minsky/domain/session/workspace-activity`) — dirty-file mtime in the
+    // session's git working tree, closing the non-MCP-harness-tool gap
+    // `lastPresenceActivityAtMs` alone leaves open.
+    async lastWorkspaceMtimeAtMs(sessionDir) {
+      return resolveLastWorkspaceMtimeAtMs(sessionDir, {
         source: "tasks.dispatch-recover",
       });
     },
@@ -614,22 +652,55 @@ export function createTasksDispatchRecoverCommand(
         };
       }
 
+      // ── IN-REVIEW + open-PR gate: idling on review is the DESIRED state. ─────────────
+      // mt#3193: a dispatch whose task is IN-REVIEW with a still-open (or draft) PR
+      // has already shipped its output and is correctly doing nothing while waiting
+      // on `minsky-reviewer[bot]` — "no commits for a while" is the EXPECTED signal
+      // there, not a stall. Checked BEFORE the staleness gate (not folded into
+      // computeDispatchStaleness as another activity signal) because this is a
+      // suppression based on WHAT STATE the dispatch is in, not evidence of recent
+      // activity — the whole point is that a healthy PR-idle dispatch may have NO
+      // recent activity at all. See the mt#3193 spec's second false-positive source:
+      // four dispatches were flagged simultaneously in one run, all IN-REVIEW with an
+      // open PR, all correctly idle.
+      const openPr = isLivePrState(sessionRecord?.pullRequest?.state);
+      if (taskStatus === "IN-REVIEW" && openPr) {
+        return {
+          success: true,
+          status: "healthy" as const,
+          taskId,
+          sessionId: subagentSessionId,
+          staleForMs: 0,
+          activitySource: "in-review-open-pr" as const,
+          message:
+            `Task ${taskId} is IN-REVIEW with an open PR` +
+            `${sessionRecord?.pullRequest?.number ? ` (#${sessionRecord.pullRequest.number})` : ""} — ` +
+            `waiting on review is the expected idle state, not a stall. No action taken.`,
+        };
+      }
+
       // ── Staleness gate: a healthy in-flight dispatch is left untouched. ──────────────
       // mt#3086: consults presence-claim activity ALONGSIDE commit activity — a
       // dispatch that is genuinely alive but quiet (reading code, running tests,
       // making session-scoped MCP tool calls with no commit yet) is no longer
-      // misclassified as dead. See computeDispatchStaleness's docstring for the
-      // full signal rationale and the documented residual blind spot.
+      // misclassified as dead. mt#3193: ALSO consults workspace-mtime activity
+      // (dirty-file filesystem timestamps) — closing the gap where a dispatch
+      // working entirely through non-MCP harness tools (Read/Edit/Write/Glob/Grep)
+      // produces neither a commit nor a presence-claim refresh. See
+      // computeDispatchStaleness's docstring for the full signal rationale and the
+      // documented residual blind spot.
       const lastCommitAtMs = await gitOps.lastCommitAtMs(sessionDir);
       const lastPresenceActivityAtMs =
         await activityOps.lastPresenceActivityAtMs(subagentSessionId);
+      const lastWorkspaceMtimeAtMs = await activityOps.lastWorkspaceMtimeAtMs(sessionDir);
       const startedAtMs = latest.startedAt.getTime();
       const staleness = computeDispatchStaleness(
         startedAtMs,
         lastCommitAtMs,
         now().getTime(),
         staleMs,
-        lastPresenceActivityAtMs
+        lastPresenceActivityAtMs,
+        lastWorkspaceMtimeAtMs
       );
 
       if (!staleness.stale) {
@@ -638,7 +709,9 @@ export function createTasksDispatchRecoverCommand(
             ? "recent tool-call activity (no commit yet)"
             : staleness.activitySource === "commit"
               ? "a recent commit"
-              : "no activity beyond dispatch start (still within the stale window)";
+              : staleness.activitySource === "workspace-mtime"
+                ? "recent file-write activity (no commit or MCP tool-call yet)"
+                : "no activity beyond dispatch start (still within the stale window)";
         return {
           success: true,
           status: "healthy" as const,

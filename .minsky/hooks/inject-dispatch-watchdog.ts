@@ -60,16 +60,35 @@ export interface UserPromptSubmitInput extends ClaudeHookInput {
 }
 
 /**
- * Which signal produced a flag's `lastActivityAt` (mt#3172; mirrors
- * src/cockpit/dispatch-watchdog.ts's DispatchWatchdogActivitySource — this
- * hook duplicates the shape rather than importing it, per this file's
- * module-graph-isolation convention, see the cache-path comment above).
+ * Which signal produced a flag's `lastActivityAt` (mt#3172; mt#3193 adds
+ * `"workspace-mtime"`; mirrors src/cockpit/dispatch-watchdog.ts's
+ * DispatchWatchdogActivitySource — this hook duplicates the shape rather
+ * than importing it, per this file's module-graph-isolation convention, see
+ * the cache-path comment above).
  */
 export type DispatchWatchdogActivitySourceRecord =
   | "dispatch-start"
   | "commit"
   | "event"
-  | "presence";
+  | "presence"
+  | "workspace-mtime";
+
+/**
+ * Runtime-reflectable enumeration of every recognized value (PR #2307 R1
+ * non-blocking) — kept in lockstep with `DISPATCH_WATCHDOG_ACTIVITY_SOURCES`
+ * in `src/cockpit/dispatch-watchdog.ts` via a cross-module parity TEST
+ * (`inject-dispatch-watchdog.test.ts`), NOT via a shared import (this file
+ * deliberately does not import from `src/cockpit/*` — see the cache-path
+ * comment above). Add a new value here AND there, in the same PR, or the
+ * parity test fails.
+ */
+export const RECOGNIZED_ACTIVITY_SOURCES = [
+  "dispatch-start",
+  "commit",
+  "event",
+  "presence",
+  "workspace-mtime",
+] as const satisfies readonly DispatchWatchdogActivitySourceRecord[];
 
 /** One flagged dispatch (mirrors src/cockpit/dispatch-watchdog.ts DispatchWatchdogFlag). */
 export interface DispatchWatchdogFlagRecord {
@@ -123,13 +142,16 @@ export function parseDispatchWatchdogCache(raw: string): DispatchWatchdogCacheRe
     // file written by a producer build that predates this field, during a
     // rollout window) to "dispatch-start" rather than dropping the whole
     // flag entry — mirrors the subagentSessionId normalization above.
+    // Checked against RECOGNIZED_ACTIVITY_SOURCES (single source of truth
+    // for this file, kept in lockstep with the producer's own list via the
+    // cross-module parity test — see that const's docstring) rather than a
+    // hardcoded chain, so adding a new signal only requires updating one
+    // array here, not a scattered condition.
     const rawSource = f.activitySource;
     const activitySource: DispatchWatchdogActivitySourceRecord =
-      rawSource === "commit" ||
-      rawSource === "event" ||
-      rawSource === "presence" ||
-      rawSource === "dispatch-start"
-        ? rawSource
+      typeof rawSource === "string" &&
+      (RECOGNIZED_ACTIVITY_SOURCES as readonly string[]).includes(rawSource)
+        ? (rawSource as DispatchWatchdogActivitySourceRecord)
         : "dispatch-start";
     flags.push({
       taskId: f.taskId,

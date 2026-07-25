@@ -5,6 +5,8 @@ import {
   DISPATCH_WATCHDOG_STALE_MS,
   DISPATCH_WATCHDOG_MAX_AGE_MS,
   LAST_EVENT_AT_QUERY,
+  HAS_OPEN_PR_QUERY,
+  parsePullRequestOpenState,
   DispatchWatchdogSweepTracker,
   type InFlightInvocationRow,
   type ActivitySources,
@@ -417,6 +419,205 @@ describe("computeDispatchWatchdogFlags", () => {
       expect(flags[0]?.activitySource).toBe("dispatch-start");
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // mt#3193: workspace-mtime signal — a dispatch working entirely through
+  // non-MCP harness tools (Read/Edit/Write/Glob/Grep) produces neither a
+  // commit nor presence-claim activity, so it needs its own liveness signal
+  // (dirty-file mtime in the session's git working tree).
+  // ---------------------------------------------------------------------------
+  describe("workspace-mtime activity signal (mt#3193)", () => {
+    // Acceptance test: "A simulated dispatch whose only activity is non-MCP
+    // file writes over a period exceeding the stale window is classified
+    // healthy, with activitySource naming the new signal."
+    test("AT1: fresh workspace-mtime activity with no commit or presence suppresses the flag", () => {
+      const mtimeMs = NOW_MS - 3 * 60 * 1000; // ~3m ago — a non-MCP file write
+      const activity: ActivitySources = {
+        lastCommitAtMs: () => null,
+        lastEventAtMs: () => null,
+        lastPresenceActivityAtMs: () => null,
+        lastWorkspaceMtimeAtMs: (sid) => (sid === "session-1" ? mtimeMs : null),
+      };
+      const flags = computeDispatchWatchdogFlags(
+        [row()], // startedAt 60m ago — well past the 30m stale window
+        { "mt#2646": "IN-PROGRESS" },
+        activity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(0);
+    });
+
+    // Acceptance test: "A simulated dispatch with no activity of any kind
+    // past the window is still classified recover."
+    test("AT2: a dispatch stale on every signal (commit, event, presence, workspace-mtime) is still flagged unchanged", () => {
+      const staleMs = NOW_MS - 45 * 60 * 1000; // 45m ago on every signal — still >= 30m window
+      const activity: ActivitySources = {
+        lastCommitAtMs: () => staleMs,
+        lastEventAtMs: () => staleMs,
+        lastPresenceActivityAtMs: () => staleMs,
+        lastWorkspaceMtimeAtMs: () => staleMs,
+      };
+      const flags = computeDispatchWatchdogFlags(
+        [row({ startedAt: "2026-07-07T10:00:00.000Z" })], // 2h before NOW_MS
+        { "mt#2646": "IN-PROGRESS" },
+        activity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(1);
+      expect(flags[0]?.staleForMs).toBe(NOW_MS - staleMs);
+    });
+
+    test("AT3: a flag's activitySource is 'workspace-mtime' when it is the freshest signal", () => {
+      // Presence is the next-oldest signal (40m ago); workspace-mtime is
+      // fresher (35m ago) but still >= the 30m stale window, so the row is
+      // still flagged — and activitySource should name "workspace-mtime".
+      const stalePresenceMs = NOW_MS - 40 * 60 * 1000;
+      const staleMtimeMs = NOW_MS - 35 * 60 * 1000;
+      const activity: ActivitySources = {
+        lastCommitAtMs: () => null,
+        lastEventAtMs: () => null,
+        lastPresenceActivityAtMs: () => stalePresenceMs,
+        lastWorkspaceMtimeAtMs: () => staleMtimeMs,
+      };
+      const flags = computeDispatchWatchdogFlags(
+        [row({ startedAt: "2026-07-07T10:00:00.000Z" })], // 2h before NOW_MS
+        { "mt#2646": "IN-PROGRESS" },
+        activity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(1);
+      expect(flags[0]?.activitySource).toBe("workspace-mtime");
+      expect(flags[0]?.lastActivityAt).toBe(new Date(staleMtimeMs).toISOString());
+    });
+
+    // Tie semantics: workspace-mtime is checked LAST, so a tie against
+    // presence resolves to "presence" (the earlier-checked signal).
+    test("a tied presence and workspace-mtime timestamp resolves to 'presence' (tie -> earlier-checked signal wins)", () => {
+      const staleCommitMs = NOW_MS - 50 * 60 * 1000; // oldest
+      const tiedMs = NOW_MS - 40 * 60 * 1000; // presence and workspace-mtime share this exact ms
+      const activity: ActivitySources = {
+        lastCommitAtMs: () => staleCommitMs,
+        lastEventAtMs: () => null,
+        lastPresenceActivityAtMs: () => tiedMs,
+        lastWorkspaceMtimeAtMs: () => tiedMs,
+      };
+      const flags = computeDispatchWatchdogFlags(
+        [row({ startedAt: "2026-07-07T10:00:00.000Z" })],
+        { "mt#2646": "IN-PROGRESS" },
+        activity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(1);
+      expect(flags[0]?.activitySource).toBe("presence");
+      expect(flags[0]?.lastActivityAt).toBe(new Date(tiedMs).toISOString());
+    });
+
+    test("ActivitySources without a lastWorkspaceMtimeAtMs method behaves as unknown (backward compatible)", () => {
+      const flags = computeDispatchWatchdogFlags(
+        [row()],
+        { "mt#2646": "IN-PROGRESS" },
+        noActivity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(1);
+      expect(flags[0]?.activitySource).toBe("dispatch-start");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // mt#3193: IN-REVIEW + open-PR exclusion — a completed dispatch correctly
+  // idling while minsky-reviewer[bot] reviews its PR has no reason to keep
+  // committing; "no recent activity" there is the desired state, not a
+  // stall. Originating incident: four dispatches flagged simultaneously in
+  // one watchdog run, all IN-REVIEW with an open PR, all correctly idle.
+  // ---------------------------------------------------------------------------
+  describe("IN-REVIEW + open-PR exclusion (mt#3193)", () => {
+    test("added SC: a task IN-REVIEW with an open PR and no activity of any kind is not flagged", () => {
+      const activity: ActivitySources = {
+        lastCommitAtMs: () => null,
+        lastEventAtMs: () => null,
+        lastPresenceActivityAtMs: () => null,
+        lastWorkspaceMtimeAtMs: () => null,
+        hasOpenPr: () => true,
+      };
+      const flags = computeDispatchWatchdogFlags(
+        [row({ startedAt: "2026-07-07T09:00:00.000Z" })], // 3h ago — every signal stale/absent
+        { "mt#2646": "IN-REVIEW" },
+        activity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(0);
+    });
+
+    test("a task IN-REVIEW with hasOpenPr resolving false is NOT excluded — falls through to normal staleness", () => {
+      const activity: ActivitySources = {
+        lastCommitAtMs: () => null,
+        lastEventAtMs: () => null,
+        hasOpenPr: () => false,
+      };
+      const flags = computeDispatchWatchdogFlags(
+        [row()], // 60m ago — past the 30m window
+        { "mt#2646": "IN-REVIEW" },
+        activity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(1);
+    });
+
+    test("a task IN-REVIEW with hasOpenPr resolving null (unknown) is NOT excluded — unknown is not confirmed-open", () => {
+      const activity: ActivitySources = {
+        lastCommitAtMs: () => null,
+        lastEventAtMs: () => null,
+        hasOpenPr: () => null,
+      };
+      const flags = computeDispatchWatchdogFlags(
+        [row()],
+        { "mt#2646": "IN-REVIEW" },
+        activity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(1);
+    });
+
+    // The gate is scoped to IN-REVIEW only — an IN-PROGRESS task with an
+    // open PR (an unusual but not impossible combination) does NOT get the
+    // free pass, since IN-PROGRESS dispatches are still expected to be
+    // actively working.
+    test("a task IN-PROGRESS (not IN-REVIEW) with an open PR is NOT excluded", () => {
+      const activity: ActivitySources = {
+        lastCommitAtMs: () => null,
+        lastEventAtMs: () => null,
+        hasOpenPr: () => true,
+      };
+      const flags = computeDispatchWatchdogFlags(
+        [row()],
+        { "mt#2646": "IN-PROGRESS" },
+        activity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(1);
+    });
+
+    test("ActivitySources without a hasOpenPr method behaves as unknown (backward compatible)", () => {
+      const flags = computeDispatchWatchdogFlags(
+        [row()],
+        { "mt#2646": "IN-REVIEW" },
+        noActivity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(1);
+    });
+  });
 });
 
 describe("buildDispatchWatchdogSnapshot", () => {
@@ -426,6 +627,8 @@ describe("buildDispatchWatchdogSnapshot", () => {
     let eventCalls = 0;
     let sessionExistsCalls = 0;
     let presenceCalls = 0;
+    let workspaceMtimeCalls = 0;
+    let hasOpenPrCalls = 0;
 
     const deps: DispatchWatchdogDeps = {
       listInFlightInvocations: async () => [
@@ -449,6 +652,14 @@ describe("buildDispatchWatchdogSnapshot", () => {
         presenceCalls += 1;
         return null;
       },
+      getLastWorkspaceMtimeAtMs: async () => {
+        workspaceMtimeCalls += 1;
+        return null;
+      },
+      getHasOpenPr: async () => {
+        hasOpenPrCalls += 1;
+        return null;
+      },
       getLastEventAtMs: async () => {
         eventCalls += 1;
         return null;
@@ -462,6 +673,8 @@ describe("buildDispatchWatchdogSnapshot", () => {
     expect(eventCalls).toBe(1);
     expect(sessionExistsCalls).toBe(1);
     expect(presenceCalls).toBe(1);
+    expect(workspaceMtimeCalls).toBe(1);
+    expect(hasOpenPrCalls).toBe(1);
     expect(snapshot.checkedAt).toBe(new Date(NOW_MS).toISOString());
     expect(snapshot.staleMs).toBe(DISPATCH_WATCHDOG_STALE_MS);
     expect(snapshot.flags).toHaveLength(2);
@@ -474,6 +687,8 @@ describe("buildDispatchWatchdogSnapshot", () => {
       getLastCommitAtMs: async () => null,
       getSessionExists: async () => null,
       getLastPresenceActivityAtMs: async () => null,
+      getLastWorkspaceMtimeAtMs: async () => null,
+      getHasOpenPr: async () => null,
       getLastEventAtMs: async () => null,
     };
     const snapshot = await buildDispatchWatchdogSnapshot(deps, NOW_MS);
@@ -491,6 +706,8 @@ describe("buildDispatchWatchdogSnapshot", () => {
       getLastCommitAtMs: async () => null,
       getSessionExists: async () => false,
       getLastPresenceActivityAtMs: async () => null,
+      getLastWorkspaceMtimeAtMs: async () => null,
+      getHasOpenPr: async () => null,
       getLastEventAtMs: async () => null,
     };
     const snapshot = await buildDispatchWatchdogSnapshot(deps, NOW_MS, DISPATCH_WATCHDOG_STALE_MS);
@@ -509,6 +726,48 @@ describe("buildDispatchWatchdogSnapshot", () => {
       getLastCommitAtMs: async () => null,
       getSessionExists: async () => true,
       getLastPresenceActivityAtMs: async () => recentPresenceMs,
+      getLastWorkspaceMtimeAtMs: async () => null,
+      getHasOpenPr: async () => null,
+      getLastEventAtMs: async () => null,
+    };
+    const snapshot = await buildDispatchWatchdogSnapshot(deps, NOW_MS, DISPATCH_WATCHDOG_STALE_MS);
+    expect(snapshot.flags).toHaveLength(0);
+  });
+
+  // mt#3193 AT1: a row with fresh workspace-mtime activity and no commits/
+  // presence is NOT flagged — closes the non-MCP-harness-tool gap.
+  test("suppresses a flag when only workspace-mtime activity is fresh (no commit, no presence)", async () => {
+    const recentMtimeMs = NOW_MS - 3 * 60 * 1000; // 3m ago
+    const deps: DispatchWatchdogDeps = {
+      listInFlightInvocations: async () => [
+        row({ taskId: "mt#2646", subagentSessionId: "s1", startedAt: "2026-07-07T11:00:00.000Z" }),
+      ],
+      getTaskStatus: async () => "IN-PROGRESS",
+      getLastCommitAtMs: async () => null,
+      getSessionExists: async () => true,
+      getLastPresenceActivityAtMs: async () => null,
+      getLastWorkspaceMtimeAtMs: async () => recentMtimeMs,
+      getHasOpenPr: async () => null,
+      getLastEventAtMs: async () => null,
+    };
+    const snapshot = await buildDispatchWatchdogSnapshot(deps, NOW_MS, DISPATCH_WATCHDOG_STALE_MS);
+    expect(snapshot.flags).toHaveLength(0);
+  });
+
+  // mt#3193 added SC: a row whose task is IN-REVIEW with an open PR is
+  // excluded from staleness evaluation entirely, even with every other
+  // signal stale/absent.
+  test("suppresses a flag for an IN-REVIEW task with an open PR, regardless of staleness", async () => {
+    const deps: DispatchWatchdogDeps = {
+      listInFlightInvocations: async () => [
+        row({ taskId: "mt#2646", subagentSessionId: "s1", startedAt: "2026-07-07T09:00:00.000Z" }), // 3h ago
+      ],
+      getTaskStatus: async () => "IN-REVIEW",
+      getLastCommitAtMs: async () => null,
+      getSessionExists: async () => true,
+      getLastPresenceActivityAtMs: async () => null,
+      getLastWorkspaceMtimeAtMs: async () => null,
+      getHasOpenPr: async () => true,
       getLastEventAtMs: async () => null,
     };
     const snapshot = await buildDispatchWatchdogSnapshot(deps, NOW_MS, DISPATCH_WATCHDOG_STALE_MS);
@@ -547,6 +806,73 @@ describe("LAST_EVENT_AT_QUERY", () => {
     const simulatedPgRow = { latest_at: String(expectedMs) };
     const ms = Number(simulatedPgRow.latest_at);
     expect(ms).toBe(expectedMs);
+  });
+});
+
+describe("HAS_OPEN_PR_QUERY (mt#3193)", () => {
+  test("selects pull_request from sessions, parameterized by session id", () => {
+    expect(HAS_OPEN_PR_QUERY).toMatch(/select\s+pull_request/i);
+    expect(HAS_OPEN_PR_QUERY).toMatch(/from\s+sessions/i);
+    expect(HAS_OPEN_PR_QUERY).toMatch(/session\s*=\s*\$1/);
+  });
+});
+
+// mt#3193 PR #2307 R1 BLOCKING #2: a malformed/unparseable pull_request
+// blob must NOT silently degrade to "unknown" (null) — that would re-enable
+// the exact false positive this gate exists to suppress, since `null`
+// leaves a row eligible for normal staleness evaluation. Only a genuinely
+// absent PR record (raw null/empty) should return null.
+describe("parsePullRequestOpenState (mt#3193 PR #2307 R1 BLOCKING #2)", () => {
+  test("no PR ever recorded (null raw) -> null", () => {
+    expect(parsePullRequestOpenState(null, "session-1")).toBeNull();
+  });
+
+  test("no PR ever recorded (undefined raw) -> null", () => {
+    expect(parsePullRequestOpenState(undefined, "session-1")).toBeNull();
+  });
+
+  test("no PR ever recorded (empty-string raw) -> null", () => {
+    expect(parsePullRequestOpenState("", "session-1")).toBeNull();
+  });
+
+  test("state 'open' -> true", () => {
+    const raw = JSON.stringify({ number: 42, state: "open" });
+    expect(parsePullRequestOpenState(raw, "session-1")).toBe(true);
+  });
+
+  test("state 'draft' -> true", () => {
+    const raw = JSON.stringify({ number: 42, state: "draft" });
+    expect(parsePullRequestOpenState(raw, "session-1")).toBe(true);
+  });
+
+  test("state 'closed' -> false", () => {
+    const raw = JSON.stringify({ number: 42, state: "closed" });
+    expect(parsePullRequestOpenState(raw, "session-1")).toBe(false);
+  });
+
+  test("state 'merged' -> false", () => {
+    const raw = JSON.stringify({ number: 42, state: "merged" });
+    expect(parsePullRequestOpenState(raw, "session-1")).toBe(false);
+  });
+
+  // The actual bug: unparseable JSON must NOT return null.
+  test("unparseable JSON (malformed blob) -> true, not null (BLOCKING #2)", () => {
+    expect(parsePullRequestOpenState("{not valid json", "session-1")).toBe(true);
+  });
+
+  test("valid JSON but a missing 'state' field -> true, not null", () => {
+    const raw = JSON.stringify({ number: 42 });
+    expect(parsePullRequestOpenState(raw, "session-1")).toBe(true);
+  });
+
+  test("valid JSON but an unrecognized 'state' value (schema drift) -> true, not null", () => {
+    const raw = JSON.stringify({ number: 42, state: "pending-review" });
+    expect(parsePullRequestOpenState(raw, "session-1")).toBe(true);
+  });
+
+  test("a non-object JSON value (e.g. a bare number or array) -> true, not null", () => {
+    expect(parsePullRequestOpenState("42", "session-1")).toBe(true);
+    expect(parsePullRequestOpenState("[]", "session-1")).toBe(true);
   });
 });
 

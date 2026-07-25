@@ -53,6 +53,8 @@ const PARTIAL_UNCOMMITTED_NO_HANDOFF: SubagentInvocationOutcome = "partial-uncom
 const TRACKER_UNAVAILABLE_STATUS = "tracker-unavailable";
 /** mt#3149: the escalation message's redispatch-warning fragment, asserted from multiple tests. */
 const DO_NOT_REDISPATCH_WARNING = "Do NOT redispatch";
+/** mt#3193: the IN-REVIEW+open-PR gate's activitySource value, asserted from multiple tests. */
+const IN_REVIEW_OPEN_PR_ACTIVITY_SOURCE = "in-review-open-pr";
 
 // ---------------------------------------------------------------------------
 // Fake tracker — duck-typed, implements only what the command calls.
@@ -176,11 +178,13 @@ function makeGitOps(overrides: Partial<DispatchRecoveryGitOps> = {}): DispatchRe
 
 // mt#3086: fake presence-claim-derived activity ops — defaults to "no
 // signal" (matches pre-mt#3086 behavior when a test doesn't care about it).
+// mt#3193: also carries the workspace-mtime signal, same "no signal" default.
 function makeActivityOps(
   overrides: Partial<DispatchRecoveryActivityOps> = {}
 ): DispatchRecoveryActivityOps {
   return {
     lastPresenceActivityAtMs: async () => null,
+    lastWorkspaceMtimeAtMs: async () => null,
     ...overrides,
   };
 }
@@ -334,6 +338,67 @@ describe("tasks.dispatch-recover", () => {
     // Presence activity, if any, is long past the stale window too.
     const activityOps = makeActivityOps({
       lastPresenceActivityAtMs: async () => NOW.getTime() - DISPATCH_RECOVERY_STALE_MS - 500,
+    });
+    const cmd = makeCommand({ tracker, sessionProvider, gitOps, activityOps });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.success).toBe(true);
+    expect(result.status).toBe("recover");
+    expect(result.resumedFromInvocationId).toBe(original.id);
+  });
+
+  // ---------------------------------------------------------------------------
+  // mt#3193: workspace-mtime signal — a dispatch working entirely through
+  // non-MCP harness tools (Read/Edit/Write/Glob/Grep) produces neither a
+  // commit nor presence-claim activity, so it needs its OWN liveness signal
+  // (dirty-file mtime in the session's git working tree).
+  // ---------------------------------------------------------------------------
+
+  // Acceptance test: "A simulated dispatch whose only activity is non-MCP
+  // file writes over a period exceeding the stale window is classified
+  // healthy, with activitySource naming the new signal." (mt#3193 AT1)
+  test("non-MCP file-write activity only (no commit, no presence) past the stale window -> healthy, activitySource 'workspace-mtime' (mt#3193 AT1)", async () => {
+    const tracker = new FakeTracker();
+    tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - 40 * 60 * 1000), // dispatched 40 min ago
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    const gitOps = makeGitOps({ lastCommitAtMs: async () => null }); // no commits, ever
+    const activityOps = makeActivityOps({
+      lastPresenceActivityAtMs: async () => null, // no MCP tool calls either
+      // a file write (Edit/Write on a non-MCP harness tool) 3 minutes ago
+      lastWorkspaceMtimeAtMs: async () => NOW.getTime() - 3 * 60 * 1000,
+    });
+    const cmd = makeCommand({ tracker, sessionProvider, gitOps, activityOps });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.success).toBe(true);
+    expect(result.status).toBe("healthy");
+    expect(result.activitySource).toBe("workspace-mtime");
+    expect(tracker.recordedAttempts).toHaveLength(0);
+    expect(tracker.recordedInvocationCalls).toHaveLength(0);
+  });
+
+  // Acceptance test: "A simulated dispatch with no activity of any kind
+  // past the window is still classified recover." (mt#3193 AT2) — a null
+  // workspace-mtime signal must not change the pre-existing dead-dispatch
+  // outcome.
+  test("genuinely dead dispatch (no commits, no presence, no workspace-mtime activity) -> still recover, unchanged (mt#3193 AT2)", async () => {
+    const tracker = new FakeTracker();
+    const original = tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - DISPATCH_RECOVERY_STALE_MS - 1000),
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    const gitOps = makeGitOps({ lastCommitAtMs: async () => null });
+    const activityOps = makeActivityOps({
+      lastPresenceActivityAtMs: async () => null,
+      lastWorkspaceMtimeAtMs: async () => null,
     });
     const cmd = makeCommand({ tracker, sessionProvider, gitOps, activityOps });
 
@@ -804,6 +869,160 @@ describe("tasks.dispatch-recover", () => {
 
     expect(result.success).toBe(true);
     expect(result.status).toBe("recover");
+  });
+
+  // ---------------------------------------------------------------------------
+  // mt#3193: IN-REVIEW + open-PR gate. A dispatch whose task is IN-REVIEW with
+  // a still-open PR has already shipped and is correctly idling while
+  // `minsky-reviewer[bot]` reviews — "no commits for a while" is the DESIRED
+  // state there, not evidence of staleness. Originating incident: four
+  // dispatches were flagged stalled simultaneously in one watchdog run, all
+  // IN-REVIEW with an open PR, all correctly idle.
+  // ---------------------------------------------------------------------------
+  describe("mt#3193: IN-REVIEW + open-PR gate", () => {
+    test("task IN-REVIEW with an open PR, no recent activity of any kind, well past the stale window -> healthy, activitySource 'in-review-open-pr' (mt#3193 added SC)", async () => {
+      const tracker = new FakeTracker();
+      tracker.seed({
+        taskId: "mt#2831",
+        subagentSessionId: "sess-1",
+        startedAt: new Date(NOW.getTime() - 3 * DISPATCH_RECOVERY_STALE_MS), // far past the window
+      });
+      const sessionProvider = new FakeSessionProvider({
+        initialSessions: [
+          makeSessionRecord({
+            pullRequest: {
+              number: 4321,
+              url: "https://github.com/edobry/minsky/pull/4321",
+              state: "open",
+              createdAt: new Date().toISOString(),
+              headBranch: "task/mt-2831",
+              baseBranch: "main",
+              lastSynced: new Date().toISOString(),
+            },
+          }),
+        ],
+      });
+      const taskService = new FakeTaskService({
+        initialTasks: [{ id: "mt#2831", title: "fixture", status: "IN-REVIEW" }],
+      });
+      // No commit, no presence, no workspace-mtime — every OTHER signal is
+      // "stale". Only the IN-REVIEW+open-PR gate should keep this healthy.
+      const gitOps = makeGitOps({ lastCommitAtMs: async () => null });
+      const cmd = makeCommand({ tracker, sessionProvider, taskService, gitOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.success).toBe(true);
+      expect(result.status).toBe("healthy");
+      expect(result.activitySource).toBe(IN_REVIEW_OPEN_PR_ACTIVITY_SOURCE);
+      expect(result.message as string).toContain("#4321");
+      // No recovery attempt was recorded — nothing touched, no double-dispatch.
+      expect(tracker.recordedAttempts).toHaveLength(0);
+      expect(tracker.recordedInvocationCalls).toHaveLength(0);
+    });
+
+    test("task IN-REVIEW with a draft PR (not yet 'open') also counts as live -> healthy", async () => {
+      const tracker = new FakeTracker();
+      tracker.seed({
+        taskId: "mt#2831",
+        subagentSessionId: "sess-1",
+        startedAt: new Date(NOW.getTime() - 3 * DISPATCH_RECOVERY_STALE_MS),
+      });
+      const sessionProvider = new FakeSessionProvider({
+        initialSessions: [
+          makeSessionRecord({
+            pullRequest: {
+              number: 4322,
+              url: "https://github.com/edobry/minsky/pull/4322",
+              state: "draft",
+              createdAt: new Date().toISOString(),
+              headBranch: "task/mt-2831",
+              baseBranch: "main",
+              lastSynced: new Date().toISOString(),
+            },
+          }),
+        ],
+      });
+      const taskService = new FakeTaskService({
+        initialTasks: [{ id: "mt#2831", title: "fixture", status: "IN-REVIEW" }],
+      });
+      const cmd = makeCommand({ tracker, sessionProvider, taskService });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("healthy");
+      expect(result.activitySource).toBe(IN_REVIEW_OPEN_PR_ACTIVITY_SOURCE);
+    });
+
+    test("task IN-REVIEW with a CLOSED PR does NOT get the free pass -> falls through to normal staleness/recover handling", async () => {
+      const tracker = new FakeTracker();
+      tracker.seed({
+        taskId: "mt#2831",
+        subagentSessionId: "sess-1",
+        startedAt: new Date(NOW.getTime() - DISPATCH_RECOVERY_STALE_MS - 1000),
+      });
+      const sessionProvider = new FakeSessionProvider({
+        initialSessions: [
+          makeSessionRecord({
+            pullRequest: {
+              number: 4323,
+              url: "https://github.com/edobry/minsky/pull/4323",
+              state: "closed",
+              createdAt: new Date().toISOString(),
+              headBranch: "task/mt-2831",
+              baseBranch: "main",
+              lastSynced: new Date().toISOString(),
+            },
+          }),
+        ],
+      });
+      const taskService = new FakeTaskService({
+        initialTasks: [{ id: "mt#2831", title: "fixture", status: "IN-REVIEW" }],
+      });
+      const cmd = makeCommand({ tracker, sessionProvider, taskService });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      // Falls through to the ordinary staleness/classification path, which for
+      // a closed PR with no commits ahead lands on the pre-existing behavior —
+      // NOT the new healthy short-circuit.
+      expect(result.activitySource).not.toBe(IN_REVIEW_OPEN_PR_ACTIVITY_SOURCE);
+    });
+
+    test("task IN-PROGRESS (not IN-REVIEW) with an open PR does NOT get the free pass — the gate is scoped to IN-REVIEW only", async () => {
+      const tracker = new FakeTracker();
+      tracker.seed({
+        taskId: "mt#2831",
+        subagentSessionId: "sess-1",
+        startedAt: new Date(NOW.getTime() - DISPATCH_RECOVERY_STALE_MS - 1000),
+      });
+      const sessionProvider = new FakeSessionProvider({
+        initialSessions: [
+          makeSessionRecord({
+            pullRequest: {
+              number: 4324,
+              url: "https://github.com/edobry/minsky/pull/4324",
+              state: "open",
+              createdAt: new Date().toISOString(),
+              headBranch: "task/mt-2831",
+              baseBranch: "main",
+              lastSynced: new Date().toISOString(),
+            },
+          }),
+        ],
+      });
+      const taskService = new FakeTaskService({
+        initialTasks: [{ id: "mt#2831", title: "fixture", status: "IN-PROGRESS" }],
+      });
+      const gitOps = makeGitOps({ commitsAheadOfBase: async () => 3 });
+      const cmd = makeCommand({ tracker, sessionProvider, taskService, gitOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.activitySource).not.toBe(IN_REVIEW_OPEN_PR_ACTIVITY_SOURCE);
+      // Falls through to the normal mt#3149 committed-no-pr classification.
+      expect(result.classification).toBe("committed-no-pr");
+    });
   });
 
   // ---------------------------------------------------------------------------
