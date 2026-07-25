@@ -66,15 +66,27 @@ function emitITermEscapes(taskId: string, title: string): void {
 async function main(): Promise<void> {
   const input = await readInput<ToolHookInput>();
 
-  // Extract session data from tool_result
+  // Resolve the task id, preferring the result payload but NOT depending on it.
+  //
+  // mt#3182: this hook previously read the task id only from
+  // `tool_result.session.taskId` and exited at `if (!toolResult)` otherwise. The
+  // harness's PostToolUse payload for session_start does not carry `tool_result`
+  // in that parsed shape, so this hook exited silently on every invocation and
+  // has never produced its iTerm labels or its `/tmp/claude-session-label-*.json`
+  // state file (zero such files existed on the dev machine when this was found).
+  // `tool_input` DOES reliably carry the task, so fall back to it.
   const toolResult = input.tool_result as Record<string, unknown> | undefined;
-  if (!toolResult) {
-    process.exit(0);
-  }
 
   // session_start returns { success, session: { sessionId, repoUrl, repoName, taskId }, ... }
-  const sessionData = toolResult.session as Record<string, unknown> | undefined;
-  const taskId = (sessionData?.taskId as string) || "";
+  const sessionData = toolResult?.session as Record<string, unknown> | undefined;
+  const params = (input.tool_input ?? {}) as Record<string, unknown>;
+  const taskIdFromParams =
+    typeof params.taskId === "string" && params.taskId
+      ? params.taskId
+      : typeof params.task === "string" && params.task
+        ? params.task
+        : "";
+  const taskId = (sessionData?.taskId as string) || taskIdFromParams;
   const sessionId = input.session_id;
 
   if (!taskId) {
