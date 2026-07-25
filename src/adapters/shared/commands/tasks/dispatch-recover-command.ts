@@ -860,7 +860,14 @@ export function createTasksDispatchRecoverCommand(
         // inline in the message — a caller that reads only the message still gets the
         // deciding fact.
         const workspaceMtimeAgoMs =
-          lastWorkspaceMtimeAtMs === null ? null : now().getTime() - lastWorkspaceMtimeAtMs;
+          lastWorkspaceMtimeAtMs === null
+            ? null
+            : // Clamped at 0 (PR #2316 R1): a future-dated mtime — clock skew on a
+              // network filesystem, or a file touched between the mtime read and
+              // this `now()` — would otherwise render "last written -500ms ago" in
+              // operator-facing text. Zero reads as "just now", which is the honest
+              // interpretation of a not-yet-elapsed interval.
+              Math.max(0, now().getTime() - lastWorkspaceMtimeAtMs);
         const workspaceSummary =
           probe.dirtyFileCount > 0
             ? `The workspace has ${probe.dirtyFileCount} uncommitted file(s) ` +
