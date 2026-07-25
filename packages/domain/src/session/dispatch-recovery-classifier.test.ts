@@ -138,6 +138,110 @@ describe("computeDispatchStaleness", () => {
     expect(result.lastActivityAtMs).toBe(tiedMs);
     expect(result.activitySource).toBe("commit");
   });
+
+  // ---------------------------------------------------------------------------
+  // mt#3193: workspace-mtime signal — closes the non-MCP-tool blind spot
+  // (a dispatch working entirely through harness-native Read/Edit/Write/
+  // Glob/Grep produces neither a commit nor a presence-claim refresh).
+  // ---------------------------------------------------------------------------
+
+  // Acceptance test: "A simulated dispatch whose only activity is non-MCP
+  // file writes over a period exceeding the stale window is classified
+  // healthy, with activitySource naming the new signal."
+  test("non-MCP file-write activity only (no commit, no presence), past the stale window -> NOT stale, activitySource 'workspace-mtime' (mt#3193 AT1)", () => {
+    const now = START + DISPATCH_RECOVERY_STALE_MS + 5 * 60 * 1000; // 35 min after dispatch
+    const lastWorkspaceMtimeAtMs = now - 2 * 60 * 1000; // a file write 2 min ago
+    const result = computeDispatchStaleness(
+      START,
+      null, // no commit
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      null, // no presence-claim activity either
+      lastWorkspaceMtimeAtMs
+    );
+    expect(result.stale).toBe(false);
+    expect(result.lastActivityAtMs).toBe(lastWorkspaceMtimeAtMs);
+    expect(result.activitySource).toBe("workspace-mtime");
+  });
+
+  // Acceptance test: "A simulated dispatch with no activity of any kind
+  // past the window is still classified recover." — a null/stale
+  // workspace-mtime signal must not turn a genuinely dead dispatch healthy.
+  test("genuinely dead: no commit, no presence, no workspace-mtime activity -> stale (mt#3193 AT2)", () => {
+    const now = START + DISPATCH_RECOVERY_STALE_MS + 1000;
+    const result = computeDispatchStaleness(
+      START,
+      null,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      null,
+      null
+    );
+    expect(result.stale).toBe(true);
+    expect(result.activitySource).toBe("dispatch-start");
+
+    // A workspace-mtime signal that is itself long past the window changes
+    // nothing either.
+    const staleMtime = START + 500;
+    const resultStaleMtime = computeDispatchStaleness(
+      START,
+      null,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      null,
+      staleMtime
+    );
+    expect(resultStaleMtime.stale).toBe(true);
+  });
+
+  test("workspace-mtime activity older than commit/presence activity does not override the fresher signal", () => {
+    const now = START + 20 * 60 * 1000;
+    const lastPresence = START + 15 * 60 * 1000;
+    const olderMtime = START + 1000;
+    const result = computeDispatchStaleness(
+      START,
+      null,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      lastPresence,
+      olderMtime
+    );
+    expect(result.lastActivityAtMs).toBe(lastPresence);
+    expect(result.activitySource).toBe("presence");
+  });
+
+  // Tie semantics: workspace-mtime is checked LAST, so a tie against presence
+  // resolves to "presence" (the earlier-checked signal), matching the
+  // existing commit-vs-presence tie rule.
+  test("presence and workspace-mtime at the identical timestamp resolve to 'presence' (tie -> earlier-checked signal wins)", () => {
+    const now = START + 20 * 60 * 1000;
+    const tiedMs = START + 15 * 60 * 1000;
+    const result = computeDispatchStaleness(
+      START,
+      null,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      tiedMs,
+      tiedMs
+    );
+    expect(result.lastActivityAtMs).toBe(tiedMs);
+    expect(result.activitySource).toBe("presence");
+  });
+
+  test("a fresh workspace-mtime signal alone (no commit, no presence) suppresses staleness even when startedAt is old", () => {
+    const now = START + 90 * 60 * 1000; // 90 min after dispatch — far past the window
+    const freshMtime = now - 1000; // a write 1 second ago
+    const result = computeDispatchStaleness(
+      START,
+      null,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      null,
+      freshMtime
+    );
+    expect(result.stale).toBe(false);
+    expect(result.activitySource).toBe("workspace-mtime");
+  });
 });
 
 describe("classifyDispatchRecoveryState", () => {
