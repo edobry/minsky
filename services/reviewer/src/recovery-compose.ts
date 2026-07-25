@@ -231,8 +231,18 @@ export function applyRecoveryAndCompose(
       (tc) => tc.name === "conclude_review" && tc.args.event === "REQUEST_CHANGES"
     );
   let reconcileApplied = false;
+  // Tracks specifically "a REQUEST_CHANGES conclude_review was rewritten to
+  // COMMENT by THIS pipeline's demote-only passes" — kept as its own local
+  // (mt#3202 R1 tightening) rather than reusing `reconcileApplied` at the
+  // mt#3202 gate below, so that gate's meaning can't silently drift if
+  // `reconcileApplied` is ever repurposed for an unrelated signal. Both
+  // variables are set together at every site in this function today, but
+  // `demotedRequestChangesToComment` is the one whose name states the exact
+  // precondition `allowApprovePromotion: false` depends on.
+  let demotedRequestChangesToComment = false;
   if (shouldReconcile) {
     reconcileApplied = true;
+    demotedRequestChangesToComment = true;
     toolCallsForComposition = toolCallsForComposition.map((tc) => {
       if (tc.name !== "conclude_review" || tc.args.event !== "REQUEST_CHANGES") {
         return tc;
@@ -379,7 +389,8 @@ export function applyRecoveryAndCompose(
         // synthesizes — this COMMENT is a demotion of a model REQUEST_CHANGES
         // verdict, not the model's own COMMENT authorship, and the
         // demote-only rationale above still holds. Step 4 below passes
-        // `allowApprovePromotion: !reconcileApplied` for exactly this reason.
+        // `allowApprovePromotion: !demotedRequestChangesToComment` for
+        // exactly this reason.
         if (
           postRecoveryBlockingCount === 0 &&
           toolCallsForComposition.some(
@@ -387,6 +398,7 @@ export function applyRecoveryAndCompose(
           )
         ) {
           reconcileApplied = true;
+          demotedRequestChangesToComment = true;
           toolCallsForComposition = toolCallsForComposition.map((tc) => {
             if (tc.name !== "conclude_review" || tc.args.event !== "REQUEST_CHANGES") {
               return tc;
@@ -404,16 +416,18 @@ export function applyRecoveryAndCompose(
   // Step 4: compose. Spread to coerce the readonly local to the mutable
   // signature expected by composeReviewBody (which only reads).
   //
-  // allowApprovePromotion: !reconcileApplied (mt#3202) — when Step 3 or Step
-  // 3d already demoted a model REQUEST_CHANGES verdict down to COMMENT
-  // because a downgrade pass reduced BLOCKING to zero, that COMMENT must NOT
-  // be further promoted to APPROVE by composeReviewBody's own mt#3202
-  // reconciliation (see the Step 3d rationale above for why demote-only is
-  // the deliberate convention for THIS pipeline stage). When reconcileApplied
-  // is false, the flag defaults to true inside composeReviewBody, so a
-  // model-authored zero-BLOCKING COMMENT still promotes to APPROVE normally.
+  // allowApprovePromotion: !demotedRequestChangesToComment (mt#3202, R1
+  // tightened to this dedicated signal rather than the broader
+  // `reconcileApplied`) — when Step 3 or Step 3d already demoted a model
+  // REQUEST_CHANGES verdict down to COMMENT because a downgrade pass reduced
+  // BLOCKING to zero, that COMMENT must NOT be further promoted to APPROVE by
+  // composeReviewBody's own mt#3202 reconciliation (see the Step 3d rationale
+  // above for why demote-only is the deliberate convention for THIS pipeline
+  // stage). When no demotion fired, the flag defaults to true inside
+  // composeReviewBody, so a model-authored zero-BLOCKING COMMENT still
+  // promotes to APPROVE normally.
   const composed = composeReviewBody([...toolCallsForComposition], {
-    allowApprovePromotion: !reconcileApplied,
+    allowApprovePromotion: !demotedRequestChangesToComment,
   });
 
   return {

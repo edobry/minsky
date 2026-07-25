@@ -276,6 +276,15 @@ export function composeReviewBody(
   // When conclude_review is absent, derive the event from severity counts:
   // any BLOCKING finding → REQUEST_CHANGES; otherwise → COMMENT.
   const blockingFindingsCount = findings.filter((tc) => tc.args.severity === "BLOCKING").length;
+  // Computed once here (rather than re-derived per notice branch below) so
+  // the "no conclude_review" warning, the mt#2655 REQUEST_CHANGES notice, and
+  // the mt#3202 APPROVE notice all report identical counts.
+  const nonBlockingFindingsCount = findings.filter(
+    (tc) => tc.args.severity === "NON-BLOCKING"
+  ).length;
+  const preExistingFindingsCount = findings.filter(
+    (tc) => tc.args.severity === "PRE-EXISTING"
+  ).length;
   let event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
   if (concludeCall !== undefined) {
     event = concludeCall.args.event;
@@ -337,22 +346,21 @@ export function composeReviewBody(
     // model-authored — the review's own prose (rendered below) may still
     // read as tentative even though the verdict now clears the merge gate.
     sections.push(
-      `ℹ️ **Event reconciled from \`COMMENT\` to \`APPROVE\`.** This review recorded zero ` +
-        `\`[BLOCKING]\` findings; per the resolved policy on COMMENT-with-zero-blocking-findings ` +
-        `(mt#3202 / ask#6013), a review with no blocking findings clears the merge gate ` +
-        `automatically rather than requiring a content-free follow-up round. If any finding below ` +
-        `is NON-BLOCKING but should have blocked merge, that is a review-quality issue to raise ` +
-        `separately — the fix here only affects the mapping from findings to verdict, not what the ` +
-        `model classifies as blocking.`
+      `ℹ️ **Event reconciled from \`COMMENT\` to \`APPROVE\`.** This review recorded 0 BLOCKING / ` +
+        `${nonBlockingFindingsCount} NON-BLOCKING / ${preExistingFindingsCount} PRE-EXISTING ` +
+        `findings; per the resolved policy on COMMENT-with-zero-blocking-findings (mt#3202 / ` +
+        `ask#6013), a review with no blocking findings clears the merge gate automatically rather ` +
+        `than requiring a content-free follow-up round. If any finding below is NON-BLOCKING but ` +
+        `should have blocked merge, that is a review-quality issue to raise separately — the fix ` +
+        `here only affects the mapping from findings to verdict, not what the model classifies as ` +
+        `blocking.`
     );
   }
 
   // Section 0: Warning if no conclude_review was emitted; Section 1: Executive summary
   if (noConclude || concludeCall === undefined) {
-    const nonBlockingCount = findings.filter((tc) => tc.args.severity === "NON-BLOCKING").length;
-    const preExistingCount = findings.filter((tc) => tc.args.severity === "PRE-EXISTING").length;
     sections.push(
-      `⚠️ **Reviewer did not emit a \`conclude_review\` call.** Event derived from severity counts: ${event} (${blockingFindingsCount} BLOCKING / ${nonBlockingCount} NON-BLOCKING / ${preExistingCount} PRE-EXISTING findings). Executive summary unavailable.`
+      `⚠️ **Reviewer did not emit a \`conclude_review\` call.** Event derived from severity counts: ${event} (${blockingFindingsCount} BLOCKING / ${nonBlockingFindingsCount} NON-BLOCKING / ${preExistingFindingsCount} PRE-EXISTING findings). Executive summary unavailable.`
     );
   } else {
     sections.push(concludeCall.args.summary);

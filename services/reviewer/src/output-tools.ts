@@ -277,15 +277,23 @@ export const ConcludeReviewArgsSchema = z.object({
    *   "APPROVE"          — no blocking issues; PR is ready to merge
    *   "REQUEST_CHANGES"  — one or more blocking issues must be addressed first
    *   "COMMENT"          — observations only, no BLOCKING finding submitted
-   *                        (use when you are the same App identity as the PR
-   *                        author — GitHub blocks self-approval)
+   *                        (the model should write this ONLY when it is the
+   *                        same App identity as the PR author — GitHub blocks
+   *                        self-approval)
    *
-   * IMPORTANT (mt#3202 / ask#6013): a COMMENT conclusion with zero BLOCKING
-   * `submit_finding` calls is reconciled to APPROVE downstream — it does NOT
-   * hold the review back. A genuine reservation must be expressed as an
-   * actual BLOCKING finding (or a REQUEST_CHANGES verdict); describing a
-   * concern only in this `summary` field while emitting COMMENT will not
-   * block merge.
+   * IMPORTANT (mt#3202 / ask#6013): a model-written COMMENT conclusion with
+   * zero BLOCKING `submit_finding` calls is reconciled to APPROVE downstream
+   * — it does NOT hold the review back. A genuine reservation must be
+   * expressed as an actual BLOCKING finding (or a REQUEST_CHANGES verdict);
+   * describing a concern only in this `summary` field while emitting COMMENT
+   * will not block merge.
+   *
+   * NOTE: a posted review can ALSO show event COMMENT for a reason the model
+   * never wrote — `recovery-compose.ts`'s Step 3 (mt#1496) / Step 3d (mt#2836)
+   * demote a REQUEST_CHANGES conclusion to COMMENT server-side when a later
+   * structural pass determines the BLOCKING finding backing it no longer
+   * applies. That service-demoted COMMENT is a distinct mechanism and does
+   * NOT auto-promote to APPROVE, unlike the model-written case above.
    */
   event: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]),
 
@@ -619,9 +627,13 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
         "event: 'APPROVE' when no blocking issues exist and the PR is ready to merge; " +
         "'REQUEST_CHANGES' when one or more blocking findings must be addressed before merge; " +
         "'COMMENT' only when you are the same App identity as the PR author (self-approval is " +
-        "blocked by GitHub). A COMMENT conclusion with zero BLOCKING submit_finding calls is " +
-        "reconciled to APPROVE and does NOT hold the review back — express any genuine " +
-        "reservation as an actual BLOCKING finding, not as prose in this call's summary.",
+        "blocked by GitHub) — that is the only case where YOU should write COMMENT. A COMMENT " +
+        "YOU write with zero BLOCKING submit_finding calls is reconciled to APPROVE and does NOT " +
+        "hold the review back — express any genuine reservation as an actual BLOCKING finding, " +
+        "not as prose in this call's summary. (Separately, a posted review can show COMMENT for a " +
+        "reason you never wrote: the service demotes a REQUEST_CHANGES verdict to COMMENT when a " +
+        "later pass invalidates its BLOCKING finding — that service-demoted COMMENT does not " +
+        "auto-promote to APPROVE.)",
       parameters: {
         type: "object",
         properties: {
@@ -631,7 +643,10 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
             description:
               "Review conclusion: APPROVE (ready to merge, or zero BLOCKING findings — the two are " +
               "treated identically), REQUEST_CHANGES (one or more BLOCKING findings), or COMMENT " +
-              "(only for the self-review case; zero-BLOCKING COMMENT is reconciled to APPROVE).",
+              "(write this only for the self-review case; a COMMENT you write with zero BLOCKING " +
+              "findings is reconciled to APPROVE). A service-demoted COMMENT — one you did not " +
+              "write, produced when a downstream pass invalidates a REQUEST_CHANGES verdict's " +
+              "BLOCKING finding — does not auto-promote.",
           },
           summary: {
             type: "string",

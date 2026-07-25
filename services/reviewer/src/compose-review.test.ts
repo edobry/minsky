@@ -1330,8 +1330,10 @@ describe("composeReviewBody — COMMENT-with-zero-blocking resolution (mt#3202 /
 
     // composeReviewBody alone (without the mt#2685 empty-findings-recovery
     // pass that runs upstream in applyRecoveryAndCompose) does not itself
-    // synthesize a finding — but it must never turn this into APPROVE.
-    expect(result.event).not.toBe("APPROVE");
+    // synthesize a finding — but it must never turn this into APPROVE. A
+    // single `.toBe("REQUEST_CHANGES")` assertion already covers "not
+    // APPROVE" (the two are mutually exclusive on this three-valued enum);
+    // the comment above records the specific regression this test guards.
     expect(result.event).toBe("REQUEST_CHANGES");
   });
 
