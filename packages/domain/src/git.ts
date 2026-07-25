@@ -17,7 +17,12 @@ import {
 import { mergePrImpl } from "./git/merge-pr-operations";
 import { mergeBranchImpl } from "./git/merge-branch-operations";
 import { prWithDependenciesImpl } from "./git/pr-generation-operations";
-import { pushImpl } from "./git/push-operations";
+import {
+  pushImpl,
+  pushWithConfirmation,
+  type PushWithConfirmationResult,
+  type PushWithConfirmationConfig,
+} from "./git/push-operations";
 import { cloneImpl, type CloneDependencies } from "./git/clone-operations";
 
 // Import extracted operation modules
@@ -98,6 +103,43 @@ export type {
   GitLockRepairFromParamsResult,
   GitRefRepairFromParamsResult,
 } from "./git/git-params-facade";
+export type { PushWithConfirmationResult, PushWithConfirmationConfig } from "./git/push-operations";
+
+/**
+ * `pushFromParams` (above) awaits the underlying push subprocess with NO
+ * bound at all — the exact gap mt#3177's recurrence found (a standalone
+ * `git_push` MCP call hung for the full ~1800s MCP-transport idle-timeout
+ * while the underlying push had already landed server-side). This is the
+ * confirmation-aware sibling: same param shape as `pushFromParams`, but
+ * bounded, and on an inconclusive (timed-out) outcome it verifies the
+ * remote ref directly before reporting anything — see
+ * `pushWithConfirmation`'s doc comment in `push-operations.ts` for the full
+ * rationale. Wires the SAME real `execAsync` `GitService.push` uses, so
+ * behavior matches `pushFromParams` exactly on the ordinary fast-success
+ * path.
+ */
+export async function pushFromParamsWithConfirmation(
+  params: {
+    repo?: string;
+    remote?: string;
+    force?: boolean;
+    debug?: boolean;
+    authToken?: string;
+  },
+  config?: PushWithConfirmationConfig
+): Promise<PushWithConfirmationResult> {
+  return pushWithConfirmation(
+    {
+      repoPath: params.repo,
+      remote: params.remote,
+      force: params.force,
+      debug: params.debug,
+      authToken: params.authToken,
+    },
+    { execAsync },
+    config
+  );
+}
 
 /**
  * Dependencies that can be injected into GitService at construction time.

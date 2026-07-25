@@ -1,5 +1,6 @@
 import { validateGitError } from "../schemas/error";
 import { validateProcess } from "../schemas/runtime";
+import { raceAgainstTimeout } from "@minsky/shared/timeout";
 
 /**
  * Options for push operations.
@@ -137,4 +138,265 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
     }
     throw err;
   }
+}
+
+/**
+ * Default bound for the remote-ref verification check (mt#3177) — a single
+ * `git ls-remote` round-trip. Kept short by design: this check exists
+ * specifically to resolve an AMBIGUOUS outcome (the push call itself timed
+ * out) quickly, not to itself become a second multi-minute wait.
+ */
+export const DEFAULT_REMOTE_VERIFY_TIMEOUT_MS = 15 * 1000;
+
+/**
+ * Result of a `verifyRemoteRefAdvanced` check.
+ */
+export interface RemoteRefVerification {
+  /** true when the remote branch head equals `expectedSha`. */
+  confirmed: boolean;
+  /** the SHA `ls-remote` reported for the branch, when the call succeeded. */
+  remoteSha?: string;
+  /**
+   * Set when the verification check itself could not produce an answer
+   * (network failure, no matching ref, or the check's own timeout). This is
+   * NOT evidence the push failed — only that verification was inconclusive.
+   */
+  checkError?: string;
+}
+
+/**
+ * Bounded, direct check of whether `<remote>`'s `<branch>` head already
+ * matches `expectedSha` (mt#3177). Uses `git ls-remote`, which queries the
+ * remote directly over the network WITHOUT touching any local ref or
+ * requiring a prior `git fetch` — unlike the fetch + `git rev-parse
+ * origin/<branch>` pattern `tryResumePendingPush` already uses in
+ * `session-commands.ts`, this makes no local state change, so it is safe to
+ * call speculatively after ANY uncertain push outcome.
+ *
+ * Bounded via `raceAgainstTimeout`, mirroring the mt#3049 push-phase bound:
+ * the underlying `ls-remote` subprocess is not killed on timeout (same
+ * documented limitation as the push call itself), but the CALLER's wait is
+ * bounded so this check can never itself become a second unbounded hang.
+ */
+export async function verifyRemoteRefAdvanced(
+  workdir: string,
+  branch: string,
+  expectedSha: string,
+  deps: PushDependencies,
+  options: { remote?: string; timeoutMs?: number } = {}
+): Promise<RemoteRefVerification> {
+  const remote = options.remote ?? "origin";
+  const timeoutMs = options.timeoutMs ?? DEFAULT_REMOTE_VERIFY_TIMEOUT_MS;
+  const qWorkdir = shellQuote(workdir);
+  const qRemote = shellQuote(remote);
+  const qRef = shellQuote(`refs/heads/${branch}`);
+
+  try {
+    const raced = await raceAgainstTimeout(
+      deps.execAsync(`git -C ${qWorkdir} ls-remote ${qRemote} ${qRef}`),
+      timeoutMs
+    );
+    if (raced.timedOut) {
+      return { confirmed: false, checkError: `ls-remote check exceeded ${timeoutMs}ms` };
+    }
+    const firstLine = raced.value.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.length > 0);
+    const remoteSha = firstLine ? firstLine.split(/\s+/)[0] : undefined;
+    if (!remoteSha) {
+      return {
+        confirmed: false,
+        checkError: `ls-remote returned no matching ref for ${branch} on ${remote}`,
+      };
+    }
+    return { confirmed: remoteSha === expectedSha, remoteSha };
+  } catch (err) {
+    return { confirmed: false, checkError: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Default bound for the push call itself inside `pushWithConfirmation`
+ * (mt#3177). Matches `DEFAULT_PUSH_PHASE_TIMEOUT_MS` in
+ * `session-commands.ts` (mt#3049) — the two constants are independently
+ * configurable (different callers, different override params) but share the
+ * same rationale: a push that genuinely needs longer than 2 minutes on a
+ * healthy network is itself diagnostic-worthy.
+ */
+export const DEFAULT_PUSH_CONFIRM_TIMEOUT_MS = 2 * 60 * 1000;
+
+/**
+ * Result of `pushWithConfirmation` — a superset of `PushResult` (all
+ * existing consumers of the plain `pushed`/`workdir` fields remain
+ * unaffected) that adds the mt#3177 confirmation/timeout fields.
+ */
+export interface PushWithConfirmationResult extends PushResult {
+  /**
+   * The underlying push call exceeded its bound without resolving — the
+   * subprocess may still be running in the background (see
+   * `raceAgainstTimeout`'s doc comment). `pushed` reflects the OUTCOME this
+   * function established below (a direct success, a remote-check
+   * confirmation, or `false` when neither confirms) — `pushTimedOut: true`
+   * can appear alongside `pushed: true` (slow but confirmed via remote
+   * check) or `pushed: false` (still unconfirmed).
+   */
+  pushTimedOut?: boolean;
+  /**
+   * The underlying push call threw (network error, auth failure, rejected,
+   * etc.) — a DEFINITE failure, distinct from the ambiguous timeout case.
+   * `pushUnconfirmed`/remote verification are NOT attempted on this path:
+   * an explicit thrown error is already an unambiguous "not pushed" signal.
+   */
+  pushError?: string;
+  /**
+   * Set (with `pushed: true`) when the push call itself timed out but a
+   * follow-up `verifyRemoteRefAdvanced` check confirmed the remote branch
+   * head already matches the local commit — the push landed server-side
+   * even though this call's own confirmation did not (mt#3177 recurrence:
+   * the observed 2nd occurrence's push had already landed while the tool's
+   * response was still hanging).
+   */
+  pushConfirmedVia?: "remote-check";
+  /**
+   * Set (with `pushed: false`) when the push call timed out AND a follow-up
+   * remote-ref check did NOT confirm the push landed (either the remote
+   * genuinely has not advanced, or the verification check itself was
+   * inconclusive). This is the explicit "we do not know" state mt#3177
+   * exists to add: no consumer should read `pushUnconfirmed: true` as
+   * anything resembling success, and no caller should report a
+   * clean/synced-implying-pushed result while this is set.
+   */
+  pushUnconfirmed?: boolean;
+}
+
+/** Config for `pushWithConfirmation` — all fields optional/overridable. */
+export interface PushWithConfirmationConfig {
+  /** Bound for the underlying push call itself. Default `DEFAULT_PUSH_CONFIRM_TIMEOUT_MS`. */
+  pushTimeoutMs?: number;
+  /** Bound for the remote-ref verification fallback. Default `DEFAULT_REMOTE_VERIFY_TIMEOUT_MS`. */
+  verifyTimeoutMs?: number;
+  /**
+   * Branch to verify against, when already known to the caller (skips a
+   * `rev-parse --abbrev-ref HEAD` call). Falls back to resolving it locally
+   * when omitted.
+   */
+  branch?: string;
+}
+
+async function resolveVerificationTarget(
+  workdir: string,
+  deps: PushDependencies,
+  config: PushWithConfirmationConfig
+): Promise<{ branch: string; expectedSha: string } | undefined> {
+  let branch = config.branch;
+  if (!branch) {
+    try {
+      const { stdout } = await deps.execAsync(
+        `git -C ${shellQuote(workdir)} rev-parse --abbrev-ref HEAD`
+      );
+      branch = stdout.trim();
+    } catch {
+      return undefined;
+    }
+  }
+  if (!branch || branch === "HEAD") {
+    // Detached HEAD or unresolvable branch — nothing sensible to verify against.
+    return undefined;
+  }
+
+  try {
+    const { stdout } = await deps.execAsync(`git -C ${shellQuote(workdir)} rev-parse HEAD`);
+    const expectedSha = stdout.trim();
+    if (!expectedSha) return undefined;
+    return { branch, expectedSha };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Push with a bounded wait AND, on timeout, a follow-up remote-ref
+ * verification instead of reporting an ambiguous result (mt#3177).
+ *
+ * Root-cause context (mt#3177 spec, 2nd occurrence 2026-07-25): a
+ * `session_commit` push and a standalone `git_push` call both hung — the
+ * former bounded at 2 minutes (mt#3049), the latter completely UNBOUNDED,
+ * hanging the full ~1800s MCP-transport idle-timeout (the `git.push`
+ * adapter command previously awaited `pushFromParams` with no bound at
+ * all). In the observed recurrence, the underlying push had ALREADY LANDED
+ * server-side (confirmed via the PR's reviewed HEAD sha, timestamped after
+ * the hanging `git_push` call had already been issued) well before the hang
+ * cleared — the gap is in confirming/reporting completion, not in push
+ * reliability itself. This function is the shared fix for both call sites:
+ * bound the wait, and on an inconclusive outcome, ask the remote directly
+ * rather than reporting a state a caller could mistake for success OR
+ * silently drop (leaving local git looking clean/synced while the caller
+ * has no idea whether the push actually landed).
+ *
+ * Deliberately conservative in scope: the remote-check fallback fires ONLY
+ * on `pushTimedOut` — a definite `pushError` (rejected, no upstream, auth
+ * failure, etc.) is already an unambiguous "not pushed" signal and is left
+ * unchanged (no extra network call on that path).
+ */
+export async function pushWithConfirmation(
+  options: PushOptions,
+  deps: PushDependencies,
+  config: PushWithConfirmationConfig = {}
+): Promise<PushWithConfirmationResult> {
+  const pushTimeoutMs = config.pushTimeoutMs ?? DEFAULT_PUSH_CONFIRM_TIMEOUT_MS;
+  const workdir = options.repoPath ?? validateProcess(process).cwd();
+
+  let pushed = false;
+  let pushTimedOut = false;
+  let pushError: string | undefined;
+  let resolvedWorkdir = workdir;
+
+  try {
+    const raced = await raceAgainstTimeout(pushImpl(options, deps), pushTimeoutMs);
+    if (raced.timedOut) {
+      pushTimedOut = true;
+    } else {
+      pushed = raced.value.pushed;
+      resolvedWorkdir = raced.value.workdir;
+    }
+  } catch (err: unknown) {
+    pushError = err instanceof Error ? err.message : String(err);
+  }
+
+  if (!pushTimedOut) {
+    // Either a genuine success, or a definite thrown error (pushError set) —
+    // both are unambiguous outcomes; no remote-check needed.
+    return {
+      workdir: resolvedWorkdir,
+      pushed,
+      ...(pushError !== undefined ? { pushError } : {}),
+    };
+  }
+
+  // pushTimedOut is true here — the ambiguous case this task exists to
+  // resolve. Attempt remote verification before reporting anything.
+  const target = await resolveVerificationTarget(workdir, deps, config);
+  const verification = target
+    ? await verifyRemoteRefAdvanced(workdir, target.branch, target.expectedSha, deps, {
+        remote: options.remote,
+        timeoutMs: config.verifyTimeoutMs,
+      })
+    : undefined;
+
+  if (verification?.confirmed) {
+    return {
+      workdir,
+      pushed: true,
+      pushTimedOut: true,
+      pushConfirmedVia: "remote-check",
+    };
+  }
+
+  return {
+    workdir,
+    pushed: false,
+    pushTimedOut: true,
+    pushUnconfirmed: true,
+  };
 }
