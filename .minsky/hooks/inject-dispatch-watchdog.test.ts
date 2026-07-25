@@ -11,8 +11,10 @@ import {
   formatAge,
   formatDispatchWatchdogState,
   readCache,
+  RECOGNIZED_ACTIVITY_SOURCES,
   type DispatchWatchdogCacheRecord,
 } from "./inject-dispatch-watchdog";
+import { DISPATCH_WATCHDOG_ACTIVITY_SOURCES } from "../../src/cockpit/dispatch-watchdog";
 
 const NOW = "2026-07-07T12:00:00.000Z";
 
@@ -247,5 +249,28 @@ describe("readCache (R1 non-blocking #1: missing vs malformed distinction)", () 
 
     const result = readCache(path);
     expect(result.kind).toBe("malformed");
+  });
+});
+
+// PR #2307 R1 non-blocking: this hook duplicates the producer's
+// DispatchWatchdogActivitySource union as its own
+// DispatchWatchdogActivitySourceRecord (module-graph-isolation convention —
+// see this file's own header comment on why it can't just import the type).
+// A TS union has no runtime representation to diff automatically, so this
+// test cross-imports each side's runtime-reflectable const array and
+// asserts SET EQUALITY — the mechanical guard against exactly the drift
+// that produced the original bug this PR fixes (this hook silently
+// normalized "workspace-mtime" to "dispatch-start" before the mt#3193 fix
+// landed, because it simply didn't know the new value existed).
+describe("activitySource vocabulary parity with the producer (PR #2307 R1 non-blocking)", () => {
+  test("RECOGNIZED_ACTIVITY_SOURCES (hook) matches DISPATCH_WATCHDOG_ACTIVITY_SOURCES (producer) exactly", () => {
+    const hookSet = new Set<string>(RECOGNIZED_ACTIVITY_SOURCES);
+    const producerSet = new Set<string>(DISPATCH_WATCHDOG_ACTIVITY_SOURCES);
+
+    const missingFromHook = [...producerSet].filter((v) => !hookSet.has(v));
+    const missingFromProducer = [...hookSet].filter((v) => !producerSet.has(v));
+
+    expect(missingFromHook).toEqual([]);
+    expect(missingFromProducer).toEqual([]);
   });
 });

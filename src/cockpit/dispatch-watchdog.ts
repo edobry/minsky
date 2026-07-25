@@ -158,6 +158,28 @@ export type DispatchWatchdogActivitySource =
   | "presence"
   | "workspace-mtime";
 
+/**
+ * Runtime-reflectable enumeration of every `DispatchWatchdogActivitySource`
+ * value (PR #2307 R1 non-blocking) — a TS union type has no runtime
+ * representation, so the consumer hook
+ * (`.minsky/hooks/inject-dispatch-watchdog.ts`) cannot import/diff against
+ * `DispatchWatchdogActivitySource` directly (nor should it, per that file's
+ * module-graph-isolation convention — see its own header comment). This
+ * const array is what a cross-module parity TEST diffs against the hook's
+ * own `RECOGNIZED_ACTIVITY_SOURCES` array, so an activitySource added to one
+ * side without the other fails a test instead of silently drifting (this
+ * exact drift risk is why the hook needed the mt#3193 fix in the first
+ * place — it had normalized "workspace-mtime" away to "dispatch-start"
+ * before that fix landed).
+ */
+export const DISPATCH_WATCHDOG_ACTIVITY_SOURCES = [
+  "dispatch-start",
+  "commit",
+  "event",
+  "presence",
+  "workspace-mtime",
+] as const satisfies readonly DispatchWatchdogActivitySource[];
+
 /** One flagged (silently stalled) dispatch. */
 export interface DispatchWatchdogFlag {
   taskId: string;
@@ -438,9 +460,17 @@ export interface DispatchWatchdogDeps {
    */
   getLastWorkspaceMtimeAtMs: (subagentSessionId: string | null) => Promise<number | null>;
   /**
-   * Whether the row's task has a still-open (or draft) PR (mt#3193). `null`
-   * when undeterminable (no `subagentSessionId`, no session record, no
-   * `pull_request` recorded) — treated as "unknown", never as "no PR".
+   * Whether the row's task has a still-open (or draft) PR (mt#3193; refined
+   * per PR #2307 R1 BLOCKING #2). `null` ONLY when no PR was ever recorded
+   * (no `subagentSessionId`, no session record, or `pull_request` is
+   * NULL/empty) — genuinely "no evidence." A non-null `pull_request` value
+   * is itself positive evidence a PR exists: `true` for `open`/`draft`
+   * state, `false` for `closed`/`merged`, and — critically — ALSO `true`
+   * (not `null`) when the JSON is unparseable or `state` is missing/
+   * unrecognized, because degrading that case to `null` would silently
+   * re-enable the exact false positive this gate exists to suppress (a
+   * malformed-but-real PR record falling straight back into staleness
+   * evaluation). See `parsePullRequestOpenState`.
    */
   getHasOpenPr: (taskId: string, subagentSessionId: string | null) => Promise<boolean | null>;
 }
@@ -669,19 +699,17 @@ export async function buildRealDispatchWatchdogDeps(): Promise<DispatchWatchdogD
     // column `dispatch-recover-command.ts` reads via `sessionRecord.pullRequest`
     // (there resolved through the SessionProvider; here read directly via SQL
     // since this producer already has a raw `sql` handle and no SessionProvider).
+    // Parsing/interpretation is delegated to `parsePullRequestOpenState`
+    // (below) — a PURE, independently-unit-tested function — rather than
+    // inlined here, per PR #2307 R1 BLOCKING #2 (a malformed JSON blob must
+    // NOT silently degrade to "unknown" and re-enable the false positive
+    // this gate exists to suppress).
     getHasOpenPr: async (_taskId, subagentSessionId) => {
       if (!subagentSessionId) return null;
       const rows = (await sql.unsafe(HAS_OPEN_PR_QUERY, [subagentSessionId])) as Array<{
         pull_request: string | null;
       }>;
-      const raw = rows?.[0]?.pull_request;
-      if (!raw) return null;
-      try {
-        const parsed = JSON.parse(raw) as { state?: string };
-        return parsed.state === "open" || parsed.state === "draft";
-      } catch {
-        return null;
-      }
+      return parsePullRequestOpenState(rows?.[0]?.pull_request ?? null, subagentSessionId);
     },
     getLastEventAtMs: async (taskId, subagentSessionId) => {
       const rows = (await sql.unsafe(LAST_EVENT_AT_QUERY, [taskId, subagentSessionId])) as Array<{
@@ -719,6 +747,58 @@ export const LAST_EVENT_AT_QUERY = `SELECT (extract(epoch from max(created_at)) 
  * this query, since `sql.unsafe` returns the raw text column value.
  */
 export const HAS_OPEN_PR_QUERY = `SELECT pull_request FROM sessions WHERE session = $1`;
+
+/**
+ * Interpret a session's raw `pull_request` JSON-text column value as
+ * open/draft (`true`), closed/merged (`false`), or "no PR ever recorded"
+ * (`null`) — mt#3193, refined per PR #2307 R1 BLOCKING #2.
+ *
+ * The key design point: a non-null, non-empty `raw` value is ITSELF
+ * positive evidence a PR was recorded for this session, even when its
+ * `state` can't be determined — either because `JSON.parse` throws, or
+ * because a parsed `state` value isn't one of the four this function
+ * recognizes (e.g. future schema drift). Degrading THOSE cases to `null`
+ * would be wrong: the IN-REVIEW+open-PR exclusion
+ * (`computeDispatchWatchdogFlags`) treats `null` as "no evidence, evaluate
+ * normally" — so a malformed-but-real PR record would silently fall
+ * straight back into staleness evaluation, reintroducing the exact false
+ * positive this gate exists to suppress. Only a genuinely NULL/empty
+ * column (no PR ever recorded for this session) returns `null`; every
+ * other outcome resolves to `true` or `false`, with a warning logged
+ * (including the session id) for the two "recorded but not cleanly
+ * `open`/`draft`/`closed`/`merged`" cases so the anomaly stays diagnosable.
+ *
+ * Pure function (aside from the log calls) — no I/O, easily unit-tested.
+ */
+export function parsePullRequestOpenState(
+  raw: string | null | undefined,
+  subagentSessionId: string | null
+): boolean | null {
+  if (!raw) return null;
+
+  let state: unknown;
+  try {
+    const parsed = JSON.parse(raw) as { state?: unknown };
+    state = parsed?.state;
+  } catch (err) {
+    log.warn(
+      "dispatch-watchdog: unparseable pull_request JSON — treating as evidence of an " +
+        "existing PR (state unknown) rather than degrading to no-evidence",
+      { subagentSessionId, error: err instanceof Error ? err.message : String(err) }
+    );
+    return true;
+  }
+
+  if (state === "closed" || state === "merged") return false;
+  if (state === "open" || state === "draft") return true;
+
+  log.warn(
+    "dispatch-watchdog: pull_request JSON has an unrecognized/missing state — treating as " +
+      "evidence of an existing PR rather than degrading to no-evidence",
+    { subagentSessionId, state }
+  );
+  return true;
+}
 
 /**
  * Refresh the dispatch-watchdog cache once. Fail-open: any error logs and

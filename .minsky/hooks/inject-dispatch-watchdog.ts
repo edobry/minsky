@@ -73,6 +73,23 @@ export type DispatchWatchdogActivitySourceRecord =
   | "presence"
   | "workspace-mtime";
 
+/**
+ * Runtime-reflectable enumeration of every recognized value (PR #2307 R1
+ * non-blocking) — kept in lockstep with `DISPATCH_WATCHDOG_ACTIVITY_SOURCES`
+ * in `src/cockpit/dispatch-watchdog.ts` via a cross-module parity TEST
+ * (`inject-dispatch-watchdog.test.ts`), NOT via a shared import (this file
+ * deliberately does not import from `src/cockpit/*` — see the cache-path
+ * comment above). Add a new value here AND there, in the same PR, or the
+ * parity test fails.
+ */
+export const RECOGNIZED_ACTIVITY_SOURCES = [
+  "dispatch-start",
+  "commit",
+  "event",
+  "presence",
+  "workspace-mtime",
+] as const satisfies readonly DispatchWatchdogActivitySourceRecord[];
+
 /** One flagged dispatch (mirrors src/cockpit/dispatch-watchdog.ts DispatchWatchdogFlag). */
 export interface DispatchWatchdogFlagRecord {
   taskId: string;
@@ -125,14 +142,16 @@ export function parseDispatchWatchdogCache(raw: string): DispatchWatchdogCacheRe
     // file written by a producer build that predates this field, during a
     // rollout window) to "dispatch-start" rather than dropping the whole
     // flag entry — mirrors the subagentSessionId normalization above.
+    // Checked against RECOGNIZED_ACTIVITY_SOURCES (single source of truth
+    // for this file, kept in lockstep with the producer's own list via the
+    // cross-module parity test — see that const's docstring) rather than a
+    // hardcoded chain, so adding a new signal only requires updating one
+    // array here, not a scattered condition.
     const rawSource = f.activitySource;
     const activitySource: DispatchWatchdogActivitySourceRecord =
-      rawSource === "commit" ||
-      rawSource === "event" ||
-      rawSource === "presence" ||
-      rawSource === "workspace-mtime" ||
-      rawSource === "dispatch-start"
-        ? rawSource
+      typeof rawSource === "string" &&
+      (RECOGNIZED_ACTIVITY_SOURCES as readonly string[]).includes(rawSource)
+        ? (rawSource as DispatchWatchdogActivitySourceRecord)
         : "dispatch-start";
     flags.push({
       taskId: f.taskId,

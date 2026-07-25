@@ -6,6 +6,7 @@ import {
   DISPATCH_WATCHDOG_MAX_AGE_MS,
   LAST_EVENT_AT_QUERY,
   HAS_OPEN_PR_QUERY,
+  parsePullRequestOpenState,
   DispatchWatchdogSweepTracker,
   type InFlightInvocationRow,
   type ActivitySources,
@@ -814,15 +815,64 @@ describe("HAS_OPEN_PR_QUERY (mt#3193)", () => {
     expect(HAS_OPEN_PR_QUERY).toMatch(/from\s+sessions/i);
     expect(HAS_OPEN_PR_QUERY).toMatch(/session\s*=\s*\$1/);
   });
+});
 
-  test("mirrors what getHasOpenPr expects: a raw JSON-text pull_request column to be JSON.parse'd", () => {
-    // Simulate what postgres.js returns for the pgText pull_request column —
-    // the same JSON-stringified shape session-schema.ts's toDbRecord writes.
-    const simulatedPgRow = {
-      pull_request: JSON.stringify({ number: 42, state: "open" }),
-    };
-    const parsed = JSON.parse(simulatedPgRow.pull_request) as { state?: string };
-    expect(parsed.state === "open" || parsed.state === "draft").toBe(true);
+// mt#3193 PR #2307 R1 BLOCKING #2: a malformed/unparseable pull_request
+// blob must NOT silently degrade to "unknown" (null) — that would re-enable
+// the exact false positive this gate exists to suppress, since `null`
+// leaves a row eligible for normal staleness evaluation. Only a genuinely
+// absent PR record (raw null/empty) should return null.
+describe("parsePullRequestOpenState (mt#3193 PR #2307 R1 BLOCKING #2)", () => {
+  test("no PR ever recorded (null raw) -> null", () => {
+    expect(parsePullRequestOpenState(null, "session-1")).toBeNull();
+  });
+
+  test("no PR ever recorded (undefined raw) -> null", () => {
+    expect(parsePullRequestOpenState(undefined, "session-1")).toBeNull();
+  });
+
+  test("no PR ever recorded (empty-string raw) -> null", () => {
+    expect(parsePullRequestOpenState("", "session-1")).toBeNull();
+  });
+
+  test("state 'open' -> true", () => {
+    const raw = JSON.stringify({ number: 42, state: "open" });
+    expect(parsePullRequestOpenState(raw, "session-1")).toBe(true);
+  });
+
+  test("state 'draft' -> true", () => {
+    const raw = JSON.stringify({ number: 42, state: "draft" });
+    expect(parsePullRequestOpenState(raw, "session-1")).toBe(true);
+  });
+
+  test("state 'closed' -> false", () => {
+    const raw = JSON.stringify({ number: 42, state: "closed" });
+    expect(parsePullRequestOpenState(raw, "session-1")).toBe(false);
+  });
+
+  test("state 'merged' -> false", () => {
+    const raw = JSON.stringify({ number: 42, state: "merged" });
+    expect(parsePullRequestOpenState(raw, "session-1")).toBe(false);
+  });
+
+  // The actual bug: unparseable JSON must NOT return null.
+  test("unparseable JSON (malformed blob) -> true, not null (BLOCKING #2)", () => {
+    expect(parsePullRequestOpenState("{not valid json", "session-1")).toBe(true);
+  });
+
+  test("valid JSON but a missing 'state' field -> true, not null", () => {
+    const raw = JSON.stringify({ number: 42 });
+    expect(parsePullRequestOpenState(raw, "session-1")).toBe(true);
+  });
+
+  test("valid JSON but an unrecognized 'state' value (schema drift) -> true, not null", () => {
+    const raw = JSON.stringify({ number: 42, state: "pending-review" });
+    expect(parsePullRequestOpenState(raw, "session-1")).toBe(true);
+  });
+
+  test("a non-object JSON value (e.g. a bare number or array) -> true, not null", () => {
+    expect(parsePullRequestOpenState("42", "session-1")).toBe(true);
+    expect(parsePullRequestOpenState("[]", "session-1")).toBe(true);
   });
 });
 
