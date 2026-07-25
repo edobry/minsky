@@ -18,6 +18,7 @@ import {
   resolveWorkspaceSessionId,
   resolveTaskId,
   lookupWorkspaceSessionIdByTask,
+  raceDeadline,
 } from "./stamp-session-creator-link";
 import type { ToolHookInput } from "./types";
 
@@ -209,6 +210,14 @@ describe("lookupWorkspaceSessionIdByTask", () => {
   it("returns null when no session row exists for the task", async () => {
     const { db } = stubDb([]);
     await expect(lookupWorkspaceSessionIdByTask(db, TABLE, OPS, "mt#3182")).resolves.toBeNull();
+  });
+
+  it("is covered by the shared deadline, so a hung query cannot stall PostToolUse", async () => {
+    // PR #2290 R1 (BLOCKING): the deadline originally wrapped only the link
+    // write, leaving this SELECT unbounded. A hung query would then hold
+    // PostToolUse open until the harness's own 20s timeout killed the hook.
+    const neverResolves = new Promise<string | null>(() => {});
+    await expect(raceDeadline(neverResolves, 20)).resolves.toBe("deadline");
   });
 
   it("returns null on a row missing or mistyping sessionId rather than linking on junk", async () => {

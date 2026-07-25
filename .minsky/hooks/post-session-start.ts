@@ -87,6 +87,12 @@ async function main(): Promise<void> {
   const sessionId = input.session_id;
 
   if (!taskId) {
+    // NAMED skip, not a bare exit (PR #2290 R1). A silent `process.exit(0)`
+    // here is precisely how this hook's mt#3182 regression stayed invisible
+    // for a day: it is indistinguishable from "ran fine, nothing to label."
+    process.stderr.write(
+      "[post-session-start] skipped: no task id in tool_result.session.taskId or tool_input.task/taskId — no label emitted\n"
+    );
     process.exit(0);
   }
 

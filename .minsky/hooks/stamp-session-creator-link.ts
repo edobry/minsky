@@ -67,6 +67,28 @@ function isObject(v: unknown): v is Record<string, unknown> {
 }
 
 /**
+ * Races `work` against whatever is LEFT of a single shared budget.
+ *
+ * There are now two DB round-trips on the write path — the mt#3182 task lookup
+ * and the link write — and the deadline has to span BOTH, not restart per call
+ * (PR #2290 R1: as first written the deadline wrapped only the write, leaving
+ * the new SELECT unbounded, so a hung query would stall PostToolUse until the
+ * harness's own 20s timeout killed it). Passing the remaining budget rather
+ * than a fresh `DB_DEADLINE_MS` keeps the worst case at DB_DEADLINE_MS total
+ * instead of 2x it.
+ *
+ * Exported for tests.
+ */
+export function raceDeadline<T>(work: Promise<T>, remainingMs: number): Promise<T | "deadline"> {
+  return Promise.race([
+    work,
+    new Promise<"deadline">((resolve) => {
+      setTimeout(() => resolve("deadline"), Math.max(0, remainingMs)).unref?.();
+    }),
+  ]);
+}
+
+/**
  * Pull the minted Minsky workspace session id out of the `session_start`
  * payload, when the payload happens to carry it.
  *
@@ -199,6 +221,9 @@ if (import.meta.main) {
   }
 
   let workspaceSessionId: string | null = payloadWorkspaceSessionId;
+  // One budget spanning every DB round-trip below (see raceDeadline).
+  const deadlineAt = Date.now() + DB_DEADLINE_MS;
+  const remainingMs = () => deadlineAt - Date.now();
 
   try {
     const bootstrap = await ensureHookDomainBootstrap();
@@ -237,12 +262,24 @@ if (import.meta.main) {
         "../../packages/domain/src/storage/schemas/session-schema"
       );
       const { eq, desc } = await import("drizzle-orm");
-      workspaceSessionId = await lookupWorkspaceSessionIdByTask(
-        db as Parameters<typeof lookupWorkspaceSessionIdByTask>[0],
-        postgresSessions,
-        { eq, desc },
-        taskId
+      const lookup = await raceDeadline(
+        lookupWorkspaceSessionIdByTask(
+          db as Parameters<typeof lookupWorkspaceSessionIdByTask>[0],
+          postgresSessions,
+          { eq, desc },
+          taskId
+        ),
+        remainingMs()
       );
+
+      if (lookup === "deadline") {
+        process.stderr.write(
+          `${LOG_PREFIX} warn: workspace-id lookup for task ${taskId} exceeded the ${DB_DEADLINE_MS}ms budget — abandoning so session creation is not held up\n`
+        );
+        process.exit(0);
+      }
+
+      workspaceSessionId = lookup;
 
       if (!workspaceSessionId) {
         process.stderr.write(
@@ -252,16 +289,14 @@ if (import.meta.main) {
       }
     }
 
-    const outcome = await Promise.race([
+    const outcome = await raceDeadline(
       writeSessionCreatorLink(db as import("drizzle-orm/postgres-js").PostgresJsDatabase, {
         conversationId: conversationId as import("../../packages/domain/src/ids").ConversationId,
         workspaceSessionId: workspaceSessionId as string,
         cwd: input.cwd,
       }),
-      new Promise<"deadline">((resolve) => {
-        setTimeout(() => resolve("deadline"), DB_DEADLINE_MS).unref?.();
-      }),
-    ]);
+      remainingMs()
+    );
 
     if (outcome === "deadline") {
       process.stderr.write(
