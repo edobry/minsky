@@ -7,6 +7,7 @@
 import { MinskyError, NothingToCommitError } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { safeShellQuote } from "@minsky/shared/exec";
+import { raceAgainstTimeout } from "@minsky/shared/timeout";
 import type { AskRepository } from "../ask/repository";
 import { closeAskAsResolved } from "../ask/close-as-resolved";
 import { isActionCovered, loadAllPolicySources } from "../ask/policy";
@@ -115,36 +116,16 @@ export const DEFAULT_COMMIT_PHASE_TIMEOUT_MS = 10 * 60 * 1000;
  */
 export const DEFAULT_PUSH_PHASE_TIMEOUT_MS = 2 * 60 * 1000;
 
-/** Real `setTimeout`-backed timeout signal — the non-test default for `raceAgainstTimeout`. */
-function defaultTimeoutSignal(ms: number): Promise<{ timedOut: true }> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve({ timedOut: true }), ms);
-  });
-}
-
 /**
- * Generic bounded race between a real async operation and a timeout signal
- * (mt#3049). Returns a discriminated result so callers never need to infer
- * "timed out" from an operation's own return shape.
- *
- * `timeoutSignal` is injectable (mirrors the `sleep`-injection pattern
- * already established by `LockAwareExecOptions` in `git/lock-operations.ts`,
- * mt#2886/mt#2980) so tests can simulate an instantly-elapsed timeout without
- * any real wall-clock wait — pair an injected `timeoutSignal` that resolves
- * immediately with an `operation` that never resolves on its own (e.g.
- * `new Promise(() => {})`) to deterministically exercise the "timeout wins"
- * branch in well under a millisecond.
+ * mt#3177: `raceAgainstTimeout` moved to `@minsky/shared/timeout` so the git
+ * domain package (`push-operations.ts`) can share the exact same bounded-race
+ * primitive without introducing a git -> session layering violation (git is
+ * lower-level than session; this file already imports FROM `../git`, never
+ * the reverse). Re-exported here unchanged so existing imports from
+ * `./session-commands` (this file's own callers and its test suite) keep
+ * working without a call-site change.
  */
-export function raceAgainstTimeout<T>(
-  operation: Promise<T>,
-  timeoutMs: number,
-  timeoutSignal: (ms: number) => Promise<{ timedOut: true }> = defaultTimeoutSignal
-): Promise<{ timedOut: false; value: T } | { timedOut: true }> {
-  return Promise.race([
-    operation.then((value) => ({ timedOut: false as const, value })),
-    timeoutSignal(timeoutMs),
-  ]);
-}
+export { raceAgainstTimeout };
 
 /**
  * Which credential path a session-commit push used (mt#2897).
@@ -339,6 +320,27 @@ export interface SessionCommitResult {
    */
   pushTimedOut?: boolean;
   /**
+   * mt#3177: set (with `pushed: true`) when the push phase timed out but a
+   * follow-up remote-ref check (`git ls-remote`, see `verifyRemoteRefAdvanced`
+   * in `push-operations.ts`) confirmed the remote branch head already
+   * matches the local commit — the push landed server-side even though this
+   * call's own confirmation did not. Distinguishes a slow-but-successful
+   * push from the ordinary fast-success path (which never sets this field).
+   */
+  pushConfirmedVia?: "remote-check";
+  /**
+   * mt#3177: set (with `pushed: false`) when the push phase timed out AND a
+   * follow-up remote-ref check did NOT confirm the push landed (either the
+   * remote genuinely has not advanced, or the verification check itself was
+   * inconclusive — network failure, no matching ref, or its own timeout).
+   * This is the explicit "we do not know" state: unlike a bare
+   * `pushTimedOut: true`, which a careless caller could still misread
+   * against a `pushed: false` it never inspects, `pushUnconfirmed: true` is
+   * the field intended to be checked directly — no consumer should read it
+   * as, or adjacent to, success.
+   */
+  pushUnconfirmed?: boolean;
+  /**
    * mt#3049: true when this call found an existing LOCAL commit already
    * ahead of `origin/<branch>` on an otherwise-clean tree (the resumable
    * path — a prior call's push phase failed/timed out after its commit
@@ -395,7 +397,8 @@ export async function sessionCommit(
     assertSessionMutable(sessionRecordForFreeze, "commit changes");
   }
 
-  const { commitChangesFromParams, pushFromParams, createGitService } = await import("../git");
+  const { commitChangesFromParams, pushFromParamsWithConfirmation, createGitService } =
+    await import("../git");
 
   // Resolve session to repo path at this boundary (needed for clean-tree check below)
   const workdir = await sessionProvider.getSessionWorkdir(params.session);
@@ -773,43 +776,44 @@ export async function sessionCommit(
       // incident (session_commit hung ~30 minutes with no result, then the
       // commit turned out to have landed but never pushed).
       //
-      // Same non-cancellation caveat as the commit phase (review R1, see
+      // mt#3177: on a `pushTimedOut` outcome, `pushWithConfirmation` (called
+      // via `pushFromParamsWithConfirmation` below) additionally verifies the
+      // remote ref directly (`git ls-remote`) before reporting anything — the
+      // 2nd occurrence of this task's originating incident established that
+      // the underlying push had ALREADY LANDED server-side while the tool's
+      // own confirmation was still hanging. When the remote check confirms
+      // the push landed, this reports `pushed:true` +
+      // `pushConfirmedVia:"remote-check"` instead of the previous ambiguous
+      // `pushed:false, pushTimedOut:true` shape; when it cannot confirm
+      // either way, it reports the new explicit `pushUnconfirmed:true` state
+      // that no consumer can mistake for success. Same non-cancellation
+      // caveat as the commit phase (review R1, see
       // SessionCommitPhaseTimeoutError's doc comment for the full
-      // explanation): on a `pushTimedOut` outcome, the underlying `git push`
-      // is NOT killed — it may still complete in the background after this
-      // function returns `pushed:false`. A caller that retries immediately
-      // (including this file's own `tryResumePendingPush` on a later call)
-      // could in principle race a still-running abandoned push; the CAS
-      // check above and git's own atomicity around ref updates bound the
-      // damage (worst case: a harmless redundant push of the same content),
-      // but this is not a fully closed race. True cancellation would need
-      // `Bun.spawn` + an `AbortSignal` threaded through `pushFromParams`.
+      // explanation): on a still-inconclusive outcome, the underlying `git
+      // push` is NOT killed — it may still complete in the background after
+      // this function returns. A caller that retries immediately (including
+      // this file's own `tryResumePendingPush` on a later call) could in
+      // principle race a still-running abandoned push; the CAS check above
+      // and git's own atomicity around ref updates bound the damage (worst
+      // case: a harmless redundant push of the same content), but this is
+      // not a fully closed race. True cancellation would need `Bun.spawn` +
+      // an `AbortSignal` threaded through the push call.
       const pushTimeoutMs = params.pushTimeoutMs ?? DEFAULT_PUSH_PHASE_TIMEOUT_MS;
-      let pushed = false;
-      let pushTimedOut = false;
-      let pushError: string | undefined;
-      try {
-        const raced = await raceAgainstTimeout(
-          pushFromParams({ repo: workdir, authToken: pushCredential.authToken }),
-          pushTimeoutMs
-        );
-        if (raced.timedOut) {
-          pushTimedOut = true;
-        } else {
-          pushed = raced.value.pushed;
-        }
-      } catch (err: unknown) {
-        pushError = err instanceof Error ? err.message : String(err);
-      }
+      const pushOutcome = await pushFromParamsWithConfirmation(
+        { repo: workdir, authToken: pushCredential.authToken },
+        { pushTimeoutMs, branch: metadata.branch }
+      );
+      const pushed = pushOutcome.pushed;
 
       if (!pushed) {
         log.warn(
-          "[session.commit] commit succeeded but push did not — returning structured partial outcome (mt#3049)",
+          "[session.commit] commit succeeded but push did not — returning structured partial outcome (mt#3049/mt#3177)",
           {
             session: params.session,
             commitHash: commitResult.commitHash,
-            pushTimedOut,
-            pushError,
+            pushTimedOut: pushOutcome.pushTimedOut,
+            pushError: pushOutcome.pushError,
+            pushUnconfirmed: pushOutcome.pushUnconfirmed,
           }
         );
         return {
@@ -818,10 +822,22 @@ export async function sessionCommit(
           ...metadata,
           message: commitResult.message,
           pushed: false,
-          ...(pushError !== undefined ? { pushError } : {}),
-          ...(pushTimedOut ? { pushTimedOut: true } : {}),
+          ...(pushOutcome.pushError !== undefined ? { pushError: pushOutcome.pushError } : {}),
+          ...(pushOutcome.pushTimedOut ? { pushTimedOut: true } : {}),
+          ...(pushOutcome.pushUnconfirmed ? { pushUnconfirmed: true } : {}),
           credentialPath: pushCredential.credentialPath,
         };
+      }
+
+      if (pushOutcome.pushConfirmedVia) {
+        log.debug(
+          "[session.commit] push timed out but remote-ref check confirmed it landed (mt#3177)",
+          {
+            session: params.session,
+            commitHash: commitResult.commitHash,
+            pushConfirmedVia: pushOutcome.pushConfirmedVia,
+          }
+        );
       }
 
       return {
@@ -830,6 +846,8 @@ export async function sessionCommit(
         ...metadata,
         message: commitResult.message,
         pushed: true,
+        ...(pushOutcome.pushTimedOut ? { pushTimedOut: true } : {}),
+        ...(pushOutcome.pushConfirmedVia ? { pushConfirmedVia: pushOutcome.pushConfirmedVia } : {}),
         credentialPath: pushCredential.credentialPath,
       };
     } catch (error) {
@@ -1027,7 +1045,7 @@ async function tryResumePendingPush(
     pushTimeoutMs: number;
   }
 ): Promise<SessionCommitResult | undefined> {
-  const { createGitService, pushFromParams } = await import("../git");
+  const { createGitService, pushFromParamsWithConfirmation } = await import("../git");
   const gitService = createGitService();
 
   let branch: string;
@@ -1103,22 +1121,15 @@ async function tryResumePendingPush(
     session: deps.session,
   });
 
-  let pushed = false;
-  let pushTimedOut = false;
-  let pushError: string | undefined;
-  try {
-    const raced = await raceAgainstTimeout(
-      pushFromParams({ repo: workdir, authToken: pushCredential.authToken }),
-      deps.pushTimeoutMs
-    );
-    if (raced.timedOut) {
-      pushTimedOut = true;
-    } else {
-      pushed = raced.value.pushed;
-    }
-  } catch (err: unknown) {
-    pushError = err instanceof Error ? err.message : String(err);
-  }
+  // mt#3177: same confirmation-aware push helper the main sessionCommit path
+  // uses — on a `pushTimedOut` outcome, verifies the remote ref directly
+  // before reporting `pushed:false`. `branch` is already resolved above, so
+  // pass it through to skip a redundant `rev-parse --abbrev-ref HEAD` call.
+  const pushOutcome = await pushFromParamsWithConfirmation(
+    { repo: workdir, authToken: pushCredential.authToken },
+    { pushTimeoutMs: deps.pushTimeoutMs, branch }
+  );
+  const pushed = pushOutcome.pushed;
 
   const metadata = await collectCommitMetadata(gitService, workdir);
 
@@ -1140,8 +1151,10 @@ async function tryResumePendingPush(
       ? "Nothing new to commit; completed a previously pending push"
       : "Nothing new to commit; a previously pending push is still outstanding",
     pushed,
-    ...(pushError !== undefined ? { pushError } : {}),
-    ...(pushTimedOut ? { pushTimedOut: true } : {}),
+    ...(pushOutcome.pushError !== undefined ? { pushError: pushOutcome.pushError } : {}),
+    ...(pushOutcome.pushTimedOut ? { pushTimedOut: true } : {}),
+    ...(pushOutcome.pushConfirmedVia ? { pushConfirmedVia: pushOutcome.pushConfirmedVia } : {}),
+    ...(pushOutcome.pushUnconfirmed ? { pushUnconfirmed: true } : {}),
     credentialPath: pushCredential.credentialPath,
   };
 }
