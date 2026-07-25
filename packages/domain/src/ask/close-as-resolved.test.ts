@@ -167,9 +167,16 @@ describe("isAutomatedClosureResponder (mt#3215)", () => {
     expect(isAutomatedClosureResponder("system:superseded-by-later-commit")).toBe(true);
   });
 
+  it("recognizes 'timeout' as automated — a deadline passing is nobody answering (R1)", () => {
+    expect(isAutomatedClosureResponder("timeout")).toBe(true);
+  });
+
   it("does not flag a genuine operator or agent responder", () => {
     expect(isAutomatedClosureResponder("operator")).toBe(false);
     expect(isAutomatedClosureResponder(REVIEW_RESPONDER)).toBe(false);
+  });
+
+  it("does not flag 'policy' — a policy-covered resolution IS a real, designed answer (R1)", () => {
     expect(isAutomatedClosureResponder("policy")).toBe(false);
   });
 });
