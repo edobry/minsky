@@ -32,6 +32,9 @@ Call the command in JSON mode, read-only (do NOT pass `--ack` yet):
 - CLI: `minsky observability calibration-review --json`
 
 It returns, per registered log: `totalFires`, `firesSinceLastReview`,
+`suppressedSinceLastReview`, `injectedFiresSinceLastReview` (mt#3197 — the
+count the thresholds key off; a detection that was suppressed before injection
+never reached the operator and is NOT a fire for cadence purposes),
 `distinctPhrases`, `lowDiversity`, `pastThreshold`, `newRecords` (the
 unreviewed matches), and `openAskId` (mt#2659 — set when a prior pass filed a
 disposition Ask for this log that hasn't been resolved yet).
@@ -101,7 +104,7 @@ classify each as **real positive** or **false positive**:
 
 When the record alone is ambiguous, say so and lean toward calling it
 **uncertain** rather than guessing — the goal is an honest FP rate, not a
-flattering one. Compute `fpRate = falsePositives / firesSinceLastReview` per
+flattering one. Compute `fpRate = falsePositives / injectedFiresSinceLastReview` per
 log.
 
 ## Step 3 — Recommendation
@@ -124,7 +127,9 @@ Emit a single operator-routed Ask via `mcp__minsky__asks_create` with
 "Why `direction.decide`, not `quality.review`" below). The Ask body must
 contain, per past-threshold log:
 
-- the log name + `firesSinceLastReview` / `totalFires` + `distinctPhrases`
+- the log name + `injectedFiresSinceLastReview` / `totalFires` + `distinctPhrases`
+  (and `suppressedSinceLastReview` when non-zero — say so explicitly, since a
+  large suppressed count means the detector's tune is WORKING, not that it is noisy)
 - the FP rate and a few representative false positives
 - the recommendation (flip / tune / keep) with one line of rationale
 

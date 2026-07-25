@@ -107,6 +107,13 @@ function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]
     lines.push(`  Total fires (all-time): ${r.totalFires}`);
     lines.push(`  Watermark count:        ${r.watermarkCount}`);
     lines.push(`  Fires since review:     ${r.firesSinceLastReview}`);
+    // mt#3197: the positional count above includes detections that were
+    // suppressed before reaching the operator. Show the split so a reviewer
+    // never mistakes log volume for attention cost.
+    if (r.suppressedSinceLastReview > 0) {
+      lines.push(`    ...suppressed:        ${r.suppressedSinceLastReview} (never injected)`);
+      lines.push(`    ...injected:          ${r.injectedFiresSinceLastReview}`);
+    }
     lines.push(`  Distinct phrases:       ${r.distinctPhrases}`);
     lines.push(`  At count threshold:     ${r.atCountThreshold}`);
     lines.push(`  Past threshold:         ${r.pastThreshold}`);
@@ -322,6 +329,8 @@ export function registerCalibrationCommands(): void {
               totalFires: r.totalFires,
               watermarkCount: r.watermarkCount,
               firesSinceLastReview: r.firesSinceLastReview,
+              suppressedSinceLastReview: r.suppressedSinceLastReview,
+              injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,
               distinctPhrases: r.distinctPhrases,
               atCountThreshold: r.atCountThreshold,
               lowDiversity: r.lowDiversity,

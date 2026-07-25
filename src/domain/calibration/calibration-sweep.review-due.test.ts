@@ -44,11 +44,13 @@ describe("computeReviewDueLogs (mt#2896)", () => {
     entry: CalibrationLogEntry,
     overrides: Partial<CalibrationLogResult> = {}
   ): CalibrationLogResult {
-    return {
+    const merged = {
       entry,
       exists: true,
       totalFires: 0,
       firesSinceLastReview: 0,
+      suppressedSinceLastReview: 0,
+      injectedFiresSinceLastReview: 0,
       distinctPhrases: 0,
       atCountThreshold: false,
       lowDiversity: false,
@@ -56,6 +58,16 @@ describe("computeReviewDueLogs (mt#2896)", () => {
       newRecords: [],
       watermarkCount: 0,
       ...overrides,
+    };
+    return {
+      ...merged,
+      // mt#3197: DERIVE the injected count unless a test sets it explicitly.
+      // A flat `0` default would silently gate out every pre-existing fixture
+      // that only sets `firesSinceLastReview`, since the review-due legs now
+      // key off the injected count.
+      injectedFiresSinceLastReview:
+        overrides.injectedFiresSinceLastReview ??
+        merged.firesSinceLastReview - merged.suppressedSinceLastReview,
     };
   }
 
