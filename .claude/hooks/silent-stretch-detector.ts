@@ -20,14 +20,24 @@
 // Graduating to injection is a follow-up decision made after reviewing the
 // false-positive rate accumulated in the calibration log.
 //
-// **Cadence (pinned at planning, 2026-07-15).** A silent stretch is flagged
-// when EITHER threshold is crossed, whichever comes first:
-//   - 10 minutes of wall-clock silence since the last assistant TEXT output, OR
+// **Cadence (pinned at planning, 2026-07-15; scoped by mt#3196).** A silent
+// stretch is flagged when EITHER trigger is crossed, whichever comes first:
+//   - 10 minutes of wall-clock silence since the last assistant TEXT output,
+//     AND the run is a work chain (>= MIN_CHAIN_TOOL_CALLS calls) — see below
 //   - 15 consecutive tool calls with no assistant TEXT output in between.
 // Grounding: the two originating interrupts landed at 24 and 28 minutes of
 // silence, so this cadence yields >= 2 heartbeats before either historical
 // interrupt point (RFC: Communication altitude's heartbeat-floor target of
 // ~10 minutes matches).
+//
+// **Scope (mt#3196).** The rule these thresholds implement is explicitly
+// scoped to "research/build chains where SEVERAL tool calls run back-to-back".
+// The thresholds are the TRIGGER within that scope, not the scope itself, and
+// the scope was never evaluated — so the wall-clock leg fired on runs that
+// were not chains at all (the extreme observed: 226 minutes across 2 tool
+// calls, an agent blocked on a backgrounded operation). `isToolOnlyWorkChain`
+// now gates the wall-clock leg. The tool-call leg needs no gate: 15
+// consecutive calls IS "several back-to-back" by construction.
 //
 // **Measurement (mt#3027 — WITHIN-TURN only).** Walks the just-completed
 // turn (`extractLastAssistantTurn`) line by line, tracking runs of
@@ -196,6 +206,12 @@ export const MIN_CHAIN_TOOL_CALLS = 8;
  * which turn is anchored — while the question "is this stretch in scope at
  * all?" was never asked. Naming it makes the previously-missing sub-operation
  * visible to the next reader, and gives a fourth tune somewhere obvious to go.
+ *
+ * Exported for the same reason `measureSilentStretch`, `GAP_MINUTES_THRESHOLD`
+ * and `TOOL_CALL_THRESHOLD` already are: this module's pure decision units are
+ * asserted directly by its test suite rather than only through `run()`. There
+ * is no consumer outside this file and its test — it is not a cross-module
+ * API, and the hook's external contract remains `run()`.
  */
 export function isToolOnlyWorkChain(runToolCallCount: number): boolean {
   return runToolCallCount >= MIN_CHAIN_TOOL_CALLS;
@@ -206,7 +222,11 @@ export function isToolOnlyWorkChain(runToolCallCount: number): boolean {
 // ---------------------------------------------------------------------------
 
 export interface SilentStretchMeasurement {
-  /** true when any within-turn tool-only run crossed either cadence threshold. */
+  /**
+   * true when any within-turn tool-only run crossed a cadence trigger: the
+   * tool-call threshold on its own, or the wall-clock threshold while the run
+   * also satisfies `isToolOnlyWorkChain` (mt#3196).
+   */
   matched: boolean;
   /**
    * Minutes spanned by the FINAL (possibly still-open) tool-only run, from

@@ -6,8 +6,9 @@
  * - Synthetic 20-tool-call silent transcript -> fires (matched, calibration record)
  * - Synthetic 5-call short chain -> does NOT fire
  * - Text output mid-stretch resets the tool-call counter
- * - Wall-clock gap threshold (10 min) fires independently of tool-call count,
- *   measured WITHIN the turn (mt#3027)
+ * - Wall-clock gap threshold (10 min) fires only when the run is ALSO a work
+ *   chain (>= MIN_CHAIN_TOOL_CALLS, mt#3196), measured WITHIN the turn
+ *   (mt#3027). Before mt#3196 this leg fired independently of tool-call count.
  * - Override env var suppresses detection and returns an audit line
  * - No transcript_path / empty transcript -> null (silent allow)
  *
