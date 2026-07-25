@@ -5,17 +5,20 @@
  * of error events, summary for debug_systemInfo, and event emission on degradation.
  *
  * mt#2568: the one-shot `setEventEmitter()` fast-path wired fire-and-forget by
- * the MCP start-command has no retry. Because `emitDegradationEvent` only
- * fires ONCE per degradation cycle (`emittedForCurrentDegradation` latches to
- * true regardless of whether the emit actually succeeded), a degradation that
- * races the startup wiring — e.g. on a proxy/staleness-respawned server, the
- * exact race mt#2562/mt#2567 diagnosed for the presence write-path — loses
+ * the MCP start-command has no retry. Pre-fix, `emitDegradationEvent` fired
+ * ONCE per degradation cycle with `emittedForCurrentDegradation` latching to
+ * true regardless of whether the emit actually succeeded — so a degradation
+ * that raced the startup wiring (e.g. on a proxy/staleness-respawned server,
+ * the exact race mt#2562/mt#2567 diagnosed for the presence write-path) lost
  * that `embeddings.provider_degraded` event PERMANENTLY for the cycle, not
- * just until the wiring catches up. `registerEventEmitterBuilder` gives
+ * just until the wiring caught up. `registerEventEmitterBuilder` gives
  * `emitDegradationEvent` a per-call fallback that builds a fresh EventEmitter
  * from the container on demand (mirrors the `buildAskRepository` /
- * `getPresenceClaimRepo` remedy from mt#2567), so the very call that would
- * have raced the wiring still emits correctly.
+ * `getPresenceClaimRepo` remedy from mt#2567). The latch now only sets on a
+ * CONFIRMED successful emit (PR #2284 R1) — a transient per-call
+ * builder/emit failure leaves it retriable by the next `recordError` call in
+ * the same cycle, rather than reintroducing a narrower version of the same
+ * permanent-loss bug one layer down.
  *
  * @see mt#2147 — this task (original wiring)
  * @see mt#2568 — per-call fallback for the startup-wiring race
@@ -134,8 +137,19 @@ export class EmbeddingsHealthTracker {
     }
 
     if (this.currentStatus !== "healthy" && !this.emittedForCurrentDegradation) {
-      this.emittedForCurrentDegradation = true;
-      await this.emitDegradationEvent(event);
+      // mt#2568 PR #2284 R1: only latch emittedForCurrentDegradation on a
+      // CONFIRMED successful emit. Setting the latch unconditionally here
+      // (as before) reintroduced a narrower version of the exact bug this
+      // task fixes: a TRANSIENT per-call builder/emit failure (container
+      // momentarily unavailable, a dropped DB connection) would otherwise
+      // permanently drop this degradation cycle's event, indistinguishable
+      // from the pre-fix "one-shot setter never fired" case. Leaving the
+      // latch false on failure lets the NEXT recordError call in this same
+      // degradation cycle retry.
+      const emitted = await this.emitDegradationEvent(event);
+      if (emitted) {
+        this.emittedForCurrentDegradation = true;
+      }
     }
   }
 
@@ -184,9 +198,16 @@ export class EmbeddingsHealthTracker {
     }
   }
 
-  private async emitDegradationEvent(triggerEvent: EmbeddingsErrorEvent): Promise<void> {
+  /**
+   * Emit the `embeddings.provider_degraded` event. Returns whether the emit
+   * actually succeeded (mt#2568 PR #2284 R1) so the caller only latches
+   * `emittedForCurrentDegradation` on confirmed success — a failed attempt
+   * (no emitter resolvable, or the emit call itself threw) must remain
+   * retriable by a later call in the same degradation cycle.
+   */
+  private async emitDegradationEvent(triggerEvent: EmbeddingsErrorEvent): Promise<boolean> {
     const emitter = await this.resolveEventEmitter();
-    if (!emitter) return;
+    if (!emitter) return false;
 
     const eventInput: SystemEventInput = {
       eventType: "embeddings.provider_degraded",
@@ -206,10 +227,12 @@ export class EmbeddingsHealthTracker {
         status: this.currentStatus,
         reason: this.currentReason,
       });
+      return true;
     } catch (err) {
       log.debug("Failed to emit embeddings.provider_degraded event", {
         error: err instanceof Error ? err.message : String(err),
       });
+      return false;
     }
   }
 }

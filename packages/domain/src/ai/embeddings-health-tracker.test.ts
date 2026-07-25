@@ -5,8 +5,10 @@ import { NoopEventEmitter } from "../events/emitter";
 const PROVIDER = "openai";
 const QUOTA_CODE = "insufficient_quota";
 const QUOTA_MSG = "You exceeded your current quota";
+const QUOTA_MSG_AGAIN = "quota exhausted again";
 const RATE_CODE = "rate_limit";
 const RATE_MSG = "429 rate limited";
+const DEGRADED_EVENT_TYPE = "embeddings.provider_degraded";
 
 describe("EmbeddingsHealthTracker", () => {
   beforeEach(() => {
@@ -96,7 +98,7 @@ describe("EmbeddingsHealthTracker", () => {
     await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
 
     expect(emitter.emitted).toHaveLength(1);
-    expect(emitter.emitted[0].eventType).toBe("embeddings.provider_degraded");
+    expect(emitter.emitted[0].eventType).toBe(DEGRADED_EVENT_TYPE);
     expect(emitter.emitted[0].payload).toMatchObject({
       provider: PROVIDER,
       errorCode: QUOTA_CODE,
@@ -111,7 +113,7 @@ describe("EmbeddingsHealthTracker", () => {
     tracker.setEventEmitter(emitter);
 
     await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
-    await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted again");
+    await tracker.recordError(PROVIDER, QUOTA_CODE, QUOTA_MSG_AGAIN);
 
     expect(emitter.emitted).toHaveLength(1);
   });
@@ -125,7 +127,7 @@ describe("EmbeddingsHealthTracker", () => {
     expect(emitter.emitted).toHaveLength(1);
 
     tracker.recordRecovery();
-    await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted again");
+    await tracker.recordError(PROVIDER, QUOTA_CODE, QUOTA_MSG_AGAIN);
     expect(emitter.emitted).toHaveLength(2);
   });
 
@@ -197,7 +199,7 @@ describe("emitDegradationEvent per-call event-emitter fallback (mt#2568 regressi
 
     expect(builderCallCount).toBeGreaterThanOrEqual(1);
     expect(emitter.emitted).toHaveLength(1);
-    expect(emitter.emitted[0].eventType).toBe("embeddings.provider_degraded");
+    expect(emitter.emitted[0].eventType).toBe(DEGRADED_EVENT_TYPE);
     expect(emitter.emitted[0].payload).toMatchObject({
       provider: PROVIDER,
       errorCode: QUOTA_CODE,
@@ -245,6 +247,38 @@ describe("emitDegradationEvent per-call event-emitter fallback (mt#2568 regressi
       tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted")
     ).resolves.toBeUndefined();
     expect(tracker.getSummary().status).toBe("exhausted");
+  });
+
+  test("REGRESSION (PR #2284 R1): a transient builder failure does not permanently latch the degradation cycle -- the next call retries and succeeds", async () => {
+    // R1 finding: emittedForCurrentDegradation previously latched to true
+    // BEFORE the emit was confirmed, so a builder that fails on its FIRST
+    // invocation (transient — container momentarily unavailable) would
+    // permanently drop this degradation cycle's event even once the builder
+    // started succeeding on a later call. Fixed: the latch only sets on a
+    // confirmed successful emit.
+    const emitter = new NoopEventEmitter();
+    let callCount = 0;
+
+    EmbeddingsHealthTracker.registerEventEmitterBuilder(async () => {
+      callCount++;
+      if (callCount === 1) {
+        throw new Error("transient: container has no persistence provider yet");
+      }
+      return emitter;
+    });
+
+    const tracker = EmbeddingsHealthTracker.getInstance();
+
+    // First call: builder throws — no-ops, but must NOT latch.
+    await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
+    expect(emitter.emitted).toHaveLength(0);
+
+    // Second call, same degradation cycle (status already "exhausted"):
+    // the builder now succeeds — this call must retry and emit.
+    await tracker.recordError(PROVIDER, QUOTA_CODE, QUOTA_MSG_AGAIN);
+    expect(callCount).toBe(2);
+    expect(emitter.emitted).toHaveLength(1);
+    expect(emitter.emitted[0].eventType).toBe(DEGRADED_EVENT_TYPE);
   });
 
   test("resetForTest clears a registered builder", async () => {
