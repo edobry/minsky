@@ -93,9 +93,17 @@ const COMPONENTS: Components = {
     // inline content — the visible text stays EXACTLY what the linkifier
     // matched, whether or not a label ever resolves (failure-tolerant, no
     // layout shift; see EntityRef's module doc).
+    //
+    // `appendLabel` (mt#3189): prose additionally shows the resolved title
+    // INLINE, truncated, after the matched text. Without it the title reached
+    // the reader only via the hover card — which Radix documents as
+    // inaccessible to keyboard users and ignored by screen readers, so a bare
+    // `mt#NNNN` was unidentifiable for them and required a click for everyone
+    // else. Dense list rows deliberately do NOT set this flag (it would grow
+    // their line height); prose is the surface with room for it.
     if (entityType && entityId && href.startsWith("/")) {
       return (
-        <EntityRef type={entityType} id={entityId} className={className}>
+        <EntityRef type={entityType} id={entityId} className={className} appendLabel>
           {children}
         </EntityRef>
       );
