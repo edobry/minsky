@@ -1,0 +1,281 @@
+/**
+ * Tests for the App-token-push-denied (403) automatic-fallback path
+ * (mt#3210).
+ *
+ * Root cause established via a live `GET /app` read against the
+ * `minsky-ai[bot]` App (`setup_github-app --update --name minsky-app
+ * --permissions ... ` dry-run, 2026-07-25): the installation's `contents`
+ * permission resolves to `"read"`, not `"write"` — so every App-token push
+ * is denied (403) regardless of token freshness, matching the 8-of-8
+ * observed rate in the task spec and mem#721's finding that a freshly-minted
+ * token is denied identically to a stale one.
+ *
+ * This differs from mt#2897's `resolvePushCredential` fallback (covered in
+ * session-commit-push-credential.test.ts): that fallback fires when token
+ * *minting* throws. Here, minting succeeds — the push attempt itself is
+ * denied — a failure mode `resolvePushCredential` alone cannot see, since it
+ * never attempts a push. `pushSessionCommitWithFallback` wraps both credential
+ * resolution AND the push attempt so it can catch this class too.
+ *
+ * Acceptance tests exercised here (mt#3210):
+ *   - A forced App-token failure results in a successful push via fallback,
+ *     not a returned error, and logs which path was taken.
+ *   - The `session.commit.push_credential_fallback` warning path is
+ *     exercised by a test (extended to the push-denied case).
+ */
+
+import { describe, test, expect } from "bun:test";
+import { isPermissionDeniedPushError, pushSessionCommitWithFallback } from "./session-commands";
+import type { TokenProvider } from "../auth/token-provider";
+import type { PushWithConfirmationResult } from "../git/push-operations";
+
+// Real 403 denial text observed in the field (task spec + mem#721).
+const REAL_403_MESSAGE =
+  "remote: Permission to edobry/minsky.git denied to minsky-ai[bot].\n" +
+  "fatal: unable to access 'https://github.com/edobry/minsky.git/': " +
+  "The requested URL returned error: 403";
+
+function makeStubTokenProvider(opts: {
+  configured: boolean;
+  getTokenImpl?: () => Promise<string>;
+}): TokenProvider {
+  return {
+    getToken: opts.getTokenImpl ?? (async () => "stub-app-token"),
+    getServiceToken: async () => "stub-app-token",
+    getUserToken: async () => "stub-user-token",
+    getServiceIdentity: async () => null,
+    isServiceAccountConfigured: () => opts.configured,
+    isRoleConfigured: () => opts.configured,
+  };
+}
+
+function makeWarnSpy(): {
+  warn: (message: string, context?: Record<string, unknown>) => void;
+  calls: Array<{ message: string; context?: Record<string, unknown> }>;
+} {
+  const calls: Array<{ message: string; context?: Record<string, unknown> }> = [];
+  return {
+    warn: (message, context) => {
+      calls.push({ message, context });
+    },
+    calls,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// isPermissionDeniedPushError
+// ---------------------------------------------------------------------------
+
+describe("isPermissionDeniedPushError", () => {
+  test("matches the real observed 403 denial text", () => {
+    expect(isPermissionDeniedPushError(REAL_403_MESSAGE)).toBe(true);
+  });
+
+  test("matches a bare 403 status line", () => {
+    expect(isPermissionDeniedPushError("The requested URL returned error: 403")).toBe(true);
+  });
+
+  test("matches a bare permission-denied phrase without a status code", () => {
+    expect(isPermissionDeniedPushError("Permission to owner/repo.git denied to some-bot")).toBe(
+      true
+    );
+  });
+
+  test("does not match an unrelated push failure (non-fast-forward)", () => {
+    expect(
+      isPermissionDeniedPushError(
+        "Push was rejected by the remote. You may need to pull or use --force."
+      )
+    ).toBe(false);
+  });
+
+  test("does not match a network error", () => {
+    expect(isPermissionDeniedPushError("fatal: unable to access: Could not resolve host")).toBe(
+      false
+    );
+  });
+
+  test("returns false for undefined", () => {
+    expect(isPermissionDeniedPushError(undefined)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pushSessionCommitWithFallback
+// ---------------------------------------------------------------------------
+
+describe("pushSessionCommitWithFallback", () => {
+  test("app-token push denied (403) → retries via keychain, succeeds, logs which path was taken", async () => {
+    const spy = makeWarnSpy();
+    const calls: Array<{ authToken?: string }> = [];
+
+    const pushFromParamsWithConfirmation = async (params: {
+      repo?: string;
+      authToken?: string;
+    }): Promise<PushWithConfirmationResult> => {
+      calls.push({ authToken: params.authToken });
+      if (params.authToken) {
+        // First attempt: app-token path — denied.
+        return { workdir: params.repo ?? "", pushed: false, pushError: REAL_403_MESSAGE };
+      }
+      // Retry: no authToken — keychain path — succeeds.
+      return { workdir: params.repo ?? "", pushed: true };
+    };
+
+    const result = await pushSessionCommitWithFallback(
+      makeStubTokenProvider({ configured: true }),
+      { repo: "/tmp/fake-repo", branch: "task/mt-3210" },
+      { pushTimeoutMs: 5000, session: "fallback-test-session" },
+      { pushFromParamsWithConfirmation, warn: spy.warn }
+    );
+
+    // Two attempts: app-token (denied), then keychain (succeeded).
+    expect(calls.length).toBe(2);
+    expect(calls[0]?.authToken).toBe("stub-app-token");
+    expect(calls[1]?.authToken).toBeUndefined();
+
+    // Not a returned error — a successful push via fallback.
+    expect(result.pushed).toBe(true);
+    expect(result.credentialPath).toBe("keychain-fallback");
+    expect(result.appTokenPushError).toBe(REAL_403_MESSAGE);
+
+    // Logs which path was taken: structured warning, same event vocabulary
+    // as mt#2897's token-resolution-failure fallback.
+    expect(spy.calls.length).toBe(1);
+    const call = spy.calls[0];
+    expect(call?.context?.event).toBe("session.commit.push_credential_fallback");
+    expect(call?.context?.session).toBe("fallback-test-session");
+    expect(call?.context?.reason).toBe(REAL_403_MESSAGE);
+  });
+
+  test("app-token push denied AND keychain retry also fails → reports the retry's outcome, preserves original denial", async () => {
+    const spy = makeWarnSpy();
+
+    const pushFromParamsWithConfirmation = async (params: {
+      authToken?: string;
+    }): Promise<PushWithConfirmationResult> => {
+      if (params.authToken) {
+        return { workdir: "", pushed: false, pushError: REAL_403_MESSAGE };
+      }
+      return { workdir: "", pushed: false, pushError: "keychain also failed: no credentials" };
+    };
+
+    const result = await pushSessionCommitWithFallback(
+      makeStubTokenProvider({ configured: true }),
+      { repo: "/tmp/fake-repo" },
+      { pushTimeoutMs: 5000 },
+      { pushFromParamsWithConfirmation, warn: spy.warn }
+    );
+
+    expect(result.pushed).toBe(false);
+    expect(result.pushError).toBe("keychain also failed: no credentials");
+    expect(result.appTokenPushError).toBe(REAL_403_MESSAGE);
+    expect(result.credentialPath).toBe("keychain-fallback");
+    expect(spy.calls.length).toBe(1);
+  });
+
+  test("app-token push fails for a NON-permission reason → no retry, original outcome surfaced as-is", async () => {
+    const spy = makeWarnSpy();
+    const calls: Array<{ authToken?: string }> = [];
+
+    const pushFromParamsWithConfirmation = async (params: {
+      authToken?: string;
+    }): Promise<PushWithConfirmationResult> => {
+      calls.push({ authToken: params.authToken });
+      return {
+        workdir: "",
+        pushed: false,
+        pushError: "Push was rejected by the remote. You may need to pull or use --force.",
+      };
+    };
+
+    const result = await pushSessionCommitWithFallback(
+      makeStubTokenProvider({ configured: true }),
+      { repo: "/tmp/fake-repo" },
+      { pushTimeoutMs: 5000 },
+      { pushFromParamsWithConfirmation, warn: spy.warn }
+    );
+
+    // Only ONE attempt — no blind retry on an unrelated failure.
+    expect(calls.length).toBe(1);
+    expect(result.pushed).toBe(false);
+    expect(result.credentialPath).toBe("app-token");
+    expect(result.appTokenPushError).toBeUndefined();
+    expect(spy.calls.length).toBe(0);
+  });
+
+  test("app-token push TIMES OUT (ambiguous) → no retry, mt#3177's own remote-check handling is left alone", async () => {
+    const spy = makeWarnSpy();
+    const calls: Array<{ authToken?: string }> = [];
+
+    const pushFromParamsWithConfirmation = async (params: {
+      authToken?: string;
+    }): Promise<PushWithConfirmationResult> => {
+      calls.push({ authToken: params.authToken });
+      return { workdir: "", pushed: false, pushTimedOut: true, pushUnconfirmed: true };
+    };
+
+    const result = await pushSessionCommitWithFallback(
+      makeStubTokenProvider({ configured: true }),
+      { repo: "/tmp/fake-repo" },
+      { pushTimeoutMs: 5000 },
+      { pushFromParamsWithConfirmation, warn: spy.warn }
+    );
+
+    expect(calls.length).toBe(1);
+    expect(result.pushTimedOut).toBe(true);
+    expect(result.pushUnconfirmed).toBe(true);
+    expect(result.credentialPath).toBe("app-token");
+    expect(spy.calls.length).toBe(0);
+  });
+
+  test("no service account configured (keychain-unconfigured) → no retry logic engages even on a 403-shaped failure", async () => {
+    const spy = makeWarnSpy();
+    const calls: Array<{ authToken?: string }> = [];
+
+    const pushFromParamsWithConfirmation = async (params: {
+      authToken?: string;
+    }): Promise<PushWithConfirmationResult> => {
+      calls.push({ authToken: params.authToken });
+      return { workdir: "", pushed: false, pushError: REAL_403_MESSAGE };
+    };
+
+    const result = await pushSessionCommitWithFallback(
+      undefined,
+      { repo: "/tmp/fake-repo" },
+      { pushTimeoutMs: 5000 },
+      { pushFromParamsWithConfirmation, warn: spy.warn }
+    );
+
+    // No token was ever available to retry away from — one attempt only.
+    expect(calls.length).toBe(1);
+    expect(result.credentialPath).toBe("keychain-unconfigured");
+    expect(result.pushed).toBe(false);
+    expect(spy.calls.length).toBe(0);
+  });
+
+  test("app-token push succeeds on the first attempt → no retry, no warning", async () => {
+    const spy = makeWarnSpy();
+    const calls: Array<{ authToken?: string }> = [];
+
+    const pushFromParamsWithConfirmation = async (params: {
+      authToken?: string;
+    }): Promise<PushWithConfirmationResult> => {
+      calls.push({ authToken: params.authToken });
+      return { workdir: "", pushed: true };
+    };
+
+    const result = await pushSessionCommitWithFallback(
+      makeStubTokenProvider({ configured: true }),
+      { repo: "/tmp/fake-repo" },
+      { pushTimeoutMs: 5000 },
+      { pushFromParamsWithConfirmation, warn: spy.warn }
+    );
+
+    expect(calls.length).toBe(1);
+    expect(result.pushed).toBe(true);
+    expect(result.credentialPath).toBe("app-token");
+    expect(result.appTokenPushError).toBeUndefined();
+    expect(spy.calls.length).toBe(0);
+  });
+});
