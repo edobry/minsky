@@ -372,25 +372,36 @@ export async function getTaskSpecContentFromParams(
     // Delegate to service which reads spec content from the backend
     const result = await taskService.getTaskSpecContent(taskId, validParams.section);
 
-    // If a specific section is requested, extract it
+    // If a specific section is requested, extract it. A section name that does
+    // not match any `## <heading>` in the spec is an explicit error, never a
+    // silent fallback to the full document (mt#3194) — that silent fallback is
+    // what let `--section` go unenforced on the live CLI/MCP path for as long
+    // as it did: the envelope echoed `section` back while quietly returning
+    // everything.
     let sectionContent = result.content;
-    if (validParams.section && result.content) {
+    if (validParams.section) {
       const section = validParams.section;
-      const lines = result.content.toString().split("\n");
+      const lines = (result.content ?? "").toString().split("\n");
       const sectionStart = lines.findIndex((line) =>
         line.toLowerCase().startsWith(`## ${section.toLowerCase()}`)
       );
 
-      if (sectionStart !== -1) {
-        let sectionEnd = lines.length;
-        for (let i = sectionStart + 1; i < lines.length; i++) {
-          if (lines[i]?.startsWith("## ")) {
-            sectionEnd = i;
-            break;
-          }
-        }
-        sectionContent = lines.slice(sectionStart, sectionEnd).join("\n").trim();
+      if (sectionStart === -1) {
+        throw new ResourceNotFoundError(
+          `Section "${section}" not found in spec for task ${taskId}`,
+          "task-spec-section",
+          `${taskId}#${section}`
+        );
       }
+
+      let sectionEnd = lines.length;
+      for (let i = sectionStart + 1; i < lines.length; i++) {
+        if (lines[i]?.startsWith("## ")) {
+          sectionEnd = i;
+          break;
+        }
+      }
+      sectionContent = lines.slice(sectionStart, sectionEnd).join("\n").trim();
     }
 
     return {
