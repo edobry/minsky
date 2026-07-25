@@ -12,10 +12,22 @@ tags:
 - **Probe before deferring (mt#1819).** Before writing any of the phrases below in a PR body, spec `## Outcome` section, ask, status update, or chat — run a **tooling probe** to verify you actually lack the access you're about to claim is missing. Cost of a probe: ~30 seconds. Cost of a wrong deferral: 5–30 minutes of user attention plus a re-engagement cycle.
 
   **Trigger-phrase patterns** (match as patterns, not literal strings — any of these fires the probe requirement):
+
+  *Deferring to a PERSON:*
   - "deferred to operator" / "deferred to user"
   - "requires X access" — where X is any tool, service, account, or secret-store name (e.g., "requires Railway access", "requires GitHub access", "requires admin token", "requires production access")
   - "user must do this" / "operator follow-up"
   - "outside agent context" / "not available from agent context"
+
+  *Deferring to a later TIME or condition (mt#3200) — same probe, different shape:*
+  - "deferred to post-merge" / "deferred until X ships" / "will verify after X"
+  - "can't verify until X" / "needs X first" / "blocked on X landing"
+  - "verification deferred" with no named actor
+
+  **The probe question is availability-NOW, regardless of what the deferral defers TO.** Both
+  shapes assert the same thing — *I am unable to do this at this moment* — and both are checked
+  the same way: try it. A deferral to a later time is not self-justifying just because it names
+  no person; it is a claim about your present capability and needs the same evidence.
 
   **Canonical probe sequence** (run in order; first hit unblocks):
   1. **CLI probe** — `which <cli> && <cli> whoami` (or equivalent auth-check) for the relevant tool.

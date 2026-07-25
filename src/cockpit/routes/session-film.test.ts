@@ -85,6 +85,76 @@ describe("GET /api/cockpit/session-film/events", () => {
     expect(body.ingestedAt).toBe("2026-07-20T00:00:00.000Z");
   });
 
+  test("stable-sorts a transposed adjacent pair by tStart (mt#3188 AT1)", async () => {
+    const early = fakeEvent({
+      tStart: "2026-07-24T00:00:00.010Z",
+      target: { realm: "repo", id: "early" },
+    });
+    const late = fakeEvent({
+      tStart: "2026-07-24T00:00:00.020Z",
+      target: { realm: "repo", id: "late" },
+    });
+    // Adapter emits them transposed (late before early), mirroring the
+    // mt#3184 outcome's exact 14ms adjacent-`ask`-event inversion.
+    const events = [late, early];
+    const { url } = await makeHarness({
+      overrideFetchEvents: async () => ({
+        events,
+        ingestedAt: "2026-07-20T00:00:00.000Z",
+      }),
+    });
+    const res = await fetch(`${url}/api/cockpit/session-film/events?conversationId=${VALID_ID}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { events: SemanticEvent[] };
+    expect(body.events.map((e) => e.target.id)).toEqual(["early", "late"]);
+  });
+
+  test("preserves relative emission order within a shared-tStart batch (mt#3188 AT1)", async () => {
+    const before = fakeEvent({
+      tStart: "2026-07-24T00:00:00.000Z",
+      target: { realm: "repo", id: "before" },
+    });
+    const batchA = fakeEvent({
+      tStart: "2026-07-24T00:00:01.000Z",
+      batchId: "b1",
+      target: { realm: "repo", id: "batch-a" },
+    });
+    const batchB = fakeEvent({
+      tStart: "2026-07-24T00:00:01.000Z",
+      batchId: "b1",
+      target: { realm: "repo", id: "batch-b" },
+    });
+    const batchC = fakeEvent({
+      tStart: "2026-07-24T00:00:01.000Z",
+      batchId: "b1",
+      target: { realm: "repo", id: "batch-c" },
+    });
+    const after = fakeEvent({
+      tStart: "2026-07-24T00:00:02.000Z",
+      target: { realm: "repo", id: "after" },
+    });
+    // All three batch members share an exact tStart — the sort must be
+    // stable so their relative (emission) order is preserved, never
+    // inventing an intra-batch order, while still ordering around them.
+    const events = [before, batchA, batchB, batchC, after];
+    const { url } = await makeHarness({
+      overrideFetchEvents: async () => ({
+        events,
+        ingestedAt: "2026-07-20T00:00:00.000Z",
+      }),
+    });
+    const res = await fetch(`${url}/api/cockpit/session-film/events?conversationId=${VALID_ID}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { events: SemanticEvent[] };
+    expect(body.events.map((e) => e.target.id)).toEqual([
+      "before",
+      "batch-a",
+      "batch-b",
+      "batch-c",
+      "after",
+    ]);
+  });
+
   test("422s (unscrubbed) for a pre-cutoff session with no verifiedRescrubbed assertion", async () => {
     const { url } = await makeHarness({
       overrideFetchEvents: async () => ({

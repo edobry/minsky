@@ -52,6 +52,23 @@ function logInternal(route: string, err: unknown): void {
   log.error(`[session-film] ${route} — internal error: ${detail}`);
 }
 
+/**
+ * Stable-sort events by `tStart` ascending, at the serving boundary (mt#3188).
+ *
+ * The endpoint's contract documents an ordered `SemanticEvent[]`, but the
+ * adapter's emission order is transcript-line order (mt#3157), which can
+ * contain small inversions (e.g. an `ask`-verb event carrying a sub-line
+ * timestamp from the ask record). `Array.prototype.sort` is spec-guaranteed
+ * stable (ES2019+), so events sharing an exact `tStart` — i.e. members of the
+ * same parallel batch, see `batchId` — keep their original relative
+ * (emission) order; no intra-batch order is invented. This is deliberately
+ * the ONLY place ordering is enforced: adapter pairing and batch semantics
+ * are untouched.
+ */
+function stableSortByTStart(events: SemanticEvent[]): SemanticEvent[] {
+  return [...events].sort((a, b) => Date.parse(a.tStart) - Date.parse(b.tStart));
+}
+
 /** Bound for the events-assembly call (mirrors context-inspector.ts's SNAPSHOT_ASSEMBLY_TIMEOUT_MS). */
 const EVENTS_ASSEMBLY_TIMEOUT_MS = 15_000;
 
@@ -277,7 +294,7 @@ export function mountSessionFilmRoutes(
         throw err;
       }
 
-      res.json({ events: result.events, ingestedAt: result.ingestedAt });
+      res.json({ events: stableSortByTStart(result.events), ingestedAt: result.ingestedAt });
     } catch (err) {
       logInternal("GET /api/cockpit/session-film/events", err);
       sessionFilmError(
