@@ -99,6 +99,16 @@ tester.run("no-direct-service-construction", rule, {
       filename: packagesDomainFile,
       code: fixture("valid.ts"),
     },
+    // Allowlisted file (`allowedFallbackFiles`) suppresses the DI-fallback check even though
+    // the code contains the banned shape — mirrors eslint.config.js's allowlist entries for
+    // the ADR-026-named `octokitOverride` instances.
+    {
+      filename: "packages/domain/src/repository/github-pr-review.ts",
+      code: `const octokit = octokitOverride ?? createOctokit(token);`,
+      options: [
+        { allowedFallbackFiles: ["**/packages/domain/src/repository/github-pr-review.ts"] },
+      ],
+    },
 
     // --- Named-list check (mt#911), unaffected by the mt#2642 addition ---
 

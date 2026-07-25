@@ -346,6 +346,19 @@ export default [
             // rules CRUD-operations compile path.
             "**/packages/domain/src/rules/operations/crud-operations.ts",
           ],
+          // mt#2642 reconciliation note re: the mt#2642 spec's mt#1024-scope carve-out
+          // ("src/domain/tasks.ts, query-commands.ts, mutation-commands.ts — not already
+          // cleaned up by mt#1024 at the time this task is picked up"): `src/domain/tasks.ts`
+          // no longer exists (moved under packages/domain/src/ by mt#2108's domain-package
+          // extraction). `packages/domain/src/tasks/commands/{query,mutation}-commands.ts`
+          // DO still have a deps-optional-fallback to createConfiguredTaskService, but in an
+          // `if (!taskService) { taskService = deps?.createConfiguredTaskService ? ... : ... }`
+          // shape — a conditional/ternary, not this rule's literal `x ?? create<X>(...)` /
+          // `x?.y ?? new <X>(...)` LogicalExpression shapes, so it is not (and per the
+          // Acceptance Tests' two required fixtures, should not be) matched here. mt#1024
+          // (still TODO) remains the owner of eliminating that fallback, per ADR-026's
+          // migration policy and this task's explicit Scope carve-out ("the broader DI-tier
+          // migration is owned by mt#1024/mt#1804").
         },
       ], // Prevent direct construction of domain services in adapter layer (mt#911), and the generalized DI-fallback shape (mt#2642 / ADR-026)
       "custom/no-validation-error-in-execute": "error", // ADR-004: ValidationError belongs in validate(), not execute()
