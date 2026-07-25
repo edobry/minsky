@@ -124,6 +124,32 @@ describe("AskPage deeplink resolution (mt#2669)", () => {
     expect(screen.queryByText(/no longer pending/i)).toBeNull();
   });
 
+  test("an auto-closed ask (mt#3215) renders as NOT answered, distinct from an operator response", async () => {
+    const ask = makeAsk({
+      state: "closed",
+      response: {
+        responder: "system:parent-task-terminal",
+        payload: { sweep: "stale-suspended-close", task: "mt#3001", parentTaskId: "mt#3210" },
+      },
+      respondedAt: "2026-07-25T18:21:25.000Z",
+      closedAt: "2026-07-25T18:21:25.000Z",
+    });
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes(`/api/asks/${ask.id}`)) return jsonResponse({ ask });
+      return jsonResponse({ error: "unexpected" }, 500);
+    }) as unknown as typeof globalThis.fetch;
+
+    renderAskPage(ask.id);
+
+    await waitFor(() => {
+      expect(screen.getByText(/auto-closed by the system/)).toBeDefined();
+    });
+    expect(screen.getByText(/NOT answered by an operator/)).toBeDefined();
+    expect(screen.getByText(/Auto-closed by system:parent-task-terminal/)).toBeDefined();
+    expect(screen.queryByText(/^This ask was resolved\.?$/)).toBeNull();
+  });
+
   test("expired ask names the expiry, not a generic message", async () => {
     const ask = makeAsk({ state: "expired" });
     globalThis.fetch = mock(async (input: RequestInfo | URL) => {
