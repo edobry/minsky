@@ -377,7 +377,41 @@ export function rehypeEntityLinks(options: RehypeEntityLinksOptions) {
   };
 }
 
+/**
+ * Resolve the `(type, id)` an entity-token's `to` path was built from, so
+ * `makeAnchor` can carry that identity forward as `data-` attributes without
+ * re-parsing the href (mt#3174). `to` is always produced by `entityToPath`
+ * (see `resolveEntityId`/`parseMinskyUri` above), so this is the exact
+ * inverse of that codec — never a guess from the path string.
+ */
+function tokenEntity(tok: Extract<EntityToken, { kind: "link" }>): {
+  type: RoutableEntityType;
+  id: string;
+} | null {
+  // `to` is `/<segment>/<encodedId>` — first path segment maps 1:1 to a
+  // RoutableEntityType (entityToPath's switch, inverted).
+  const match = /^\/(tasks|ask|memory|agents|changeset|conversation)\/(.+)$/.exec(tok.to);
+  if (!match) return null;
+  const [, segment, encodedId] = match;
+  const SEGMENT_TO_TYPE: Record<string, RoutableEntityType> = {
+    tasks: "task",
+    ask: "ask",
+    memory: "memory",
+    agents: "session",
+    changeset: "changeset",
+    conversation: "conversation",
+  };
+  const type = SEGMENT_TO_TYPE[segment as string];
+  if (!type) return null;
+  try {
+    return { type, id: decodeURIComponent(encodedId as string) };
+  } catch {
+    return null;
+  }
+}
+
 function makeAnchor(tok: Extract<EntityToken, { kind: "link" }>): Element {
+  const entity = tokenEntity(tok);
   return {
     type: "element",
     tagName: "a",
@@ -386,6 +420,12 @@ function makeAnchor(tok: Extract<EntityToken, { kind: "link" }>): Element {
       className: tok.mono
         ? ["font-mono", "text-primary", "underline-offset-2", "hover:underline"]
         : ["text-primary", "underline-offset-2", "hover:underline"],
+      // Entity identity carried alongside href (mt#3174) — <Prose>'s `a`
+      // override reads these to render the hover-card badge treatment
+      // without re-parsing the href back into an entity. Additive only:
+      // any consumer that ignores these two attributes sees the exact same
+      // anchor as before this change.
+      ...(entity ? { "data-entity-type": entity.type, "data-entity-id": entity.id } : {}),
     },
     children: [{ type: "text", value: tok.text }],
   };

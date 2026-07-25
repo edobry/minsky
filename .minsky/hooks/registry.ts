@@ -909,6 +909,71 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#2459 — operator-deferral family (probe-before-defer / operator-must-do-X).
+  // TWO surfaces from ONE module, sharing ONE calibration log (they are two
+  // detection surfaces on one failure family): the UserPromptSubmit prose scan
+  // here, and the PreToolUse `AskUserQuestion` option-label scan below it. Both
+  // calibration-first (INJECTION_ENABLED=false in the module). The
+  // ACTIVATION-instruction half of this family belongs to
+  // substrate-bypass-detector's mt#2303 surface — see that module's
+  // SCOPE BOUNDARY note before adding a pattern to either.
+  // -------------------------------------------------------------------------
+  {
+    name: "operator-deferral-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./operator-deferral-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "operator-deferral",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Deferred to operator: requires Railway access." }],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      // Calibration-first (INJECTION_ENABLED=false) — assert the calibration
+      // outcome, not additionalContext, so a future flip doesn't break the
+      // canary (it would simply gain an ADDITIONAL warn outcome).
+      expects: "calibration",
+    },
+  },
+  {
+    name: "operator-deferral-ask-surface",
+    event: "PreToolUse",
+    matcher: "AskUserQuestion",
+    module: () => import("./operator-deferral-detector").then((m) => ({ run: m.runAskSurface })),
+    timeoutMs: 10000,
+    calibrationLog: "operator-deferral",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    canary: {
+      input: {
+        transcript_path: "mt2889-canary-transcript",
+        tool_name: "AskUserQuestion",
+        tool_input: {
+          questions: [
+            {
+              question: "The reviewer service is CRASHED. How should we proceed?",
+              options: [{ label: "You recover the reviewer service" }],
+            },
+          ],
+        },
+      },
+      transcriptLines: [{ type: "user", message: { role: "user", content: "first turn" } }],
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
   // mt#2812 — new guard, not part of any legacy settings.json migration.
   // Reads the guard-health JSONL log (a pure fs read + string compare, no
   // network/git calls) and injects a warning when any guard has reached
@@ -1221,24 +1286,17 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   {
-    // mt#3179 — the family's THIRD recurrence (mem#394 R1/R2/R3) landed at
-    // turn-end with an announced-but-untaken action. Its sibling above scans
-    // for retrospective triggers; this one scans for a turn that ends by
-    // NAMING a next action without taking it. Keyed on position (the text sits
-    // in `last_assistant_message`, so nothing followed it) rather than on the
-    // agent's stated reason — R2 stopped by asking permission, R3 by
-    // announcing intent, and a reason-keyed check catches only one.
+    // mt#3179 — turn-end sibling of the guard above: scans for a turn that ends
+    // by NAMING a next action without taking it. Keyed on POSITION (the text is
+    // in `last_assistant_message`, so nothing followed it), not on the agent's
+    // stated reason. Full rationale: the guard module's header.
     name: "turn-end-untaken-action-scan",
     event: "Stop",
     module: () => import("./turn-end-untaken-action-scan").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     calibrationLog: "untaken-action",
     denyCapable: false,
-    // True only for the dedup turn-key: DETECTION reads `last_assistant_message`
-    // alone (position is the signal — see the guard's header). The turn-key
-    // derives from the transcript's opening prompt and degrades to a stable
-    // default when absent, so a missing transcript costs dedup precision, never
-    // detection.
+    // True only for the dedup turn-key; detection reads last_assistant_message.
     needsTranscript: true,
     attentionCost: { denialMessageSizeChars: 700, optionCount: 2 },
     canary: {
@@ -1249,18 +1307,8 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
         last_assistant_message:
           "mt#3179 is incident-response, so I'm taking it forward rather than leaving it filed — that's the next step, not a question.",
       },
-      transcriptLines: [
-        {
-          type: "user",
-          message: { role: "user", content: "do a retro on this too" },
-          uuid: "mt3179-canary-prompt",
-          timestamp: "2026-07-24T20:40:00.000Z",
-        },
-        {
-          type: "assistant",
-          message: { role: "assistant", content: [{ type: "text", text: "Retro complete." }] },
-        },
-      ],
+      // No transcriptLines: detection reads last_assistant_message only; the
+      // dedup turn-key degrades to a stable default without a transcript.
       expects: "warn",
       setup: async () => {
         const store = await import("./turn-end-scan-store");
