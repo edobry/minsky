@@ -150,6 +150,20 @@ export interface DispatchStalenessResult {
  * correct: from `subagent_invocations`' point of view nothing is "in
  * flight" to recover).
  *
+ * ## Tie semantics (documented mt#3172, PR #2294 R1)
+ *
+ * Each candidate below (`lastCommitAtMs`, then `lastPresenceActivityAtMs`)
+ * only replaces the running max when STRICTLY GREATER than it (`>`, not
+ * `>=`). So on an exact timestamp tie between two signals, the running max
+ * does NOT advance and the EARLIER-checked signal wins: a commit and a
+ * presence-claim refresh at the identical ms both present as `"commit"`, not
+ * `"presence"`, because the presence check requires strictly exceeding the
+ * value the commit check already set. This is the reference tie behavior the
+ * dispatch-watchdog producer's own staleness computation
+ * (`computeDispatchWatchdogFlags`, `src/cockpit/dispatch-watchdog.ts`,
+ * mt#3172) mirrors for parity — see that function's docstring for its
+ * four-signal version of this same rule.
+ *
  * Pure and synchronous — no I/O. Unit-testable with an injected clock.
  */
 export function computeDispatchStaleness(

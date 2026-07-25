@@ -376,6 +376,33 @@ describe("computeDispatchWatchdogFlags", () => {
       expect(flags[0]?.lastActivityAt).toBe(new Date(stalePresenceMs).toISOString());
     });
 
+    // mt#3172 PR #2294 R1: pin the tie behavior explicitly (each candidate
+    // replaces the running max only when STRICTLY greater — `>`, not `>=`)
+    // — matching tasks.dispatch-recover's computeDispatchStaleness. Event
+    // and presence sharing the IDENTICAL timestamp must resolve to "event"
+    // (the earlier-checked signal in the dispatch-start -> commit -> event
+    // -> presence precedence order), because the presence check requires
+    // STRICTLY exceeding the value the event check already set.
+    test("a tied event and presence timestamp resolves to 'event' (tie -> earlier-checked signal wins)", () => {
+      const staleCommitMs = NOW_MS - 50 * 60 * 1000; // oldest of the three
+      const tiedMs = NOW_MS - 40 * 60 * 1000; // event and presence share this exact ms
+      const activity: ActivitySources = {
+        lastCommitAtMs: () => staleCommitMs,
+        lastEventAtMs: () => tiedMs,
+        lastPresenceActivityAtMs: () => tiedMs,
+      };
+      const flags = computeDispatchWatchdogFlags(
+        [row({ startedAt: "2026-07-07T10:00:00.000Z" })], // 2h before NOW_MS
+        { "mt#2646": "IN-PROGRESS" },
+        activity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(1);
+      expect(flags[0]?.activitySource).toBe("event");
+      expect(flags[0]?.lastActivityAt).toBe(new Date(tiedMs).toISOString());
+    });
+
     test("ActivitySources without a lastPresenceActivityAtMs method behaves as unknown (backward compatible)", () => {
       // noActivity predates the lastPresenceActivityAtMs field entirely —
       // omitting it must not suppress flags (equivalent to always returning null).

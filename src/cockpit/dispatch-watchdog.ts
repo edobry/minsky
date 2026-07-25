@@ -192,9 +192,21 @@ export interface ActivitySources {
  * its own `startedAt` is treated as flaggable once `nowMs - startedAt >=
  * staleMs` — dispatch time is always a valid (if pessimistic) baseline. The
  * returned flag's `activitySource` names whichever of the four signals
- * produced the max, checked in this precedence order (each replaces the
- * running max only when strictly greater, so the LATEST-checked signal wins
- * ties): dispatch-start -> commit -> event -> presence.
+ * produced the max, checked in this precedence order: dispatch-start ->
+ * commit -> event -> presence.
+ *
+ * **Tie semantics (fixed in review, PR #2294 R1):** each candidate replaces
+ * the running max only when STRICTLY GREATER than it (`>`, not `>=`) — so on
+ * an exact timestamp tie, the running max does NOT advance and the EARLIER
+ * -checked signal wins (e.g. a commit and a presence-claim refresh at the
+ * identical ms both present: `activitySource` is `"commit"`, not
+ * `"presence"`, because presence's check requires strictly exceeding the
+ * value commit already set). This is not an arbitrary choice — it is the
+ * SAME tie behavior `tasks.dispatch-recover`'s `computeDispatchStaleness`
+ * (`@minsky/domain/session/dispatch-recovery-classifier`, mt#3086) already
+ * has via its own strict `>` checks, which this producer mirrors for parity
+ * (mt#3172's entire point). See that function's docstring for the identical
+ * note on its two-signal version of this same rule.
  *
  * Two additional guards (mt#3062) run before the staleness computation and
  * unconditionally suppress a flag regardless of computed staleness:
@@ -242,10 +254,14 @@ export function computeDispatchWatchdogFlags(
 
     // Progressive max, tracking WHICH signal produced it (mt#3172) — same
     // numeric result as the prior Math.max(...candidates) approach (each
-    // candidate only replaces the running max when strictly greater), but
-    // also yields activitySource for the flag below. Precedence order when
-    // values tie: dispatch-start -> commit -> event -> presence (the
-    // last-checked strictly-greater signal wins).
+    // candidate only replaces the running max when strictly greater: `>`,
+    // not `>=`), but also yields activitySource for the flag below. On an
+    // exact timestamp TIE the running max does NOT advance, so the
+    // EARLIER-checked signal wins: dispatch-start beats a tied commit,
+    // commit beats a tied event, event beats a tied presence. This mirrors
+    // tasks.dispatch-recover's computeDispatchStaleness (mt#3086), which
+    // uses the same strict `>` pattern — see PR #2294 R1 / this function's
+    // docstring for the full rationale.
     let lastActivityMs = startedMs;
     let activitySource: DispatchWatchdogActivitySource = "dispatch-start";
 
