@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
+// eslint-disable-next-line custom/no-real-fs-in-tests -- reads the real committed .claude/settings.json, mirroring enforcement-mapping.ts's own production read path; mocking it would defeat the parity check's purpose (mt#975)
+import * as fs from "fs";
+import * as path from "path";
 import {
   ENFORCEMENT_MAPPINGS,
+  NON_ENFORCEMENT_CLAUDE_HOOKS,
   getEnforcement,
   getEnforcedRules,
   getUnenforced,
@@ -16,7 +20,6 @@ const CLAUDE_HOOK_RULE_IDS = [
   "mcp-tool-preference",
   "review-before-merge",
   "pr-identity-provenance",
-  "acceptance-test-gate",
   "incremental-typecheck",
   "task-spec-validation",
   "post-merge-sync",
@@ -240,7 +243,6 @@ describe("Claude Code hook coverage", () => {
     expect(getEnforcement("mcp-tool-preference")).toBeDefined();
     expect(getEnforcement("review-before-merge")).toBeDefined();
     expect(getEnforcement("pr-identity-provenance")).toBeDefined();
-    expect(getEnforcement("acceptance-test-gate")).toBeDefined();
   });
 
   it("has an entry for each PostToolUse hook in settings.json", () => {
@@ -280,6 +282,120 @@ describe("MCP tool-logic enforcement coverage", () => {
           expect(mechanism.portability).toBe("portable");
         }
       }
+    }
+  });
+});
+
+// ── settings.json parity (mt#975) ─────────────────────────────────────────
+//
+// require-acceptance-tests-before-done.ts sat in .minsky/hooks/ for months,
+// registered NOWHERE in .claude/settings.json, while an unrelated
+// enforcement-mapping.ts entry kept claiming it was live. Neither direction
+// of that mismatch had a test:
+//   - forward: a settings.json-registered hook with no ENFORCEMENT_MAPPINGS
+//     entry and no NON_ENFORCEMENT_CLAUDE_HOOKS allowlist entry can rot
+//     untriaged indefinitely.
+//   - reverse: an ENFORCEMENT_MAPPINGS entry whose configPath no longer
+//     matches any settings.json command is exactly the stale reference this
+//     task found and removed for require-acceptance-tests-before-done.ts.
+// These tests close both gaps.
+
+/** Locate the repo's .claude/settings.json by walking up from a starting directory. */
+function findSettingsJsonPath(startDir: string): string {
+  let dir = startDir;
+  for (let i = 0; i < 10; i++) {
+    const candidate = path.join(dir, ".claude", "settings.json");
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- locating the real settings.json is the point of this parity check, not test-state faking (mt#975)
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(`Could not locate .claude/settings.json above ${startDir}`);
+}
+
+/** Extract every unique ".claude/hooks/*.ts" path referenced by a "command" field in settings.json. */
+function readClaudeHookCommands(settingsPath: string): Set<string> {
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- reads the real committed settings.json to catch real drift between it and enforcement-mapping.ts; an in-memory fixture couldn't detect a hook that rots undetected in the actual file (mt#975)
+  const raw = fs.readFileSync(settingsPath, "utf8");
+  const settings: unknown = JSON.parse(raw);
+  const configPaths = new Set<string>();
+  const HOOK_COMMAND_PATTERN = /\.claude\/hooks\/[^/"]+\.ts$/;
+
+  function walk(node: unknown): void {
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    if (node !== null && typeof node === "object") {
+      for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+        if (key === "command" && typeof value === "string") {
+          const match = value.match(HOOK_COMMAND_PATTERN);
+          if (match) configPaths.add(match[0]);
+          continue;
+        }
+        walk(value);
+      }
+    }
+  }
+
+  walk(settings);
+  return configPaths;
+}
+
+describe("settings.json hook parity", () => {
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- real cwd is required to locate the real, committed settings.json this test validates against (mt#975)
+  const settingsPath = findSettingsJsonPath(process.cwd());
+  const registeredHooks = readClaudeHookCommands(settingsPath);
+
+  const enforcementConfigPaths = new Set(
+    ENFORCEMENT_MAPPINGS.flatMap((m) => m.mechanisms)
+      .filter((mech) => mech.type === CLAUDE_CODE_HOOK_TYPE)
+      .map((mech) => mech.configPath)
+      .filter((p): p is string => Boolean(p))
+  );
+
+  const allowlistedConfigPaths = new Set(NON_ENFORCEMENT_CLAUDE_HOOKS.map((h) => h.configPath));
+
+  it("finds a non-empty set of hooks registered in settings.json (sanity check)", () => {
+    expect(registeredHooks.size).toBeGreaterThan(10);
+  });
+
+  it("every hook registered in settings.json is either an ENFORCEMENT_MAPPINGS entry or an explicitly-reasoned NON_ENFORCEMENT_CLAUDE_HOOKS entry", () => {
+    const untriaged = [...registeredHooks].filter(
+      (configPath) =>
+        !enforcementConfigPaths.has(configPath) && !allowlistedConfigPaths.has(configPath)
+    );
+    expect(
+      untriaged,
+      `Untriaged .claude/settings.json hooks (add to ENFORCEMENT_MAPPINGS or NON_ENFORCEMENT_CLAUDE_HOOKS in enforcement-mapping.ts): ${untriaged.join(", ")}`
+    ).toEqual([]);
+  });
+
+  it("no hook is both an ENFORCEMENT_MAPPINGS entry and a NON_ENFORCEMENT_CLAUDE_HOOKS entry", () => {
+    const overlap = [...enforcementConfigPaths].filter((p) => allowlistedConfigPaths.has(p));
+    expect(overlap).toEqual([]);
+  });
+
+  it("every claude-code-hook ENFORCEMENT_MAPPINGS configPath is an actual settings.json command (catches stale references to deleted/renamed hooks)", () => {
+    const stale = [...enforcementConfigPaths].filter((p) => !registeredHooks.has(p));
+    expect(
+      stale,
+      `ENFORCEMENT_MAPPINGS entries pointing at hooks no longer registered in settings.json: ${stale.join(", ")}`
+    ).toEqual([]);
+  });
+
+  it("every NON_ENFORCEMENT_CLAUDE_HOOKS configPath is an actual settings.json command (catches stale allowlist entries)", () => {
+    const stale = [...allowlistedConfigPaths].filter((p) => !registeredHooks.has(p));
+    expect(
+      stale,
+      `NON_ENFORCEMENT_CLAUDE_HOOKS entries pointing at hooks no longer registered in settings.json: ${stale.join(", ")}`
+    ).toEqual([]);
+  });
+
+  it("every NON_ENFORCEMENT_CLAUDE_HOOKS entry has a non-empty reason", () => {
+    for (const hook of NON_ENFORCEMENT_CLAUDE_HOOKS) {
+      expect(hook.reason.length).toBeGreaterThan(10);
     }
   });
 });
