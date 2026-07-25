@@ -7399,15 +7399,15 @@
             },
             {
               "flags": ["--update"],
-              "description": "Update an existing App's events/permissions via PATCH /app"
+              "description": "Show drift between an existing App's live and requested events/permissions, with a link to the settings page to fix it (GitHub has no API to apply this)"
             },
             {
               "flags": ["--execute"],
-              "description": "Apply changes (without this flag, --update shows a dry-run preview)"
+              "description": "No effect with --update (there is no API to apply an events/permissions change); accepted for backward compatibility"
             },
             {
               "flags": ["--permissions"],
-              "description": "Comma-separated k:v permissions (default: pull_requests:write,contents:read,metadata:read)",
+              "description": "Comma-separated k:v permissions (default: pull_requests:write,contents:write,metadata:read — contents:write is required for session_commit's App-token push, mt#1477/mt#3210)",
               "takesValue": true
             },
             {

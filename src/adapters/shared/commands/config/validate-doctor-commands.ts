@@ -66,6 +66,58 @@ export function checkReviewerRetriggerReachability(
 }
 
 /**
+ * GitHub App permission-drift diagnostic (mt#3218).
+ *
+ * There is no API to mutate an existing App's permissions — the settings UI
+ * is the only fix, and even then each installation must separately accept a
+ * permission change (see `packages/domain/src/setup/github-app/update.ts`).
+ * That makes a missing permission expensive to diagnose on its own: it
+ * surfaces as an opaque 403 from whatever call needed it. `GET /app` is the
+ * one App-registration read that actually works, so comparing its live
+ * result against what Minsky's code needs turns that opaque 403 into an
+ * actionable `config doctor` finding — the exact settings URL and the
+ * specific permission — before the operator ever hits the 403 in the first
+ * place.
+ *
+ * Takes the already-fetched App info (or `undefined` when no App service
+ * account is configured) so the comparison itself stays unit-testable
+ * without mocking the network — the live `GET /app` call is made by the
+ * caller in `config.doctor`'s execute handler.
+ */
+export async function checkGithubAppPermissionDrift(
+  appInfo: { slug: string; permissions: Record<string, string> } | undefined
+): Promise<DoctorDiagnostic> {
+  if (!appInfo) {
+    return {
+      check: "GitHub App Permissions",
+      status: "pass",
+      message: "No GitHub App service account configured — nothing to check.",
+    };
+  }
+
+  const { detectPermissionDrift, formatPermissionDriftMessage, githubAppSettingsUrl } =
+    await import("@minsky/domain/setup/github-app");
+
+  const drift = detectPermissionDrift(appInfo.permissions);
+  if (!drift.hasDrift) {
+    return {
+      check: "GitHub App Permissions",
+      status: "pass",
+      message: `GitHub App '${appInfo.slug}' has all required permissions.`,
+    };
+  }
+
+  return {
+    check: "GitHub App Permissions",
+    status: "warning",
+    message: formatPermissionDriftMessage(appInfo.slug, drift),
+    suggestion:
+      `Update permissions at ${githubAppSettingsUrl(appInfo.slug)}, then accept the ` +
+      "change on the installing account — it does not apply until accepted.",
+  };
+}
+
+/**
  * Shared parameters for config commands (eliminates duplication)
  */
 const configCommandParams = composeParams(
@@ -237,6 +289,36 @@ export const configDoctorRegistration = defineCommand({
         check: "Reviewer Retrigger Reachability",
         status: "error",
         message: `Reviewer retrigger reachability check failed: ${getErrorMessage(e)}`,
+      });
+    }
+
+    // GitHub App permission drift (mt#3218). Only meaningful when a service
+    // account is configured — `GET /app` is a live network call, so this is
+    // best-effort: a fetch failure (network, revoked key) surfaces as its own
+    // error diagnostic rather than silently skipping the check.
+    try {
+      const provider = getConfigurationProvider();
+      const config = provider.getConfig();
+      const serviceAccount = config.github?.serviceAccount;
+      if (serviceAccount) {
+        const { GitHubAppTokenProvider } = await import("@minsky/domain/auth/index");
+        const tokenProvider = new GitHubAppTokenProvider({
+          appId: serviceAccount.appId,
+          privateKeyFile: serviceAccount.privateKeyFile,
+          privateKey: serviceAccount.privateKey,
+          installationId: serviceAccount.installationId,
+          userToken: "",
+        });
+        const appInfo = await tokenProvider.getAppPermissions();
+        diagnostics.push(await checkGithubAppPermissionDrift(appInfo));
+      } else {
+        diagnostics.push(await checkGithubAppPermissionDrift(undefined));
+      }
+    } catch (e) {
+      diagnostics.push({
+        check: "GitHub App Permissions",
+        status: "error",
+        message: `GitHub App permission check failed: ${getErrorMessage(e)}`,
       });
     }
 
