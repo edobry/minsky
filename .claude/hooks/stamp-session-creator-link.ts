@@ -235,6 +235,17 @@ export function resolveConversationId(input: ToolHookInput): string | null {
   return typeof raw === "string" && raw.length > 0 ? raw : null;
 }
 
+/** The minimal drizzle-ish query surface the lookup below needs, so tests can stub it. */
+type SelectableDb = {
+  select: (fields: unknown) => {
+    from: (table: unknown) => {
+      where: (cond: unknown) => {
+        orderBy: (order: unknown) => { limit: (n: number) => Promise<unknown[]> };
+      };
+    };
+  };
+};
+
 /**
  * Newest workspace session recorded for `taskId`, or null.
  *
@@ -249,19 +260,18 @@ export function resolveConversationId(input: ToolHookInput): string | null {
  *
  * Exported for tests.
  */
-export async function lookupWorkspaceSessionIdByTask(
-  db: {
-    select: (fields: unknown) => {
-      from: (table: unknown) => {
-        where: (cond: unknown) => {
-          orderBy: (order: unknown) => { limit: (n: number) => Promise<unknown[]> };
-        };
-      };
-    };
-  },
-  table: { sessionId: unknown; taskId: unknown; createdAt: unknown },
-  ops: { eq: (a: unknown, b: unknown) => unknown; desc: (a: unknown) => unknown },
-  taskId: string
+export async function lookupWorkspaceSessionIdByTask<Sel, Filter, Order, Value>(
+  db: SelectableDb,
+  table: { sessionId: Sel; taskId: Filter; createdAt: Order },
+  // One type parameter PER column rather than a shared `unknown`: drizzle's real
+  // `eq`/`desc` accept `AnyColumn | SQLWrapper`, and a declared
+  // `(a: unknown) => unknown` is NOT a supertype of that (parameters are
+  // contravariant), so passing the real helpers failed `typecheck:hooks` — a
+  // script `validate_typecheck` does not cover, so only CI caught it (PR #2290).
+  // Inferring each column's own type keeps the real helpers and the test stub
+  // both assignable with no casts.
+  ops: { eq: (column: Filter, value: Value) => unknown; desc: (column: Order) => unknown },
+  taskId: Value
 ): Promise<string | null> {
   const rows = await db
     .select({ sessionId: table.sessionId })
@@ -353,12 +363,7 @@ if (import.meta.main) {
       );
       const { eq, desc } = await import("drizzle-orm");
       const lookup = await raceDeadline(
-        lookupWorkspaceSessionIdByTask(
-          db as Parameters<typeof lookupWorkspaceSessionIdByTask>[0],
-          postgresSessions,
-          { eq, desc },
-          taskId
-        ),
+        lookupWorkspaceSessionIdByTask(db as SelectableDb, postgresSessions, { eq, desc }, taskId),
         remainingMs()
       );
 
