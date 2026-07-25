@@ -12,10 +12,20 @@
 // Mechanism: shell out to a `minsky tools asks list --id <id>` CLI read (the
 // same reach-the-server mechanism as the mt#2813 standalone-duplicate probe)
 // rather than importing `packages/domain` — keeps the hook self-contained per
-// `.claude/hooks/SPEC.md`. The lookup is BY ID (mt#3007); it previously paged
-// through `tools asks list --state ...`, which silently missed asks outside
-// the page. An empty result array is a structured "absent" signal, so a
-// missing ask is never confused with a broken read.
+// `.minsky/hooks/SPEC.md` ("no imports from `src/`"; `@minsky/shared` is a
+// dependency-free leaf package, not `src/`, and other hooks already import it
+// — e.g. `record-subagent-invocation.ts` imports `@minsky/shared/safe-truncate`
+// — so importing the shared `APPROVAL_TOKEN` vocabulary below is consistent
+// with that convention, not an exception to it). The lookup is BY ID
+// (mt#3007); it previously paged through `tools asks list --state ...`, which
+// silently missed asks outside the page. An empty result array is a
+// structured "absent" signal, so a missing ask is never confused with a
+// broken read.
+//
+// APPROVAL_TOKEN (imported below) is the shared vocabulary source between
+// this verifier and `asks_create`'s authoring-time guard (mt#3203) — see
+// `packages/shared/src/ask-approval.ts` for why both sides must import the
+// same constant rather than maintain independent copies.
 //
 // Security posture (the spec's fabrication criterion):
 //   - ask must EXIST (a nonexistent id is refused, not deferred)
@@ -32,6 +42,7 @@
 // not-verified (never allow on unverifiable state).
 
 import { execWithPath } from "./types";
+import { APPROVAL_TOKEN } from "@minsky/shared/ask-approval";
 
 const ASKS_CLI_TIMEOUT_MS = 20000;
 
@@ -68,12 +79,6 @@ export type ExecFn = (
   cmd: string[],
   options?: { timeout?: number }
 ) => { exitCode: number; stdout: string; stderr: string };
-
-/**
- * Tokens that count as an approval when they appear as a response VALUE.
- * Deliberately narrow — see `isApprovingPayload`.
- */
-const APPROVAL_TOKEN = /^(approved?|yes)$/i;
 
 /**
  * Keys whose string value is treated as the operator's chosen response.

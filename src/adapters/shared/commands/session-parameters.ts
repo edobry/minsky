@@ -134,6 +134,18 @@ export const sessionUpdateCommandParams = composeParams(
       required: false,
       defaultValue: false,
     },
+    // mt#3205: mirrors session.commit's commitTimeoutMs/pushTimeoutMs pattern
+    // — operator-configurable, not just a test-injection seam. Bounds the
+    // push step's wall-clock wait (see pushWithConfirmation's
+    // DEFAULT_PUSH_CONFIRM_TIMEOUT_MS in push-operations.ts for the default).
+    pushTimeoutMs: {
+      schema: z.number().int().positive(),
+      description:
+        "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes. " +
+        "On timeout, the remote branch head is verified directly via `git ls-remote` before " +
+        "reporting an outcome — see pushConfirmedVia/pushUnconfirmed in mt#3177/mt#3205.",
+      required: false,
+    },
   }
 ) satisfies CommandParameterMap;
 

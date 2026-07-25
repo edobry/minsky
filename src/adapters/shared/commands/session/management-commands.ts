@@ -78,6 +78,10 @@ export function createSessionUpdateCommand(getDeps: LazySessionDeps): CommandDef
           (params.autoResolveDeleteConflicts as boolean | undefined) ?? false,
         dryRun: (params.dryRun as boolean | undefined) ?? false,
         skipIfAlreadyMerged: (params.skipIfAlreadyMerged as boolean | undefined) ?? false,
+        // mt#3205: forward the operator-supplied push-phase timeout override
+        // — undefined here falls through to updateSessionImpl's own
+        // DEFAULT_PUSH_CONFIRM_TIMEOUT_MS default.
+        pushTimeoutMs: params.pushTimeoutMs as number | undefined,
       });
 
       const payload: Record<string, unknown> = {

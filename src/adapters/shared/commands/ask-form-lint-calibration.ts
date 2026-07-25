@@ -101,9 +101,7 @@ export function appendAskFormLintCalibrationRecord(
   try {
     const logPath = resolve(workspacePath, ASK_FORM_LINT_CALIBRATION_LOG);
     const dir = dirname(logPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
+    mkdirSync(dir, { recursive: true });
     appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
   } catch (err: unknown) {
     log.warn("asks.create: failed to write form-lint calibration log (best-effort, swallowed)", {

@@ -109,7 +109,7 @@ export function recordPreCommitFireLogEntry(
     const now = options?.now ?? (() => new Date());
     const logPath = options?.logPath ?? getPreCommitFireLogPath(options?.env);
     const dir = dirname(logPath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true });
 
     const ev: PreCommitFireLogEntry = {
       timestamp: now().toISOString(),
