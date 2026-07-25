@@ -32,7 +32,7 @@ without duplicating business logic. The shared command registry is the mechanism
 2. **CLI Bridge** (`src/adapters/shared/bridges/cli-bridge-modular.ts`) reads the registry and generates
    Commander.js `Command` objects. Parameters marked `cliHidden: true` are omitted.
 
-3. **MCP Bridge** (`src/adapters/shared/bridges/mcp-bridge.ts`) reads the same registry to dispatch
+3. **MCP Bridge** (`src/adapters/mcp/shared-command-integration.ts`) reads the same registry to dispatch
    MCP tool calls. Parameters marked `mcpHidden: true` are omitted.
 
 ```
@@ -339,7 +339,7 @@ typed dependency bundles (e.g., `SessionDeps`) assembled by composition roots.
 
 ### Container
 
-`TsyringeContainer` (`src/composition/container.ts`) wraps tsyringe's `DependencyContainer`,
+`TsyringeContainer` (`packages/domain/src/composition/container.ts`) wraps tsyringe's `DependencyContainer`,
 implementing `AppContainerInterface` with async lifecycle support:
 
 - `register(key, factory, options?)` — stores a factory; returns `this` for chaining
@@ -370,7 +370,7 @@ export const TOKENS = {
 } as const;
 ```
 
-These match the keys in the `AppServices` interface (`src/composition/types.ts`).
+These match the keys in the `AppServices` interface (`packages/domain/src/composition/types.ts`).
 
 ### Service map
 
@@ -388,7 +388,7 @@ interface AppServices {
 }
 ```
 
-Source: `src/composition/types.ts`
+Source: `packages/domain/src/composition/types.ts`
 
 ### Decorators
 
@@ -449,9 +449,9 @@ class. It appears at the top of `src/cli.ts` (runtime) and `tests/setup.ts` (tes
 ```
 
 Classes are used for stateful services; pure functions for stateless logic.
-The container is wired in `src/composition/domain.ts` (portable domain bootstrap),
+The container is wired in `packages/domain/src/composition/domain.ts` (portable domain bootstrap),
 `src/composition/cli.ts` (CLI entry, delegates to domain bootstrap), and
-`src/composition/test.ts` (test fakes via `set()`).
+`packages/domain/src/composition/test.ts` (test fakes via `set()`).
 
 ---
 
