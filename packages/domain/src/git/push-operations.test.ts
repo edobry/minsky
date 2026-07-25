@@ -490,4 +490,63 @@ describe("pushWithConfirmation", () => {
     expect(result.pushError).toMatch(/detached/);
     expect(calls.some((c) => RX_LS_REMOTE.test(c.command))).toBe(false);
   });
+
+  // mt#3177 R1 review (PR #2297): the first version of resolveVerificationTarget
+  // left its two LOCAL `rev-parse` calls completely unbounded — only the push
+  // call and the remote ls-remote check were bounded. A local git command can
+  // hang too (index lock, stalled filesystem/NFS mount, concurrent `git gc`),
+  // which would have silently reintroduced an unbounded wait exactly where this
+  // task exists to remove one. These two tests force each local rev-parse call
+  // to hang and confirm pushWithConfirmation still returns within the bound
+  // instead of hanging, degrading to the explicit pushUnconfirmed state.
+  test("bounds the SHA-resolution rev-parse call when it hangs -> pushUnconfirmed:true", async () => {
+    const { deps, calls } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3177\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [RX_PUSH, HANG],
+      // config.branch is supplied below, so resolveVerificationTarget skips
+      // its OWN branch-resolution call and goes straight to this SHA lookup —
+      // which hangs, isolating this test to exactly the call under test.
+      [CMD_REV_PARSE_HEAD, HANG],
+    ]);
+
+    const result = await pushWithConfirmation({ repoPath: WORKDIR }, deps, {
+      pushTimeoutMs: 20,
+      verifyTimeoutMs: 20,
+      branch: "task/mt-3177",
+    });
+
+    expect(result.pushed).toBe(false);
+    expect(result.pushTimedOut).toBe(true);
+    expect(result.pushUnconfirmed).toBe(true);
+    expect(result.pushConfirmedVia).toBeUndefined();
+    // The hung rev-parse never resolved a SHA, so ls-remote must never fire —
+    // proves the bound actually short-circuited verification rather than
+    // racing ls-remote in parallel with a still-hanging local call.
+    expect(calls.some((c) => RX_LS_REMOTE.test(c.command))).toBe(false);
+  });
+
+  test("bounds the branch-resolution rev-parse call when it hangs -> pushUnconfirmed:true", async () => {
+    // No config.branch supplied here, AND rev-parse --abbrev-ref HEAD hangs
+    // for EVERY call — including pushImpl's own FIRST call (made before the
+    // push step even runs). So the outer pushTimeoutMs race times out on
+    // pushImpl itself (never reaching the push command at all), and the
+    // verification phase's OWN attempt to resolve the branch (config.branch
+    // omitted) hits the exact same hanging command a second time — bounded
+    // independently by verifyTimeoutMs this time.
+    const { deps, calls } = makeDeps([[CMD_REV_PARSE_BRANCH, HANG]]);
+
+    const result = await pushWithConfirmation({ repoPath: WORKDIR }, deps, {
+      pushTimeoutMs: 20,
+      verifyTimeoutMs: 20,
+    });
+
+    expect(result.pushed).toBe(false);
+    expect(result.pushTimedOut).toBe(true);
+    expect(result.pushUnconfirmed).toBe(true);
+    expect(result.pushConfirmedVia).toBeUndefined();
+    // Never got far enough to resolve a SHA or query the remote.
+    expect(calls.some((c) => c.command === CMD_REV_PARSE_HEAD)).toBe(false);
+    expect(calls.some((c) => RX_LS_REMOTE.test(c.command))).toBe(false);
+  });
 });

@@ -284,18 +284,42 @@ export interface PushWithConfirmationConfig {
   branch?: string;
 }
 
+/**
+ * Resolve the (branch, expectedSha) pair `verifyRemoteRefAdvanced` needs,
+ * bounded (mt#3177 R1 review). Both `rev-parse` calls are LOCAL — no
+ * network — but local git commands can still hang (an `.git/index.lock`
+ * left by another process, a stalled filesystem/NFS mount, a concurrent
+ * `git gc`). Leaving these unbounded while only the push call and the
+ * remote `ls-remote` check were bounded would silently reintroduce the
+ * exact "never hang" guarantee this task exists to establish — a reviewer
+ * finding on PR #2297 caught this gap in the first version of this
+ * function. Reuses `verifyTimeoutMs` (the SAME bound `verifyRemoteRefAdvanced`
+ * applies to the remote check) rather than introducing a separate knob:
+ * both calls are part of the same post-push-timeout verification phase's
+ * wall-clock budget. Fails open (returns `undefined`) on EITHER a timeout
+ * or a thrown error — identical to the pre-existing catch-based fail-open
+ * behavior, just now also covering the timeout case. A caller that gets
+ * `undefined` back treats it as "could not resolve" either way (see
+ * `pushWithConfirmation`, which degrades straight to `pushUnconfirmed:
+ * true` — never guesses, never hangs waiting for a resolution that isn't
+ * bounded).
+ */
 async function resolveVerificationTarget(
   workdir: string,
   deps: PushDependencies,
   config: PushWithConfirmationConfig
 ): Promise<{ branch: string; expectedSha: string } | undefined> {
+  const timeoutMs = config.verifyTimeoutMs ?? DEFAULT_REMOTE_VERIFY_TIMEOUT_MS;
+
   let branch = config.branch;
   if (!branch) {
     try {
-      const { stdout } = await deps.execAsync(
-        `git -C ${shellQuote(workdir)} rev-parse --abbrev-ref HEAD`
+      const raced = await raceAgainstTimeout(
+        deps.execAsync(`git -C ${shellQuote(workdir)} rev-parse --abbrev-ref HEAD`),
+        timeoutMs
       );
-      branch = stdout.trim();
+      if (raced.timedOut) return undefined;
+      branch = raced.value.stdout.trim();
     } catch {
       return undefined;
     }
@@ -306,8 +330,12 @@ async function resolveVerificationTarget(
   }
 
   try {
-    const { stdout } = await deps.execAsync(`git -C ${shellQuote(workdir)} rev-parse HEAD`);
-    const expectedSha = stdout.trim();
+    const raced = await raceAgainstTimeout(
+      deps.execAsync(`git -C ${shellQuote(workdir)} rev-parse HEAD`),
+      timeoutMs
+    );
+    if (raced.timedOut) return undefined;
+    const expectedSha = raced.value.stdout.trim();
     if (!expectedSha) return undefined;
     return { branch, expectedSha };
   } catch {
