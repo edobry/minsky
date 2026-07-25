@@ -15,6 +15,7 @@ import {
   startDispatchWatchdogSweeper,
   startDeploySmokeSweeper,
   startFollowUpSweeper,
+  startConversationPresenceSweeper,
   startSweepMetaWatchdog,
 } from "../../cockpit/sweepers";
 import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
@@ -375,6 +376,14 @@ export function createStartCommand(): Command {
       // general by every sweeper in this list); this is simply its newest
       // registrant plus a DB-durable one-shot primitive layered on top.
       const stopFollowUpSweeper = startFollowUpSweeper();
+      // Conversation presence absence-detection sweep (mt#3201, mt#3130
+      // Phase 2): detects presence TRANSITIONS the write path structurally
+      // cannot emit — above all LIVE -> STALLED, since a killed process emits
+      // no event to retract its own `running` row — and pushes them on
+      // `minsky.conversation.presence_changed` for the SSE broker. Started
+      // BEFORE the meta-watchdog below so the watchdog covers it like every
+      // other sweep.
+      const stopConversationPresenceSweeper = startConversationPresenceSweeper();
       // Sweep meta-watchdog (mt#2894): a "sweep of sweeps" on its OWN
       // self-rescheduling setTimeout chain (deliberately not setInterval —
       // see sweepers.ts's docblock) that force-restarts any of the eight
@@ -396,6 +405,7 @@ export function createStartCommand(): Command {
         stopDispatchWatchdogSweeper();
         stopDeploySmokeSweeper();
         stopFollowUpSweeper();
+        stopConversationPresenceSweeper();
         stopSweepMetaWatchdog();
         removeCurrentCockpitState();
       };

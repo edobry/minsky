@@ -80,6 +80,8 @@ import { mountSweepRoutes } from "./routes/sweeps";
 import { mountFollowUpRoutes } from "./routes/follow-ups";
 import { mountDrivenSessionRoutes } from "./routes/driven-sessions";
 import { mountConversationRunStateRoutes } from "./routes/conversation-run-state";
+import { mountConversationPresenceRoutes } from "./routes/conversation-presence";
+import type { ConversationPresenceRoutesOptions } from "./routes/conversation-presence";
 import type { DrivenSessionRoutesOptions } from "./routes/driven-sessions";
 import {
   buildAllowedHosts,
@@ -193,6 +195,15 @@ export interface CockpitServerOptions {
    * ./routes/conversation-search.ts.
    */
   overrideConversationSearch?: ConversationSearchRouteOptions;
+  /**
+   * Test-only injection seam for the conversation-presence endpoint (mt#3201)
+   * — overrides the run-state / open-ask / workspace-id readers so tests
+   * exercise the real HTTP contract against plain injected values rather than
+   * mocking drizzle's query builder or depending on whatever connection
+   * happens to exist in-process (the mt#3016 lesson). Never set in
+   * production. See ./routes/conversation-presence.ts.
+   */
+  overrideConversationPresence?: ConversationPresenceRoutesOptions;
 }
 
 /**
@@ -319,6 +330,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountContextInspectorRoutes(app);
   mountSessionFilmRoutes(app); // mt#3184 — GET /api/cockpit/session-film/{events,sessions}
   mountConversationRunStateRoutes(app);
+  mountConversationPresenceRoutes(app, opts.overrideConversationPresence ?? {});
   mountEmbeddingsRoutes(app);
   mountSweepRoutes(app); // mt#2894 — GET /api/sweeps (per-sweep liveness registry)
   mountFollowUpRoutes(app); // mt#2322 — GET/POST /api/follow-ups (scheduled-follow-up primitive)

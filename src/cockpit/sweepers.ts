@@ -20,6 +20,7 @@
  * the `running` guard permanently `true`, silently starving every later tick.
  */
 import { log } from "@minsky/shared/logger";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
 import {
   getServerAskRepository,
@@ -27,6 +28,7 @@ import {
   getServerTaskService,
 } from "./db-providers";
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
+import { createPresenceSweepState } from "./conversation-presence-sweep";
 
 // ---------------------------------------------------------------------------
 // Shared sweeper timer helper (mt#2602 R1 review) — centralizes the
@@ -1144,6 +1146,110 @@ export function startFollowUpSweeper(opts?: FollowUpSweeperOptions): () => void 
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: follow-up sweep failed", { message });
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Conversation presence absence-detection sweep (mt#3201, mt#3130 Phase 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cadence for the presence sweep.
+ *
+ * Deliberately much SHORTER than the stall threshold it detects against
+ * (`PRESENCE_STALL_THRESHOLD_MS`, the measured ~24-minute turn-grain p99): the
+ * sweep's job is to notice a crossing promptly AFTER it happens, so its
+ * interval bounds detection LATENCY, not the threshold itself. One minute
+ * matches the meta-watchdog's own cadence and keeps the worst-case lag between
+ * "went stale" and "operator sees STALLED" to about a minute.
+ *
+ * The tick is cheap — one indexed range scan
+ * (`idx_conversation_run_state_last_event_at`) over a table with one row per
+ * conversation, plus a pure derivation per row.
+ */
+const CONVERSATION_PRESENCE_SWEEP_INTERVAL_MS = 60 * 1000;
+
+/**
+ * Start the conversation-presence absence-detection sweep (mt#3201).
+ *
+ * Detects presence TRANSITIONS (notably `LIVE` -> `STALLED`, which no writer
+ * can emit because a killed process emits nothing) and pushes them on
+ * `minsky.conversation.presence_changed` for the SSE broker to forward.
+ *
+ * It does NOT write a `presence` column — the schema deliberately has none, and
+ * the read path re-derives the value on every request. This sweep exists for
+ * PUSH and for other consumers, not to make the read path honest.
+ *
+ * Fail-open throughout: no SQL provider, a failed scan, or a dead NOTIFY all
+ * log and wait for the next tick. The read endpoint remains the contract.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startConversationPresenceSweeper(intervalMs?: number): () => void {
+  const state = createPresenceSweepState();
+
+  return createIntervalSweeper({
+    name: "conversation presence",
+    intervalMs: intervalMs ?? CONVERSATION_PRESENCE_SWEEP_INTERVAL_MS,
+    tick: async () => {
+      try {
+        const { getSharedPersistenceService } = await import("./shared-persistence");
+        const svc = await getSharedPersistenceService();
+        const provider = svc.getProvider();
+
+        const getDb =
+          "getDatabaseConnection" in provider &&
+          typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection ===
+            "function"
+            ? (
+                provider as {
+                  getDatabaseConnection: () => Promise<PostgresJsDatabase | null>;
+                }
+              ).getDatabaseConnection.bind(provider)
+            : null;
+        if (!getDb) {
+          log.debug("cockpit: presence sweep: no SQL-capable DB, skipping tick");
+          return;
+        }
+        const db = await getDb();
+        if (!db) return;
+
+        const getRawSql =
+          "getRawSqlConnection" in provider &&
+          typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function"
+            ? (
+                provider as { getRawSqlConnection: () => Promise<unknown> }
+              ).getRawSqlConnection.bind(provider)
+            : null;
+
+        const { listConversationsQuietSince } = await import(
+          "@minsky/domain/conversation-run-state/read"
+        );
+        const { runPresenceSweepTick } = await import("./conversation-presence-sweep");
+
+        const transitions = await runPresenceSweepTick(state, {
+          listQuietSince: (olderThan) => listConversationsQuietSince(db, olderThan),
+          now: () => new Date(),
+          emit: async (channel, payload) => {
+            if (!getRawSql) return;
+            const sql = (await getRawSql()) as {
+              unsafe: (query: string, params: unknown[]) => Promise<unknown>;
+            } | null;
+            if (!sql) return;
+            await sql.unsafe("SELECT pg_notify($1, $2)", [channel, payload]);
+          },
+        });
+
+        if (transitions.length > 0) {
+          log.info(`cockpit: ${transitions.length} conversation presence transition(s)`, {
+            transitions: transitions.map((t) => `${t.conversationId}: ${t.from ?? "-"}->${t.to}`),
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: conversation presence sweep failed", { message });
       }
     },
   });
