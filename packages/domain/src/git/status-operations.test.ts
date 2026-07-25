@@ -32,6 +32,7 @@ describe("statusImpl", () => {
     const result = await statusImpl({ repoPath: WORKDIR }, makeDeps(output));
     expect(result.workdir).toBe(WORKDIR);
     expect(result.branch).toBe("main");
+    expect(result.upstream).toBe("origin/main");
     expect(result.ahead).toBe(0);
     expect(result.behind).toBe(0);
     expect(result.staged).toHaveLength(0);
@@ -50,8 +51,54 @@ describe("statusImpl", () => {
     ].join(NUL);
     const result = await statusImpl({ repoPath: WORKDIR }, makeDeps(output));
     expect(result.branch).toBe("feature/x");
+    expect(result.upstream).toBe("origin/feature/x");
     expect(result.ahead).toBe(3);
     expect(result.behind).toBe(2);
+  });
+
+  describe("a branch with no upstream is distinguishable from one in sync (mt#3164)", () => {
+    // Git emits `# branch.ab` ONLY when an upstream exists. Before this, both
+    // values defaulted to 0, so a never-pushed branch and a fully-synced one
+    // returned byte-identical status — the ambiguity that forced a second tool
+    // call (`git status -sb`) to tell them apart, and that let three branches
+    // sit committed-but-unpushed overnight without it being visible.
+    const NO_UPSTREAM = [BRANCH_OID, "# branch.head task/mt-3164", ""].join(NUL);
+
+    test("reports no upstream, and ahead/behind as null rather than 0", async () => {
+      const result = await statusImpl({ repoPath: WORKDIR }, makeDeps(NO_UPSTREAM));
+      expect(result.branch).toBe("task/mt-3164");
+      expect(result.upstream).toBeNull();
+      expect(result.ahead).toBeNull();
+      expect(result.behind).toBeNull();
+    });
+
+    test("does NOT report 0 — the value that made it look in-sync", async () => {
+      // The regression assertion. `toBeNull` above would still hold if someone
+      // reintroduced a 0 default elsewhere and this parse path changed; this
+      // pins the specific wrong value.
+      const result = await statusImpl({ repoPath: WORKDIR }, makeDeps(NO_UPSTREAM));
+      expect(result.ahead).not.toBe(0);
+      expect(result.behind).not.toBe(0);
+    });
+
+    test("the in-sync case is materially different from the no-upstream case", async () => {
+      // The two states this task exists to separate, asserted side by side so a
+      // future change cannot quietly re-merge them.
+      const inSync = [
+        BRANCH_OID,
+        BRANCH_HEAD_MAIN,
+        "# branch.upstream origin/main",
+        BRANCH_AB_ZERO,
+        "",
+      ].join(NUL);
+
+      const synced = await statusImpl({ repoPath: WORKDIR }, makeDeps(inSync));
+      const unpushed = await statusImpl({ repoPath: WORKDIR }, makeDeps(NO_UPSTREAM));
+
+      expect(synced.upstream).not.toBeNull();
+      expect(unpushed.upstream).toBeNull();
+      expect(synced.ahead).not.toBe(unpushed.ahead);
+    });
   });
 
   test("parses ordinary changed entry with staged file", async () => {
