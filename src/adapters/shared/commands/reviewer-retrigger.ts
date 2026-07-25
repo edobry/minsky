@@ -73,6 +73,18 @@ export interface RetriggerResult {
   deliveryId?: string;
   /** URL of the posted `/review` comment (fallback path only). */
   commentUrl?: string;
+  /**
+   * The direct endpoint this attempt targeted (mt#3143). Present on every
+   * direct-path result and on a fallback that followed a direct failure, so an
+   * operator can tell WHICH host answered without reading source.
+   */
+  url?: string;
+  /**
+   * The direct path's failure, preserved when the `/review`-comment fallback
+   * ran because the direct path failed (mt#3143) — the fallback succeeding
+   * does not make the direct failure uninteresting.
+   */
+  directError?: string;
   /** Human-readable caveat (e.g. the fallback's async semantics). */
   note?: string;
   error?: string;
@@ -138,6 +150,141 @@ export async function postReviewCommentFallback(
 }
 
 /**
+ * Non-2xx statuses for which retrying through the `/review`-comment transport is
+ * meaningful (mt#3143).
+ *
+ * 404 / 502 / 503 / 504 mean the request never reached the reviewer's router —
+ * the reviewer's own `/retrigger` handler has no 404 path at all
+ * (`services/reviewer/src/server.ts`: 503 / 401 / 400 / 422 / 200 / 500 only), so
+ * a 404 is a routing verdict: a different app is serving the host, or no
+ * deployment is routed to it. 401 means the direct-endpoint credential was
+ * rejected. A different transport can plausibly succeed in all of those.
+ *
+ * Deliberately EXCLUDED:
+ *   - 400 / 422 — the reviewer's legitimate refusals (malformed request; PR
+ *     closed or draft). A comment fixes neither and would just post noise.
+ *   - 500 — the reviewer WAS reached and failed inside its own handler. The
+ *     comment path re-enters the same service, so it is not an alternative.
+ */
+const FALLBACK_ELIGIBLE_STATUSES = new Set([401, 404, 502, 503, 504]);
+
+/**
+ * Pull a human-readable message out of an upstream error body.
+ *
+ * The bodies this must cope with are not one shape:
+ *   - the reviewer's own errors: `{"error":"unauthorized"}`
+ *   - Railway's unrouted-host 404:
+ *     `{"status":"error","code":404,"message":"Application not found"}`
+ *   - the reviewer's unmatched-route 404: `not found` (plain text, handled by
+ *     the caller's non-JSON branch)
+ *
+ * Reading only `error` is what made every non-reviewer failure render as a bare
+ * `HTTP <status>` with no indication of which host answered — the defect that
+ * produced two duplicate task filings against the wrong subsystem (mt#3143).
+ */
+export function extractUpstreamMessage(body: unknown): string | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
+  const record = body as Record<string, unknown>;
+  for (const key of ["error", "message"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
+/**
+ * Build the operator-facing description of a failed direct attempt: the full URL
+ * that was targeted, the status, and whatever the upstream said (mt#3143).
+ */
+export function describeDirectFailure(args: {
+  pr: number;
+  url: string;
+  status: number;
+  upstreamMessage?: string;
+}): RetriggerResult {
+  const detail = args.upstreamMessage ? `: ${args.upstreamMessage}` : "";
+  return {
+    ok: false,
+    pr: args.pr,
+    path: "direct",
+    url: args.url,
+    error: `POST ${args.url} returned HTTP ${args.status}${detail}`,
+  };
+}
+
+async function createReviewCommentClient(githubToken: string): Promise<ReviewCommentClient> {
+  const { Octokit } = await import("@octokit/rest");
+  const { createTimeoutFetch } = await import("@minsky/domain/github/octokit-timeout");
+  const octokit = new Octokit({ auth: githubToken, request: { fetch: createTimeoutFetch() } });
+  return octokit.rest.issues;
+}
+
+/**
+ * Injectable seam for the `/review`-comment client (mt#3143). The fallback now
+ * fires on direct-path FAILURE, not only on a missing token, so the failure
+ * branches need to be exercisable without a live GitHub call. Production passes
+ * nothing and gets the real Octokit-backed client.
+ */
+export interface RetriggerDependencies {
+  createCommentClient?: (githubToken: string) => Promise<ReviewCommentClient>;
+}
+
+/**
+ * Attempt the `/review`-comment transport after the DIRECT path failed (mt#3143).
+ * Returns undefined when no GitHub credential is configured, so the caller can
+ * surface the direct failure unchanged.
+ *
+ * Bounded value, stated rather than implied: this recovers a failure specific to
+ * the direct ENDPOINT (route moved, endpoint retired, credential rejected). It
+ * does NOT recover a host outage — GitHub delivers the resulting comment's
+ * webhook to the same host that just failed, so if the reviewer is down or
+ * serving the wrong app, this path produces no review either.
+ */
+async function attemptCommentFallbackAfterFailure(args: {
+  pr: number;
+  owner: string;
+  repo: string;
+  githubToken: string | undefined;
+  /** The direct endpoint that was attempted — carried onto the result so a
+   * fallback still names the host that failed (mt#3143 PR #2289 R1). */
+  url: string;
+  directError: string;
+  createCommentClient: (githubToken: string) => Promise<ReviewCommentClient>;
+}): Promise<RetriggerResult | undefined> {
+  const { pr, owner, repo, githubToken, url, directError, createCommentClient } = args;
+  if (!githubToken) return undefined;
+
+  log.cli(
+    `Direct retrigger failed (${directError}) — falling back to the GitHub-auth \`/review\` comment path.`
+  );
+
+  const client = await createCommentClient(githubToken);
+  const result = await postReviewCommentFallback(client, { pr, owner, repo });
+
+  log.info("reviewer.retrigger.fallback", {
+    event: "reviewer.retrigger.fallback",
+    pr,
+    owner,
+    repo,
+    ok: result.ok,
+    commentUrl: result.commentUrl,
+    trigger: "direct-failure",
+    directError,
+  });
+
+  return {
+    ...result,
+    url,
+    directError,
+    note:
+      `The direct endpoint failed (${directError}); fell back to posting a \`/review\` comment ` +
+      "via the local GitHub credential. The reviewer picks it up asynchronously (open PRs only). " +
+      "If the reviewer host is down or serving the wrong app, this fallback will not produce a " +
+      "review either — GitHub delivers the comment's webhook to that same host.",
+  };
+}
+
+/**
  * Resolve the reviewer-webhook URL + the auth token from Minsky configuration.
  *
  * URL (mt#2269): `reviewer.url` ← `MINSKY_REVIEWER_URL`, falling back to the
@@ -191,12 +338,12 @@ export function resolveReviewerEndpoint(
  * testable through the real configuration seam (`initializeConfiguration`)
  * without going through the shared-command registry.
  */
-export async function runReviewerRetrigger(args: {
-  pr: number;
-  owner: string;
-  repo: string;
-}): Promise<RetriggerResult> {
+export async function runReviewerRetrigger(
+  args: { pr: number; owner: string; repo: string },
+  deps: RetriggerDependencies = {}
+): Promise<RetriggerResult> {
   const { pr, owner, repo } = args;
+  const createCommentClient = deps.createCommentClient ?? createReviewCommentClient;
 
   // Resolve the reviewer endpoint from the Minsky config system. The URL
   // override (MINSKY_REVIEWER_URL → reviewer.url, mt#2269) and the auth
@@ -217,10 +364,8 @@ export async function runReviewerRetrigger(args: {
       log.cli(
         "mcp.auth.token is not set — falling back to the GitHub-auth `/review` comment path (mt#2679)."
       );
-      const { Octokit } = await import("@octokit/rest");
-      const { createTimeoutFetch } = await import("@minsky/domain/github/octokit-timeout");
-      const octokit = new Octokit({ auth: githubToken, request: { fetch: createTimeoutFetch() } });
-      const result = await postReviewCommentFallback(octokit.rest.issues, {
+      const client = await createCommentClient(githubToken);
+      const result = await postReviewCommentFallback(client, {
         pr,
         owner,
         repo,
@@ -232,6 +377,7 @@ export async function runReviewerRetrigger(args: {
         repo,
         ok: result.ok,
         commentUrl: result.commentUrl,
+        trigger: "no-mcp-token",
       });
       return result;
     }
@@ -274,53 +420,118 @@ export async function runReviewerRetrigger(args: {
     usedDefaultUrl,
   });
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${authToken}`,
-    },
-    body: JSON.stringify({ pr, owner, repo }),
-  });
-
-  let body: RetriggerResult;
+  let response: Response;
   try {
-    body = (await response.json()) as RetriggerResult;
-  } catch {
-    // Non-JSON error body (proxy HTML, plain-text 502s): sanitize before it
-    // lands in the result — strip control chars, collapse whitespace, and cap
-    // length so a full error page doesn't flood the caller (PR #1855 R1).
-    const text = await response.text().catch(() => "");
-    const { safeTruncate } = await import("../../../utils/safe-truncate");
-    const sanitized = safeTruncate(
-      text
-        // eslint-disable-next-line no-control-regex -- deliberately stripping control chars from untrusted error bodies
-        .replace(/[\x00-\x1f\x7f]+/g, " ")
-        .replace(/\s+/g, " ")
-        .trim(),
-      300,
-      "head"
-    );
-    body = { ok: false, pr, error: sanitized || `HTTP ${response.status}` };
-  }
-
-  if (!response.ok) {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ pr, owner, repo }),
+    });
+  } catch (err) {
+    // No response at all — DNS failure, connection refused, timeout. Name the
+    // URL: this is the case where "which host did it even try?" matters most.
+    const message = err instanceof Error ? err.message : String(err);
+    const failure: RetriggerResult = {
+      ok: false,
+      pr,
+      path: "direct",
+      url,
+      error: `POST ${url} failed before any response: ${message}`,
+    };
     log.error("reviewer.retrigger.failed", {
       event: "reviewer.retrigger.failed",
       pr,
-      status: response.status,
-      error: body.error,
+      url,
+      error: failure.error,
     });
-    return { ok: false, pr, path: "direct", error: body.error ?? `HTTP ${response.status}` };
+    return (
+      (await attemptCommentFallbackAfterFailure({
+        pr,
+        owner,
+        repo,
+        githubToken,
+        url,
+        directError: failure.error as string,
+        createCommentClient,
+      })) ?? failure
+    );
   }
+
+  // Read the body exactly ONCE. The previous shape called `response.json()` and
+  // then `response.text()` inside the catch — but the failed `json()` has already
+  // consumed the stream, so `text()` threw "Body already used", the `.catch`
+  // swallowed it, and the sanitized-text branch silently produced nothing. Any
+  // non-JSON error body (the reviewer's own plain-text `not found`, a proxy's
+  // HTML 502) was therefore invisible. Reading text first and parsing it here is
+  // what makes that branch reachable at all.
+  const rawText = await response.text().catch(() => "");
+  let parsedBody: unknown;
+  try {
+    parsedBody = rawText.length > 0 ? JSON.parse(rawText) : undefined;
+  } catch {
+    parsedBody = undefined;
+  }
+
+  let nonJsonBody: string | undefined;
+  if (parsedBody === undefined && rawText.length > 0) {
+    // Strip control chars, collapse whitespace, and cap length so a full error
+    // page doesn't flood the caller (PR #1855 R1).
+    const { safeTruncate } = await import("../../../utils/safe-truncate");
+    nonJsonBody =
+      safeTruncate(
+        rawText
+          // eslint-disable-next-line no-control-regex -- deliberately stripping control chars from untrusted error bodies
+          .replace(/[\x00-\x1f\x7f]+/g, " ")
+          .replace(/\s+/g, " ")
+          .trim(),
+        300,
+        "head"
+      ) || undefined;
+  }
+
+  if (!response.ok) {
+    const failure = describeDirectFailure({
+      pr,
+      url,
+      status: response.status,
+      upstreamMessage: extractUpstreamMessage(parsedBody) ?? nonJsonBody,
+    });
+    log.error("reviewer.retrigger.failed", {
+      event: "reviewer.retrigger.failed",
+      pr,
+      url,
+      status: response.status,
+      error: failure.error,
+    });
+
+    if (FALLBACK_ELIGIBLE_STATUSES.has(response.status)) {
+      const fallback = await attemptCommentFallbackAfterFailure({
+        pr,
+        owner,
+        repo,
+        githubToken,
+        url,
+        directError: failure.error as string,
+        createCommentClient,
+      });
+      if (fallback) return fallback;
+    }
+
+    return failure;
+  }
+
+  const deliveryId = (parsedBody as { deliveryId?: string } | null | undefined)?.deliveryId;
 
   log.info("reviewer.retrigger.success", {
     event: "reviewer.retrigger.success",
     pr,
-    deliveryId: body.deliveryId,
+    deliveryId,
   });
 
-  return { ok: true, pr, path: "direct", deliveryId: body.deliveryId };
+  return { ok: true, pr, path: "direct", url, deliveryId };
 }
 
 // ---------------------------------------------------------------------------
