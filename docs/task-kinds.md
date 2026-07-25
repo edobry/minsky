@@ -244,7 +244,7 @@ CLOSED      → TODO (reopen)
 
 ## Workflow definition shape
 
-The registry lives at `src/domain/tasks/workflows.ts`. Each entry has this shape:
+The registry lives at `packages/domain/src/tasks/workflows.ts`. Each entry has this shape:
 
 ```typescript
 interface Workflow {
@@ -278,7 +278,7 @@ field-by-field mapping without additional reverse-engineering.
 
 ## How the gate dispatches on kind
 
-`validateStatusTransition(from, to, kind?)` in `src/domain/tasks/status-transitions.ts`:
+`validateStatusTransition(from, to, kind?)` in `packages/domain/src/tasks/status-transitions.ts`:
 
 1. Reads `kind` from the task (defaults to `"implementation"` when unset).
 2. Calls `getWorkflow(kind)` to look up the workflow (falls back to `implementation`
@@ -296,7 +296,7 @@ apply only when `kind === "implementation"`.
 
 Adding a new kind requires **two changes only**:
 
-1. **Registry entry**: add a new entry to `WORKFLOWS` in `src/domain/tasks/workflows.ts`
+1. **Registry entry**: add a new entry to `WORKFLOWS` in `packages/domain/src/tasks/workflows.ts`
    with the full workflow definition (states, transitions, terminal, mappings).
 
 2. **Type union**: add the kind string to `TaskKind` in the same file.
@@ -443,7 +443,7 @@ end-to-end; mt#2311 later collapsed COMPLETED into DONE and migrated its rows
 - `mt#455` — work-content type classification (orthogonal axis)
 - `packages/domain/src/tasks/workflows.ts` — the workflow registry
 - `packages/domain/src/tasks/status-transitions.ts` — the gate that dispatches on kind
-- `src/domain/storage/migrations/pg/0036_add_task_kind.sql` — DB migration
+- `packages/domain/src/storage/migrations/pg/0036_add_task_kind.sql` — DB migration
 - `scripts/migrate-task-kinds.ts` — kind backfill script (promote-only, mt#2761)
 - `scripts/migrate-task-kinds-classify.ts` — extracted, unit-tested classification function
 - `scripts/smoke-task-kinds.ts` — smoke test for the system
