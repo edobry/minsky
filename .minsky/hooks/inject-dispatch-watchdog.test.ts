@@ -37,6 +37,7 @@ function flag(over: Partial<DispatchWatchdogCacheRecord["flags"][number]> = {}) 
     startedAt: "2026-07-07T11:00:00.000Z",
     lastActivityAt: "2026-07-07T11:00:00.000Z",
     staleForMs: 60 * 60 * 1000,
+    activitySource: "dispatch-start" as const,
     ...over,
   };
 }
@@ -89,6 +90,28 @@ describe("parseDispatchWatchdogCache", () => {
     const rec = parseDispatchWatchdogCache(JSON.stringify(cacheAt([raw as never])));
     expect(rec?.flags[0]?.subagentSessionId).toBeNull();
   });
+
+  // mt#3172: a cache file written by a producer build that predates the
+  // activitySource field (rollout window) must not drop the whole flag.
+  test("normalizes a missing activitySource to 'dispatch-start'", () => {
+    const raw = { ...flag() };
+    delete (raw as Record<string, unknown>).activitySource;
+    const rec = parseDispatchWatchdogCache(JSON.stringify(cacheAt([raw as never])));
+    expect(rec?.flags[0]?.activitySource).toBe("dispatch-start");
+  });
+
+  test("preserves a recognized non-default activitySource", () => {
+    const rec = parseDispatchWatchdogCache(
+      JSON.stringify(cacheAt([flag({ activitySource: "presence" })]))
+    );
+    expect(rec?.flags[0]?.activitySource).toBe("presence");
+  });
+
+  test("normalizes an unrecognized activitySource value to 'dispatch-start'", () => {
+    const raw = { ...flag(), activitySource: "not-a-real-source" };
+    const rec = parseDispatchWatchdogCache(JSON.stringify(cacheAt([raw as never])));
+    expect(rec?.flags[0]?.activitySource).toBe("dispatch-start");
+  });
 });
 
 describe("formatAge", () => {
@@ -136,6 +159,18 @@ describe("formatDispatchWatchdogState", () => {
   test("a missing subagentSessionId renders a readable placeholder, not 'null'", () => {
     const out = formatDispatchWatchdogState(cacheAt([flag({ subagentSessionId: null })]));
     expect(out).toMatch(/\(no session id\)/);
+  });
+
+  // mt#3172 AT3: the banner names the freshest signal consulted per flagged
+  // dispatch (parity with tasks.dispatch-recover's activitySource field).
+  test("AT3: the banner names the flag's activitySource", () => {
+    const out = formatDispatchWatchdogState(cacheAt([flag({ activitySource: "presence" })]));
+    expect(out).toMatch(/source=presence/);
+  });
+
+  test("AT3: a dispatch-start-only flag names 'dispatch-start' as its source", () => {
+    const out = formatDispatchWatchdogState(cacheAt([flag({ activitySource: "dispatch-start" })]));
+    expect(out).toMatch(/source=dispatch-start/);
   });
 
   test("multiple flags each get their own line", () => {

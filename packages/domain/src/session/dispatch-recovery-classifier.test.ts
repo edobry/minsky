@@ -124,6 +124,20 @@ describe("computeDispatchStaleness", () => {
     expect(result.lastActivityAtMs).toBe(lastCommit);
     expect(result.activitySource).toBe("commit");
   });
+
+  // mt#3172 PR #2294 R1: pin the tie behavior explicitly — commit and
+  // presence sharing the IDENTICAL timestamp must resolve to "commit"
+  // (the earlier-checked signal), because the presence check requires
+  // STRICTLY exceeding the value the commit check already set (`>`, not
+  // `>=`). This is the reference tie behavior the watchdog producer's own
+  // staleness computation (src/cockpit/dispatch-watchdog.ts) mirrors.
+  test("a commit and presence-claim refresh at the identical timestamp resolve to 'commit' (tie -> earlier-checked signal wins)", () => {
+    const now = START + 20 * 60 * 1000;
+    const tiedMs = START + 15 * 60 * 1000;
+    const result = computeDispatchStaleness(START, tiedMs, now, DISPATCH_RECOVERY_STALE_MS, tiedMs);
+    expect(result.lastActivityAtMs).toBe(tiedMs);
+    expect(result.activitySource).toBe("commit");
+  });
 });
 
 describe("classifyDispatchRecoveryState", () => {
