@@ -434,6 +434,22 @@ export class ConflictDetectionService {
         };
       }
 
+      // mt#3220: an undeterminable comparison must NOT take the no-update path.
+      // Before `"unknown"` existed, a failed `rev-list` surfaced as `"none"` and
+      // landed here, returning "No update needed - session is current or ahead"
+      // — a confident claim about a comparison that never happened, which is
+      // how a session that WAS behind could be silently skipped.
+      if (divergence.divergenceType === "unknown") {
+        return {
+          workdir: repoPath,
+          updated: false,
+          skipped: true,
+          reason:
+            "Could not determine branch divergence (git rev-list failed or returned unparseable output) - skipping update; manual review recommended",
+          divergenceAnalysis: divergence,
+        };
+      }
+
       // If no update needed
       if (divergence.divergenceType === "none" || divergence.divergenceType === "ahead") {
         return {
