@@ -5,7 +5,6 @@ import type { SessionProviderInterface } from "../session";
 import { execAsync } from "@minsky/shared/exec";
 import { normalizeRepositoryURI } from "../repository-uri";
 import { GitService } from "../git";
-import { pushWithConfirmation } from "../git/push-operations";
 import { execGitWithTimeout } from "../utils/git-exec";
 import { MinskyError } from "../errors/index";
 import type { RepositoryStatus } from "./legacy-types";
@@ -518,15 +517,16 @@ Repository: https://github.com/${this.owner}/${this.repo}
       // definition and its interface declaration), but it's a REQUIRED
       // member of the `RepositoryBackend`/`ForgeBackend` interface (`push():
       // Promise<Result>`), so it cannot simply be deleted without a wider
-      // interface change that is out of scope here. Bounding it via
-      // `pushWithConfirmation` (the same fix mt#3177 applied to
-      // `session_commit` and the standalone `git.push` MCP command) closes
-      // the same unbounded-hang hazard in case a future caller reaches this
-      // interface method.
-      const pushResult = await pushWithConfirmation(
-        { repoPath: workdir, remote: "origin" },
-        { execAsync }
-      );
+      // interface change that is out of scope here. No change needed HERE
+      // though: `GitService.push()` itself (git.ts) now delegates to
+      // `pushWithConfirmation` internally, so this call inherits the
+      // bound/confirmation behavior automatically, closing the same
+      // unbounded-hang hazard mt#3177 fixed elsewhere, in case a future
+      // caller reaches this interface method.
+      const pushResult = await this.gitService.push({
+        repoPath: workdir,
+        remote: "origin",
+      });
 
       return {
         success: pushResult.pushed,
