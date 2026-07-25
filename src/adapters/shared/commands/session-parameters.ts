@@ -276,7 +276,9 @@ export const sessionCommitCommandParams = composeParams(
     pushTimeoutMs: {
       schema: z.number().int().positive(),
       description:
-        "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes.",
+        "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes. " +
+        "On timeout (mt#3177), the remote branch head is verified directly via `git ls-remote` " +
+        "before reporting an outcome — see the `pushConfirmedVia`/`pushUnconfirmed` result fields.",
       required: false,
     },
   }
