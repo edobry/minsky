@@ -96,6 +96,17 @@ describe("detectAgentHarness", () => {
   test("returns 'standalone' when no relevant env vars are set", () => {
     expect(detectAgentHarness()).toBe("standalone");
   });
+
+  // mt#2712 R1: this case was covered by the now-deleted stale duplicate
+  // (tests/domain/runtime/harness-detection.test.ts's "claude-code takes
+  // priority over cursor") but had no equivalent here -- the canonical
+  // suite was not a strict superset. Re-added so the priority behavior
+  // stays covered.
+  test("claude-code takes priority over cursor when both are set", () => {
+    process.env.CLAUDECODE = "1";
+    process.env.VSCODE_PID = "1234";
+    expect(detectAgentHarness()).toBe("claude-code");
+  });
 });
 
 describe("hasNativeSubagentSupport", () => {
@@ -104,6 +115,16 @@ describe("hasNativeSubagentSupport", () => {
   test("returns true when running in claude-code (CLAUDECODE)", () => {
     process.env.CLAUDECODE = "1";
     expect(hasNativeSubagentSupport()).toBe(true);
+  });
+
+  // mt#2712 R1: this case was covered by the now-deleted stale duplicate
+  // (tests/domain/runtime/harness-detection.test.ts's "returns false for
+  // cursor (not yet supported)") but had no equivalent here -- the
+  // canonical suite was not a strict superset. Re-added so cursor's
+  // no-native-subagent-support behavior stays covered.
+  test("returns false for cursor (not yet supported)", () => {
+    process.env.CURSOR_SESSION_ID = "abc123";
+    expect(hasNativeSubagentSupport()).toBe(false);
   });
 
   test("returns false in standalone mode", () => {

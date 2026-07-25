@@ -24,7 +24,7 @@ import path from "path";
 import os from "os";
 import net from "net";
 import { spawn } from "child_process";
-import type { SpawnLike } from "./port-recovery";
+import type { PortHolder, SpawnLike } from "./port-recovery";
 import {
   classifyPortHolder,
   findPortHolder,
@@ -122,17 +122,30 @@ describe("isProcessAlive", () => {
 const skipOnWindows = process.platform === "win32" ? test.skip : test;
 
 describe("findPortHolder", () => {
-  // quarantined: pre-existing failure, tracked in mt#2712. Timing/port-
-  // contention flake -- findFreePort() finds a free port, but another
-  // process (plausibly a stray listener left by an earlier cockpit-server
-  // test in the same run) can grab it before findPortHolder() checks.
-  // Unmasked by mt#2665's CI fix, not caused by it; unrelated to this PR's
-  // scope. (test.skip used directly, not skipOnWindows, since this needs to
-  // be skipped on ALL platforms, not just Windows.)
-  // eslint-disable-next-line custom/no-skipped-tests -- genuine quarantine of a pre-existing failure (mt#2712), not a placeholder; see comment above.
-  test.skip("returns null when no process holds the port", async () => {
-    const port = await findFreePort();
-    expect(findPortHolder(port)).toBeNull();
+  // mt#2712: findFreePort() binds to port 0 (OS-assigned) and reads back the
+  // assigned port before releasing it -- but there is an inherent TOCTOU gap
+  // between releasing the port and findPortHolder()'s `lsof` check (itself a
+  // subprocess spawn) during which another process (plausibly a stray
+  // listener left by an earlier cockpit-server test in the same suite run)
+  // can grab that exact port. Rather than weakening the assertion, retry
+  // with a freshly OS-assigned port on the rare occasion a genuine
+  // collision occurs -- a transient contention from an unrelated process is
+  // not a defect in findPortHolder itself. A short delay between retries
+  // (mt#2712 R1) covers the case where the stray holder is itself
+  // short-lived (e.g. a sibling test's listener mid-teardown) -- a
+  // back-to-back retry with no delay could re-collide with the same
+  // still-shutting-down process.
+  test("returns null when no process holds the port", async () => {
+    let holder: PortHolder | null = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+      }
+      const port = await findFreePort();
+      holder = findPortHolder(port);
+      if (holder === null) break;
+    }
+    expect(holder).toBeNull();
   });
 
   skipOnWindows("returns this process's PID when we hold the port", async () => {
