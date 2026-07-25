@@ -114,8 +114,12 @@ export function classifyOctokitError(error: unknown): OctokitErrorInfo {
  * An EMPTY `Error:` line is worse than no line: it reads as "the tool has nothing to say"
  * when the truth is "the server said nothing," and it gives the reader no way to tell those
  * apart. Naming the absence explicitly is what makes the difference legible (mt#3171).
+ *
+ * Kept SHORT (PR #2313 R1): this string is excerpted into one-line summaries by
+ * `withOriginalMessage` at the adapter layer, where a long parenthetical crowds out the
+ * headline it is attached to.
  */
-export const NO_DETAIL_PLACEHOLDER = "(no message supplied by GitHub — see HTTP status above)";
+export const NO_DETAIL_PLACEHOLDER = "(no message from GitHub)";
 
 /**
  * Pick the most informative human-readable detail available for a failed request.
@@ -124,13 +128,19 @@ export const NO_DETAIL_PLACEHOLDER = "(no message supplied by GitHub — see HTT
  *   1. `ghMessage` — GitHub's OWN `response.data.message`. The server's account of what went
  *      wrong is strictly more useful than the client library's, which is often a generic
  *      restatement of the status line.
- *   2. `message` — the Error object's own `.message`.
- *   3. A display rendering of `ghErrors` (`response.data.errors[]`).
+ *   2. A display rendering of `ghErrors` (`response.data.errors[]`) — also SERVER-supplied,
+ *      so it outranks the client-side `.message` below.
+ *   3. `message` — the Error object's own `.message`, the client library's account.
  *
- * NOTE on (3): this re-renders `ghErrors` rather than reusing {@link OctokitErrorInfo.ghErrorsText},
+ * The ordering principle is server-before-client (PR #2313 R1): both (1) and (2) come from
+ * GitHub's response body; (3) is whatever Octokit chose to put on the Error. The original
+ * implementation put (3) second, which contradicted that principle and this task's own SC1.
+ *
+ * NOTE on (2): this re-renders `ghErrors` rather than reusing {@link OctokitErrorInfo.ghErrorsText},
  * because that field is lowercased and space-joined for SUBSTRING MATCHING — displaying it would
  * show the user mangled text. Matching text and display text are different products of the same
- * source.
+ * source. (SC1 originally named `ghErrorsText` directly; the spec was corrected to name the
+ * display rendering, since the matching field is unfit for display.)
  *
  * Returns null when every candidate is empty, so callers can decide how to render the absence.
  *
@@ -140,17 +150,22 @@ export const NO_DETAIL_PLACEHOLDER = "(no message supplied by GitHub — see HTT
  * parsed and sitting one field away, was never shown.
  */
 export function selectErrorDetail(info: OctokitErrorInfo): string | null {
-  for (const candidate of [info.ghMessage, info.message]) {
-    if (typeof candidate === "string" && candidate.trim().length > 0) {
-      return candidate.trim();
-    }
+  if (typeof info.ghMessage === "string" && info.ghMessage.trim().length > 0) {
+    return info.ghMessage.trim();
   }
 
   const structured = info.ghErrors
     .map((e) => [e?.["message"], e?.["code"], e?.["field"]].filter(Boolean).join(" ").trim())
     .filter((s) => s.length > 0);
+  if (structured.length > 0) {
+    return structured.join("; ");
+  }
 
-  return structured.length > 0 ? structured.join("; ") : null;
+  if (typeof info.message === "string" && info.message.trim().length > 0) {
+    return info.message.trim();
+  }
+
+  return null;
 }
 
 /** Build the trailing `Error: …` line, never bare. See {@link NO_DETAIL_PLACEHOLDER}. */

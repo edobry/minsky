@@ -313,6 +313,22 @@ describe("mt#3171 — selectErrorDetail preference order", () => {
     expect(selectErrorDetail(info)).toBe("upstream timeout custom base");
   });
 
+  // PR #2313 R1 (BLOCKING): the original implementation put `.message` SECOND, ahead of
+  // `ghErrors`. That contradicted both SC1 and the stated server-before-client principle —
+  // `ghErrors` comes from GitHub's response body, `.message` is whatever Octokit put on the
+  // Error. This pins the corrected order so it cannot silently regress.
+  test("server-supplied ghErrors outranks the client-supplied .message", () => {
+    const info = classifyOctokitError(
+      makeDetailError(500, {
+        message: "client-side restatement",
+        ghMessage: "",
+        ghErrors: [{ message: "server-side detail", code: "custom" }],
+      })
+    );
+    expect(selectErrorDetail(info)).toBe("server-side detail custom");
+    expect(selectErrorDetail(info)).not.toContain("client-side restatement");
+  });
+
   test("whitespace-only candidates do not count as detail", () => {
     const info = classifyOctokitError(makeDetailError(500, { message: "   ", ghMessage: "\n\t" }));
     expect(selectErrorDetail(info)).toBeNull();
