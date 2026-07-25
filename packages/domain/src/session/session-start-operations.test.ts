@@ -278,6 +278,7 @@ describe("startSessionImpl - recover on an abandoned CREATED-state session (mt#2
 //   no record + branch     -> recover FROM the branch
 //   stale record + branch  -> recover FROM the branch (not main)
 const REMOTE_BRANCH_LS_OUTPUT = "abc123\trefs/heads/task/md-999\n";
+const ORIGIN_TRACKING_REF = "origin/task/md-999";
 
 /**
  * Wire a git service whose `execInRepository` answers the remote probe the way
@@ -328,7 +329,7 @@ describe("startSessionImpl - --recover honors or refuses on every path (mt#3166)
     expect(await sessionDB.listSessions({ taskId: "md#999" })).toHaveLength(0);
   });
 
-  it("recovers FROM the remote branch when one exists (fetch + checkout FETCH_HEAD, not a fresh branch)", async () => {
+  it("recovers FROM the remote branch when one exists (fetch from origin + checkout, not a fresh branch)", async () => {
     const deps = createDepsWithRemote({ branchOnRemote: true });
     const params = { task: "md#999", recover: true } as unknown as SessionStartParameters;
 
@@ -338,7 +339,19 @@ describe("startSessionImpl - --recover honors or refuses on every path (mt#3166)
     const checkedOut = deps.commands.find((c) => c.includes("checkout -b"));
     expect(fetched).toBeDefined();
     expect(fetched).toContain("refs/heads/task/md-999");
-    expect(checkedOut).toContain("FETCH_HEAD");
+    // Fetch goes through `origin`, which carries the clone's credentials — a
+    // bare-URL fetch would re-authenticate from scratch and fail on a private
+    // repo (PR #2299 R1).
+    expect(fetched).toContain("origin");
+    expect(fetched).not.toContain("https://");
+    expect(checkedOut).toContain(ORIGIN_TRACKING_REF);
+
+    // Upstream is configured, so a later push/PR from this session targets the
+    // branch it was recovered from instead of erroring on a missing upstream.
+    // Matched in two parts because the ref is shell-quoted.
+    const upstream = deps.commands.find((c) => c.includes("--set-upstream-to="));
+    expect(upstream).toBeDefined();
+    expect(upstream).toContain(ORIGIN_TRACKING_REF);
 
     // The plain "branch off whatever the clone landed on" path is NOT used —
     // that is precisely the silent substitution this task removes.
@@ -359,7 +372,7 @@ describe("startSessionImpl - --recover honors or refuses on every path (mt#3166)
 
     await startSessionImpl(params, deps);
 
-    expect(deps.commands.some((c) => c.includes("FETCH_HEAD"))).toBe(true);
+    expect(deps.commands.some((c) => c.includes(ORIGIN_TRACKING_REF))).toBe(true);
     // The abandoned record was cleared, not left beside the new session.
     const found = await sessionDB.listSessions({ taskId: "md#999" });
     expect(found).toHaveLength(1);

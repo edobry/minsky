@@ -87,13 +87,19 @@ interface ValidatedSessionContext {
 /**
  * Does `refs/heads/<branchName>` exist on the remote? (mt#3166)
  *
- * Probes the canonical repo URL rather than a remote NAME: `cloneSource` is the
- * LOCAL repo whenever one is available, so a session clone's `origin` is not
- * reliably the forge. Read-only — safe to call from the precondition phase.
+ * Queries `origin` from `probeDir` rather than a bare URL (PR #2299 R1): this
+ * repo is private, so a bare-URL `ls-remote` would re-authenticate from scratch
+ * and fail, while `origin` carries the credentials that directory is already
+ * configured with. `probeDir` is the main workspace (or the auto-detected
+ * reference clone, which was selected precisely BECAUSE its origin resolves to
+ * the same repo) — both are real git repositories with this repo as `origin`.
+ *
+ * Read-only — safe to call from the precondition phase.
  *
  * A FAILED probe is not evidence of absence. Treating it as absence would turn a
- * transient network error into "nothing to recover" and refuse a recovery that
- * should have succeeded, so this throws instead of returning false.
+ * transient network error — or a probe directory that isn't the repo we expect —
+ * into "nothing to recover" and refuse a recovery that should have succeeded, so
+ * this throws instead of returning false.
  */
 async function remoteBranchExists(
   deps: StartSessionDependencies,
@@ -104,13 +110,15 @@ async function remoteBranchExists(
   try {
     const output = await deps.gitService.execInRepository(
       probeDir,
-      `git ls-remote --heads ${safeShellQuote(repoUrl)} ${safeShellQuote(`refs/heads/${branchName}`)}`
+      `git ls-remote --heads origin ${safeShellQuote(`refs/heads/${branchName}`)}`
     );
+    // `ls-remote` exits 0 for BOTH present and absent refs — verified live
+    // against this repo — so presence is decided by output, never exit status.
     return output.trim().length > 0;
   } catch (err) {
     throw new MinskyError(
       `Could not determine whether the remote branch '${branchName}' exists ` +
-        `(ls-remote against ${repoUrl} failed): ${getErrorMessage(err)}\n\n` +
+        `(ls-remote for ${repoUrl} from ${probeDir} failed): ${getErrorMessage(err)}\n\n` +
         `Recovery is refused rather than guessed — a failed probe is not evidence the branch ` +
         `is absent. Re-run once the remote is reachable.`
     );
@@ -605,9 +613,12 @@ async function executeMutations(
       // whatever the clone landed on (main) and silently discard the branch's
       // work — the defect this task exists to remove.
       //
-      // Fetch by URL, not by remote NAME: `cloneSource` is the local repo
-      // whenever one is available, so the clone's `origin` is not reliably the
-      // forge (same reason the precondition probe uses the URL).
+      // Fetch from `origin`, NOT from a raw URL (PR #2299 R1). The clone was made
+      // from `cloneSource`, so `origin` IS that source, and it carries whatever
+      // credentials the clone was performed with — an HTTPS fetch by bare URL
+      // would re-authenticate from scratch and fail on a private repo.
+      // (`referenceRepo` is only a `--reference` object-store optimization; it is
+      // not the origin, which is why the earlier by-URL rationale was wrong.)
       //
       // Neither call is wrapped in a local try/catch on purpose: a failed fetch
       // or checkout MUST surface as an error. Falling through to main here is
@@ -615,11 +626,17 @@ async function executeMutations(
       // removes the half-built session and directory before rethrowing.
       await deps.gitService.execInRepository(
         sessionDir,
-        `git fetch ${safeShellQuote(repoUrl)} ${safeShellQuote(`refs/heads/${branchName}`)}`
+        `git fetch origin ${safeShellQuote(`refs/heads/${branchName}:refs/remotes/origin/${branchName}`)}`
       );
       await deps.gitService.execInRepository(
         sessionDir,
-        `git checkout -b ${safeShellQuote(branchName)} FETCH_HEAD`
+        `git checkout -b ${safeShellQuote(branchName)} ${safeShellQuote(`origin/${branchName}`)}`
+      );
+      // Track the remote branch, so a later push/PR from this session targets the
+      // branch it was recovered from rather than erroring on a missing upstream.
+      await deps.gitService.execInRepository(
+        sessionDir,
+        `git branch --set-upstream-to=${safeShellQuote(`origin/${branchName}`)} ${safeShellQuote(branchName)}`
       );
       if (!quiet) {
         log.cli(`Recovered session on existing branch ${branchName}.`);
