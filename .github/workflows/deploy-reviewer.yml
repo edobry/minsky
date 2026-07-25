@@ -282,40 +282,52 @@ jobs:
           docker push $IMAGE:sha-${SHORT_SHA}
           echo "Pushed: $IMAGE:latest, $IMAGE:sha-${SHORT_SHA}"
 
-      # mt#3180 (2026-07-25) — this step is now the ACTUAL deploy trigger
-      - name: Install Railway CLI
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
-        run: npm install -g @railway/cli
-
-      # LOUD BUT NON-FATAL (mt#3180 sequencing decision, option b — see the
-      # PR body for the full rationale): the manual CLI test that confirmed
-      # `railway redeploy --from-source` works for this service
-      # (2026-07-25) used the account-owner's browser-login CLI session,
-      # NOT this CI job's actual RAILWAY_TOKEN secret. Until a post-merge
-      # run confirms the CLI redeploy succeeds with the real CI token, a
-      # failure here must NOT fail the whole deploy job — flipping this to
-      # a fatal exit before that confirmation would red every future
-      # reviewer deploy on an unverified assumption. Tracked follow-up to
-      # make this fatal once confirmed: mt#3222.
+      # mt#3180 (2026-07-25) — this step is the ACTUAL deploy trigger for
+      # minsky-reviewer-webhook, not a backstop (see the file-header
+      # comment above for why the earlier "Railway auto-deploys
+      # independently" claim was wrong for this service). Installs the
+      # official `railway` CLI (railwayapp/cli, via the `@railway/cli` npm
+      # package — the same install already used by
+      # .github/workflows/cockpit-preview.yml) IN THIS SAME STEP as the
+      # redeploy call itself, so there is no cross-step PATH-propagation
+      # ambiguity to reason about.
+      #
+      # FATAL (revised 2026-07-25 during review, per reviewer-bot pushback
+      # on an initial loud-but-non-fatal draft): cockpit-preview.yml
+      # already proves the IDENTICAL mechanism — a Railway project token
+      # set as RAILWAY_TOKEN, consumed by the `railway` CLI with no
+      # `railway link` step — works in THIS repo's CI via `railway up`,
+      # the same auth path `railway redeploy` uses. A false-green report
+      # here is worse than an honest failure: redeploys are not currently
+      # landing AT ALL for this service (the exact bug this PR fixes), so
+      # failing loud is not a regression against today's actual deploy
+      # behavior — it makes the CI status honest instead of silently green
+      # while nothing deploys. See mt#3180 for the full incident.
       - name: Trigger Railway redeploy
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
 
           if [ -z "${RAILWAY_TOKEN:-}" ]; then
-            echo "::error::RAILWAY_TOKEN not set — reviewer redeploy was NOT triggered. Add the secret (a Railway PROJECT token scoped to minsky-reviewer-webhook) to enable it."
-            exit 0
+            echo "::error::RAILWAY_TOKEN not set — reviewer redeploy cannot be triggered. Add the secret (a Railway PROJECT token scoped to minsky-reviewer-webhook)."
+            exit 1
           fi
+
+          npm install -g @railway/cli
 
           # Railway service identifier from services/reviewer/deploy.config.ts
+          # (kept inline, matching the pre-existing convention in this file and
+          # in deploy-minsky-mcp.yml; extracting a single shared source of
+          # truth is a reasonable follow-up but out of scope for this fix).
           SERVICE_ID="3913e8a4-81ab-465a-aad8-b76b5e3f66ed"
 
-          if railway redeploy --from-source --service "${SERVICE_ID}" -y; then
+          railway redeploy --from-source --service "${SERVICE_ID}" -y
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
             echo "Railway redeploy triggered successfully via the CLI."
           else
-            rc=$?
-            echo "::error::railway redeploy failed (exit ${rc}) — reviewer redeploy was NOT confirmed. Check that RAILWAY_TOKEN is scoped to the minsky-reviewer-webhook project/environment (see mt#3180, mt#3222)."
-            exit 0
+            echo "::error::railway redeploy failed (exit ${rc}) — check that RAILWAY_TOKEN is scoped to the minsky-reviewer-webhook project/environment (see mt#3180)."
           fi
+          exit "$rc"
