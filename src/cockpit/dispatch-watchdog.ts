@@ -25,7 +25,22 @@
  * mid-convergence, two stopped cleanly but pre-convergence. Every case
  * required the orchestrator to manually notice the silence.
  *
+ * mt#3172 update: the staleness computation now ALSO consults presence-claim
+ * (session-scoped MCP tool-call) activity — the SAME signal
+ * `tasks.dispatch-recover`'s healthy-classification check has consulted
+ * since mt#3086, via the shared `resolveLastPresenceActivityAtMs` helper
+ * (`@minsky/domain/session/presence-activity`). Before this, a dispatch that
+ * was genuinely alive but quiet (reading code, running tests, no commit yet)
+ * could be flagged HERE (this injection fires every turn) even though
+ * `tasks.dispatch-recover` would immediately classify it `healthy` on
+ * `activitySource: "presence"` — costing a protocol-mandated recover
+ * round-trip on every flagged turn until the first commit landed. See
+ * `computeDispatchWatchdogFlags`'s docstring for the per-signal precedence
+ * and the flag's new `activitySource` field.
+ *
  * @see mt#2646 — this task
+ * @see mt#3086 — presence-claim signal added to tasks.dispatch-recover's staleness check
+ * @see mt#3172 — this update (shares mt#3086's presence signal with the watchdog producer)
  * @see mt#2506 src/cockpit/prod-state-cache.ts — the producer/consumer template
  * @see mt#1735 packages/domain/src/storage/schemas/subagent-invocations-schema.ts
  * @see mt#2092 packages/domain/src/events/query.ts — the system_events substrate
@@ -35,6 +50,7 @@ import * as path from "path";
 import { getStateDir, atomicWriteJSON } from "./lifecycle";
 import { getSessionsDir } from "@minsky/shared/paths";
 import { log } from "@minsky/shared/logger";
+import { resolveLastPresenceActivityAtMs } from "@minsky/domain/session/presence-activity";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -95,6 +111,15 @@ export interface InFlightInvocationRow {
   startedAt: string; // ISO-8601
 }
 
+/**
+ * Which signal produced a flagged dispatch's `lastActivityAt` (mt#3172,
+ * parity with `tasks.dispatch-recover`'s `DispatchActivitySource`
+ * `@minsky/domain/session/dispatch-recovery-classifier` — that type has no
+ * `"event"` member since the on-demand recover command does not consult
+ * `system_events`; this producer does).
+ */
+export type DispatchWatchdogActivitySource = "dispatch-start" | "commit" | "event" | "presence";
+
 /** One flagged (silently stalled) dispatch. */
 export interface DispatchWatchdogFlag {
   taskId: string;
@@ -104,6 +129,8 @@ export interface DispatchWatchdogFlag {
   startedAt: string; // ISO-8601 — dispatch time
   lastActivityAt: string; // ISO-8601 — the most recent activity signal found
   staleForMs: number;
+  /** Which signal produced `lastActivityAt` — surfaced so a flagged dispatch stays diagnosable (mt#3172). */
+  activitySource: DispatchWatchdogActivitySource;
 }
 
 /** The on-disk cache record: the flagged set plus when it was computed. */
@@ -136,6 +163,17 @@ export interface ActivitySources {
    * omitting it is equivalent to always returning `null` (unknown).
    */
   sessionExists?: (subagentSessionId: string | null) => boolean | null;
+  /**
+   * Ms epoch of the most recent presence-claim (session-scoped MCP tool-call)
+   * activity for the subagent's session, or null if unknown/unavailable
+   * (mt#3172 — parity with `tasks.dispatch-recover`'s mt#3086 presence-claim
+   * liveness signal; see `resolveLastPresenceActivityAtMs`,
+   * `@minsky/domain/session/presence-activity`, for the query both share).
+   * Optional so existing fakes/tests that predate this check keep compiling;
+   * omitting it is equivalent to always returning `null` (unknown, does not
+   * suppress a flag but also does not clear the activity clock).
+   */
+  lastPresenceActivityAtMs?: (subagentSessionId: string | null) => number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,10 +185,16 @@ export interface ActivitySources {
  * `staleMs`, restricted to tasks currently IN-PROGRESS or IN-REVIEW.
  *
  * "Activity" for a row is the MAX of: its dispatch `startedAt`, the last
- * commit on its session branch, and the last related system event. A row
- * with no activity signal beyond its own `startedAt` is treated as flaggable
- * once `nowMs - startedAt >= staleMs` — dispatch time is always a valid
- * (if pessimistic) baseline.
+ * commit on its session branch, the last related system event, and (mt#3172)
+ * the last presence-claim (session-scoped MCP tool-call) activity for its
+ * session — the same signal `tasks.dispatch-recover`'s healthy-classification
+ * check has consulted since mt#3086. A row with no activity signal beyond
+ * its own `startedAt` is treated as flaggable once `nowMs - startedAt >=
+ * staleMs` — dispatch time is always a valid (if pessimistic) baseline. The
+ * returned flag's `activitySource` names whichever of the four signals
+ * produced the max, checked in this precedence order (each replaces the
+ * running max only when strictly greater, so the LATEST-checked signal wins
+ * ties): dispatch-start -> commit -> event -> presence.
  *
  * Two additional guards (mt#3062) run before the staleness computation and
  * unconditionally suppress a flag regardless of computed staleness:
@@ -194,11 +238,36 @@ export function computeDispatchWatchdogFlags(
 
     const commitMs = activity.lastCommitAtMs(row.subagentSessionId);
     const eventMs = activity.lastEventAtMs(row.taskId, row.subagentSessionId);
+    const presenceMs = activity.lastPresenceActivityAtMs?.(row.subagentSessionId) ?? null;
 
-    const candidates = [startedMs, commitMs, eventMs].filter(
-      (v): v is number => v !== null && v !== undefined && Number.isFinite(v)
-    );
-    const lastActivityMs = Math.max(...candidates);
+    // Progressive max, tracking WHICH signal produced it (mt#3172) — same
+    // numeric result as the prior Math.max(...candidates) approach (each
+    // candidate only replaces the running max when strictly greater), but
+    // also yields activitySource for the flag below. Precedence order when
+    // values tie: dispatch-start -> commit -> event -> presence (the
+    // last-checked strictly-greater signal wins).
+    let lastActivityMs = startedMs;
+    let activitySource: DispatchWatchdogActivitySource = "dispatch-start";
+
+    if (commitMs !== null && commitMs !== undefined && Number.isFinite(commitMs)) {
+      if (commitMs > lastActivityMs) {
+        lastActivityMs = commitMs;
+        activitySource = "commit";
+      }
+    }
+    if (eventMs !== null && eventMs !== undefined && Number.isFinite(eventMs)) {
+      if (eventMs > lastActivityMs) {
+        lastActivityMs = eventMs;
+        activitySource = "event";
+      }
+    }
+    if (presenceMs !== null && presenceMs !== undefined && Number.isFinite(presenceMs)) {
+      if (presenceMs > lastActivityMs) {
+        lastActivityMs = presenceMs;
+        activitySource = "presence";
+      }
+    }
+
     const staleForMs = nowMs - lastActivityMs;
 
     if (staleForMs >= staleMs) {
@@ -210,6 +279,7 @@ export function computeDispatchWatchdogFlags(
         startedAt: row.startedAt,
         lastActivityAt: new Date(lastActivityMs).toISOString(),
         staleForMs,
+        activitySource,
       });
     }
   }
@@ -237,6 +307,14 @@ export interface DispatchWatchdogDeps {
    * recorded) — treated as "unknown", never as "gone".
    */
   getSessionExists: (subagentSessionId: string | null) => Promise<boolean | null>;
+  /**
+   * Ms epoch of the most recent presence-claim (session-scoped MCP tool-call)
+   * activity for the subagent's session, or null if unavailable (mt#3172 —
+   * shares `tasks.dispatch-recover`'s mt#3086 presence-claim liveness signal
+   * via `resolveLastPresenceActivityAtMs`,
+   * `@minsky/domain/session/presence-activity`).
+   */
+  getLastPresenceActivityAtMs: (subagentSessionId: string | null) => Promise<number | null>;
 }
 
 /**
@@ -256,6 +334,7 @@ export async function buildDispatchWatchdogSnapshot(
   const commitAt: Record<string, number | null> = {};
   const eventAt: Record<string, number | null> = {};
   const existsAt: Record<string, boolean | null> = {};
+  const presenceAt: Record<string, number | null> = {};
 
   for (const row of rows) {
     if (!(row.taskId in taskStatuses)) {
@@ -267,6 +346,9 @@ export async function buildDispatchWatchdogSnapshot(
     }
     if (!(sidKey in existsAt)) {
       existsAt[sidKey] = await deps.getSessionExists(row.subagentSessionId);
+    }
+    if (!(sidKey in presenceAt)) {
+      presenceAt[sidKey] = await deps.getLastPresenceActivityAtMs(row.subagentSessionId);
     }
     const evKey = `${row.taskId}::${sidKey}`;
     if (!(evKey in eventAt)) {
@@ -281,6 +363,7 @@ export async function buildDispatchWatchdogSnapshot(
       lastCommitAtMs: (sid) => commitAt[sid ?? ""] ?? null,
       lastEventAtMs: (taskId, sid) => eventAt[`${taskId}::${sid ?? ""}`] ?? null,
       sessionExists: (sid) => existsAt[sid ?? ""] ?? null,
+      lastPresenceActivityAtMs: (sid) => presenceAt[sid ?? ""] ?? null,
     },
     nowMs,
     staleMs
@@ -415,6 +498,14 @@ export async function buildRealDispatchWatchdogDeps(): Promise<DispatchWatchdogD
     },
     getLastCommitAtMs: getSessionLastCommitAtMs,
     getSessionExists: getSessionWorkspaceExists,
+    // mt#3172: shares tasks.dispatch-recover's mt#3086 presence-claim query
+    // via the extracted helper — `provider` (the same PersistenceProvider
+    // this dep set's other capabilities are read from) satisfies the
+    // helper's minimal `getDatabaseConnection`-shaped input.
+    getLastPresenceActivityAtMs: (subagentSessionId) =>
+      resolveLastPresenceActivityAtMs(subagentSessionId, provider, {
+        source: "dispatch-watchdog",
+      }),
     getLastEventAtMs: async (taskId, subagentSessionId) => {
       const rows = (await sql.unsafe(LAST_EVENT_AT_QUERY, [taskId, subagentSessionId])) as Array<{
         latest_at: string | number | null;

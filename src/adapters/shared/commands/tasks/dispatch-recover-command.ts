@@ -88,11 +88,18 @@
  *   activity signal — this command's on-demand staleness check uses
  *   dispatch-start-time, last-commit-time, and (mt#3086) presence-claim
  *   activity, but not `system_events` (see `computeDispatchStaleness`'s
- *   docstring for the documented tradeoff).
+ *   docstring for the documented tradeoff). mt#3172: the watchdog producer's
+ *   OWN staleness computation now ALSO consults presence-claim activity
+ *   (via the same `resolveLastPresenceActivityAtMs` helper this command
+ *   uses) — the two staleness checks are no longer divergent on that one
+ *   signal, even though the watchdog's `system_events` signal is still not
+ *   consulted here.
  *
  * @see mt#2831 — this task
  * @see mt#3086 — false-positive staleness fix + double-dispatch race documentation
  * @see mt#3149 — false-positive crashed-no-output fix (PR/commit liveness at escalate time)
+ * @see mt#3172 — extracted the presence-claim lookup into a shared helper and
+ *   wired it into the watchdog PRODUCER's own staleness computation too
  * @see mt#2646 — dispatch-watchdog detection + `dispatch-recovery-probe.ts`
  * @see mt#2512 — kill+redispatch doctrine (no mid-flight correction)
  *
@@ -135,6 +142,7 @@ import {
   buildDispatchRecoveryContinuationPrompt,
   DISPATCH_RECOVERY_STALE_MS,
 } from "@minsky/domain/session/dispatch-recovery-classifier";
+import { resolveLastPresenceActivityAtMs } from "@minsky/domain/session/presence-activity";
 import type { PromptType } from "@minsky/domain/session/prompt-generation";
 
 // ---------------------------------------------------------------------------
@@ -188,79 +196,30 @@ export interface DispatchRecoveryActivityOps {
 }
 
 /**
- * Real implementation: reads the session-grain `presence_claims` row(s) for
- * `subagentSessionId` and returns the freshest `lastRefreshedAt` across all
- * actors that have touched this session (an MCP tool call from EITHER the
- * subagent itself or, in principle, another actor sharing the workspace —
- * in practice a session workspace has exactly one active occupant, so this
- * is effectively "did the subagent make any Minsky-routed tool call
- * recently"). Fail-open: any resolution error (no persistence provider, no
- * DB, a query failure) returns null rather than throwing — this signal is
- * best-effort, matching the rest of the presence-claims write/read path's
- * posture (`src/mcp/server.ts`'s `writeSessionAttachment`,
- * `tasks.claims.list`).
+ * Real implementation: delegates to the shared
+ * `resolveLastPresenceActivityAtMs` helper
+ * (`@minsky/domain/session/presence-activity`, mt#3172 extraction) to read
+ * the session-grain `presence_claims` row(s) for `subagentSessionId` and
+ * return the freshest `lastRefreshedAt` across all actors that have touched
+ * this session (an MCP tool call from EITHER the subagent itself or, in
+ * principle, another actor sharing the workspace — in practice a session
+ * workspace has exactly one active occupant, so this is effectively "did the
+ * subagent make any Minsky-routed tool call recently"). Fail-open — see the
+ * shared helper's docstring for the full posture; this command and the
+ * dispatch-watchdog producer (`src/cockpit/dispatch-watchdog.ts`) now share
+ * the identical query instead of maintaining two copies of it.
  */
 export function createRealDispatchRecoveryActivityOps(
   getPersistenceProvider: () => unknown
 ): DispatchRecoveryActivityOps {
   return {
     async lastPresenceActivityAtMs(subagentSessionId) {
-      try {
-        const provider = getPersistenceProvider() as
-          | { getDatabaseConnection?: () => Promise<unknown> }
-          | undefined;
-        if (!provider?.getDatabaseConnection) {
-          // R1 (mt#3086): log every structurally-unavailable branch, not just the
-          // catch-block failure path below — a silent null here degrades the
-          // staleness check back to its pre-mt#3086 commit-only behavior with no
-          // diagnostic trail, reintroducing the original false-positive risk
-          // invisibly. debug (not warn): a persistence-less CLI/test context is a
-          // routine, expected shape, not an operational anomaly.
-          log.debug(
-            "[tasks.dispatch-recover] lastPresenceActivityAtMs: no persistence provider / getDatabaseConnection — presence signal unavailable",
-            { subagentSessionId }
-          );
-          return null;
-        }
-        const db = await provider.getDatabaseConnection();
-        if (!db) {
-          log.debug(
-            "[tasks.dispatch-recover] lastPresenceActivityAtMs: getDatabaseConnection() resolved no connection — presence signal unavailable",
-            { subagentSessionId }
-          );
-          return null;
-        }
-        const { buildPresenceClaimRepository } = await import("@minsky/domain/presence/index");
-        const repo = buildPresenceClaimRepository(db);
-        if (!repo) {
-          log.debug(
-            "[tasks.dispatch-recover] lastPresenceActivityAtMs: buildPresenceClaimRepository returned null — presence signal unavailable",
-            { subagentSessionId }
-          );
-          return null;
-        }
-        // Threshold is irrelevant here — we only read the raw timestamp and let
-        // computeDispatchStaleness's OWN staleMs decide freshness, not presence's
-        // separate 15-min TTL annotation. listClaims orders desc by
-        // lastRefreshedAt, so the first row is already the freshest.
-        const claims = await repo.listClaims("session", subagentSessionId, Number.MAX_SAFE_INTEGER);
-        const freshest = claims[0]?.lastRefreshedAt;
-        if (!freshest) return null;
-        const ms = Date.parse(freshest);
-        return Number.isFinite(ms) ? ms : null;
-      } catch (err) {
-        // R1 (mt#3086): warn (not debug) — unlike the "no persistence configured"
-        // branches above (a routine, expected shape in CLI/test contexts), reaching
-        // this catch means resolution STARTED (a provider/db/repo existed) and then
-        // threw — a DI-wiring break, an unexpected dynamic-import shape, or a real
-        // query failure. That is an operational anomaly worth surfacing, not a
-        // silent degrade.
-        log.warn(
-          "[tasks.dispatch-recover] lastPresenceActivityAtMs resolution failed unexpectedly (degrading to no presence signal)",
-          { subagentSessionId, error: err instanceof Error ? err.message : String(err) }
-        );
-        return null;
-      }
+      const provider = getPersistenceProvider() as
+        | { getDatabaseConnection?: () => Promise<unknown> }
+        | undefined;
+      return resolveLastPresenceActivityAtMs(subagentSessionId, provider, {
+        source: "tasks.dispatch-recover",
+      });
     },
   };
 }

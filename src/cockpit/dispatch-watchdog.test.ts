@@ -41,6 +41,7 @@ describe("computeDispatchWatchdogFlags", () => {
     expect(flags[0]?.taskId).toBe("mt#2646");
     expect(flags[0]?.staleForMs).toBe(60 * 60 * 1000);
     expect(flags[0]?.lastActivityAt).toBe("2026-07-07T11:00:00.000Z");
+    expect(flags[0]?.activitySource).toBe("dispatch-start");
   });
 
   test("does not flag a dispatch within the stale window", () => {
@@ -126,6 +127,26 @@ describe("computeDispatchWatchdogFlags", () => {
     expect(flags).toHaveLength(1);
     // lastActivityAt should be the commit time (more recent than startedAt), not startedAt.
     expect(flags[0]?.lastActivityAt).toBe(new Date(staleCommitMs).toISOString());
+    expect(flags[0]?.activitySource).toBe("commit");
+  });
+
+  test("a stale event that is fresher than a stale commit produces activitySource 'event'", () => {
+    const staleCommitMs = NOW_MS - 50 * 60 * 1000; // 50m ago
+    const staleEventMs = NOW_MS - 45 * 60 * 1000; // 45m ago — fresher than commit, still >= 30m window
+    const activity: ActivitySources = {
+      lastCommitAtMs: () => staleCommitMs,
+      lastEventAtMs: () => staleEventMs,
+    };
+    const flags = computeDispatchWatchdogFlags(
+      [row({ startedAt: "2026-07-07T10:00:00.000Z" })], // 2h before NOW_MS
+      { "mt#2646": "IN-PROGRESS" },
+      activity,
+      NOW_MS,
+      DISPATCH_WATCHDOG_STALE_MS
+    );
+    expect(flags).toHaveLength(1);
+    expect(flags[0]?.lastActivityAt).toBe(new Date(staleEventMs).toISOString());
+    expect(flags[0]?.activitySource).toBe("event");
   });
 
   test("malformed startedAt is skipped rather than mis-flagged", () => {
@@ -271,6 +292,104 @@ describe("computeDispatchWatchdogFlags", () => {
     );
     expect(flags).toHaveLength(1);
   });
+
+  // mt#3172: the watchdog now shares tasks.dispatch-recover's mt#3086
+  // presence-claim signal, closing the false-positive family the mt#3062
+  // real-world incident illustrates — mt#3062's own dispatch was flagged by
+  // this injection twice within 10 minutes while tasks.dispatch-recover
+  // independently reported "healthy"/"presence" (staleForMs 478601, then
+  // 114798 — i.e. presence ~8m then ~2m fresh) both times. These fixtures
+  // mirror that timing.
+  describe("presence-claim activity signal (mt#3172)", () => {
+    test("AT1: fresh presence-claim activity with no commit suppresses the flag", () => {
+      const presenceMs = NOW_MS - 8 * 60 * 1000; // ~8m ago — mirrors the mt#3062 incident's first check
+      const activity: ActivitySources = {
+        lastCommitAtMs: () => null,
+        lastEventAtMs: () => null,
+        lastPresenceActivityAtMs: (sid) => (sid === "session-1" ? presenceMs : null),
+      };
+      const flags = computeDispatchWatchdogFlags(
+        [row()], // startedAt 60m ago — well past the 30m stale window on dispatch-start alone
+        { "mt#2646": "IN-PROGRESS" },
+        activity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(0);
+    });
+
+    test("AT1 (second checkpoint): even fresher presence (~2m) still suppresses the flag", () => {
+      const presenceMs = NOW_MS - 2 * 60 * 1000; // ~2m ago — mirrors the incident's second check
+      const activity: ActivitySources = {
+        lastCommitAtMs: () => null,
+        lastEventAtMs: () => null,
+        lastPresenceActivityAtMs: () => presenceMs,
+      };
+      const flags = computeDispatchWatchdogFlags(
+        [row()],
+        { "mt#2646": "IN-PROGRESS" },
+        activity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(0);
+    });
+
+    test("AT2: a dispatch stale on every signal (commit, event, presence) is still flagged unchanged", () => {
+      const staleMs = NOW_MS - 45 * 60 * 1000; // 45m ago on every signal — still >= 30m window
+      const activity: ActivitySources = {
+        lastCommitAtMs: () => staleMs,
+        lastEventAtMs: () => staleMs,
+        lastPresenceActivityAtMs: () => staleMs,
+      };
+      const flags = computeDispatchWatchdogFlags(
+        [row({ startedAt: "2026-07-07T10:00:00.000Z" })], // 2h before NOW_MS
+        { "mt#2646": "IN-PROGRESS" },
+        activity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(1);
+      expect(flags[0]?.staleForMs).toBe(NOW_MS - staleMs);
+    });
+
+    test("AT3: a flag's activitySource is 'presence' when presence is the freshest signal", () => {
+      // Commit is the oldest signal (45m ago); presence is fresher (40m ago)
+      // but still >= the 30m stale window, so the row is still flagged — and
+      // the flag's activitySource should name "presence", not "commit".
+      const staleCommitMs = NOW_MS - 45 * 60 * 1000;
+      const stalePresenceMs = NOW_MS - 40 * 60 * 1000;
+      const activity: ActivitySources = {
+        lastCommitAtMs: () => staleCommitMs,
+        lastEventAtMs: () => null,
+        lastPresenceActivityAtMs: () => stalePresenceMs,
+      };
+      const flags = computeDispatchWatchdogFlags(
+        [row({ startedAt: "2026-07-07T10:00:00.000Z" })], // 2h before NOW_MS
+        { "mt#2646": "IN-PROGRESS" },
+        activity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(1);
+      expect(flags[0]?.activitySource).toBe("presence");
+      expect(flags[0]?.lastActivityAt).toBe(new Date(stalePresenceMs).toISOString());
+    });
+
+    test("ActivitySources without a lastPresenceActivityAtMs method behaves as unknown (backward compatible)", () => {
+      // noActivity predates the lastPresenceActivityAtMs field entirely —
+      // omitting it must not suppress flags (equivalent to always returning null).
+      const flags = computeDispatchWatchdogFlags(
+        [row()],
+        { "mt#2646": "IN-PROGRESS" },
+        noActivity,
+        NOW_MS,
+        DISPATCH_WATCHDOG_STALE_MS
+      );
+      expect(flags).toHaveLength(1);
+      expect(flags[0]?.activitySource).toBe("dispatch-start");
+    });
+  });
 });
 
 describe("buildDispatchWatchdogSnapshot", () => {
@@ -279,6 +398,7 @@ describe("buildDispatchWatchdogSnapshot", () => {
     let commitCalls = 0;
     let eventCalls = 0;
     let sessionExistsCalls = 0;
+    let presenceCalls = 0;
 
     const deps: DispatchWatchdogDeps = {
       listInFlightInvocations: async () => [
@@ -298,6 +418,10 @@ describe("buildDispatchWatchdogSnapshot", () => {
         sessionExistsCalls += 1;
         return true;
       },
+      getLastPresenceActivityAtMs: async () => {
+        presenceCalls += 1;
+        return null;
+      },
       getLastEventAtMs: async () => {
         eventCalls += 1;
         return null;
@@ -310,6 +434,7 @@ describe("buildDispatchWatchdogSnapshot", () => {
     expect(commitCalls).toBe(1);
     expect(eventCalls).toBe(1);
     expect(sessionExistsCalls).toBe(1);
+    expect(presenceCalls).toBe(1);
     expect(snapshot.checkedAt).toBe(new Date(NOW_MS).toISOString());
     expect(snapshot.staleMs).toBe(DISPATCH_WATCHDOG_STALE_MS);
     expect(snapshot.flags).toHaveLength(2);
@@ -321,6 +446,7 @@ describe("buildDispatchWatchdogSnapshot", () => {
       getTaskStatus: async () => null,
       getLastCommitAtMs: async () => null,
       getSessionExists: async () => null,
+      getLastPresenceActivityAtMs: async () => null,
       getLastEventAtMs: async () => null,
     };
     const snapshot = await buildDispatchWatchdogSnapshot(deps, NOW_MS);
@@ -337,6 +463,25 @@ describe("buildDispatchWatchdogSnapshot", () => {
       getTaskStatus: async () => "IN-PROGRESS",
       getLastCommitAtMs: async () => null,
       getSessionExists: async () => false,
+      getLastPresenceActivityAtMs: async () => null,
+      getLastEventAtMs: async () => null,
+    };
+    const snapshot = await buildDispatchWatchdogSnapshot(deps, NOW_MS, DISPATCH_WATCHDOG_STALE_MS);
+    expect(snapshot.flags).toHaveLength(0);
+  });
+
+  // mt#3172 AT1: a row with fresh presence-claim activity and no commits is
+  // NOT flagged — parity with tasks.dispatch-recover's mt#3086 presence leg.
+  test("suppresses a flag when only presence-claim activity is fresh (no commit)", async () => {
+    const recentPresenceMs = NOW_MS - 8 * 60 * 1000; // 8m ago — mirrors the mt#3062 incident
+    const deps: DispatchWatchdogDeps = {
+      listInFlightInvocations: async () => [
+        row({ taskId: "mt#2646", subagentSessionId: "s1", startedAt: "2026-07-07T11:00:00.000Z" }),
+      ],
+      getTaskStatus: async () => "IN-PROGRESS",
+      getLastCommitAtMs: async () => null,
+      getSessionExists: async () => true,
+      getLastPresenceActivityAtMs: async () => recentPresenceMs,
       getLastEventAtMs: async () => null,
     };
     const snapshot = await buildDispatchWatchdogSnapshot(deps, NOW_MS, DISPATCH_WATCHDOG_STALE_MS);
