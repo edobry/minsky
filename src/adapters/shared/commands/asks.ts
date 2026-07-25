@@ -1176,6 +1176,92 @@ export function validateAsksEditParams(
   }
 }
 
+/**
+ * Edit-time counterpart to `validateAuthorizationApproveOptions` (mt#3209).
+ *
+ * `asks.edit`'s own params carry no `kind` field — an edit payload alone
+ * doesn't say what kind the target Ask is, so the mt#3203 authoring-time
+ * guard can't be applied to it directly. This fetches the Ask's PERSISTED
+ * kind and re-uses `validateAuthorizationApproveOptions` against it — same
+ * function, same `@minsky/shared/ask-approval` vocabulary underneath it, no
+ * second copy of the approve-token regex.
+ *
+ * Chosen over deferring the check into `execute` (the spec's alternative
+ * path): keeping it in `validate` means an edit that would strip the last
+ * approve-shaped option from a live `authorization.approve` Ask is rejected
+ * BEFORE any mutation runs, via the same `ValidationError` type and the same
+ * validate→execute gate mt#3203 established for `asks.create` — not a
+ * generic `Error` thrown partway through the domain-level write path. This
+ * mirrors `command-registry`'s ADR-004 pipeline (`shared-command-integration.ts`
+ * / `command-generator-core.ts`): `validate()` is awaited and any throw
+ * short-circuits before `execute()` ever runs, so this fully gates the
+ * mutation exactly like the create-time check does.
+ *
+ * Failure mode — DB unavailable (or the fetch otherwise fails) at validate
+ * time: the guard is skipped (fail-open), NOT because the risk is silently
+ * accepted, but because `execute()` performs its OWN `buildAskRepository` /
+ * `getById` resolution moments later (via `editAskContent`) and will surface
+ * a clear "AskRepository unavailable" or "Ask not found" error on its own if
+ * persistence is genuinely broken or the id doesn't resolve — no edit
+ * reaches the repository either way. The only gap this leaves is a
+ * transient DB blip that resolves between `validate` and `execute` in the
+ * same request, which is narrow and consistent with this file's existing
+ * fail-open convention (`buildAskRepository`, `resolveAskIdInput`,
+ * `resolveCurrentProjectScope` all degrade gracefully on persistence
+ * failures rather than throwing from a resolution helper).
+ *
+ * Deliberately narrow, matching `validateAuthorizationApproveOptions`'s own
+ * scope: only fires when the caller is replacing `options` (checked by the
+ * `validate` hook before calling this — see the `asks.edit` command
+ * registration) — editing title/question/contextRefs/metadata on an
+ * `authorization.approve` Ask is unaffected, even when its EXISTING options
+ * already lack an approve-shaped value (pre-existing state; not this
+ * function's job to retroactively enforce).
+ *
+ * Exported for direct testing with a `FakeAskRepository`, mirroring the
+ * rest of this file's conventions.
+ */
+export async function validateEditOptionsAgainstExistingAsk(
+  repo: AskRepository | null,
+  resolvedId: string,
+  options: Array<{ label: string; value?: unknown }>
+): Promise<void> {
+  if (!repo) return; // fail-open — execute() surfaces its own clear error
+
+  let existing: Ask | null;
+  try {
+    existing = await repo.getById(resolvedId);
+  } catch (err: unknown) {
+    log.warn(
+      "asks.edit: could not fetch existing Ask to check authorization.approve options guard (fail-open)",
+      {
+        askId: resolvedId,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    );
+    return;
+  }
+  if (!existing) return; // not-found surfaces from execute()'s own lookup
+
+  validateAuthorizationApproveOptions({ kind: existing.kind, options });
+}
+
+/**
+ * Gate for whether an `asks.edit` call needs the `validateEditOptionsAgainstExistingAsk`
+ * check at all (mt#3209). Pulled out as a standalone pure function so the third
+ * success criterion — editing title/question/contextRefs/metadata on an
+ * `authorization.approve` Ask is UNAFFECTED, even when its existing options
+ * already lack an approve-shaped value — is directly testable, rather than
+ * only inferable from reading the `asks.edit` command's `validate` hook. A
+ * `false` result means the (persistence-touching) guard is skipped entirely,
+ * not merely that it happens not to fire.
+ */
+export function editRequiresApproveOptionsGuard(
+  params: Pick<EditAskContentParams, "title" | "question" | "options" | "contextRefs" | "metadata">
+): boolean {
+  return params.options !== undefined;
+}
+
 // ---------------------------------------------------------------------------
 // asks.create — form-lint result shape (mt#2798)
 // ---------------------------------------------------------------------------
@@ -1648,6 +1734,26 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // At least one editable field must be provided — reject at the
         // parameter boundary so callers get immediate, actionable feedback.
         validateAsksEditParams(params);
+
+        // mt#3209: reject an edit that would replace `options` on an
+        // EXISTING `authorization.approve` Ask with none carrying an
+        // approve-shaped value — the same footgun mt#3203 closed on
+        // asks_create, reachable here because asks.edit can wholesale-
+        // replace options on an ask that already exists. Only fires when
+        // `options` is part of THIS edit; other fields are unaffected even
+        // when the ask's current options already lack an approve-shaped
+        // value (pre-existing state, not this check's job to retroactively
+        // enforce). See `validateEditOptionsAgainstExistingAsk` for the
+        // fetch-failure handling.
+        if (editRequiresApproveOptionsGuard(params)) {
+          const repo = await buildAskRepository(container);
+          const resolvedId = await resolveAskIdInput(params.id as string, container);
+          await validateEditOptionsAgainstExistingAsk(
+            repo,
+            resolvedId,
+            params.options as Array<{ label: string; value?: unknown }>
+          );
+        }
       },
       execute: async (params): Promise<{ ask: Ask }> => {
         const repo = await buildAskRepository(container);
