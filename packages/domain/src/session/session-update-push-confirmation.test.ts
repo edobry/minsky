@@ -23,6 +23,15 @@
  * overridden to delegate to the REAL `pushWithConfirmation` against a real
  * temp git repo + bare remote, mirroring `session-commit-push-outcome.test.ts`'s
  * hook-based timeout pattern.
+ *
+ * A second describe block below exercises the SAME `updateSessionImpl`
+ * behavior through `FakeGitService`'s own (now widened) `push()` — using
+ * `setPushOutcomes` to script a `pushUnconfirmed` outcome directly, no real
+ * git subprocess involved. This is the project's main test seam for
+ * `session-update-*` tests generally; before this task it could only ever
+ * return `{pushed: true}`, so no test injecting `FakeGitService` had any way
+ * to exercise the confirmation paths this task adds — a fidelity gap
+ * independent of (and complementary to) the real-hang tests above.
  */
 
 import { describe, test, expect, afterAll } from "bun:test";
@@ -206,5 +215,47 @@ describe("updateSessionImpl push-timeout confirmation (mt#3205 AT1)", () => {
     // The commit really did land on the remote — not a fabricated success.
     const remoteLog = execSync("git log --oneline -1", { cwd: bareDir }).toString();
     expect(remoteLog).toContain("pending change reaches remote");
+  });
+});
+
+describe("updateSessionImpl push-timeout confirmation via FakeGitService.setPushOutcomes (mt#3205)", () => {
+  test("a scripted pushUnconfirmed outcome throws — the caller never treats it as success", async () => {
+    const gitService = new FakeGitService({ defaultBranch: "task/mt-3205" });
+    gitService.setPushOutcomes([{ pushed: false, pushUnconfirmed: true }]);
+    const sessionDB = makeSessionDB("/mock/session/workdir");
+
+    let caught: unknown;
+    try {
+      await updateSessionImpl(makeBaseParams("/mock/session/workdir"), {
+        gitService,
+        sessionDB,
+        getCurrentSession: async () => undefined,
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(MinskyError);
+    expect((caught as MinskyError).message).toContain("pushUnconfirmed");
+    // The fake actually recorded a push attempt — this isn't a vacuous pass
+    // from the call never reaching push().
+    expect(gitService.pushedCalls).toHaveLength(1);
+  });
+
+  test("a scripted pushConfirmedVia:'remote-check' outcome (pushed:true) does not throw", async () => {
+    const gitService = new FakeGitService({ defaultBranch: "task/mt-3205" });
+    gitService.setPushOutcomes([
+      { pushed: true, pushTimedOut: true, pushConfirmedVia: "remote-check" },
+    ]);
+    const sessionDB = makeSessionDB("/mock/session/workdir");
+
+    const result = await updateSessionImpl(makeBaseParams("/mock/session/workdir"), {
+      gitService,
+      sessionDB,
+      getCurrentSession: async () => undefined,
+    });
+
+    expect(result).toBeDefined();
+    expect(gitService.pushedCalls).toHaveLength(1);
   });
 });

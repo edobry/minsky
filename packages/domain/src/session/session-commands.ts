@@ -220,6 +220,9 @@ export interface SessionUpdateParams {
   skipConflictCheck?: boolean;
   skipIfAlreadyMerged?: boolean;
   autoResolveDeleteConflicts?: boolean;
+  /** Override the push-phase wall-clock bound (mt#3205). See
+   * `SessionUpdateParametersSchema`'s field of the same name. */
+  pushTimeoutMs?: number;
 }
 
 /**
