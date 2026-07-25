@@ -6,8 +6,9 @@
  * - Synthetic 20-tool-call silent transcript -> fires (matched, calibration record)
  * - Synthetic 5-call short chain -> does NOT fire
  * - Text output mid-stretch resets the tool-call counter
- * - Wall-clock gap threshold (10 min) fires independently of tool-call count,
- *   measured WITHIN the turn (mt#3027)
+ * - Wall-clock gap threshold (10 min) fires only when the run is ALSO a work
+ *   chain (>= MIN_CHAIN_TOOL_CALLS, mt#3196), measured WITHIN the turn
+ *   (mt#3027). Before mt#3196 this leg fired independently of tool-call count.
  * - Override env var suppresses detection and returns an audit line
  * - No transcript_path / empty transcript -> null (silent allow)
  *
@@ -47,6 +48,8 @@
 import { describe, test, expect } from "bun:test";
 import {
   measureSilentStretch,
+  MIN_CHAIN_TOOL_CALLS,
+  isToolOnlyWorkChain,
   findTurnBoundaryTimestamps,
   buildTurnAnchor,
   GAP_MINUTES_THRESHOLD,
@@ -126,6 +129,25 @@ const DAY_SECONDS = 24 * 60 * 60;
 // measureSilentStretch — pure function
 // ---------------------------------------------------------------------------
 
+describe("isToolOnlyWorkChain (mt#3196)", () => {
+  test("separates the observed false-positive call counts from the true-positive one", () => {
+    // Every FP in the 2026-07-24 calibration review sat at 2-7 calls.
+    for (const count of [0, 1, 2, 3, 6, 7]) {
+      expect(isToolOnlyWorkChain(count)).toBe(false);
+    }
+    // The floor itself, and the one observed true positive (44).
+    for (const count of [MIN_CHAIN_TOOL_CALLS, 20, 44]) {
+      expect(isToolOnlyWorkChain(count)).toBe(true);
+    }
+  });
+
+  test("the floor sits below the tool-call trigger, so the two legs stay distinct", () => {
+    // If the floor were >= TOOL_CALL_THRESHOLD the wall-clock leg could never
+    // fire on its own — it would be fully shadowed by the call-count leg.
+    expect(MIN_CHAIN_TOOL_CALLS).toBeLessThan(TOOL_CALL_THRESHOLD);
+  });
+});
+
 describe("measureSilentStretch", () => {
   test("20 consecutive tool calls, no text -> matched (tool-call threshold)", () => {
     const turnLines = toolCallChain(0, 20);
@@ -162,10 +184,20 @@ describe("measureSilentStretch", () => {
     expect(measurement.matched).toBe(false);
   });
 
-  test("wall-clock gap threshold fires independently of tool-call count (within-turn span)", () => {
-    // Only 3 tool calls, but the SPAN BETWEEN THEM (all within the turn)
-    // exceeds 10 minutes. mt#3027: this must be measured from the turn's own
-    // timestamps, never from a later real user prompt.
+  // EXPECTATION CHANGED by mt#3196. This test previously asserted the
+  // wall-clock leg "fires independently of tool-call count" and expected
+  // `matched: true` for this exact 3-call/11.67-min fixture. That behavior is
+  // deliberately reversed: the cadence rule scopes itself to "research/build
+  // chains where SEVERAL tool calls run back-to-back", and 3 calls is not a
+  // chain. Calibration review 2026-07-24 found this shape was 5 of 15 fires,
+  // all false positives (the extreme: 226 minutes across 2 tool calls — an
+  // agent blocked on a backgrounded operation, not one working silently).
+  //
+  // The mt#3027 property this test was ORIGINALLY written to protect — that
+  // the span is measured from the turn's own timestamps, never from a later
+  // real user prompt — is still asserted below via `gapMinutes`, which must
+  // still reflect the within-turn span even though it no longer matches.
+  test("wall-clock gap alone does NOT fire below the work-chain floor (mt#3196)", () => {
     const turnLines = [
       assistantToolUseLine(0, "Tool0"),
       toolResultLine(1),
@@ -177,7 +209,68 @@ describe("measureSilentStretch", () => {
     const measurement = measureSilentStretch(turnLines, ts(0));
 
     expect(measurement.toolCallCount).toBe(3);
+    // mt#3027 within-turn span measurement is unchanged — still over threshold.
     expect(measurement.gapMinutes).toBeGreaterThanOrEqual(GAP_MINUTES_THRESHOLD);
+    // ...but the run is below the work-chain floor, so it is out of scope.
+    expect(measurement.toolCallCount).toBeLessThan(MIN_CHAIN_TOOL_CALLS);
+    expect(measurement.matched).toBe(false);
+  });
+
+  test("wall-clock gap fires once the run is also a work chain (mt#3196)", () => {
+    // Same long-gap shape, but with enough calls to be a genuine chain:
+    // MIN_CHAIN_TOOL_CALLS calls spread across >10 minutes, still below the
+    // 15-call trigger — so ONLY the wall-clock leg can be responsible.
+    const turnLines: TranscriptLine[] = [];
+    for (let i = 0; i < MIN_CHAIN_TOOL_CALLS; i++) {
+      const base = i * 100; // 100s apart -> 700s span at 8 calls
+      turnLines.push(assistantToolUseLine(base, `Tool${i}`));
+      turnLines.push(toolResultLine(base + 1));
+    }
+    const measurement = measureSilentStretch(turnLines, ts(0));
+
+    expect(measurement.toolCallCount).toBe(MIN_CHAIN_TOOL_CALLS);
+    expect(measurement.toolCallCount).toBeLessThan(TOOL_CALL_THRESHOLD);
+    expect(measurement.gapMinutes).toBeGreaterThanOrEqual(GAP_MINUTES_THRESHOLD);
+    expect(measurement.matched).toBe(true);
+  });
+
+  test("the observed false-positive records no longer fire (mt#3196)", () => {
+    // Verbatim shapes from the 2026-07-24 calibration review. Each is a
+    // (gapSeconds, toolCallCount) pair taken from a real logged record.
+    const observedFalsePositives: Array<[number, number]> = [
+      [226.1 * 60, 2],
+      [20.86 * 60, 6],
+      [12.17 * 60, 2],
+      [12.12 * 60, 3],
+      [30.64 * 60, 7],
+    ];
+
+    for (const [gapSeconds, callCount] of observedFalsePositives) {
+      const turnLines: TranscriptLine[] = [];
+      const step = gapSeconds / Math.max(callCount - 1, 1);
+      for (let i = 0; i < callCount; i++) {
+        const base = Math.round(i * step);
+        turnLines.push(assistantToolUseLine(base, `Tool${i}`));
+        turnLines.push(toolResultLine(base + 1));
+      }
+      const measurement = measureSilentStretch(turnLines, ts(0));
+      expect(measurement.toolCallCount).toBe(callCount);
+      expect(measurement.matched).toBe(false);
+    }
+  });
+
+  test("the observed true positive still fires (mt#3196)", () => {
+    // 44 calls across 12.04 minutes — the one unambiguous true positive in
+    // the same review. Crosses both legs; must remain a match.
+    const turnLines: TranscriptLine[] = [];
+    for (let i = 0; i < 44; i++) {
+      const base = Math.round(i * ((12.04 * 60) / 43));
+      turnLines.push(assistantToolUseLine(base, `Tool${i}`));
+      turnLines.push(toolResultLine(base + 1));
+    }
+    const measurement = measureSilentStretch(turnLines, ts(0));
+
+    expect(measurement.toolCallCount).toBe(44);
     expect(measurement.matched).toBe(true);
   });
 
@@ -679,15 +772,39 @@ describe("mt#3003 acceptance tests", () => {
     expect(outcome).toBeNull();
   });
 
+  // FIXTURE ADJUSTED by mt#3196 — the ASSERTION is unchanged.
+  //
+  // AT3's acceptance criterion is a MEASUREMENT property: the gap must be
+  // measured to the last tool_use (~40 min), never to the next prompt
+  // (~45 min, the mt#3003 bug). That property is fully preserved below.
+  //
+  // What changed is the fixture: AT3 originally used a SINGLE tool call, and
+  // mt#3196 excludes single-call runs from the wall-clock leg entirely — a
+  // 1-call/40-min run is precisely the false-positive shape mt#3196 exists to
+  // stop firing (calibration review 2026-07-24). Asserting the measurement
+  // through `run()` therefore now requires a fixture that is in scope, so the
+  // fixture carries MIN_CHAIN_TOOL_CALLS calls clustered near the end of the
+  // window. The run still spans 40 minutes from the preceding text to the
+  // last tool_use, so the ~40-not-~45 assertion tests exactly what it did
+  // before.
   test("AT3: 40 min between last text and last tool_use, next prompt 5 min after -> fires with gap ~40 (not ~45)", () => {
     const textOffset = 0;
     const lastToolOffset = textOffset + 40 * 60; // 40 minutes after the text
     const nextPromptOffset = lastToolOffset + 5 * 60; // 5 minutes after the last tool call
+
+    // Calls clustered at the END of the window so the run's span (text ->
+    // last tool_use) stays exactly 40 minutes.
+    const chain: TranscriptLine[] = [];
+    for (let i = 0; i < MIN_CHAIN_TOOL_CALLS; i++) {
+      const offset = lastToolOffset - (MIN_CHAIN_TOOL_CALLS - 1 - i) * 10;
+      chain.push(assistantToolUseLine(offset, "Read"));
+      chain.push(toolResultLine(offset + 1));
+    }
+
     const transcriptLines = [
       userPromptLine(-10),
       assistantTextLine(textOffset, "Starting the check now."),
-      assistantToolUseLine(lastToolOffset, "Read"),
-      toolResultLine(lastToolOffset + 1),
+      ...chain,
       userPromptLine(nextPromptOffset, "any update?"),
     ];
     const outcome = run(HOOK_INPUT, makeCtx(transcriptLines), noDedupeDeps());
