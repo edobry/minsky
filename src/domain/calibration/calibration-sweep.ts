@@ -1212,6 +1212,18 @@ export function computeReviewDueLogs(
         r.entry.reviewByDays !== undefined
           ? r.entry.reviewByDays * 24 * 60 * 60 * 1000
           : neverReviewedMsDefault;
+      // mt#3197 (PR #2300 R1, class sweep): same reasoning as the time-stale
+      // leg below — if every record since the (absent) watermark was
+      // suppressed, the operator has seen nothing and the warning would read
+      // "0 new fire(s)". Gated for consistency across all count-bearing legs.
+      //
+      // Counter-consideration deliberately NOT acted on here: a log that
+      // suppresses 100% of what it detects is arguably its own signal ("is the
+      // gate too broad?"). That is a different question from "review these
+      // fires", needs different warning text, and is not something to invent
+      // mid-review — the suppressed count remains visible in the sweep output
+      // for anyone who looks.
+      if (r.injectedFiresSinceLastReview <= 0) continue;
       if (nowMs - firstMs >= windowMs) {
         const windowDays = Math.round(windowMs / (24 * 60 * 60 * 1000));
         due.push(toReviewDueLog(r, "never-reviewed", undefined, windowDays));
@@ -1222,7 +1234,13 @@ export function computeReviewDueLogs(
     // time-stale: reviewed before, >= 1 new fire, review is >= staleMs old. A
     // reviewed log that hasn't accrued a new fire is "keep collecting," not
     // "forgotten."
-    if (r.firesSinceLastReview <= 0) continue;
+    //
+    // mt#3197 (PR #2300 R1): "new fire" here means an INJECTED one, matching
+    // the past-threshold leg. Keying this off the positional count would
+    // re-warn on a log whose only new records were suppressed — the operator
+    // saw nothing, so there is nothing to review, and the warning would name
+    // "0 new fire(s)" now that the message quotes the injected count.
+    if (r.injectedFiresSinceLastReview <= 0) continue;
     const reviewedMs = Date.parse(wm.lastReviewedAt);
     if (Number.isNaN(reviewedMs)) continue;
     if (nowMs - reviewedMs >= staleMs) {
