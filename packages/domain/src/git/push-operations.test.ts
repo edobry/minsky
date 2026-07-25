@@ -1,14 +1,25 @@
 import { describe, test, expect } from "bun:test";
-import { pushImpl, type PushDependencies } from "./push-operations";
+import {
+  pushImpl,
+  pushWithConfirmation,
+  verifyRemoteRefAdvanced,
+  type PushDependencies,
+} from "./push-operations";
 
 const WORKDIR = "/tmp/work";
 const CMD_REV_PARSE_BRANCH = `git -C '/tmp/work' rev-parse --abbrev-ref HEAD`;
 const CMD_REV_PARSE_SHORT = `git -C '/tmp/work' rev-parse --short HEAD`;
+const CMD_REV_PARSE_HEAD = `git -C '/tmp/work' rev-parse HEAD`;
 const CMD_REMOTE = `git -C '/tmp/work' remote`;
 const RX_PUSH = /^git -C '\/tmp\/work' push /;
+const RX_LS_REMOTE = /^git -C '\/tmp\/work' ls-remote /;
+
+/** Sentinel handler value: the mocked exec call never resolves (mt#3177 — forces the
+ * "push timed out" / "verification timed out" branches deterministically, no real wait). */
+const HANG = Symbol("hang");
 
 type ExecCall = { command: string };
-type Handler = { stdout: string; stderr?: string } | Error;
+type Handler = { stdout: string; stderr?: string } | Error | typeof HANG;
 type HandlerKey = string | RegExp;
 type HandlerEntry = [HandlerKey, Handler];
 
@@ -27,6 +38,7 @@ function makeDeps(handlers: HandlerEntry[]): {
       for (const [key, result] of handlers) {
         const matched = typeof key === "string" ? command === key : key.test(command);
         if (matched) {
+          if (result === HANG) return new Promise(() => {}); // never resolves
           if (result instanceof Error) throw result;
           return { stdout: result.stdout, stderr: result.stderr ?? "" };
         }
@@ -271,5 +283,211 @@ describe("pushImpl", () => {
     const pushCall = calls.find((c) => c.command.includes("push"));
     expect(pushCall?.command).not.toContain("credential.helper");
     expect(pushCall?.command).not.toContain("extraheader");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// verifyRemoteRefAdvanced (mt#3177)
+// ---------------------------------------------------------------------------
+
+describe("verifyRemoteRefAdvanced", () => {
+  const SHA_A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const SHA_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+  test("confirmed:true when the remote branch head matches expectedSha", async () => {
+    const { deps } = makeDeps([[RX_LS_REMOTE, { stdout: `${SHA_A}\trefs/heads/task/mt-3177\n` }]]);
+
+    const result = await verifyRemoteRefAdvanced(WORKDIR, "task/mt-3177", SHA_A, deps);
+
+    expect(result).toEqual({ confirmed: true, remoteSha: SHA_A });
+  });
+
+  test("confirmed:false (with remoteSha) when the remote head does not match", async () => {
+    const { deps } = makeDeps([[RX_LS_REMOTE, { stdout: `${SHA_B}\trefs/heads/task/mt-3177\n` }]]);
+
+    const result = await verifyRemoteRefAdvanced(WORKDIR, "task/mt-3177", SHA_A, deps);
+
+    expect(result).toEqual({ confirmed: false, remoteSha: SHA_B });
+  });
+
+  test("confirmed:false with checkError when ls-remote returns no matching ref", async () => {
+    const { deps } = makeDeps([[RX_LS_REMOTE, { stdout: "" }]]);
+
+    const result = await verifyRemoteRefAdvanced(WORKDIR, "task/mt-3177", SHA_A, deps);
+
+    expect(result.confirmed).toBe(false);
+    expect(result.remoteSha).toBeUndefined();
+    expect(result.checkError).toMatch(/no matching ref/);
+  });
+
+  test("confirmed:false with checkError when ls-remote throws (network failure)", async () => {
+    const { deps } = makeDeps([[RX_LS_REMOTE, new Error("ssh: connect to host timed out")]]);
+
+    const result = await verifyRemoteRefAdvanced(WORKDIR, "task/mt-3177", SHA_A, deps);
+
+    expect(result.confirmed).toBe(false);
+    expect(result.checkError).toMatch(/connect to host timed out/);
+  });
+
+  test("confirmed:false with checkError when the ls-remote call itself hangs past timeoutMs", async () => {
+    const { deps } = makeDeps([[RX_LS_REMOTE, HANG]]);
+
+    // Real (tiny) timeoutMs — no injected fake timeout signal needed since the
+    // mocked exec call never resolves on its own; the real setTimeout wins the
+    // race almost instantly. Mirrors the existing commit-phase-timeout test's
+    // "slow real operation + tiny real timeout" pattern in
+    // session-commit-push-outcome.test.ts.
+    const result = await verifyRemoteRefAdvanced(WORKDIR, "task/mt-3177", SHA_A, deps, {
+      timeoutMs: 20,
+    });
+
+    expect(result.confirmed).toBe(false);
+    expect(result.checkError).toMatch(/exceeded 20ms/);
+  });
+
+  test("queries refs/heads/<branch> on the configured remote (default origin)", async () => {
+    const { deps, calls } = makeDeps([[RX_LS_REMOTE, { stdout: `${SHA_A}\trefs/heads/foo\n` }]]);
+
+    await verifyRemoteRefAdvanced(WORKDIR, "foo", SHA_A, deps);
+
+    const call = calls.find((c) => RX_LS_REMOTE.test(c.command));
+    expect(call?.command).toBe(`git -C '/tmp/work' ls-remote 'origin' 'refs/heads/foo'`);
+  });
+
+  test("honors an explicit remote override", async () => {
+    const { deps, calls } = makeDeps([[RX_LS_REMOTE, { stdout: `${SHA_A}\trefs/heads/foo\n` }]]);
+
+    await verifyRemoteRefAdvanced(WORKDIR, "foo", SHA_A, deps, { remote: "upstream" });
+
+    const call = calls.find((c) => RX_LS_REMOTE.test(c.command));
+    expect(call?.command).toBe(`git -C '/tmp/work' ls-remote 'upstream' 'refs/heads/foo'`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pushWithConfirmation (mt#3177 acceptance tests)
+// ---------------------------------------------------------------------------
+
+describe("pushWithConfirmation", () => {
+  const LOCAL_SHA = "cccccccccccccccccccccccccccccccccccccccc";
+
+  test("passes through a direct success unchanged (no confirmation fields set)", async () => {
+    const { deps } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3177\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [RX_PUSH, { stdout: "" }],
+    ]);
+
+    const result = await pushWithConfirmation({ repoPath: WORKDIR }, deps);
+
+    expect(result).toEqual({ workdir: WORKDIR, pushed: true });
+  });
+
+  test("passes through a definite push error unchanged — no remote-check attempted", async () => {
+    const { deps, calls } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3177\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [RX_PUSH, new Error("fatal: unable to access: SSL connection error")],
+    ]);
+
+    const result = await pushWithConfirmation({ repoPath: WORKDIR }, deps);
+
+    expect(result.pushed).toBe(false);
+    expect(result.pushError).toMatch(/SSL connection error/);
+    expect(result.pushTimedOut).toBeFalsy();
+    expect(result.pushUnconfirmed).toBeFalsy();
+    expect(calls.some((c) => RX_LS_REMOTE.test(c.command))).toBe(false);
+  });
+
+  // Acceptance test 1 (mt#3177 spec): "With the push path forced to hang
+  // (inject a never-resolving push in a seam), session_commit reports the
+  // unambiguous unconfirmed state" — exercised here at the pushWithConfirmation
+  // seam sessionCommit itself delegates to (via pushFromParamsWithConfirmation).
+  test("AT1: push hangs and remote-check does NOT confirm -> pushUnconfirmed:true, pushed:false", async () => {
+    const { deps } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3177\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [RX_PUSH, HANG],
+      [CMD_REV_PARSE_HEAD, { stdout: `${LOCAL_SHA}\n` }],
+      // Remote hasn't advanced — still on some older sha.
+      [
+        RX_LS_REMOTE,
+        { stdout: `dddddddddddddddddddddddddddddddddddddddd\trefs/heads/task/mt-3177\n` },
+      ],
+    ]);
+
+    const result = await pushWithConfirmation({ repoPath: WORKDIR }, deps, {
+      pushTimeoutMs: 20,
+      verifyTimeoutMs: 20,
+    });
+
+    expect(result.pushed).toBe(false);
+    expect(result.pushTimedOut).toBe(true);
+    expect(result.pushUnconfirmed).toBe(true);
+    expect(result.pushConfirmedVia).toBeUndefined();
+  });
+
+  // Acceptance test 2 (mt#3177 spec): "with a mocked remote-ref check
+  // confirming advancement it reports confirmed-pushed."
+  test("AT2: push hangs but remote-check confirms it landed -> pushed:true, pushConfirmedVia:remote-check", async () => {
+    const { deps } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3177\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [RX_PUSH, HANG],
+      [CMD_REV_PARSE_HEAD, { stdout: `${LOCAL_SHA}\n` }],
+      // Remote already matches the local commit that was being pushed.
+      [RX_LS_REMOTE, { stdout: `${LOCAL_SHA}\trefs/heads/task/mt-3177\n` }],
+    ]);
+
+    const result = await pushWithConfirmation({ repoPath: WORKDIR }, deps, {
+      pushTimeoutMs: 20,
+      verifyTimeoutMs: 20,
+    });
+
+    expect(result.pushed).toBe(true);
+    expect(result.pushTimedOut).toBe(true);
+    expect(result.pushConfirmedVia).toBe("remote-check");
+    expect(result.pushUnconfirmed).toBeUndefined();
+  });
+
+  test("uses config.branch when supplied, skipping a SECOND rev-parse --abbrev-ref HEAD call", async () => {
+    // pushImpl itself always needs ONE rev-parse --abbrev-ref HEAD call to
+    // build the push command (unaffected by config.branch). What config.branch
+    // skips is the VERIFICATION step's own resolution of the branch — without
+    // it, resolveVerificationTarget would issue a SECOND identical call.
+    const { deps, calls } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3177\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [RX_PUSH, HANG],
+      [CMD_REV_PARSE_HEAD, { stdout: `${LOCAL_SHA}\n` }],
+      [RX_LS_REMOTE, { stdout: `${LOCAL_SHA}\trefs/heads/task/mt-3177\n` }],
+    ]);
+
+    const result = await pushWithConfirmation({ repoPath: WORKDIR }, deps, {
+      pushTimeoutMs: 20,
+      verifyTimeoutMs: 20,
+      branch: "task/mt-3177",
+    });
+
+    expect(result.pushed).toBe(true);
+    expect(result.pushConfirmedVia).toBe("remote-check");
+    // Exactly one rev-parse --abbrev-ref HEAD call (pushImpl's own) — not two.
+    expect(calls.filter((c) => c.command === CMD_REV_PARSE_BRANCH)).toHaveLength(1);
+  });
+
+  test("does not attempt verification when the branch cannot be resolved (detached HEAD)", async () => {
+    const { deps, calls } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "HEAD\n" }],
+      [CMD_REV_PARSE_SHORT, { stdout: "abc1234\n" }],
+    ]);
+
+    // pushImpl itself throws synchronously on detached HEAD (not a timeout),
+    // so this exercises the "definite error, no verification" branch too —
+    // included here specifically to confirm ls-remote is never called.
+    const result = await pushWithConfirmation({ repoPath: WORKDIR }, deps);
+
+    expect(result.pushed).toBe(false);
+    expect(result.pushError).toMatch(/detached/);
+    expect(calls.some((c) => RX_LS_REMOTE.test(c.command))).toBe(false);
   });
 });
