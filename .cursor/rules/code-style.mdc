@@ -24,3 +24,7 @@ tags:
     canonical entity-id name, not the alias alone.
   - `custom/require-hook-domain-bootstrap` (mt#3046) — `.minsky/hooks/**` files reaching
     persistence must import `ensureHookDomainBootstrap`.
+  - `custom/no-direct-service-construction` (mt#911; DI-fallback-shape check added mt#2642) —
+    bans `<identifier> ?? create<PascalCase>(...)` / `<identifier>?.<prop> ?? new
+    <PascalCase>(...)` (ADR-026) across `src/` and `packages/domain/src/`, plus the original
+    named-list check in the adapter layer.
