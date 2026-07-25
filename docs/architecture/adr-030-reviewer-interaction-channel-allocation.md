@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+**ACCEPTED** — Documented 2026-06-10 via PR #1663 (merged 2026-06-10). Renumbered from ADR-020 to ADR-030 on 2026-07-24 (mt#2594) to resolve a filename/number collision with `adr-020-plant-board-rendering-substrate.md`.
 
 ## Context
 
