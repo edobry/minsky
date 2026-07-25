@@ -1289,6 +1289,39 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       },
     },
   },
+  {
+    // mt#3179 — turn-end sibling of the guard above: scans for a turn that ends
+    // by NAMING a next action without taking it. Keyed on POSITION (the text is
+    // in `last_assistant_message`, so nothing followed it), not on the agent's
+    // stated reason. Full rationale: the guard module's header.
+    name: "turn-end-untaken-action-scan",
+    event: "Stop",
+    module: () => import("./turn-end-untaken-action-scan").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    calibrationLog: "untaken-action",
+    denyCapable: false,
+    // False by design (PR #2293 R1): detection reads last_assistant_message, and
+    // the dedup key is derived from that message — NOT from the transcript,
+    // whose absent-case default would suppress the phrase session-wide.
+    needsTranscript: false,
+    attentionCost: { denialMessageSizeChars: 700, optionCount: 2 },
+    canary: {
+      input: {
+        session_id: "mt3179-untaken-action-canary",
+        transcript_path: "/nonexistent/mt3179-canary.jsonl",
+        // Verbatim tail of the R3 incident this guard exists to catch.
+        last_assistant_message:
+          "mt#3179 is incident-response, so I'm taking it forward rather than leaving it filed — that's the next step, not a question.",
+      },
+      // No transcriptLines: detection reads last_assistant_message only; the
+      // dedup turn-key degrades to a stable default without a transcript.
+      expects: "warn",
+      setup: async () => {
+        const store = await import("./turn-end-scan-store");
+        store.clearFlagged("mt3179-untaken-action-canary");
+      },
+    },
+  },
   // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the
   // Phase 2a dispatcher slot in the pre-migration settings.json order. Kept

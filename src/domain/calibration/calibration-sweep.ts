@@ -85,6 +85,13 @@ export interface CalibrationLogEntry {
    *   matched excerpt. BOTH of the detector's surfaces write to this one log —
    *   they are two detection surfaces on ONE failure family, so measuring them
    *   together is what the graduation decision needs.
+   * "untaken-action"           → record.matches: {family, phrase}[] (mt#3179) —
+   *   same matches-shape family as retrospective-trigger (parsed by the shared
+   *   fallback branch below); `family` is the commitment pattern that matched
+   *   (e.g. `taking-forward`), `phrase` is the matched excerpt. Given its OWN
+   *   kind rather than reusing "retrospective-trigger" because the registry
+   *   invariant (PR #2263 R1) requires kind values to be unique per entry —
+   *   that uniqueness is what keeps the fire-log guard-name mapping 1:1.
    */
   kind:
     | "causal-premise"
@@ -98,7 +105,8 @@ export interface CalibrationLogEntry {
     | "build-claim-injection"
     | "knowledge-acquisition"
     | "constructed-identifier-batch"
-    | "operator-deferral";
+    | "operator-deferral"
+    | "untaken-action";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
    * trigger: the number of days a NEVER-reviewed log may accumulate fires
@@ -331,6 +339,15 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     path: ".minsky/operator-deferral-calibration.jsonl",
     name: "operator-deferral",
     kind: "operator-deferral",
+  },
+  {
+    path: ".minsky/untaken-action-calibration.jsonl",
+    name: "untaken-action",
+    // mt#3179 — turn-end-untaken-action-scan emits `matches: {family, phrase}[]`,
+    // the same shape as retrospective-trigger, so it parses through the shared
+    // fallback branch with no dedicated parser case. It still gets its OWN kind:
+    // the registry invariant (PR #2263 R1) requires unique kinds per entry.
+    kind: "untaken-action",
   },
 ];
 
@@ -1316,6 +1333,7 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   // the per-record `matches[].category` field is what distinguishes which
   // surface actually fired, and `/calibration-review` reads that.
   "operator-deferral": "operator-deferral-detector",
+  "untaken-action": "turn-end-untaken-action-scan",
 };
 
 /**
