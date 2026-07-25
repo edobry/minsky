@@ -130,10 +130,17 @@ describe("findPortHolder", () => {
   // can grab that exact port. Rather than weakening the assertion, retry
   // with a freshly OS-assigned port on the rare occasion a genuine
   // collision occurs -- a transient contention from an unrelated process is
-  // not a defect in findPortHolder itself.
+  // not a defect in findPortHolder itself. A short delay between retries
+  // (mt#2712 R1) covers the case where the stray holder is itself
+  // short-lived (e.g. a sibling test's listener mid-teardown) -- a
+  // back-to-back retry with no delay could re-collide with the same
+  // still-shutting-down process.
   test("returns null when no process holds the port", async () => {
     let holder: PortHolder | null = null;
     for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+      }
       const port = await findFreePort();
       holder = findPortHolder(port);
       if (holder === null) break;
