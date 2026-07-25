@@ -10,6 +10,8 @@ import {
   parseCalibrationLines,
   extractDistinctPhrases,
   computeLogResult,
+  isSuppressedRecord,
+  hasSuppressionOutcome,
   advanceWatermarks,
   clearResolvedAskIds,
   selectAckablePaths,
@@ -677,6 +679,116 @@ const DEFERRAL_ENTRY: CalibrationLogEntry = {
   name: DEFERRAL_KIND,
   kind: DEFERRAL_KIND,
 };
+
+describe("suppression-aware fire counting (mt#3197)", () => {
+  /** A causal-premise record carrying an explicit suppression outcome. */
+  function makeRecordWithSuppression(phrase: string, suppressionReasons: string[]): string {
+    return JSON.stringify({
+      timestamp: "2026-07-25T00:00:00.000Z",
+      matchedPhrases: [phrase],
+      hadSameTurnVerification: false,
+      suppressionReasons,
+    });
+  }
+
+  test("parseCalibrationRecord preserves suppressionReasons (it was previously dropped)", () => {
+    // The per-kind parser branches build objects field-by-field and drop
+    // unnamed keys — which is why code-mechanism-assertion could write this
+    // field from mt#3113 onward and the sweep still never saw it.
+    const parsed = parseCalibrationRecord(
+      makeRecordWithSuppression("p", ["same-turn-read"]),
+      CAUSAL_ENTRY.kind
+    );
+    expect(parsed?.suppressionReasons).toEqual(["same-turn-read"]);
+  });
+
+  test("absent suppressionReasons stays absent — not coerced to empty", () => {
+    // Absent means "unknown", empty means "known injected". Collapsing them
+    // would make a detector that records nothing look fully injected.
+    const parsed = parseCalibrationRecord(makeCausalRecord(["p"]), CAUSAL_ENTRY.kind);
+    expect(parsed).not.toBeNull();
+    if (parsed === null) return;
+    expect(parsed.suppressionReasons).toBeUndefined();
+    expect(hasSuppressionOutcome(parsed)).toBe(false);
+    expect(isSuppressedRecord(parsed)).toBe(false);
+  });
+
+  test("empty suppressionReasons means injected, not suppressed", () => {
+    const parsed = parseCalibrationRecord(makeRecordWithSuppression("p", []), CAUSAL_ENTRY.kind);
+    expect(parsed).not.toBeNull();
+    if (parsed === null) return;
+    expect(hasSuppressionOutcome(parsed)).toBe(true);
+    expect(isSuppressedRecord(parsed)).toBe(false);
+  });
+
+  test("suppressed records do not count toward the review threshold", () => {
+    // Exactly FIRES_THRESHOLD records, every one suppressed -> no review signal.
+    const content = buildLines(FIRES_THRESHOLD, (i) =>
+      makeRecordWithSuppression(`phrase-${i}`, ["same-turn-read"])
+    );
+    const result = computeLogResult(CAUSAL_ENTRY, content, true, undefined);
+
+    // Positional bookkeeping is unchanged — the watermark depends on it.
+    expect(result.totalFires).toBe(FIRES_THRESHOLD);
+    expect(result.firesSinceLastReview).toBe(FIRES_THRESHOLD);
+    // ...but none of them reached the operator.
+    expect(result.suppressedSinceLastReview).toBe(FIRES_THRESHOLD);
+    expect(result.injectedFiresSinceLastReview).toBe(0);
+    expect(result.atCountThreshold).toBe(false);
+    expect(result.pastThreshold).toBe(false);
+  });
+
+  test("a mixed log counts only the injected records", () => {
+    // The shape from the 2026-07-24 review: mostly suppressed, a few injected.
+    const suppressed = buildLines(FIRES_THRESHOLD, (i) =>
+      makeRecordWithSuppression(`s-${i}`, ["same-turn-read", "deduped"])
+    );
+    const injected = buildLines(FIRES_THRESHOLD, (i) => makeRecordWithSuppression(`i-${i}`, []));
+    const result = computeLogResult(CAUSAL_ENTRY, `${suppressed}\n${injected}`, true, undefined);
+
+    expect(result.firesSinceLastReview).toBe(FIRES_THRESHOLD * 2);
+    expect(result.suppressedSinceLastReview).toBe(FIRES_THRESHOLD);
+    expect(result.injectedFiresSinceLastReview).toBe(FIRES_THRESHOLD);
+    expect(result.pastThreshold).toBe(true);
+  });
+
+  test("records with no suppression outcome still count (unknown never hides a fire)", () => {
+    // Every log except code-mechanism-assertion is in this state today, and
+    // 149 of that one's records predate the field. Treating unknown as
+    // suppressed would silently switch review off for all of them.
+    const content = buildLines(FIRES_THRESHOLD, (i) => makeCausalRecord([`phrase-${i}`]));
+    const result = computeLogResult(CAUSAL_ENTRY, content, true, undefined);
+
+    expect(result.suppressedSinceLastReview).toBe(0);
+    expect(result.injectedFiresSinceLastReview).toBe(FIRES_THRESHOLD);
+    expect(result.pastThreshold).toBe(true);
+  });
+
+  test("suppressed records are still surfaced in newRecords for grading", () => {
+    // A suppression gate misfiring is itself a finding, so the reviewer must
+    // still be able to see suppressed records — they just don't drive cadence.
+    const suppressed = buildLines(2, (i) => makeRecordWithSuppression(`s-${i}`, ["deduped"]));
+    const injected = buildLines(FIRES_THRESHOLD, (i) => makeRecordWithSuppression(`i-${i}`, []));
+    const result = computeLogResult(CAUSAL_ENTRY, `${suppressed}\n${injected}`, true, undefined);
+
+    expect(result.atCountThreshold).toBe(true);
+    expect(result.newRecords).toHaveLength(FIRES_THRESHOLD + 2);
+    expect(result.newRecords.filter(isSuppressedRecord)).toHaveLength(2);
+  });
+
+  test("the watermark still counts records positionally, including suppressed ones", () => {
+    // If the watermark drifted from the record count, acknowledged records
+    // would be re-surfaced forever.
+    const content = buildLines(4, (i) => makeRecordWithSuppression(`s-${i}`, ["deduped"]));
+    const result = computeLogResult(CAUSAL_ENTRY, content, true, {
+      lastReviewedCount: 3,
+    } as never);
+
+    expect(result.watermarkCount).toBe(3);
+    expect(result.firesSinceLastReview).toBe(1);
+    expect(result.newRecords).toHaveLength(0); // below count bar
+  });
+});
 
 describe("computeLogResult — below threshold", () => {
   test("not past threshold with 0 fires", () => {

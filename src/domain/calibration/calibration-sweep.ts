@@ -563,8 +563,26 @@ export interface KnowledgeAcquisitionRecord {
   hadPropagation: boolean;
 }
 
+/**
+ * Fields every calibration record may carry regardless of its detector
+ * (mt#3197). Kept as an intersection rather than repeated on all eight member
+ * types so a new record kind inherits it automatically.
+ */
+export interface SharedCalibrationFields {
+  /**
+   * Injection-layer suppression outcome — the convention
+   * `code-mechanism-assertion` introduced in mt#3113, generalized here.
+   *
+   * - non-empty  → detected, then SUPPRESSED (reasons name the gate that fired)
+   * - empty `[]` → detected and INJECTED; the operator actually saw it
+   * - absent     → this detector does not record the outcome yet, OR the
+   *                record predates the field. NOT the same as empty.
+   */
+  suppressionReasons?: string[];
+}
+
 /** Union of all record types. */
-export type CalibrationRecord =
+export type CalibrationRecord = (
   | CausalPremiseRecord
   | RetrospectiveTriggerRecord
   | CodeMechanismAssertionRecord
@@ -572,7 +590,9 @@ export type CalibrationRecord =
   | SilentStretchRecord
   | WallOfTextRecord
   | BuildClaimInjectionRecord
-  | KnowledgeAcquisitionRecord;
+  | KnowledgeAcquisitionRecord
+) &
+  SharedCalibrationFields;
 
 // ---------------------------------------------------------------------------
 // Per-log result
@@ -586,8 +606,29 @@ export interface CalibrationLogResult {
   exists: boolean;
   /** Total records in the log (all-time). */
   totalFires: number;
-  /** Records added since the last acknowledged review (= total - watermark). */
+  /**
+   * Records added since the last acknowledged review (= total - watermark).
+   *
+   * POSITIONAL, deliberately: the watermark is itself a record count, so this
+   * must stay aligned with it. It is NOT the review-cadence signal — see
+   * `injectedFiresSinceLastReview` (mt#3197).
+   */
   firesSinceLastReview: number;
+  /**
+   * Of `firesSinceLastReview`, how many were detected then SUPPRESSED and so
+   * never reached the operator (mt#3197).
+   */
+  suppressedSinceLastReview: number;
+  /**
+   * `firesSinceLastReview` minus the suppressed ones — the count the review
+   * thresholds actually key off, because a suppressed detection is not an
+   * operator-facing fire (mt#3197).
+   *
+   * Records from detectors that don't record a suppression outcome, and
+   * records predating the field, count as injected here: unknown is treated
+   * as operator-facing so a missing outcome can never hide a real fire.
+   */
+  injectedFiresSinceLastReview: number;
   /** Number of distinct matched phrases across all fires-since-last-review records. */
   distinctPhrases: number;
   /** True when fires-since-last-review >= FIRES_THRESHOLD (count bar, diversity-agnostic). */
@@ -629,7 +670,67 @@ export interface CalibrationLogResult {
  * @param line - raw JSONL line string
  * @param kind - log kind (drives parse path)
  */
+/**
+ * Read the injection-layer suppression outcome off a raw record (mt#3197).
+ *
+ * `suppressionReasons` is the convention `code-mechanism-assertion` introduced
+ * in mt#3113: an empty/absent array means the detection was INJECTED (the
+ * operator actually saw it); a non-empty array means it was detected and then
+ * SUPPRESSED, with the reasons naming which gate fired.
+ *
+ * Absent is deliberately NOT the same as empty. A record written before its
+ * detector recorded the field cannot be classified either way, and treating
+ * "absent" as "injected" would silently re-inflate exactly the count this
+ * task exists to deflate. `isSuppressedRecord` therefore reports absent as
+ * not-suppressed (conservative: it still counts toward review) while
+ * `hasSuppressionOutcome` lets callers distinguish "known injected" from
+ * "unknown".
+ */
+function parseSuppressionReasons(raw: Record<string, unknown>): string[] | undefined {
+  const value = raw["suppressionReasons"];
+  if (!Array.isArray(value)) return undefined;
+  return value.map(String);
+}
+
+/** Was this detection suppressed before reaching the operator? (mt#3197) */
+export function isSuppressedRecord(record: CalibrationRecord): boolean {
+  return (record.suppressionReasons?.length ?? 0) > 0;
+}
+
+/** Does this record carry a suppression outcome at all? (mt#3197 back-compat) */
+export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
+  return Array.isArray(record.suppressionReasons);
+}
+
+/**
+ * Parse one JSONL line into a typed record.
+ *
+ * mt#3197: the per-kind branches below construct their objects field-by-field
+ * and therefore DROP any key they don't name — which is why
+ * `suppressionReasons` was invisible to this sweep even though
+ * `code-mechanism-assertion` had been writing it since mt#3113. Rather than
+ * thread the field through all eight branches (and require every future
+ * branch to remember it), the per-kind parse is wrapped and the shared field
+ * is attached once, here.
+ */
 export function parseCalibrationRecord(
+  line: string,
+  kind: CalibrationLogEntry["kind"]
+): CalibrationRecord | null {
+  const record = parseCalibrationRecordCore(line, kind);
+  if (record === null) return record;
+  try {
+    const suppressionReasons = parseSuppressionReasons(JSON.parse(line) as Record<string, unknown>);
+    return suppressionReasons === undefined ? record : { ...record, suppressionReasons };
+  } catch {
+    // The core parse already succeeded, so the line IS valid JSON; this catch
+    // exists only so a shared-field failure can never lose a record the
+    // per-kind parser accepted.
+    return record;
+  }
+}
+
+function parseCalibrationRecordCore(
   line: string,
   kind: CalibrationLogEntry["kind"]
 ): CalibrationRecord | null {
@@ -902,11 +1003,23 @@ export function computeLogResult(
   const newRecords = allRecords.slice(watermarkCount);
 
   const distinctPhrases = extractDistinctPhrases(newRecords).size;
+
+  // mt#3197: a SUPPRESSED detection never reached the operator, so it is not a
+  // "fire" for review-cadence purposes. Counting it was making a correctly-tuned
+  // detector trip review forever: code-mechanism-assertion reported 71 fires in
+  // the 2026-07-24 pass, of which 30 were known-suppressed and only 3 known-
+  // injected. `firesSinceLastReview` KEEPS its positional meaning (records added
+  // since the watermark) because the watermark is itself a record COUNT and the
+  // arithmetic must stay aligned with it; the threshold keys off the injected
+  // count instead.
+  const suppressedSinceLastReview = newRecords.filter(isSuppressedRecord).length;
+  const injectedFiresSinceLastReview = firesSinceLastReview - suppressedSinceLastReview;
+
   // The review threshold is DIVERSITY-AWARE (spec Success Criterion #3): a log is
   // only "past threshold" — i.e. worth surfacing for review — when it has enough
   // fires AND enough distinct shapes. Ten identical fires are NOT a review signal,
   // they're a uniform pattern; keep collecting until diversity arrives.
-  const atCountThreshold = firesSinceLastReview >= FIRES_THRESHOLD;
+  const atCountThreshold = injectedFiresSinceLastReview >= FIRES_THRESHOLD;
   const hasDiversity = distinctPhrases >= DIVERSITY_THRESHOLD;
   const pastThreshold = atCountThreshold && hasDiversity;
   // lowDiversity: hit the fire count but not the diversity bar (the "keep
@@ -918,6 +1031,8 @@ export function computeLogResult(
     exists,
     totalFires,
     firesSinceLastReview,
+    suppressedSinceLastReview,
+    injectedFiresSinceLastReview,
     distinctPhrases,
     atCountThreshold,
     lowDiversity,
