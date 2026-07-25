@@ -245,10 +245,13 @@ async function attemptCommentFallbackAfterFailure(args: {
   owner: string;
   repo: string;
   githubToken: string | undefined;
+  /** The direct endpoint that was attempted — carried onto the result so a
+   * fallback still names the host that failed (mt#3143 PR #2289 R1). */
+  url: string;
   directError: string;
   createCommentClient: (githubToken: string) => Promise<ReviewCommentClient>;
 }): Promise<RetriggerResult | undefined> {
-  const { pr, owner, repo, githubToken, directError, createCommentClient } = args;
+  const { pr, owner, repo, githubToken, url, directError, createCommentClient } = args;
   if (!githubToken) return undefined;
 
   log.cli(
@@ -271,6 +274,7 @@ async function attemptCommentFallbackAfterFailure(args: {
 
   return {
     ...result,
+    url,
     directError,
     note:
       `The direct endpoint failed (${directError}); fell back to posting a \`/review\` comment ` +
@@ -449,6 +453,7 @@ export async function runReviewerRetrigger(
         owner,
         repo,
         githubToken,
+        url,
         directError: failure.error as string,
         createCommentClient,
       })) ?? failure
@@ -508,6 +513,7 @@ export async function runReviewerRetrigger(
         owner,
         repo,
         githubToken,
+        url,
         directError: failure.error as string,
         createCommentClient,
       });

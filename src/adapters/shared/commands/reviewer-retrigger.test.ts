@@ -437,6 +437,10 @@ describe("direct-path failure diagnosability + fallback-on-failure (mt#3143)", (
     expect(commentCalls).toEqual([
       { owner: "edobry", repo: "minsky", issue_number: 2244, body: "/review" },
     ]);
+    // A fallback that followed a direct failure still names the endpoint it
+    // tried — the result must not lose the target just because it changed
+    // transport (PR #2289 R1).
+    expect(result.url).toBe(RETRIGGER_URL);
     // The direct failure is not discarded just because the fallback worked.
     expect(result.directError).toContain(RETRIGGER_URL);
     expect(result.directError).toContain("404");
@@ -510,6 +514,9 @@ describe("direct-path failure diagnosability + fallback-on-failure (mt#3143)", (
     expect(commentCalls).toHaveLength(1);
     // The original mt#2679 note, NOT the direct-failure note.
     expect(result.note).toContain(DOCTOR_FIX_HINT);
+    // No direct call was attempted, so there is no endpoint to name — the
+    // counterpart to the fallback-after-failure assertion above.
+    expect(result.url).toBeUndefined();
     expect(result.directError).toBeUndefined();
   });
 });
