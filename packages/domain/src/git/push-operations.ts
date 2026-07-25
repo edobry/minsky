@@ -17,6 +17,96 @@ export interface PushOptions {
   authToken?: string;
 }
 
+/** What a redacted credential is replaced WITH — kept recognizable so a reader can tell redaction happened. */
+export const REDACTED_CREDENTIAL = "***REDACTED***";
+
+/**
+ * Strips credential material from text that may echo the push command (mt#3219).
+ *
+ * `deps.execAsync` takes a shell STRING, so a failed push throws an error whose
+ * message begins `Command failed: <the entire command>` — and when `authToken`
+ * is set that command carries
+ * `-c http.https://github.com/.extraheader='AUTHORIZATION: basic <base64>'`,
+ * where the base64 decodes straight to `x-access-token:<installation token>`.
+ * Tool output is persisted AND ingested into the transcripts DB, so every push
+ * failure was writing a live credential into durable, searchable storage. This
+ * fired on every failure, and for a period push failures were the steady state
+ * (mt#3210 measured 8-of-8 first attempts), so the volume was not incidental.
+ *
+ * Redaction happens HERE, where the error is constructed, rather than at any
+ * display layer — every consumer (MCP result, log line, task record, transcript
+ * ingest) is downstream of this point, and filtering at one of them would leave
+ * the others leaking.
+ *
+ * Deliberately narrow: it removes the credential and NOTHING else, so the
+ * remote's own message ("Permission ... denied to ...", "403") survives intact.
+ * That text is what made mt#3210 diagnosable, and redaction must not cost that.
+ *
+ * Exported for tests.
+ */
+export function redactPushCredentials(text: string): string {
+  return (
+    text
+      // PRIMARY, and the only path that actually leaked: the injected header.
+      // The base64 payload is the secret. The character class deliberately
+      // excludes the quote the value is wrapped in, so the match ends at the
+      // closing quote instead of running on into following text — the
+      // over-match risk PR #2319 R1 flagged.
+      .replace(
+        /AUTHORIZATION:\s*basic\s+[A-Za-z0-9+/=]+/gi,
+        `AUTHORIZATION: basic ${REDACTED_CREDENTIAL}`
+      )
+      // SECONDARY net for a raw token appearing outside the header. Anchored on
+      // word boundaries so a pattern cannot chew a matching prefix out of a
+      // longer identifier and corrupt diagnostic text. That risk is why these
+      // stay conservative rather than broadening to every GitHub token shape
+      // (R1 non-blocking): the header above is the guaranteed path, and a
+      // wider net here trades a real diagnosability cost for a hypothetical
+      // leak the injection site cannot currently produce.
+      .replace(/\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, REDACTED_CREDENTIAL)
+      .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, REDACTED_CREDENTIAL)
+  );
+}
+
+/**
+ * Rebuilds a subprocess error with its credential-bearing text redacted,
+ * preserving the fields callers branch on.
+ *
+ * `mt#3210`'s keychain-fallback detector inspects the error's message/stderr for
+ * a permission-denial signature, so those fields must survive redaction — hence
+ * copying them through rather than replacing the error with a generic one.
+ */
+export function redactPushError(err: unknown): unknown {
+  if (!(err instanceof Error)) {
+    return typeof err === "string" ? redactPushCredentials(err) : err;
+  }
+
+  // Mutated IN PLACE rather than rewrapped (PR #2319 R1). A `new Error(...)`
+  // copy silently drops the original's prototype (a `GitExecError` subclass
+  // stops satisfying `instanceof`), its `name`, and any non-enumerable
+  // properties — a behavior change well beyond redaction, and one a caller
+  // branching on error type would hit without warning.
+  //
+  // Editing in place also means no unredacted copy of the error survives
+  // anywhere, which a wrap-and-return cannot guarantee: the caller may still
+  // hold a reference to the original.
+  err.message = redactPushCredentials(err.message);
+  if (typeof err.stack === "string") {
+    err.stack = redactPushCredentials(err.stack);
+  }
+
+  // The string-valued extras Node's exec attaches (stderr/stdout/cmd).
+  // mt#3210's keychain fallback reads stderr, so these must survive redaction
+  // rather than be dropped.
+  for (const [key, value] of Object.entries(err)) {
+    if (typeof value === "string") {
+      Object.assign(err, { [key]: redactPushCredentials(value) });
+    }
+  }
+
+  return err;
+}
+
 /**
  * Result of push operations
  */
@@ -136,7 +226,11 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
         "No upstream branch is set for this branch. Set the upstream with 'git push --set-upstream' or push manually first."
       );
     }
-    throw err;
+    // mt#3219: the raw error's message is `Command failed: <full command>`,
+    // which carries the injected Authorization header when authToken is set.
+    // The two rewrites above build fresh strings and are already safe; this is
+    // the path that echoed a live credential into persisted output.
+    throw redactPushError(err);
   }
 }
 
