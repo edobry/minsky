@@ -85,17 +85,19 @@ export interface ComposeReviewResult {
    */
   inlineComments: ComposedInlineComment[];
   /**
-   * True when `event` was forced to `REQUEST_CHANGES` by
-   * {@link reconcileEventWithBlockingCount} because outstanding BLOCKING
-   * findings disagreed with the model's own (or the last chunk's) terminal
-   * verdict (mt#2655). False when the terminal event needed no correction.
+   * True when `event` was forced by {@link reconcileEventWithBlockingCount}:
+   * either UP to `REQUEST_CHANGES` because outstanding BLOCKING findings
+   * disagreed with the model's own (or the last chunk's) terminal verdict
+   * (mt#2655), or DOWN to `APPROVE` because the terminal verdict was
+   * `COMMENT` with zero BLOCKING findings (mt#3202 / ask#6013). False when
+   * the terminal event needed no correction.
    */
   reconciled: boolean;
 }
 
 /**
  * Reconcile a terminal review event against outstanding BLOCKING findings
- * (mt#2655).
+ * (mt#2655; downward direction added mt#3202 / ask#6013).
  *
  * In chunked-review mode, each chunk emits its own `conclude_review` call and
  * `composeReviewBody` uses only the LAST one to derive the raw event — so an
@@ -117,12 +119,41 @@ export interface ComposeReviewResult {
  * Relabeling a lingering BLOCKING finding down to a lower severity ("gets
  * relabeled with stated reason", per the task spec) would require the
  * model's own judgment — not available post-hoc from a deterministic
- * aggregator — so the only reconciled direction is toward REQUEST_CHANGES,
- * never a silent downgrade of the findings themselves.
+ * aggregator — so a BLOCKING finding is never silently discarded by this
+ * function; the upward direction (below) only ever adds REQUEST_CHANGES, it
+ * never removes a finding.
+ *
+ * ## Downward direction: COMMENT + zero BLOCKING → APPROVE (mt#3202)
+ *
+ * `minsky-reviewer[bot]` frequently concluded with `event: COMMENT` on
+ * reviews that recorded ZERO BLOCKING findings — sometimes zero findings at
+ * all — because the model treats COMMENT as "approve with reservations" while
+ * the merge gate treats it as "not approved." Every such review cost an extra
+ * content-free round (mt#3202's four observed instances, 2026-07-24). ask#6013
+ * (operator, 2026-07-25) resolved this: when the trigger is "zero BLOCKING
+ * findings" — not "zero findings" — the terminal event must be APPROVE, not
+ * COMMENT. Making this a function of `blockingCount` (rather than trusting the
+ * model's own COMMENT/APPROVE distinction) is what makes "I have concerns but
+ * recorded none as blocking" impossible: if the model wants a review to NOT
+ * auto-clear, it must submit a BLOCKING `submit_finding` (or a REQUEST_CHANGES
+ * conclusion, which `applyEmptyFindingsRecovery` — mt#2685 — backstops by
+ * synthesizing a BLOCKING finding from the summary when none was emitted).
+ * `reconciledFrom` reports the same "COMMENT" value for both directions;
+ * callers distinguish direction via the returned `event`.
+ *
+ * `allowApprovePromotion` (default `true`) exists so a caller that has NOT
+ * received an explicit model verdict — `composeReviewBody`'s "no
+ * `conclude_review` call at all" fallback branch — can opt out. A missing
+ * `conclude_review` call is a review-PROCESS anomaly (the model never
+ * concluded), not evidence the review is clean; silently auto-approving that
+ * case would hide the anomaly rather than surface it. Every caller with an
+ * explicit model conclusion (a real `conclude_review` call, including one
+ * rewritten by an upstream downgrade-recovery pass) uses the default.
  */
 export function reconcileEventWithBlockingCount(
   rawEvent: "APPROVE" | "REQUEST_CHANGES" | "COMMENT",
-  blockingCount: number
+  blockingCount: number,
+  options?: { allowApprovePromotion?: boolean }
 ): {
   event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
   reconciledFrom: "APPROVE" | "COMMENT" | null;
@@ -130,18 +161,45 @@ export function reconcileEventWithBlockingCount(
   if (blockingCount > 0 && rawEvent !== "REQUEST_CHANGES") {
     return { event: "REQUEST_CHANGES", reconciledFrom: rawEvent };
   }
+  const allowApprovePromotion = options?.allowApprovePromotion ?? true;
+  if (blockingCount === 0 && rawEvent === "COMMENT" && allowApprovePromotion) {
+    return { event: "APPROVE", reconciledFrom: "COMMENT" };
+  }
   return { event: rawEvent, reconciledFrom: null };
+}
+
+export interface ComposeReviewBodyOptions {
+  /**
+   * Whether a zero-BLOCKING `COMMENT` conclusion may be promoted to `APPROVE`
+   * (mt#3202 / ask#6013). Defaults to `true`.
+   *
+   * Set to `false` when the caller has already forcibly rewritten an
+   * incoherent `REQUEST_CHANGES` conclusion down to `COMMENT` via an upstream
+   * downgrade-recovery pass (`recovery-compose.ts`'s Step 3 / Step 3d) — that
+   * COMMENT reflects a demotion of the RECOVERY LAYER'S judgment, not the
+   * model's own COMMENT authorship, and the codebase-wide convention for
+   * those passes is demote-only (never promote to APPROVE from a post-hoc
+   * structural pass whose input was a model REQUEST_CHANGES verdict). This
+   * flag composes with (but is independent of) the internal
+   * `concludeCall !== undefined` gate below, which handles the "no
+   * conclude_review call at all" case.
+   */
+  allowApprovePromotion?: boolean;
 }
 
 /**
  * Compose the GitHub review body and event from a list of output-tool payloads.
  *
  * @param toolCalls - The ordered list of tool calls emitted by the reviewer model.
+ * @param options - See {@link ComposeReviewBodyOptions}.
  * @returns An object with `body` (Markdown string), `event` (GitHub review event),
  *          `threadResolves` (thread-resolve requests for the worker), and
  *          `inlineComments` (inline comments with optional inReplyTo fields).
  */
-export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewResult {
+export function composeReviewBody(
+  toolCalls: ReviewToolCall[],
+  options?: ComposeReviewBodyOptions
+): ComposeReviewResult {
   // ------------------------------------------------------------------
   // Empty-input fast path
   // ------------------------------------------------------------------
@@ -225,12 +283,19 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
     event = blockingFindingsCount > 0 ? "REQUEST_CHANGES" : "COMMENT";
   }
 
-  // Chunk-review / label reconciliation (mt#2655): a lingering BLOCKING
-  // finding forces REQUEST_CHANGES regardless of what conclude_review (or
-  // the fallback derivation above, which is already self-consistent) said.
-  // See reconcileEventWithBlockingCount's doc comment for the full incident
+  // Chunk-review / label reconciliation (mt#2655 upward; mt#3202 downward):
+  // a lingering BLOCKING finding forces REQUEST_CHANGES regardless of what
+  // conclude_review (or the fallback derivation above, which is already
+  // self-consistent) said; a zero-BLOCKING COMMENT forces APPROVE. Promotion
+  // to APPROVE is disabled for the "no conclude_review call at all" fallback
+  // branch (`concludeCall === undefined`) — a missing conclusion is a
+  // review-process anomaly the warning section below surfaces, not evidence
+  // the review is clean, so it must not silently clear the gate. See
+  // reconcileEventWithBlockingCount's doc comment for the full incident
   // context.
-  const reconciliation = reconcileEventWithBlockingCount(event, blockingFindingsCount);
+  const reconciliation = reconcileEventWithBlockingCount(event, blockingFindingsCount, {
+    allowApprovePromotion: concludeCall !== undefined && (options?.allowApprovePromotion ?? true),
+  });
   event = reconciliation.event;
 
   // ------------------------------------------------------------------
@@ -238,10 +303,11 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
   // ------------------------------------------------------------------
   const sections: string[] = [];
 
-  // Section -1: Reconciliation notice (mt#2655) — surfaced FIRST, ahead of
-  // the executive summary, so the disagreement between the model's own
-  // verdict and the actual finding severities is impossible to miss.
-  if (reconciliation.reconciledFrom !== null) {
+  // Section -1: Reconciliation notice (mt#2655 upward; mt#3202 downward) —
+  // surfaced FIRST, ahead of the executive summary, so the disagreement
+  // between the model's own verdict and the actual finding severities is
+  // impossible to miss.
+  if (reconciliation.reconciledFrom !== null && event === "REQUEST_CHANGES") {
     // mt#2863 SC2: name any BLOCKING finding whose text reads as a resolution
     // note, so operators can distinguish a genuine block-after-approval from the
     // resolution-note mis-tag bug class. The emission-layer guard normally
@@ -261,6 +327,23 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
         `possibly emitted by a different chunk than the one that concluded the review. A ` +
         `\`${reconciliation.reconciledFrom}\` event cannot coexist with a BLOCKING finding; see the ` +
         `Findings section below for the finding(s) driving this reconciliation.${resolutionNoteNote}`
+    );
+  } else if (reconciliation.reconciledFrom !== null && event === "APPROVE") {
+    // mt#3202 / ask#6013: the model concluded COMMENT with zero BLOCKING
+    // findings. Per the operator's resolution, zero BLOCKING findings clears
+    // the review automatically — COMMENT-with-no-blocker is not a distinct
+    // "hold for review" state. Surfaced (not silent) so an agent reading the
+    // posted review can tell the APPROVE event was reconciled rather than
+    // model-authored — the review's own prose (rendered below) may still
+    // read as tentative even though the verdict now clears the merge gate.
+    sections.push(
+      `ℹ️ **Event reconciled from \`COMMENT\` to \`APPROVE\`.** This review recorded zero ` +
+        `\`[BLOCKING]\` findings; per the resolved policy on COMMENT-with-zero-blocking-findings ` +
+        `(mt#3202 / ask#6013), a review with no blocking findings clears the merge gate ` +
+        `automatically rather than requiring a content-free follow-up round. If any finding below ` +
+        `is NON-BLOCKING but should have blocked merge, that is a review-quality issue to raise ` +
+        `separately — the fix here only affects the mapping from findings to verdict, not what the ` +
+        `model classifies as blocking.`
     );
   }
 

@@ -276,8 +276,16 @@ export const ConcludeReviewArgsSchema = z.object({
    * The review conclusion:
    *   "APPROVE"          — no blocking issues; PR is ready to merge
    *   "REQUEST_CHANGES"  — one or more blocking issues must be addressed first
-   *   "COMMENT"          — observations only; no explicit approve or block
-   *                        (use when the reviewer cannot make a merge decision)
+   *   "COMMENT"          — observations only, no BLOCKING finding submitted
+   *                        (use when you are the same App identity as the PR
+   *                        author — GitHub blocks self-approval)
+   *
+   * IMPORTANT (mt#3202 / ask#6013): a COMMENT conclusion with zero BLOCKING
+   * `submit_finding` calls is reconciled to APPROVE downstream — it does NOT
+   * hold the review back. A genuine reservation must be expressed as an
+   * actual BLOCKING finding (or a REQUEST_CHANGES verdict); describing a
+   * concern only in this `summary` field while emitting COMMENT will not
+   * block merge.
    */
   event: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]),
 
@@ -610,7 +618,10 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
         "Call this exactly once, after all submit_finding and submit_spec_verification calls. " +
         "event: 'APPROVE' when no blocking issues exist and the PR is ready to merge; " +
         "'REQUEST_CHANGES' when one or more blocking findings must be addressed before merge; " +
-        "'COMMENT' when providing observations only, without an explicit approve or block decision.",
+        "'COMMENT' only when you are the same App identity as the PR author (self-approval is " +
+        "blocked by GitHub). A COMMENT conclusion with zero BLOCKING submit_finding calls is " +
+        "reconciled to APPROVE and does NOT hold the review back — express any genuine " +
+        "reservation as an actual BLOCKING finding, not as prose in this call's summary.",
       parameters: {
         type: "object",
         properties: {
@@ -618,7 +629,9 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
             type: "string",
             enum: ["APPROVE", "REQUEST_CHANGES", "COMMENT"],
             description:
-              "Review conclusion: APPROVE (ready to merge), REQUEST_CHANGES (blocking issues found), or COMMENT (observations only).",
+              "Review conclusion: APPROVE (ready to merge, or zero BLOCKING findings — the two are " +
+              "treated identically), REQUEST_CHANGES (one or more BLOCKING findings), or COMMENT " +
+              "(only for the self-review case; zero-BLOCKING COMMENT is reconciled to APPROVE).",
           },
           summary: {
             type: "string",

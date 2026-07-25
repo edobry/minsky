@@ -370,6 +370,16 @@ export function applyRecoveryAndCompose(
         // block convergence. Verified empirically against a live PR
         // (#1978) predating this change, which merged on a COMMENT
         // conclusion via this same gate path.
+        //
+        // mt#3202 / ask#6013 note: `composeReviewBody` now promotes a
+        // MODEL-AUTHORED zero-BLOCKING COMMENT to APPROVE by default (the
+        // fix for the separate, far more common case of the model itself
+        // concluding COMMENT with nothing left to block on). That default
+        // must NOT apply to the COMMENT this step (or Step 3 above)
+        // synthesizes — this COMMENT is a demotion of a model REQUEST_CHANGES
+        // verdict, not the model's own COMMENT authorship, and the
+        // demote-only rationale above still holds. Step 4 below passes
+        // `allowApprovePromotion: !reconcileApplied` for exactly this reason.
         if (
           postRecoveryBlockingCount === 0 &&
           toolCallsForComposition.some(
@@ -393,7 +403,18 @@ export function applyRecoveryAndCompose(
 
   // Step 4: compose. Spread to coerce the readonly local to the mutable
   // signature expected by composeReviewBody (which only reads).
-  const composed = composeReviewBody([...toolCallsForComposition]);
+  //
+  // allowApprovePromotion: !reconcileApplied (mt#3202) — when Step 3 or Step
+  // 3d already demoted a model REQUEST_CHANGES verdict down to COMMENT
+  // because a downgrade pass reduced BLOCKING to zero, that COMMENT must NOT
+  // be further promoted to APPROVE by composeReviewBody's own mt#3202
+  // reconciliation (see the Step 3d rationale above for why demote-only is
+  // the deliberate convention for THIS pipeline stage). When reconcileApplied
+  // is false, the flag defaults to true inside composeReviewBody, so a
+  // model-authored zero-BLOCKING COMMENT still promotes to APPROVE normally.
+  const composed = composeReviewBody([...toolCallsForComposition], {
+    allowApprovePromotion: !reconcileApplied,
+  });
 
   return {
     toolCalls: toolCallsForComposition,
