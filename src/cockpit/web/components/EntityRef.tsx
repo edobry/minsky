@@ -37,6 +37,15 @@
  * having been triggered. Nothing load-bearing lives only in
  * `HoverCardContent`. `appendLabel` exists precisely to honor that rule in
  * prose, where children mode previously left the title hover-only (mt#3189).
+ *
+ * DENSE ROWS get the same guarantee via `aria-label` (mt#3187). A dense list
+ * row (Attention digest, ActivityPage, TaskGraph, search results) deliberately
+ * omits `appendLabel` to protect its line height — which would otherwise leave
+ * a keyboard or screen-reader user with a bare id, since the hover card
+ * reaches neither. The anchor therefore carries the resolved label as its
+ * accessible name whenever one exists. This costs zero pixels: assistive tech
+ * announces "mt#3174, Cockpit entity-reference layer…" while the row still
+ * renders just the id.
  */
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -161,10 +170,17 @@ export function EntityRef({ type, id, children, appendLabel, className }: Entity
       defaultInline(type, id, info)
     );
 
+  // Accessible name (mt#3187): carries the resolved label for assistive tech
+  // even when nothing is appended inline. Omitted entirely when no label has
+  // resolved — an aria-label duplicating the visible id would only add noise.
+  const accessibleName = info?.label
+    ? `${id}, ${info.label}${info.status ? `, ${info.status}` : ""}`
+    : undefined;
+
   return (
     <HoverCard openDelay={200} closeDelay={100}>
       <HoverCardTrigger asChild>
-        <Link to={to} className={cn(LINK_CLASS, className)}>
+        <Link to={to} className={cn(LINK_CLASS, className)} aria-label={accessibleName}>
           {inline}
         </Link>
       </HoverCardTrigger>
