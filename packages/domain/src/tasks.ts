@@ -26,14 +26,17 @@ import {
   taskDeleteParamsSchema,
   taskStatusSetParamsSchema,
   taskStatusGetParamsSchema,
-  taskSpecContentParamsSchema,
   type TaskListParams,
+  type TaskSpecContentParams,
 } from "./schemas/tasks";
 import type { PersistenceProvider } from "./persistence/types";
 import type { TaskServiceInterface } from "./tasks/taskService";
 import type { TaskGraphService } from "./tasks/task-graph-service";
 import { setTaskStatusFromParams as setTaskStatusValidated } from "./tasks/commands/mutation-commands";
-import { listTasksFromParams as listTasksValidated } from "./tasks/commands/query-commands";
+import {
+  listTasksFromParams as listTasksValidated,
+  getTaskSpecContentFromParams as getTaskSpecContentValidated,
+} from "./tasks/commands/query-commands";
 import { assertKnownKind } from "./tasks/workflows";
 
 // ---- Dependency injection types ----
@@ -267,20 +270,19 @@ export async function getTaskSpecContentFromParams(
   params: Record<string, unknown>,
   deps?: TaskServiceDeps
 ) {
-  const validParams = taskSpecContentParamsSchema.parse(params);
-  const workspacePath = process.cwd();
-  log.debug("tasks.spec params", { backend: validParams.backend });
-
-  const taskService =
-    deps?.taskService ??
-    (await createConfiguredTaskService({
-      workspacePath,
-      backend: validParams.backend,
-      persistenceProvider: requirePersistence(deps?.persistenceProvider),
-    }));
-  log.debug("tasks.spec created TaskService", {
-    backend:
-      taskService.listBackends?.().find((b) => b.prefix === validParams.backend)?.name || "default",
+  // Delegates to the canonical implementation in tasks/commands/query-commands.ts
+  // (mt#3194), which forwards `section` to taskService.getTaskSpecContent AND
+  // extracts the matching `## <section>` heading range from the returned spec
+  // body. Before this delegation, this facade called
+  // `taskService.getTaskSpecContent(validParams.taskId)` with a SINGLE argument
+  // and never forwarded `validParams.section` — so `tasks spec --section` /
+  // `tasks_spec_get section:` silently ignored the filter and returned the
+  // whole spec on the live CLI/MCP path (`@minsky/domain/tasks` →
+  // `tasks/index.ts` → this file), even though the extraction logic already
+  // existed and was tested on the `query-commands.ts` copy. See this file's
+  // header for the mt#2783/mt#2704 delegation precedent this follows.
+  return getTaskSpecContentValidated(params as TaskSpecContentParams, {
+    taskService: deps?.taskService,
+    persistenceProvider: deps?.persistenceProvider,
   });
-  return await taskService.getTaskSpecContent(validParams.taskId);
 }
