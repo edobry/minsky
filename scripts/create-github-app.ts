@@ -15,6 +15,10 @@
  *     --events pull_request \
  *     --webhook-url https://minsky-reviewer.example.com/webhook
  *
+ * (contents:read above is correct for a review-only App; the default below
+ * is contents:write — required for session_commit's App-token push,
+ * mt#1477/mt#3210/mt#3218 — for Apps that don't override --permissions.)
+ *
  * Writes credentials to `~/.config/minsky/<name>.{pem,json}`.
  *
  * @see mt#997 — original parametrized script (now lifted into the domain layer)
@@ -57,7 +61,7 @@ Required:
   --repo <owner>/<repo>     Repo to install on (e.g., edobry/minsky)
 
 Optional:
-  --permissions k:v,k:v     Default: pull_requests:write,contents:read,metadata:read
+  --permissions k:v,k:v     Default: pull_requests:write,contents:write,metadata:read
   --events e1,e2            Default: (none)
   --webhook-url <url>       Prefill the App webhook URL. Default: placeholder.
   --inactive                Create the App with webhooks disabled. Default: active.
@@ -112,7 +116,9 @@ function parseArgs(argv: string[]): ParsedArgs {
     process.exit(1);
   }
 
-  const permsRaw = map.get("permissions") ?? "pull_requests:write,contents:read,metadata:read";
+  // mt#3218: contents:write (not read) — session_commit's App-token push
+  // (mt#1477) needs it; the read-only default was mt#3210's upstream cause.
+  const permsRaw = map.get("permissions") ?? "pull_requests:write,contents:write,metadata:read";
   const permissions: Record<string, string> = {};
   for (const entry of permsRaw.split(",")) {
     const [k, v] = entry.split(":");
