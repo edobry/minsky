@@ -45,6 +45,7 @@ import {
   type CreateAskInput,
 } from "@minsky/domain/ask/repository";
 import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
+import { isAutomatedClosureResponder } from "@minsky/domain/ask/close-as-resolved";
 import {
   editAskContent,
   providedEditableFields,
@@ -1074,12 +1075,19 @@ export function formatAskWaitMessage(result: AskWaitForResponseResult): string {
   if (result.resolved) {
     const payload = result.response.payload;
     const payloadStr = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
-    return [
-      `✓ Ask resolved (${result.state}) by ${result.response.responder} ` +
-        `after ${secs}s / ${result.pollCount} poll(s)`,
-      "",
-      payloadStr,
-    ].join("\n");
+    // mt#3215: `responded`/`closed` are response-bearing states regardless of
+    // WHO closed them — a system sweep's automated closure (parent-terminal,
+    // supersession) sets `response` exactly like a genuine operator answer
+    // does. Render the two differently so a caller reading this line alone
+    // (not the raw payload) cannot mistake an unanswered auto-close for a
+    // real response — the ask#6024 incident this task fixes.
+    const autoClosed = isAutomatedClosureResponder(result.response.responder);
+    const headline = autoClosed
+      ? `⚠ Ask auto-closed (${result.state}) by ${result.response.responder} — NOT an operator ` +
+        `response after ${secs}s / ${result.pollCount} poll(s)`
+      : `✓ Ask resolved (${result.state}) by ${result.response.responder} ` +
+        `after ${secs}s / ${result.pollCount} poll(s)`;
+    return [headline, "", payloadStr].join("\n");
   }
   if (result.terminal) {
     return (

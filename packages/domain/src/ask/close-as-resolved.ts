@@ -120,6 +120,37 @@ async function closeByCurrentState(
   return { kind: "cancelled", askId: ask.id };
 }
 
+/**
+ * True when `responder` names a closure that nobody actually answered — the
+ * `system:<event>` convention documented on
+ * {@link CloseAsResolvedInput.responder} (e.g. `system:commit-landed`,
+ * `system:pr-merged`, `system:parent-task-terminal`,
+ * `system:superseded-by-later-commit`), OR the fixed `"timeout"` responder
+ * (`accounting/index.ts`'s `deriveTransportAndResolvedIn`,
+ * `transports/subagent.ts`) recorded when a deadline passed with no response
+ * — rather than a genuine operator response or another agent's answer.
+ *
+ * Deliberately does NOT include `"policy"`: a policy-covered resolution is a
+ * real, designed-for-purpose answer (a covering policy statement
+ * pre-authorized the action) — not a heuristic mootness signal that may have
+ * discarded a still-pending question. It is automated, but it IS an answer,
+ * so surfaces are free to render `policy` as resolved; the string itself
+ * already tells a reader it wasn't a human operator.
+ *
+ * Answer-surfaces (the cockpit ask detail page, the `asks.wait-for-response`
+ * render helper) use this to distinguish "closed, never actually answered"
+ * from a real response. Both `responded` and `closed` are response-BEARING
+ * states (see `wait-for-response.ts`), so without this check an automated
+ * closure and a genuine operator answer are indistinguishable to a caller
+ * that only checks `ask.response` is present (mt#3215 — the ask#6024
+ * incident: an operator was told their pending authorization ask had
+ * "already been responded to" when it had actually been auto-closed,
+ * unanswered, by the parent-terminal sweep).
+ */
+export function isAutomatedClosureResponder(responder: string): boolean {
+  return responder.startsWith("system:") || responder === "timeout";
+}
+
 export async function closeAskAsResolved(
   repo: AskRepository,
   askId: string,
