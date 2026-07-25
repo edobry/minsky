@@ -67,6 +67,12 @@ interface GitHubAppInfo {
   type: "app" | "user";
 }
 
+/** Live App metadata needed for permission-drift detection (mt#3218). */
+export interface GitHubAppPermissions {
+  slug: string;
+  permissions: Record<string, string>;
+}
+
 const GITHUB_API_BASE = "https://api.github.com";
 
 /** Tokens expire after 1 hour; refresh when fewer than 5 minutes remain. */
@@ -222,6 +228,32 @@ class SingleAppClient {
     };
   }
 
+  /**
+   * Fetches the App's slug and LIVE permission set via `GET /app` — the same
+   * read `getAppInfo` uses, plus the `permissions` field GitHub also returns.
+   * Used for permission-drift detection (mt#3218): `GET /app` is the one
+   * App-registration endpoint that actually exists and works, so it is the
+   * only way to answer "does this App actually have the permission the code
+   * needs" without waiting for a live call to fail with a 403 first.
+   */
+  async getAppPermissions(): Promise<GitHubAppPermissions> {
+    const jwt = this.generateJwt();
+    const response = await this.boundedFetch(`${GITHUB_API_BASE}/app`, {
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch GitHub App info: ${response.status} ${response.statusText}`);
+    }
+
+    const data = (await response.json()) as { slug: string; permissions?: Record<string, string> };
+    return { slug: data.slug, permissions: data.permissions ?? {} };
+  }
+
   private async fetchInstallationToken(repo?: string): Promise<{ token: string; expiresAt: Date }> {
     const jwt = this.generateJwt();
 
@@ -354,6 +386,15 @@ export class GitHubAppTokenProvider implements TokenProvider {
 
   isServiceAccountConfigured(): boolean {
     return true;
+  }
+
+  /**
+   * Fetches the LIVE slug + permission set for the App backing `role`
+   * (mt#3218 permission-drift detection). Defaults to the implementer App,
+   * matching `clientForRole`'s existing default/fallback behavior.
+   */
+  async getAppPermissions(role?: TokenRole): Promise<GitHubAppPermissions> {
+    return this.clientForRole(role).getAppPermissions();
   }
 
   /**
