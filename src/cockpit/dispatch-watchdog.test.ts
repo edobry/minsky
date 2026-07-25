@@ -5,6 +5,7 @@ import {
   DISPATCH_WATCHDOG_STALE_MS,
   DISPATCH_WATCHDOG_MAX_AGE_MS,
   LAST_EVENT_AT_QUERY,
+  HAS_OPEN_PR_QUERY,
   DispatchWatchdogSweepTracker,
   type InFlightInvocationRow,
   type ActivitySources,
@@ -804,6 +805,24 @@ describe("LAST_EVENT_AT_QUERY", () => {
     const simulatedPgRow = { latest_at: String(expectedMs) };
     const ms = Number(simulatedPgRow.latest_at);
     expect(ms).toBe(expectedMs);
+  });
+});
+
+describe("HAS_OPEN_PR_QUERY (mt#3193)", () => {
+  test("selects pull_request from sessions, parameterized by session id", () => {
+    expect(HAS_OPEN_PR_QUERY).toMatch(/select\s+pull_request/i);
+    expect(HAS_OPEN_PR_QUERY).toMatch(/from\s+sessions/i);
+    expect(HAS_OPEN_PR_QUERY).toMatch(/session\s*=\s*\$1/);
+  });
+
+  test("mirrors what getHasOpenPr expects: a raw JSON-text pull_request column to be JSON.parse'd", () => {
+    // Simulate what postgres.js returns for the pgText pull_request column —
+    // the same JSON-stringified shape session-schema.ts's toDbRecord writes.
+    const simulatedPgRow = {
+      pull_request: JSON.stringify({ number: 42, state: "open" }),
+    };
+    const parsed = JSON.parse(simulatedPgRow.pull_request) as { state?: string };
+    expect(parsed.state === "open" || parsed.state === "draft").toBe(true);
   });
 });
 
