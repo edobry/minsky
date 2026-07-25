@@ -121,7 +121,7 @@ export async function updateGithubApp(
 
   const eventsChanged =
     JSON.stringify([...current.events].sort()) !== JSON.stringify([...proposed.events].sort());
-  const permsChanged = JSON.stringify(current.permissions) !== JSON.stringify(proposed.permissions);
+  const permsChanged = !permissionsEqual(current.permissions, proposed.permissions);
 
   if (!eventsChanged && !permsChanged) {
     return {
@@ -201,4 +201,18 @@ function formatPerms(perms: Record<string, string>): string {
   return Object.entries(perms)
     .map(([k, v]) => `${k}:${v}`)
     .join(", ");
+}
+
+/**
+ * Structural equality for permission maps, independent of key order.
+ * `JSON.stringify` compares by insertion order, so two maps with identical
+ * key/value pairs inserted in a different order (e.g. GitHub's `GET /app`
+ * response vs a `--permissions` string parsed in a different order) would
+ * false-positive as "changed" — reviewer finding on PR #2317 R1.
+ */
+function permissionsEqual(a: Record<string, string>, b: Record<string, string>): boolean {
+  const aKeys = Object.keys(a).sort();
+  const bKeys = Object.keys(b).sort();
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((key, i) => key === bKeys[i] && a[key] === b[key]);
 }

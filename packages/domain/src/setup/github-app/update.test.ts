@@ -109,6 +109,43 @@ describe("updateGithubApp", () => {
     expect(fetchCalls[0]?.method).toBeUndefined();
   });
 
+  it("no-op when permissions match but are ordered differently (PR #2317 R1)", async () => {
+    // GET /app can return permission keys in a different order than the
+    // caller's --permissions map was parsed in. JSON.stringify compares by
+    // insertion order, so a naive comparison would false-positive as drift.
+    const store = makeMockStore(FAKE_CREDS);
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/app") && !init?.method) {
+        return new Response(
+          JSON.stringify({
+            events: [],
+            // Live order: contents, then pull_requests, then metadata.
+            permissions: { contents: "write", pull_requests: "write", metadata: "read" },
+            name: "test-app",
+            slug: "test-app",
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("Not found", { status: 404 });
+    }) as typeof fetch;
+
+    const result = await updateGithubApp({
+      name: "test-app",
+      store,
+      // Requested order: pull_requests, then metadata, then contents — same
+      // set, different insertion order.
+      permissions: { pull_requests: "write", metadata: "read", contents: "write" },
+      execute: false,
+      buildJwt: mockBuildJwt,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("No changes");
+  });
+
   it("never issues a PATCH request, regardless of --execute", async () => {
     const store = makeMockStore(FAKE_CREDS);
     const fetchCalls: { url: string; method?: string }[] = [];
