@@ -15,6 +15,8 @@ import {
   type BranchResult,
   type PushResult,
 } from "../types";
+import { pushWithConfirmation } from "../push-operations";
+import { execAsync } from "@minsky/shared/exec";
 
 /**
  * Parameters for clone operation
@@ -121,13 +123,33 @@ export class PushOperation extends BaseGitOperation<PushParams, PushResult> {
     return "push changes";
   }
 
-  async executeOperation(params: PushParams, gitService: GitServiceInterface): Promise<PushResult> {
-    const result = await gitService.push({
-      repoPath: params.repo,
-      remote: params.remote,
-      force: params.force,
-      debug: params.debug,
-    });
+  async executeOperation(
+    params: PushParams,
+    _gitService: GitServiceInterface
+  ): Promise<PushResult> {
+    // mt#3205 (Gap 4): this path (createPushOperation -> ModularGitCommandsManager
+    // .pushFromParams -> the raw `pushFromParams` facade exported from
+    // packages/domain/src/git.ts) currently has NO production callers — the
+    // `git.push` MCP command adapter and `session_commit` both call
+    // `pushFromParamsWithConfirmation` instead (mt#3177). That contradicts an
+    // earlier audit's "operations/index.ts has zero importers" claim: it IS
+    // imported (by git-commands-modular.ts, for clone/branch/commit/merge/etc)
+    // — the file isn't dead, only this specific push slice was unreached in
+    // practice. Left wired as public API (`pushFromParams`) rather than
+    // deleted; bounding it here closes the same unbounded-hang hazard mt#3177
+    // fixed elsewhere, in case a future caller reaches it. `gitService` is
+    // intentionally unused now (kept for signature/registry compatibility with
+    // sibling operations) — `pushWithConfirmation` wires the real `execAsync`
+    // directly, matching how `pushFromParamsWithConfirmation` (git.ts) does it.
+    const result = await pushWithConfirmation(
+      {
+        repoPath: params.repo,
+        remote: params.remote,
+        force: params.force,
+        debug: params.debug,
+      },
+      { execAsync }
+    );
     return result;
   }
 

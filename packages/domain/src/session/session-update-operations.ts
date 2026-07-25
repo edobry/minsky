@@ -221,6 +221,7 @@ export async function updateSessionImpl(
     autoResolveDeleteConflicts,
     dryRun,
     skipIfAlreadyMerged,
+    pushTimeoutMs,
   } = params;
 
   log.debug("updateSessionImpl called", { params });
@@ -626,11 +627,38 @@ export async function updateSessionImpl(
       // Push changes if needed
       if (!noPush) {
         log.debug("Pushing changes to remote", { workdir, remote: remote || "origin" });
-        await deps.gitService.push({
-          repoPath: workdir,
-          remote: remote || "origin",
+        // mt#3205 (Gap 1): bounded + remote-ref-confirming, replacing the
+        // previously unbounded `deps.gitService.push()` call — the exact
+        // same unbounded-push gap mt#3177 fixed for `session_commit` and
+        // the standalone `git.push` MCP command (see
+        // `pushWithConfirmation`'s doc comment in push-operations.ts for
+        // the root-cause rationale). This path is reached BOTH directly
+        // from `session_update` AND, via STEP 6 of `session_pr_create`
+        // (which hardcodes `noPush: false`), on EVERY PR creation — making
+        // it the most-exercised unbounded push path in the codebase before
+        // this fix. Dynamic import matches session-commands.ts's existing
+        // pattern for reaching `../git`'s runtime exports from `session/`.
+        const { pushFromParamsWithConfirmation } = await import("../git");
+        const pushOutcome = await pushFromParamsWithConfirmation(
+          { repo: workdir, remote: remote || "origin" },
+          pushTimeoutMs !== undefined ? { pushTimeoutMs } : undefined
+        );
+        if (!pushOutcome.pushed) {
+          const detail = pushOutcome.pushUnconfirmed
+            ? "the push timed out and a follow-up remote-ref check did not confirm it landed " +
+              "(pushUnconfirmed) — the commit exists locally but its arrival on the remote is unknown"
+            : pushOutcome.pushError
+              ? `push failed: ${pushOutcome.pushError}`
+              : "push did not complete";
+          throw new MinskyError(
+            `Failed to push changes to remote during session update: ${detail}. ` +
+              `Verify with git_log/git_status against '${remote || "origin"}' before retrying ` +
+              `session_update (a retry may be redundant if the push actually landed).`
+          );
+        }
+        log.debug("Changes pushed to remote", {
+          pushConfirmedVia: pushOutcome.pushConfirmedVia,
         });
-        log.debug("Changes pushed to remote");
       }
 
       log.cli(`Session '${sessionId}' updated successfully`);
