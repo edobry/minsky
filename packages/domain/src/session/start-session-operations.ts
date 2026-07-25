@@ -9,6 +9,7 @@ import {
 import { taskIdSchema as TaskIdSchema } from "../schemas/common";
 import type { SessionStartParameters } from "../schemas";
 import { log } from "@minsky/shared/logger";
+import { safeShellQuote } from "@minsky/shared/exec";
 import { installDependencies, installNestedDependencies } from "../utils/package-manager";
 import { type GitServiceInterface } from "../git";
 import { normalizeRepoName } from "../repo-utils";
@@ -75,6 +76,45 @@ interface ValidatedSessionContext {
   branchName: string;
   normalizedRepoName: string;
   sessionDir: string;
+  /**
+   * True when `--recover` found the task's branch on the remote, so the session
+   * must be based on THAT branch's tip rather than the clone's default HEAD
+   * (mt#3166).
+   */
+  recoverFromRemoteBranch: boolean;
+}
+
+/**
+ * Does `refs/heads/<branchName>` exist on the remote? (mt#3166)
+ *
+ * Probes the canonical repo URL rather than a remote NAME: `cloneSource` is the
+ * LOCAL repo whenever one is available, so a session clone's `origin` is not
+ * reliably the forge. Read-only — safe to call from the precondition phase.
+ *
+ * A FAILED probe is not evidence of absence. Treating it as absence would turn a
+ * transient network error into "nothing to recover" and refuse a recovery that
+ * should have succeeded, so this throws instead of returning false.
+ */
+async function remoteBranchExists(
+  deps: StartSessionDependencies,
+  probeDir: string,
+  repoUrl: string,
+  branchName: string
+): Promise<boolean> {
+  try {
+    const output = await deps.gitService.execInRepository(
+      probeDir,
+      `git ls-remote --heads ${safeShellQuote(repoUrl)} ${safeShellQuote(`refs/heads/${branchName}`)}`
+    );
+    return output.trim().length > 0;
+  } catch (err) {
+    throw new MinskyError(
+      `Could not determine whether the remote branch '${branchName}' exists ` +
+        `(ls-remote against ${repoUrl} failed): ${getErrorMessage(err)}\n\n` +
+        `Recovery is refused rather than guessed — a failed probe is not evidence the branch ` +
+        `is absent. Re-run once the remote is reachable.`
+    );
+  }
 }
 
 /**
@@ -238,6 +278,13 @@ Navigate to your main workspace and try again:
     throw new ValidationError("Session ID could not be determined from task ID");
   }
 
+  // The session's branch name is a pure function of the task (or the explicit
+  // --branch / sessionId fallback). Derived HERE, before the collision checks
+  // below, because the `--recover` gate needs it to probe the remote — and that
+  // probe must happen BEFORE the stale-session delete, so a refusal can't leave
+  // the record already destroyed.
+  const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionId);
+
   // Check if session already exists
   const existingSession = await deps.sessionDB.getSession(sessionId);
   if (existingSession) {
@@ -254,62 +301,106 @@ Navigate to your main workspace and try again:
   // session.list's task-filtered query (basic-commands.ts createSessionListCommand)
   // mirrors this same unscoped-when-task-filtered behavior so the two surfaces
   // can never structurally diverge on which rows count as "active" for a task.
-  if (taskId) {
-    const existingSessions = await deps.sessionDB.listSessions({ taskId });
-    const taskSession = existingSessions[0];
+  //
+  // mt#3166: resolved HERE, before the recover gate below, because "is there
+  // anything to recover" depends on it — and because the gate must be able to
+  // refuse BEFORE the stale-record delete, not after.
+  const existingSessions = taskId ? await deps.sessionDB.listSessions({ taskId }) : [];
+  const taskSession = existingSessions[0];
 
-    if (taskSession) {
-      // Merged PR — always hard-block (session is frozen)
-      if (taskSession.prState?.mergedAt) {
+  // mt#3166: `--recover` is honored or explicitly REFUSED on every path.
+  //
+  // It used to be read only inside the `if (taskSession)` branch below, so a
+  // recover for a task with NO session record fell straight through to an
+  // ordinary fresh start branched off the clone's HEAD (main) — a silent
+  // substitution wearing the name of a recovery. The same fall-through also
+  // discarded a task's remote branch when one existed.
+  //
+  // Recovery legitimately means one of two things, and BOTH are honored:
+  //   (a) reclaim the task's branch — its remote branch still exists; or
+  //   (b) clear an abandoned session record and start over — no branch, but
+  //       there IS a record to clean up (the mt#2895 interrupted-start shape).
+  // Only when NEITHER holds is there genuinely nothing to recover. Refusing on
+  // (b) would trap the operator: plain `session start` blocks on the abandoned
+  // record, and `--recover` would decline to clear it.
+  let recoverFromRemoteBranch = false;
+  if (params.recover) {
+    if (!taskId) {
+      throw new ValidationError(
+        "--recover requires --task: recovery is defined against a task's branch " +
+          "(task/<id>), and without a task there is no branch to recover from."
+      );
+    }
+
+    const probeDir = referenceRepo ?? currentDir;
+    const branchIsOnRemote = await remoteBranchExists(deps, probeDir, repoUrl, branchName);
+
+    if (!branchIsOnRemote && !taskSession) {
+      throw new MinskyError(
+        `Nothing to recover for ${formatTaskIdForDisplay(taskId)}: there is no session record ` +
+          `for it AND no remote branch '${branchName}' on ${repoUrl}.\n\n` +
+          `The task may already be merged — post-merge cleanup deletes the session AND the ` +
+          `branch by design, so "session gone + branch gone" is the NORMAL shape of a merged ` +
+          `task, not a fault. Check the task status or the PR's merge state first.\n\n` +
+          `To start fresh work on this task instead (a new branch off main):\n` +
+          `  minsky session start --task ${formatTaskIdForDisplay(taskId)}`
+      );
+    }
+
+    // Absent on the remote but a record exists → case (b): clear the record and
+    // start fresh off main. Present → case (a): base the session on that branch.
+    recoverFromRemoteBranch = branchIsOnRemote;
+  }
+
+  if (taskId && taskSession) {
+    // Merged PR — always hard-block (session is frozen)
+    if (taskSession.prState?.mergedAt) {
+      throw new MinskyError(
+        `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.sessionId}") but its PR was ` +
+          `merged at ${taskSession.prState.mergedAt}. To start a new session for this task, ` +
+          `delete the old one first:\n\n` +
+          `  minsky session delete ${taskSession.sessionId}\n` +
+          `  minsky session start --task ${formatTaskIdForDisplay(taskId)}`
+      );
+    }
+
+    const { deriveSessionLiveness } = await import("./types");
+    const liveness = deriveSessionLiveness(taskSession);
+
+    // Stale/orphaned with --recover: delete the old session and proceed
+    if ((liveness === "stale" || liveness === "orphaned") && params.recover) {
+      log.cli(`Recovering abandoned session "${taskSession.sessionId}" (liveness: ${liveness})...`);
+      await deps.sessionDB.deleteSession(taskSession.sessionId);
+      // Fall through to create new session
+    } else {
+      // Build a more informative error message based on liveness
+      const ageInfo = taskSession.lastActivityAt
+        ? ` Last activity: ${new Date(taskSession.lastActivityAt).toISOString()}.`
+        : "";
+      const statusInfo = taskSession.status ? ` Status: ${taskSession.status}.` : "";
+
+      if (liveness === "healthy") {
         throw new MinskyError(
-          `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.sessionId}") but its PR was ` +
-            `merged at ${taskSession.prState.mergedAt}. To start a new session for this task, ` +
-            `delete the old one first:\n\n` +
-            `  minsky session delete ${taskSession.sessionId}\n` +
-            `  minsky session start --task ${formatTaskIdForDisplay(taskId)}`
+          `A session for task ${formatTaskIdForDisplay(taskId)} is actively in use ("${taskSession.sessionId}").${statusInfo}${ageInfo} ` +
+            `Another agent may be working on this task. Use the existing session, or delete it before starting a new one.`
         );
       }
 
-      const { deriveSessionLiveness } = await import("./types");
-      const liveness = deriveSessionLiveness(taskSession);
-
-      // Stale/orphaned with --recover: delete the old session and proceed
-      if ((liveness === "stale" || liveness === "orphaned") && params.recover) {
-        log.cli(
-          `Recovering abandoned session "${taskSession.sessionId}" (liveness: ${liveness})...`
-        );
-        await deps.sessionDB.deleteSession(taskSession.sessionId);
-        // Fall through to create new session
-      } else {
-        // Build a more informative error message based on liveness
-        const ageInfo = taskSession.lastActivityAt
-          ? ` Last activity: ${new Date(taskSession.lastActivityAt).toISOString()}.`
-          : "";
-        const statusInfo = taskSession.status ? ` Status: ${taskSession.status}.` : "";
-
-        if (liveness === "healthy") {
-          throw new MinskyError(
-            `A session for task ${formatTaskIdForDisplay(taskId)} is actively in use ("${taskSession.sessionId}").${statusInfo}${ageInfo} ` +
-              `Another agent may be working on this task. Use the existing session, or delete it before starting a new one.`
-          );
-        }
-
-        if (liveness === "idle") {
-          throw new MinskyError(
-            `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.sessionId}") and was recently idle.${statusInfo}${ageInfo} ` +
-              `Use the existing session, or delete it before starting a new one.`
-          );
-        }
-
-        // stale or orphaned (without --recover)
+      if (liveness === "idle") {
         throw new MinskyError(
-          `A session for task ${formatTaskIdForDisplay(taskId)} appears abandoned ("${taskSession.sessionId}", liveness: ${liveness}).${statusInfo}${ageInfo}\n\n` +
-            `To recover and start fresh:\n` +
-            `  minsky session start --task ${formatTaskIdForDisplay(taskId)} --recover\n\n` +
-            `Or to manually delete:\n` +
-            `  minsky session delete ${taskSession.sessionId}`
+          `A session for task ${formatTaskIdForDisplay(taskId)} exists ("${taskSession.sessionId}") and was recently idle.${statusInfo}${ageInfo} ` +
+            `Use the existing session, or delete it before starting a new one.`
         );
       }
+
+      // stale or orphaned (without --recover)
+      throw new MinskyError(
+        `A session for task ${formatTaskIdForDisplay(taskId)} appears abandoned ("${taskSession.sessionId}", liveness: ${liveness}).${statusInfo}${ageInfo}\n\n` +
+          `To recover and start fresh:\n` +
+          `  minsky session start --task ${formatTaskIdForDisplay(taskId)} --recover\n\n` +
+          `Or to manually delete:\n` +
+          `  minsky session delete ${taskSession.sessionId}`
+      );
     }
   }
 
@@ -327,7 +418,6 @@ Navigate to your main workspace and try again:
 
   const sessionBaseDir = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
   const sessionDir = join(sessionBaseDir, "minsky", "sessions", sessionId);
-  const branchName = branch || (taskId ? taskIdToBranchName(taskId) : sessionId);
 
   return {
     sessionId,
@@ -339,6 +429,7 @@ Navigate to your main workspace and try again:
     branchName,
     normalizedRepoName,
     sessionDir,
+    recoverFromRemoteBranch,
   };
 }
 
@@ -379,6 +470,7 @@ async function executeMutations(
     branchName,
     normalizedRepoName,
     sessionDir,
+    recoverFromRemoteBranch,
   } = ctx;
   const { noStatusUpdate, quiet, skipInstall, packageManager } = params;
 
@@ -507,11 +599,38 @@ async function executeMutations(
       referenceRepo,
     });
 
-    const _branchResult = await deps.gitService.branchWithoutSession({
-      repoName: normalizedRepoName,
-      session: sessionId,
-      branch: branchName,
-    });
+    if (recoverFromRemoteBranch) {
+      // mt#3166: recovery bases the session on the task's EXISTING remote branch.
+      // `branchWithoutSession` is a bare `checkout -b`, which would branch off
+      // whatever the clone landed on (main) and silently discard the branch's
+      // work — the defect this task exists to remove.
+      //
+      // Fetch by URL, not by remote NAME: `cloneSource` is the local repo
+      // whenever one is available, so the clone's `origin` is not reliably the
+      // forge (same reason the precondition probe uses the URL).
+      //
+      // Neither call is wrapped in a local try/catch on purpose: a failed fetch
+      // or checkout MUST surface as an error. Falling through to main here is
+      // exactly the silent substitution being fixed. The outer catch below
+      // removes the half-built session and directory before rethrowing.
+      await deps.gitService.execInRepository(
+        sessionDir,
+        `git fetch ${safeShellQuote(repoUrl)} ${safeShellQuote(`refs/heads/${branchName}`)}`
+      );
+      await deps.gitService.execInRepository(
+        sessionDir,
+        `git checkout -b ${safeShellQuote(branchName)} FETCH_HEAD`
+      );
+      if (!quiet) {
+        log.cli(`Recovered session on existing branch ${branchName}.`);
+      }
+    } else {
+      const _branchResult = await deps.gitService.branchWithoutSession({
+        repoName: normalizedRepoName,
+        session: sessionId,
+        branch: branchName,
+      });
+    }
 
     await deps.sessionDB.addSession(sessionRecord);
     sessionAdded = true;
