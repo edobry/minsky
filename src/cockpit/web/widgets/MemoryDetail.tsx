@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
 import { Prose } from "../components/Prose";
+import { EntityRef } from "../components/EntityRef";
 import { useEntityIndex } from "../lib/use-entity-index";
 import type { MemoryRecord, MemoryType } from "@minsky/domain/memory/types";
 
@@ -100,7 +101,9 @@ export function MemoryDetailContent({
             <MetaRow
               label="Source session"
               value={
-                <span className="font-mono text-[10px]">{record.sourceSessionId.slice(0, 8)}…</span>
+                <EntityRef type="session" id={record.sourceSessionId} className="text-[10px]">
+                  {record.sourceSessionId.slice(0, 8)}…
+                </EntityRef>
               }
             />
           )}

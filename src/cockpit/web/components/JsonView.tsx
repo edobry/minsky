@@ -16,7 +16,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
-import { tokenizeEntities, type EntityIndex } from "../lib/entity-linkifier";
+import {
+  tokenizeEntities,
+  tokenEntity,
+  type EntityIndex,
+  type EntityToken,
+} from "../lib/entity-linkifier";
+import { EntityRef } from "./EntityRef";
 
 // Recognized task/ask status enums → subtle leaf color.
 const STATUS_COLORS: Record<string, string> = {
@@ -32,6 +38,36 @@ const STATUS_COLORS: Record<string, string> = {
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
 const URL_RE = /^https?:\/\/\S+$/;
+
+/**
+ * Render one resolved entity token as a link. Routes through the shared
+ * <EntityRef> (hover-card title + status) when the token's path resolves to
+ * a known entity type; falls back to a bare <Link> otherwise (defensive —
+ * every token produced by tokenizeEntities' "link" kind is built via
+ * entityToPath, so this should always resolve in practice).
+ *
+ * Uses `tokenEntity` from entity-linkifier (exported for this, mt#3175) rather
+ * than a local segment map — one inverse codec, so it cannot drift from
+ * `entityToPath` independently.
+ */
+function TokenLink({ token }: { token: Extract<EntityToken, { kind: "link" }> }) {
+  const entity = tokenEntity(token);
+  if (entity) {
+    return (
+      <EntityRef type={entity.type} id={entity.id}>
+        {token.text}
+      </EntityRef>
+    );
+  }
+  return (
+    <Link
+      to={token.to}
+      className={cn("text-primary underline-offset-2 hover:underline", token.mono && "font-mono")}
+    >
+      {token.text}
+    </Link>
+  );
+}
 
 function relativeTime(iso: string): string {
   const ms = Date.parse(iso);
@@ -71,20 +107,7 @@ function MultilineStringLeaf({
     <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-border/30 bg-muted/20 px-2 py-1 text-emerald-300/90">
       {hasLinks && tokens
         ? tokens.map((t, i) =>
-            t.kind === "text" ? (
-              <span key={i}>{t.value}</span>
-            ) : (
-              <Link
-                key={i}
-                to={t.to}
-                className={cn(
-                  "text-primary underline-offset-2 hover:underline",
-                  t.mono && "font-mono"
-                )}
-              >
-                {t.text}
-              </Link>
-            )
+            t.kind === "text" ? <span key={i}>{t.value}</span> : <TokenLink key={i} token={t} />
           )
         : value}
     </pre>
@@ -130,20 +153,7 @@ function StringLeaf({ value, entityIndex }: { value: string; entityIndex?: Entit
         <span className="text-emerald-300">
           &quot;
           {tokens.map((t, i) =>
-            t.kind === "text" ? (
-              <span key={i}>{t.value}</span>
-            ) : (
-              <Link
-                key={i}
-                to={t.to}
-                className={cn(
-                  "text-primary underline-offset-2 hover:underline",
-                  t.mono && "font-mono"
-                )}
-              >
-                {t.text}
-              </Link>
-            )
+            t.kind === "text" ? <span key={i}>{t.value}</span> : <TokenLink key={i} token={t} />
           )}
           &quot;
         </span>
