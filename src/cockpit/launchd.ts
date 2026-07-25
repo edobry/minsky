@@ -156,15 +156,11 @@ export function installDaemon(options: PlistOptions): {
 
   // Ensure log directory exists
   const logDir = getLogDir();
-  if (!fs.existsSync(logDir)) {
-    fs.mkdirSync(logDir, { recursive: true });
-  }
+  fs.mkdirSync(logDir, { recursive: true });
 
   // Ensure LaunchAgents directory exists
   const launchAgentsDir = getLaunchAgentsDir();
-  if (!fs.existsSync(launchAgentsDir)) {
-    fs.mkdirSync(launchAgentsDir, { recursive: true });
-  }
+  fs.mkdirSync(launchAgentsDir, { recursive: true });
 
   // Unload existing plist if present (idempotent)
   if (fs.existsSync(plistPath)) {

@@ -445,7 +445,7 @@ export function writeDispatchWatchdogCache(
 ): boolean {
   try {
     const dir = path.dirname(cachePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true });
     atomicWriteJSON(cachePath, snapshot);
     return true;
   } catch (err) {

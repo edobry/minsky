@@ -310,9 +310,7 @@ export function registerPersistenceCommands(
           const stateDir = getMinskyStateDir();
           backupPath = join(stateDir, `session-backup-${Date.now()}.json`);
           const backupDir = dirname(backupPath);
-          if (!existsSync(backupDir)) {
-            mkdirSync(backupDir, { recursive: true });
-          }
+          mkdirSync(backupDir, { recursive: true });
           writeFileSync(backupPath, JSON.stringify(sourceData, null, 2));
           log.cli(`Backup created: ${backupPath}`);
         }
