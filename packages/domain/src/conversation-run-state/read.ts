@@ -34,7 +34,8 @@ export async function getConversationRunState(
 /** The open Ask bound to a conversation, when one is resolvable. */
 export interface LinkedOpenAsk {
   id: string;
-  shortId: number | null;
+  /** `shortIdColumn` is text (`mem#…`/`ask#…` style), not a bare integer. Null until minted. */
+  shortId: string | null;
   title: string;
   /** The workspace session the ask is actually keyed on — the hop that made the join possible. */
   minskySessionId: string;
