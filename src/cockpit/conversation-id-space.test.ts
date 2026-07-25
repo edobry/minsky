@@ -55,7 +55,7 @@ describe("classifySnapshotMiss (mt#2525)", () => {
   });
 });
 
-describe("looksLikeConversationId (mt#3131 D3/D5)", () => {
+describe("looksLikeConversationId (mt#3131 D3/D5, widened mt#3225)", () => {
   test("accepts a standard UUID (the Claude Code session-id shape)", () => {
     expect(looksLikeConversationId("a9c1a09b-d7c8-4d95-bc49-70cfa922f0d7")).toBe(true);
   });
@@ -64,9 +64,42 @@ describe("looksLikeConversationId (mt#3131 D3/D5)", () => {
     expect(looksLikeConversationId("A9C1A09B-D7C8-4D95-BC49-70CFA922F0D7")).toBe(true);
   });
 
-  // The two mt#3131 D3/D5 repro ids — both must be rejected.
-  test("rejects the subagent-id repro case (agent-<hex>, wrong shape entirely)", () => {
-    expect(looksLikeConversationId("agent-a2a1e886c52ade5b9")).toBe(false);
+  // mt#3225 AT1: the operator-reported live repro id — a real, ingested
+  // subagent transcript that the picker served but the events endpoint
+  // rejected before this task.
+  test("accepts an agent-prefixed subagent-transcript id (the mt#3225 live repro)", () => {
+    expect(looksLikeConversationId("agent-ae944bce40bdc1dd6")).toBe(true);
+  });
+
+  // mt#3225: the ORIGINAL mt#3131 repro id turns out to be the exact same
+  // 17-hex-char shape as the live mt#3225 repro above — it was rejected at
+  // mt#3131 not because the SHAPE was invalid, but because at the time no
+  // ingest path wrote a transcript keyed by this shape. mt#3109 changed
+  // that (see the doc comment above `AGENT_PREFIXED_RE` in
+  // conversation-id-space.ts for the full trail), so this id is now
+  // correctly admissible — the inverse of what the mt#3131-era test here
+  // asserted.
+  test('accepts the former mt#3131 "reject" repro id (same shape, premise changed under mt#3109)', () => {
+    expect(looksLikeConversationId("agent-a2a1e886c52ade5b9")).toBe(true);
+  });
+
+  test("rejects an agent-prefixed id with the wrong hex width (16 chars, one short)", () => {
+    expect(looksLikeConversationId("agent-a2a1e886c52ade5b")).toBe(false);
+  });
+
+  test("rejects an agent-prefixed id with the wrong hex width (18 chars, one long)", () => {
+    expect(looksLikeConversationId("agent-a2a1e886c52ade5b99")).toBe(false);
+  });
+
+  test("rejects an agent-prefixed id with a non-hex character", () => {
+    expect(looksLikeConversationId("agent-g2a1e886c52ade5b9")).toBe(false);
+  });
+
+  // The diagnostic-row repro (mt#3225 Context: `probe-mt3120-diagnostic`,
+  // one of the 45/4/1 picker breakdown) and the mt#3131 malformed-id repro
+  // — neither matches either admissible shape and both must stay rejected.
+  test("rejects the diagnostic-row repro case (probe-mt3120-diagnostic)", () => {
+    expect(looksLikeConversationId("probe-mt3120-diagnostic")).toBe(false);
   });
 
   test("rejects the malformed-id repro case (8 hex chars, no hyphens)", () => {
