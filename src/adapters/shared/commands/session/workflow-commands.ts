@@ -370,7 +370,19 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
           );
 
           return {
-            success: result.success,
+            // mt#3205 (Gap 2): `success` must not read as a pass when the
+            // push is genuinely unconfirmed — `git.push`'s adapter already
+            // overrides `success` to track `pushed` (mt#3177); this mirrors
+            // that, but narrower: `pushUnconfirmed` is the specific
+            // ambiguous-outcome flag (push timed out AND the remote-ref
+            // check could not confirm it landed). A definite `pushError`
+            // (rejected, no upstream, etc.) or a legitimate no-op
+            // (`nothingToCommit` with nothing to push) intentionally keep
+            // `success: true` — those are already distinguishable via the
+            // `pushError`/`nothingToCommit` fields and existing callers
+            // (see workflow-commands-commit-push-outcome.test.ts) rely on
+            // `success: true` alongside a definite `pushError`.
+            success: result.success && !result.pushUnconfirmed,
             sessionId: resolvedSessionId,
             commitHash: result.commitHash,
             shortHash: result.shortHash,

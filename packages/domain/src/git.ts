@@ -18,7 +18,6 @@ import { mergePrImpl } from "./git/merge-pr-operations";
 import { mergeBranchImpl } from "./git/merge-branch-operations";
 import { prWithDependenciesImpl } from "./git/pr-generation-operations";
 import {
-  pushImpl,
   pushWithConfirmation,
   type PushWithConfirmationResult,
   type PushWithConfirmationConfig,
@@ -68,7 +67,6 @@ import type {
   PrOptions,
   PrResult,
   PushOptions,
-  PushResult,
   MergePrOptions,
   MergePrResult,
 } from "./git/types";
@@ -316,11 +314,19 @@ export class GitService implements GitServiceInterface {
     return mergeBranchImpl(workdir, branch, { execAsync });
   }
 
-  async push(options: PushOptions): Promise<PushResult> {
+  // mt#3205 (Gap 1/4): delegates to the bounded, remote-confirming
+  // `pushWithConfirmation` (mt#3177) instead of the raw unbounded `pushImpl`
+  // — this is the SINGLE production implementation behind
+  // `GitServiceInterface.push()`, so every caller that goes through the
+  // injected `gitService.push()` (session_update, GitHubBackend.push,
+  // PushOperation/pushFromParams, and any future caller) inherits the bound
+  // automatically, with no per-call-site changes needed.
+  async push(
+    options: PushOptions,
+    config?: PushWithConfirmationConfig
+  ): Promise<PushWithConfirmationResult> {
     await this.ensureBaseDir();
-    return pushImpl(options, {
-      execAsync,
-    });
+    return pushWithConfirmation(options, { execAsync }, config);
   }
 
   public async execInRepository(workdir: string, command: string): Promise<string> {

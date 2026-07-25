@@ -46,6 +46,25 @@ async function makeTmpDirtyGitRepo(): Promise<string> {
   return dir;
 }
 
+/**
+ * Bare-clone the repo as its own origin, with a `pre-receive` hook that
+ * sleeps `sleepSeconds` before accepting the push — fires BEFORE the remote
+ * updates its ref, so a client-side timeout during the sleep is genuinely
+ * correct that the push has NOT landed (mt#3177 AT1 shape:
+ * `pushUnconfirmed`). Mirrors `addLocalRemoteWithHook` in the domain-level
+ * session-commit-push-outcome.test.ts.
+ */
+async function addHangingBareRemote(repoDir: string, sleepSeconds: number): Promise<string> {
+  const bareDir = `${repoDir}.bare`;
+  execSync(`git clone --bare "${repoDir}" "${bareDir}"`, { stdio: "ignore" });
+  execSync(`git remote add origin "${bareDir}"`, { cwd: repoDir, stdio: "ignore" });
+  const hookPath = join(bareDir, "hooks", "pre-receive");
+  const hookScript = ["#!/bin/sh", `sleep ${sleepSeconds}`, "exit 0", ""].join("\n");
+  await writeFile(hookPath, hookScript); // eslint-disable-line custom/no-real-fs-in-tests -- real git hook for a real temp bare repo
+  execSync(`chmod +x "${hookPath}"`, { stdio: "ignore" });
+  return bareDir;
+}
+
 /** Real `.git/hooks/pre-commit` that sleeps before succeeding — see the
  * identical helper's doc comment in session-commit-push-outcome.test.ts. */
 async function makeTmpCleanGitRepoWithSlowPreCommitHook(sleepSeconds: number): Promise<string> {
@@ -138,4 +157,54 @@ describe("session.commit MCP command surfaces the mt#3049 structured partial out
       )
     ).rejects.toThrow(/commit phase/);
   });
+
+  // mt#3205 Gap 2 (AT2): sessionCommit with an unconfirmed push must not
+  // report success:true — a caller checking only `success` (the common
+  // pattern) must not see a pass. Forces a genuine pushUnconfirmed via a
+  // pre-receive hook (fires BEFORE the remote ref updates) + a client-side
+  // pushTimeoutMs far below the hook's sleep, the same real-hang mechanism
+  // session-commit-push-outcome.test.ts's mt#3177 AT1 test uses — proving
+  // the adapter's `success` override end-to-end, not just against a canned
+  // mock.
+  test("push-timeout unconfirmed after successful commit: success is false, not true (mt#3205 Gap 2)", async () => {
+    const repoDir = await makeTmpDirtyGitRepo();
+    tmpDirs.push(repoDir);
+    const bareDir = await addHangingBareRemote(repoDir, 2);
+    tmpDirs.push(bareDir);
+
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [
+        {
+          sessionId: "mcp-push-unconfirmed-session",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/edobry/minsky.git",
+          createdAt: new Date().toISOString(),
+          taskId: "mt#3205",
+        },
+      ],
+      sessionWorkdir: repoDir,
+    });
+    const command = createSessionCommitCommand(buildGetDeps(sessionDB));
+
+    const result = (await command.execute(
+      {
+        sessionId: "mcp-push-unconfirmed-session",
+        message: "test: mcp push should be unconfirmed",
+        all: true,
+        // Far below the hook's 2s sleep, so the timeout deterministically
+        // wins; ls-remote's follow-up check (also bounded, but fast against
+        // a local bare repo) then finds the remote genuinely has not
+        // advanced yet (pre-receive fires before the ref update).
+        pushTimeoutMs: 20,
+      },
+      {}
+    )) as Record<string, unknown>;
+
+    expect(result.commitHash).toBeTruthy();
+    expect(result.pushed).toBe(false);
+    expect(result.pushUnconfirmed).toBe(true);
+    // The critical assertion: a caller checking ONLY `success` must not
+    // read this as a pass.
+    expect(result.success).toBe(false);
+  }, 15000);
 });

@@ -27,7 +27,8 @@
  *   - pullLatest → { workdir: "/mock/workdir", updated: true }
  *   - fetchLatest → { workdir: "/mock/workdir", updated: true }
  *   - mergeBranch → { workdir: "/mock/workdir", merged: true, conflicts: false }
- *   - push → { workdir: "/mock/workdir", pushed: true }
+ *   - push → { workdir: "/mock/workdir", pushed: true } (unless scripted via setPushOutcomes,
+ *     mt#3205 — the default can never produce pushUnconfirmed/pushConfirmedVia/pushTimedOut)
  *   - popStash → { workdir: "/mock/workdir", stashed: true } (unless scripted to throw via setPopStashErrors)
  *   - commit → "fakecommitNNN" (unless scripted to throw via setCommitErrors; mt#2635)
  *   - getStatus → { modified: [], untracked: [], deleted: [] }
@@ -50,7 +51,6 @@ import type {
   PullResult,
   MergeResult,
   PushOptions,
-  PushResult,
   GitStatus,
 } from "./types";
 import type {
@@ -60,6 +60,7 @@ import type {
   SmartUpdateResult,
 } from "./conflict-detection-types";
 import { ConflictType, ConflictSeverity } from "./conflict-detection-types";
+import type { PushWithConfirmationResult, PushWithConfirmationConfig } from "./push-operations";
 
 export class FakeGitService implements GitServiceInterface {
   /** All commands passed to execInRepository, in order. */
@@ -92,6 +93,11 @@ export class FakeGitService implements GitServiceInterface {
    * sequences used by the stash-restore path (mt#2325).
    */
   private popStashErrorQueue: Array<Error | undefined> = [];
+  /**
+   * Per-call push() outcomes, consumed in order. See `setPushOutcomes`
+   * (mt#3205).
+   */
+  private pushOutcomeQueue: Array<Error | Partial<PushWithConfirmationResult> | undefined> = [];
   /** Configurable command-pattern responses (first match wins). */
   private readonly responses: Array<{ pattern: RegExp | string; response: string }> = [];
   /** Configurable command-pattern errors (first match wins; checked before responses). */
@@ -238,9 +244,40 @@ export class FakeGitService implements GitServiceInterface {
     return { workdir: this.mockWorkdir, merged: true, conflicts: false };
   }
 
-  async push(options: PushOptions): Promise<PushResult> {
+  /**
+   * `push()` — widened to `GitServiceInterface`'s post-mt#3205 contract
+   * (`Promise<PushWithConfirmationResult>`, an optional `config` param).
+   * Default behavior is unchanged (`{workdir, pushed: true}`); scripted
+   * outcomes let a test model the confirmation-path shapes
+   * (`pushUnconfirmed`/`pushConfirmedVia`/`pushTimedOut`) that a plain
+   * `{pushed: true}` fake previously could never produce — those tests had
+   * no way to exercise "the push looked fine to a field-blind caller but
+   * was actually unconfirmed," the exact bug class this task fixes. See
+   * `setPushOutcomes`.
+   */
+  async push(
+    options: PushOptions,
+    _config?: PushWithConfirmationConfig
+  ): Promise<PushWithConfirmationResult> {
     this.pushedCalls.push(options);
-    return { workdir: this.mockWorkdir, pushed: true };
+    const scripted = this.pushOutcomeQueue.shift();
+    if (scripted instanceof Error) {
+      throw scripted;
+    }
+    return { workdir: this.mockWorkdir, pushed: true, ...scripted };
+  }
+
+  /**
+   * Script push() outcomes consumed in order: an Error throws for that
+   * call; a partial `PushWithConfirmationResult` is merged over the default
+   * `{workdir, pushed: true}` (e.g. `{pushed: false, pushUnconfirmed:
+   * true}`); `undefined` (or running off the end) returns the default.
+   * Mirrors `setCommitErrors`/`setPopStashErrors`, extended to support
+   * resolved-but-not-confirmed outcomes that aren't modeled as thrown
+   * errors (mt#3205).
+   */
+  setPushOutcomes(outcomes: Array<Error | Partial<PushWithConfirmationResult> | undefined>): void {
+    this.pushOutcomeQueue = [...outcomes];
   }
 
   /**

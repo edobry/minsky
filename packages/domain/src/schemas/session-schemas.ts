@@ -123,6 +123,12 @@ export const SessionUpdateParametersSchema = z
     autoResolveDeleteConflicts: z.boolean().default(false),
     skipConflictCheck: z.boolean().default(false),
     skipIfAlreadyMerged: z.boolean().default(false),
+    // mt#3205: override the push-phase wall-clock bound (see
+    // pushWithConfirmation/DEFAULT_PUSH_CONFIRM_TIMEOUT_MS in
+    // push-operations.ts). Same rationale as session.commit's
+    // pushTimeoutMs (mt#3049/mt#3177 review R1) — operator-configurable,
+    // not just a test-injection seam.
+    pushTimeoutMs: z.number().int().positive().optional(),
   })
   .extend(BaseBackendParametersSchema.shape);
 
