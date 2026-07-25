@@ -1,12 +1,16 @@
 /**
  * `session.grep_search` glob-matching contract (mt#3163).
  *
- * The defect: `include_pattern` was forwarded to ripgrep as `--glob` while the
- * search root was passed as an ABSOLUTE path. Ripgrep matches a glob containing
- * a `/` against the path it generates, so a repo-relative pattern like
- * `src/cockpit/server.ts` matched zero files and the tool returned an empty
- * result indistinguishable from "no matches" — the caller's reasonable reading
- * being "that code does not exist."
+ * The defect: ripgrep resolves a `--glob` containing a `/` relative to the
+ * PROCESS CWD, not relative to the search root it was handed. The MCP server's
+ * cwd is the main workspace while it searches a SESSION workspace by absolute
+ * path, so a repo-relative pattern like `src/cockpit/server.ts` matched zero
+ * files and the tool returned an empty result indistinguishable from "no
+ * matches" — the caller's reasonable reading being "that code does not exist."
+ *
+ * Note the mechanism is the cwd/root MISMATCH, not the absolute path by itself:
+ * an absolute search root resolves globs fine when cwd happens to be that same
+ * tree, which is why this reproduces only from a process sitting elsewhere.
  *
  * These tests exercise ripgrep for real against a temp tree rather than mocking
  * it, because the bug lived entirely in rg's glob-vs-root semantics: a mocked rg
@@ -29,6 +33,14 @@ const OTHER_SERVER = "src/other/server.ts";
 const COCKPIT_TEST = "src/cockpit/server.test.ts";
 
 let workspace: string;
+/**
+ * A directory OUTSIDE the workspace, used as the cwd for the negative control.
+ *
+ * This is what actually reproduces the pre-fix condition: the MCP server's
+ * process cwd is the main workspace while it searches a SESSION workspace, and
+ * ripgrep resolves a `/`-containing glob relative to the process cwd.
+ */
+let outsideWorkspace: string;
 
 /** The fixture path as the tool is expected to report it: absolute. */
 function expected(relativePath: string): string {
@@ -50,6 +62,7 @@ beforeAll(() => {
   }
 
   workspace = fs.mkdtempSync(path.join(os.tmpdir(), "grep-search-"));
+  outsideWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "grep-search-outside-"));
   fs.mkdirSync(path.join(workspace, "src", "cockpit"), { recursive: true });
   fs.mkdirSync(path.join(workspace, "src", "other"), { recursive: true });
   fs.writeFileSync(path.join(workspace, "src", "cockpit", "server.ts"), `const a = "${NEEDLE}";\n`);
@@ -62,6 +75,7 @@ beforeAll(() => {
 
 afterAll(() => {
   fs.rmSync(workspace, { recursive: true, force: true });
+  fs.rmSync(outsideWorkspace, { recursive: true, force: true });
 });
 
 /**
@@ -69,11 +83,16 @@ afterAll(() => {
  * searching `RG_SEARCH_TARGET`. `absoluteRoot: true` reproduces the PRE-fix
  * invocation instead, for the negative control.
  */
-function runRg(globArgs: string[], opts: { absoluteRoot?: boolean } = {}): string[] {
-  const target = opts.absoluteRoot ? workspace : RG_SEARCH_TARGET;
+function runRg(globArgs: string[], opts: { preFix?: boolean } = {}): string[] {
+  // The pre-fix shape is BOTH halves together: cwd somewhere other than the
+  // searched tree AND an absolute search target. Setting only the target while
+  // leaving cwd at the workspace does not reproduce it — rg would still resolve
+  // the glob correctly, because cwd happens to be the tree being searched.
+  const cwd = opts.preFix ? outsideWorkspace : workspace;
+  const target = opts.preFix ? workspace : RG_SEARCH_TARGET;
   const proc = Bun.spawnSync(
     ["rg", "--color", "never", "--line-number", "--no-heading", ...globArgs, NEEDLE, target],
-    { cwd: workspace, stdout: "pipe", stderr: "pipe" }
+    { cwd, stdout: "pipe", stderr: "pipe" }
   );
 
   // rg exits 0 on matches and 1 on "no matches"; anything else means it did not
@@ -108,10 +127,19 @@ describe("include_pattern accepts repo-relative globs (mt#3163)", () => {
     expect(files).toEqual([expected(COCKPIT_SERVER)]);
   });
 
-  test("pre-fix invocation (absolute search root) finds NOTHING — negative control", () => {
+  test("pre-fix invocation (cwd outside the searched tree) finds NOTHING — negative control", () => {
     // The whole defect in one assertion. If this ever starts returning matches,
     // the tests above have stopped proving anything.
-    expect(runRg(["--glob", COCKPIT_SERVER], { absoluteRoot: true })).toEqual([]);
+    //
+    // An earlier version of this control set only the absolute target and left
+    // cwd at the workspace. It passed on macOS and FAILED on Linux CI — because
+    // it was not reproducing the defect at all: `os.tmpdir()` returns the
+    // /var -> /private/var symlink, so cwd and target were equal as strings but
+    // not after resolution, and the glob missed for that incidental reason. On
+    // Linux, with no such symlink, cwd == the searched tree and the glob matched
+    // correctly. CI catching that is the only reason this is now testing the
+    // real mechanism.
+    expect(runRg(["--glob", COCKPIT_SERVER], { preFix: true })).toEqual([]);
   });
 
   test("a directory-spanning glob matches only the intended files (AT2)", () => {

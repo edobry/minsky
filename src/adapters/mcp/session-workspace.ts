@@ -40,15 +40,24 @@ export const RG_SEARCH_TARGET = ".";
  *
  * ## Why searching `.` instead of the absolute workspace path (mt#3163)
  *
- * Ripgrep matches a `--glob` containing a `/` against the path it GENERATES for
- * each file. When the search root is given as an absolute path, those generated
- * paths are absolute, so a natural repo-relative `include_pattern` like
- * `src/cockpit/server.ts` matches ZERO files — and the tool returned an empty
- * result set indistinguishable from "the query genuinely has no matches." That
- * is the dangerous shape: a caller reasonably concludes the code does not exist.
+ * Ripgrep resolves a `--glob` containing a `/` relative to the PROCESS CWD — not
+ * relative to the search root it was handed. The MCP server's cwd is the main
+ * workspace while it searches a SESSION workspace by absolute path, so a natural
+ * repo-relative `include_pattern` like `src/cockpit/server.ts` matched ZERO
+ * files, and the tool returned an empty result set indistinguishable from "the
+ * query genuinely has no matches." That is the dangerous shape: a caller
+ * reasonably concludes the code does not exist.
+ *
+ * The mechanism is the cwd/root MISMATCH, not the absolute path by itself — an
+ * absolute root resolves globs correctly whenever cwd happens to BE that tree,
+ * which is why this only ever bit callers running from somewhere else. (Stated
+ * wrongly as "absolute root => absolute generated paths" in this PR's first two
+ * rounds; corrected after Linux CI failed a control that macOS passed only
+ * because of the /var -> /private/var symlink.)
+ *
  * It was also pattern-dependent, so it looked like the tool worked: basename-only
  * globs (`server.ts`) and globs already anchored with a leading double-star
- * segment both matched fine, because neither depends on the root being relative.
+ * segment both matched fine, because neither depends on cwd at all.
  *
  * Spawning with `cwd` at the workspace and searching `.` makes rg's generated
  * paths relative, which is the semantics callers already expect from a
