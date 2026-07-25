@@ -313,3 +313,41 @@ describe("truncateLabel (mt#3189)", () => {
     expect(truncateLabel("abcdefghij", 4)).toBe("abcd…");
   });
 });
+
+describe("EntityRef — accessible name for dense rows (mt#3187)", () => {
+  test("children mode without appendLabel still exposes the label via aria-label", async () => {
+    global.fetch = mock(async (url: string) =>
+      url.startsWith("/api/tasks/meta")
+        ? jsonResponse({ tasks: [{ id: "mt#1", title: "Fix the bug", status: "READY" }] })
+        : fallback()
+    ) as unknown as typeof fetch;
+
+    const { container } = renderRef(
+      <EntityRef type="task" id="mt#1">
+        mt#1
+      </EntityRef>
+    );
+
+    // The dense-row case: nothing is appended inline (line height protected),
+    // and the hover card reaches neither keyboard nor screen-reader users — so
+    // the accessible name is the ONLY path to the title for them.
+    await waitFor(() =>
+      expect(container.querySelector("a")?.getAttribute("aria-label")).toContain("Fix the bug")
+    );
+    expect(container.querySelector("a")?.textContent).toBe("mt#1");
+    expect(container.querySelector("a")?.getAttribute("aria-label")).toContain("READY");
+  });
+
+  test("no aria-label when no label resolved — avoids announcing the id twice", async () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+
+    const { container } = renderRef(
+      <EntityRef type="task" id="mt#404">
+        mt#404
+      </EntityRef>
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    // An aria-label duplicating the visible text is noise, not help.
+    expect(container.querySelector("a")?.hasAttribute("aria-label")).toBe(false);
+  });
+});
