@@ -44,13 +44,18 @@
 
 import { readInput } from "./types";
 import type { ToolHookInput } from "./types";
+import { appendFileSync, mkdirSync } from "fs";
+import { homedir } from "os";
+import { dirname, join } from "path";
 // mt#3046: STATIC — installs the tsyringe reflect polyfill before any domain
 // module loads. The dynamic persistence import below needs it, and a dynamic
 // import cannot install it retroactively.
 import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 
 const COVERED_TOOL_NAME = "mcp__minsky__session_start";
-const LOG_PREFIX = "[stamp-session-creator-link]";
+/** Single source for this hook's name — used in the log prefix AND as the `hook` field of every failure record. */
+export const HOOK_NAME = "stamp-session-creator-link";
+const LOG_PREFIX = `[${HOOK_NAME}]`;
 
 /**
  * Overall budget for the DB work, well inside the hook's own timeout.
@@ -64,6 +69,82 @@ const DB_DEADLINE_MS = 8000;
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
+}
+
+/**
+ * Where a skipped/failed stamp is RECORDED, as opposed to merely mentioned.
+ *
+ * Mirrors `two-strikes-record.ts`'s `observations.jsonl` precedent: an
+ * append-only JSONL under the Minsky state dir, one line per non-write.
+ *
+ * This exists because stderr was not enough (PR #2290 R1, escalated to BLOCKING
+ * on the second round, and correctly so). The harness discards hook stderr, so
+ * every one of this hook's skips — and there was one for every session_start for
+ * a full day — left no trace anywhere. A file that survives the process is the
+ * difference between "we can find out" and "we cannot": answering "has this hook
+ * ever failed, and why?" is now a `cat`, where before it required reproducing the
+ * failure by hand.
+ *
+ * Deliberately NOT the whole criterion: routing this into an operator-facing
+ * surface (cockpit health / a calibration sweep that reads it) is mt#3141's
+ * declarative-stamping work. This is the substrate that makes that possible.
+ */
+export const FAILURE_LOG_RELATIVE_PATH = ".local/state/minsky/session-link-hook-failures.jsonl";
+
+/**
+ * Builds the record written for a non-write. Pure, so the shape is testable
+ * without touching the filesystem.
+ *
+ * Exported for tests.
+ */
+export function buildFailureRecord(fields: {
+  hook: string;
+  reason: string;
+  timestamp: string;
+  conversationId?: string | null;
+  taskId?: string | null;
+  workspaceSessionId?: string | null;
+}): Record<string, unknown> {
+  return {
+    hook: fields.hook,
+    reason: fields.reason,
+    timestamp: fields.timestamp,
+    conversationId: fields.conversationId ?? null,
+    taskId: fields.taskId ?? null,
+    workspaceSessionId: fields.workspaceSessionId ?? null,
+  };
+}
+
+/**
+ * Emits a non-write to BOTH channels: stderr (for a human watching a hook run
+ * directly) and the append-only JSONL above (for anyone asking later).
+ *
+ * Best-effort by construction — a failure to record a failure must never become
+ * the hook's own failure, and must never disturb session creation. The stderr
+ * line is written first so it survives even if the append throws.
+ */
+function recordFailure(
+  reason: string,
+  ctx: {
+    conversationId?: string | null;
+    taskId?: string | null;
+    workspaceSessionId?: string | null;
+  }
+): void {
+  process.stderr.write(`${LOG_PREFIX} ${reason}\n`);
+  try {
+    const path = join(homedir(), FAILURE_LOG_RELATIVE_PATH);
+    mkdirSync(dirname(path), { recursive: true });
+    const record = buildFailureRecord({
+      hook: HOOK_NAME,
+      reason,
+      timestamp: new Date().toISOString(),
+      ...ctx,
+    });
+    appendFileSync(path, `${JSON.stringify(record)}\n`, "utf8");
+  } catch {
+    // Intentionally swallowed: see above. stderr already carries the reason.
+  }
 }
 
 /**
@@ -205,8 +286,9 @@ if (import.meta.main) {
   const taskId = resolveTaskId(input);
 
   if (!conversationId) {
-    process.stderr.write(
-      `${LOG_PREFIX} skipped: hook input carried no session_id (harness conversation id) — no link recorded\n`
+    recordFailure(
+      "skipped: hook input carried no session_id (harness conversation id) — no link recorded",
+      { taskId }
     );
     process.exit(0);
   }
@@ -214,8 +296,9 @@ if (import.meta.main) {
   // Neither resolution route is available: the payload has no id AND there is
   // no task to look one up by. Nothing recoverable — a taskless session_start.
   if (!payloadWorkspaceSessionId && !taskId) {
-    process.stderr.write(
-      `${LOG_PREFIX} skipped: no workspace session id in the payload and no task id to resolve one by — no link recorded\n`
+    recordFailure(
+      "skipped: no workspace session id in the payload and no task id to resolve one by — no link recorded",
+      { conversationId }
     );
     process.exit(0);
   }
@@ -228,9 +311,10 @@ if (import.meta.main) {
   try {
     const bootstrap = await ensureHookDomainBootstrap();
     if (!bootstrap.ok) {
-      process.stderr.write(
-        `${LOG_PREFIX} warn: domain bootstrap failed: ${bootstrap.error} — no link recorded\n`
-      );
+      recordFailure(`warn: domain bootstrap failed: ${bootstrap.error} — no link recorded`, {
+        conversationId,
+        taskId,
+      });
       process.exit(0);
     }
 
@@ -243,7 +327,7 @@ if (import.meta.main) {
 
     const provider = await resolvePersistenceProvider();
     if (!provider || !("getDatabaseConnection" in provider)) {
-      process.stderr.write(`${LOG_PREFIX} warn: no SQL-capable persistence provider\n`);
+      recordFailure("warn: no SQL-capable persistence provider", { conversationId, taskId });
       process.exit(0);
     }
 
@@ -251,7 +335,10 @@ if (import.meta.main) {
       provider as { getDatabaseConnection(): Promise<unknown> }
     ).getDatabaseConnection();
     if (!db) {
-      process.stderr.write(`${LOG_PREFIX} warn: persistence provider returned no connection\n`);
+      recordFailure("warn: persistence provider returned no connection", {
+        conversationId,
+        taskId,
+      });
       process.exit(0);
     }
 
@@ -273,8 +360,9 @@ if (import.meta.main) {
       );
 
       if (lookup === "deadline") {
-        process.stderr.write(
-          `${LOG_PREFIX} warn: workspace-id lookup for task ${taskId} exceeded the ${DB_DEADLINE_MS}ms budget — abandoning so session creation is not held up\n`
+        recordFailure(
+          `warn: workspace-id lookup for task ${taskId} exceeded the ${DB_DEADLINE_MS}ms budget — abandoning so session creation is not held up`,
+          { conversationId, taskId }
         );
         process.exit(0);
       }
@@ -282,9 +370,10 @@ if (import.meta.main) {
       workspaceSessionId = lookup;
 
       if (!workspaceSessionId) {
-        process.stderr.write(
-          `${LOG_PREFIX} warn: no session row found for task ${taskId} — no link recorded\n`
-        );
+        recordFailure(`warn: no session row found for task ${taskId} — no link recorded`, {
+          conversationId,
+          taskId,
+        });
         process.exit(0);
       }
     }
@@ -299,21 +388,19 @@ if (import.meta.main) {
     );
 
     if (outcome === "deadline") {
-      process.stderr.write(
-        `${LOG_PREFIX} warn: link write exceeded ${DB_DEADLINE_MS}ms for conversation ${conversationId} / workspace ${workspaceSessionId} — abandoning so session creation is not held up\n`
+      recordFailure(
+        `warn: link write exceeded the ${DB_DEADLINE_MS}ms budget — abandoning so session creation is not held up`,
+        { conversationId, taskId, workspaceSessionId }
       );
     } else if (outcome === "error") {
-      process.stderr.write(
-        `${LOG_PREFIX} warn: link write failed for conversation ${conversationId} / workspace ${workspaceSessionId}\n`
-      );
+      recordFailure("warn: link write failed", { conversationId, taskId, workspaceSessionId });
     }
   } catch (err) {
     // Surfaced, not swallowed: a bare `catch {}` here is the mechanism that hid
     // mt#3046's defect for the life of that hook.
-    process.stderr.write(
-      `${LOG_PREFIX} warn: link stamping failed for workspace ${workspaceSessionId}: ${
-        err instanceof Error ? err.message : String(err)
-      }\n`
+    recordFailure(
+      `warn: link stamping failed: ${err instanceof Error ? err.message : String(err)}`,
+      { conversationId, taskId, workspaceSessionId }
     );
   }
 

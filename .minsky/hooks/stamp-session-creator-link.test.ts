@@ -19,6 +19,9 @@ import {
   resolveTaskId,
   lookupWorkspaceSessionIdByTask,
   raceDeadline,
+  buildFailureRecord,
+  FAILURE_LOG_RELATIVE_PATH,
+  HOOK_NAME,
 } from "./stamp-session-creator-link";
 import type { ToolHookInput } from "./types";
 
@@ -135,6 +138,46 @@ describe("the real harness payload (mt#3182 regression)", () => {
   it("still yields the conversation id and the task id, the two ids that ARE present", () => {
     expect(resolveConversationId(realisticInput)).toBe(CONVERSATION_ID);
     expect(resolveTaskId(realisticInput)).toBe("mt#3182");
+  });
+});
+
+describe("failure recording (PR #2290 R1/R2 — stderr alone is not visibility)", () => {
+  it("records every id needed to diagnose a skip without reproducing it", () => {
+    // The whole point: a skip must be answerable later from the artifact alone.
+    // Reason + which conversation + which task is the minimum to act on.
+    const record = buildFailureRecord({
+      hook: HOOK_NAME,
+      reason: "skipped: no session row found for task mt#3182",
+      timestamp: "2026-07-25T00:50:00.000Z",
+      conversationId: CONVERSATION_ID,
+      taskId: "mt#3182",
+    });
+
+    expect(record).toEqual({
+      hook: HOOK_NAME,
+      reason: "skipped: no session row found for task mt#3182",
+      timestamp: "2026-07-25T00:50:00.000Z",
+      conversationId: CONVERSATION_ID,
+      taskId: "mt#3182",
+      workspaceSessionId: null,
+    });
+  });
+
+  it("normalizes absent context to explicit nulls so every line has the same keys", () => {
+    // Uniform keys keep the log greppable/jq-able — a line that simply omits
+    // conversationId is indistinguishable from one that failed to resolve it.
+    const record = buildFailureRecord({
+      hook: HOOK_NAME,
+      reason: "skipped: hook input carried no session_id",
+      timestamp: "2026-07-25T00:50:00.000Z",
+    });
+    expect(record.conversationId).toBeNull();
+    expect(record.taskId).toBeNull();
+    expect(record.workspaceSessionId).toBeNull();
+  });
+
+  it("writes under the Minsky state dir, not /tmp — it must survive a reboot", () => {
+    expect(FAILURE_LOG_RELATIVE_PATH).toBe(".local/state/minsky/session-link-hook-failures.jsonl");
   });
 });
 
