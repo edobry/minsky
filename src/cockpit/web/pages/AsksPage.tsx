@@ -30,6 +30,7 @@ import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
+import { EntityRef } from "../components/EntityRef";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { formatRequestor, formatRequestorOption } from "../lib/entity-labels";
 import {
@@ -291,6 +292,30 @@ function AskRow({
 }
 
 // ---------------------------------------------------------------------------
+// Group subject badge — the shared work anchor for a decision group.
+// Mixed id-space (ask-groups.ts `askSubject`): `group.subject` may be an
+// `mt#N` Minsky task ref, a `gh#N` GitHub issue ref, or another
+// producer-supplied string. <EntityRef> assumes a known RoutableEntityType,
+// so only the `mt#N` case is safe to route through it — sniffed with an
+// explicit, narrow regex rather than a generic "looks like an id" heuristic.
+// Anything else (including `gh#N`) stays plain text: a mis-sniffed `gh#`
+// rendered as a broken Minsky link would be worse than not linking at all
+// (mt#3187).
+// ---------------------------------------------------------------------------
+const MT_TASK_SUBJECT_RE = /^mt#\d+$/;
+
+export function GroupSubjectBadge({ subject }: { subject: string }) {
+  if (MT_TASK_SUBJECT_RE.test(subject)) {
+    return (
+      <EntityRef type="task" id={subject} className="text-xs">
+        {subject}
+      </EntityRef>
+    );
+  }
+  return <span className="font-mono text-xs text-muted-foreground">{subject}</span>;
+}
+
+// ---------------------------------------------------------------------------
 // A decision group — one bundle per unit of work.
 // ---------------------------------------------------------------------------
 
@@ -312,9 +337,7 @@ function GroupCard({ group, actions }: { group: AskGroup; actions: InlineAskActi
         <span className="text-sm font-medium text-foreground">
           {group.asks.length} × {group.kind}
         </span>
-        {group.subject && (
-          <span className="font-mono text-xs text-muted-foreground">{group.subject}</span>
-        )}
+        {group.subject && <GroupSubjectBadge subject={group.subject} />}
         {group.standingCount > 0 && (
           <span className="rounded bg-warn-amber/30 px-1.5 py-0.5 text-xs text-foreground tabular-nums">
             {group.standingCount} standing

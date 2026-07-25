@@ -62,6 +62,18 @@ export interface UserPromptSubmitInput extends ClaudeHookInput {
   prompt: string;
 }
 
+/**
+ * Which signal produced a flag's `lastActivityAt` (mt#3172; mirrors
+ * src/cockpit/dispatch-watchdog.ts's DispatchWatchdogActivitySource — this
+ * hook duplicates the shape rather than importing it, per this file's
+ * module-graph-isolation convention, see the cache-path comment above).
+ */
+export type DispatchWatchdogActivitySourceRecord =
+  | "dispatch-start"
+  | "commit"
+  | "event"
+  | "presence";
+
 /** One flagged dispatch (mirrors src/cockpit/dispatch-watchdog.ts DispatchWatchdogFlag). */
 export interface DispatchWatchdogFlagRecord {
   taskId: string;
@@ -71,6 +83,8 @@ export interface DispatchWatchdogFlagRecord {
   startedAt: string;
   lastActivityAt: string;
   staleForMs: number;
+  /** Which signal produced lastActivityAt — surfaced in the banner so a flagged dispatch stays diagnosable (mt#3172). */
+  activitySource: DispatchWatchdogActivitySourceRecord;
 }
 
 /** The on-disk cache record (mirrors src/cockpit/dispatch-watchdog.ts DispatchWatchdogSnapshot). */
@@ -108,6 +122,18 @@ export function parseDispatchWatchdogCache(raw: string): DispatchWatchdogCacheRe
     if (typeof f.lastActivityAt !== "string") continue;
     if (typeof f.staleForMs !== "number" || !Number.isFinite(f.staleForMs)) continue;
     const sid = f.subagentSessionId;
+    // mt#3172: normalize a missing/unrecognized activitySource (e.g. a cache
+    // file written by a producer build that predates this field, during a
+    // rollout window) to "dispatch-start" rather than dropping the whole
+    // flag entry — mirrors the subagentSessionId normalization above.
+    const rawSource = f.activitySource;
+    const activitySource: DispatchWatchdogActivitySourceRecord =
+      rawSource === "commit" ||
+      rawSource === "event" ||
+      rawSource === "presence" ||
+      rawSource === "dispatch-start"
+        ? rawSource
+        : "dispatch-start";
     flags.push({
       taskId: f.taskId,
       subagentSessionId: typeof sid === "string" ? sid : null,
@@ -116,6 +142,7 @@ export function parseDispatchWatchdogCache(raw: string): DispatchWatchdogCacheRe
       startedAt: f.startedAt,
       lastActivityAt: f.lastActivityAt,
       staleForMs: f.staleForMs,
+      activitySource,
     });
   }
   return { checkedAt: rec.checkedAt, staleMs: rec.staleMs, flags };
@@ -155,7 +182,15 @@ export function formatDispatchWatchdogState(
   const lines = record.flags.map((f) => {
     const age = formatAge(f.staleForMs);
     const sidStr = f.subagentSessionId ?? "(no session id)";
-    return `  - ${f.taskId} (${f.taskStatus}, agentType=${f.agentType}, session=${sidStr}): silent for ${age} (last activity ${f.lastActivityAt})`;
+    // mt#3172: name the freshest signal consulted (parity with
+    // tasks.dispatch-recover's activitySource field) so a flagged dispatch
+    // stays diagnosable — e.g. distinguishing "nothing since dispatch start"
+    // from "a commit landed but it's still stale" from "presence activity
+    // was seen but it's still stale."
+    return (
+      `  - ${f.taskId} (${f.taskStatus}, agentType=${f.agentType}, session=${sidStr}): silent for ` +
+      `${age} (last activity ${f.lastActivityAt}, source=${f.activitySource})`
+    );
   });
 
   return (

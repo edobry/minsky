@@ -11,6 +11,7 @@
     "./deployment-config": "./src/deployment/config.ts",
     "./logger": "./src/logger.ts",
     "./exec": "./src/exec.ts",
+    "./timeout": "./src/timeout.ts",
     "./paths": "./src/paths.ts",
     "./process": "./src/process.ts",
     "./stdout-sync": "./src/stdout-sync.ts",

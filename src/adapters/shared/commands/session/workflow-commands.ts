@@ -394,6 +394,13 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
             nothingToCommit: result.nothingToCommit,
             pushError: result.pushError,
             pushTimedOut: result.pushTimedOut,
+            // mt#3177: on a pushTimedOut outcome, a remote-ref check now runs
+            // before this result is returned — `pushConfirmedVia` names HOW
+            // `pushed:true` was established when it wasn't the ordinary
+            // fast-success path; `pushUnconfirmed` is the explicit "genuinely
+            // unknown" state (pushed:false) no caller should read as success.
+            pushConfirmedVia: result.pushConfirmedVia,
+            pushUnconfirmed: result.pushUnconfirmed,
             resumedPush: result.resumedPush,
             oneline: params.oneline === true,
             noFiles: params.noFiles === true,
