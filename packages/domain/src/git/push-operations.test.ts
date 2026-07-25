@@ -94,7 +94,11 @@ describe("pushImpl", () => {
     } catch (e) {
       caught = e;
     }
-    expect(caught).toBe(original);
+    // Not object identity since mt#3219: the error is rewrapped to redact the
+    // injected Authorization header. What this test has always been about — the
+    // error is not flattened into a generic message, and code/stderr survive —
+    // is asserted directly below.
+    expect((caught as Error).message).toBe(original.message);
     expect((caught as GitExecError).code).toBe(128);
     expect((caught as GitExecError).stderr).toMatch(/not a git repository/);
   });
@@ -117,7 +121,8 @@ describe("pushImpl", () => {
     } catch (e) {
       caught = e;
     }
-    expect(caught).toBe(original);
+    // See the note above: rewrapped for redaction (mt#3219), content preserved.
+    expect((caught as Error).message).toBe(original.message);
     expect((caught as GitExecError).code).toBe(128);
     expect((caught as GitExecError).stderr).toMatch(/SSL connection error/);
   });
