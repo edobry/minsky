@@ -47,14 +47,24 @@ export const REDACTED_CREDENTIAL = "***REDACTED***";
 export function redactPushCredentials(text: string): string {
   return (
     text
-      // The injected header, quoted or bare. The base64 payload is the secret.
+      // PRIMARY, and the only path that actually leaked: the injected header.
+      // The base64 payload is the secret. The character class deliberately
+      // excludes the quote the value is wrapped in, so the match ends at the
+      // closing quote instead of running on into following text — the
+      // over-match risk PR #2319 R1 flagged.
       .replace(
         /AUTHORIZATION:\s*basic\s+[A-Za-z0-9+/=]+/gi,
         `AUTHORIZATION: basic ${REDACTED_CREDENTIAL}`
       )
-      // Defense in depth: a raw token appearing anywhere else in the text.
-      .replace(/gh[pousr]_[A-Za-z0-9]{20,}/g, REDACTED_CREDENTIAL)
-      .replace(/github_pat_[A-Za-z0-9_]{20,}/g, REDACTED_CREDENTIAL)
+      // SECONDARY net for a raw token appearing outside the header. Anchored on
+      // word boundaries so a pattern cannot chew a matching prefix out of a
+      // longer identifier and corrupt diagnostic text. That risk is why these
+      // stay conservative rather than broadening to every GitHub token shape
+      // (R1 non-blocking): the header above is the guaranteed path, and a
+      // wider net here trades a real diagnosability cost for a hypothetical
+      // leak the injection site cannot currently produce.
+      .replace(/\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, REDACTED_CREDENTIAL)
+      .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, REDACTED_CREDENTIAL)
   );
 }
 
@@ -71,19 +81,30 @@ export function redactPushError(err: unknown): unknown {
     return typeof err === "string" ? redactPushCredentials(err) : err;
   }
 
-  const redacted = new Error(redactPushCredentials(err.message));
-  redacted.stack = err.stack ? redactPushCredentials(err.stack) : redacted.stack;
-
-  // Carry over the extra properties Node's exec attaches (stderr/stdout/code/
-  // cmd), redacting the string-valued ones. mt#3210's fallback reads stderr, so
-  // dropping these would silently disable it.
-  for (const [key, value] of Object.entries({ ...err })) {
-    Object.assign(redacted, {
-      [key]: typeof value === "string" ? redactPushCredentials(value) : value,
-    });
+  // Mutated IN PLACE rather than rewrapped (PR #2319 R1). A `new Error(...)`
+  // copy silently drops the original's prototype (a `GitExecError` subclass
+  // stops satisfying `instanceof`), its `name`, and any non-enumerable
+  // properties — a behavior change well beyond redaction, and one a caller
+  // branching on error type would hit without warning.
+  //
+  // Editing in place also means no unredacted copy of the error survives
+  // anywhere, which a wrap-and-return cannot guarantee: the caller may still
+  // hold a reference to the original.
+  err.message = redactPushCredentials(err.message);
+  if (typeof err.stack === "string") {
+    err.stack = redactPushCredentials(err.stack);
   }
 
-  return redacted;
+  // The string-valued extras Node's exec attaches (stderr/stdout/cmd).
+  // mt#3210's keychain fallback reads stderr, so these must survive redaction
+  // rather than be dropped.
+  for (const [key, value] of Object.entries(err)) {
+    if (typeof value === "string") {
+      Object.assign(err, { [key]: redactPushCredentials(value) });
+    }
+  }
+
+  return err;
 }
 
 /**

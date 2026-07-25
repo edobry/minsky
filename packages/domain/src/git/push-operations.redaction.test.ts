@@ -30,8 +30,11 @@ const FAILING_COMMAND =
   `Command failed: git -C '/tmp/ws' -c credential.helper= ` +
   `-c http.https://github.com/.extraheader='AUTHORIZATION: basic ${ENCODED}' push 'origin' 'task/mt-3219'`;
 
+/** The fragment that must SURVIVE redaction — it is what made mt#3210 diagnosable. */
+const DENIAL_FRAGMENT = "denied to minsky-ai[bot]";
+
 const REMOTE_MESSAGE =
-  "remote: Permission to edobry/minsky.git denied to minsky-ai[bot].\n" +
+  `remote: Permission to edobry/minsky.git ${DENIAL_FRAGMENT}.\n` +
   "fatal: unable to access 'https://github.com/edobry/minsky.git/': The requested URL returned error: 403";
 
 /** Asserts no credential material survives, in any encoding. */
@@ -54,7 +57,7 @@ describe("redactPushCredentials", () => {
     // Redaction must not cost diagnosability — the remote's own text is what
     // made mt#3210's root cause findable.
     const redacted = redactPushCredentials(`${FAILING_COMMAND}\n${REMOTE_MESSAGE}`);
-    expect(redacted).toContain("Permission to edobry/minsky.git denied to minsky-ai[bot]");
+    expect(redacted).toContain(DENIAL_FRAGMENT);
     expect(redacted).toContain("403");
     expect(redacted).toContain("task/mt-3219");
     expect(redacted).toContain("push 'origin'");
@@ -85,12 +88,45 @@ describe("redactPushError", () => {
 
     expectNoCredential(out.message);
     expectNoCredential(out.stderr);
-    expect(out.stderr).toContain("denied to minsky-ai[bot]");
+    expect(out.stderr).toContain(DENIAL_FRAGMENT);
     expect(out.code).toBe(128);
   });
 
   test("passes through a non-Error without throwing", () => {
     expect(redactPushError(42)).toBe(42);
+  });
+
+  test("preserves the error's subclass, name, and identity (PR #2319 R1)", () => {
+    // Redaction must not become a type change. An earlier draft rewrapped into
+    // a plain `new Error(...)`, which silently broke `instanceof` for subclasses
+    // and dropped `name` and non-enumerable properties — a behavior change well
+    // beyond redaction that a caller branching on error type would hit without
+    // warning. Mutating in place keeps all of it.
+    class GitExecError extends Error {
+      name = "GitExecError";
+      stderr = REMOTE_MESSAGE;
+      code = 128;
+    }
+    const original = new GitExecError(FAILING_COMMAND);
+    Object.defineProperty(original, "hidden", { value: "kept", enumerable: false });
+
+    const out = redactPushError(original);
+
+    expect(out).toBe(original); // same object, not a copy
+    expect(out).toBeInstanceOf(GitExecError);
+    expect((out as GitExecError).name).toBe("GitExecError");
+    expect((out as GitExecError).code).toBe(128);
+    expect((out as { hidden: string }).hidden).toBe("kept");
+    expectNoCredential((out as Error).message);
+  });
+
+  test("does not chew a matching prefix out of a longer identifier", () => {
+    // Guards the over-match risk R1 raised in the other direction: the token
+    // patterns are word-anchored, so text that merely STARTS like a token is
+    // left alone rather than being partially eaten, which would corrupt the
+    // diagnostic output redaction is supposed to preserve.
+    const benign = "branch ghost_feature_work and file ghp_notatoken.md";
+    expect(redactPushCredentials(benign)).toBe(benign);
   });
 });
 
@@ -122,7 +158,11 @@ describe("pushImpl surfaces a redacted error (end to end)", () => {
     expect(thrown).toBeInstanceOf(Error);
     const message = (thrown as Error).message;
     expectNoCredential(message);
+    // stderr too, not just the message (R1 non-blocking): mt#3210's fallback
+    // reads stderr, so it is a real consumer and a real leak surface.
+    expectNoCredential((thrown as { stderr: string }).stderr ?? "");
     // Still diagnosable.
-    expect(message).toContain("denied to minsky-ai[bot]");
+    expect(message).toContain(DENIAL_FRAGMENT);
+    expect((thrown as { stderr: string }).stderr).toContain(DENIAL_FRAGMENT);
   });
 });
