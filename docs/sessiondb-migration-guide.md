@@ -1,8 +1,8 @@
 # Persistence Migration Guide
 
 > **Renamed from "SessionDB".** The `sessiondb` CLI namespace was retired when sessions moved
-> onto the Postgres-only `DrizzleSessionRepository` (mt#2339, mt#2329) — there is no `minsky
-sessiondb` command anymore. The current command family is `minsky persistence`. Postgres is
+> onto the Postgres-only `DrizzleSessionRepository` (mt#2339, mt#2329) — there is no `minsky sessiondb`
+> command anymore. The current command family is `minsky persistence`. Postgres is
 > the **only** supported backend ([ADR-018](architecture/adr-018-domain-persistence-pattern.md),
 > [ADR-027](architecture/adr-027-postgres-only-persistence-confirmed.md)); SQLite and the older
 > JSON-file backend have been removed entirely, not merely deprecated. See

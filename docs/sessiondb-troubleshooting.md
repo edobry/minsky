@@ -155,8 +155,9 @@ minsky persistence check --report
 minsky session list --verbose --limit 5
 ```
 
-Include the command output (with the connection string's credentials redacted — `persistence
-check` already masks them in its own log lines), your OS, and the steps to reproduce.
+Include the command output (with the connection string's credentials redacted —
+`persistence check` already masks them in its own log lines), your OS, and the steps to
+reproduce.
 
 ## Historical: SQLite issues (pre-mt#2339)
 
