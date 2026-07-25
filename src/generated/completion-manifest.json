@@ -4835,11 +4835,11 @@
             },
             {
               "flags": ["--execute"],
-              "description": "Actually perform the migration (default is preview mode)"
+              "description": "Actually perform the migration (default is preview mode). Ignored when --dry-run is also set — --dry-run always wins."
             },
             {
               "flags": ["-n", "--dry-run"],
-              "description": "Simulate migration without making changes"
+              "description": "Force preview mode; takes precedence over --execute, so `--dry-run --execute` previews rather than applies"
             },
             {
               "flags": ["--debug"],

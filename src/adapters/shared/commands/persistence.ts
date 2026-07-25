@@ -12,6 +12,7 @@ import { readTextFileSync } from "@minsky/shared/fs";
 import { dirname, join } from "path";
 import { getErrorMessage, ensureError } from "@minsky/domain/errors/index";
 import { sharedCommandRegistry, CommandCategory } from "../../shared/command-registry";
+import type { SharedCommandRegistry } from "../../shared/command-registry";
 import { PersistenceProviderFactory } from "@minsky/domain/persistence/factory";
 import { log } from "@minsky/shared/logger";
 import type { SessionRecord } from "@minsky/domain/session/session-db";
@@ -42,12 +43,16 @@ const persistenceMigrateCommandParams = {
   },
   execute: {
     schema: z.boolean(),
-    description: "Actually perform the migration (default is preview mode)",
+    description:
+      "Actually perform the migration (default is preview mode). Ignored when --dry-run " +
+      "is also set — --dry-run always wins.",
     required: false,
   },
   dryRun: {
     schema: z.boolean(),
-    description: "For schema-only mode: show what would be executed without applying",
+    description:
+      "Force preview mode and take precedence over --execute, so `--dry-run --execute` " +
+      "previews rather than applies. Applies to both schema-only mode and backend migration.",
     required: false,
     defaultValue: false,
   },
@@ -81,9 +86,56 @@ const persistenceCheckCommandParams = {
 };
 
 /**
- * Register all persistence commands
+ * Resolve whether a `persistence migrate` invocation runs in preview
+ * (dry-run) mode.
+ *
+ * `--dry-run` FORCES preview and takes precedence over `--execute` — an
+ * operator who explicitly asks for a dry run must never have `--execute`
+ * silently win (mt#3191). This is a single, explicit, unit-testable seam
+ * shared by both the schema-only migration path and the backend-migration
+ * path in the `persistence.migrate` handler below, rather than the
+ * precedence falling out incidentally from two separate computations.
  */
-export function registerPersistenceCommands(container?: AppContainerInterface): void {
+export function resolveMigratePreviewMode(params: {
+  execute?: boolean;
+  dryRun?: boolean;
+}): boolean {
+  return Boolean(params.dryRun) || !params.execute;
+}
+
+/**
+ * Test-only override hooks for `registerPersistenceCommands`.
+ *
+ * `runSchemaMigrations` lets a handler-level test stub out the real
+ * migration runner (which otherwise requires a live Postgres connection)
+ * while still exercising the actual `persistence.migrate` command handler —
+ * DI-via-optional-parameter, per the project's `custom/no-global-module-mocks`
+ * ESLint rule (mirrors the `listReviewsImpl` pattern in
+ * `asks-github-client.ts`). Defaults to the real imported function in
+ * production; unused outside tests.
+ */
+export interface PersistenceCommandOverrides {
+  runSchemaMigrations?: typeof runSchemaMigrationsForConfiguredBackend;
+}
+
+/**
+ * Register all persistence commands.
+ *
+ * `registry` mirrors the `registerProvenanceCommands(container?, registry?)`
+ * convention (`./provenance.ts`) — defaults to the shared singleton in
+ * production, but accepts an isolated `createSharedCommandRegistry()`
+ * instance so handler-level tests can register + exercise the real command
+ * without touching global registry state.
+ */
+export function registerPersistenceCommands(
+  container?: AppContainerInterface,
+  registry?: SharedCommandRegistry,
+  overrides?: PersistenceCommandOverrides
+): void {
+  const targetRegistry = registry ?? sharedCommandRegistry;
+  const runSchemaMigrations =
+    overrides?.runSchemaMigrations ?? runSchemaMigrationsForConfiguredBackend;
+
   // Lazy-deps closure — matches session/git commands pattern (mt#929)
   const getPersistenceDeps = () => ({
     sessionProvider: container?.has("sessionProvider")
@@ -93,7 +145,7 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
   });
 
   // Register persistence migrate command
-  sharedCommandRegistry.registerCommand({
+  targetRegistry.registerCommand({
     id: "persistence.migrate",
     category: CommandCategory.PERSISTENCE,
     name: "migrate",
@@ -102,14 +154,19 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
     requiresSetup: false,
     parameters: persistenceMigrateCommandParams,
     async execute(params, context) {
-      const { to, from, backup = true, execute, dryRun: _dryRun = false } = params;
+      const { to, from, backup = true, execute, dryRun = false } = params;
+
+      // DEFAULT: preview unless --execute is passed. --dry-run forces preview
+      // and takes precedence over --execute — computed once, here, and shared
+      // by both the schema-only path (immediately below) and the backend
+      // migration path further down (mt#3191).
+      const isPreviewMode = resolveMigratePreviewMode({ execute, dryRun });
 
       // If no target backend provided, run schema migrations for the configured
       // (Postgres-only, ADR-018 / mt#2349) backend.
       if (!to) {
         try {
-          const shouldApply = Boolean(execute);
-          const result = await runSchemaMigrationsForConfiguredBackend({ dryRun: !shouldApply });
+          const result = await runSchemaMigrations({ dryRun: isPreviewMode });
 
           if (context.format === "human") {
             // eslint-disable-next-line custom/no-excessive-as-unknown -- migration result union lacks index signature; cast required for backward-compatible key-based rendering
@@ -128,9 +185,6 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
           throw ensureError(error);
         }
       }
-
-      // DEFAULT: preview unless user passes --execute
-      const isPreviewMode = !execute;
 
       try {
         // `to` is constrained to "postgres" by the param schema (sessions are
@@ -337,7 +391,7 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
   });
 
   // Register persistence check command
-  sharedCommandRegistry.registerCommand({
+  targetRegistry.registerCommand({
     id: "persistence.check",
     category: CommandCategory.PERSISTENCE,
     name: "check",

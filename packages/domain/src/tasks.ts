@@ -5,14 +5,15 @@
  * This is a thin facade that re-exports types from sub-modules and provides
  * parameter-validated command functions used by CLI/MCP adapters.
  *
- * IMPORTANT (mt#2762 / mt#2783): `tasks/index.ts` re-exports THIS file's
- * `listTasksFromParams` (not `tasks/commands/query-commands.ts`'s function of the
- * same name), and `@minsky/domain/tasks` — the import the actual CLI/MCP
- * `tasks_list` command uses — resolves to `tasks/index.ts`. So a filter added to
- * `tasks_list` must be forwarded HERE, not just in `query-commands.ts` (which is a
- * separate implementation reached only via the `taskCommands.ts` barrel, e.g. by
- * `index-embeddings-command.ts`). mt#2783 tracks consolidating these into one
- * implementation.
+ * `tasks/index.ts` re-exports THIS file's command functions, and
+ * `@minsky/domain/tasks` — the import the CLI/MCP `tasks_list`/`tasks_status_set`
+ * commands use — resolves to `tasks/index.ts`. `listTasksFromParams` and
+ * `setTaskStatusFromParams` below delegate to the canonical implementations in
+ * `tasks/commands/query-commands.ts` and `tasks/commands/mutation-commands.ts`
+ * respectively (mt#2704 precedent for status-set; mt#2783 consolidated
+ * listTasksFromParams the same way — see those files' headers), so the
+ * `taskCommands.ts` barrel and this facade now terminate at the same function
+ * bodies instead of each holding an independent, divergently-tested copy.
  */
 
 import { log } from "@minsky/shared/logger";
@@ -20,21 +21,19 @@ import { createConfiguredTaskService } from "./tasks/taskService";
 import { ResourceNotFoundError } from "./errors/index";
 import { first } from "@minsky/shared/array-safety";
 import {
-  taskListParamsSchema,
   taskGetParamsSchema,
   taskCreateParamsSchema,
   taskDeleteParamsSchema,
   taskStatusSetParamsSchema,
   taskStatusGetParamsSchema,
   taskSpecContentParamsSchema,
+  type TaskListParams,
 } from "./schemas/tasks";
 import type { PersistenceProvider } from "./persistence/types";
 import type { TaskServiceInterface } from "./tasks/taskService";
 import type { TaskGraphService } from "./tasks/task-graph-service";
 import { setTaskStatusFromParams as setTaskStatusValidated } from "./tasks/commands/mutation-commands";
-import { ALL_PROJECTS, type ProjectScope } from "./project/scope";
-import { resolveProjectIdentity } from "./project/identity";
-import { resolveProjectScope } from "./project/scope-resolver";
+import { listTasksFromParams as listTasksValidated } from "./tasks/commands/query-commands";
 import { assertKnownKind } from "./tasks/workflows";
 
 // ---- Dependency injection types ----
@@ -76,75 +75,16 @@ export type { TaskStatus } from "./tasks/taskConstants";
 // ---- Command functions (parameter-validated wrappers) ----
 
 export async function listTasksFromParams(params: Record<string, unknown>, deps?: TaskServiceDeps) {
-  const validParams = taskListParamsSchema.parse(params);
-
-  // Validate kind against the workflow registry up front (mt#2762) — a typo
-  // must not slip through to a backend query that silently returns zero rows.
-  assertKnownKind(validParams.kind);
-
-  const workspacePath = process.cwd();
-  log.debug("tasks.list params", { backend: validParams.backend });
-
-  // Use CLI backend if provided, otherwise use multi-backend mode (no default)
-  const backend = validParams.backend;
-
-  if (backend) {
-    log.debug("tasks.list using CLI backend", { backend });
-  } else {
-    log.debug("tasks.list using multi-backend mode (no default backend)");
-  }
-
-  const taskService =
-    deps?.taskService ??
-    (await createConfiguredTaskService({
-      workspacePath,
-      backend,
-      persistenceProvider: requirePersistence(deps?.persistenceProvider),
-    }));
-
-  log.debug("tasks.list created TaskService", {
-    backend: taskService.listBackends?.().find((b) => b.prefix === backend)?.name || "default",
+  // Delegates to the canonical implementation in tasks/commands/query-commands.ts
+  // (mt#2783), which resolves ADR-021 project scope (mt#2416) and forwards
+  // status/kind/tags/projectScope filters to taskService.listTasks. This facade
+  // only exists so the CLI/MCP resolution path (@minsky/domain/tasks →
+  // tasks/index.ts → this file) and the taskCommands.ts barrel terminate at the
+  // same function body.
+  return listTasksValidated(params as TaskListParams, {
+    taskService: deps?.taskService,
+    persistenceProvider: deps?.persistenceProvider,
   });
-
-  // Resolve project scope (ADR-021, mt#2416)
-  // allProjects=true → skip scope filter; otherwise resolve per-process identity
-  let projectScope: ProjectScope = ALL_PROJECTS;
-  if (!validParams.allProjects) {
-    const persistenceProvider = deps?.persistenceProvider;
-    try {
-      const identity = resolveProjectIdentity({ repoPath: workspacePath });
-      if (
-        identity.kind === "resolved" &&
-        persistenceProvider &&
-        "getDatabaseConnection" in persistenceProvider
-      ) {
-        const sqlProvider =
-          persistenceProvider as import("./persistence/types").SqlCapablePersistenceProvider;
-        const db = await sqlProvider.getDatabaseConnection?.();
-        if (db) {
-          projectScope = await resolveProjectScope(identity, db);
-        }
-      }
-    } catch (err) {
-      log.debug("[tasks.list] Project scope resolution failed; defaulting to ALL_PROJECTS", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  let tasks = await taskService.listTasks({
-    status: validParams.status,
-    all: validParams.all,
-    backend: validParams.backend,
-    tags: validParams.tags,
-    projectScope,
-    kind: validParams.kind,
-  });
-  // Apply limit client-side if provided
-  if (typeof validParams.limit === "number" && validParams.limit > 0) {
-    tasks = tasks.slice(0, validParams.limit);
-  }
-  return tasks;
 }
 
 export async function getTaskFromParams(params: Record<string, unknown>, deps?: TaskServiceDeps) {
