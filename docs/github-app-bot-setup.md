@@ -172,6 +172,20 @@ After the script exits, skip to §4 (configure Minsky). Sections 2 and 3 are aut
    > (`--permissions pull_requests:write,contents:read,actions:write`). Without it, the tool
    > returns a structured error naming the missing permission (403 "Resource not accessible by
    > integration") rather than failing silently.
+   >
+   > **If you want `session_commit`'s push to authenticate as the App (mt#1477, mt#3210).**
+   > The base `Contents: Read-only` permission above is correct for an App that only creates
+   > PRs and posts reviews via the REST API — but `session_commit`'s git push (mt#1477) injects
+   > the App installation token as an HTTP Authorization header, which needs **Contents: Read &
+   > write** to succeed. With `Contents: Read-only`, every App-token push is denied (403
+   > "Permission ... denied to `<app-slug>`[bot]"), deterministically, regardless of token
+   > freshness. As of mt#3210, `session_commit` detects this denial and automatically retries
+   > via system keychain credentials — so a read-only installation degrades gracefully rather
+   > than surfacing a failed push — but the App identity and the CI-trigger reliability mt#1477
+   > exists for (pushes authenticated as the App reliably trigger `pull_request` workflows;
+   > keychain-credentialed pushes may not) are both lost on the fallback path. Grant **Contents:
+   > Read and write** if you want first-attempt App-token pushes to actually succeed:
+   > `--permissions pull_requests:write,contents:write,metadata:read[,actions:write]`.
 
 5. **Where can this GitHub App be installed?**
 
