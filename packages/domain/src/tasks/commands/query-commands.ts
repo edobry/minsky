@@ -109,34 +109,43 @@ export async function listTasksFromParams(
     }
 
     // Resolve project scope (ADR-021, mt#2416; ported from the former tasks.ts-only
-    // duplicate — mt#2783). Uses process.cwd() rather than the session/repo-aware
-    // workspacePath above so the CLI/MCP path's behavior is unchanged by this
-    // consolidation: allProjects=true skips the scope filter; otherwise resolve
-    // per-process identity and fall back to ALL_PROJECTS on any resolution failure.
+    // duplicate — mt#2783). allProjects=true skips the scope filter entirely;
+    // otherwise resolve per-process identity and fall back to ALL_PROJECTS on any
+    // resolution failure.
+    //
+    // The persistenceProvider/getDatabaseConnection capability check is done
+    // FIRST, before touching process.cwd() at all (PR #2281 R1): this function
+    // is now reached by non-CLI-entry-point callers too (e.g.
+    // index-embeddings-command.ts, via the taskCommands.ts barrel), for whom cwd
+    // may be meaningless — they never pass a persistenceProvider, so with the
+    // check ordered this way they never invoke resolveProjectIdentity(cwd) at
+    // all. CLI/MCP behavior is unchanged: crud-commands.ts always injects a
+    // persistenceProvider (registry-setup.ts's getPersistenceProvider either
+    // returns one or throws before this function is even called), so the
+    // identity resolution still runs on that path exactly as it did in the
+    // former tasks.ts-only implementation.
     let projectScope: ProjectScope = ALL_PROJECTS;
     if (!validParams.allProjects) {
       const persistenceProvider = deps?.persistenceProvider;
-      try {
-        const identity = resolveProjectIdentity({ repoPath: process.cwd() });
-        if (
-          identity.kind === "resolved" &&
-          persistenceProvider &&
-          "getDatabaseConnection" in persistenceProvider
-        ) {
-          const sqlProvider =
-            persistenceProvider as import("../../persistence/types").SqlCapablePersistenceProvider;
-          const db = await sqlProvider.getDatabaseConnection?.();
-          if (db) {
-            projectScope = await resolveProjectScope(identity, db);
+      if (persistenceProvider && "getDatabaseConnection" in persistenceProvider) {
+        try {
+          const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+          if (identity.kind === "resolved") {
+            const sqlProvider =
+              persistenceProvider as import("../../persistence/types").SqlCapablePersistenceProvider;
+            const db = await sqlProvider.getDatabaseConnection?.();
+            if (db) {
+              projectScope = await resolveProjectScope(identity, db);
+            }
           }
+        } catch (err) {
+          log.debug(
+            "[listTasksFromParams] Project scope resolution failed; defaulting to ALL_PROJECTS",
+            {
+              error: err instanceof Error ? err.message : String(err),
+            }
+          );
         }
-      } catch (err) {
-        log.debug(
-          "[listTasksFromParams] Project scope resolution failed; defaulting to ALL_PROJECTS",
-          {
-            error: err instanceof Error ? err.message : String(err),
-          }
-        );
       }
     }
 
