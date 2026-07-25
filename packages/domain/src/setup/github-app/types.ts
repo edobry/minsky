@@ -15,7 +15,7 @@ export interface AppManifestSpec {
   repo: string;
   /** Repository owner (derived from repo). */
   owner: string;
-  /** Permission map (e.g. { pull_requests: "write", contents: "read" }). */
+  /** Permission map (e.g. { pull_requests: "write", contents: "write" }). */
   permissions: Record<string, string>;
   /** GitHub webhook events to subscribe to. */
   events: string[];
