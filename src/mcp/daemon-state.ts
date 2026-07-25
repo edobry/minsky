@@ -161,9 +161,7 @@ export function writeDaemonState(serverName: string, transport: "stdio" | "http"
 
     const statePath = getDaemonStatePath();
     const stateDir = path.dirname(statePath);
-    if (!fs.existsSync(stateDir)) {
-      fs.mkdirSync(stateDir, { recursive: true });
-    }
+    fs.mkdirSync(stateDir, { recursive: true });
 
     // Write atomically: tmp file → rename.
     const tmp = `${statePath}.tmp.${process.pid}`;

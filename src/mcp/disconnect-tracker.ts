@@ -953,9 +953,7 @@ export class DisconnectTracker {
     if (!this.persistPath) return; // In-memory-only mode (tests)
     try {
       const dir = path.dirname(this.persistPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
+      fs.mkdirSync(dir, { recursive: true });
       const line = `${JSON.stringify(event)}\n`;
       fs.appendFileSync(this.persistPath, line, "utf-8");
     } catch (err) {
