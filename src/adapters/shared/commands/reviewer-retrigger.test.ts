@@ -28,7 +28,9 @@ import {
   resolveReviewerEndpoint,
   postReviewCommentFallback,
   runReviewerRetrigger,
+  extractUpstreamMessage,
   DEFAULT_REVIEWER_URL,
+  type RetriggerResult,
 } from "./reviewer-retrigger";
 import { CustomConfigFactory, initializeConfiguration } from "@minsky/domain/configuration/index";
 import {
@@ -45,6 +47,12 @@ const CFG_TOKEN = "cfg-token";
 const ENV_TOKEN = "env-token";
 const CFG_URL = "https://reviewer.example.test";
 const ENV_URL = "https://env-reviewer.example.test";
+
+// Extracted per custom/no-magic-string-duplication — these strings are asserted
+// from several tests and must not drift between them.
+const DOCTOR_FIX_HINT = "config doctor --fix";
+const EDGE_404_MESSAGE = "Application not found";
+const JSON_HEADERS = { "Content-Type": "application/json" };
 
 describe("DEFAULT_REVIEWER_URL drift sentinel (mt#2359)", () => {
   // Offline regression guard: the prior value omitted `-production` and 404'd.
@@ -172,7 +180,7 @@ describe("postReviewCommentFallback (mt#2679 GitHub-auth fallback)", () => {
     expect(calls).toEqual([{ owner: "o", repo: "r", issue_number: 7, body: "/review" }]);
     // The note names the async semantics and the turnkey remediation.
     expect(result.note).toContain("asynchronously");
-    expect(result.note).toContain("config doctor --fix");
+    expect(result.note).toContain(DOCTOR_FIX_HINT);
   });
 
   it("surfaces a comment-post failure as a non-ok result on the fallback path", async () => {
@@ -218,7 +226,7 @@ describe("runReviewerRetrigger credential branching (mt#2679)", () => {
         fetched.push(String(url));
         return new Response(JSON.stringify({ ok: true, pr: 5, deliveryId: "d-1" }), {
           status: 200,
-          headers: { "Content-Type": "application/json" },
+          headers: JSON_HEADERS,
         });
       }) as typeof fetch;
 
@@ -270,7 +278,7 @@ describe("runReviewerRetrigger credential branching (mt#2679)", () => {
         /mcp\.auth\.token.*github\.token|no usable credential/
       );
       await expect(runReviewerRetrigger({ pr: 1, owner: "o", repo: "r" })).rejects.toThrow(
-        "config doctor --fix"
+        DOCTOR_FIX_HINT
       );
     } finally {
       if (savedToken !== undefined) {
@@ -284,5 +292,224 @@ describe("runReviewerRetrigger credential branching (mt#2679)", () => {
         delete process.env["XDG_CONFIG_HOME"];
       }
     }
+  });
+});
+
+describe("extractUpstreamMessage (mt#3143)", () => {
+  it("reads the reviewer's own `error` key", () => {
+    expect(extractUpstreamMessage({ error: "unauthorized" })).toBe("unauthorized");
+  });
+
+  it("reads Railway's `message` key — the unrouted-host body that has no `error`", () => {
+    // This exact shape is what rendered as a bare `HTTP 404` before mt#3143.
+    expect(
+      extractUpstreamMessage({
+        status: "error",
+        code: 404,
+        message: EDGE_404_MESSAGE,
+        request_id: "uTfoueTsR3aWZL6KxtoGcA",
+      })
+    ).toBe(EDGE_404_MESSAGE);
+  });
+
+  it("returns undefined for bodies carrying neither key, and for non-objects", () => {
+    expect(extractUpstreamMessage({ code: 404 })).toBeUndefined();
+    expect(extractUpstreamMessage({ error: "   " })).toBeUndefined();
+    expect(extractUpstreamMessage(null)).toBeUndefined();
+    expect(extractUpstreamMessage("not found")).toBeUndefined();
+  });
+});
+
+describe("direct-path failure diagnosability + fallback-on-failure (mt#3143)", () => {
+  const REVIEWER_URL = "https://reviewer.example.test";
+  const RETRIGGER_URL = `${REVIEWER_URL}/retrigger`;
+
+  type CommentCall = { owner: string; repo: string; issue_number: number; body: string };
+
+  function restoreEnv(key: string, value: string | undefined): void {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+
+  /**
+   * Drive `runReviewerRetrigger` against a stubbed direct endpoint, with the
+   * comment client injected through the mt#3143 seam so the fallback branches
+   * run without a live GitHub call.
+   */
+  async function runWithStubbedDirect(options: {
+    respond: () => Response;
+    githubToken?: string;
+    commentCalls?: CommentCall[];
+    commentThrows?: boolean;
+    omitMcpToken?: boolean;
+  }): Promise<RetriggerResult> {
+    const savedToken = process.env[TOKEN_ENV];
+    const savedUrl = process.env[URL_ENV];
+    const savedXdg = process.env["XDG_CONFIG_HOME"];
+    const savedFetch = globalThis.fetch;
+    delete process.env[TOKEN_ENV];
+    delete process.env[URL_ENV];
+
+    const { tmpdir } = await import("os");
+    const { join } = await import("path");
+    process.env["XDG_CONFIG_HOME"] = join(
+      tmpdir(),
+      `minsky-retrigger-test-isolated-${process.pid}-${Math.random().toString(36).slice(2)}`
+    );
+
+    try {
+      await initializeConfiguration(new CustomConfigFactory(), {
+        overrides: {
+          github: options.githubToken ? { token: options.githubToken } : {},
+          mcp: { auth: options.omitMcpToken ? {} : { token: "mcp-token-present" } },
+          reviewer: { url: REVIEWER_URL },
+        },
+        skipValidation: true,
+      });
+
+      globalThis.fetch = (async () => options.respond()) as unknown as typeof fetch;
+
+      return await runReviewerRetrigger(
+        { pr: 2244, owner: "edobry", repo: "minsky" },
+        {
+          createCommentClient: async () => ({
+            async createComment(args: CommentCall) {
+              options.commentCalls?.push(args);
+              if (options.commentThrows) throw new Error("403 Forbidden");
+              return {
+                data: { html_url: "https://github.com/edobry/minsky/pull/2244#issuecomment-9" },
+              };
+            },
+          }),
+        }
+      );
+    } finally {
+      globalThis.fetch = savedFetch;
+      restoreEnv(TOKEN_ENV, savedToken);
+      restoreEnv(URL_ENV, savedUrl);
+      restoreEnv("XDG_CONFIG_HOME", savedXdg);
+    }
+  }
+
+  it("names the attempted URL, the status, and the upstream message on a Railway-edge 404", async () => {
+    // The exact body an unrouted Railway host returns. It parses as JSON but has
+    // no `error` key, which is why the pre-fix code rendered a bare `HTTP 404`
+    // and sent two sessions hunting through services/reviewer/**.
+    const result = await runWithStubbedDirect({
+      respond: () =>
+        new Response(JSON.stringify({ status: "error", code: 404, message: EDGE_404_MESSAGE }), {
+          status: 404,
+          headers: JSON_HEADERS,
+        }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.path).toBe("direct");
+    expect(result.url).toBe(RETRIGGER_URL);
+    expect(result.error).toContain(RETRIGGER_URL);
+    expect(result.error).toContain("404");
+    expect(result.error).toContain(EDGE_404_MESSAGE);
+    expect(result.error).not.toBe("HTTP 404");
+  });
+
+  it("surfaces the reviewer's own plain-text 404 body rather than swallowing it", async () => {
+    // The reviewer's unmatched-route fallback returns `not found` as plain text,
+    // so response.json() throws and the sanitized text branch supplies the message.
+    const result = await runWithStubbedDirect({
+      respond: () => new Response("not found", { status: 404 }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain(RETRIGGER_URL);
+    expect(result.error).toContain("not found");
+  });
+
+  it("falls back to the /review-comment path on a 404 and preserves the direct error", async () => {
+    const commentCalls: CommentCall[] = [];
+    const result = await runWithStubbedDirect({
+      respond: () => new Response("not found", { status: 404 }),
+      githubToken: "gh-token",
+      commentCalls,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.path).toBe("review-comment");
+    expect(commentCalls).toEqual([
+      { owner: "edobry", repo: "minsky", issue_number: 2244, body: "/review" },
+    ]);
+    // The direct failure is not discarded just because the fallback worked.
+    expect(result.directError).toContain(RETRIGGER_URL);
+    expect(result.directError).toContain("404");
+    // The fallback's bounded value is stated, not implied.
+    expect(result.note).toContain("same host");
+  });
+
+  it("does NOT fall back on a 422 — a draft or closed PR is a legitimate refusal", async () => {
+    const commentCalls: CommentCall[] = [];
+    const result = await runWithStubbedDirect({
+      respond: () =>
+        new Response(JSON.stringify({ error: "PR is a draft", pr: 2244 }), {
+          status: 422,
+          headers: JSON_HEADERS,
+        }),
+      githubToken: "gh-token",
+      commentCalls,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.path).toBe("direct");
+    expect(result.error).toContain("422");
+    expect(result.error).toContain("PR is a draft");
+    expect(commentCalls).toEqual([]);
+  });
+
+  it("names the URL when the request fails before any response arrives", async () => {
+    const result = await runWithStubbedDirect({
+      respond: () => {
+        throw new Error("connect ECONNREFUSED 10.0.0.1:443");
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.path).toBe("direct");
+    expect(result.url).toBe(RETRIGGER_URL);
+    expect(result.error).toContain(RETRIGGER_URL);
+    expect(result.error).toContain("ECONNREFUSED");
+  });
+
+  it("carries the attempted URL on success as well", async () => {
+    const result = await runWithStubbedDirect({
+      respond: () =>
+        new Response(JSON.stringify({ ok: true, pr: 2244, deliveryId: "d-9" }), {
+          status: 200,
+          headers: JSON_HEADERS,
+        }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.path).toBe("direct");
+    expect(result.url).toBe(RETRIGGER_URL);
+    expect(result.deliveryId).toBe("d-9");
+  });
+
+  it("mt#2679 unregressed: with no mcp.auth.token the comment path runs without touching the direct endpoint", async () => {
+    const commentCalls: CommentCall[] = [];
+    let directCalls = 0;
+    const result = await runWithStubbedDirect({
+      respond: () => {
+        directCalls += 1;
+        return new Response("{}", { status: 200 });
+      },
+      githubToken: "gh-token",
+      commentCalls,
+      omitMcpToken: true,
+    });
+
+    expect(result.path).toBe("review-comment");
+    expect(directCalls).toBe(0);
+    expect(commentCalls).toHaveLength(1);
+    // The original mt#2679 note, NOT the direct-failure note.
+    expect(result.note).toContain(DOCTOR_FIX_HINT);
+    expect(result.directError).toBeUndefined();
   });
 });
