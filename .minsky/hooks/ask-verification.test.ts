@@ -6,6 +6,7 @@ import {
   type AskRow,
   type ExecFn,
 } from "./ask-verification";
+import { APPROVAL_TOKEN } from "@minsky/shared/ask-approval";
 
 const ASK_ID = "38b1c0de-1234-4abc-8def-000000000001";
 
@@ -15,6 +16,22 @@ const approvedRow = (overrides: Partial<AskRow> = {}): AskRow => ({
   state: "responded",
   response: { responder: "operator", payload: { approved: true } },
   ...overrides,
+});
+
+describe("APPROVAL_TOKEN vocabulary is the shared @minsky/shared/ask-approval constant (mt#3203)", () => {
+  test("isApprovingPayload's value-token acceptance matches the imported APPROVAL_TOKEN exactly", () => {
+    // Regression guard: this hook must import the vocabulary, not maintain a
+    // second copy of the regex. If a local copy were reintroduced and drifted
+    // from the shared constant, this test would catch the divergence.
+    for (const token of ["approve", "approved", "yes", "Approve", "YES"]) {
+      expect(APPROVAL_TOKEN.test(token)).toBe(true);
+      expect(isApprovingPayload({ value: token })).toBe(true);
+    }
+    for (const token of ["ok", "sure", "Approve the override and merge"]) {
+      expect(APPROVAL_TOKEN.test(token)).toBe(false);
+      expect(isApprovingPayload({ value: token })).toBe(false);
+    }
+  });
 });
 
 describe("isApprovingPayload", () => {
