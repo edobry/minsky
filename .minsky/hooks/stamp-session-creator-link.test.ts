@@ -13,7 +13,16 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { resolveConversationId, resolveWorkspaceSessionId } from "./stamp-session-creator-link";
+import {
+  resolveConversationId,
+  resolveWorkspaceSessionId,
+  resolveTaskId,
+  lookupWorkspaceSessionIdByTask,
+  raceDeadline,
+  buildFailureRecord,
+  FAILURE_LOG_RELATIVE_PATH,
+  HOOK_NAME,
+} from "./stamp-session-creator-link";
 import type { ToolHookInput } from "./types";
 
 const CONVERSATION_ID = "a1b2c3d4-1111-4222-8333-000000000001";
@@ -106,5 +115,160 @@ describe("resolveWorkspaceSessionId", () => {
       makeInput({ tool_input: { task: "mt#3120" }, tool_result: { success: false } })
     );
     expect(r).toBeNull();
+  });
+});
+
+describe("the real harness payload (mt#3182 regression)", () => {
+  /**
+   * The payload shape production actually delivers: `tool_input` carries the
+   * task, and there is NO `tool_result` at all. Every test above that resolves
+   * a workspace id hand-BUILDS a `tool_result`, which is exactly why the suite
+   * stayed green while the hook wrote 0 rows against 235 sessions.
+   *
+   * This is the assertion that fails if anyone reinstates payload-only
+   * resolution: it pins that the payload route yields NOTHING here, so the
+   * task-lookup route is load-bearing rather than decorative.
+   */
+  const realisticInput = makeInput({ tool_input: { task: "mt#3182" } });
+
+  it("yields no workspace id from the payload — the documented production case", () => {
+    expect(resolveWorkspaceSessionId(realisticInput)).toBeNull();
+  });
+
+  it("still yields the conversation id and the task id, the two ids that ARE present", () => {
+    expect(resolveConversationId(realisticInput)).toBe(CONVERSATION_ID);
+    expect(resolveTaskId(realisticInput)).toBe("mt#3182");
+  });
+});
+
+describe("failure recording (PR #2290 R1/R2 — stderr alone is not visibility)", () => {
+  it("records every id needed to diagnose a skip without reproducing it", () => {
+    // The whole point: a skip must be answerable later from the artifact alone.
+    // Reason + which conversation + which task is the minimum to act on.
+    const record = buildFailureRecord({
+      hook: HOOK_NAME,
+      reason: "skipped: no session row found for task mt#3182",
+      timestamp: "2026-07-25T00:50:00.000Z",
+      conversationId: CONVERSATION_ID,
+      taskId: "mt#3182",
+    });
+
+    expect(record).toEqual({
+      hook: HOOK_NAME,
+      reason: "skipped: no session row found for task mt#3182",
+      timestamp: "2026-07-25T00:50:00.000Z",
+      conversationId: CONVERSATION_ID,
+      taskId: "mt#3182",
+      workspaceSessionId: null,
+    });
+  });
+
+  it("normalizes absent context to explicit nulls so every line has the same keys", () => {
+    // Uniform keys keep the log greppable/jq-able — a line that simply omits
+    // conversationId is indistinguishable from one that failed to resolve it.
+    const record = buildFailureRecord({
+      hook: HOOK_NAME,
+      reason: "skipped: hook input carried no session_id",
+      timestamp: "2026-07-25T00:50:00.000Z",
+    });
+    expect(record.conversationId).toBeNull();
+    expect(record.taskId).toBeNull();
+    expect(record.workspaceSessionId).toBeNull();
+  });
+
+  it("writes under the Minsky state dir, not /tmp — it must survive a reboot", () => {
+    expect(FAILURE_LOG_RELATIVE_PATH).toBe(".local/state/minsky/session-link-hook-failures.jsonl");
+  });
+});
+
+describe("resolveTaskId", () => {
+  it("reads the `task` alias the tool declares", () => {
+    expect(resolveTaskId(makeInput({ tool_input: { task: "mt#3182" } }))).toBe("mt#3182");
+  });
+
+  it("reads the canonical `taskId` and prefers it over the alias", () => {
+    expect(resolveTaskId(makeInput({ tool_input: { taskId: "mt#1" } }))).toBe("mt#1");
+    expect(resolveTaskId(makeInput({ tool_input: { taskId: "mt#1", task: "mt#2" } }))).toBe("mt#1");
+  });
+
+  it("returns null for a taskless session_start", () => {
+    expect(resolveTaskId(makeInput({ tool_input: { repo: "/tmp/repo" } }))).toBeNull();
+  });
+
+  it("ignores non-string and empty values", () => {
+    expect(resolveTaskId(makeInput({ tool_input: { task: 42 } }))).toBeNull();
+    expect(resolveTaskId(makeInput({ tool_input: { task: "" } }))).toBeNull();
+  });
+});
+
+describe("lookupWorkspaceSessionIdByTask", () => {
+  const TABLE = { sessionId: "col:session", taskId: "col:task_id", createdAt: "col:created_at" };
+  const OPS = {
+    eq: (a: unknown, b: unknown) => ({ eq: [a, b] }),
+    desc: (a: unknown) => ({ desc: a }),
+  };
+
+  function stubDb(rows: unknown[]) {
+    const calls: { where?: unknown; orderBy?: unknown; limit?: number } = {};
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: (cond: unknown) => {
+            calls.where = cond;
+            return {
+              orderBy: (order: unknown) => {
+                calls.orderBy = order;
+                return {
+                  limit: async (n: number) => {
+                    calls.limit = n;
+                    return rows;
+                  },
+                };
+              },
+            };
+          },
+        }),
+      }),
+    };
+    return { db, calls };
+  }
+
+  it("returns the newest session id for the task", async () => {
+    const { db } = stubDb([{ sessionId: WORKSPACE_ID }]);
+    await expect(lookupWorkspaceSessionIdByTask(db, TABLE, OPS, "mt#3182")).resolves.toBe(
+      WORKSPACE_ID
+    );
+  });
+
+  it("filters on the task id and orders newest-first, taking one row", async () => {
+    // Pins the query shape: without the desc(createdAt) ordering a task whose
+    // session was deleted and recreated would resolve to the dead one.
+    const { db, calls } = stubDb([{ sessionId: WORKSPACE_ID }]);
+    await lookupWorkspaceSessionIdByTask(db, TABLE, OPS, "mt#3182");
+    expect(calls.where).toEqual({ eq: ["col:task_id", "mt#3182"] });
+    expect(calls.orderBy).toEqual({ desc: "col:created_at" });
+    expect(calls.limit).toBe(1);
+  });
+
+  it("returns null when no session row exists for the task", async () => {
+    const { db } = stubDb([]);
+    await expect(lookupWorkspaceSessionIdByTask(db, TABLE, OPS, "mt#3182")).resolves.toBeNull();
+  });
+
+  it("is covered by the shared deadline, so a hung query cannot stall PostToolUse", async () => {
+    // PR #2290 R1 (BLOCKING): the deadline originally wrapped only the link
+    // write, leaving this SELECT unbounded. A hung query would then hold
+    // PostToolUse open until the harness's own 20s timeout killed the hook.
+    const neverResolves = new Promise<string | null>(() => {});
+    await expect(raceDeadline(neverResolves, 20)).resolves.toBe("deadline");
+  });
+
+  it("returns null on a row missing or mistyping sessionId rather than linking on junk", async () => {
+    const { db: d1 } = stubDb([{}]);
+    await expect(lookupWorkspaceSessionIdByTask(d1, TABLE, OPS, "mt#3182")).resolves.toBeNull();
+    const { db: d2 } = stubDb([{ sessionId: 42 }]);
+    await expect(lookupWorkspaceSessionIdByTask(d2, TABLE, OPS, "mt#3182")).resolves.toBeNull();
+    const { db: d3 } = stubDb([{ sessionId: "" }]);
+    await expect(lookupWorkspaceSessionIdByTask(d3, TABLE, OPS, "mt#3182")).resolves.toBeNull();
   });
 });
