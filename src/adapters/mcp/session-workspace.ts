@@ -28,6 +28,49 @@ import {
 import { createSuccessResponse, createErrorResponse } from "@minsky/domain/schemas";
 
 /**
+ * The search target handed to ripgrep by `session.grep_search`.
+ *
+ * `.` — deliberately NOT the absolute workspace path (mt#3163). Ripgrep is
+ * spawned with `cwd` set to the workspace instead. See `rgPathToAbsolute`.
+ */
+export const RG_SEARCH_TARGET = ".";
+
+/**
+ * Converts a path as ripgrep emitted it into an absolute path.
+ *
+ * ## Why searching `.` instead of the absolute workspace path (mt#3163)
+ *
+ * Ripgrep matches a `--glob` containing a `/` against the path it GENERATES for
+ * each file. When the search root is given as an absolute path, those generated
+ * paths are absolute, so a natural repo-relative `include_pattern` like
+ * `src/cockpit/server.ts` matches ZERO files — and the tool returned an empty
+ * result set indistinguishable from "the query genuinely has no matches." That
+ * is the dangerous shape: a caller reasonably concludes the code does not exist.
+ * It was also pattern-dependent, so it looked like the tool worked: basename-only
+ * globs (`server.ts`) and globs already anchored with a leading double-star
+ * segment both matched fine, because neither depends on the root being relative.
+ *
+ * Spawning with `cwd` at the workspace and searching `.` makes rg's generated
+ * paths relative, which is the semantics callers already expect from a
+ * repo-relative glob. The alternative considered — rewriting the caller's glob
+ * by prefixing a double-star segment — was rejected: it silently edits user
+ * input and has to guess which shapes need it, and it would not fix
+ * `exclude_pattern` negations or brace patterns without more guessing.
+ *
+ * The cost of `cwd` + `.` is that rg emits `./`-prefixed relative paths, while
+ * this tool's output contract (both match mode and `files_only`) has always been
+ * absolute paths. This function restores that contract, so the fix is invisible
+ * to callers except that relative globs now work.
+ *
+ * Exported for tests.
+ */
+export function rgPathToAbsolute(rgPath: string, workspacePath: string): string {
+  if (rgPath.startsWith("/")) return rgPath;
+  const withoutDotSlash = rgPath.startsWith("./") ? rgPath.slice(2) : rgPath;
+  return `${workspacePath}/${withoutDotSlash}`;
+}
+
+/**
  * Utility function to process file content with line range support
  */
 function processFileContentWithLineRange(
@@ -486,6 +529,11 @@ export function registerSessionWorkspaceTools(
   });
 
   // Session grep search tool
+  //
+  // mt#3163: ripgrep is spawned with `cwd` set to the session workspace and
+  // `RG_SEARCH_TARGET` as its search path, NOT the absolute workspace path.
+  // See `rgPathToAbsolute` for why — a relative `include_pattern` matched
+  // nothing before this, silently.
   commandMapper.addCommand({
     name: "session.grep_search",
     description: "Search for patterns in files within a session workspace using regex",
@@ -528,11 +576,14 @@ export function registerSessionWorkspaceTools(
           rgArgs.push("--glob", `!${typedArgs.exclude_pattern}`);
         }
 
-        // Add the search pattern and directory
-        rgArgs.push(typedArgs.query, sessionWorkspacePath);
+        // Search `.` relative to the workspace, NOT the absolute workspace path
+        // — this is what makes a repo-relative include/exclude glob match at
+        // all (mt#3163; see rgPathToAbsolute).
+        rgArgs.push(typedArgs.query, RG_SEARCH_TARGET);
 
         // Execute ripgrep
         const proc = Bun.spawn(["rg", ...rgArgs], {
+          cwd: sessionWorkspacePath,
           stdout: "pipe",
           stderr: "pipe",
         });
@@ -554,7 +605,15 @@ export function registerSessionWorkspaceTools(
 
         if (filesOnly) {
           // files_only mode: return unique file paths
-          const allFiles = output.trim() ? output.trim().split("\n").filter(Boolean) : [];
+          // Re-absolutize: rg now emits `./`-relative paths (mt#3163), but this
+          // mode's contract has always been absolute paths.
+          const allFiles = output.trim()
+            ? output
+                .trim()
+                .split("\n")
+                .filter(Boolean)
+                .map((filePath) => rgPathToAbsolute(filePath, sessionWorkspacePath))
+            : [];
           totalMatches = allFiles.length;
           const limitedFiles = allFiles.slice(0, limit);
           truncated = allFiles.length > limit;
@@ -588,9 +647,7 @@ export function registerSessionWorkspaceTools(
                 const content = match[3] || "";
 
                 // Convert to absolute file:// URL format like Cursor
-                const absolutePath = filePath.startsWith("/")
-                  ? filePath
-                  : `${sessionWorkspacePath}/${filePath}`;
+                const absolutePath = rgPathToAbsolute(filePath, sessionWorkspacePath);
                 const fileUrl = `file://${absolutePath}`;
 
                 // Add file header if it's a new file
