@@ -55,6 +55,16 @@ interface SemanticEventShape {
 /** Matches the cockpit daemon's own default (`DEFAULT_PORT` in `src/commands/cockpit/start-command.ts`). */
 const DEFAULT_PORT = 3737;
 
+const USAGE =
+  "Usage: bun scripts/verify-session-film-endpoint.ts [conversationId] [--port N] [--base-url http://host:port]";
+
+/** Prints a usage error + the usage line, then exits with code 2 (distinct from the assertion-failure exit code 1). */
+function usageError(message: string): never {
+  console.error(`USAGE ERROR: ${message}`);
+  console.error(USAGE);
+  process.exit(2);
+}
+
 function parseArgs(argv: string[]): {
   conversationId: string | undefined;
   port: number;
@@ -67,11 +77,25 @@ function parseArgs(argv: string[]): {
     const arg = argv[i];
     if (arg === "--port") {
       const next = argv[i + 1];
-      if (next) port = Number(next);
+      if (!next) usageError("--port requires a value.");
+      const parsed = Number(next);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+        usageError(`--port must be an integer between 1 and 65535, got "${next}".`);
+      }
+      port = parsed;
       i++;
     } else if (arg === "--base-url") {
       const next = argv[i + 1];
-      if (next) baseUrl = next;
+      if (!next) usageError("--base-url requires a value.");
+      try {
+        const parsedUrl = new URL(next);
+        if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+          usageError(`--base-url must use http:// or https://, got "${next}".`);
+        }
+      } catch {
+        usageError(`--base-url is not a valid URL: "${next}".`);
+      }
+      baseUrl = next;
       i++;
     } else if (arg && !arg.startsWith("--")) {
       conversationId = arg;
