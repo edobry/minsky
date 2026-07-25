@@ -799,6 +799,153 @@ describe("tasks.dispatch-recover", () => {
     });
   });
 
+  // ---------------------------------------------------------------------------
+  // mt#3204: the escalate path computes a full probe (dirty files, commits-ahead,
+  // handoff, PR) and previously DISCARDED it, handing the caller prose whose own
+  // "verify independently" list named only PROXY signals (pushes, PR/review
+  // activity). Those go quiet in exactly the state being tested — an agent
+  // editing files it has not committed produces none of them — so the guidance
+  // could only ever confirm the stale hypothesis. Originating incident: a live
+  // subagent was reported to the operator as stuck while it was mid-edit; it
+  // committed 5 minutes later and was APPROVED 4 minutes after that.
+  // ---------------------------------------------------------------------------
+  describe("mt#3204: escalate surfaces the probe and names the discriminating signal", () => {
+    function seedTwoAttemptChain(tracker: FakeTracker) {
+      const original = tracker.seed({
+        taskId: "mt#2831",
+        subagentSessionId: "sess-1",
+        startedAt: new Date(NOW.getTime() - 3 * DISPATCH_RECOVERY_STALE_MS),
+        endedAt: new Date(NOW.getTime() - 2 * DISPATCH_RECOVERY_STALE_MS),
+        outcome: CRASHED_NO_OUTPUT,
+        attemptNumber: 1,
+      });
+      const resumed = tracker.seed({
+        taskId: "mt#2831",
+        subagentSessionId: "sess-1",
+        startedAt: new Date(NOW.getTime() - DISPATCH_RECOVERY_STALE_MS - 1000),
+        resumedFromInvocationId: original.id,
+        attemptNumber: 2,
+        outcome: CRASHED_NO_OUTPUT,
+      });
+      return { original, resumed };
+    }
+
+    /** Dirty tree whose last write is OLD enough to still classify stale (files written, then the process died). */
+    const STALE_MTIME_MS = () => NOW.getTime() - 2 * DISPATCH_RECOVERY_STALE_MS;
+
+    test("AT1: escalate on a session with uncommitted changes returns the probe and names the in-flight work in the message", async () => {
+      const tracker = new FakeTracker();
+      seedTwoAttemptChain(tracker);
+      const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+      const gitOps = makeGitOps({
+        commitsAheadOfBase: async () => 3,
+        status: async () => ({
+          staged: ["a.ts"],
+          unstaged: ["b.ts", "c.ts"],
+          untracked: ["d.ts"],
+        }),
+      });
+      const activityOps = makeActivityOps({ lastWorkspaceMtimeAtMs: async () => STALE_MTIME_MS() });
+      const cmd = makeCommand({ tracker, sessionProvider, gitOps, activityOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("escalate");
+      const escalation = result.escalation as {
+        message: string;
+        probe?: {
+          dirtyFileCount: number;
+          gitStatus: { staged: string[]; unstaged: string[]; untracked: string[] };
+          commitsAheadOfBase: number | null;
+        };
+        workspaceMtimeAgoMs?: number | null;
+      };
+
+      // The probe is RETURNED, not merely computed and discarded.
+      expect(escalation.probe).toBeDefined();
+      expect(escalation.probe?.dirtyFileCount).toBe(4);
+      expect(escalation.probe?.gitStatus.staged).toEqual(["a.ts"]);
+      expect(escalation.probe?.gitStatus.unstaged).toEqual(["b.ts", "c.ts"]);
+      expect(escalation.probe?.gitStatus.untracked).toEqual(["d.ts"]);
+      expect(escalation.probe?.commitsAheadOfBase).toBe(3);
+      expect(escalation.workspaceMtimeAgoMs).toBe(2 * DISPATCH_RECOVERY_STALE_MS);
+
+      // A caller who reads ONLY the message still gets the deciding fact.
+      expect(escalation.message).toContain("4 uncommitted file(s)");
+      expect(escalation.message).toContain("in-flight work");
+    });
+
+    test("AT2: escalate on a clean tree still returns the probe and does NOT claim in-flight work", async () => {
+      const tracker = new FakeTracker();
+      seedTwoAttemptChain(tracker);
+      const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+      const gitOps = makeGitOps({ commitsAheadOfBase: async () => 0 });
+      const cmd = makeCommand({ tracker, sessionProvider, gitOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("escalate");
+      const escalation = result.escalation as {
+        message: string;
+        probe?: { dirtyFileCount: number };
+      };
+
+      expect(escalation.probe).toBeDefined();
+      expect(escalation.probe?.dirtyFileCount).toBe(0);
+      expect(escalation.message).toContain("workspace tree is clean");
+      expect(escalation.message).not.toContain("in-flight work");
+    });
+
+    test("AT3: the message names the workspace signal as discriminating and no longer offers proxy-only verification", async () => {
+      const tracker = new FakeTracker();
+      seedTwoAttemptChain(tracker);
+      const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+      const gitOps = makeGitOps({ commitsAheadOfBase: async () => 2 });
+      const cmd = makeCommand({ tracker, sessionProvider, gitOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      const escalation = result.escalation as { message: string };
+
+      // The retired guidance: proxies presented as the way to verify.
+      expect(escalation.message).not.toContain("check for further pushes, PR/review activity");
+      // The replacement: workspace signals named, proxies explicitly disqualified.
+      expect(escalation.message).toContain("dirtyFileCount");
+      expect(escalation.message).toContain("workspaceMtimeAgoMs");
+      expect(escalation.message).toContain("CANNOT distinguish");
+    });
+
+    test("AT4: the no-liveness-evidence branch also carries the probe and the workspace finding", async () => {
+      const tracker = new FakeTracker();
+      seedTwoAttemptChain(tracker);
+      const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+      // No PR, no commits — hasLivenessEvidence is false — but files ARE dirty,
+      // which the pre-mt#3204 message flatly contradicted by asserting "no
+      // activity, no PR, and no commits were observed".
+      const gitOps = makeGitOps({
+        commitsAheadOfBase: async () => 0,
+        status: async () => ({ staged: [], unstaged: ["half-done.ts"], untracked: [] }),
+      });
+      const activityOps = makeActivityOps({ lastWorkspaceMtimeAtMs: async () => STALE_MTIME_MS() });
+      const cmd = makeCommand({ tracker, sessionProvider, gitOps, activityOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("escalate");
+      const escalation = result.escalation as {
+        hasLivenessEvidence: boolean;
+        message: string;
+        probe?: { dirtyFileCount: number };
+      };
+
+      expect(escalation.hasLivenessEvidence).toBe(false);
+      expect(escalation.probe?.dirtyFileCount).toBe(1);
+      expect(escalation.message).toContain("1 uncommitted file(s)");
+      // The bound is still reported — this branch's operator guidance is intact.
+      expect(escalation.message).toContain("2-attempt bound");
+    });
+  });
+
   test("mt#3149 Acceptance Test: a dispatch whose branch has commits ahead of base reports that count in stateSummary on the recover path, not commitsAheadOfBase: 0", async () => {
     const tracker = new FakeTracker();
     tracker.seed({

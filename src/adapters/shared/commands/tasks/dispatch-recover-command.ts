@@ -550,6 +550,11 @@ export function createTasksDispatchRecoverCommand(
       '3rd attempt for the same dispatch chain (returns status: "escalate"). If the ' +
       "dispatch tracker itself is unavailable, degrades to actionable manual-recovery " +
       'guidance instead of a bare error (returns status: "tracker-unavailable"). ' +
+      'An "escalate" result is NOT a finding that the dispatch is dead — it only means the ' +
+      "2-attempt auto-resume bound is reached. Its `escalation.probe` carries the live " +
+      "workspace state (dirtyFileCount, gitStatus, commitsAheadOfBase, handoff, PR) plus " +
+      "`workspaceMtimeAgoMs`; those are the signals that distinguish a dispatch editing " +
+      "uncommitted files from a dead one, whereas push/PR/review activity cannot (mt#3204). " +
       "DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually " +
       "still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive " +
       "or a hasty manual override) puts TWO agents in the SAME Minsky session workspace " +
@@ -842,6 +847,47 @@ export function createTasksDispatchRecoverCommand(
         // redispatch-into-the-same-session on the weaker signal — especially not when
         // there IS positive evidence (an open PR, or commits ahead) that the dispatch
         // produced real output and may simply be between tool calls or wrapping up.
+        //
+        // mt#3204: the probe above is computed unconditionally but was previously
+        // DISCARDED on this path — the caller received prose and nothing else, while
+        // the message told it to "verify independently (check for further pushes,
+        // PR/review activity)". Every item on that list is a PROXY that goes quiet in
+        // exactly the state being tested: an agent editing files it has not committed
+        // yet produces no pushes, no PR events and no reviews, so those signals read
+        // identically to death precisely when the dispatch is alive and working. The
+        // workspace signals (uncommitted files, last file-write time) are the only
+        // discriminating ones available here, so surface them BOTH in the payload and
+        // inline in the message — a caller that reads only the message still gets the
+        // deciding fact.
+        const workspaceMtimeAgoMs =
+          lastWorkspaceMtimeAtMs === null
+            ? null
+            : // Clamped at 0 (PR #2316 R1): a future-dated mtime — clock skew on a
+              // network filesystem, or a file touched between the mtime read and
+              // this `now()` — would otherwise render "last written -500ms ago" in
+              // operator-facing text. Zero reads as "just now", which is the honest
+              // interpretation of a not-yet-elapsed interval.
+              Math.max(0, now().getTime() - lastWorkspaceMtimeAtMs);
+        const workspaceSummary =
+          probe.dirtyFileCount > 0
+            ? `The workspace has ${probe.dirtyFileCount} uncommitted file(s) ` +
+              `(${probe.gitStatus.staged.length} staged, ` +
+              `${probe.gitStatus.unstaged.length} modified, ` +
+              `${probe.gitStatus.untracked.length} untracked)${
+                workspaceMtimeAgoMs === null ? "" : `, last written ${workspaceMtimeAgoMs}ms ago`
+              } — this dispatch has in-flight work.`
+            : `The workspace tree is clean (no uncommitted files)${
+                workspaceMtimeAgoMs === null
+                  ? "."
+                  : `; last file-write ${workspaceMtimeAgoMs}ms ago.`
+              }`;
+        const verifyGuidance =
+          `To decide whether it is still alive, read the \`probe\` field on this result: ` +
+          `\`dirtyFileCount\` / \`gitStatus\` and \`workspaceMtimeAgoMs\` are the ` +
+          `DISCRIMINATING signals. Push, PR and review activity CANNOT distinguish ` +
+          `"working locally with uncommitted changes" from "dead" — do not decide on ` +
+          `those alone. Messaging the agent directly (SendMessage) is also definitive.`;
+
         const message = hasLivenessEvidence
           ? `Dispatch for ${taskId} went quiet again after a prior auto-resume ` +
             `(attempt ${attemptNumber}) — no activity was observed in the stale window. ` +
@@ -849,20 +895,19 @@ export function createTasksDispatchRecoverCommand(
               hasOpenPr && probe.pr.number
                 ? `an open PR (#${probe.pr.number})`
                 : `${probe.commitsAheadOfBase ?? 0} commit(s) ahead of base`
-            }, positive evidence it produced real output. Do NOT redispatch the ` +
-            `continuation prompt into this session on the strength of this escalation alone — ` +
-            `doing so risks running two agents against the same workspace/branch at once. ` +
-            `Verify independently (check for further pushes, PR/review activity, or ask the ` +
-            `operator) before taking any action.`
+            }, positive evidence it produced real output. ${workspaceSummary} ` +
+            `Do NOT redispatch the continuation prompt into this session on the strength ` +
+            `of this escalation alone — doing so risks running two agents against the same ` +
+            `workspace/branch at once. ${verifyGuidance}`
           : `Dispatch for ${taskId} has gone silent again after a prior auto-resume ` +
-            `(attempt ${attemptNumber}) — no activity, no PR, and no commits were observed in ` +
+            `(attempt ${attemptNumber}) — no PR and no commits were observed in ` +
             `the stale window. This reflects an absence of observed output, not a confirmed ` +
-            `process crash. The 2-attempt bound is reached — no further auto-resume will be ` +
-            `attempted. An operator/orchestrator decision is needed: diagnose why this ` +
-            `dispatch keeps stalling (repeated infra failure? a task that genuinely exceeds a ` +
-            `single dispatch's capacity? rate-limiting — check ` +
+            `process crash. ${workspaceSummary} The 2-attempt bound is reached — no further ` +
+            `auto-resume will be attempted. An operator/orchestrator decision is needed: ` +
+            `diagnose why this dispatch keeps stalling (repeated infra failure? a task that ` +
+            `genuinely exceeds a single dispatch's capacity? rate-limiting — check ` +
             `SubagentDispatchTracker.getEscalation() before assuming death) before retrying ` +
-            `manually.`;
+            `manually. ${verifyGuidance}`;
 
         return {
           success: true,
@@ -874,6 +919,11 @@ export function createTasksDispatchRecoverCommand(
             attempts,
             hasLivenessEvidence,
             message,
+            // mt#3204: the probe the caller needs in order to perform the
+            // "verify independently" step the message asks for.
+            probe,
+            workspaceMtimeAtMs: lastWorkspaceMtimeAtMs,
+            workspaceMtimeAgoMs,
           },
         };
       }

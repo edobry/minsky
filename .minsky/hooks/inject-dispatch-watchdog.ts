@@ -223,7 +223,13 @@ export function formatDispatchWatchdogState(
     '`"healthy"` -> a false-positive flag, no action needed; `"recover"` -> redispatch the ' +
     "returned `continuationPrompt` VERBATIM via the Agent tool into the SAME session (do not " +
     'edit it, do not start a new session); `"escalate"` -> the 2-attempt bound is reached, ' +
-    "surface the returned escalation summary to the operator instead of retrying again; " +
+    "so no further AUTO-resume happens — but escalate is NOT a finding that the dispatch is " +
+    "dead. Before characterizing it to the operator, read the `escalation.probe` on the " +
+    "result: `dirtyFileCount` / `gitStatus` and `workspaceMtimeAgoMs` are the DISCRIMINATING " +
+    "signals (mt#3204). Push, PR and review activity go quiet while an agent edits files it " +
+    "has not committed yet, so they CANNOT tell 'working locally' from 'dead' — never report " +
+    "a dispatch as stuck on the strength of those alone, and relay the tool's hedge rather " +
+    "than flattening it into a confident claim; " +
     '`"not-in-flight"` / `"no-dispatch"` -> nothing to recover. See the /orchestrate skill\'s ' +
     '"Dispatch watchdog and resume protocol" section for the full walkthrough.'
   );
