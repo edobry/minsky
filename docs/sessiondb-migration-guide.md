@@ -24,11 +24,13 @@ persistence:
   backend: postgres
   postgres:
     connectionString: "postgresql://user:password@host:5432/minsky"
-    maxConnections: 15 # optional, default 15 — see persistence-configuration.md
+    maxConnections: 15
 ```
 
-`backend` accepts only `postgres` — the type itself has no other member (mt#2339). Equivalent
-environment variables:
+`backend` accepts only `postgres` — the type itself has no other member (mt#2339).
+`maxConnections` is optional (default `15`); see
+[Postgres Persistence Configuration](./persistence-configuration.md) for pool-sizing guidance.
+Equivalent environment variables:
 
 | Variable                                      | Config key                                     | Notes                                                   |
 | --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------- |
