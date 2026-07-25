@@ -76,15 +76,28 @@ function escapeRegExpLiteral(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Matches every `BUN_BUILD_BLOCK_START ... BUN_BUILD_BLOCK_END` span
+ * (non-greedy, so adjacent blocks aren't swallowed into one match; `g`
+ * flag, so `.replace()` below rewrites EVERY occurrence, not just the
+ * first). Mirrors `workspace-copy-detector.ts`'s `BLOCK_SPAN_RE` — this
+ * repo currently only wraps the block around the root Dockerfile's single
+ * `bun build` line, but a non-global regex would silently leave a SECOND
+ * occurrence stale if this pattern is ever reused for a multi-stage
+ * Dockerfile (the sibling module's own docstring names
+ * `services/cockpit/Dockerfile`'s builder+runtime stages as exactly that
+ * case). Caught by reviewer-bot mt#3091 PR #2305 R1 BLOCKING.
+ */
 const BLOCK_SPAN_RE = new RegExp(
-  `${escapeRegExpLiteral(BUN_BUILD_BLOCK_START)}[\\s\\S]*?${escapeRegExpLiteral(BUN_BUILD_BLOCK_END)}`
+  `${escapeRegExpLiteral(BUN_BUILD_BLOCK_START)}[\\s\\S]*?${escapeRegExpLiteral(BUN_BUILD_BLOCK_END)}`,
+  "g"
 );
 
 /**
- * Replace the `BUN_BUILD_BLOCK_START`/`BUN_BUILD_BLOCK_END` span in
+ * Replace every `BUN_BUILD_BLOCK_START`/`BUN_BUILD_BLOCK_END` span in
  * `dockerfileText` with the freshly rendered block for `command`.
  *
- * Returns `{ error }` when no complete marker span is found — the
+ * Returns `{ error }` when no complete marker span is found at all — the
  * Dockerfile hasn't adopted the generated-block convention (a one-time
  * setup gap, not staleness).
  */
@@ -101,6 +114,9 @@ export function applyGeneratedBunBuildBlock(
     };
   }
   const newBlock = renderBunBuildBlock(command);
+  // `BLOCK_SPAN_RE` carries the `g` flag and is therefore stateful
+  // (`.test()` above advanced `lastIndex`) — reset before `.replace()`.
+  BLOCK_SPAN_RE.lastIndex = 0;
   const newText = dockerfileText.replace(BLOCK_SPAN_RE, () => newBlock);
   return { text: newText, changed: newText !== dockerfileText };
 }

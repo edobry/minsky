@@ -50,20 +50,43 @@ export interface BunBuildSyncCheckResult {
 }
 
 /**
- * Pure check: does `packageJsonBuildScript` (the `scripts.build` string)
- * contain the canonical `bun build ...` invocation as a substring? Exported
+ * Extract the `bun build ...` sub-command from a `&&`-joined script
+ * pipeline (e.g. package.json's `scripts.build`), or `null` if none of the
+ * `&&`-separated segments starts with `bun build `. Segments are trimmed,
+ * so incidental whitespace around `&&` doesn't affect extraction. Exported
  * for unit testing.
+ */
+export function extractBunBuildSegment(script: string): string | null {
+  const segments = script.split("&&").map((s) => s.trim());
+  return segments.find((s) => s.startsWith("bun build ")) ?? null;
+}
+
+/**
+ * Pure check: does `packageJsonBuildScript` (the `scripts.build` string)
+ * contain a `bun build ...` segment that EXACTLY equals the canonical
+ * command? Deliberately exact, not `.includes()` — a substring check would
+ * pass for a segment with EXTRA flags appended after the canonical
+ * invocation (e.g. `bun build --target=bun ... src/cli.ts --some-flag`),
+ * silently missing that class of drift (reviewer-bot mt#3091 PR #2305 R1
+ * BLOCKING). Isolating the specific `&&`-delimited segment first (via
+ * {@link extractBunBuildSegment}) means formatting elsewhere in the
+ * pipeline — spacing around `&&`, the other scripts it's chained with —
+ * doesn't affect the comparison. Exported for unit testing.
  */
 export function packageJsonBuildScriptMatches(
   packageJsonBuildScript: string,
   canonicalCommand: string
 ): boolean {
-  return packageJsonBuildScript.includes(canonicalCommand);
+  return extractBunBuildSegment(packageJsonBuildScript) === canonicalCommand;
 }
 
 /**
- * Pure check: does the Dockerfile's generated bun-build block contain
- * exactly `RUN <canonicalCommand>`? Exported for unit testing.
+ * Pure check: does the Dockerfile's generated bun-build block contain a
+ * line that EXACTLY equals `RUN <canonicalCommand>`? Deliberately an exact
+ * per-line match, not `.includes()` on the whole block — the same
+ * extra-flags-appended drift class {@link packageJsonBuildScriptMatches}
+ * guards against (reviewer-bot mt#3091 PR #2305 R1 BLOCKING). Exported for
+ * unit testing.
  */
 export function dockerfileRunLineMatches(
   dockerfileText: string,
@@ -75,7 +98,8 @@ export function dockerfileRunLineMatches(
     return false;
   }
   const block = dockerfileText.slice(startIdx, endIdx);
-  return block.includes(`RUN ${canonicalCommand}`);
+  const runLine = block.split("\n").find((line) => line.startsWith("RUN "));
+  return runLine === `RUN ${canonicalCommand}`;
 }
 
 function main(): void {
