@@ -635,7 +635,14 @@ const contextRefSchema = z.object({
   description: z.string().optional(),
 });
 
-const asksCreateParams = {
+// Exported (not just used internally) so tests can run raw CLI/MCP-shaped
+// input through the REAL production normalization functions
+// (`normalizeCliParameters` / `convertMcpArgsToParameters`) using the actual
+// parameter map `asks.create` is registered with — see the
+// "validate receives parsed params" pinning test in asks.test.ts (mt#3203
+// review R1) — rather than a hand-rolled duplicate parameter map that could
+// drift from the real one.
+export const asksCreateParams = {
   kind: {
     schema: z.enum(ALL_KINDS as [AskKind, ...AskKind[]]),
     description: "Ask kind (one of the 7 ADR-008 taxonomy values)",
@@ -805,14 +812,11 @@ export function validateAuthorizationApproveOptions(params: {
 
   const labels = params.options.map((option) => `"${option.label}"`).join(", ");
   throw new ValidationError(
-    `authorization.approve Ask has no option whose value is an approve-shaped token ` +
+    `authorization.approve Ask has no option with an approve-shaped value ` +
       `(${APPROVAL_TOKEN_EXAMPLES.join("/")}). Options given: ${labels}. ` +
-      `A descriptive label alone is not enough: asks_create defaults an option's "value" ` +
-      `to its "label" when no explicit value is supplied, and the redemption-time verifier ` +
-      `(.minsky/hooks/ask-verification.ts) only recognizes an exact approve-shaped value — ` +
-      `never the label text or "any chosen option". Add an explicit value to the approving ` +
-      `option, e.g. {label: "Approve the override and merge", value: "approve"} — the label ` +
-      `can stay descriptive; only value must be one of: ${APPROVAL_TOKEN_EXAMPLES.join(", ")}.`
+      `A descriptive label is not enough — asks_create defaults "value" to "label" when ` +
+      `omitted, and only an exact approve-shaped value verifies. Add one explicitly, ` +
+      `e.g. {label: "...", value: "approve"} — the label can stay descriptive.`
   );
 }
 

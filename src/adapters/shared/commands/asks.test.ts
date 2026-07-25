@@ -31,8 +31,16 @@ import {
   resolveAskIdInput,
   listAsksFiltered,
   askOptionSchema,
+  asksCreateParams,
 } from "./asks";
 import { APPROVAL_TOKEN } from "@minsky/shared/ask-approval";
+// The REAL production normalization function both the CLI and MCP dispatch
+// paths run raw caller input through BEFORE `command.validate()` is called
+// (see command-generator-core.ts:165-175 and shared-command-integration.ts:
+// 571-601) — used below to empirically pin that validateAuthorizationApproveOptions
+// observes POST-transform params (mt#3203 review R1), not a claim taken on
+// the type signature's word.
+import { normalizeCliParameters } from "../bridges/parameter-mapper";
 // Cross-boundary parity import (mt#3203): the redemption-time verifier this
 // authoring-time guard must agree with. A pure function import from a test
 // file — the compiled `.claude/hooks/*` runtime output never includes
@@ -1070,6 +1078,83 @@ describe("validateAuthorizationApproveOptions (mt#3203)", () => {
     // Had the guard not fired, this is the exact payload shape that produced
     // the confusing "not approved" error after the operator already approved.
     expect(isApprovingPayload({ chosen: option.value, option: option.value })).toBe(false);
+  });
+
+  describe("validate() observes POST-transform params, not raw input (mt#3203 review R1)", () => {
+    // This guard's correctness depends on `askOptionSchema`'s value-defaults-
+    // to-label transform having ALREADY run by the time
+    // validateAuthorizationApproveOptions sees `params.options`. If the
+    // command-registry's validate→execute pipeline ran `validate` on RAW
+    // caller input instead, an option with only a `label` would arrive with
+    // `value: undefined` — which `isApproveShapedToken` also treats as
+    // non-approving, so a pre-parse guard would happen to reject the same
+    // input for the WRONG reason, and would silently stop working the
+    // moment someone reordered the pipeline.
+    //
+    // Verified empirically (not asserted from the type signature) by
+    // tracing both dispatch paths' source:
+    //   - CLI: command-generator-core.ts:165 calls
+    //     `normalizeCliParameters(commandDef.parameters, rawParameters)`
+    //     BEFORE line 175's `commandDef.validate(normalizedParams, context)`.
+    //   - MCP: shared-command-integration.ts:571 calls
+    //     `convertMcpArgsToParameters(filteredArgs, command.parameters)`
+    //     BEFORE line 601's `command.validate(parameters, context)`.
+    // Both normalization functions assign the Zod `.parse()` OUTPUT (see
+    // parameter-mapper.ts:356 and shared-command-integration.ts:164), so
+    // `askOptionSchema`'s `.transform()` has already run by the time
+    // `validate` sees `params.options`.
+    //
+    // This test pins that behavior using the REAL production function
+    // (`normalizeCliParameters`) and the REAL parameter map `asks.create`
+    // is registered with (`asksCreateParams`) — not a hand-rolled
+    // substitute — so a future change to either would break this test
+    // rather than silently drifting.
+    test("an option with a label and NO explicit value passes normalization with value=label, then correctly fails the guard", () => {
+      const rawParameters = {
+        kind: KIND_AUTHORIZATION_APPROVE,
+        title: "Override needed",
+        question: FIXTURE_QUESTION,
+        options: [{ label: FIXTURE_APPROVE_LABEL }, { label: FIXTURE_DECLINE_LABEL }],
+      };
+
+      const normalized = normalizeCliParameters(asksCreateParams, rawParameters);
+      const options = normalized.options as Array<{ label: string; value: unknown }>;
+
+      // Pin the transform: value defaulted to label, NOT left undefined.
+      expect(options[0]?.value).toBe(FIXTURE_APPROVE_LABEL);
+      expect(options[0]?.value).not.toBeUndefined();
+      expect(options[1]?.value).toBe(FIXTURE_DECLINE_LABEL);
+
+      // And the guard, given what validate() actually receives, rejects —
+      // correctly, because neither defaulted value is approve-shaped.
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: normalized.kind as typeof KIND_AUTHORIZATION_APPROVE,
+          options,
+        })
+      ).toThrow(ValidationError);
+    });
+
+    test("an option with an explicit approve-shaped value survives normalization unchanged, then passes the guard", () => {
+      const rawParameters = {
+        kind: KIND_AUTHORIZATION_APPROVE,
+        title: "Override needed",
+        question: FIXTURE_QUESTION,
+        options: [{ label: FIXTURE_APPROVE_LABEL, value: "approve" }],
+      };
+
+      const normalized = normalizeCliParameters(asksCreateParams, rawParameters);
+      const options = normalized.options as Array<{ label: string; value: unknown }>;
+
+      expect(options[0]?.value).toBe("approve");
+
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: normalized.kind as typeof KIND_AUTHORIZATION_APPROVE,
+          options,
+        })
+      ).not.toThrow();
+    });
   });
 });
 
