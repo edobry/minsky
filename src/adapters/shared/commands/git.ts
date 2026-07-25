@@ -1248,6 +1248,11 @@ export function registerGitCommands(container?: AppContainerInterface): void {
         success: true,
         workdir: result.workdir,
         branch: result.branch,
+        // mt#3164: passed through as-is, including null. Do NOT default these
+        // to 0 — null means "no upstream configured", and collapsing it to 0
+        // is exactly the ambiguity that made a never-pushed branch read as
+        // in-sync.
+        upstream: result.upstream,
         ahead: result.ahead,
         behind: result.behind,
         staged: result.staged,

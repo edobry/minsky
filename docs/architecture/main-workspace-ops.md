@@ -41,6 +41,31 @@ operation retried once; when omitted, a lock-blocked call throws an enriched
 error (age + owning-process liveness) pointing at `git_repair_lock` instead of
 the raw git fatal.
 
+### `git_status` upstream fields (mt#3164)
+
+`git_status` returns `upstream`, `ahead`, and `behind`, and **all three are
+nullable**:
+
+| Branch state                  | `upstream`     | `ahead` / `behind` |
+| ----------------------------- | -------------- | ------------------ |
+| No upstream configured        | `null`         | `null` / `null`    |
+| Upstream configured, in sync  | `"origin/foo"` | `0` / `0`          |
+| Upstream configured, diverged | `"origin/foo"` | e.g. `2` / `3`     |
+
+**`null` means the question does not apply, not zero.** Git emits its
+ahead/behind record only when the branch has an upstream, so before mt#3164
+these defaulted to `0` — making a branch that had never been pushed report the
+same `ahead: 0, behind: 0` as one perfectly in sync. That ambiguity is how three
+branches sat committed-but-unpushed without it being visible in tool output.
+
+Consumers must not coerce `null` to `0`; doing so rebuilds the ambiguity one
+layer up. To test "is my work pushed?", check `upstream !== null` first, then the
+counts.
+
+Note `upstream: null` does not strictly prove "never pushed" — a branch pushed
+without `-u`, created with `--no-track`, or whose upstream ref was deleted also
+has none. It reliably means git has nothing to compare against.
+
 ---
 
 ## When to Use Main-Workspace Ops vs. Session-Workspace Ops
