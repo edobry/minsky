@@ -23,7 +23,13 @@ export interface StatusResult {
   branch: string;
   /**
    * The configured upstream ref (e.g. `origin/main`), or null when the branch
-   * has none — i.e. it has never been pushed (mt#3164).
+   * has none (mt#3164).
+   *
+   * Null does NOT strictly mean "never pushed" — a branch pushed without `-u`,
+   * one created with `--no-track`, or one whose upstream ref was deleted also
+   * has none. What null reliably means is that git has no upstream to compare
+   * against, so `ahead`/`behind` are unanswerable. "Never pushed" is the common
+   * cause, not the definition (PR #2314 R1).
    */
   upstream: string | null;
   /**
