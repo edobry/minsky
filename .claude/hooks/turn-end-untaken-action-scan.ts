@@ -34,8 +34,8 @@
 
 import type { DispatchContext, GuardOutcome } from "./registry";
 import type { StopHookInput } from "./turn-end-retro-scan";
-import { flagKey, readFlagged, turnKeyFor, writeFlagged } from "./turn-end-scan-store";
-import { extractFinalTurn } from "./transcript";
+import { flagKey, readFlagged, writeFlagged } from "./turn-end-scan-store";
+import { createHash } from "crypto";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_UNTAKEN_ACTION";
 
@@ -144,12 +144,38 @@ function buildReminder(matches: UntakenActionMatch[]): string {
 }
 
 /**
+ * Dedup key for one turn, derived from the FINAL MESSAGE rather than from the
+ * transcript's opening prompt (PR #2293 R1).
+ *
+ * The sibling retro-scan guard keys on the transcript's opening-prompt uuid via
+ * `turnKeyFor`, which returns the literal `"session-start"` when no transcript
+ * is available. For THIS guard that default is actively harmful: every turn in
+ * the session would share one key, so the first fire of a given (family,
+ * phrase) would suppress that phrase for the REST OF THE SESSION — silencing
+ * exactly the repeat offenses the guard exists to catch. (`needsTranscript`
+ * does not save us: the Stop payload is not guaranteed to carry a usable
+ * transcript.)
+ *
+ * Keying on the final message is both safer and more faithful to this guard's
+ * signal, which IS that message: the same turn re-entering Stop (the advisory
+ * continuation) presents the same text and correctly dedups, while a different
+ * turn presents different text and correctly fires.
+ *
+ * Residual, accepted: two DIFFERENT turns ending with byte-identical text
+ * dedup to one warning. That is the right call — identical sign-off, identical
+ * advice — and is bounded to a single suppressed beat rather than a session.
+ */
+function turnKeyForMessage(finalMessage: string): string {
+  return createHash("sha1").update(finalMessage).digest("hex").slice(0, 16);
+}
+
+/**
  * Guard-dispatcher entry point (GuardModule contract). `storeDir` is a test
  * seam for the dedup store location; the dispatcher never passes it.
  */
 export function run(
   input: StopHookInput,
-  ctx: DispatchContext,
+  _ctx: DispatchContext,
   storeDir?: string
 ): GuardOutcome | null {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
@@ -175,8 +201,7 @@ export function run(
   if (matches.length === 0) return null;
 
   const sessionId = input.session_id ?? "unknown";
-  const { openingPrompt } = extractFinalTurn(ctx.transcriptLines);
-  const turnKey = turnKeyFor(openingPrompt);
+  const turnKey = turnKeyForMessage(finalMessage);
   const flagged = readFlagged(sessionId, storeDir);
   const newMatches = matches.filter(
     (m) => !flagged.has(flagKey(turnKey, m.family, m.matchedPhrase))

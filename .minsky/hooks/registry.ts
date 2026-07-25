@@ -1296,8 +1296,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 5000,
     calibrationLog: "untaken-action",
     denyCapable: false,
-    // True only for the dedup turn-key; detection reads last_assistant_message.
-    needsTranscript: true,
+    // False by design (PR #2293 R1): detection reads last_assistant_message, and
+    // the dedup key is derived from that message — NOT from the transcript,
+    // whose absent-case default would suppress the phrase session-wide.
+    needsTranscript: false,
     attentionCost: { denialMessageSizeChars: 700, optionCount: 2 },
     canary: {
       input: {

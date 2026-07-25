@@ -96,6 +96,31 @@ describe("run (mt#3179)", () => {
     expect(second).toBeNull();
   });
 
+  test("a DIFFERENT later turn in the same session still fires (PR #2293 R1)", () => {
+    // The regression this pins: keying dedup on the transcript's opening prompt
+    // collapses to the literal "session-start" when no transcript is present
+    // (which is the case throughout these tests — `ctx` carries none), so the
+    // first fire would have suppressed the phrase for the REST of the session,
+    // silencing exactly the repeat offenses the guard exists to catch. Keying
+    // on the final message instead makes each distinct turn fire on its own.
+    const first = run(inputWith(R3_FINAL_MESSAGE), ctx, storeDir);
+    expect(first?.additionalContext).toBeDefined();
+
+    // Same family ("say-the-word"/"give-go-ahead" vs "taking-forward") is not
+    // required — what matters is that a different turn is not pre-suppressed.
+    const second = run(inputWith(R2_FINAL_MESSAGE), ctx, storeDir);
+    expect(second?.additionalContext).toBeDefined();
+
+    // And a third turn repeating the SAME commitment family in new prose fires
+    // too — the offense recurring is the signal, not noise to be deduped.
+    const third = run(
+      inputWith("Different wrap-up prose entirely. I'm taking it forward from here."),
+      ctx,
+      storeDir
+    );
+    expect(third?.additionalContext).toBeDefined();
+  });
+
   test("returns null when there is no final message", () => {
     expect(run({ session_id: "x" } as StopHookInput, ctx, storeDir)).toBeNull();
   });
