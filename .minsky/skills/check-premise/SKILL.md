@@ -56,7 +56,7 @@ to that family.)
 
 ## Additional trigger cues (Tier-3 residual slice — mt#2698)
 
-Eight narrow per-surface cues, filed as cheap Tier-3 residual-slice
+Nine narrow per-surface cues, filed as cheap Tier-3 residual-slice
 amendments to the "When to invoke" list above — not a new containment
 strategy. Per the `mt#2485` strategic partition (family record `b0b294ab`):
 the broad-detector tier is demoted; per-surface prose-tier cues like these
@@ -256,6 +256,37 @@ conclusions when representing them to the principal. mt#3151 tracks both the
 project's own pin and the missing caller-visible signal (its SC4); until a
 signal exists, this cue's honest output is "unverified," not an assumption.
 
+### (i) An open item still needing the principal's action
+
+Trigger: about to tell the principal that an open item requires their
+action — an ask awaiting their answer, a PR awaiting their review, a task
+blocked on their decision.
+
+Falsifier: re-read the item's LIVE state THIS turn — `asks_get`,
+`session_pr_get`, `tasks_status_get`, `session_pr_wait-for-review` — before
+asserting. Per `claim-confidence.mdc`, a read from an earlier turn supports
+`inferred`, not `verified`; if the assertion is made without a same-turn
+re-read, label it as such rather than stating it flatly. Include the
+self-caused case explicitly: an action the agent itself took earlier in the
+SAME turn sequence — merging the item's parent task, closing a session,
+resolving a dependency — can invalidate the item's state with no external
+actor involved. There is nothing to prompt a re-check in that case except
+the discipline itself; the item's state can be moved by mechanisms the agent
+doesn't think of as actors (sweeps, other agents, webhooks, and the agent's
+own prior action alike).
+
+_Origin:_ `b0b294ab` R16 (mt#3216, 2026-07-25) — at 18:12Z the orchestrator
+read ask#6024 (`state: "suspended"`, unanswered). At 18:18Z it merged
+mt#3210, the ask's parent task. At 18:21Z a background sweep auto-closed the
+ask as a consequence of that merge. At 18:38Z — 26 minutes and several tool
+calls later — the orchestrator told the principal "only one of them needs
+you: ask#6024," from the 18:12 read, by then false. The principal attempted
+to answer, was told the ask had already been responded to, and had to ask
+whether the state had been checked. The claim was not careless — it rested
+on a real read — but nothing in the turn required re-reading before
+asserting, and the invalidating event was the agent's OWN prior action, not
+an external one.
+
 ## Artifact-content and identity claims (mt#2534)
 
 A second family, distinct from causal/mechanism claims above: factual claims
@@ -413,13 +444,13 @@ unverified premises, say "unverified — need to check X."
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference`
   (memory `88d92439`) — sibling family (strategic framing vs mechanism claims).
 - Memory `b0b294ab` — family record for the "assertion frozen as fact without
-  verification" pattern (R6–R15); R11–R15 are the origin of the eight
+  verification" pattern (R6–R16); R11–R16 are the origin of the nine
   cues above. `mt#2485` — the strategic partition (Tier-1 `mt#2488`, Tier-2
   `mt#2486`, Tier-3 residual = these per-surface cues). `mt#2698` — cues
   (a)–(c)'s task; `mt#3055` — cue (d)'s task; `mt#3126` — cues (e)/(f)'s task;
-  `mt#3152` — cues (g)/(h)'s task. Cue (d)'s incident memory: `mem#674`
-  (`07cb2686`); cues (e)/(f)'s: `mem#698` (`8f594a7e`); cues (g)/(h)'s:
-  `mem#706` (`a28844c1`).
+  `mt#3152` — cues (g)/(h)'s task; `mt#3216` — cue (i)'s task. Cue (d)'s
+  incident memory: `mem#674` (`07cb2686`); cues (e)/(f)'s: `mem#698`
+  (`8f594a7e`); cues (g)/(h)'s: `mem#706` (`a28844c1`).
 - Cues (b), (d), (e) and (f) share one structural property worth stating
   plainly: each is a case where a same-turn read of the RIGHT first-party file
   is present and still does not establish the claim, because the claim is about
