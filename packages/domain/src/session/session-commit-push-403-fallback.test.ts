@@ -71,13 +71,29 @@ describe("isPermissionDeniedPushError", () => {
     expect(isPermissionDeniedPushError(REAL_403_MESSAGE)).toBe(true);
   });
 
-  test("matches a bare 403 status line", () => {
-    expect(isPermissionDeniedPushError("The requested URL returned error: 403")).toBe(true);
+  test("does NOT match a bare 403 status line without the permission-denial phrase (R1)", () => {
+    // A 403 alone can mean an INTENTIONAL denial unrelated to the missing
+    // contents:write gap (branch protection, another repo-level restriction).
+    // Falling back to keychain credentials on a bare 403 would silently
+    // convert a deliberate block into a successful push under a different
+    // identity — see the dedicated branch-protection test below.
+    expect(isPermissionDeniedPushError("The requested URL returned error: 403")).toBe(false);
   });
 
-  test("matches a bare permission-denied phrase without a status code", () => {
+  test("does NOT match a 403 that is a DIFFERENT, intentional denial — e.g. branch protection (R1)", () => {
+    const branchProtection403 =
+      "remote: error: GH006: Protected branch update failed for refs/heads/main.\n" +
+      "remote: Cannot push to this branch — required status checks have not passed.\n" +
+      "fatal: unable to access 'https://github.com/edobry/minsky.git/': The requested URL returned error: 403";
+    expect(isPermissionDeniedPushError(branchProtection403)).toBe(false);
+  });
+
+  test("does NOT match a bare permission-denied phrase without a 403 status code", () => {
+    // e.g. an SSH-key denial ("Permission denied (publickey).") is a
+    // different failure class entirely (auth transport, not the App's
+    // contents:write gap) and correctly falls outside this detector.
     expect(isPermissionDeniedPushError("Permission to owner/repo.git denied to some-bot")).toBe(
-      true
+      false
     );
   });
 

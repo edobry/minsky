@@ -197,15 +197,26 @@ export async function resolvePushCredential(
  * App-token push path produces when the App installation's `contents`
  * permission does not include write access (mt#3210, root cause confirmed
  * via a live `GET /app` read against the `minsky-ai[bot]` App: permissions
- * resolved to `{contents: "read", ...}`, not `write`). Matched defensively
- * across the git/GitHub wording variants observed in the field — `git`'s
- * own rejection message ("remote: Permission ... denied to <bot>.") and the
- * generic HTTP status line ("The requested URL returned error: 403") both
- * appear in the same failure, per mem#721.
+ * resolved to `{contents: "read", ...}`, not `write`). Matched against BOTH
+ * halves of the field-observed denial together — `git`'s own rejection
+ * message ("remote: Permission ... denied to <bot>.") AND the generic HTTP
+ * status line ("The requested URL returned error: 403"), which appear
+ * together in the same failure per mem#721.
+ *
+ * mt#3210 R1: a bare `403` is deliberately NOT sufficient on its own. A 403
+ * can also mean an INTENTIONAL denial unrelated to the missing-contents-write
+ * gap — e.g. branch protection or another repo-level restriction rejecting
+ * the App. Falling back to the operator's personal keychain credentials in
+ * that case would silently convert a deliberate block into a successful push
+ * under a different identity, which is worse than the push failing visibly.
+ * Requiring the permission-denial phrase to co-occur with the 403 status
+ * line keeps the detector scoped to the specific failure it exists to catch.
  */
 export function isPermissionDeniedPushError(message: string | undefined): boolean {
   if (!message) return false;
-  return /permission[\s\S]*denied/i.test(message) || /\b403\b/.test(message);
+  const hasPermissionDenialPhrase = /permission[\s\S]*denied/i.test(message);
+  const hasStatusLine = /\b403\b/.test(message);
+  return hasPermissionDenialPhrase && hasStatusLine;
 }
 
 /**
