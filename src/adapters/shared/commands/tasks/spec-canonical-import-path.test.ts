@@ -118,4 +118,22 @@ describe("getTaskSpecContentFromParams via @minsky/domain/tasks (mt#3194 — the
       )
     ).rejects.toBeInstanceOf(ResourceNotFoundError);
   });
+
+  test("a session param with no injected taskService does not hit the session-provider throw (workspace resolution falls back to cwd, matching every other command in this file)", async () => {
+    // No taskService AND no persistenceProvider injected, with a `session`
+    // param present — the shape that would reach
+    // tasks/commands/shared-helpers.ts's session-aware resolveRepoPath
+    // default, which throws "sessionProvider is required..." immediately,
+    // before ever reaching the persistenceProvider check below it. This
+    // facade overrides that default to preserve its pre-mt#3194
+    // process.cwd()-based resolution (getTaskFromParams,
+    // getTaskStatusFromParams, etc. all behave the same way — none of them
+    // resolve `session` either). If the override works, resolution succeeds
+    // and the call proceeds to (and fails on) the NEXT step instead — the
+    // missing persistenceProvider — proving the session-provider throw was
+    // avoided. Reviewer finding on PR #2303 (mt#3194).
+    await expect(
+      getTaskSpecContentFromParams({ taskId: "mt#test", session: "some-session" }, {})
+    ).rejects.toThrow(/persistenceProvider is required/);
+  });
 });
