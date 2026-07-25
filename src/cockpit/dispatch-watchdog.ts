@@ -38,9 +38,36 @@
  * `computeDispatchWatchdogFlags`'s docstring for the per-signal precedence
  * and the flag's new `activitySource` field.
  *
+ * mt#3193 update: two independent false-positive fixes, both verified NOT
+ * already covered by mt#3172 (mt#3172 only shared the EXISTING presence
+ * signal with this module — it added no new signal and never touched the
+ * IN-REVIEW/PR-state question):
+ *
+ *   1. A new workspace-mtime signal (dirty-file filesystem timestamps, via
+ *      the shared `resolveLastWorkspaceMtimeAtMs` helper,
+ *      `@minsky/domain/session/workspace-activity`) closes the gap where a
+ *      dispatch works entirely through non-MCP harness tools
+ *      (`Read`/`Edit`/`Write`/`Glob`/`Grep`) — `presence_claims` only
+ *      refreshes on a Minsky-MCP-routed tool call, so such a dispatch
+ *      produced neither a commit nor a presence refresh and was flagged
+ *      stalled even after mt#3172 (the mt#3193 originating incident: a
+ *      `refactorer` dispatch spent 55 minutes splitting a file into nine
+ *      modules entirely through non-MCP tools and was flagged at the
+ *      32-minute silent mark, triggering a double-dispatch into the
+ *      occupied session).
+ *   2. A row whose task is IN-REVIEW with a still-open (or draft) PR is now
+ *      EXCLUDED from staleness evaluation entirely (never enters `flags`,
+ *      regardless of computed staleness) — a completed dispatch correctly
+ *      idling while `minsky-reviewer[bot]` reviews its PR has NO reason to
+ *      keep committing, so "no commits for a while" there is the DESIRED
+ *      state, not a stall signal. Observed: four dispatches flagged
+ *      simultaneously in one watchdog run, all IN-REVIEW with an open PR,
+ *      all correctly idle.
+ *
  * @see mt#2646 — this task
  * @see mt#3086 — presence-claim signal added to tasks.dispatch-recover's staleness check
  * @see mt#3172 — this update (shares mt#3086's presence signal with the watchdog producer)
+ * @see mt#3193 — workspace-mtime signal + IN-REVIEW-with-open-PR exclusion
  * @see mt#2506 src/cockpit/prod-state-cache.ts — the producer/consumer template
  * @see mt#1735 packages/domain/src/storage/schemas/subagent-invocations-schema.ts
  * @see mt#2092 packages/domain/src/events/query.ts — the system_events substrate
@@ -51,6 +78,7 @@ import { getStateDir, atomicWriteJSON } from "./lifecycle";
 import { getSessionsDir } from "@minsky/shared/paths";
 import { log } from "@minsky/shared/logger";
 import { resolveLastPresenceActivityAtMs } from "@minsky/domain/session/presence-activity";
+import { resolveLastWorkspaceMtimeAtMs } from "@minsky/domain/session/workspace-activity";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -116,9 +144,19 @@ export interface InFlightInvocationRow {
  * parity with `tasks.dispatch-recover`'s `DispatchActivitySource`
  * `@minsky/domain/session/dispatch-recovery-classifier` — that type has no
  * `"event"` member since the on-demand recover command does not consult
- * `system_events`; this producer does).
+ * `system_events`; this producer does). mt#3193 adds `"workspace-mtime"`,
+ * parity with that same classifier's mt#3193 signal. There is no
+ * `"in-review-open-pr"` member here — unlike the on-demand command, this
+ * producer's IN-REVIEW+open-PR handling is an EXCLUSION (the row never
+ * enters `flags` at all, alongside the `sessionExists`/age-bound guards), not
+ * an activity signal with a value to report.
  */
-export type DispatchWatchdogActivitySource = "dispatch-start" | "commit" | "event" | "presence";
+export type DispatchWatchdogActivitySource =
+  | "dispatch-start"
+  | "commit"
+  | "event"
+  | "presence"
+  | "workspace-mtime";
 
 /** One flagged (silently stalled) dispatch. */
 export interface DispatchWatchdogFlag {
@@ -174,6 +212,27 @@ export interface ActivitySources {
    * suppress a flag but also does not clear the activity clock).
    */
   lastPresenceActivityAtMs?: (subagentSessionId: string | null) => number | null;
+  /**
+   * Ms epoch of the freshest dirty-file mtime in the subagent's session git
+   * working tree, or null if unknown/unavailable (mt#3193 — closes the
+   * non-MCP-harness-tool activity gap `lastPresenceActivityAtMs` alone
+   * leaves open; see `resolveLastWorkspaceMtimeAtMs`,
+   * `@minsky/domain/session/workspace-activity`). Optional so existing
+   * fakes/tests that predate this check keep compiling; omitting it is
+   * equivalent to always returning `null` (unknown, does not suppress a
+   * flag but also does not clear the activity clock).
+   */
+  lastWorkspaceMtimeAtMs?: (subagentSessionId: string | null) => number | null;
+  /**
+   * Whether the row's task has a still-open (or draft) PR (mt#3193). `true`
+   * unconditionally suppresses the flag when the task status is IN-REVIEW
+   * (see `computeDispatchWatchdogFlags`'s pre-staleness guards) — idling on
+   * review is the desired state, not evidence of a stall. `null`/`false`/
+   * omitted do NOT suppress (unknown or no-PR is treated the same as every
+   * other guard here: absence of positive evidence never suppresses).
+   * Optional so existing fakes/tests that predate this check keep compiling.
+   */
+  hasOpenPr?: (taskId: string, subagentSessionId: string | null) => boolean | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,38 +244,56 @@ export interface ActivitySources {
  * `staleMs`, restricted to tasks currently IN-PROGRESS or IN-REVIEW.
  *
  * "Activity" for a row is the MAX of: its dispatch `startedAt`, the last
- * commit on its session branch, the last related system event, and (mt#3172)
+ * commit on its session branch, the last related system event, (mt#3172)
  * the last presence-claim (session-scoped MCP tool-call) activity for its
  * session — the same signal `tasks.dispatch-recover`'s healthy-classification
- * check has consulted since mt#3086. A row with no activity signal beyond
- * its own `startedAt` is treated as flaggable once `nowMs - startedAt >=
- * staleMs` — dispatch time is always a valid (if pessimistic) baseline. The
- * returned flag's `activitySource` names whichever of the four signals
- * produced the max, checked in this precedence order: dispatch-start ->
- * commit -> event -> presence.
+ * check has consulted since mt#3086 — and (mt#3193) the last workspace-mtime
+ * (dirty-file filesystem timestamp) activity for its session, closing the
+ * gap where a dispatch works entirely through non-MCP harness tools and
+ * therefore produces neither a commit nor a presence-claim refresh. A row
+ * with no activity signal beyond its own `startedAt` is treated as flaggable
+ * once `nowMs - startedAt >= staleMs` — dispatch time is always a valid (if
+ * pessimistic) baseline. The returned flag's `activitySource` names
+ * whichever of the five signals produced the max, checked in this
+ * precedence order: dispatch-start -> commit -> event -> presence ->
+ * workspace-mtime.
  *
- * **Tie semantics (fixed in review, PR #2294 R1):** each candidate replaces
- * the running max only when STRICTLY GREATER than it (`>`, not `>=`) — so on
- * an exact timestamp tie, the running max does NOT advance and the EARLIER
- * -checked signal wins (e.g. a commit and a presence-claim refresh at the
- * identical ms both present: `activitySource` is `"commit"`, not
- * `"presence"`, because presence's check requires strictly exceeding the
- * value commit already set). This is not an arbitrary choice — it is the
- * SAME tie behavior `tasks.dispatch-recover`'s `computeDispatchStaleness`
- * (`@minsky/domain/session/dispatch-recovery-classifier`, mt#3086) already
- * has via its own strict `>` checks, which this producer mirrors for parity
- * (mt#3172's entire point). See that function's docstring for the identical
- * note on its two-signal version of this same rule.
+ * **Tie semantics (fixed in review, PR #2294 R1; mt#3193 extends to
+ * workspace-mtime):** each candidate replaces the running max only when
+ * STRICTLY GREATER than it (`>`, not `>=`) — so on an exact timestamp tie,
+ * the running max does NOT advance and the EARLIER-checked signal wins
+ * (e.g. a commit and a presence-claim refresh at the identical ms both
+ * present: `activitySource` is `"commit"`, not `"presence"`, because
+ * presence's check requires strictly exceeding the value commit already
+ * set; likewise presence beats a tied workspace-mtime touch). This is not
+ * an arbitrary choice — it is the SAME tie behavior `tasks.dispatch-recover`'s
+ * `computeDispatchStaleness` (`@minsky/domain/session/dispatch-recovery-classifier`,
+ * mt#3086/mt#3193) already has via its own strict `>` checks, which this
+ * producer mirrors for parity (mt#3172's entire point, extended by mt#3193).
+ * See that function's docstring for the identical note on its version of
+ * this same rule.
  *
- * Two additional guards (mt#3062) run before the staleness computation and
+ * Three additional guards run before the staleness computation and
  * unconditionally suppress a flag regardless of computed staleness:
  *
- * 1. **Age bound** — a row whose `startedAt` is older than `maxAgeMs` cannot
- *    be flagged. Protects a reopened/resumed task from re-arming a
- *    weeks-old orphan row into a "multi-week stall" report.
- * 2. **Session existence** — a row whose subagent session workspace is
- *    confirmed gone (not merely silent) cannot be flagged. The dispatch
- *    already concluded one way or another; there is nothing left to stall.
+ * 1. **Age bound** (mt#3062) — a row whose `startedAt` is older than
+ *    `maxAgeMs` cannot be flagged. Protects a reopened/resumed task from
+ *    re-arming a weeks-old orphan row into a "multi-week stall" report.
+ * 2. **Session existence** (mt#3062) — a row whose subagent session
+ *    workspace is confirmed gone (not merely silent) cannot be flagged. The
+ *    dispatch already concluded one way or another; there is nothing left
+ *    to stall.
+ * 3. **IN-REVIEW + open PR** (mt#3193) — a row whose task status is
+ *    IN-REVIEW AND `activity.hasOpenPr` resolves `true` cannot be flagged,
+ *    UNCONDITIONALLY — no staleness computation runs for it at all. A
+ *    completed dispatch correctly idling while `minsky-reviewer[bot]`
+ *    reviews its PR has no reason to keep committing or making MCP tool
+ *    calls; "no recent activity" there is the DESIRED state, not a stall
+ *    signal, so this is a pre-computation exclusion rather than another
+ *    activity signal fed into the max above (unlike the other guards, it is
+ *    scoped to IN-REVIEW specifically — an IN-PROGRESS row with an open PR,
+ *    if that combination ever occurs, is NOT exempted, since IN-PROGRESS
+ *    dispatches are still expected to be actively working).
  *
  * Pure and synchronous: no I/O. Unit-testable with an injected clock and
  * fake `ActivitySources`.
@@ -248,20 +325,32 @@ export function computeDispatchWatchdogFlags(
     // `false` suppresses (null/undefined = unknown, does not suppress).
     if (activity.sessionExists?.(row.subagentSessionId) === false) continue;
 
+    // IN-REVIEW + open-PR exclusion (mt#3193) — idling on review is the
+    // desired state; only a confirmed `true` suppresses (null/undefined =
+    // unknown or no PR, does not suppress). See docstring guard #3.
+    if (
+      status === "IN-REVIEW" &&
+      activity.hasOpenPr?.(row.taskId, row.subagentSessionId) === true
+    ) {
+      continue;
+    }
+
     const commitMs = activity.lastCommitAtMs(row.subagentSessionId);
     const eventMs = activity.lastEventAtMs(row.taskId, row.subagentSessionId);
     const presenceMs = activity.lastPresenceActivityAtMs?.(row.subagentSessionId) ?? null;
+    const workspaceMtimeMs = activity.lastWorkspaceMtimeAtMs?.(row.subagentSessionId) ?? null;
 
-    // Progressive max, tracking WHICH signal produced it (mt#3172) — same
-    // numeric result as the prior Math.max(...candidates) approach (each
-    // candidate only replaces the running max when strictly greater: `>`,
-    // not `>=`), but also yields activitySource for the flag below. On an
-    // exact timestamp TIE the running max does NOT advance, so the
-    // EARLIER-checked signal wins: dispatch-start beats a tied commit,
-    // commit beats a tied event, event beats a tied presence. This mirrors
-    // tasks.dispatch-recover's computeDispatchStaleness (mt#3086), which
-    // uses the same strict `>` pattern — see PR #2294 R1 / this function's
-    // docstring for the full rationale.
+    // Progressive max, tracking WHICH signal produced it (mt#3172; mt#3193
+    // adds workspace-mtime) — same numeric result as the prior
+    // Math.max(...candidates) approach (each candidate only replaces the
+    // running max when strictly greater: `>`, not `>=`), but also yields
+    // activitySource for the flag below. On an exact timestamp TIE the
+    // running max does NOT advance, so the EARLIER-checked signal wins:
+    // dispatch-start beats a tied commit, commit beats a tied event, event
+    // beats a tied presence, presence beats a tied workspace-mtime. This
+    // mirrors tasks.dispatch-recover's computeDispatchStaleness
+    // (mt#3086/mt#3193), which uses the same strict `>` pattern — see PR
+    // #2294 R1 / this function's docstring for the full rationale.
     let lastActivityMs = startedMs;
     let activitySource: DispatchWatchdogActivitySource = "dispatch-start";
 
@@ -281,6 +370,16 @@ export function computeDispatchWatchdogFlags(
       if (presenceMs > lastActivityMs) {
         lastActivityMs = presenceMs;
         activitySource = "presence";
+      }
+    }
+    if (
+      workspaceMtimeMs !== null &&
+      workspaceMtimeMs !== undefined &&
+      Number.isFinite(workspaceMtimeMs)
+    ) {
+      if (workspaceMtimeMs > lastActivityMs) {
+        lastActivityMs = workspaceMtimeMs;
+        activitySource = "workspace-mtime";
       }
     }
 
@@ -331,6 +430,19 @@ export interface DispatchWatchdogDeps {
    * `@minsky/domain/session/presence-activity`).
    */
   getLastPresenceActivityAtMs: (subagentSessionId: string | null) => Promise<number | null>;
+  /**
+   * Ms epoch of the freshest dirty-file mtime in the subagent's session git
+   * working tree, or null if unavailable (mt#3193 — shares
+   * `tasks.dispatch-recover`'s mt#3193 workspace-mtime liveness signal via
+   * `resolveLastWorkspaceMtimeAtMs`, `@minsky/domain/session/workspace-activity`).
+   */
+  getLastWorkspaceMtimeAtMs: (subagentSessionId: string | null) => Promise<number | null>;
+  /**
+   * Whether the row's task has a still-open (or draft) PR (mt#3193). `null`
+   * when undeterminable (no `subagentSessionId`, no session record, no
+   * `pull_request` recorded) — treated as "unknown", never as "no PR".
+   */
+  getHasOpenPr: (taskId: string, subagentSessionId: string | null) => Promise<boolean | null>;
 }
 
 /**
@@ -351,6 +463,8 @@ export async function buildDispatchWatchdogSnapshot(
   const eventAt: Record<string, number | null> = {};
   const existsAt: Record<string, boolean | null> = {};
   const presenceAt: Record<string, number | null> = {};
+  const workspaceMtimeAt: Record<string, number | null> = {};
+  const hasOpenPrAt: Record<string, boolean | null> = {};
 
   for (const row of rows) {
     if (!(row.taskId in taskStatuses)) {
@@ -366,9 +480,15 @@ export async function buildDispatchWatchdogSnapshot(
     if (!(sidKey in presenceAt)) {
       presenceAt[sidKey] = await deps.getLastPresenceActivityAtMs(row.subagentSessionId);
     }
+    if (!(sidKey in workspaceMtimeAt)) {
+      workspaceMtimeAt[sidKey] = await deps.getLastWorkspaceMtimeAtMs(row.subagentSessionId);
+    }
     const evKey = `${row.taskId}::${sidKey}`;
     if (!(evKey in eventAt)) {
       eventAt[evKey] = await deps.getLastEventAtMs(row.taskId, row.subagentSessionId);
+    }
+    if (!(evKey in hasOpenPrAt)) {
+      hasOpenPrAt[evKey] = await deps.getHasOpenPr(row.taskId, row.subagentSessionId);
     }
   }
 
@@ -380,6 +500,8 @@ export async function buildDispatchWatchdogSnapshot(
       lastEventAtMs: (taskId, sid) => eventAt[`${taskId}::${sid ?? ""}`] ?? null,
       sessionExists: (sid) => existsAt[sid ?? ""] ?? null,
       lastPresenceActivityAtMs: (sid) => presenceAt[sid ?? ""] ?? null,
+      lastWorkspaceMtimeAtMs: (sid) => workspaceMtimeAt[sid ?? ""] ?? null,
+      hasOpenPr: (taskId, sid) => hasOpenPrAt[`${taskId}::${sid ?? ""}`] ?? null,
     },
     nowMs,
     staleMs
@@ -436,6 +558,24 @@ export async function getSessionWorkspaceExists(
   } catch {
     return null;
   }
+}
+
+/**
+ * Resolve the freshest dirty-file mtime in a subagent session's git working
+ * tree (mt#3193), delegating to the shared `resolveLastWorkspaceMtimeAtMs`
+ * helper (`@minsky/domain/session/workspace-activity`) — the same query
+ * `tasks.dispatch-recover`'s staleness check uses. Resolves the session
+ * directory the same way the sibling `getSessionLastCommitAtMs`/
+ * `getSessionWorkspaceExists` helpers do (`getSessionsDir()` + the raw
+ * session id, since this producer works directly off `subagent_invocations`
+ * rows rather than a resolved `SessionRecord`).
+ */
+export async function getSessionWorkspaceLastMtimeAtMs(
+  subagentSessionId: string | null
+): Promise<number | null> {
+  if (!subagentSessionId) return null;
+  const sessionDir = path.join(getSessionsDir(), subagentSessionId);
+  return resolveLastWorkspaceMtimeAtMs(sessionDir, { source: "dispatch-watchdog" });
 }
 
 /** Write a snapshot to the cache file (atomic temp+rename via the shared lifecycle helper). */
@@ -522,6 +662,27 @@ export async function buildRealDispatchWatchdogDeps(): Promise<DispatchWatchdogD
       resolveLastPresenceActivityAtMs(subagentSessionId, provider, {
         source: "dispatch-watchdog",
       }),
+    // mt#3193: shares tasks.dispatch-recover's mt#3193 workspace-mtime query
+    // via the extracted helper.
+    getLastWorkspaceMtimeAtMs: getSessionWorkspaceLastMtimeAtMs,
+    // mt#3193: direct query — `sessions.pull_request` is the same JSON-text
+    // column `dispatch-recover-command.ts` reads via `sessionRecord.pullRequest`
+    // (there resolved through the SessionProvider; here read directly via SQL
+    // since this producer already has a raw `sql` handle and no SessionProvider).
+    getHasOpenPr: async (_taskId, subagentSessionId) => {
+      if (!subagentSessionId) return null;
+      const rows = (await sql.unsafe(HAS_OPEN_PR_QUERY, [subagentSessionId])) as Array<{
+        pull_request: string | null;
+      }>;
+      const raw = rows?.[0]?.pull_request;
+      if (!raw) return null;
+      try {
+        const parsed = JSON.parse(raw) as { state?: string };
+        return parsed.state === "open" || parsed.state === "draft";
+      } catch {
+        return null;
+      }
+    },
     getLastEventAtMs: async (taskId, subagentSessionId) => {
       const rows = (await sql.unsafe(LAST_EVENT_AT_QUERY, [taskId, subagentSessionId])) as Array<{
         latest_at: string | number | null;
@@ -549,6 +710,15 @@ export async function buildRealDispatchWatchdogDeps(): Promise<DispatchWatchdogD
 export const LAST_EVENT_AT_QUERY = `SELECT (extract(epoch from max(created_at)) * 1000)::bigint AS latest_at
          FROM system_events
          WHERE related_task_id = $1 OR ($2::text IS NOT NULL AND related_session_id = $2)`;
+
+/**
+ * Query for a session's raw `pull_request` JSON-text column (mt#3193),
+ * keyed by the Minsky session id — the same id `subagent_invocations.subagent_session_id`
+ * stores and `sessions.session` primary-keys on. The result is JSON-parsed
+ * by the caller (`buildRealDispatchWatchdogDeps`'s `getHasOpenPr`), not by
+ * this query, since `sql.unsafe` returns the raw text column value.
+ */
+export const HAS_OPEN_PR_QUERY = `SELECT pull_request FROM sessions WHERE session = $1`;
 
 /**
  * Refresh the dispatch-watchdog cache once. Fail-open: any error logs and
