@@ -154,13 +154,23 @@ export function installDaemon(options: PlistOptions): {
   const plistPath = getPlistPath();
   const port = options.port ?? DEFAULT_DAEMON_PORT;
 
-  // Ensure log directory exists
+  // Ensure log directory exists. Load-bearing existsSync guard (mt#3186 PR #2301 review,
+  // R1): `installDaemon` has no enclosing try/catch, and `logDir` is never touched by any
+  // other fs call in this function (it's only interpolated as a string into the plist XML
+  // by `generatePlist` — launchd itself opens the log files later, out of process). An
+  // unconditional recursive mkdirSync would throw uncaught (ENOTDIR/EACCES) in cases the
+  // guarded version doesn't reach, unlike the sibling cleanup task's other 11 sites where
+  // the target directory is touched again downstream by an already-uncaught operation.
   const logDir = getLogDir();
-  fs.mkdirSync(logDir, { recursive: true });
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
 
-  // Ensure LaunchAgents directory exists
+  // Ensure LaunchAgents directory exists. Load-bearing for the same reason as logDir above.
   const launchAgentsDir = getLaunchAgentsDir();
-  fs.mkdirSync(launchAgentsDir, { recursive: true });
+  if (!fs.existsSync(launchAgentsDir)) {
+    fs.mkdirSync(launchAgentsDir, { recursive: true });
+  }
 
   // Unload existing plist if present (idempotent)
   if (fs.existsSync(plistPath)) {
