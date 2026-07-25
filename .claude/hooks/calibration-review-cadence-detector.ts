@@ -238,8 +238,15 @@ export function formatCadenceWarning(due: ReviewDueLog[]): string {
             ? `confirmed alive (live synthetic test) but ZERO real fires >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days since — check whether the trigger is rare or the detector has silently broken (mt#3078)`
             : `unreviewed for >= ${Math.floor(STALE_DAYS_MS / (24 * 60 * 60 * 1000))} days`;
     lines.push(
-      `  - ${d.name}: ${d.firesSinceLastReview} new fire(s) since last review ` +
-        `(${d.totalFires} total, ${d.distinctPhrases} distinct) — ${reasonLabel}`
+      // mt#3197: quote the INJECTED count — the detections that actually
+      // reached the operator. The positional count includes suppressed ones,
+      // which made a correctly-tuned detector look like a review backlog.
+      `  - ${d.name}: ${d.injectedFiresSinceLastReview} new fire(s) since last review ` +
+        `${
+          d.suppressedSinceLastReview > 0
+            ? `(+${d.suppressedSinceLastReview} suppressed, not counted) `
+            : ""
+        }(${d.totalFires} total, ${d.distinctPhrases} distinct) — ${reasonLabel}`
     );
   }
   lines.push("");

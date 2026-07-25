@@ -54,11 +54,13 @@ function makeResult(
   entry: CalibrationLogEntry,
   overrides: Partial<CalibrationLogResult> = {}
 ): CalibrationLogResult {
-  return {
+  const merged = {
     entry,
     exists: true,
     totalFires: 0,
     firesSinceLastReview: 0,
+    suppressedSinceLastReview: 0,
+    injectedFiresSinceLastReview: 0,
     distinctPhrases: 0,
     atCountThreshold: false,
     lowDiversity: false,
@@ -66,6 +68,16 @@ function makeResult(
     newRecords: [],
     watermarkCount: 0,
     ...overrides,
+  };
+  return {
+    ...merged,
+    // mt#3197: unless a test says otherwise, every fire is INJECTED — which is
+    // the real-world default for every detector that records no suppression
+    // outcome. Derived rather than defaulted to 0 so existing fixtures that
+    // only set `firesSinceLastReview` keep meaning what they meant.
+    injectedFiresSinceLastReview:
+      overrides.injectedFiresSinceLastReview ??
+      merged.firesSinceLastReview - merged.suppressedSinceLastReview,
   };
 }
 
@@ -258,6 +270,9 @@ describe("formatCadenceWarning", () => {
         path: ASK_ROUTING_DEFERRAL_PATH,
         kind: ASK_ROUTING_DEFERRAL,
         firesSinceLastReview: 43,
+        // mt#3197: no suppression outcome recorded -> every fire is injected.
+        injectedFiresSinceLastReview: 43,
+        suppressedSinceLastReview: 0,
         totalFires: 43,
         distinctPhrases: 31,
         reason: "past-threshold",
@@ -267,6 +282,8 @@ describe("formatCadenceWarning", () => {
         path: ".minsky/retrospective-trigger-calibration.jsonl",
         kind: "retrospective-trigger",
         firesSinceLastReview: 8,
+        injectedFiresSinceLastReview: 8,
+        suppressedSinceLastReview: 0,
         totalFires: 20,
         distinctPhrases: 3,
         reason: "time-stale",

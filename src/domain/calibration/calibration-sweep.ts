@@ -1091,6 +1091,14 @@ export interface ReviewDueLog {
   /** Registry kind (mt#2659) — drives the fire-count-vs-time-only re-warn split in the hook's `shouldReWarn`. */
   kind: CalibrationLogEntry["kind"];
   firesSinceLastReview: number;
+  /**
+   * Of `firesSinceLastReview`, how many actually reached the operator
+   * (mt#3197). This is the number the cadence warning should quote — the
+   * positional count includes suppressed detections nobody ever saw.
+   */
+  injectedFiresSinceLastReview: number;
+  /** Of `firesSinceLastReview`, how many were suppressed before injection (mt#3197). */
+  suppressedSinceLastReview: number;
   totalFires: number;
   distinctPhrases: number;
   reason: "past-threshold" | "time-stale" | "never-reviewed" | "never-fired";
@@ -1120,6 +1128,8 @@ function toReviewDueLog(
     path: r.entry.path,
     kind: r.entry.kind,
     firesSinceLastReview: r.firesSinceLastReview,
+    injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,
+    suppressedSinceLastReview: r.suppressedSinceLastReview,
     totalFires: r.totalFires,
     distinctPhrases: r.distinctPhrases,
     reason,
