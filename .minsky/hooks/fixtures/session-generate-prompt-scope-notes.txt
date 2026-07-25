@@ -13,7 +13,7 @@
   updated to match (or vice versa).
 
   Regenerate with:
-    bun run scripts/regenerate-mt2811-prompt-fixture.ts > .minsky/hooks/fixtures/session-generate-prompt-scope-constraints.txt
+    bun run scripts/regenerate-mt2811-prompt-fixture.ts --with-notes > .minsky/hooks/fixtures/session-generate-prompt-scope-notes.txt
 
   Both variants must be regenerated together when the prompt shape changes —
   the sibling is the same command with the flag toggled (mt#1279).
@@ -21,18 +21,19 @@
   Generated with:
     sessionDir:   "/Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000"
     sessionId:    "00000000-0000-0000-0000-000000000000"
-    taskId:       "2811"
+    taskId:       "1279"
     type:         "implementation"
     instructions: "Fix the thing."
     scope: [
       "/Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000/src/foo.ts",
       "/Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000/src/bar.ts",
     ]
+    scopeNotes:   "Convert the three call sites only. Do NOT touch the render surfaces — that is a separate task."
     harness: "claude-code"  (lean/native-harness path — no filesystem skill-loading)
 -->
 You are working in Minsky session at /Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000. All file paths MUST be absolute paths under this directory.
 
-Task mt#2811: Implementation work
+Task mt#1279: Implementation work
 
 Fix the thing.
 
@@ -42,16 +43,20 @@ Only modify the following files:
 - /Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000/src/foo.ts
 - /Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000/src/bar.ts
 
+## Scope Notes
+
+Convert the three call sites only. Do NOT touch the render surfaces — that is a separate task.
+
 ## Operating Envelope
 
 You have a bounded tool-call budget per dispatch. Recent dispatches have cut off between 24 and 65 tool uses — typically with substantial work done but uncommitted. To land softly:
 
 **Budget awareness.** Commit or hand off *before* you run out, not after. Don't save the checkpoint for the end.
 
-**Checkpoint cadence.** Commit after each new file ≥150 lines OR after 3 substantive edits. Use a conventional commit type matching the work (`feat`/`fix`/`refactor`/`docs`/etc.) and prefix the description with `partial:` to signal in-progress state — e.g., `feat(mt#2811): partial: <what's done>`. The commit-msg hook rejects `wip(...)`; status lives in the description, not the type.
+**Checkpoint cadence.** Commit after each new file ≥150 lines OR after 3 substantive edits. Use a conventional commit type matching the work (`feat`/`fix`/`refactor`/`docs`/etc.) and prefix the description with `partial:` to signal in-progress state — e.g., `feat(mt#1279): partial: <what's done>`. The commit-msg hook rejects `wip(...)`; status lives in the description, not the type.
 
 **Graceful exit.** When you sense pressure (output feels constrained, compaction warnings, budget near exhaustion), stop starting new work:
-1. If code is modified, commit with `<type>(mt#2811): partial: <status>` via `mcp__minsky__session_commit` (use the type matching the work)
+1. If code is modified, commit with `<type>(mt#1279): partial: <status>` via `mcp__minsky__session_commit` (use the type matching the work)
 2. Write a handoff note to `.minsky/sessions/00000000-0000-0000-0000-000000000000/handoff.md` with four fields:
    - **Done:** what shipped this dispatch
    - **In progress:** partial work, with file paths and line ranges
@@ -63,7 +68,7 @@ You have a bounded tool-call budget per dispatch. Recent dispatches have cut off
 
 ## Running commands in the session
 
-Use `mcp__minsky__session_exec(task: "mt#2811", command: "<cmd>")` to run shell commands inside the session workspace (e.g., `bun test`, `bun run format:check`, `git status`). The session directory is resolved automatically — never use `git -C <path>` or shell `cd` workarounds.
+Use `mcp__minsky__session_exec(task: "mt#1279", command: "<cmd>")` to run shell commands inside the session workspace (e.g., `bun test`, `bun run format:check`, `git status`). The session directory is resolved automatically — never use `git -C <path>` or shell `cd` workarounds.
 
 ## Committing Your Work
 
@@ -75,7 +80,7 @@ When your changes are ready, commit using:
 
 After committing, create a PR using:
 - Tool: `mcp__minsky__session_pr_create`
-- Parameters: `task: "mt#2811"`
+- Parameters: `task: "mt#1279"`
 
 Do NOT merge the PR.
 

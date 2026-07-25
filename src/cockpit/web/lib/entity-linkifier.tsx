@@ -383,8 +383,13 @@ export function rehypeEntityLinks(options: RehypeEntityLinksOptions) {
  * re-parsing the href (mt#3174). `to` is always produced by `entityToPath`
  * (see `resolveEntityId`/`parseMinskyUri` above), so this is the exact
  * inverse of that codec — never a guess from the path string.
+ *
+ * EXPORTED (mt#3175) so payload-leaf renderers (`JsonView`) route tokens
+ * through `<EntityRef>` using this same inverse rather than re-deriving their
+ * own segment map — a second copy would drift silently the next time the route
+ * registry changes.
  */
-function tokenEntity(tok: Extract<EntityToken, { kind: "link" }>): {
+export function tokenEntity(tok: Extract<EntityToken, { kind: "link" }>): {
   type: RoutableEntityType;
   id: string;
 } | null {
