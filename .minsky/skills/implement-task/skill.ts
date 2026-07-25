@@ -240,6 +240,14 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
    - "user must do this" / "operator follow-up"
    - "outside agent context" / "not available from agent context"
 
+   *Deferring to a later TIME or condition (mt#3200) — same probe, different shape:*
+
+   - "deferred to post-merge" / "deferred until X ships" / "will verify after X"
+   - "can't verify until X" / "needs X first" / "blocked on X landing"
+   - "verification deferred" with no named actor
+
+   **The probe question is availability-NOW, regardless of what the deferral defers TO.** Origin of this second group: mt#3189 / PR #2282 (2026-07-24) deferred live verification with "deferred to post-merge … the pre-change measurement was taken against merged main, so the post-change comparison needs this merged too." No actor-shaped phrase matched, so no probe fired — and the reason was false: serving a cockpit from the session workspace produced the verification in ~2 minutes. \`minsky-reviewer[bot]\` posted BLOCKING and the finding was legitimate. A deferral to a later time is a claim about your PRESENT capability and needs the same evidence as a deferral to a person.
+
    **Canonical probe sequence:**
 
    - CLI probe — \`which <cli> && <cli> whoami\` for the relevant tool (~5 sec).
@@ -274,6 +282,14 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
    - **(a) No placeholder assertions** in your tests. The Prevent-Placeholder-Tests CI check (mt#1938, \`.github/workflows/test-quality.yml\`) greps the repo for \`expect(true).toBe(true)\` and comment-marked placeholders — so it fires on ANY test file you ADD OR MODIFY (broader scope than (b)); also avoid \`.skip\`, \`.todo\`, and empty test bodies. For a compile-time-only test (e.g. a \`// @ts-expect-error\` type-guard assertion), PAIR the directive with a REAL runtime assertion so the test still exercises executable behavior.
    - **(b) An \`Execution evidence:\` block in the PR body** — the LITERAL heading WITH the colon (the mt#1459 merge gate matches the regex \`/Execution evidence:/\`, NOT a markdown \`## Execution evidence\` heading without the colon). Put it near the PR body's Testing / Test Plan section (mirrors \`/prepare-pr\` §1b) and paste the ACTUAL test-run output for the new test files (\`bun test ... <files>\` — pass/fail counts + file names), not a promise to run them. The mt#1459 gate fires on **newly ADDED** test files only — a renamed/copied non-test→test conversion counts; MODIFYING an existing test does NOT (this matches \`/prepare-pr\` §1b's "newly created, not just modified" scope). If you genuinely cannot run them, use the \`[unverified-tests]\` title-tag escape hatch (\`/prepare-pr\` §1b) with a documented reason instead.
    - **(c) Per-AT coverage (mt#3033, calibration-first).** Independent of (a)/(b)'s file-pattern trigger, the gate additionally cross-references the bound task's \`## Acceptance Tests\`: for each AT it classifies as executable (skipping \`state-ops\`-kind tasks and findings-shaped ATs like "audit produces…" / "decision recorded…"), the \`Execution evidence:\` block should reference that AT by number (\`AT3\`, \`AT#3\`, \`acceptance test 3\`) or a distinctive keyword from its text — or the PR body should carry a \`[atN-deferred: mt#NNNN]\` marker naming a tracked follow-up task for that specific AT. As of mt#3033 this check is **log-only** (per the mt#2263 calibration ladder): an unaddressed AT logs a calibration record and surfaces a WARN in \`additionalContext\`, it does NOT block merge. Address it anyway — the point is real per-AT evidence (or an explicit, tracked deferral) instead of a proxy that silently skips the literal acceptance test, which is exactly the mt#2542 incident this addition exists to catch. Override (should not normally be needed): \`MINSKY_SKIP_AT_COVERAGE=1\`.
+
+     **Three authoring requirements the gate depends on (mt#3200).** The check above can only match evidence written a particular way, and that convention was never stated — so it emitted unmatchable warnings, which trains readers to discount its true positives:
+
+     1. **Use the bound task spec's OWN AT numbering.** Do not renumber in the PR body. A PR that writes its own 1..N list cannot line up with the spec's numbering, so no AT can ever match.
+     2. **Put the references, and their evidence, INSIDE the \`Execution evidence:\` block.** The gate scans that block only. Evidence living in a \`## Live verification\` (or any other) section is invisible to it — if it must live elsewhere, cross-reference it from inside the block.
+     3. **If an AT genuinely cannot run pre-merge, use the \`[atN-deferred: mt#NNNN]\` marker**, not prose. Prose explaining why an AT was skipped reads as coverage to a human and as nothing to the gate.
+
+     Counter-example — mt#3189 / PR #2282 (2026-07-24) violated (1) and (2) simultaneously: its body carried an "Acceptance tests by number" list using an independent 1–7 numbering, and put real live-verification output under \`## Live verification\`. The gate reported 5 of 6 ATs unaddressed; one was genuinely untested, the rest were unmatchable by construction. Same session, PR #2264 produced a pure false positive the same way. See mem#719 for why that noise is costly: a detector emitting unmatchable output erodes trust in its correct output.
 
    Origin: mt#2524 (2026-06-19) hit three sequential reactive merge blocks in one session — placeholder assertions, then execution-evidence-missing, then a heading without the colon — each fixed in its own round. mt#2525 (2026-06-21) recurred on the missing \`Execution evidence:\` block at merge. Front-loading removes the reactive rounds. Gates: mt#1459 (\`Execution evidence:\` merge gate, newly-added test files), mt#1460 (/prepare-pr §1b sibling, also newly-created only), mt#1938 (Prevent-Placeholder-Tests CI check, repo-wide grep), mt#3033 (per-AT cross-reference, calibration-first).
 
