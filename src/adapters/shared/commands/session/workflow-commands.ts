@@ -398,6 +398,13 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
             files: result.files,
             pushed: result.pushed,
             credentialPath: result.credentialPath,
+            // mt#3210: set when an App-token push was denied (403) and
+            // pushSessionCommitWithFallback retried via keychain — preserved
+            // for the caller even when the retry succeeded, so a
+            // convergence-driving agent still knows the App-token
+            // permission gap exists and CI-trigger reliability may be
+            // reduced for this push (mt#1477 rationale).
+            appTokenPushError: result.appTokenPushError,
             // mt#3049: surface the structured partial-outcome fields — without
             // these, a committed-but-push-failed/timed-out/resumed result
             // would report success:true, pushed:false to an MCP caller with

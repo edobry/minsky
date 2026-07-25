@@ -15,6 +15,7 @@ import { emitSystemEventFromProvider } from "../events/emit-best-effort";
 import type { PersistenceProvider } from "../persistence/types";
 import type { TokenProvider } from "../auth/token-provider";
 import type { GitServiceInterface } from "../git/types";
+import type { PushWithConfirmationResult } from "../git/push-operations";
 import { checkFreshnessCas, cleanupFreshnessMarker } from "./freshness-marker";
 
 /**
@@ -134,10 +135,13 @@ export { raceAgainstTimeout };
  *   that reliably triggers pull_request workflows (mt#1477).
  * - "keychain-unconfigured": no service account is configured; system
  *   credentials are the expected path for this install (not a failure).
- * - "keychain-fallback": a service account IS configured but token resolution
- *   failed — the push falls back to system keychain credentials, which may
- *   silently fail to trigger pull_request workflows (the intermittent CI-miss
- *   class in docs/ci-check-never-ran-playbook.md §Root cause).
+ * - "keychain-fallback": the App-token path could not complete the push —
+ *   either token resolution failed, or (mt#3210) a successfully-minted
+ *   token was itself denied by GitHub (403) because the App installation's
+ *   `contents` permission does not include write access. Either way the
+ *   push falls back to system keychain credentials, which may silently
+ *   fail to trigger pull_request workflows (the intermittent CI-miss class
+ *   in docs/ci-check-never-ran-playbook.md §Root cause).
  */
 export type PushCredentialPath = "app-token" | "keychain-unconfigured" | "keychain-fallback";
 
@@ -186,6 +190,122 @@ export async function resolvePushCredential(
     );
     return { credentialPath: "keychain-fallback", failureReason };
   }
+}
+
+/**
+ * Detects a GitHub permission-denied push failure — the signature the
+ * App-token push path produces when the App installation's `contents`
+ * permission does not include write access (mt#3210, root cause confirmed
+ * via a live `GET /app` read against the `minsky-ai[bot]` App: permissions
+ * resolved to `{contents: "read", ...}`, not `write`). Matched against BOTH
+ * halves of the field-observed denial together — `git`'s own rejection
+ * message ("remote: Permission ... denied to <bot>.") AND the generic HTTP
+ * status line ("The requested URL returned error: 403"), which appear
+ * together in the same failure per mem#721.
+ *
+ * mt#3210 R1: a bare `403` is deliberately NOT sufficient on its own. A 403
+ * can also mean an INTENTIONAL denial unrelated to the missing-contents-write
+ * gap — e.g. branch protection or another repo-level restriction rejecting
+ * the App. Falling back to the operator's personal keychain credentials in
+ * that case would silently convert a deliberate block into a successful push
+ * under a different identity, which is worse than the push failing visibly.
+ * Requiring the permission-denial phrase to co-occur with the 403 status
+ * line keeps the detector scoped to the specific failure it exists to catch.
+ */
+export function isPermissionDeniedPushError(message: string | undefined): boolean {
+  if (!message) return false;
+  const hasPermissionDenialPhrase = /permission[\s\S]*denied/i.test(message);
+  const hasStatusLine = /\b403\b/.test(message);
+  return hasPermissionDenialPhrase && hasStatusLine;
+}
+
+/**
+ * A session-commit push, wrapped with automatic fallback to system keychain
+ * credentials when the resolved App-token push is denied (mt#3210).
+ *
+ * The App-token push path (mt#1477) can fail two structurally different
+ * ways: (1) token *minting* itself throws — `resolvePushCredential`'s
+ * pre-existing `keychain-fallback` path (mt#2897) already handles this by
+ * never attempting the push with a token at all; or (2) minting succeeds
+ * but the push itself is denied because the App installation lacks
+ * `contents: write`. Case (2) previously surfaced as a returned
+ * `pushed:false` result the caller had to notice and retry by hand — the
+ * exact defect mt#3210 exists to fix, observed at a measured 8-of-8 rate
+ * across three independent dispatches on 2026-07-25. This function folds
+ * case (2) into the same fallback vocabulary as case (1), reusing the
+ * `session.commit.push_credential_fallback` event: from the caller's
+ * perspective both cases land in the same place — the push succeeded, but
+ * via a credential that may not reliably trigger `pull_request` workflows
+ * (mt#1477), so the same "verify CI fired" discipline applies either way.
+ *
+ * Deliberately conservative: the retry fires ONLY when (a) the ORIGINAL
+ * attempt used the app-token path, (b) it did not merely time out
+ * (`pushOutcome.pushTimedOut` — an ambiguous outcome mt#3177 already
+ * verifies against the remote directly; retrying blind on top of that would
+ * risk a redundant concurrent push against a possibly-still-running
+ * background attempt), and (c) the failure text matches the permission-
+ * denied signature — an unrelated push failure (rejected non-fast-forward,
+ * network error) is surfaced as-is rather than masked by a same-content
+ * keychain retry.
+ */
+export async function pushSessionCommitWithFallback(
+  tokenProvider: Pick<TokenProvider, "isServiceAccountConfigured" | "getToken"> | undefined,
+  pushParams: { repo: string; branch?: string },
+  config: { pushTimeoutMs: number; session?: string },
+  deps: {
+    pushFromParamsWithConfirmation: (
+      params: {
+        repo?: string;
+        remote?: string;
+        force?: boolean;
+        debug?: boolean;
+        authToken?: string;
+      },
+      config?: { pushTimeoutMs?: number; verifyTimeoutMs?: number; branch?: string }
+    ) => Promise<PushWithConfirmationResult>;
+    warn?: (message: string, context?: Record<string, unknown>) => void;
+  }
+): Promise<
+  PushWithConfirmationResult & { credentialPath: PushCredentialPath; appTokenPushError?: string }
+> {
+  const warn = deps.warn ?? log.warn;
+  const pushCredential = await resolvePushCredential(tokenProvider, { session: config.session });
+
+  const pushOutcome = await deps.pushFromParamsWithConfirmation(
+    { repo: pushParams.repo, authToken: pushCredential.authToken },
+    { pushTimeoutMs: config.pushTimeoutMs, branch: pushParams.branch }
+  );
+
+  const appTokenWasDenied =
+    pushCredential.credentialPath === "app-token" &&
+    !pushOutcome.pushed &&
+    !pushOutcome.pushTimedOut &&
+    isPermissionDeniedPushError(pushOutcome.pushError);
+
+  if (!appTokenWasDenied) {
+    return { ...pushOutcome, credentialPath: pushCredential.credentialPath };
+  }
+
+  warn(
+    "[session.commit] App-token push denied (403); retrying with system keychain credentials — pull_request workflows may not trigger (mt#1477/mt#3210)",
+    {
+      event: "session.commit.push_credential_fallback",
+      session: config.session,
+      stage: "push-denied",
+      reason: pushOutcome.pushError,
+    }
+  );
+
+  const retryOutcome = await deps.pushFromParamsWithConfirmation(
+    { repo: pushParams.repo },
+    { pushTimeoutMs: config.pushTimeoutMs, branch: pushParams.branch }
+  );
+
+  return {
+    ...retryOutcome,
+    credentialPath: "keychain-fallback",
+    appTokenPushError: pushOutcome.pushError,
+  };
 }
 
 /**
@@ -333,6 +453,16 @@ export interface SessionCommitResult {
    * as, or adjacent to, success.
    */
   pushUnconfirmed?: boolean;
+  /**
+   * mt#3210: set (alongside `credentialPath: "keychain-fallback"`, whether
+   * `pushed` ends up true or false) when the App-token push attempt was
+   * denied (403) and `pushSessionCommitWithFallback` retried via system
+   * keychain credentials. Preserves the original denial for diagnosis even
+   * though the caller may see a successful `pushed: true` overall outcome —
+   * the retry succeeding does not mean the App-token permission gap
+   * (`contents: read` on the installation, not `write`) has been fixed.
+   */
+  appTokenPushError?: string;
   /**
    * mt#3049: true when this call found an existing LOCAL commit already
    * ahead of `origin/<branch>` on an otherwise-clean tree (the resumable
@@ -757,9 +887,10 @@ export async function sessionCommit(
       // mt#2897: credential resolution is loud + surfaced — the silent
       // fallback here was the leading root-cause hypothesis for the
       // intermittent "push delivered but zero workflow runs" class.
-      const pushCredential = await resolvePushCredential(tokenProvider, {
-        session: params.session,
-      });
+      // mt#3210: pushSessionCommitWithFallback wraps resolution + push +
+      // an automatic keychain retry when the App-token push itself is
+      // denied (403) — the case resolution-loudness alone (mt#2897) did
+      // not cover, since token minting succeeds and only the push fails.
 
       // mt#3049: bounded AND non-throwing on failure/timeout. A push problem
       // after a successful commit now returns a STRUCTURED partial outcome
@@ -792,10 +923,13 @@ export async function sessionCommit(
       // not a fully closed race. True cancellation would need `Bun.spawn` +
       // an `AbortSignal` threaded through the push call.
       const pushTimeoutMs = params.pushTimeoutMs ?? DEFAULT_PUSH_PHASE_TIMEOUT_MS;
-      const pushOutcome = await pushFromParamsWithConfirmation(
-        { repo: workdir, authToken: pushCredential.authToken },
-        { pushTimeoutMs, branch: metadata.branch }
+      const pushOutcome = await pushSessionCommitWithFallback(
+        tokenProvider,
+        { repo: workdir, branch: metadata.branch },
+        { pushTimeoutMs, session: params.session },
+        { pushFromParamsWithConfirmation }
       );
+      const pushCredential = { credentialPath: pushOutcome.credentialPath };
       const pushed = pushOutcome.pushed;
 
       if (!pushed) {
@@ -818,6 +952,9 @@ export async function sessionCommit(
           ...(pushOutcome.pushError !== undefined ? { pushError: pushOutcome.pushError } : {}),
           ...(pushOutcome.pushTimedOut ? { pushTimedOut: true } : {}),
           ...(pushOutcome.pushUnconfirmed ? { pushUnconfirmed: true } : {}),
+          ...(pushOutcome.appTokenPushError !== undefined
+            ? { appTokenPushError: pushOutcome.appTokenPushError }
+            : {}),
           credentialPath: pushCredential.credentialPath,
         };
       }
@@ -841,6 +978,9 @@ export async function sessionCommit(
         pushed: true,
         ...(pushOutcome.pushTimedOut ? { pushTimedOut: true } : {}),
         ...(pushOutcome.pushConfirmedVia ? { pushConfirmedVia: pushOutcome.pushConfirmedVia } : {}),
+        ...(pushOutcome.appTokenPushError !== undefined
+          ? { appTokenPushError: pushOutcome.appTokenPushError }
+          : {}),
         credentialPath: pushCredential.credentialPath,
       };
     } catch (error) {
@@ -1110,18 +1250,17 @@ async function tryResumePendingPush(
     remoteSha,
   });
 
-  const pushCredential = await resolvePushCredential(deps.tokenProvider, {
-    session: deps.session,
-  });
-
-  // mt#3177: same confirmation-aware push helper the main sessionCommit path
-  // uses — on a `pushTimedOut` outcome, verifies the remote ref directly
-  // before reporting `pushed:false`. `branch` is already resolved above, so
-  // pass it through to skip a redundant `rev-parse --abbrev-ref HEAD` call.
-  const pushOutcome = await pushFromParamsWithConfirmation(
-    { repo: workdir, authToken: pushCredential.authToken },
-    { pushTimeoutMs: deps.pushTimeoutMs, branch }
+  // mt#3210: same automatic-fallback wrapper as the main sessionCommit push
+  // path — retries via system keychain credentials when the App-token push
+  // is denied (403), instead of surfacing a failed push the caller must
+  // notice and retry by hand.
+  const pushOutcome = await pushSessionCommitWithFallback(
+    deps.tokenProvider,
+    { repo: workdir, branch },
+    { pushTimeoutMs: deps.pushTimeoutMs, session: deps.session },
+    { pushFromParamsWithConfirmation }
   );
+  const pushCredential = { credentialPath: pushOutcome.credentialPath };
   const pushed = pushOutcome.pushed;
 
   const metadata = await collectCommitMetadata(gitService, workdir);
@@ -1148,6 +1287,9 @@ async function tryResumePendingPush(
     ...(pushOutcome.pushTimedOut ? { pushTimedOut: true } : {}),
     ...(pushOutcome.pushConfirmedVia ? { pushConfirmedVia: pushOutcome.pushConfirmedVia } : {}),
     ...(pushOutcome.pushUnconfirmed ? { pushUnconfirmed: true } : {}),
+    ...(pushOutcome.appTokenPushError !== undefined
+      ? { appTokenPushError: pushOutcome.appTokenPushError }
+      : {}),
     credentialPath: pushCredential.credentialPath,
   };
 }
