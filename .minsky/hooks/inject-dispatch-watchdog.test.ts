@@ -107,6 +107,17 @@ describe("parseDispatchWatchdogCache", () => {
     expect(rec?.flags[0]?.activitySource).toBe("presence");
   });
 
+  // mt#3193: "workspace-mtime" must be preserved, not normalized away — an
+  // operator reading the banner needs to see the NEW signal name, not have
+  // it silently collapse to "dispatch-start" (which would misreport WHY a
+  // dispatch was flagged healthy/stale).
+  test("preserves the mt#3193 'workspace-mtime' activitySource", () => {
+    const rec = parseDispatchWatchdogCache(
+      JSON.stringify(cacheAt([flag({ activitySource: "workspace-mtime" })]))
+    );
+    expect(rec?.flags[0]?.activitySource).toBe("workspace-mtime");
+  });
+
   test("normalizes an unrecognized activitySource value to 'dispatch-start'", () => {
     const raw = { ...flag(), activitySource: "not-a-real-source" };
     const rec = parseDispatchWatchdogCache(JSON.stringify(cacheAt([raw as never])));
@@ -171,6 +182,14 @@ describe("formatDispatchWatchdogState", () => {
   test("AT3: a dispatch-start-only flag names 'dispatch-start' as its source", () => {
     const out = formatDispatchWatchdogState(cacheAt([flag({ activitySource: "dispatch-start" })]));
     expect(out).toMatch(/source=dispatch-start/);
+  });
+
+  // mt#3193: the banner names the new workspace-mtime signal too — an
+  // operator seeing this flag knows a non-MCP file write, not a commit or
+  // MCP tool call, was the freshest evidence.
+  test("mt#3193: the banner names the flag's 'workspace-mtime' activitySource", () => {
+    const out = formatDispatchWatchdogState(cacheAt([flag({ activitySource: "workspace-mtime" })]));
+    expect(out).toMatch(/source=workspace-mtime/);
   });
 
   test("multiple flags each get their own line", () => {

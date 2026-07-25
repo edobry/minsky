@@ -60,16 +60,18 @@ export interface UserPromptSubmitInput extends ClaudeHookInput {
 }
 
 /**
- * Which signal produced a flag's `lastActivityAt` (mt#3172; mirrors
- * src/cockpit/dispatch-watchdog.ts's DispatchWatchdogActivitySource — this
- * hook duplicates the shape rather than importing it, per this file's
- * module-graph-isolation convention, see the cache-path comment above).
+ * Which signal produced a flag's `lastActivityAt` (mt#3172; mt#3193 adds
+ * `"workspace-mtime"`; mirrors src/cockpit/dispatch-watchdog.ts's
+ * DispatchWatchdogActivitySource — this hook duplicates the shape rather
+ * than importing it, per this file's module-graph-isolation convention, see
+ * the cache-path comment above).
  */
 export type DispatchWatchdogActivitySourceRecord =
   | "dispatch-start"
   | "commit"
   | "event"
-  | "presence";
+  | "presence"
+  | "workspace-mtime";
 
 /** One flagged dispatch (mirrors src/cockpit/dispatch-watchdog.ts DispatchWatchdogFlag). */
 export interface DispatchWatchdogFlagRecord {
@@ -128,6 +130,7 @@ export function parseDispatchWatchdogCache(raw: string): DispatchWatchdogCacheRe
       rawSource === "commit" ||
       rawSource === "event" ||
       rawSource === "presence" ||
+      rawSource === "workspace-mtime" ||
       rawSource === "dispatch-start"
         ? rawSource
         : "dispatch-start";
