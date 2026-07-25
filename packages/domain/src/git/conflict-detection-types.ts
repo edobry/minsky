@@ -95,12 +95,31 @@ export interface ResolutionStrategy {
 export interface BranchDivergenceAnalysis {
   sessionBranch: string;
   baseBranch: string;
-  aheadCommits: number;
-  behindCommits: number;
-  lastCommonCommit: string;
+  /**
+   * Commit counts, or **null when the comparison could not be made** (mt#3220)
+   * — `rev-list` failed, or returned output that did not parse.
+   *
+   * Null is not zero. Previously both defaulted to `0`, which is
+   * indistinguishable from a genuinely converged pair of branches, and drove
+   * `divergenceType: "none"` → a caller skipping an update it may have needed.
+   */
+  aheadCommits: number | null;
+  behindCommits: number | null;
+  /** Merge base, or null when it could not be determined (was `""` — same ambiguity). */
+  lastCommonCommit: string | null;
   sessionChangesInBase: boolean;
-  divergenceType: "none" | "ahead" | "behind" | "diverged";
-  recommendedAction: "none" | "fast_forward" | "update_needed" | "skip_update";
+  /**
+   * `"unknown"` means the comparison did not produce an answer — distinct from
+   * `"none"`, which asserts the branches ARE converged. Callers must not treat
+   * the two alike: `"none"` is a measurement, `"unknown"` is its absence.
+   */
+  divergenceType: "none" | "ahead" | "behind" | "diverged" | "unknown";
+  /**
+   * `"manual_review"` accompanies `divergenceType: "unknown"` — deliberately NOT
+   * `"none"`, which would read as "verified nothing to do" for a comparison that
+   * never happened.
+   */
+  recommendedAction: "none" | "fast_forward" | "update_needed" | "skip_update" | "manual_review";
 }
 
 export interface EnhancedMergeResult {
