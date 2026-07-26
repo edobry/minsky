@@ -53,24 +53,72 @@
  * motion (excursions, beams, arrivals) remains strictly honest. Operator
  * approved this direction 2026-07-25 by requesting it.
  *
- * @see session-film-layout.ts — the node positions this renders
+ * ## Beam-on-every-action (mt#3231 SC 7)
+ *
+ * v1.1 only fired a beam for a genuine PARALLEL batch (`fanOutTargetIds`
+ * below). A singleton (non-batch) action just moved the avatar with no
+ * pulse — the operator's exact v1.2 finding: "it goes somewhere and
+ * something happens but it's not clear it's doing stuff." Every actor whose
+ * CURRENT folded action resolves to a target now draws ONE beam with
+ * "outcome physics" (`session-film-beams.ts`): pull for read, push for
+ * write/create, fan for search, a louder push for delete, and bounce/policy
+ * overrides for error/denied outcomes regardless of verb. This is honest,
+ * event-driven motion (not the ambient register) — the beam exists because
+ * the fold's CURRENT state has a real `lastVerb`/`currentTargetId`, not a
+ * decorative loop.
+ *
+ * ## Living layout (mt#3231 SC 4)
+ *
+ * `layout` (the `computeStageLayout` prop) is immediately wrapped by
+ * `useSessionFilmForceLayout` into `layout` (shadowed) — a LIVE d3-force
+ * simulation warm-started from the same tidy-tree positions. Every
+ * reference to `layout` below therefore already reads live, gently-
+ * drifting positions; nothing downstream needed to change since nodes stay
+ * keyed by the same `id`/`entityId`. See `session-film-force-layout.ts`
+ * for the honest-motion carve-out record for this pass specifically.
+ *
+ * @see session-film-layout.ts — the STATIC tidy-tree this warm-starts from
+ * @see session-film-force-layout.ts — the live simulation + its honest-motion carve-out record
+ * @see ../hooks/useSessionFilmForceLayout.ts — the React tick-loop wiring
+ *
+ * ## Camera-follow (mt#3231 SC 5)
+ *
+ * `growingBounds` (computed from the LIVE `layout.nodes`' own positions,
+ * below) is passed to `PanZoomSVG`, which eases the viewBox toward fitting
+ * it — the RFC's A3 "camera-follow" rung, pulled forward alongside the
+ * living layout above since both address the SAME operator finding ("still
+ * feels static"). Reduced motion passes `easeMs: 0` (snap, not tween) —
+ * same convention as every other motion class in this file. A user pan/zoom
+ * overrides and pauses it (`PanZoomSVG`'s existing `userInteractedRef`).
+ *
  * @see session-film-links.ts — entity receipt resolution for node clicks
  * @see session-film-aliveness.ts — glow-brightness math + the full design-decision record
+ * @see session-film-beams.ts — beam-kind/direction/styling logic for the beam-on-every-action pass
  * @see PanZoomSVG.tsx — ambient camera drift
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EventOutcome } from "@minsky/domain/transcripts/event-schema";
 import { PanZoomSVG } from "../PanZoomSVG";
 import type { StageLayout } from "../../lib/session-film-layout";
-import type { AgentFoldState, WorldFoldState } from "../../lib/session-film-fold";
+import type { AgentFoldState, EntityFoldState, WorldFoldState } from "../../lib/session-film-fold";
 import { guardDocReceiptPath } from "../../lib/session-film-links";
+import { parseRoutableTarget } from "../../lib/session-film-target-ref";
+import { EntityRef } from "../EntityRef";
 import {
   computeTouchedSetContourPath,
   touchedSetContourColorClass,
 } from "../../lib/session-film-contour";
 import { DEFAULT_SESSION_FILM_CONFIG, type SessionFilmConfig } from "../../lib/session-film-config";
 import { bloomOpacity, bloomStdDeviation, computeGlowBrightness } from "../../lib/session-film-aliveness";
+import {
+  beamClassName,
+  beamDashArray,
+  beamEndpoints,
+  beamKindForAgentState,
+  beamStrokeWidth,
+} from "../../lib/session-film-beams";
 import { useAmbientClock } from "../../hooks/useAmbientClock";
+import { useSessionFilmForceLayout } from "../../hooks/useSessionFilmForceLayout";
 import { cn } from "../../lib/utils";
 
 /** Shared bloom-filter id — one filter definition, referenced by every glowing element. */
@@ -86,7 +134,16 @@ export interface SessionFilmStageProps {
   layout: StageLayout;
   world: WorldFoldState;
   reducedMotion: boolean;
-  onSelectEntity?: (entityId: string) => void;
+  /**
+   * Fired both on selection (a non-null id) AND on clear (`null` — the
+   * detail panel's close button, Esc, or click-outside). Widened from
+   * `(entityId: string) => void` (mt#3231 review R1, BLOCKING): a
+   * controlling parent that passes `selectedEntityId` must ALSO be able to
+   * clear it from inside this component, or the close affordance below has
+   * no way to reach the parent's state and the panel becomes permanently
+   * non-dismissible whenever a parent controls selection.
+   */
+  onSelectEntity?: (entityId: string | null) => void;
   selectedEntityId?: string | null;
   /** Tunables (DOI/motion/contour styling/aliveness) — defaults to DEFAULT_SESSION_FILM_CONFIG. */
   config?: SessionFilmConfig;
@@ -131,6 +188,21 @@ function spawnKindLabel(raw: unknown): string {
 }
 
 /**
+ * Hover-tooltip text for a leaf entity node (mt#3231 SC 6 / AT 6): an SVG
+ * `<title>` at minimum (the spec's stated floor) — the native browser
+ * tooltip that appears on hover. Only realm ROOTS carried a visible
+ * `<text>` label in v1.1; leaves carried nothing but a screen-reader
+ * `aria-label`, which sighted mouse-hover users never see. Includes the
+ * node's realm + entity id + last verb/outcome so the tooltip is a genuine
+ * receipt, not just an echo of the already-visible label.
+ */
+function nodeTooltipText(label: string, realm: string, entity: EntityFoldState | undefined): string {
+  if (!entity) return label;
+  const outcome = entity.lastOutcome ?? "in-flight";
+  return `${label} (${realm}) — ${entity.lastVerb} · ${outcome}`;
+}
+
+/**
  * Fan-out targets for the CURRENT row, when it was a genuine parallel batch
  * (spec SC 5/SC 10, AT 1's stage half): "a parallel batch renders beams to
  * ALL targets simultaneously with the avatar at home — never a sequential
@@ -168,7 +240,7 @@ function avatarPosition(
 }
 
 export function SessionFilmStage({
-  layout,
+  layout: staticLayout,
   world,
   reducedMotion,
   onSelectEntity,
@@ -177,7 +249,72 @@ export function SessionFilmStage({
   nowIso,
   className,
 }: SessionFilmStageProps) {
+  // Living layout (mt#3231 SC 4): every downstream reference to `layout`
+  // below (edges, beams, avatar excursions, node clicks, the contour) reads
+  // LIVE force-simulated positions instead of the compute-once tidy-tree —
+  // nodes are still keyed by the SAME `id`/`entityId`, so nothing else in
+  // this component needs to change.
+  const layout = useSessionFilmForceLayout(staticLayout, config, reducedMotion);
   const agents = useMemo(() => [...world.agents.values()], [world.agents]);
+
+  // Working click -> visible detail affordance (mt#3231 SC 6 / AT 6):
+  // `onSelectEntity` already fired in v1.1 with nothing downstream
+  // consuming it (the real bug — not the click handler, the missing
+  // affordance). Tracks its OWN selection as a fallback so this component
+  // renders a real detail panel even when the parent page doesn't (yet)
+  // control `selectedEntityId` — a controlling parent's prop still wins.
+  const [internalSelectedEntityId, setInternalSelectedEntityId] = useState<string | null>(null);
+  const effectiveSelectedEntityId = selectedEntityId ?? internalSelectedEntityId;
+  /** The rendered detail-panel DOM node, for the click-outside dismissal below. */
+  const detailPanelRef = useRef<HTMLDivElement | null>(null);
+  const selectEntity = useCallback(
+    (entityId: string) => {
+      onSelectEntity?.(entityId);
+      setInternalSelectedEntityId(entityId);
+    },
+    [onSelectEntity]
+  );
+  // Close affordance (mt#3231 review R1, BLOCKING): clears BOTH the internal
+  // fallback state AND the parent's controlled state via `onSelectEntity(null)`
+  // — clearing only `internalSelectedEntityId` (the pre-fix behavior) left
+  // `effectiveSelectedEntityId` pinned to the parent's non-null
+  // `selectedEntityId` whenever a parent controls selection, making the
+  // panel's close button a no-op in controlled mode.
+  const clearSelectedEntity = useCallback(() => {
+    onSelectEntity?.(null);
+    setInternalSelectedEntityId(null);
+  }, [onSelectEntity]);
+  const selectedEntity = effectiveSelectedEntityId ? world.entities.get(effectiveSelectedEntityId) : undefined;
+  const selectedRoutable = selectedEntity ? parseRoutableTarget(selectedEntity) : null;
+
+  // Esc + click-outside dismissal (mt#3231 review R1, BLOCKING — "add a
+  // working close (X / Esc / click-outside)"). Scoped to a `pointerdown`
+  // listener checked against `detailPanelRef` (not a bare document click)
+  // so a click that STARTS the selection (a node click on the SVG stage)
+  // never races with this handler closing the panel it just opened in the
+  // same event — the SVG click is a separate `onClick` on the node, not
+  // inside this panel, so `!panel.contains(target)` would otherwise also
+  // fire for the very click that sets `effectiveSelectedEntityId` in the
+  // first place. Guarding the whole listener on `effectiveSelectedEntityId`
+  // being non-null (attach/detach per open/close) avoids that: the panel
+  // doesn't exist in the DOM yet at the moment the opening click fires, so
+  // there's nothing to attach a listener to until the NEXT render.
+  useEffect(() => {
+    if (!effectiveSelectedEntityId) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") clearSelectedEntity();
+    };
+    const handlePointerDown = (e: PointerEvent) => {
+      const panel = detailPanelRef.current;
+      if (panel && !panel.contains(e.target as Node)) clearSelectedEntity();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [effectiveSelectedEntityId, clearSelectedEntity]);
 
   // Touched-set contour visibility (spec SC 7 / AT 5): "off by default;"
   // hover shows transiently, click PINS it open until clicked again — so a
@@ -233,7 +370,26 @@ export function SessionFilmStage({
     "--float-period": `${config.aliveness.avatarFloatPeriodMs}ms`,
   } as React.CSSProperties;
 
+  // Camera-follow (mt#3231 SC 5): the LIVE touched-set's own bounding box —
+  // "the viewport auto-fits the world's growing bounding box." Includes
+  // home (the agents' shared origin) so a fresh/empty film still frames a
+  // sensible region rather than an empty (0-area) box.
+  const growingBounds = useMemo(() => {
+    let minX = layout.homeX;
+    let maxX = layout.homeX;
+    let minY = layout.homeY;
+    let maxY = layout.homeY;
+    for (const node of layout.nodes) {
+      if (node.x < minX) minX = node.x;
+      if (node.x > maxX) maxX = node.x;
+      if (node.y < minY) minY = node.y;
+      if (node.y > maxY) maxY = node.y;
+    }
+    return { minX, minY, maxX, maxY };
+  }, [layout]);
+
   return (
+    <div className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col", className)}>
     <PanZoomSVG
       boardWidth={STAGE_BOARD_WIDTH}
       boardHeight={STAGE_BOARD_HEIGHT}
@@ -243,7 +399,12 @@ export function SessionFilmStage({
         amplitudePx: config.aliveness.driftAmplitudePx,
         periodMs: config.aliveness.driftPeriodMs,
       }}
-      className={className}
+      growingBounds={{
+        bounds: growingBounds,
+        padding: config.camera.paddingPx,
+        easeMs: reducedMotion ? 0 : config.camera.easeMs,
+      }}
+      className="flex-1"
     >
       <g
         transform={`translate(${STAGE_BOARD_WIDTH / 2}, ${STAGE_BOARD_HEIGHT / 2})`}
@@ -346,7 +507,7 @@ export function SessionFilmStage({
         {layout.nodes.map((node) => {
           const entity = node.entityId ? world.entities.get(node.entityId) : undefined;
           const isRoot = node.depth === 0;
-          const isSelected = node.entityId !== null && node.entityId === selectedEntityId;
+          const isSelected = node.entityId !== null && node.entityId === effectiveSelectedEntityId;
           const isSpawnBud = entity?.lastVerb === "spawn";
           const isCloneTerritory = entity?.lastVerb === "clone";
 
@@ -365,10 +526,11 @@ export function SessionFilmStage({
                 data-realm={node.realm}
                 data-clone-territory="true"
                 className="cursor-pointer"
-                onClick={() => node.entityId && onSelectEntity?.(node.entityId)}
+                onClick={() => node.entityId && selectEntity(node.entityId)}
                 role="button"
                 aria-label={`${node.label} (workspace clone)`}
               >
+                <title>{nodeTooltipText(node.label, node.realm, entity)}</title>
                 <rect
                   data-testid="session-film-clone-border"
                   x={-14}
@@ -408,10 +570,11 @@ export function SessionFilmStage({
                 data-spawn-bud="true"
                 data-spawn-kind={spawnKindLabel(entity?.raw)}
                 className="cursor-pointer"
-                onClick={() => node.entityId && onSelectEntity?.(node.entityId)}
+                onClick={() => node.entityId && selectEntity(node.entityId)}
                 role="button"
                 aria-label={`${node.label} (spawn: ${spawnKindLabel(entity?.raw)})`}
               >
+                <title>{nodeTooltipText(node.label, node.realm, entity)}</title>
                 <rect
                   x={-5}
                   y={-5}
@@ -440,10 +603,15 @@ export function SessionFilmStage({
               data-realm={node.realm}
               data-depth={node.depth}
               className="cursor-pointer"
-              onClick={() => node.entityId && onSelectEntity?.(node.entityId)}
+              onClick={() => node.entityId && selectEntity(node.entityId)}
               role={node.entityId ? "button" : undefined}
               aria-label={node.label}
             >
+              <title>
+                {isRoot
+                  ? `${node.label} (${node.childCount} touched)`
+                  : nodeTooltipText(node.label, node.realm, entity)}
+              </title>
               <circle
                 r={isRoot ? ROOT_RADIUS : NODE_RADIUS}
                 className={cn(
@@ -491,6 +659,71 @@ export function SessionFilmStage({
               />
             );
           });
+        })}
+
+        {/* Singleton action beams (mt#3231 SC 7 / AT 7): "a beam on EVERY
+            action, not just batches" — v1.1 only beamed a genuine parallel
+            fan-out; a lone action just moved the avatar with no pulse
+            (operator: "it's not clear it's doing stuff"). One beam per
+            agent whose CURRENT folded action has outcome physics
+            (`session-film-beams.ts`) and isn't already covered by the
+            fan-out beams above (a fanned-out agent's beams are already
+            drawn — never double-beam the same actor). */}
+        {agents.map((agent) => {
+          if (fanOutTargetIds(agent, world)) return null; // fan-out beams above already cover this actor
+          const kind = beamKindForAgentState(agent);
+          if (!kind) return null;
+          const targetNode = agent.currentTargetId
+            ? layout.nodes.find((n) => n.entityId === agent.currentTargetId)
+            : undefined;
+          if (!targetNode) return null; // target collapsed out of the DOI budget this frame
+          const { x1, y1, x2, y2 } = beamEndpoints(
+            kind,
+            { x: layout.homeX, y: layout.homeY },
+            { x: targetNode.x, y: targetNode.y }
+          );
+          const dash = beamDashArray(kind);
+          return (
+            <line
+              key={`beam-${agent.key}`}
+              data-testid={`session-film-beam-${agent.key}-${agent.currentTargetId}`}
+              data-beam-kind={kind}
+              x1={x1}
+              y1={y1}
+              x2={x2}
+              y2={y2}
+              className={cn(
+                beamClassName(kind),
+                !reducedMotion && "session-film-beam-pulse",
+                !reducedMotion && kind === "bounce" && "session-film-beam-bounce"
+              )}
+              // CSS-vs-attribute precedence (mt#3231 review R1, non-blocking
+              // #6 — keep this note here, not ONLY in index.css, so an editor
+              // touching this JSX sees it too): `.session-film-beam-pulse`
+              // (applied via `className` above whenever `!reducedMotion`)
+              // sets `stroke-dasharray: var(--beam-dash, 5 4)` in CSS, which
+              // ALWAYS wins over the `strokeDasharray` presentation
+              // attribute set below — a CSS property beats an SVG
+              // presentation attribute of the same name, full stop. The
+              // `--beam-dash` custom property here is what keeps the
+              // per-kind dash pattern (`beamDashArray`) alive under that
+              // class; DO NOT remove it thinking `strokeDasharray` alone
+              // suffices — under reduced motion the class isn't applied, so
+              // the attribute IS what renders, but as soon as the pulse
+              // class comes back the CSS rule reasserts control.
+              style={
+                !reducedMotion
+                  ? ({
+                      "--beam-duration": `${config.motion.beamDurationMs}ms`,
+                      "--beam-dash": dash ?? "5 4",
+                    } as React.CSSProperties)
+                  : undefined
+              }
+              strokeWidth={beamStrokeWidth(kind)}
+              strokeDasharray={dash}
+              strokeOpacity={0.75}
+            />
+          );
         })}
 
         {/* Touched-set contour (spec SC 7 / AT 5): off by default, drawn on
@@ -578,5 +811,38 @@ export function SessionFilmStage({
         })}
       </g>
     </PanZoomSVG>
+      {/* Working click -> visible detail affordance (mt#3231 SC 6 / AT 6):
+          `onSelectEntity` fired in v1.1 with nothing downstream — this panel
+          IS the consumer. Rendered as an HTML overlay (not SVG) sibling to
+          PanZoomSVG so it stays screen-fixed regardless of pan/zoom. */}
+      {selectedEntity ? (
+        <div
+          ref={detailPanelRef}
+          data-testid="session-film-entity-detail-panel"
+          className="absolute bottom-2 left-2 z-10 max-w-xs rounded border border-border bg-card p-2 text-xs shadow-sm"
+        >
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="truncate font-mono font-semibold text-foreground">{selectedEntity.id}</span>
+            <button
+              type="button"
+              aria-label="Close entity detail"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={clearSelectedEntity}
+            >
+              ×
+            </button>
+          </div>
+          <div className="text-muted-foreground">
+            {selectedEntity.realm} · {selectedEntity.lastVerb} ·{" "}
+            {selectedEntity.lastOutcome ?? "in-flight"}
+          </div>
+          {selectedRoutable ? (
+            <div className="mt-1">
+              <EntityRef type={selectedRoutable.type} id={selectedRoutable.id} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }

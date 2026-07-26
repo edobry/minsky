@@ -20,7 +20,14 @@ import {
 } from "lucide-react";
 import type { EventVerb } from "@minsky/domain/transcripts/event-schema";
 import { EVENT_VERBS } from "@minsky/domain/transcripts/event-schema";
-import { actorIconFor, BATCH_ROW_ICON, toolIconFor, verbIconFor } from "./tool-icon";
+import {
+  actorIconFor,
+  BATCH_ROW_ICON,
+  BATCH_ROW_LABEL,
+  toolIconFor,
+  verbIconFor,
+  verbLabelFor,
+} from "./tool-icon";
 import { parseToolName } from "./tool-name";
 
 describe("toolIconFor", () => {
@@ -119,5 +126,36 @@ describe("BATCH_ROW_ICON / actorIconFor (mt#3226 SC 2)", () => {
     expect(actorIconFor("principal")).toBe(User);
     expect(actorIconFor("policy")).toBe(ShieldAlert);
     expect(actorIconFor("agent")).toBe(Bot);
+  });
+});
+
+describe("verbLabelFor / BATCH_ROW_LABEL (mt#3231 SC 2 / AT 2 — icon text-label badges)", () => {
+  test("every verb in the real vocabulary (EVENT_VERBS) gets a non-empty human label", () => {
+    for (const verb of EVENT_VERBS as readonly EventVerb[]) {
+      const label = verbLabelFor(verb);
+      expect(typeof label).toBe("string");
+      expect(label.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("a sample of verbs get the expected human-readable word (not the raw verb string)", () => {
+    expect(verbLabelFor("read")).toBe("Read");
+    expect(verbLabelFor("write")).toBe("Write");
+    expect(verbLabelFor("search")).toBe("Search");
+    expect(verbLabelFor("think")).toBe("Think");
+    expect(verbLabelFor("wait")).toBe("Wait");
+    expect(verbLabelFor("spawn")).toBe("Spawn");
+    expect(verbLabelFor("ask")).toBe("Ask");
+  });
+
+  test("every verb's label is distinct — no two verbs collapse to the same word (even where icons collide, e.g. read/search)", () => {
+    const labels = (EVENT_VERBS as readonly EventVerb[]).map(verbLabelFor);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  test("BATCH_ROW_LABEL is distinct from every verb's label", () => {
+    for (const verb of EVENT_VERBS as readonly EventVerb[]) {
+      expect(verbLabelFor(verb)).not.toBe(BATCH_ROW_LABEL);
+    }
   });
 });

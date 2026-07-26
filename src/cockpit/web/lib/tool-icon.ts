@@ -121,8 +121,53 @@ export function verbIconFor(verb: EventVerb): LucideIcon {
   }
 }
 
+/**
+ * Human-readable label per verb (mt#3231 SC 2 / AT 2 — "icon labels/badges"):
+ * a short WORD beside the icon, since a bare glyph alone under-communicates
+ * ("Read"/"Write"/"Search"/"Think"/"Wait"/"Spawn"/"Ask" per the operator's
+ * finding). Kept in this SAME shared registry (not a bespoke ribbon-only
+ * label map) so a future legend or any other verb-icon consumer draws from
+ * one source, per the module doc's "ribbon and any future legend share one
+ * source" convention.
+ */
+export function verbLabelFor(verb: EventVerb): string {
+  switch (verb) {
+    case "read":
+      return "Read";
+    case "search":
+      return "Search";
+    case "write":
+      return "Write";
+    case "create":
+      return "Create";
+    case "delete":
+      return "Delete";
+    case "clone":
+      return "Clone";
+    case "execute":
+      return "Run";
+    case "spawn":
+      return "Spawn";
+    case "wait":
+      return "Wait";
+    case "speak":
+      return "Speak";
+    case "think":
+      return "Think";
+    case "ask":
+      return "Ask";
+    case "respond":
+      return "Respond";
+    default:
+      return "Act";
+  }
+}
+
 /** Icon for a collapsed parallel-batch row (>1 simultaneous event) — distinct from any single verb. */
 export const BATCH_ROW_ICON: LucideIcon = Layers;
+
+/** Label for a collapsed parallel-batch row's icon badge (mt#3231 SC 2). */
+export const BATCH_ROW_LABEL = "Batch";
 
 /** Per-actor-kind icon for the session film's actor-change marker (mt#3226 SC 2). */
 export function actorIconFor(kind: EventActorKind): LucideIcon {

@@ -240,3 +240,124 @@ describe("SessionFilmRibbon — actor-change marker (mt#3226 SC 2 / AT 2)", () =
     expect(unchangedRow.getAttribute("data-actor-change")).toBeNull();
   });
 });
+
+describe("SessionFilmRibbon — self-reference elision (mt#3231 SC 1 / AT 1)", () => {
+  test("a row targeting the film's own subject agent renders the compact self-reference, not the raw repeated id", () => {
+    const events: SemanticEvent[] = [
+      // A self-targeting `think` event reveals the subject agent id.
+      ev({
+        batchId: "b1",
+        verb: "think",
+        actor: { kind: "agent", agentSessionId: "a1" },
+        target: { realm: "agents", id: "agents:a1" },
+      }),
+      // A SECOND self-targeting event — this is the repetition finding 1
+      // diagnosed: without elision, this row would ALSO print "a1".
+      ev({
+        batchId: "b2",
+        verb: "speak",
+        actor: { kind: "agent", agentSessionId: "a1" },
+        target: { realm: "agents", id: "agents:a1" },
+      }),
+    ];
+    renderRibbon(events);
+    const row0 = screen.getByTestId("session-film-row-0");
+    const row1 = screen.getByTestId("session-film-row-1");
+    expect(row0.querySelector('[data-testid="session-film-self-ref"]')).not.toBeNull();
+    expect(row1.querySelector('[data-testid="session-film-self-ref"]')).not.toBeNull();
+    expect(row0.textContent).not.toContain("agents:a1");
+  });
+
+  test("a REAL spawn target (a different agent, e.g. agents:Explore) still renders its own meaningful label, not elided", () => {
+    const events: SemanticEvent[] = [
+      ev({
+        batchId: "b1",
+        verb: "think",
+        actor: { kind: "agent", agentSessionId: "a1" },
+        target: { realm: "agents", id: "agents:a1" },
+      }),
+      ev({
+        batchId: "b2",
+        verb: "spawn",
+        actor: { kind: "agent", agentSessionId: "a1" },
+        target: { realm: "agents", id: "agents:Explore" },
+      }),
+    ];
+    renderRibbon(events);
+    const spawnRow = screen.getByTestId("session-film-row-1");
+    expect(spawnRow.querySelector('[data-testid="session-film-self-ref"]')).toBeNull();
+    expect(spawnRow.textContent).toContain("Explore");
+  });
+});
+
+describe("SessionFilmRibbon — icon + text-label badges (mt#3231 SC 2 / AT 2)", () => {
+  test("a row's icon badge carries a human-readable verb label beside the icon, from the shared registry", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1", verb: "read" })];
+    renderRibbon(events);
+    const row = screen.getByTestId("session-film-row-0");
+    const badge = row.querySelector('[data-testid="session-film-row-icon-badge"]');
+    expect(badge).not.toBeNull();
+    expect(badge?.querySelector('[data-testid="session-film-row-icon"]')).not.toBeNull();
+    expect(row.querySelector('[data-testid="session-film-verb-label"]')?.textContent).toBe("Read");
+  });
+
+  test("a parallel-batch row's badge carries the batch label, not a per-verb label", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1" }), ev({ batchId: "b1" })];
+    renderRibbon(events);
+    const row = screen.getByTestId("session-film-row-0");
+    expect(row.querySelector('[data-testid="session-film-verb-label"]')?.textContent).toBe("Batch");
+  });
+});
+
+describe("SessionFilmRibbon — click-to-expand inline accordion (mt#3231 SC 3 / AT 3)", () => {
+  test("clicking a row flips aria-expanded and reveals its detail; clicking again collapses it", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1", verb: "write" })];
+    renderRibbon(events);
+    const row = screen.getByTestId("session-film-row-0");
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByTestId("session-film-row-detail-0")).toBeNull();
+
+    fireEvent.click(row);
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    const detail = screen.getByTestId("session-film-row-detail-0");
+    expect(detail.textContent).toContain("Write");
+
+    fireEvent.click(row);
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByTestId("session-film-row-detail-0")).toBeNull();
+  });
+
+  test("expanding is keyboard-accessible via Enter", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1" })];
+    renderRibbon(events);
+    const row = screen.getByTestId("session-film-row-0");
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("session-film-row-detail-0")).toBeDefined();
+  });
+
+  test("a batch row expands to list its individual member events", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", verb: "read", target: { realm: "repo", id: "file:ws:a.ts" } }),
+      ev({ batchId: "b1", verb: "write", target: { realm: "repo", id: "file:ws:b.ts" } }),
+      ev({ batchId: "b1", verb: "search", target: { realm: "web", id: "web:example.com" } }),
+    ];
+    renderRibbon(events);
+    const row = screen.getByTestId("session-film-row-0");
+    fireEvent.click(row);
+    expect(screen.getByTestId("session-film-row-detail-event-0")).toBeDefined();
+    expect(screen.getByTestId("session-film-row-detail-event-1")).toBeDefined();
+    expect(screen.getByTestId("session-film-row-detail-event-2")).toBeDefined();
+    const detail = screen.getByTestId("session-film-row-detail-0");
+    expect(detail.textContent).toContain("a.ts");
+    expect(detail.textContent).toContain("b.ts");
+    expect(detail.textContent).toContain("example.com");
+  });
+
+  test("clicking a row still fires onSelectRow (the external hook stays wired)", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1" }), ev({ batchId: "b2" })];
+    const { onSelectRow } = renderRibbon(events);
+    fireEvent.click(screen.getByTestId("session-film-row-1"));
+    expect(onSelectRow).toHaveBeenCalledWith(1);
+  });
+});

@@ -5,7 +5,10 @@
  *   src/cockpit/web/components/session-film/SessionFilmStage.test.tsx
  */
 import { describe, test, expect, afterEach, mock } from "bun:test";
+import { useState } from "react";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
 import { buildKeyframes, foldAtBatchIndex, foldEvents } from "../../lib/session-film-fold";
 import { groupEventsIntoBatchRows } from "../../lib/session-film-batches";
@@ -149,11 +152,13 @@ describe("SessionFilmStage — batch fan-out (SC5/SC10, AT1's stage half)", () =
     expect(avatar.getAttribute("data-at-home")).toBe("true");
   });
 
-  test("a singleton row does NOT render fan-out beams — the avatar makes an ordinary excursion", () => {
+  test("a singleton row does NOT render FAN-OUT beams — the avatar makes an ordinary excursion (it still gets its OWN single action beam, mt#3231 SC 7)", () => {
     const events: SemanticEvent[] = [ev({ batchId: "b1" })];
     const { world, layout } = buildRowAwareFixture(events);
     render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
-    expect(screen.queryAllByTestId(/session-film-beam-/).length).toBe(0);
+    for (const beam of screen.queryAllByTestId(/session-film-beam-/)) {
+      expect(beam.getAttribute("data-fan-out")).toBeNull();
+    }
     const avatar = screen.getByTestId("session-film-avatar-agent:a1");
     expect(avatar.getAttribute("data-at-home")).toBeNull();
   });
@@ -335,5 +340,212 @@ describe("SessionFilmStage — aliveness pass (mt#3226 SC 4 / AT 5)", () => {
     const el = screen.getByTestId(`session-film-node-${node.id}`);
     const circle = el.querySelector("circle");
     expect(circle?.getAttribute("class")).toContain("session-film-arrival-settle");
+  });
+});
+
+describe("SessionFilmStage — beam on every action (mt#3231 SC 7 / AT 7)", () => {
+  test("a single (non-batch) read event renders a beam from target toward the agent", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1", verb: "read" })];
+    const { world, layout } = buildRowAwareFixture(events);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const beam = screen.getByTestId(`session-film-beam-agent:a1-file:workspace:foo.ts`);
+    expect(beam.getAttribute("data-beam-kind")).toBe("pull");
+    // pull: x1/y1 is the TARGET, x2/y2 is home (energy flows toward the agent).
+    const targetNode = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!targetNode) throw new Error("fixture node missing — test setup bug");
+    expect(Number(beam.getAttribute("x1"))).toBe(targetNode.x);
+    expect(Number(beam.getAttribute("x2"))).toBe(layout.homeX);
+  });
+
+  test("a write renders a beam from the agent toward the target — the opposite direction of a read", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1", verb: "write" })];
+    const { world, layout } = buildRowAwareFixture(events);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const beam = screen.getByTestId(`session-film-beam-agent:a1-file:workspace:foo.ts`);
+    expect(beam.getAttribute("data-beam-kind")).toBe("push");
+    const targetNode = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!targetNode) throw new Error("fixture node missing — test setup bug");
+    expect(Number(beam.getAttribute("x1"))).toBe(layout.homeX);
+    expect(Number(beam.getAttribute("x2"))).toBe(targetNode.x);
+  });
+
+  test("an error renders the distinct bounce treatment, not an ordinary push/pull", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1", verb: "write", outcome: "error" })];
+    const { world, layout } = buildRowAwareFixture(events);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const beam = screen.getByTestId(`session-film-beam-agent:a1-file:workspace:foo.ts`);
+    expect(beam.getAttribute("data-beam-kind")).toBe("bounce");
+    expect(beam.getAttribute("class")).toContain("warn-red");
+  });
+
+  test("read/write/error beams are all visually distinct from one another", () => {
+    const pullEvents: SemanticEvent[] = [ev({ batchId: "b1", verb: "read" })];
+    const { world: pullWorld, layout: pullLayout } = buildRowAwareFixture(pullEvents);
+    const { unmount } = render(
+      <SessionFilmStage layout={pullLayout} world={pullWorld} reducedMotion={false} />
+    );
+    const pullBeam = screen.getByTestId("session-film-beam-agent:a1-file:workspace:foo.ts");
+    const pullKind = pullBeam.getAttribute("data-beam-kind");
+    unmount();
+
+    const pushEvents: SemanticEvent[] = [ev({ batchId: "b1", verb: "write" })];
+    const { world: pushWorld, layout: pushLayout } = buildRowAwareFixture(pushEvents);
+    const { unmount: unmount2 } = render(
+      <SessionFilmStage layout={pushLayout} world={pushWorld} reducedMotion={false} />
+    );
+    const pushBeam = screen.getByTestId("session-film-beam-agent:a1-file:workspace:foo.ts");
+    const pushKind = pushBeam.getAttribute("data-beam-kind");
+    unmount2();
+
+    const errorEvents: SemanticEvent[] = [ev({ batchId: "b1", verb: "write", outcome: "error" })];
+    const { world: errorWorld, layout: errorLayout } = buildRowAwareFixture(errorEvents);
+    render(<SessionFilmStage layout={errorLayout} world={errorWorld} reducedMotion={false} />);
+    const errorBeam = screen.getByTestId("session-film-beam-agent:a1-file:workspace:foo.ts");
+    const errorKind = errorBeam.getAttribute("data-beam-kind");
+
+    expect(new Set([pullKind, pushKind, errorKind]).size).toBe(3);
+  });
+
+  test("a conversational (think) event renders no beam — nothing to beam to", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1", verb: "think", actor: { kind: "agent", agentSessionId: "a1" } })];
+    const { world, layout } = buildRowAwareFixture(events);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    expect(screen.queryAllByTestId(/session-film-beam-/).length).toBe(0);
+  });
+
+  test("a fanned-out parallel batch is NOT double-beamed by the singleton path", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", target: { realm: "repo", id: "file:ws:a.ts" } }),
+      ev({ batchId: "b1", target: { realm: "repo", id: "file:ws:b.ts" } }),
+    ];
+    const { world, layout } = buildRowAwareFixture(events);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    // Exactly the two fan-out beams — no extra singleton beam for the same actor.
+    const beams = screen.queryAllByTestId(/session-film-beam-agent:a1/);
+    expect(beams.length).toBe(2);
+    for (const beam of beams) {
+      expect(beam.getAttribute("data-fan-out")).toBe("true");
+    }
+  });
+});
+
+describe("SessionFilmStage — node labels + hover + working click (mt#3231 SC 6 / AT 6)", () => {
+  test("a leaf entity node carries a visible-on-hover <title> with its label", () => {
+    const { world, layout } = buildFixture([ev()]);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    const el = screen.getByTestId(`session-film-node-${node.id}`);
+    const title = el.querySelector("title");
+    expect(title).not.toBeNull();
+    expect(title?.textContent).toContain(node.label);
+  });
+
+  test("clicking a node invokes onSelectEntity AND renders a visible detail panel for that entity", () => {
+    const { world, layout } = buildFixture([ev()]);
+    const onSelectEntity = mock(() => {});
+    render(
+      <SessionFilmStage layout={layout} world={world} reducedMotion={false} onSelectEntity={onSelectEntity} />
+    );
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+    expect(onSelectEntity).toHaveBeenCalledWith("file:workspace:foo.ts");
+    const panel = screen.getByTestId("session-film-entity-detail-panel");
+    expect(panel.textContent).toContain("file:workspace:foo.ts");
+    expect(panel.textContent).toContain("repo");
+  });
+
+  test("the detail panel renders an EntityRef deeplink for a routable minsky-substrate entity", () => {
+    const events: SemanticEvent[] = [
+      ev({ target: { realm: "minsky-substrate", id: "minsky:task:mt#1772" } }),
+    ];
+    const { world, layout } = buildFixture(events);
+    const originalFetch = global.fetch;
+    global.fetch = mock(async () => ({
+      ok: false,
+      json: async () => ({ state: "degraded", reason: "not mocked in test" }),
+    })) as unknown as typeof fetch;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <SessionFilmStage layout={layout} world={world} reducedMotion={false} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const node = layout.nodes.find((n) => n.entityId === "minsky:task:mt#1772");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+    const panel = screen.getByTestId("session-film-entity-detail-panel");
+    expect(panel.querySelector("a")).not.toBeNull();
+    global.fetch = originalFetch;
+  });
+
+  test("closing the detail panel hides it again", () => {
+    const { world, layout } = buildFixture([ev()]);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+    expect(screen.getByTestId("session-film-entity-detail-panel")).toBeDefined();
+    fireEvent.click(screen.getByLabelText("Close entity detail"));
+    expect(screen.queryByTestId("session-film-entity-detail-panel")).toBeNull();
+  });
+
+  // ── mt#3231 review R1, BLOCKING: the panel was non-dismissible whenever a
+  // parent controlled `selectedEntityId` — the close button only cleared
+  // this component's OWN internal fallback state, never the parent's. ──
+
+  test("closing the detail panel ALSO works when a parent controls selectedEntityId (open-then-close, controlled mode)", () => {
+    const { world, layout } = buildFixture([ev()]);
+    function ControlledHarness() {
+      const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+      return (
+        <SessionFilmStage
+          layout={layout}
+          world={world}
+          reducedMotion={false}
+          onSelectEntity={setSelectedEntityId}
+          selectedEntityId={selectedEntityId}
+        />
+      );
+    }
+    render(<ControlledHarness />);
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+    expect(screen.getByTestId("session-film-entity-detail-panel")).toBeDefined();
+
+    fireEvent.click(screen.getByLabelText("Close entity detail"));
+    expect(screen.queryByTestId("session-film-entity-detail-panel")).toBeNull();
+  });
+
+  test("the Escape key closes the detail panel", () => {
+    const { world, layout } = buildFixture([ev()]);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+    expect(screen.getByTestId("session-film-entity-detail-panel")).toBeDefined();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("session-film-entity-detail-panel")).toBeNull();
+  });
+
+  test("a pointerdown outside the detail panel closes it", () => {
+    const { world, layout } = buildFixture([ev()]);
+    render(
+      <div>
+        <div data-testid="outside-target">elsewhere on the page</div>
+        <SessionFilmStage layout={layout} world={world} reducedMotion={false} />
+      </div>
+    );
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+    expect(screen.getByTestId("session-film-entity-detail-panel")).toBeDefined();
+    fireEvent.pointerDown(screen.getByTestId("outside-target"));
+    expect(screen.queryByTestId("session-film-entity-detail-panel")).toBeNull();
   });
 });

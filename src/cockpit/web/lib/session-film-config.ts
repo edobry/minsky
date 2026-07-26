@@ -181,6 +181,38 @@ export interface SessionFilmConfig {
     /** Avatar idle-float period, ms. */
     avatarFloatPeriodMs: number;
   };
+  /**
+   * Living layout (mt#3231 SC 4 — the A2->A3 motion climb): tunables for the
+   * live d3-force simulation replacing the v1.1 compute-once tidy-tree +
+   * CSS-transition model. `homeStrength` is the "warm start stays organic,
+   * not chaotic" knob — it springs every node back toward its ORIGINAL
+   * tidy-tree slot (`session-film-layout.ts`'s radial-arc position), so
+   * `charge`/`link` only add gentle perturbation, never a random scatter.
+   * Realm ROOTS are pinned (fx/fy) regardless of these forces — see
+   * `session-film-force-layout.ts`.
+   */
+  forceLayout: {
+    /** Node-to-node repulsion strength (negative = repel; forceManyBody). */
+    chargeStrength: number;
+    /** Target rest length for a parent-child link (forceLink), world units. */
+    linkDistance: number;
+    /** Link-force strength (0-1ish; forceLink). */
+    linkStrength: number;
+    /** Strength (0-1) of the spring pulling a node back toward its nominal tidy-tree slot (forceX/forceY). */
+    homeStrength: number;
+    /** How often the live simulation ticks + re-renders, ms — NOT an event; the SAME already-real fold-driven nodes settling among themselves (honest-motion carve-out documented in session-film-force-layout.ts). */
+    tickIntervalMs: number;
+  };
+  /**
+   * Camera-follow / growing-bounding-box auto-fit (mt#3231 SC 5 — the RFC's
+   * A3 "camera-follow" rung). See `PanZoomSVG.tsx`'s `GrowingBoundsOptions`.
+   */
+  camera: {
+    /** World-space padding added around the touched-set's live bounding box before fitting. */
+    paddingPx: number;
+    /** Ease duration toward a new camera fit, ms. Callers pass 0 under `prefers-reduced-motion` (snap instead of tween). */
+    easeMs: number;
+  };
 }
 
 export const DEFAULT_SESSION_FILM_CONFIG: SessionFilmConfig = {
@@ -222,5 +254,16 @@ export const DEFAULT_SESSION_FILM_CONFIG: SessionFilmConfig = {
     driftPeriodMs: 14_000,
     avatarFloatAmplitudePx: 3,
     avatarFloatPeriodMs: 4_200,
+  },
+  forceLayout: {
+    chargeStrength: -18,
+    linkDistance: 48,
+    linkStrength: 0.25,
+    homeStrength: 0.12,
+    tickIntervalMs: 60,
+  },
+  camera: {
+    paddingPx: 60,
+    easeMs: 900,
   },
 };

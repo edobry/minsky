@@ -456,6 +456,52 @@
   transform-origin: center;
 }
 
+/* ---------------------------------------------------------------------------
+ * Beam-on-every-action (mt#3231 SC 7) — HONEST event-driven motion, not the
+ * ambient register above: this pulse exists only because a real action's
+ * outcome physics (session-film-beams.ts) resolved to a beam this frame.
+ * Gated behind `!reducedMotion` at the call site (SessionFilmStage.tsx),
+ * same convention as every other motion class in this file.
+ * --------------------------------------------------------------------------- */
+
+@keyframes session-film-beam-flow {
+  0% {
+    stroke-dashoffset: 12;
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.35;
+  }
+}
+
+.session-film-beam-pulse {
+  /* `--beam-dash` (set inline per beam kind, SessionFilmStage.tsx) keeps the
+     per-kind dash pattern (session-film-beams.ts's `beamDashArray`) intact
+     even though a CSS rule's `stroke-dasharray` otherwise overrides the SVG
+     presentation attribute of the same name — the attribute alone would be
+     silently clobbered by this class once the pulse animation applies. */
+  stroke-dasharray: var(--beam-dash, 5 4);
+  animation: session-film-beam-flow var(--beam-duration, 260ms) linear infinite;
+}
+
+@keyframes session-film-beam-bounce {
+  0%,
+  100% {
+    stroke-width: 1.5px;
+  }
+  50% {
+    stroke-width: 3.5px;
+  }
+}
+
+.session-film-beam-bounce {
+  animation: session-film-beam-bounce var(--beam-duration, 260ms) ease-in-out 2;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
