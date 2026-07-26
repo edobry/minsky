@@ -39,6 +39,16 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   "pr.review_posted",
   "subagent.failed",
   "embeddings.provider_degraded",
+  // mt#3228 (bidirectional principal channel) — an inbound Telegram message
+  // was refused by the channel's allowlist. Actionable because an unauthorized
+  // party attempting to drive the local swarm is something the operator must
+  // see; its accepted sibling below is informational.
+  "principal.message_rejected",
+  // mt#3228 (PR #2324 R1) — carrying out an accepted message FAILED. Actionable
+  // for the same reason the pre-action row is not sufficient on its own: "audit
+  // before action" records what the channel was asked to do, and without this
+  // the log never says whether it worked.
+  "principal.message_failed",
   // --- informational / trajectory (mt#2340) — discoverable on the operator's
   //     own schedule; primary consumer is the Phase 2 noticer ---
   "task.status_changed",
@@ -74,6 +84,18 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   // event is the one-shot consumption marker. Append-only by design.
   "task.bulk_edit.dry_run",
   "task.bulk_edit.executed",
+  // mt#3228 (bidirectional principal channel) — the principal sent the swarm a
+  // message from their phone. Informational: they know they sent it, and the
+  // channel agent's reply is the response they actually watch for. The
+  // append-only row is what makes the inbound path auditable, restart-safe
+  // (poll cursor), and replay-safe (idempotency token) at once.
+  "principal.message_received",
+  // mt#3228 (PR #2324 R3) — the inbound poller advanced its Telegram offset to
+  // a given update id. Needed because the cursor must clear updates that
+  // produce NO message row (an `edited_message`, a future update type this
+  // version does not parse); deriving the cursor from message rows alone
+  // re-fetches such an update forever and wedges the channel behind it.
+  "principal.poll_advanced",
 ] as const;
 
 /**
@@ -204,6 +226,10 @@ export const eventCategory = {
   "authorization.policy_covered": "informational",
   "task.bulk_edit.dry_run": "informational",
   "task.bulk_edit.executed": "informational",
+  "principal.message_rejected": "actionable",
+  "principal.message_failed": "actionable",
+  "principal.message_received": "informational",
+  "principal.poll_advanced": "informational",
 } satisfies Record<SystemEventType, EventCategory>;
 
 /** Return all event types belonging to a given category (for `WHERE IN` filters). */
@@ -258,6 +284,13 @@ export const systemEventsTable = pgTable(
      * retrospective.fired:            { note, taskId? }
      * deploy.build/live/fail:         { phase, service?, status }
      * deploy.smoke:                   { phase, sha, status }
+     * principal.message_received:     { token, updateId, messageId, route, text?, sentAt? }
+     * principal.message_rejected:     { token, updateId, messageId, route, rejectionReason, sentAt? }
+     * principal.message_failed:       { token: "<base>:failed", updateId, messageId, route, failureDetail, text?, sentAt? }
+     * principal.poll_advanced:        { token: "<base>:advanced", updateId, messageId: 0, route: "poll-advanced" }
+     *   (mt#3228 — see PrincipalMessageEventPayload in ../../notify/principal-inbound.ts.
+     *    `text` is deliberately absent on the rejected variant: an unauthorized
+     *    chat must not be able to write attacker-chosen content into the feed.)
      */
     payload: jsonb("payload").notNull(),
 

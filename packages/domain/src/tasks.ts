@@ -6,38 +6,51 @@
  * parameter-validated command functions used by CLI/MCP adapters.
  *
  * `tasks/index.ts` re-exports THIS file's command functions, and
- * `@minsky/domain/tasks` — the import the CLI/MCP `tasks_list`/`tasks_status_set`
- * commands use — resolves to `tasks/index.ts`. `listTasksFromParams` and
- * `setTaskStatusFromParams` below delegate to the canonical implementations in
- * `tasks/commands/query-commands.ts` and `tasks/commands/mutation-commands.ts`
- * respectively (mt#2704 precedent for status-set; mt#2783 consolidated
- * listTasksFromParams the same way — see those files' headers), so the
- * `taskCommands.ts` barrel and this facade now terminate at the same function
- * bodies instead of each holding an independent, divergently-tested copy.
+ * `@minsky/domain/tasks` — the import the CLI/MCP surfaces use — resolves to
+ * `tasks/index.ts`. Every command function below (`listTasksFromParams`,
+ * `getTaskFromParams`, `getTaskStatusFromParams`, `setTaskStatusFromParams`,
+ * `updateTaskFromParams`, `createTaskFromParams`, `createTaskFromTitleAndSpec`,
+ * `deleteTaskFromParams`, `getTaskSpecContentFromParams`) delegates to the
+ * canonical implementation in `tasks/commands/query-commands.ts` or
+ * `tasks/commands/mutation-commands.ts`. Consolidated across three separate
+ * tasks, each responsible for exactly the function(s) named: mt#2704
+ * (setTaskStatusFromParams), mt#2783 (listTasksFromParams), mt#3194
+ * (getTaskSpecContentFromParams — landed and merged BEFORE mt#3190 started),
+ * and mt#3190 (all six of the rest: getTaskFromParams, getTaskStatusFromParams,
+ * updateTaskFromParams, createTaskFromParams, createTaskFromTitleAndSpec,
+ * deleteTaskFromParams). See each function and those files' headers for the
+ * specifics. Net effect: the `taskCommands.ts` barrel and this facade now
+ * terminate at the same function bodies instead of each holding an
+ * independent, divergently-tested copy.
  */
 
 import { log } from "@minsky/shared/logger";
-import { createConfiguredTaskService } from "./tasks/taskService";
-import { ResourceNotFoundError } from "./errors/index";
-import { first } from "@minsky/shared/array-safety";
 import {
-  taskGetParamsSchema,
-  taskCreateParamsSchema,
-  taskDeleteParamsSchema,
   taskStatusSetParamsSchema,
-  taskStatusGetParamsSchema,
   type TaskListParams,
+  type TaskGetParams,
+  type TaskStatusGetParams,
   type TaskSpecContentParams,
+  type TaskCreateParams,
+  type TaskCreateFromTitleAndSpecParams,
+  type TaskDeleteParams,
 } from "./schemas/tasks";
 import type { PersistenceProvider } from "./persistence/types";
 import type { TaskServiceInterface } from "./tasks/taskService";
 import type { TaskGraphService } from "./tasks/task-graph-service";
-import { setTaskStatusFromParams as setTaskStatusValidated } from "./tasks/commands/mutation-commands";
+import {
+  setTaskStatusFromParams as setTaskStatusValidated,
+  updateTaskFromParams as updateTaskFromParamsValidated,
+  createTaskFromParams as createTaskFromParamsValidated,
+  createTaskFromTitleAndSpec as createTaskFromTitleAndSpecValidated,
+  deleteTaskFromParams as deleteTaskFromParamsValidated,
+} from "./tasks/commands/mutation-commands";
 import {
   listTasksFromParams as listTasksValidated,
+  getTaskFromParams as getTaskFromParamsValidated,
+  getTaskStatusFromParams as getTaskStatusFromParamsValidated,
   getTaskSpecContentFromParams as getTaskSpecContentValidated,
 } from "./tasks/commands/query-commands";
-import { assertKnownKind } from "./tasks/workflows";
 
 // ---- Dependency injection types ----
 
@@ -51,14 +64,33 @@ export interface TaskServiceDeps {
   taskGraphService?: Pick<TaskGraphService, "listChildren">;
 }
 
-function requirePersistence(provider: PersistenceProvider | undefined): PersistenceProvider {
-  if (!provider) {
-    throw new Error(
-      "persistenceProvider is required when taskService is not injected. " +
-        "Provide one of: deps.taskService or deps.persistenceProvider."
-    );
-  }
-  return provider;
+// Note: this file no longer constructs a TaskServiceInterface directly (every
+// command function below delegates to tasks/commands/{query,mutation}-commands.ts,
+// mt#3190) — the "persistenceProvider is required when taskService is not
+// injected" guard now lives solely in those files' own `requirePersistence`
+// helpers, which is where the actual `createConfiguredTaskService` calls happen.
+
+/**
+ * Workspace-path override shared by every delegation below (PR #2326 review
+ * fix). None of this facade's callers can supply a sessionProvider (that
+ * plumbing doesn't exist on `TaskServiceDeps`), so falling through to
+ * `tasks/commands/shared-helpers.ts`'s default `resolveRepoPath` would throw
+ * whenever a caller passes `session` without one — the crash mt#3194 first
+ * worked around for `getTaskSpecContentFromParams`. The mt#3194/mt#3190
+ * override that avoided that throw (`async () => process.cwd()`) went too
+ * far: it ignored its arguments entirely, so a caller-supplied `repo` was
+ * ALSO silently discarded on every one of these paths, not just create/delete
+ * — this fixes that for all of them. `repo` wins when given; `process.cwd()`
+ * is the fallback only when neither `repo` nor a resolvable session is
+ * available. `session` alone still can't be resolved to a real workspace here
+ * (no sessionProvider to resolve it with) — that remains a known, documented
+ * gap — but it no longer crashes and no longer tramples `repo`.
+ */
+export async function resolveRepoOrCwd(options: {
+  repo?: string;
+  session?: string;
+}): Promise<string> {
+  return options.repo ?? process.cwd();
 }
 
 // ---- Re-exports from sub-modules ----
@@ -91,58 +123,45 @@ export async function listTasksFromParams(params: Record<string, unknown>, deps?
 }
 
 export async function getTaskFromParams(params: Record<string, unknown>, deps?: TaskServiceDeps) {
-  const validParams = taskGetParamsSchema.parse(params);
-  const workspacePath = process.cwd();
-  log.debug("tasks.get params", { backend: validParams.backend });
-
-  const backend = validParams.backend;
-
-  if (backend) {
-    log.debug("tasks.get using CLI backend", { backend });
-  } else {
-    log.debug("tasks.get using multi-backend mode (no default backend)");
-  }
-
-  const taskService =
-    deps?.taskService ??
-    (await createConfiguredTaskService({
-      workspacePath,
-      backend,
-      persistenceProvider: requirePersistence(deps?.persistenceProvider),
-    }));
-
-  log.debug("tasks.get created TaskService", {
-    backend: taskService.listBackends?.().find((b) => b.prefix === backend)?.name || "default",
+  // Delegates to the canonical implementation in tasks/commands/query-commands.ts
+  // (mt#3190), which additionally normalizes `taskId` via normalizeTaskIdInput
+  // (accepting bare "123"/"#123" forms, not just already-qualified "mt#123")
+  // and resolves session/repo via resolveRepoPath when no taskService is
+  // injected. Before this delegation, this facade's own body did neither.
+  //
+  // getTaskFromParams's only override hook is `resolveMainWorkspacePath`
+  // (zero-arg — query-commands.ts's deps type has no `resolveRepoPath` field
+  // for this function), so unlike the other five delegations below it can't
+  // receive `repo`/`session` as call arguments; it closes over this
+  // function's own `params` instead. See resolveRepoOrCwd above for the full
+  // PR #2326 review-fix rationale.
+  return getTaskFromParamsValidated(params as TaskGetParams, {
+    taskService: deps?.taskService,
+    persistenceProvider: deps?.persistenceProvider,
+    resolveMainWorkspacePath: () =>
+      resolveRepoOrCwd({
+        repo: params.repo as string | undefined,
+        session: params.session as string | undefined,
+      }),
   });
-  const taskId = Array.isArray(validParams.taskId)
-    ? first(validParams.taskId, "taskId array")
-    : validParams.taskId;
-  const task = await taskService.getTask(taskId);
-  if (!task) {
-    throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
-  }
-  return task;
 }
 
 export async function getTaskStatusFromParams(
   params: Record<string, unknown>,
   deps?: TaskServiceDeps
 ) {
-  const validParams = taskStatusGetParamsSchema.parse(params);
-  const workspacePath = process.cwd();
-  log.debug("tasks.status.get params", { backend: validParams.backend });
-  const taskService =
-    deps?.taskService ??
-    (await createConfiguredTaskService({
-      workspacePath,
-      backend: validParams.backend,
-      persistenceProvider: requirePersistence(deps?.persistenceProvider),
-    }));
-  log.debug("tasks.status.get created TaskService", {
-    backend:
-      taskService.listBackends?.().find((b) => b.prefix === validParams.backend)?.name || "default",
+  // Delegates to the canonical implementation in tasks/commands/query-commands.ts
+  // (mt#3190), which additionally normalizes `taskId` and wraps a ZodError into
+  // a ValidationError (matching this file's other consolidated functions).
+  // Uses the `resolveRepoPath` hook (not `resolveMainWorkspacePath`, which this
+  // function's deps type also exposes but which is zero-arg and so can never
+  // see `repo`/`session`) so resolveRepoOrCwd actually receives them — see
+  // resolveRepoOrCwd above for the full PR #2326 review-fix rationale.
+  return getTaskStatusFromParamsValidated(params as TaskStatusGetParams, {
+    taskService: deps?.taskService,
+    persistenceProvider: deps?.persistenceProvider,
+    resolveRepoPath: resolveRepoOrCwd,
   });
-  return await taskService.getTaskStatus(validParams.taskId);
 }
 
 export async function setTaskStatusFromParams(
@@ -171,76 +190,79 @@ export async function updateTaskFromParams(
   params: Record<string, unknown>,
   deps?: TaskServiceDeps
 ) {
-  const workspacePath = process.cwd();
-  log.debug("tasks.update params", { backend: params.backend });
-  const taskService =
-    deps?.taskService ??
-    (await createConfiguredTaskService({
-      workspacePath,
-      backend: params.backend as string | undefined,
-      persistenceProvider: requirePersistence(deps?.persistenceProvider),
-    }));
-  log.debug("tasks.update created TaskService", {
-    backend:
-      taskService.listBackends?.().find((b) => b.prefix === params.backend)?.name || "default",
-  });
-
-  // Prepare updates object
-  const updates: Record<string, unknown> = {};
-  if (params.title !== undefined) {
-    updates.title = params.title;
-  }
-  if (params.spec !== undefined) {
-    updates.spec = params.spec;
-  }
-
-  const updatedTask = await taskService.updateTask?.(params.taskId as string, updates);
-  return updatedTask;
+  // Delegates to the canonical implementation in
+  // tasks/commands/mutation-commands.ts (mt#3190). Before this delegation, the
+  // two copies had inverted feature gaps: this facade applied BOTH
+  // `params.title` and `params.spec`, while mutation-commands.ts's copy (the
+  // one the taskCommands.ts barrel exposed) applied ONLY `params.title` and
+  // silently dropped `params.spec` — the opposite-direction instance of the
+  // "diverging copies" bug class mt#3194 fixed for getTaskSpecContentFromParams.
+  // The spec-drop was fixed in mutation-commands.ts as part of this
+  // consolidation (mt#3190 Success Criterion 4) rather than left behind: the
+  // live MCP `tasks.spec.patch` / `tasks.spec.search_replace` tools
+  // (`src/adapters/mcp/task-edit-tools.ts`) call `updateTaskFromParams` via
+  // `@minsky/domain/tasks` with `spec` set on every call, so a silent drop
+  // here would have made both tools no-op.
+  return updateTaskFromParamsValidated(
+    params as {
+      taskId: string;
+      title?: string;
+      spec?: string;
+      repo?: string;
+      workspace?: string;
+      session?: string;
+      backend?: string;
+    },
+    {
+      taskService: deps?.taskService,
+      persistenceProvider: deps?.persistenceProvider,
+      // resolveRepoPath (args-aware), not resolveMainWorkspacePath (zero-arg,
+      // can never see repo/session) — see resolveRepoOrCwd above.
+      resolveRepoPath: resolveRepoOrCwd,
+    }
+  );
 }
 
 export async function createTaskFromParams(
   params: Record<string, unknown>,
   deps?: TaskServiceDeps
 ) {
-  // Delegates to createTaskFromTitleAndSpec — specPath concept has been removed
-  return createTaskFromTitleAndSpec(params, deps);
+  // Delegates to the canonical implementation in
+  // tasks/commands/mutation-commands.ts (mt#3190). No production consumer of
+  // this specific function (as opposed to createTaskFromTitleAndSpec below)
+  // was found via `@minsky/domain/tasks` or the `taskCommands.ts` barrel
+  // during the mt#3190 audit — verified by grep across src/ and packages/ —
+  // so this delegation cannot silently change observed production behavior.
+  return createTaskFromParamsValidated(params as TaskCreateParams, {
+    taskService: deps?.taskService,
+    persistenceProvider: deps?.persistenceProvider,
+    resolveRepoPath: resolveRepoOrCwd,
+  });
 }
 
 export async function createTaskFromTitleAndSpec(
   params: Record<string, unknown>,
   deps?: TaskServiceDeps
 ) {
-  // Parse using the existing schema (which may still use "description")
-  const validParams = taskCreateParamsSchema.parse(params);
-
-  // Kind governance (mt#3010): reject an unknown kind loudly at create time
-  // rather than letting it write to the (unconstrained-text) kind column and
-  // silently fall back to "implementation" at getWorkflow() time. Defense in
-  // depth alongside the adapter-level TaskParameters.kind enum (a direct
-  // domain caller that bypasses the adapter schema still gets this check).
-  assertKnownKind(validParams.kind);
-
-  const workspacePath = process.cwd();
-  log.debug("tasks.createTitleSpec params", { backend: validParams.backend });
-
-  const taskService =
-    deps?.taskService ??
-    (await createConfiguredTaskService({
-      workspacePath,
-      backend: validParams.backend,
-      persistenceProvider: requirePersistence(deps?.persistenceProvider),
-    }));
-
-  log.debug("tasks.createTitleSpec created TaskService", {
-    backend:
-      taskService.listBackends?.().find((b) => b.prefix === validParams.backend)?.name || "default",
-  });
-  // Use spec field, fallback to description for compatibility
-  const spec = validParams.spec || validParams.description || "";
-  const title = validParams.title || "";
-  return await taskService.createTaskFromTitleAndSpec(title, spec, {
-    ...validParams,
-    tags: validParams.tags,
+  // Delegates to the canonical implementation in
+  // tasks/commands/mutation-commands.ts (mt#3190), which validates against
+  // taskCreateFromTitleAndSpecParamsSchema (title/spec/force/backend/
+  // githubRepo/tags/kind + the common repo/workspace/session/json fields) —
+  // a narrower schema than this facade's former taskCreateParamsSchema (which
+  // additionally accepted `description` as a deprecated alias for `spec`, and
+  // `dependsOn`). Verified safe: every production caller of this function
+  // (`crud-commands.ts`'s `tasks.create`, `dispatch-command.ts`'s
+  // new-task-mode create) already passes only title/spec/force/backend/
+  // repo/workspace/session/githubRepo/tags/kind — none pass `description` or
+  // `dependsOn` — so the narrower schema is not a behavior change on any
+  // observed path.
+  // resolveRepoPath (args-aware), not resolveMainWorkspacePath (zero-arg, can
+  // never see repo/session) — see resolveRepoOrCwd above for the full PR
+  // #2326 review-fix rationale.
+  return createTaskFromTitleAndSpecValidated(params as TaskCreateFromTitleAndSpecParams, {
+    taskService: deps?.taskService,
+    persistenceProvider: deps?.persistenceProvider,
+    resolveRepoPath: resolveRepoOrCwd,
   });
 }
 
@@ -248,22 +270,15 @@ export async function deleteTaskFromParams(
   params: Record<string, unknown>,
   deps?: TaskServiceDeps
 ) {
-  const validParams = taskDeleteParamsSchema.parse(params);
-  const workspacePath = process.cwd();
-  log.debug("tasks.delete params", { backend: validParams.backend });
-  const taskService =
-    deps?.taskService ??
-    (await createConfiguredTaskService({
-      workspacePath,
-      backend: validParams.backend,
-      persistenceProvider: requirePersistence(deps?.persistenceProvider),
-    }));
-  log.debug("tasks.delete created TaskService", {
-    backend:
-      taskService.listBackends?.().find((b) => b.prefix === validParams.backend)?.name || "default",
+  // Delegates to the canonical implementation in
+  // tasks/commands/mutation-commands.ts (mt#3190), which additionally
+  // normalizes `taskId` and wraps a ZodError into a ValidationError. See
+  // resolveRepoOrCwd above for the resolveRepoPath override rationale.
+  return deleteTaskFromParamsValidated(params as TaskDeleteParams, {
+    taskService: deps?.taskService,
+    persistenceProvider: deps?.persistenceProvider,
+    resolveRepoPath: resolveRepoOrCwd,
   });
-  const success = await taskService.deleteTask(validParams.taskId, validParams);
-  return { success, taskId: validParams.taskId };
 }
 
 export async function getTaskSpecContentFromParams(
@@ -284,18 +299,18 @@ export async function getTaskSpecContentFromParams(
   return getTaskSpecContentValidated(params as TaskSpecContentParams, {
     taskService: deps?.taskService,
     persistenceProvider: deps?.persistenceProvider,
-    // Preserve this facade's pre-mt#3194 workspace resolution when no
-    // taskService is injected: the old body always used `process.cwd()`
-    // unconditionally (matching every other command function in this file —
-    // getTaskFromParams, getTaskStatusFromParams, etc. — none of which
-    // resolve `session`/`repo` either). Without this override, the
-    // delegate's default resolver (tasks/commands/shared-helpers.ts's
-    // resolveRepoPath) throws when a `session` param is present and no
-    // sessionProvider is supplied, which none of this facade's callers pass.
-    // Wiring true session-aware resolution here is out of this narrow bug
-    // fix's scope (mt#3194 is scoped to the section-forwarding fix); see
-    // mt#3190 for the broader tasks.ts/query-commands.ts consolidation that
-    // would be the right place to add it.
-    resolveRepoPath: async () => process.cwd(),
+    // Originally (mt#3194) this was `async () => process.cwd()` unconditionally,
+    // to avoid the delegate's default resolver (tasks/commands/shared-helpers.ts's
+    // resolveRepoPath) throwing when a `session` param is present and no
+    // sessionProvider is supplied — none of this facade's callers pass one.
+    // Updated (PR #2326 review fix, mt#3190) to resolveRepoOrCwd, which fixes
+    // the same throw WITHOUT also discarding a caller-supplied `repo` — see
+    // resolveRepoOrCwd's doc comment above for the full rationale (that fix
+    // covers all six mt#3190-consolidated functions; this one predates mt#3190
+    // but shares the same override shape, so it's included for consistency).
+    // Real session-aware resolution remains unwired — no sessionProvider
+    // reaches this facade today; a future task would need to add one to
+    // TaskServiceDeps and thread it through every override in this file.
+    resolveRepoPath: resolveRepoOrCwd,
   });
 }

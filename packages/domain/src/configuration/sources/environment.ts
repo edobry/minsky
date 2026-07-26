@@ -114,6 +114,17 @@ export const environmentMappings = {
   // an explicit entry documents intent and is robust to future renames.
   MINSKY_MCP_AUTH_TOKEN: "mcp.auth.token",
 
+  // Principal Telegram channel (mt#3228, made launch-independent by mt#3230).
+  // Explicit entries because the dot-path auto-conversion would produce
+  // `principal.channel.*` — a top-level `principal` key the strict schema
+  // rejects, crashing the loader at boot for anyone with these set. The
+  // environment source is merged LAST, so these still override the config file
+  // for deployed services that set them.
+  MINSKY_PRINCIPAL_CHANNEL_ENABLED: "principalChannel.enabled",
+  MINSKY_PRINCIPAL_CHANNEL_CWD: "principalChannel.cwd",
+  MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE: "principalChannel.permissionMode",
+  MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS: "principalChannel.allowedUserIds",
+
   // OAuth configuration
   MINSKY_OAUTH_SIGNING_KEY: "oauth.signingKey",
 
@@ -341,6 +352,18 @@ const typeConverters = {
       return value; // Fall back to string if JSON parsing fails
     }
   },
+  /**
+   * Comma-separated list (mt#3230). For array fields whose natural env form is
+   * `a,b,c` rather than a JSON array — an operator setting an allowlist in a
+   * shell should not have to write `["1","2"]` and get the quoting right.
+   * Empty and whitespace-only entries are dropped, so a trailing comma or a
+   * blank value yields `[]` rather than `[""]`.
+   */
+  csv: (value: string): string[] =>
+    value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0),
 } as const;
 
 /**
@@ -374,6 +397,10 @@ const fieldTypes: Record<string, keyof typeof typeConverters> = {
   "ai.providers.google.enabled": "boolean",
   "ai.providers.cohere.enabled": "boolean",
   "ai.providers.mistral.enabled": "boolean",
+  "principalChannel.enabled": "boolean",
+
+  // Comma-separated lists (mt#3230)
+  "principalChannel.allowedUserIds": "csv",
 
   // JSON (arrays and objects)
   "ai.providers.openai.models": "json",
