@@ -35,6 +35,16 @@
  * prefers-reduced-motion: viewBox changes are instant (no tween), so there is no
  * motion to gate; the SVG children's vsm-* CSS animations remain gated by the
  * global reduced-motion rule in index.css.
+ *
+ * Camera dead-zone (mt#3247 hotfix): the growing-bounds camera-follow effect
+ * (mt#3231 SC 5) held a v1.2 regression where it eased toward a new fit on
+ * EVERY bounds change — fine for occasional growth, but the live d3-force
+ * sim (mt#3231 SC 4) and scroll-driven touched-set changes move `bounds`
+ * almost every frame, so the camera perpetually chased a moving target and
+ * never settled (continuous jump/flicker). The fix: the camera now holds
+ * still while bounds stays within the last committed fit's viewBox plus a
+ * margin (`GrowingBoundsOptions.deadZoneMarginPx`), only re-fitting when
+ * content would clip past it — see the growing-bounds effect below.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -75,6 +85,10 @@ interface AmbientDriftOptions {
  * because the caller's real content actually grew, not a decorative loop —
  * see `SessionFilmStage.tsx` for how it derives `bounds` from the touched-
  * set's live positions every frame.
+ *
+ * Camera dead-zone (mt#3247 hotfix): `deadZoneMarginPx` and `suppressed` are
+ * what keep this from chasing a perpetually-moving target — see the
+ * growing-bounds effect's module doc below for the mechanism.
  */
 interface GrowingBoundsOptions {
   /** World-space bounding box of the content to keep framed, or `null` when there's nothing to fit yet (no-op). */
@@ -83,6 +97,25 @@ interface GrowingBoundsOptions {
   padding: number;
   /** Ease duration toward a new fit, ms. `0` snaps instantly instead of tweening — the reduced-motion degrade (matches every other motion class in this codebase: discrete state change, not a zeroed-duration tween). */
   easeMs: number;
+  /**
+   * Camera dead-zone margin (mt#3247 SC1), world-space units. The camera
+   * holds its current fit while `bounds` stays within that fit's viewBox
+   * expanded by this margin on every side; it only eases to a NEW fit when
+   * `bounds` would clip past the margin — the standard game-camera "dead
+   * zone" / "camera box" pattern. Defaults to `0` (no dead zone — every
+   * bounds change refits, the pre-hotfix behavior) so existing callers that
+   * don't pass it compile and behave unchanged.
+   */
+  deadZoneMarginPx?: number;
+  /**
+   * When `true`, auto-fit is suppressed entirely — e.g. active scroll
+   * (mt#3247 SC2c), treated like a user interaction that pauses the camera
+   * but WITHOUT the permanence of `userInteractedRef` (a user pan/zoom
+   * overrides camera-follow for good; this is transient and self-clears
+   * once the caller flips it back to `false`, at which point the next tick
+   * re-evaluates the dead zone and eases to a settled fit if warranted).
+   */
+  suppressed?: boolean;
 }
 
 interface PanZoomSVGProps {
@@ -174,6 +207,28 @@ function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
 
+/**
+ * Camera dead-zone containment check (mt#3247 hotfix, SC1): true when
+ * `bounds` fits entirely inside `box` expanded outward by `marginPx` on
+ * every side. `box` is the last COMMITTED fit's viewBox (converted to
+ * min/max form) — the camera's current rest position, or the end target of
+ * an in-flight ease — not the live (possibly mid-tween) viewBox, so the
+ * check stays stable while an ease is in progress instead of comparing
+ * against a moving reference.
+ */
+function withinDeadZone(
+  bounds: { minX: number; minY: number; maxX: number; maxY: number },
+  box: { minX: number; minY: number; maxX: number; maxY: number },
+  marginPx: number
+): boolean {
+  return (
+    bounds.minX >= box.minX - marginPx &&
+    bounds.maxX <= box.maxX + marginPx &&
+    bounds.minY >= box.minY - marginPx &&
+    bounds.maxY <= box.maxY + marginPx
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -213,6 +268,25 @@ export function PanZoomSVG({
   // Has the user manually zoomed/panned? Gates resize auto-refit.
   const userInteractedRef = useRef(false);
 
+  /**
+   * Second contributing cause of the mt#3247 jank, found during LIVE repro
+   * (not in the spec's original diagnosis): the ambient-drift effect below
+   * recomputed its wobble base as the FULL-BOARD `fitViewBox` every 200ms
+   * tick, completely ignoring an active `growingBounds` camera-follow fit —
+   * so whenever both were enabled (the session-film's normal case), the two
+   * effects fought over `viewBox` on independent timers: camera-follow
+   * eased toward the tight bounds fit, ambient drift snapped back toward
+   * the full-board fit every 200ms, producing the exact "keeps jumping back
+   * and forth" symptom even with the dead-zone fix in place. Fix: ambient
+   * drift wobbles around the LATEST growing-bounds target when one exists
+   * (set by that effect below), falling back to the full-board fit only
+   * when camera-follow isn't active — matching the module doc's ORIGINAL
+   * intent ("the camera breathes AROUND the fitted center").
+   */
+  const growingBoundsTargetRef = useRef<ViewBox | null>(null);
+  /** Is camera-follow active at all (the prop was supplied), regardless of whether a fit has been committed yet. Read by the resize-observer effect below to avoid fighting camera-follow the same way ambient-drift did. */
+  const hasGrowingBounds = growingBounds !== undefined;
+
   const applyFit = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -230,7 +304,17 @@ export function PanZoomSVG({
       const { width, height } = el.getBoundingClientRect();
       if (width === 0 || height === 0) return;
       containerSizeRef.current = { w: width, h: height };
-      if (!userInteractedRef.current) {
+      if (hasGrowingBounds) {
+        // Camera-follow OWNS the framing (mt#3247): a resize must NOT snap
+        // to the full-board fit here — that fought camera-follow on every
+        // resize/reflow the exact same way the ambient-drift effect fought
+        // it before the `growingBoundsTargetRef` fix above, producing a
+        // visible flash back to the full board. Just correct the aspect (the
+        // SAME treatment the user-interacted branch below already uses);
+        // the growing-bounds effect's own next tick re-reads the container
+        // size and re-fits at the new dimensions on its own cadence.
+        setViewBox((vb) => ({ ...vb, h: vb.w * (height / width) }));
+      } else if (!userInteractedRef.current) {
         // Auto-refit until the user takes control.
         applyFit();
       } else {
@@ -241,7 +325,7 @@ export function PanZoomSVG({
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [applyFit]);
+  }, [applyFit, hasGrowingBounds]);
 
   // -------------------------------------------------------------------------
   // Ambient camera life (mt#3226 SC 4): a slow drift/zoom-breathing wobble
@@ -262,7 +346,11 @@ export function PanZoomSVG({
       if (userInteractedRef.current) return; // paused — the user is in control
       const { width, height } = el.getBoundingClientRect();
       if (width === 0 || height === 0) return;
-      const fit = fitViewBox(boardWidth, boardHeight, width, height);
+      // Wobble around the ACTIVE camera-follow fit when one exists (mt#3247
+      // — see `growingBoundsTargetRef`'s doc above), not always the
+      // full-board fit — otherwise this tick fights the growing-bounds
+      // effect over `viewBox` every 200ms.
+      const fit = growingBoundsTargetRef.current ?? fitViewBox(boardWidth, boardHeight, width, height);
       const elapsed = Date.now() - ambientStartRef.current;
       const amp = ambientDrift.amplitudePx;
       const period = ambientDrift.periodMs;
@@ -297,51 +385,68 @@ export function PanZoomSVG({
   // (the reduced-motion caller contract) snaps instantly instead of
   // tweening, matching every other motion class in this codebase.
   //
-  // Rounded to the nearest world-unit for the dependency key: the touched-
-  // set's live force-simulated positions drift continuously by fractions of
-  // a pixel every tick: a raw-float key would restart the ease on every
-  // single tick even when nothing meaningfully changed. A restart on every
-  // GENUINE (>=1 world-unit) bounds change is intentional, not a bug — the
-  // camera keeps re-aiming at a continuously-updating target as the world
-  // evolves, which is exactly "follows growth."
+  // CAMERA DEAD-ZONE (mt#3247 hotfix — v1.2 REGRESSION FIX): v1.1/v1.2 keyed
+  // this effect's re-run on a rounded proxy of `bounds` (`boundsKey`) — every
+  // GENUINE (>=1 world-unit) change tore the effect down and restarted the
+  // ease from scratch. That was fine for occasional growth, but the live
+  // d3-force sim moves nodes every tick AND scroll changes the touched set
+  // every frame, so `bounds` changes almost every frame in the real film —
+  // the ease kept restarting toward a perpetually-moving target and never
+  // converged: continuous jump/flicker, operator-blocking.
   //
-  // Zero-size backoff (mt#3231 review R1, BLOCKING): a self-rescheduling
-  // `setTimeout` (not a bare `setInterval`) so the retry CADENCE can differ
-  // from the tween cadence. While the container reports 0x0 (hidden tab,
-  // `display:none` transition, not yet laid out at mount) we do NOT compute
-  // a fit against 0x0 — we back off to `ZERO_SIZE_RETRY_MS`, a much slower
-  // poll than the 50ms tween rate, so a long-hidden container doesn't spin a
-  // tight do-nothing loop. The instant real dimensions appear, the fit
-  // resumes at the normal 50ms cadence. `cancelled` + clearing the pending
-  // timeout together are the cleanup this effect returns on every dep
-  // change AND on unmount — belt-and-suspenders like the rest of this file
-  // (see the ambient-drift interval's own cleanup above).
+  // The fix decouples "how often bounds changes" from "how often we decide
+  // to re-fit": `bounds`/`suppressed` are read via REFS (synced by the two
+  // small effects below, which fire on every change but never touch a
+  // timer), so THIS effect mounts once per `padding`/`easeMs`/
+  // `deadZoneMarginPx` (static config values) and runs its own continuous
+  // poll loop. Each poll checks `withinDeadZone` against the last COMMITTED
+  // fit — bounds jiggling inside that margin is a no-op (the actual dead
+  // zone); only a bounds change that would clip past the margin commits a
+  // NEW target and starts a fresh ease from the CURRENT live viewBox. This
+  // is what "the camera holds still while content stays within the frame
+  // plus a margin, and only eases when content would actually clip the
+  // edge" (spec SC1) means operationally.
+  //
+  // Zero-size backoff (mt#3231 review R1, BLOCKING; preserved): while the
+  // container reports 0x0 (hidden tab, not yet laid out) we do NOT compute a
+  // fit against 0x0 — retry at a slower cadence instead of busy-polling.
+  // The poll ALSO slows down (`AT_REST_POLL_MS`) whenever no ease is in
+  // flight and the dead zone holds — no need to check at tween-cadence when
+  // nothing is happening.
   // -------------------------------------------------------------------------
-  const boundsKey = growingBounds?.bounds
-    ? `${Math.round(growingBounds.bounds.minX)},${Math.round(growingBounds.bounds.minY)},${Math.round(growingBounds.bounds.maxX)},${Math.round(growingBounds.bounds.maxY)}`
-    : null;
+  const boundsRef = useRef(growingBounds?.bounds ?? null);
   useEffect(() => {
-    // Narrow via a direct property check (not optional chaining) so `bounds`/
-    // `padding`/`easeMs` destructure as definitely-non-null `const`s — safe
-    // to reference from the nested `runTick` function declaration below
-    // without repeated non-null assertions.
-    if (!growingBounds || !growingBounds.bounds) return;
-    const { bounds, padding, easeMs } = growingBounds;
+    boundsRef.current = growingBounds?.bounds ?? null;
+  }, [growingBounds?.bounds]);
+
+  const suppressedRef = useRef(growingBounds?.suppressed ?? false);
+  useEffect(() => {
+    suppressedRef.current = growingBounds?.suppressed ?? false;
+  }, [growingBounds?.suppressed]);
+
+  const growingPadding = growingBounds?.padding;
+  const growingEaseMs = growingBounds?.easeMs;
+  const growingDeadZoneMarginPx = growingBounds?.deadZoneMarginPx;
+
+  useEffect(() => {
+    if (!hasGrowingBounds) return;
+    const padding = growingPadding ?? 0;
+    const easeMs = growingEaseMs ?? 0;
+    const marginPx = growingDeadZoneMarginPx ?? 0;
     const el = containerRef.current;
     if (!el) return;
 
     const ZERO_SIZE_RETRY_MS = 250;
+    const NO_BOUNDS_RETRY_MS = 250;
+    const SUPPRESSED_RETRY_MS = 150;
     const TWEEN_TICK_MS = 50;
+    const AT_REST_POLL_MS = 150;
 
-    // The EASE ORIGIN (`start`) and its clock are resolved LAZILY, on the
-    // first tick that sees a real (non-zero) container size — NOT read
-    // once up front — so a container that hasn't laid out yet at effect-
-    // setup time (its `getBoundingClientRect()` still reporting 0x0, e.g.
-    // during initial mount) doesn't strand this effect with no interval to
-    // ever retry from. Every ambient/resize path in this component already
-    // re-reads `getBoundingClientRect()` per-tick for the same reason.
-    let start: ViewBox | null = null;
-    let startTime = 0;
+    /** The last fit committed to: the camera's rest position, or the end target of an in-flight ease. `null` until the first real fit. */
+    let committedTarget: ViewBox | null = null;
+    /** Non-null while an ease is in flight — the viewBox it started from. */
+    let easeStart: ViewBox | null = null;
+    let easeStartTime = 0;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
 
@@ -352,6 +457,17 @@ export function PanZoomSVG({
     function runTick() {
       if (cancelled) return;
       if (userInteractedRef.current) return; // stopped for good — see module doc's resize-policy note
+      if (suppressedRef.current) {
+        // Transient pause (e.g. active scroll, mt#3247 SC2c) — re-check
+        // shortly; don't advance any in-flight ease while suppressed.
+        scheduleTick(SUPPRESSED_RETRY_MS);
+        return;
+      }
+      const bounds = boundsRef.current;
+      if (!bounds) {
+        scheduleTick(NO_BOUNDS_RETRY_MS);
+        return;
+      }
       // `el` is narrowed non-null above, but TS control-flow narrowing of a
       // `const` doesn't persist into a nested `function` DECLARATION
       // (unlike an arrow function) — safe by construction, since `el` is
@@ -364,35 +480,57 @@ export function PanZoomSVG({
         scheduleTick(ZERO_SIZE_RETRY_MS);
         return;
       }
-      const target = fitToBoundsViewBox(bounds, padding, width, height);
 
-      if (easeMs <= 0) {
-        setViewBox(target);
-        return; // converged — nothing left to schedule
+      const needsFit =
+        committedTarget === null ||
+        !withinDeadZone(
+          bounds,
+          {
+            minX: committedTarget.x,
+            minY: committedTarget.y,
+            maxX: committedTarget.x + committedTarget.w,
+            maxY: committedTarget.y + committedTarget.h,
+          },
+          marginPx
+        );
+
+      if (needsFit) {
+        committedTarget = fitToBoundsViewBox(bounds, padding, width, height);
+        growingBoundsTargetRef.current = committedTarget; // ambient drift wobbles around THIS, not the full-board fit
+        easeStart = viewBoxRef.current;
+        easeStartTime = Date.now();
       }
 
-      if (start === null) {
-        start = viewBoxRef.current;
-        startTime = Date.now();
+      if (easeStart !== null) {
+        const target = committedTarget!;
+        if (easeMs <= 0) {
+          setViewBox(target);
+          easeStart = null; // snapped — converged
+        } else {
+          const t = Math.min(1, (Date.now() - easeStartTime) / easeMs);
+          const eased = easeOutCubic(t);
+          setViewBox({
+            x: easeStart.x + (target.x - easeStart.x) * eased,
+            y: easeStart.y + (target.y - easeStart.y) * eased,
+            w: easeStart.w + (target.w - easeStart.w) * eased,
+            h: easeStart.h + (target.h - easeStart.h) * eased,
+          });
+          if (t >= 1) easeStart = null; // converged — hold at rest until the dead zone is exceeded again
+        }
       }
-      const t = Math.min(1, (Date.now() - startTime) / easeMs);
-      const eased = easeOutCubic(t);
-      setViewBox({
-        x: start.x + (target.x - start.x) * eased,
-        y: start.y + (target.y - start.y) * eased,
-        w: start.w + (target.w - start.w) * eased,
-        h: start.h + (target.h - start.h) * eased,
-      });
-      if (t < 1) scheduleTick(TWEEN_TICK_MS);
+
+      // Poll faster while actively easing (smooth tween); back off once at
+      // rest and the dead zone holds — nothing to do until bounds moves.
+      scheduleTick(easeStart !== null ? TWEEN_TICK_MS : AT_REST_POLL_MS);
     }
 
     scheduleTick(0);
     return () => {
       cancelled = true;
       if (timeoutId !== null) clearTimeout(timeoutId);
+      growingBoundsTargetRef.current = null; // camera-follow torn down — ambient drift (if any) falls back to the full-board fit
     };
-    // `boundsKey` is the intentional rounded proxy for `growingBounds.bounds`'s identity (see the comment above); padding/easeMs are the other two primitives this effect reads.
-  }, [boundsKey, growingBounds?.padding, growingBounds?.easeMs]);
+  }, [hasGrowingBounds, growingPadding, growingEaseMs, growingDeadZoneMarginPx]);
 
   // -------------------------------------------------------------------------
   // Zoom (focal point as fractions of the viewport; resolved against the LIVE

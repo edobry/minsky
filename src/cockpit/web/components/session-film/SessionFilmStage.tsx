@@ -91,6 +91,15 @@
  * same convention as every other motion class in this file. A user pan/zoom
  * overrides and pauses it (`PanZoomSVG`'s existing `userInteractedRef`).
  *
+ * Camera dead-zone hotfix (mt#3247): the live layout above changes bounds
+ * almost every tick, and scroll (SC 6's playhead coupling) can jump the
+ * touched set frame-to-frame — v1.2 eased toward a new fit on every such
+ * change and the camera never settled. `config.camera.deadZoneMarginPx`
+ * (passed through below) is what holds it still for in-margin churn; the
+ * `scrollSuppressed` prop (from `SessionFilmPage`'s scroll-idle debounce)
+ * additionally pauses auto-fit while the ribbon is actively scrolling. See
+ * `PanZoomSVG.tsx`'s module doc for the mechanism.
+ *
  * @see session-film-links.ts — entity receipt resolution for node clicks
  * @see session-film-aliveness.ts — glow-brightness math + the full design-decision record
  * @see session-film-beams.ts — beam-kind/direction/styling logic for the beam-on-every-action pass
@@ -155,6 +164,16 @@ export interface SessionFilmStageProps {
    * only matters when ambience is enabled anyway.
    */
   nowIso?: string;
+  /**
+   * True while the caller considers scroll "active" (mt#3247 SC2c) — the
+   * ribbon's scroll-as-scrub coupling can jump the touched set
+   * discontinuously frame-to-frame, so camera-follow is suppressed for the
+   * duration (treated like a transient pause, not a permanent user-pan
+   * override) and resumes once the caller clears it (after its own
+   * scroll-idle debounce). Defaults to `false` — callers that don't pass it
+   * (existing tests, standalone usage) get camera-follow unsuppressed.
+   */
+  scrollSuppressed?: boolean;
   className?: string;
 }
 
@@ -247,6 +266,7 @@ export function SessionFilmStage({
   selectedEntityId,
   config = DEFAULT_SESSION_FILM_CONFIG,
   nowIso,
+  scrollSuppressed = false,
   className,
 }: SessionFilmStageProps) {
   // Living layout (mt#3231 SC 4): every downstream reference to `layout`
@@ -374,6 +394,22 @@ export function SessionFilmStage({
   // "the viewport auto-fits the world's growing bounding box." Includes
   // home (the agents' shared origin) so a fresh/empty film still frames a
   // sensible region rather than an empty (0-area) box.
+  //
+  // Coordinate-space fix (mt#3247, found during live repro — a SEPARATE bug
+  // from the dead-zone/ambient-drift fights, compounding the same "camera
+  // looks wrong" symptom): `layout.nodes`/`homeX`/`homeY` are LOCAL scene
+  // coordinates, centered on the scene's own origin (`homeX`/`homeY` default
+  // to 0 — session-film-layout.ts). The `<g>` below renders that scene
+  // shifted by `translate(STAGE_BOARD_WIDTH/2, STAGE_BOARD_HEIGHT/2)`, so a
+  // node at LOCAL (0,0) actually paints at ABSOLUTE viewBox coordinate
+  // (450,350) — the SAME absolute space `PanZoomSVG`'s viewBox attribute and
+  // `fitToBoundsViewBox` operate in (confirmed by the plain fit-and-hold
+  // default: `fitViewBox` covers x:[0,900] y:[0,700] absolute, which only
+  // correctly frames content whose LOCAL range is roughly ±450/±350 BECAUSE
+  // of this same shift). Without adding it here, growingBounds described a
+  // region in the WRONG coordinate space — off by exactly this offset — so
+  // camera-follow could confidently fit to a viewBox containing no rendered
+  // content at all.
   const growingBounds = useMemo(() => {
     let minX = layout.homeX;
     let maxX = layout.homeX;
@@ -385,7 +421,12 @@ export function SessionFilmStage({
       if (node.y < minY) minY = node.y;
       if (node.y > maxY) maxY = node.y;
     }
-    return { minX, minY, maxX, maxY };
+    return {
+      minX: minX + STAGE_BOARD_WIDTH / 2,
+      maxX: maxX + STAGE_BOARD_WIDTH / 2,
+      minY: minY + STAGE_BOARD_HEIGHT / 2,
+      maxY: maxY + STAGE_BOARD_HEIGHT / 2,
+    };
   }, [layout]);
 
   return (
@@ -403,6 +444,8 @@ export function SessionFilmStage({
         bounds: growingBounds,
         padding: config.camera.paddingPx,
         easeMs: reducedMotion ? 0 : config.camera.easeMs,
+        deadZoneMarginPx: config.camera.deadZoneMarginPx,
+        suppressed: scrollSuppressed,
       }}
       className="flex-1"
     >

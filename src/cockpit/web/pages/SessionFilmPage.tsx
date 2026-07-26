@@ -16,7 +16,7 @@
  * @see session-film-fold.ts, session-film-batches.ts, session-film-layout.ts
  * @see components/session-film/* — Ribbon, Stage, Picker, Minimap
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { LoadingState } from "../components/LoadingState";
@@ -65,6 +65,33 @@ export function SessionFilmPage() {
   // still renders a panel standalone/in tests without this prop.
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [hasAppliedDeepLinkPlayhead, setHasAppliedDeepLinkPlayhead] = useState(false);
+
+  // Scroll-idle camera suppression (mt#3247 SC2c): the ribbon's scroll-as-
+  // scrub coupling advances the playhead, which can jump the touched set
+  // (and hence the stage's `growingBounds`) discontinuously frame-to-frame
+  // while actively scrolling — treated like a transient user-interaction
+  // pause on the camera (via `SessionFilmStage`'s `scrollSuppressed` prop),
+  // distinct from the dead-zone fix (which handles per-tick force-sim
+  // churn) but addressing the SAME "camera never settles" failure mode from
+  // the OTHER contributing cause named in the spec. Derived from the
+  // EXISTING `onScrollRowChange` callback (already fired on every native
+  // scroll event by the ribbon) rather than adding a new prop/listener.
+  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleScrollRowChange = useCallback((rowIndex: number) => {
+    setPlayheadRowIndex(rowIndex);
+    setIsScrolling(true);
+    if (scrollIdleTimeoutRef.current !== null) clearTimeout(scrollIdleTimeoutRef.current);
+    scrollIdleTimeoutRef.current = setTimeout(() => {
+      setIsScrolling(false);
+    }, DEFAULT_SESSION_FILM_CONFIG.camera.scrollIdleMs);
+  }, []);
+  useEffect(
+    () => () => {
+      if (scrollIdleTimeoutRef.current !== null) clearTimeout(scrollIdleTimeoutRef.current);
+    },
+    []
+  );
 
   const sessionsQuery = useQuery({
     queryKey: sessionFilmSessionsQueryKey(),
@@ -226,7 +253,7 @@ export function SessionFilmPage() {
           playheadRowIndex={playheadRowIndex}
           selectedRowIndex={selectedRowIndex}
           onSelectRow={setSelectedRowIndex}
-          onScrollRowChange={setPlayheadRowIndex}
+          onScrollRowChange={handleScrollRowChange}
           className="w-80 shrink-0 border-r border-border"
         />
         <SessionFilmStage
@@ -236,6 +263,7 @@ export function SessionFilmPage() {
           nowIso={nowIso}
           onSelectEntity={setSelectedEntityId}
           selectedEntityId={selectedEntityId}
+          scrollSuppressed={isScrolling}
           className="min-w-0 flex-1"
         />
       </div>

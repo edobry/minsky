@@ -465,3 +465,239 @@ describe("PanZoomSVG — camera-follow auto-fit (mt#3231 SC 5 / AT 5)", () => {
     expect(svg.getAttribute("viewBox") ?? "").toEqual(pausedVB);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Camera dead-zone (mt#3247 hotfix — v1.2 regression, SC1/SC2/AT1/AT3)
+//
+// The bug: v1.2 restarted the ease toward a NEW fit on every bounds change.
+// The live d3-force sim + scroll-driven touched-set changes move `bounds`
+// almost every frame in the real film, so the camera never converged —
+// continuous jump/flicker. The fix holds the camera still while bounds
+// stays within the last committed fit's viewBox plus `deadZoneMarginPx`,
+// only re-fitting when bounds would clip past that margin.
+// ---------------------------------------------------------------------------
+
+describe("PanZoomSVG — camera dead-zone (mt#3247 hotfix)", () => {
+  test("AT1: per-frame bounds churn within the margin holds the camera still (no chase)", async () => {
+    const { rerender } = render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        growingBounds={{
+          bounds: { minX: 500, minY: 500, maxX: 600, maxY: 600 },
+          padding: 20,
+          easeMs: 300,
+          deadZoneMarginPx: 40,
+        }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    const container = screen.getByTestId("pan-zoom-svg-container");
+    const svg = screen.getByTestId("pan-zoom-svg");
+    container.getBoundingClientRect = () => mockRect(1280, 820);
+    svg.getBoundingClientRect = () => mockRect(1280, 820);
+
+    // Let the initial fit converge and settle.
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    const settledVB = svg.getAttribute("viewBox") ?? "";
+
+    // Simulate per-frame churn (the live force sim's own jiggle): the bounds
+    // drift by a couple world-units every "tick", well inside the margin.
+    for (let i = 0; i < 8; i++) {
+      const jitter = i % 2 === 0 ? 2 : -2;
+      rerender(
+        <PanZoomSVG
+          boardWidth={1280}
+          boardHeight={820}
+          ariaLabel="Test schematic"
+          growingBounds={{
+            bounds: {
+              minX: 500 + jitter,
+              minY: 500 + jitter,
+              maxX: 600 + jitter,
+              maxY: 600 + jitter,
+            },
+            padding: 20,
+            easeMs: 300,
+            deadZoneMarginPx: 40,
+          }}
+        >
+          <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+        </PanZoomSVG>
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // Dead zone held throughout the churn — the camera never moved.
+    expect(svg.getAttribute("viewBox") ?? "").toEqual(settledVB);
+  });
+
+  test("AT1: a bounds change that clips past the margin eases exactly once to re-contain it", async () => {
+    const { rerender } = render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        growingBounds={{
+          bounds: { minX: 500, minY: 500, maxX: 600, maxY: 600 },
+          padding: 20,
+          easeMs: 300,
+          deadZoneMarginPx: 40,
+        }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    const container = screen.getByTestId("pan-zoom-svg-container");
+    const svg = screen.getByTestId("pan-zoom-svg");
+    container.getBoundingClientRect = () => mockRect(1280, 820);
+    svg.getBoundingClientRect = () => mockRect(1280, 820);
+
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    const settledVB = svg.getAttribute("viewBox") ?? "";
+
+    // A genuinely new region — well beyond the margin around the settled fit.
+    rerender(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        growingBounds={{
+          bounds: { minX: 1000, minY: 1000, maxX: 1100, maxY: 1100 },
+          padding: 20,
+          easeMs: 300,
+          deadZoneMarginPx: 40,
+        }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+
+    // Mid-ease: should have moved away from the old settled fit, but not yet
+    // have arrived at the new one — evidence of a smooth in-flight ease
+    // rather than an instant snap or a stall.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const midVB = svg.getAttribute("viewBox") ?? "";
+    expect(midVB).not.toEqual(settledVB);
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const finalVB = parseViewBox(svg.getAttribute("viewBox") ?? "");
+    const cx = finalVB.x + finalVB.w / 2;
+    const cy = finalVB.y + finalVB.h / 2;
+    // Converged near the new bounds' center (1050, 1050) — a single re-fit,
+    // not a still-chasing camera.
+    expect(cx).toBeCloseTo(1050, 0);
+    expect(cy).toBeCloseTo(1050, 0);
+  });
+
+  test("suppressed pauses auto-fit (e.g. active scroll, mt#3247 SC2c) without permanently disabling it", async () => {
+    const { rerender } = render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        growingBounds={{
+          bounds: { minX: 500, minY: 500, maxX: 600, maxY: 600 },
+          padding: 20,
+          easeMs: 200,
+          deadZoneMarginPx: 40,
+          suppressed: true,
+        }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    const container = screen.getByTestId("pan-zoom-svg-container");
+    const svg = screen.getByTestId("pan-zoom-svg");
+    container.getBoundingClientRect = () => mockRect(1280, 820);
+    svg.getBoundingClientRect = () => mockRect(1280, 820);
+
+    const initialVB = svg.getAttribute("viewBox") ?? "";
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    // Suppressed — no fit computed at all, even though bounds warrants one.
+    expect(svg.getAttribute("viewBox") ?? "").toEqual(initialVB);
+
+    // Clear suppression (the caller's scroll-idle debounce firing) — the
+    // NEXT tick should re-evaluate and ease to the settled fit.
+    rerender(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        growingBounds={{
+          bounds: { minX: 500, minY: 500, maxX: 600, maxY: 600 },
+          padding: 20,
+          easeMs: 200,
+          deadZoneMarginPx: 40,
+          suppressed: false,
+        }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const finalVB = parseViewBox(svg.getAttribute("viewBox") ?? "");
+    const cx = finalVB.x + finalVB.w / 2;
+    const cy = finalVB.y + finalVB.h / 2;
+    expect(cx).toBeCloseTo(550, 0);
+    expect(cy).toBeCloseTo(550, 0);
+  });
+
+  test("AT3: reduced-motion (easeMs<=0) still respects the dead zone — in-margin churn snaps nothing extra", async () => {
+    const { rerender } = render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        growingBounds={{
+          bounds: { minX: 500, minY: 500, maxX: 600, maxY: 600 },
+          padding: 20,
+          easeMs: 0,
+          deadZoneMarginPx: 40,
+        }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    const container = screen.getByTestId("pan-zoom-svg-container");
+    const svg = screen.getByTestId("pan-zoom-svg");
+    container.getBoundingClientRect = () => mockRect(1280, 820);
+    svg.getBoundingClientRect = () => mockRect(1280, 820);
+
+    // First tick snaps instantly (easeMs<=0) to the initial fit.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const settledVB = svg.getAttribute("viewBox") ?? "";
+
+    // In-margin churn — the snap-instead-of-tween degrade must NOT re-fire
+    // on every sub-margin jiggle.
+    for (let i = 0; i < 4; i++) {
+      const jitter = i % 2 === 0 ? 3 : -3;
+      rerender(
+        <PanZoomSVG
+          boardWidth={1280}
+          boardHeight={820}
+          ariaLabel="Test schematic"
+          growingBounds={{
+            bounds: {
+              minX: 500 + jitter,
+              minY: 500 + jitter,
+              maxX: 600 + jitter,
+              maxY: 600 + jitter,
+            },
+            padding: 20,
+            easeMs: 0,
+            deadZoneMarginPx: 40,
+          }}
+        >
+          <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+        </PanZoomSVG>
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(svg.getAttribute("viewBox") ?? "").toEqual(settledVB);
+  });
+});
