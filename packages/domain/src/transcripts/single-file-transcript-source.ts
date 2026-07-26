@@ -36,7 +36,14 @@ const HARNESS = "claude_code";
 const JSONL_EXT = ".jsonl";
 // Path-separator-agnostic so subagent transcripts classify correctly on Windows.
 const SUBAGENTS_SEGMENT_RE = /[\\/]subagents[\\/]/;
-const RETAINED_TYPES = new Set(["user", "assistant", "attachment", "system"]);
+/**
+ * Mirrors `claude-code-transcript-source.ts`'s set — including
+ * `queue-operation` (mt#3260); see that file for the verified shape and why
+ * retaining it cannot pollute turn extraction. The two sets are deliberately
+ * NOT hoisted into a shared export (`custom/no-domain-singleton`), so they must
+ * be kept in sync by hand.
+ */
+const RETAINED_TYPES = new Set(["user", "assistant", "attachment", "system", "queue-operation"]);
 
 export class SingleFileTranscriptSource implements TranscriptSource {
   readonly harness = HARNESS;

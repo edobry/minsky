@@ -387,6 +387,31 @@ export interface SessionContextSnapshotBlock {
   content: unknown;
 
   /**
+   * True when the originating JSONL line carried a top-level
+   * `isCompactSummary: true` — Claude Code's marker for the summary it injects
+   * at a context-compaction boundary (mt#3260).
+   *
+   * Verified shape (2026-07-26, local corpus): always
+   * `{"type":"user","isCompactSummary":true}` — a top-level boolean on a
+   * `user` line, present in 37 of 1003 transcripts. Without this the summary
+   * renders as an unmarked giant user turn, which is why "where did my context
+   * go" has nowhere to show.
+   *
+   * Optional and additive: absent on every block that is not a compaction
+   * boundary, so no existing consumer changes behavior.
+   */
+  isCompactSummary?: boolean;
+
+  /**
+   * The assistant message's `model`, when the line carried one (mt#3260).
+   *
+   * Load-bearing case: Claude Code records a retried turn with the sentinel
+   * model `"<synthetic>"` (94 of 1003 local transcripts), which otherwise
+   * renders as an ordinary assistant turn.
+   */
+  model?: string;
+
+  /**
    * Originating JSONL `parentUuid` — the harness-emitted external UUID that
    * Claude Code uses to chain lines (attachment → preceding turn/attachment,
    * turn → preceding turn). NOT a synthesized block `id` from this snapshot's

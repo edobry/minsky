@@ -445,4 +445,37 @@ describe("extractTurns", () => {
       expect(turn0.userText).toBeNull();
     });
   });
+
+  describe("queue-operation lines (mt#3260)", () => {
+    /**
+     * `queue-operation` became a RETAINED type in mt#3260 so queued-message
+     * state is recoverable downstream. It carries no `message` and no `uuid`,
+     * so the guarantee that matters here is that it flows through extraction
+     * INERTLY — it must not open a turn, close one, or split a pair.
+     */
+    const queueOpLine = (ts: string): RawTurnLine => ({
+      type: "queue-operation",
+      timestamp: ts,
+      operation: "enqueue",
+      sessionId: "abc-123",
+    });
+
+    test("a queue-operation between a user and assistant line does not split the turn", () => {
+      const withQueueOp = extractTurns([userLine("hello"), queueOpLine(TS2), assistantLine("hi")]);
+      const without = extractTurns([userLine("hello"), assistantLine("hi")]);
+
+      expect(withQueueOp).toHaveLength(1);
+      expect(withQueueOp).toEqual(without);
+    });
+
+    test("a transcript of only queue-operation lines yields no turns", () => {
+      expect(extractTurns([queueOpLine(TS1), queueOpLine(TS2)])).toHaveLength(0);
+    });
+
+    test("a leading queue-operation does not become a turn boundary", () => {
+      const turns = extractTurns([queueOpLine(TS1), userLine("hello"), assistantLine("hi")]);
+      expect(turns).toHaveLength(1);
+      expect(assertTurn(turns, 0).userText).toBe("hello");
+    });
+  });
 });
