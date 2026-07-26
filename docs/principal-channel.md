@@ -72,32 +72,33 @@ It does **not** auto-enable off the mere presence of credentials, even though
 they resolve today: those were provisioned for reviewer alerts, and starting a
 local-`claude`-driving surface off them would be a silent capability escalation.
 
-To turn the inbound half on, **how you set the flag depends on how the daemon
-was started** — a shell `export` only reaches a daemon started from that same
-shell:
+To turn the inbound half on:
 
 ```bash
-# Daemon started from a terminal:
-MINSKY_PRINCIPAL_CHANNEL_ENABLED=true bun run src/cli.ts cockpit start --port <port>
-
-# Daemon supervised by the cockpit-tray app: the tray spawns it inheriting the
-# macOS GUI session environment (supervisor.rs's spawn_daemon overrides only
-# PATH), which your shell is NOT part of. Set it on the GUI session, then
-# restart the tray so the daemon it spawns picks it up:
-launchctl setenv MINSKY_PRINCIPAL_CHANNEL_ENABLED true
+minsky config set principalChannel.enabled true
 ```
 
-`launchctl setenv` does not survive a reboot. A config-file switch, which would
-work regardless of how the daemon was launched, is tracked in mt#3230 — until
-that lands, the tray path needs the `launchctl` step re-run after a restart.
+Then restart the cockpit daemon. That is the whole switch — it works regardless
+of how the daemon was launched, and it survives a reboot.
 
-| Variable                                    | Effect                                                                                                      |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `MINSKY_PRINCIPAL_CHANNEL_ENABLED`          | `true` starts the inbound poller. Nothing else enables it.                                                  |
-| `MINSKY_PRINCIPAL_CHANNEL_CWD`              | Working directory for the standing conversation. Defaults to the daemon's.                                  |
-| `MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE`  | `default` tightens the session below the driven-session default of `bypassPermissions`.                     |
-| `MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS` | Comma-separated Telegram sender ids. Required for a group chat; derived from the chat id for a private one. |
-| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`   | Override the Pulumi-resolved credentials (how deployed services already receive them).                      |
+That last part is why it is config rather than an environment variable
+(mt#3230). The cockpit-tray app spawns the daemon inheriting the **macOS GUI
+session environment** (`supervisor.rs`'s `spawn_daemon` overrides only `PATH`),
+which your shell is not part of — so a shell `export` never reached it, and the
+`launchctl setenv` workaround did not survive a reboot.
+
+| Setting                           | Effect                                                                                      |
+| --------------------------------- | ------------------------------------------------------------------------------------------- |
+| `principalChannel.enabled`        | `true` starts the inbound poller. Nothing else enables it.                                  |
+| `principalChannel.cwd`            | Working directory for the standing conversation. Defaults to the daemon's.                  |
+| `principalChannel.permissionMode` | `default` tightens the session below the driven-session default of `bypassPermissions`.     |
+| `principalChannel.allowedUserIds` | Telegram sender ids. Required for a group chat; derived from the chat id for a private one. |
+
+Each has an environment override, which **wins over config** — the environment
+source is merged last, so a deployed service can keep setting them:
+`MINSKY_PRINCIPAL_CHANNEL_ENABLED`, `..._CWD`, `..._PERMISSION_MODE`,
+`..._ALLOWED_USER_IDS` (comma-separated). Credentials override the same way via
+`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`.
 
 On a fresh deployment with no bot yet: create one with `/newbot` in
 [@BotFather](https://t.me/BotFather), store the token through the cockpit

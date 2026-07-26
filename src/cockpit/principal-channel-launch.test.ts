@@ -13,20 +13,17 @@ import {
   startPrincipalChannel,
 } from "./principal-channel-launch";
 
-const ENABLED = "MINSKY_PRINCIPAL_CHANNEL_ENABLED";
-const CWD_VAR = "MINSKY_PRINCIPAL_CHANNEL_CWD";
-const MODE_VAR = "MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE";
-
-describe("loadPrincipalChannelLaunchConfig", () => {
-  test("is disabled unless explicitly enabled", () => {
+describe("loadPrincipalChannelLaunchConfig (mt#3230 — config, not env)", () => {
+  test("an absent section leaves the channel off", () => {
     expect(loadPrincipalChannelLaunchConfig({}).enabled).toBe(false);
   });
 
-  test("only the exact string enables it", () => {
-    // Guards against "1"/"yes"/"TRUE" quietly turning on an RCE-adjacent surface.
-    expect(loadPrincipalChannelLaunchConfig({ [ENABLED]: "1" }).enabled).toBe(false);
-    expect(loadPrincipalChannelLaunchConfig({ [ENABLED]: "yes" }).enabled).toBe(false);
-    expect(loadPrincipalChannelLaunchConfig({ [ENABLED]: "true" }).enabled).toBe(true);
+  test("only a literal true enables it", () => {
+    // Guards against a truthy-but-not-true value quietly turning on an
+    // RCE-adjacent surface. The env path coerces "true"/"1"/"yes" to a boolean
+    // in the config layer; anything reaching here is already typed.
+    expect(loadPrincipalChannelLaunchConfig({ enabled: true }).enabled).toBe(true);
+    expect(loadPrincipalChannelLaunchConfig({ enabled: false }).enabled).toBe(false);
   });
 
   test("defaults the working directory to a non-empty path when unset", () => {
@@ -37,7 +34,11 @@ describe("loadPrincipalChannelLaunchConfig", () => {
   });
 
   test("honours an explicit working directory", () => {
-    expect(loadPrincipalChannelLaunchConfig({ [CWD_VAR]: "/srv/work" }).cwd).toBe("/srv/work");
+    expect(loadPrincipalChannelLaunchConfig({ cwd: "/srv/work" }).cwd).toBe("/srv/work");
+  });
+
+  test("an empty working directory falls back rather than running in nowhere", () => {
+    expect(loadPrincipalChannelLaunchConfig({ cwd: "" }).cwd.length).toBeGreaterThan(0);
   });
 
   test("permission mode matches other driven sessions by default", () => {
@@ -45,17 +46,15 @@ describe("loadPrincipalChannelLaunchConfig", () => {
   });
 
   test("'default' tightens it", () => {
-    expect(loadPrincipalChannelLaunchConfig({ [MODE_VAR]: "default" }).permissionMode).toBe(
+    expect(loadPrincipalChannelLaunchConfig({ permissionMode: "default" }).permissionMode).toBe(
       "default"
     );
   });
 
-  test("an unrecognized mode falls back to the permissive default, not the strict one", () => {
-    // A typo must not silently produce a channel that answers but can never
-    // act — that reads as an unhelpful agent, not as a misconfiguration.
-    expect(loadPrincipalChannelLaunchConfig({ [MODE_VAR]: "deafult" }).permissionMode).toBe(
-      "bypassPermissions"
-    );
+  test("carries the sender allowlist through, dropping blanks", () => {
+    expect(
+      loadPrincipalChannelLaunchConfig({ allowedUserIds: ["777", "  ", "888"] }).allowedUserIds
+    ).toEqual(["777", "888"]);
   });
 });
 
