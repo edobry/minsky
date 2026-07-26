@@ -9,13 +9,16 @@ import {
 } from "./session-film-virtualization";
 
 describe("computeVisibleRowRange", () => {
-  test("at scrollTop=0, mounts from row 0 through viewport+overscan", () => {
+  test("at scrollTop=0, mounts from row 0 through viewport+overscan (scroll-padding aware)", () => {
     const range = computeVisibleRowRange(0, 400, 20, 1000, 6);
+    // Leading half-viewport spacer (200px = 10 rows) means scrollTop=0 shows
+    // the spacer plus only the first ~10 rows, not a full 20 (mt#3226 SC 3).
     expect(range.start).toBe(0);
-    // lastVisible = ceil(400/20) = 20; +overscan 6 = 26
-    expect(range.end).toBe(26);
-    expect(range.totalHeightPx).toBe(20_000);
-    expect(range.offsetTopPx).toBe(0);
+    expect(range.end).toBe(16);
+    // +viewportHeightPx (400) for the leading+trailing half-viewport spacers.
+    expect(range.totalHeightPx).toBe(20_400);
+    // Mounted window starts after the 200px leading spacer.
+    expect(range.offsetTopPx).toBe(200);
   });
 
   test("scrolled deep into a long list mounts only a bounded window, not every row", () => {
@@ -45,7 +48,9 @@ describe("scrollTopForRow / rowIndexForScrollTop — round trip", () => {
     const rowHeight = 24;
     const viewport = 500;
     const rowCount = 200;
-    const total = rowCount * rowHeight;
+    // totalHeightPx includes the leading+trailing half-viewport spacers, per
+    // computeVisibleRowRange (mt#3226 SC 3) — matches what a real caller passes.
+    const total = rowCount * rowHeight + viewport;
     for (const target of [0, 10, 100, 199]) {
       const scrollTop = scrollTopForRow(target, rowHeight, viewport, total);
       const back = rowIndexForScrollTop(scrollTop, rowHeight, viewport, rowCount);
@@ -55,12 +60,50 @@ describe("scrollTopForRow / rowIndexForScrollTop — round trip", () => {
   });
 
   test("scrollTopForRow never scrolls past the bottom of the content", () => {
-    const scrollTop = scrollTopForRow(9999, 24, 500, 24 * 200);
-    expect(scrollTop).toBeLessThanOrEqual(24 * 200 - 500);
+    const scrollTop = scrollTopForRow(9999, 24, 500, 24 * 200 + 500);
+    expect(scrollTop).toBeLessThanOrEqual(24 * 200 + 500 - 500);
   });
 
   test("rowIndexForScrollTop clamps within [0, rowCount-1]", () => {
     expect(rowIndexForScrollTop(0, 24, 500, 50)).toBeGreaterThanOrEqual(0);
     expect(rowIndexForScrollTop(1_000_000, 24, 500, 50)).toBe(49);
+  });
+});
+
+describe("scroll-padding bug fix — first/last events attainable as playhead (mt#3226 SC 3 / AT 1)", () => {
+  test("row 0 is reachable at scrollTop=0", () => {
+    const rowCount = 50;
+    const rowHeightPx = 32;
+    const viewportHeightPx = 400;
+    expect(rowIndexForScrollTop(0, rowHeightPx, viewportHeightPx, rowCount)).toBe(0);
+  });
+
+  test("the final row is reachable at the maximum scrollTop", () => {
+    const rowCount = 50;
+    const rowHeightPx = 32;
+    const viewportHeightPx = 400;
+    const range = computeVisibleRowRange(0, viewportHeightPx, rowHeightPx, rowCount);
+    const maxScrollTop = range.totalHeightPx - viewportHeightPx;
+    expect(rowIndexForScrollTop(maxScrollTop, rowHeightPx, viewportHeightPx, rowCount)).toBe(
+      rowCount - 1
+    );
+  });
+
+  test("scrollTopForRow(0) and scrollTopForRow(rowCount-1) both fall inside the scrollable range", () => {
+    const rowCount = 50;
+    const rowHeightPx = 32;
+    const viewportHeightPx = 400;
+    const totalHeightPx = rowCount * rowHeightPx + viewportHeightPx;
+    const firstScrollTop = scrollTopForRow(0, rowHeightPx, viewportHeightPx, totalHeightPx);
+    const lastScrollTop = scrollTopForRow(
+      rowCount - 1,
+      rowHeightPx,
+      viewportHeightPx,
+      totalHeightPx
+    );
+    expect(rowIndexForScrollTop(firstScrollTop, rowHeightPx, viewportHeightPx, rowCount)).toBe(0);
+    expect(rowIndexForScrollTop(lastScrollTop, rowHeightPx, viewportHeightPx, rowCount)).toBe(
+      rowCount - 1
+    );
   });
 });
