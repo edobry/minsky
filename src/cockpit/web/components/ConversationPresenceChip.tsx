@@ -131,7 +131,14 @@ export function ConversationPresenceChip({ conversationId }: { conversationId: s
           </span>
         )}
 
-        {payload.ask && (
+        {/* The Ask link belongs to the NEEDS INPUT chip, not to the readout in
+            general (PR #2349 R1). `reason` is non-null exactly when presence is
+            NEEDS_INPUT, so gating on it keeps the two in lockstep. A LIVE
+            conversation can carry a resolvable ask — `foldAskIntoPresence`
+            deliberately leaves working conversations alone — but surfacing it
+            there would imply the conversation is waiting on the operator when
+            it is not. */}
+        {reason && payload.ask && (
           <Link
             to={`/ask/${encodeURIComponent(payload.ask.id)}`}
             className="text-primary hover:underline"
