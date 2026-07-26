@@ -11,10 +11,11 @@
  * Run via: bun run test:components
  */
 import { describe, test, expect, afterEach, mock } from "bun:test";
-import { render, cleanup, waitFor } from "@testing-library/react";
+import { render, cleanup, waitFor, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { GroupSubjectBadge } from "./AsksPage";
+import { AsksPage, GroupSubjectBadge } from "./AsksPage";
+import type { AskItem } from "../widgets/AskDetail";
 
 const originalFetch = global.fetch;
 
@@ -71,5 +72,130 @@ describe("AsksPage GroupSubjectBadge — Shape 3: group.subject mixed id-space (
     const { container } = renderBadge("something-else");
     expect(container.querySelector("a")).toBeNull();
     expect(container.textContent).toBe("something-else");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Row layout invariants (mt#3246)
+//
+// jsdom does no layout, so geometry is verified live against the running
+// cockpit (this task's acceptance test 2). What IS assertable here — and what
+// the regression actually consisted of — is the STRUCTURAL contract that makes
+// the geometry work: long producer-supplied option labels must not sit on the
+// title's line, must not be pinned unshrinkable, and must not be reachable
+// only by horizontal scroll.
+// ---------------------------------------------------------------------------
+
+const LONG_OPTION_LABELS = [
+  "GitHub Actions migrate-on-merge (recommended!!)",
+  "Railway pre-deploy / release command per service",
+  "Supabase CLI migration deploy from a CI runner..",
+];
+
+function askWithLongOptions(): AskItem {
+  return {
+    id: "1f0a5cfe-0000-4000-8000-000000000001",
+    shortId: "ask#3346",
+    kind: "direction.decide",
+    state: "routed",
+    title: "mt#2505: which deploy-keyed migration mechanism replaces boot-time auto-migrate",
+    question:
+      "mt#2505 decouples schema migration from process boot: it flips MINSKY_AUTO_MIGRATE " +
+      "default OFF so no binary migrates on start. Pick the replacement mechanism.",
+    requestor: "plan-task agent (mt#2505 investigation)",
+    parentTaskId: "mt#2505",
+    options: LONG_OPTION_LABELS.map((label, i) => ({
+      label,
+      value: String.fromCharCode(97 + i),
+      description: `description for option ${String.fromCharCode(65 + i)}`,
+    })),
+    createdAt: new Date(Date.now() - 39 * 24 * 60 * 60 * 1000).toISOString(),
+    windowMissedCount: 0,
+    metadata: {},
+  };
+}
+
+function renderAsksPage(asks: AskItem[]) {
+  global.fetch = mock(async (url: string) => {
+    if (url.startsWith("/api/asks")) return jsonResponse({ asks, total: asks.length });
+    return fallback();
+  }) as unknown as typeof fetch;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <AsksPage />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+describe("AsksPage row layout — long option labels stay in-bounds (mt#3246)", () => {
+  test("every inline action renders, including Defer, for a 3-long-option ask", async () => {
+    renderAsksPage([askWithLongOptions()]);
+    for (const label of LONG_OPTION_LABELS) {
+      await waitFor(() => expect(screen.getByRole("button", { name: label })).toBeDefined());
+    }
+    expect(screen.getByRole("button", { name: "Defer" })).toBeDefined();
+  });
+
+  test("the action bar is a wrapping band, NOT an unshrinkable cell on the title line", async () => {
+    const { container } = renderAsksPage([askWithLongOptions()]);
+    const optionButton = await waitFor(() =>
+      screen.getByRole("button", { name: LONG_OPTION_LABELS[0] as string })
+    );
+    const bar = optionButton.parentElement as HTMLElement;
+
+    // The bar wraps its own buttons rather than forcing one long line...
+    expect(bar.className).toContain("flex-wrap");
+    // ...and never pins itself at natural width, which is what pushed Defer
+    // and the open-detail affordance off-screen.
+    expect(bar.className).not.toContain("flex-shrink-0");
+
+    // It is a sibling band below the title line, not a cell inside it.
+    const titleLine = container.querySelector("button[aria-expanded]")?.parentElement;
+    expect(titleLine).not.toBeNull();
+    expect(titleLine?.contains(bar)).toBe(false);
+  });
+
+  test("a long option label is width-capped and truncates, with the full text on hover", async () => {
+    const label = LONG_OPTION_LABELS[1] as string;
+    renderAsksPage([askWithLongOptions()]);
+    const optionButton = await waitFor(() => screen.getByRole("button", { name: label }));
+
+    expect(optionButton.className).toContain("max-w-[22rem]");
+    expect(optionButton.querySelector(".truncate")?.textContent).toBe(label);
+    expect(optionButton.getAttribute("title")).toBe(`${label} — description for option B`);
+  });
+
+  test("the title truncates inside an overflow-clipped button so it cannot paint over the metadata cells", async () => {
+    const ask = askWithLongOptions();
+    const { container } = renderAsksPage([ask]);
+    const titleButton = await waitFor(() => {
+      const el = container.querySelector("button[aria-expanded]");
+      if (!el) throw new Error("title button not rendered yet");
+      return el as HTMLElement;
+    });
+
+    expect(titleButton.className).toContain("overflow-hidden");
+    expect(titleButton.className).toContain("min-w-0");
+    const title = [...titleButton.querySelectorAll("span")].find(
+      (s) => s.textContent === ask.title
+    );
+    expect(title?.className).toContain("truncate");
+  });
+
+  test("the consequence line declares wanted width so the actions wrap beneath it", async () => {
+    const { container } = renderAsksPage([askWithLongOptions()]);
+    const consequence = await waitFor(() => {
+      const el = container.querySelector("p.truncate");
+      if (!el) throw new Error("consequence line not rendered yet");
+      return el as HTMLElement;
+    });
+    // basis-* is load-bearing: flex line breaking uses the flex BASE size, so a
+    // zero-basis consequence would share its line with a ~900px action bar and
+    // collapse to an ellipsis.
+    expect(consequence.className).toContain("basis-64");
+    expect(consequence.className).toContain("min-w-0");
   });
 });
