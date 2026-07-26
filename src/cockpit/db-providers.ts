@@ -92,6 +92,54 @@ function assertTestEnvironment(api: string): void {
 /** @internal Test-only registry of every getter this factory has produced, so `__resetDbProvidersForTests()` (below) can reset all of them without needing to name each one individually. */
 const _allCachedSqlDbGetters: CachedSqlDbGetter[] = [];
 
+// ---------------------------------------------------------------------------
+// Test-process live-database guard (mt#3254)
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when a test process resolves a live database through the PRODUCTION
+ * provider path.
+ *
+ * A distinct class rather than a bare Error because `createCachedSqlDbGetter`
+ * converts every thrown probe failure into `null`. This one must survive that
+ * catch: degrading it to "no database available" would make the guard silent,
+ * which is the failure mode it exists to prevent.
+ */
+export class TestEnvironmentDbAccessError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TestEnvironmentDbAccessError";
+  }
+}
+
+/** Env var that opts a test into using a real (local) database. */
+export const ALLOW_TEST_DB_ENV_VAR = "MINSKY_ALLOW_TEST_DB";
+
+/**
+ * Decide whether a resolved database must be refused.
+ *
+ * Extracted as a pure function so the decision is unit-testable without a live
+ * connection, mirroring how `assertTestEnvironment` above keeps its own
+ * NODE_ENV check in one readable place.
+ *
+ * `isProductionResolution` is the load-bearing input: a getter built WITHOUT
+ * the `getProvider` seam resolves through `getCachedPersistenceProvider`, i.e.
+ * the real configured database. A getter given an explicit provider is being
+ * handed a deliberate fake and is none of this guard's business — guarding it
+ * would break every legitimate injected-provider test.
+ */
+export function shouldRefuseTestEnvironmentDb(input: {
+  isProductionResolution: boolean;
+  nodeEnv: string | undefined;
+  optIn: string | undefined;
+}): boolean {
+  if (!input.isProductionResolution) return false;
+  if (input.nodeEnv !== "test") return false;
+  // An exported-but-empty `MINSKY_ALLOW_TEST_DB=` is not consent. Requiring a
+  // non-empty value keeps a stray export from disabling the guard silently.
+  return !(input.optIn !== undefined && input.optIn.length > 0);
+}
+
 /**
  * Build a lazy-cached SQL-capable-provider database getter.
  *
@@ -110,8 +158,20 @@ const _allCachedSqlDbGetters: CachedSqlDbGetter[] = [];
 export function createCachedSqlDbGetter(options: {
   cacheNegative: boolean;
   getProvider?: () => Promise<unknown>;
+  /**
+   * @internal Test-only. Stands in for {@link getCachedPersistenceProvider} on
+   * the PRODUCTION resolution path, so the mt#3254 guard can be exercised
+   * without a live connection. Unlike `getProvider`, supplying this does NOT
+   * mark the resolution as seam-injected — the guard still applies, which is
+   * the whole point of the seam.
+   */
+  __productionProviderForTests?: () => Promise<unknown>;
 }): CachedSqlDbGetter {
-  const getProvider = options.getProvider ?? getCachedPersistenceProvider;
+  // A getter built without `getProvider` resolves the REAL configured
+  // database; that is what the mt#3254 guard keys on.
+  const isProductionResolution = options.getProvider === undefined;
+  const getProvider =
+    options.getProvider ?? options.__productionProviderForTests ?? getCachedPersistenceProvider;
   let cachedDb: PostgresJsDatabase | null = null;
   let probedAndFailed = false;
 
@@ -138,9 +198,28 @@ export function createCachedSqlDbGetter(options: {
         probedAndFailed = true;
         return null;
       }
+      if (
+        shouldRefuseTestEnvironmentDb({
+          isProductionResolution,
+          nodeEnv: process.env.NODE_ENV,
+          optIn: process.env[ALLOW_TEST_DB_ENV_VAR],
+        })
+      ) {
+        throw new TestEnvironmentDbAccessError(
+          "Refusing to hand a live database to a test process. This connection came from the " +
+            "real configured provider, which under `bun test` is whatever the environment points " +
+            "at — prod, in this repo. Inject a fake via the `getProvider` seam, or set " +
+            `${ALLOW_TEST_DB_ENV_VAR}=1 if this test genuinely needs a real LOCAL database. ` +
+            "(mt#3254 — test runs previously wrote 31 rows into production tables.)"
+        );
+      }
       cachedDb = db;
       return cachedDb;
-    } catch {
+    } catch (err) {
+      // The guard must NOT degrade into the "probe failed -> null" path below:
+      // a silent null is indistinguishable from "no database configured",
+      // which is exactly the silence this guard exists to break.
+      if (err instanceof TestEnvironmentDbAccessError) throw err;
       probedAndFailed = true;
       return null;
     }

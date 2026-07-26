@@ -9,7 +9,12 @@
  * or `shared-persistence` module mocking is needed.
  */
 import { describe, test, expect } from "bun:test";
-import { createCachedSqlDbGetter, __resetDbProvidersForTests } from "./db-providers";
+import {
+  createCachedSqlDbGetter,
+  __resetDbProvidersForTests,
+  shouldRefuseTestEnvironmentDb,
+  TestEnvironmentDbAccessError,
+} from "./db-providers";
 
 type FakeDb = { marker: string };
 
@@ -191,5 +196,142 @@ describe("createCachedSqlDbGetter", () => {
 
     expect(await getDb()).toBe(db as unknown as never);
     expect(calls).toBe(2); // the bulk reset forced this getter to re-probe too
+  });
+});
+
+// -------------------------------------------------------------------------
+// Test-process live-database guard (mt#3254).
+//
+// Under `bun test`, module state and configuration are shared across every
+// file in one process, so once ANY test calls initializeConfiguration() the
+// PRODUCTION provider path resolves the real configured database — prod
+// Supabase in this repo. That is not hypothetical: it wrote 29 fixture rows
+// into prod `driven_sessions` and 2 into `driven_session_cost` across four
+// test runs on 2026-07-22/23/24.
+//
+// mt#3016 addressed the same root by threading `getDb` DI seams through four
+// individual consumers; the driven-session path was not one of them and
+// leaked anyway. The guard therefore lives at the shared choke point, so a
+// consumer added tomorrow is covered without remembering anything.
+//
+// The discriminator is PRODUCTION RESOLUTION — a getter built WITHOUT the
+// `getProvider` seam. A getter given an explicit provider is receiving a
+// deliberately-injected fake and is left alone; that is what every test
+// above does, and none of them change.
+// -------------------------------------------------------------------------
+
+/** Stands in for the real configured connection the production path resolves. */
+const PROD_CONNECTION_MARKER = "REAL-PROD-CONNECTION";
+
+/** A production-path provider stub: guarded, unlike the `getProvider` seam. */
+const fakeProductionProvider = async () => ({
+  getDatabaseConnection: async () => ({ marker: PROD_CONNECTION_MARKER }),
+});
+
+describe("test-process live-database guard (mt#3254)", () => {
+  describe("shouldRefuseTestEnvironmentDb", () => {
+    test("refuses production resolution under NODE_ENV=test with no opt-in", () => {
+      expect(
+        shouldRefuseTestEnvironmentDb({
+          isProductionResolution: true,
+          nodeEnv: "test",
+          optIn: undefined,
+        })
+      ).toBe(true);
+    });
+
+    test("allows a seam-injected provider even under NODE_ENV=test", () => {
+      // This is the case every other test in this file exercises. If this
+      // ever flips to `true`, the guard has become a blanket "no db in
+      // tests" rule and will break deliberate fake injection.
+      expect(
+        shouldRefuseTestEnvironmentDb({
+          isProductionResolution: false,
+          nodeEnv: "test",
+          optIn: undefined,
+        })
+      ).toBe(false);
+    });
+
+    test("allows production resolution outside a test process", () => {
+      expect(
+        shouldRefuseTestEnvironmentDb({
+          isProductionResolution: true,
+          nodeEnv: "production",
+          optIn: undefined,
+        })
+      ).toBe(false);
+      expect(
+        shouldRefuseTestEnvironmentDb({
+          isProductionResolution: true,
+          nodeEnv: undefined,
+          optIn: undefined,
+        })
+      ).toBe(false);
+    });
+
+    test("allows production resolution under an explicit opt-in", () => {
+      expect(
+        shouldRefuseTestEnvironmentDb({
+          isProductionResolution: true,
+          nodeEnv: "test",
+          optIn: "1",
+        })
+      ).toBe(false);
+    });
+
+    test("an empty opt-in value is NOT an opt-in", () => {
+      // `MINSKY_ALLOW_TEST_DB=` in a shell exports an empty string. Treating
+      // that as consent would let a stray unset-looking export disable the
+      // guard silently.
+      expect(
+        shouldRefuseTestEnvironmentDb({
+          isProductionResolution: true,
+          nodeEnv: "test",
+          optIn: "",
+        })
+      ).toBe(true);
+    });
+  });
+
+  describe("wiring into createCachedSqlDbGetter", () => {
+    test("a production-resolved db in a test process THROWS rather than being handed out", async () => {
+      const getDb = createCachedSqlDbGetter({
+        cacheNegative: false,
+        // No `getProvider` — this is the production resolution path. The
+        // test-only override below stands in for the real
+        // getCachedPersistenceProvider so the assertion needs no live DB.
+        __productionProviderForTests: fakeProductionProvider,
+      });
+
+      await expect(getDb()).rejects.toBeInstanceOf(TestEnvironmentDbAccessError);
+    });
+
+    test("the guard error is NOT swallowed into a null by the probe-failure catch", async () => {
+      // createCachedSqlDbGetter converts every thrown probe failure into
+      // `null`. If the guard rides that path it degrades to "no db
+      // available" — silent, which is the exact failure mode being fixed.
+      const getDb = createCachedSqlDbGetter({
+        cacheNegative: true,
+        __productionProviderForTests: fakeProductionProvider,
+      });
+
+      let threw = false;
+      try {
+        await getDb();
+      } catch {
+        threw = true;
+      }
+      expect(threw).toBe(true);
+    });
+
+    test("the error names the opt-in variable so the fix is discoverable from the message", async () => {
+      const getDb = createCachedSqlDbGetter({
+        cacheNegative: false,
+        __productionProviderForTests: fakeProductionProvider,
+      });
+
+      await expect(getDb()).rejects.toThrow(/MINSKY_ALLOW_TEST_DB/);
+    });
   });
 });
