@@ -265,10 +265,14 @@ export async function getTaskSpecContentFromParams(
     // delegate's default resolver (tasks/commands/shared-helpers.ts's
     // resolveRepoPath) throws when a `session` param is present and no
     // sessionProvider is supplied, which none of this facade's callers pass.
-    // Wiring true session-aware resolution here is out of this narrow bug
-    // fix's scope (mt#3194 is scoped to the section-forwarding fix); see
-    // mt#3190 for the broader tasks.ts/query-commands.ts consolidation that
-    // would be the right place to add it.
+    // Wiring true session-aware resolution here was out of this narrow bug
+    // fix's scope (mt#3194 was scoped to the section-forwarding fix), and
+    // remains unwired after mt#3190's broader consolidation of the other five
+    // functions below — none of this facade's callers pass a real session id
+    // today, so there was no observed behavior to preserve by adding it. A
+    // future task wiring an actual sessionProvider through this facade's DI
+    // surface would need to touch every resolveRepoPath/resolveMainWorkspacePath
+    // override in this file.
     resolveRepoPath: async () => process.cwd(),
   });
 }
