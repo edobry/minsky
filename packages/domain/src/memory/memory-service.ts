@@ -419,6 +419,10 @@ export class MemoryService implements MemoryServiceSurface {
   // -------------------------------------------------------------------------
 
   async update(id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null> {
+    const where = memoryIdWhere(id);
+    // Neither a uuid nor a `mem#N` short id — a miss, not a query (mt#3108).
+    if (!where) return null;
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: Record<string, any> = { updatedAt: new Date() };
 
@@ -445,11 +449,7 @@ export class MemoryService implements MemoryServiceSurface {
       updateData["associations"] = expr;
     }
 
-    const rows = await this.deps.db
-      .update(memoriesTable)
-      .set(updateData)
-      .where(eq(memoriesTable.id, id))
-      .returning();
+    const rows = await this.deps.db.update(memoriesTable).set(updateData).where(where).returning();
 
     const row = rows[0] as Record<string, unknown> | undefined;
     if (!row) return null;
@@ -469,9 +469,31 @@ export class MemoryService implements MemoryServiceSurface {
   // -------------------------------------------------------------------------
 
   async delete(id: string): Promise<void> {
-    await this.deps.db.delete(memoriesTable).where(eq(memoriesTable.id, id));
-    await this.deps.vectorStorage.delete(id).catch((err: unknown) => {
-      log.warn("[memory.delete] Failed to delete embedding", { id, err });
+    const where = memoryIdWhere(id);
+    // A malformed id deletes nothing rather than raising a uuid cast (mt#3108).
+    if (!where) return;
+
+    // Delete the row and read back WHICH row went, because the vector store is
+    // keyed by the canonical uuid — never by a `mem#N` alias. Passing the
+    // caller's raw input to `vectorStorage.delete` would silently orphan the
+    // embedding whenever a short id was used: the row deletion succeeds, the
+    // vector deletion matches nothing, and neither reports a problem
+    // (PR #2348 R1). That is the exact "a failure that looks like success"
+    // shape mem#728 describes, and it is a regression this task would have
+    // introduced — before short ids resolved here, the row deletion itself
+    // raised a cast error, so the vector delete never ran on a bad key.
+    const deleted = (await this.deps.db.delete(memoriesTable).where(where).returning()) as Record<
+      string,
+      unknown
+    >[];
+
+    const deletedId = deleted?.[0]?.["id"];
+    // Nothing matched — no embedding to remove, and no id to remove it by.
+    if (deletedId === undefined || deletedId === null) return;
+
+    const canonicalId = String(deletedId);
+    await this.deps.vectorStorage.delete(canonicalId).catch((err: unknown) => {
+      log.warn("[memory.delete] Failed to delete embedding", { id: canonicalId, err });
     });
   }
 
@@ -645,6 +667,17 @@ export class MemoryService implements MemoryServiceSurface {
     newInput: MemoryCreateInput,
     reason?: string
   ): Promise<{ old: MemoryRecord; replacement: MemoryRecord }> {
+    // Resolve the old id's shape BEFORE opening the transaction (mt#3108).
+    // Unlike update/delete this cannot return a not-found value — the
+    // signature promises a record pair — so a malformed id throws here rather
+    // than inserting the replacement and only then failing the old-row update
+    // on a uuid cast, which would roll back the insert and surface a raw SQL
+    // dump instead of naming the problem.
+    const oldWhere = memoryIdWhere(oldId);
+    if (!oldWhere) {
+      throw new Error(`Invalid memory id "${oldId}": expected a full uuid or a mem#N short id.`);
+    }
+
     const { oldRecord, newRecord } = await this.deps.db.transaction(async (tx: MemoryServiceDb) => {
       const shortId = await this.nextMemoryShortId(tx);
       // Insert new memory inside the transaction.
@@ -672,11 +705,16 @@ export class MemoryService implements MemoryServiceSurface {
       const replacement = rowToRecord(newRows[0] as Record<string, unknown>);
 
       // Read the old memory's current metadata so we can append rather than overwrite.
-      const oldRowsBefore = await tx
-        .select()
-        .from(memoriesTable)
-        .where(eq(memoriesTable.id, oldId));
+      const oldRowsBefore = await tx.select().from(memoriesTable).where(oldWhere);
       const oldBefore = oldRowsBefore[0] as Record<string, unknown> | undefined;
+      // Fail loudly and by name when the old memory does not exist. Without
+      // this the missing row surfaces further down as `rowToRecord(undefined)`
+      // reading properties of undefined — an error whose text says nothing
+      // about the actual problem (PR #2348 R1). The transaction rolls back, so
+      // the replacement inserted above is not left behind.
+      if (!oldBefore) {
+        throw new Error(`Memory not found: "${oldId}" — nothing to supersede.`);
+      }
       const existingMetadata =
         (oldBefore?.["metadata"] as Record<string, unknown> | null | undefined) ?? {};
       const mergedMetadata = {
@@ -693,7 +731,7 @@ export class MemoryService implements MemoryServiceSurface {
           metadata: mergedMetadata,
           updatedAt: new Date(),
         })
-        .where(eq(memoriesTable.id, oldId))
+        .where(oldWhere)
         .returning();
 
       return {
@@ -794,7 +832,9 @@ export class MemoryService implements MemoryServiceSurface {
    * Fetch a record by ID without triggering access tracking (internal helper).
    */
   private async getById(id: string): Promise<MemoryRecord | null> {
-    const rows = await this.deps.db.select().from(memoriesTable).where(eq(memoriesTable.id, id));
+    const where = memoryIdWhere(id);
+    if (!where) return null;
+    const rows = await this.deps.db.select().from(memoriesTable).where(where);
     const row = rows[0] as Record<string, unknown> | undefined;
     return row ? rowToRecord(row) : null;
   }

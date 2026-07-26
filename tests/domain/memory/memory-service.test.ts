@@ -409,7 +409,11 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
         where(cond: any) {
           const matched = queryRows(cond);
           for (const r of matched) rows.delete(r.id);
-          return Promise.resolve();
+          // `.returning()` mirrors Postgres DELETE ... RETURNING: the service
+          // reads the deleted row's canonical uuid from here so it can remove
+          // the matching embedding, which is keyed by uuid and never by a
+          // `mem#N` alias (mt#3108 / PR #2348 R1).
+          return { returning: () => Promise.resolve(matched) };
         },
       };
     },

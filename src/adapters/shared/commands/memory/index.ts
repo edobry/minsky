@@ -883,18 +883,26 @@ export function registerMemoryCommands(
     id: "memory.update",
     category: CommandCategory.MEMORY,
     name: "update",
-    description: "Update fields on an existing memory record.",
+    description:
+      "Update fields on an existing memory record. Accepts a full UUID, an " +
+      "unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id " +
+      "(mt#2966) for `id`.",
     parameters: memoryUpdateParams,
     execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.update", { id: params.id });
 
-      const service = await resolveMemoryService(deps, ctx ?? {});
+      // Resolve BEFORE building the service, matching the read commands'
+      // ordering (PR #2348 R1). Same resolver they use (mt#3108): a full uuid,
+      // an unambiguous >=8-hex prefix, or a `mem#N` short id, throwing a named
+      // error rather than letting a non-uuid reach the driver as a cast.
+      const { id: rawId, ...updateFields } = params;
+      const id = await resolveMemoryIdInput(rawId, ctx ?? {});
 
-      const { id, ...updateFields } = params;
+      const service = await resolveMemoryService(deps, ctx ?? {});
       const record = await service.update(id, updateFields);
 
       if (!record) {
-        throw new Error(`Memory not found: "${id}"`);
+        throw new Error(`Memory not found: "${rawId}"`);
       }
 
       return record;
@@ -906,15 +914,22 @@ export function registerMemoryCommands(
     id: "memory.delete",
     category: CommandCategory.MEMORY,
     name: "delete",
-    description: "Delete a memory record by its identifier.",
+    description:
+      "Delete a memory record by its identifier. Accepts a full UUID, an " +
+      "unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id " +
+      "(mt#2966).",
     parameters: memoryDeleteParams,
     execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.delete", { id: params.id });
 
-      const service = await resolveMemoryService(deps, ctx ?? {});
-      await service.delete(params.id);
+      const id = await resolveMemoryIdInput(params.id, ctx ?? {});
 
-      return { deleted: true, id: params.id };
+      const service = await resolveMemoryService(deps, ctx ?? {});
+      await service.delete(id);
+
+      // Report the RESOLVED id: echoing the caller's `mem#N` back would leave
+      // them without the canonical id of the row that was actually removed.
+      return { deleted: true, id };
     },
   });
 
@@ -958,10 +973,14 @@ export function registerMemoryCommands(
     name: "supersede",
     description:
       "Atomically replace an existing memory with a new one. " +
-      "The old memory is retained but marked superseded.",
+      "The old memory is retained but marked superseded. Accepts a full UUID, " +
+      "an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id " +
+      "(mt#2966) for `oldId`.",
     parameters: memorySupersededParams,
     execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.supersede", { oldId: params.oldId });
+
+      const oldId = await resolveMemoryIdInput(params.oldId, ctx ?? {});
 
       const service = await resolveMemoryService(deps, ctx ?? {});
 
@@ -979,7 +998,7 @@ export function registerMemoryCommands(
       };
 
       const result: { old: MemoryRecord; replacement: MemoryRecord } = await service.supersede(
-        params.oldId,
+        oldId,
         newInput,
         params.reason
       );
