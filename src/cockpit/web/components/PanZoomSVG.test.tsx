@@ -406,6 +406,37 @@ describe("PanZoomSVG — camera-follow auto-fit (mt#3231 SC 5 / AT 5)", () => {
     expect(cy).toBeCloseTo(550, 0);
   });
 
+  test("stays put while the container is 0x0 (no fit against 0x0), then fits once real dimensions appear (mt#3231 review R1)", async () => {
+    render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        growingBounds={{ bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 }, padding: 10, easeMs: 0 }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    const container = screen.getByTestId("pan-zoom-svg-container");
+    const svg = screen.getByTestId("pan-zoom-svg");
+
+    // Container stays 0x0 (JSDOM/happy-dom default — never overridden here)
+    // for a while — the zero-size backoff should keep retrying without ever
+    // computing a fit against 0x0, leaving the viewBox at its initial state.
+    const zeroSizeVB = svg.getAttribute("viewBox") ?? "";
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(svg.getAttribute("viewBox") ?? "").toEqual(zeroSizeVB);
+
+    // Real dimensions appear — the next backoff-scheduled retry should pick
+    // them up and compute the fit (skip/retry until real dimensions, not a
+    // permanent stall).
+    container.getBoundingClientRect = () => mockRect(1280, 820);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const vb = parseViewBox(svg.getAttribute("viewBox") ?? "");
+    expect(vb.w).toBeGreaterThan(0);
+    expect(vb.w).toBeLessThan(1280); // fit to the small bounds, not the full board
+  });
+
   test("a user pan overrides and pauses camera-follow, matching the existing ambient-drift override", async () => {
     render(
       <PanZoomSVG

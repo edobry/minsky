@@ -89,7 +89,33 @@ export interface ForceLayoutState {
 const ALPHA_MIN = 0.01;
 /** Alpha to reheat to when a brand-new node arrives — visible-but-bounded perturbation, never a random re-scatter. */
 const REHEAT_ALPHA = 0.4;
-/** Bound on synchronous ticks for the reduced-motion one-shot settle — d3-force's default decay reaches ALPHA_MIN well within this at alpha=1. */
+/**
+ * Warm-start alpha for a FRESHLY created simulation (mt#3231 review R1,
+ * BLOCKING — "readForceLayoutPositions returns stale nominal positions
+ * before the first tick, causing a jump when the first tick applies
+ * forces"). d3-force's OWN default starting alpha is 1 — the strongest force
+ * magnitude any tick can ever apply (alpha directly scales every force's
+ * per-tick velocity contribution). Every node here warm-starts EXACTLY at
+ * its tidy-tree nominal slot (see `createForceLayout`/`toForceNode` below —
+ * never a random scatter), so up until the caller's FIRST real tick fires
+ * (`useSessionFilmForceLayout`'s interval, `tickIntervalMs` after mount),
+ * the scene has only ever been rendered motionless at that exact nominal
+ * layout. An alpha=1 first tick would then apply the single LARGEST
+ * perturbation this simulation ever produces to a scene the viewer has only
+ * seen sitting still — a visible one-frame "jump," not the gentle organic
+ * breathing every other tick settles into. Starting cooler makes that first
+ * visible tick a small, continuous nudge instead, consistent with every
+ * later tick's magnitude.
+ *
+ * Deliberately NOT applied to `REHEAT_ALPHA` above: the arrival reheat's
+ * visible perturbation of NEIGHBORING (already-rendered, already-moving)
+ * nodes is a DELIBERATE, spec-mandated effect ("the arrival visibly
+ * perturbs its neighbors before re-settling, rather than popping in inert"
+ * — module doc's "Re-flow on arrival" section) — not the accidental
+ * cold-start artifact this constant fixes.
+ */
+const INITIAL_ALPHA = 0.15;
+/** Bound on synchronous ticks for the reduced-motion one-shot settle — d3-force's default decay reaches ALPHA_MIN well within this even from full alpha=1 (a safe upper bound; the actual starting points below are cooler). */
 const MAX_SYNC_TICKS = 300;
 
 /** Mirrors `SessionFilmStage.tsx`'s "Realm-tree edges" pass: parent = same realm, one depth shallower. */
@@ -156,7 +182,7 @@ export function createForceLayout(
     nodesById.set(node.id, toForceNode(node));
   }
   const forceNodes = [...nodesById.values()];
-  const simulation = forceSimulation<ForceNode>(forceNodes).stop();
+  const simulation = forceSimulation<ForceNode>(forceNodes).alpha(INITIAL_ALPHA).stop();
   applyForces(simulation, buildLinks(layout.nodes), config);
   return { simulation, nodesById };
 }

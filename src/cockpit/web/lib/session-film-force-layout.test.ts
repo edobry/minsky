@@ -60,6 +60,39 @@ describe("createForceLayout — warm start (mt#3231 AT 4)", () => {
   });
 });
 
+describe("warm-start continuity (mt#3231 review R1, BLOCKING — no visible jump on tick 0)", () => {
+  test("a freshly created simulation starts COOLER than d3-force's own alpha=1 default", () => {
+    const layout = layoutFixture([ROOT, CHILD_A]);
+    const state = createForceLayout(layout, DEFAULT_SESSION_FILM_CONFIG);
+    expect(state.simulation.alpha()).toBeGreaterThan(0);
+    expect(state.simulation.alpha()).toBeLessThan(0.5);
+  });
+
+  test("the FIRST tick after creation moves an unpinned node only a small amount — nowhere near what a full alpha=1 cold start would produce (no visible snap)", () => {
+    // Coincident siblings guarantee a strong, unambiguous repulsion signal
+    // (same fixture-design rationale as the existing re-flow test above),
+    // so any damping from a cooler starting alpha is unambiguous too.
+    const layout = layoutFixture([ROOT, CHILD_A, CHILD_B_COINCIDENT]);
+
+    const warmState = createForceLayout(layout, DEFAULT_SESSION_FILM_CONFIG);
+    const before = requireDefined(readForceLayoutPositions(warmState).get(CHILD_A.id));
+    tickForceLayout(warmState);
+    const after = requireDefined(readForceLayoutPositions(warmState).get(CHILD_A.id));
+    const warmDelta = Math.hypot(after.x - before.x, after.y - before.y);
+
+    // What the OLD (unfixed) cold-start behavior would have produced from
+    // the IDENTICAL seed — the same fixture, forced back to d3-force's
+    // default alpha=1 before its first tick.
+    const hotState = createForceLayout(layout, DEFAULT_SESSION_FILM_CONFIG);
+    hotState.simulation.alpha(1);
+    tickForceLayout(hotState);
+    const hotAfter = requireDefined(readForceLayoutPositions(hotState).get(CHILD_A.id));
+    const hotDelta = Math.hypot(hotAfter.x - before.x, hotAfter.y - before.y);
+
+    expect(warmDelta).toBeLessThan(hotDelta);
+  });
+});
+
 describe("root anchoring (mt#3231 SC 4 / AT 4 — 'roots stay anchored')", () => {
   test("a realm root never moves, even after the simulation settles", () => {
     const layout = layoutFixture([ROOT, CHILD_A]);
@@ -74,7 +107,7 @@ describe("settling (mt#3231 SC 4 / AT 4 — 'settles, velocities -> ~0')", () =>
   test("settleForceLayoutOnce converges: isForceLayoutSettled becomes true and node velocities decay near zero", () => {
     const layout = layoutFixture([ROOT, CHILD_A]);
     const state = createForceLayout(layout, DEFAULT_SESSION_FILM_CONFIG);
-    expect(isForceLayoutSettled(state)).toBe(false); // fresh alpha=1, not yet settled
+    expect(isForceLayoutSettled(state)).toBe(false); // fresh (cooled) alpha, not yet settled
     settleForceLayoutOnce(state);
     expect(isForceLayoutSettled(state)).toBe(true);
     const childNode = state.nodesById.get(CHILD_A.id);

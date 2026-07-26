@@ -304,15 +304,34 @@ export function PanZoomSVG({
   // GENUINE (>=1 world-unit) bounds change is intentional, not a bug — the
   // camera keeps re-aiming at a continuously-updating target as the world
   // evolves, which is exactly "follows growth."
+  //
+  // Zero-size backoff (mt#3231 review R1, BLOCKING): a self-rescheduling
+  // `setTimeout` (not a bare `setInterval`) so the retry CADENCE can differ
+  // from the tween cadence. While the container reports 0x0 (hidden tab,
+  // `display:none` transition, not yet laid out at mount) we do NOT compute
+  // a fit against 0x0 — we back off to `ZERO_SIZE_RETRY_MS`, a much slower
+  // poll than the 50ms tween rate, so a long-hidden container doesn't spin a
+  // tight do-nothing loop. The instant real dimensions appear, the fit
+  // resumes at the normal 50ms cadence. `cancelled` + clearing the pending
+  // timeout together are the cleanup this effect returns on every dep
+  // change AND on unmount — belt-and-suspenders like the rest of this file
+  // (see the ambient-drift interval's own cleanup above).
   // -------------------------------------------------------------------------
   const boundsKey = growingBounds?.bounds
     ? `${Math.round(growingBounds.bounds.minX)},${Math.round(growingBounds.bounds.minY)},${Math.round(growingBounds.bounds.maxX)},${Math.round(growingBounds.bounds.maxY)}`
     : null;
   useEffect(() => {
-    const bounds = growingBounds?.bounds;
-    if (!bounds) return;
+    // Narrow via a direct property check (not optional chaining) so `bounds`/
+    // `padding`/`easeMs` destructure as definitely-non-null `const`s — safe
+    // to reference from the nested `runTick` function declaration below
+    // without repeated non-null assertions.
+    if (!growingBounds || !growingBounds.bounds) return;
+    const { bounds, padding, easeMs } = growingBounds;
     const el = containerRef.current;
     if (!el) return;
+
+    const ZERO_SIZE_RETRY_MS = 250;
+    const TWEEN_TICK_MS = 50;
 
     // The EASE ORIGIN (`start`) and its clock are resolved LAZILY, on the
     // first tick that sees a real (non-zero) container size — NOT read
@@ -323,27 +342,40 @@ export function PanZoomSVG({
     // re-reads `getBoundingClientRect()` per-tick for the same reason.
     let start: ViewBox | null = null;
     let startTime = 0;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
 
-    const id = setInterval(() => {
-      if (userInteractedRef.current) {
-        clearInterval(id);
+    const scheduleTick = (delayMs: number) => {
+      timeoutId = setTimeout(runTick, delayMs);
+    };
+
+    function runTick() {
+      if (cancelled) return;
+      if (userInteractedRef.current) return; // stopped for good — see module doc's resize-policy note
+      // `el` is narrowed non-null above, but TS control-flow narrowing of a
+      // `const` doesn't persist into a nested `function` DECLARATION
+      // (unlike an arrow function) — safe by construction, since `el` is
+      // never reassigned between the check above and every call here.
+      const { width, height } = el!.getBoundingClientRect();
+      if (width === 0 || height === 0) {
+        // Not laid out yet (or genuinely hidden) — don't compute a fit
+        // against 0x0. Retry at a slower cadence than the tween rate
+        // instead of busy-polling at 20Hz while there's nothing to do.
+        scheduleTick(ZERO_SIZE_RETRY_MS);
         return;
       }
-      const { width, height } = el.getBoundingClientRect();
-      if (width === 0 || height === 0) return; // not laid out yet — retry next tick
-      const target = fitToBoundsViewBox(bounds, growingBounds.padding, width, height);
+      const target = fitToBoundsViewBox(bounds, padding, width, height);
 
-      if (growingBounds.easeMs <= 0) {
+      if (easeMs <= 0) {
         setViewBox(target);
-        clearInterval(id);
-        return;
+        return; // converged — nothing left to schedule
       }
 
       if (start === null) {
         start = viewBoxRef.current;
         startTime = Date.now();
       }
-      const t = Math.min(1, (Date.now() - startTime) / growingBounds.easeMs);
+      const t = Math.min(1, (Date.now() - startTime) / easeMs);
       const eased = easeOutCubic(t);
       setViewBox({
         x: start.x + (target.x - start.x) * eased,
@@ -351,9 +383,14 @@ export function PanZoomSVG({
         w: start.w + (target.w - start.w) * eased,
         h: start.h + (target.h - start.h) * eased,
       });
-      if (t >= 1) clearInterval(id);
-    }, 50);
-    return () => clearInterval(id);
+      if (t < 1) scheduleTick(TWEEN_TICK_MS);
+    }
+
+    scheduleTick(0);
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) clearTimeout(timeoutId);
+    };
     // `boundsKey` is the intentional rounded proxy for `growingBounds.bounds`'s identity (see the comment above); padding/easeMs are the other two primitives this effect reads.
   }, [boundsKey, growingBounds?.padding, growingBounds?.easeMs]);
 
