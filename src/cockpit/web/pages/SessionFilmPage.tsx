@@ -59,6 +59,11 @@ export function SessionFilmPage() {
   const [verifiedRescrubbed, setVerifiedRescrubbed] = useState(false);
   const [playheadRowIndex, setPlayheadRowIndex] = useState(0);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
+  // Working click -> visible detail affordance (mt#3231 SC 6 / AT 6): lifted
+  // to the page so a future cross-widget consumer (e.g. a breadcrumb) can
+  // read it too; SessionFilmStage also tracks an internal fallback so it
+  // still renders a panel standalone/in tests without this prop.
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [hasAppliedDeepLinkPlayhead, setHasAppliedDeepLinkPlayhead] = useState(false);
 
   const sessionsQuery = useQuery({
@@ -166,6 +171,7 @@ export function SessionFilmPage() {
     setVerifiedRescrubbed(false);
     setPlayheadRowIndex(0);
     setSelectedRowIndex(null);
+    setSelectedEntityId(null);
     setHasAppliedDeepLinkPlayhead(false);
   }, []);
 
@@ -228,6 +234,8 @@ export function SessionFilmPage() {
           world={worldState}
           reducedMotion={reducedMotion}
           nowIso={nowIso}
+          onSelectEntity={setSelectedEntityId}
+          selectedEntityId={selectedEntityId}
           className="min-w-0 flex-1"
         />
       </div>

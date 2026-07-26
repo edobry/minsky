@@ -77,8 +77,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { EventOutcome } from "@minsky/domain/transcripts/event-schema";
 import { PanZoomSVG } from "../PanZoomSVG";
 import type { StageLayout } from "../../lib/session-film-layout";
-import type { AgentFoldState, WorldFoldState } from "../../lib/session-film-fold";
+import type { AgentFoldState, EntityFoldState, WorldFoldState } from "../../lib/session-film-fold";
 import { guardDocReceiptPath } from "../../lib/session-film-links";
+import { parseRoutableTarget } from "../../lib/session-film-target-ref";
+import { EntityRef } from "../EntityRef";
 import {
   computeTouchedSetContourPath,
   touchedSetContourColorClass,
@@ -153,6 +155,21 @@ function spawnKindLabel(raw: unknown): string {
 }
 
 /**
+ * Hover-tooltip text for a leaf entity node (mt#3231 SC 6 / AT 6): an SVG
+ * `<title>` at minimum (the spec's stated floor) — the native browser
+ * tooltip that appears on hover. Only realm ROOTS carried a visible
+ * `<text>` label in v1.1; leaves carried nothing but a screen-reader
+ * `aria-label`, which sighted mouse-hover users never see. Includes the
+ * node's realm + entity id + last verb/outcome so the tooltip is a genuine
+ * receipt, not just an echo of the already-visible label.
+ */
+function nodeTooltipText(label: string, realm: string, entity: EntityFoldState | undefined): string {
+  if (!entity) return label;
+  const outcome = entity.lastOutcome ?? "in-flight";
+  return `${label} (${realm}) — ${entity.lastVerb} · ${outcome}`;
+}
+
+/**
  * Fan-out targets for the CURRENT row, when it was a genuine parallel batch
  * (spec SC 5/SC 10, AT 1's stage half): "a parallel batch renders beams to
  * ALL targets simultaneously with the avatar at home — never a sequential
@@ -200,6 +217,21 @@ export function SessionFilmStage({
   className,
 }: SessionFilmStageProps) {
   const agents = useMemo(() => [...world.agents.values()], [world.agents]);
+
+  // Working click -> visible detail affordance (mt#3231 SC 6 / AT 6):
+  // `onSelectEntity` already fired in v1.1 with nothing downstream
+  // consuming it (the real bug — not the click handler, the missing
+  // affordance). Tracks its OWN selection as a fallback so this component
+  // renders a real detail panel even when the parent page doesn't (yet)
+  // control `selectedEntityId` — a controlling parent's prop still wins.
+  const [internalSelectedEntityId, setInternalSelectedEntityId] = useState<string | null>(null);
+  const effectiveSelectedEntityId = selectedEntityId ?? internalSelectedEntityId;
+  const selectEntity = (entityId: string) => {
+    onSelectEntity?.(entityId);
+    setInternalSelectedEntityId(entityId);
+  };
+  const selectedEntity = effectiveSelectedEntityId ? world.entities.get(effectiveSelectedEntityId) : undefined;
+  const selectedRoutable = selectedEntity ? parseRoutableTarget(selectedEntity) : null;
 
   // Touched-set contour visibility (spec SC 7 / AT 5): "off by default;"
   // hover shows transiently, click PINS it open until clicked again — so a
@@ -256,6 +288,7 @@ export function SessionFilmStage({
   } as React.CSSProperties;
 
   return (
+    <div className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col", className)}>
     <PanZoomSVG
       boardWidth={STAGE_BOARD_WIDTH}
       boardHeight={STAGE_BOARD_HEIGHT}
@@ -265,7 +298,7 @@ export function SessionFilmStage({
         amplitudePx: config.aliveness.driftAmplitudePx,
         periodMs: config.aliveness.driftPeriodMs,
       }}
-      className={className}
+      className="flex-1"
     >
       <g
         transform={`translate(${STAGE_BOARD_WIDTH / 2}, ${STAGE_BOARD_HEIGHT / 2})`}
@@ -368,7 +401,7 @@ export function SessionFilmStage({
         {layout.nodes.map((node) => {
           const entity = node.entityId ? world.entities.get(node.entityId) : undefined;
           const isRoot = node.depth === 0;
-          const isSelected = node.entityId !== null && node.entityId === selectedEntityId;
+          const isSelected = node.entityId !== null && node.entityId === effectiveSelectedEntityId;
           const isSpawnBud = entity?.lastVerb === "spawn";
           const isCloneTerritory = entity?.lastVerb === "clone";
 
@@ -387,10 +420,11 @@ export function SessionFilmStage({
                 data-realm={node.realm}
                 data-clone-territory="true"
                 className="cursor-pointer"
-                onClick={() => node.entityId && onSelectEntity?.(node.entityId)}
+                onClick={() => node.entityId && selectEntity(node.entityId)}
                 role="button"
                 aria-label={`${node.label} (workspace clone)`}
               >
+                <title>{nodeTooltipText(node.label, node.realm, entity)}</title>
                 <rect
                   data-testid="session-film-clone-border"
                   x={-14}
@@ -430,10 +464,11 @@ export function SessionFilmStage({
                 data-spawn-bud="true"
                 data-spawn-kind={spawnKindLabel(entity?.raw)}
                 className="cursor-pointer"
-                onClick={() => node.entityId && onSelectEntity?.(node.entityId)}
+                onClick={() => node.entityId && selectEntity(node.entityId)}
                 role="button"
                 aria-label={`${node.label} (spawn: ${spawnKindLabel(entity?.raw)})`}
               >
+                <title>{nodeTooltipText(node.label, node.realm, entity)}</title>
                 <rect
                   x={-5}
                   y={-5}
@@ -462,10 +497,15 @@ export function SessionFilmStage({
               data-realm={node.realm}
               data-depth={node.depth}
               className="cursor-pointer"
-              onClick={() => node.entityId && onSelectEntity?.(node.entityId)}
+              onClick={() => node.entityId && selectEntity(node.entityId)}
               role={node.entityId ? "button" : undefined}
               aria-label={node.label}
             >
+              <title>
+                {isRoot
+                  ? `${node.label} (${node.childCount} touched)`
+                  : nodeTooltipText(node.label, node.realm, entity)}
+              </title>
               <circle
                 r={isRoot ? ROOT_RADIUS : NODE_RADIUS}
                 className={cn(
@@ -651,5 +691,37 @@ export function SessionFilmStage({
         })}
       </g>
     </PanZoomSVG>
+      {/* Working click -> visible detail affordance (mt#3231 SC 6 / AT 6):
+          `onSelectEntity` fired in v1.1 with nothing downstream — this panel
+          IS the consumer. Rendered as an HTML overlay (not SVG) sibling to
+          PanZoomSVG so it stays screen-fixed regardless of pan/zoom. */}
+      {selectedEntity ? (
+        <div
+          data-testid="session-film-entity-detail-panel"
+          className="absolute bottom-2 left-2 z-10 max-w-xs rounded border border-border bg-card p-2 text-xs shadow-sm"
+        >
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="truncate font-mono font-semibold text-foreground">{selectedEntity.id}</span>
+            <button
+              type="button"
+              aria-label="Close entity detail"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={() => setInternalSelectedEntityId(null)}
+            >
+              ×
+            </button>
+          </div>
+          <div className="text-muted-foreground">
+            {selectedEntity.realm} · {selectedEntity.lastVerb} ·{" "}
+            {selectedEntity.lastOutcome ?? "in-flight"}
+          </div>
+          {selectedRoutable ? (
+            <div className="mt-1">
+              <EntityRef type={selectedRoutable.type} id={selectedRoutable.id} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -6,6 +6,8 @@
  */
 import { describe, test, expect, afterEach, mock } from "bun:test";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
 import { buildKeyframes, foldAtBatchIndex, foldEvents } from "../../lib/session-film-fold";
 import { groupEventsIntoBatchRows } from "../../lib/session-film-batches";
@@ -423,5 +425,70 @@ describe("SessionFilmStage — beam on every action (mt#3231 SC 7 / AT 7)", () =
     for (const beam of beams) {
       expect(beam.getAttribute("data-fan-out")).toBe("true");
     }
+  });
+});
+
+describe("SessionFilmStage — node labels + hover + working click (mt#3231 SC 6 / AT 6)", () => {
+  test("a leaf entity node carries a visible-on-hover <title> with its label", () => {
+    const { world, layout } = buildFixture([ev()]);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    const el = screen.getByTestId(`session-film-node-${node.id}`);
+    const title = el.querySelector("title");
+    expect(title).not.toBeNull();
+    expect(title?.textContent).toContain(node.label);
+  });
+
+  test("clicking a node invokes onSelectEntity AND renders a visible detail panel for that entity", () => {
+    const { world, layout } = buildFixture([ev()]);
+    const onSelectEntity = mock(() => {});
+    render(
+      <SessionFilmStage layout={layout} world={world} reducedMotion={false} onSelectEntity={onSelectEntity} />
+    );
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+    expect(onSelectEntity).toHaveBeenCalledWith("file:workspace:foo.ts");
+    const panel = screen.getByTestId("session-film-entity-detail-panel");
+    expect(panel.textContent).toContain("file:workspace:foo.ts");
+    expect(panel.textContent).toContain("repo");
+  });
+
+  test("the detail panel renders an EntityRef deeplink for a routable minsky-substrate entity", () => {
+    const events: SemanticEvent[] = [
+      ev({ target: { realm: "minsky-substrate", id: "minsky:task:mt#1772" } }),
+    ];
+    const { world, layout } = buildFixture(events);
+    const originalFetch = global.fetch;
+    global.fetch = mock(async () => ({
+      ok: false,
+      json: async () => ({ state: "degraded", reason: "not mocked in test" }),
+    })) as unknown as typeof fetch;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <SessionFilmStage layout={layout} world={world} reducedMotion={false} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const node = layout.nodes.find((n) => n.entityId === "minsky:task:mt#1772");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+    const panel = screen.getByTestId("session-film-entity-detail-panel");
+    expect(panel.querySelector("a")).not.toBeNull();
+    global.fetch = originalFetch;
+  });
+
+  test("closing the detail panel hides it again", () => {
+    const { world, layout } = buildFixture([ev()]);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+    expect(screen.getByTestId("session-film-entity-detail-panel")).toBeDefined();
+    fireEvent.click(screen.getByLabelText("Close entity detail"));
+    expect(screen.queryByTestId("session-film-entity-detail-panel")).toBeNull();
   });
 });
