@@ -4,12 +4,18 @@
  * mt#2400: the fail-closed guards in the MCP edit tools rely on
  * `hasExistingCodeMarkers` and `exceedsGrowthThreshold`. These tests pin the
  * primitives so the guard semantics can't drift.
+ *
+ * mt#3248: `preserveTrailingNewline` is the shared post-process for BOTH apply
+ * paths (`applyEditPattern` and `executeFastApply`). Its whole purpose is a
+ * byte-level property — the original's trailing-newline state survives the
+ * trim — so these tests assert on exact strings rather than on shape.
  */
 import { describe, test, expect } from "bun:test";
 import {
   EXISTING_CODE_MARKER,
   hasExistingCodeMarkers,
   exceedsGrowthThreshold,
+  preserveTrailingNewline,
   REPLACE_ALL_GROWTH_REFUSAL_FACTOR,
 } from "./edit-pattern-utils";
 
@@ -46,5 +52,47 @@ describe("exceedsGrowthThreshold", () => {
   test("a zero-length input rejects any non-empty output", () => {
     expect(exceedsGrowthThreshold(0, 1)).toBe(true);
     expect(exceedsGrowthThreshold(0, 0)).toBe(false);
+  });
+});
+
+describe("preserveTrailingNewline", () => {
+  test("AT1: restores a single trailing newline when the original had one", () => {
+    expect(preserveTrailingNewline("  x  \n\n", "a\n")).toBe("x\n");
+  });
+
+  test("AT2: adds no trailing newline when the original had none", () => {
+    expect(preserveTrailingNewline("  x  \n\n", "a")).toBe("x");
+  });
+
+  test("AT3: equals trim() modulo the original's trailing-newline state", () => {
+    const modelOutputs = [
+      "const a = 1;",
+      "\nconst a = 1;\n",
+      "  \n  const a = 1;\n  \n",
+      "line one\nline two",
+      "line one\nline two\n\n\n",
+    ];
+
+    for (const output of modelOutputs) {
+      expect(preserveTrailingNewline(output, "orig")).toBe(output.trim());
+      expect(preserveTrailingNewline(output, "orig\n")).toBe(`${output.trim()}\n`);
+    }
+  });
+
+  test("AT4: whitespace-only model output stays empty rather than becoming a lone newline", () => {
+    // Fabricating a "\n" here would turn a legitimately-emptied file into a
+    // 1-byte one, so the empty result is preserved for BOTH original states.
+    expect(preserveTrailingNewline("", "a\n")).toBe("");
+    expect(preserveTrailingNewline("   \n\n  ", "a\n")).toBe("");
+    expect(preserveTrailingNewline("", "a")).toBe("");
+  });
+
+  test("interior newlines and indentation are untouched", () => {
+    const body = "function f() {\n  return 1;\n}";
+    expect(preserveTrailingNewline(`\n${body}\n`, "orig\n")).toBe(`${body}\n`);
+  });
+
+  test("an original that is itself only a newline still counts as newline-terminated", () => {
+    expect(preserveTrailingNewline("x", "\n")).toBe("x\n");
   });
 });

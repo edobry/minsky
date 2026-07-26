@@ -31,6 +31,39 @@ export function exceedsGrowthThreshold(
   return outputLen > inputLen * factor;
 }
 
+/**
+ * Strip the surrounding whitespace an apply model emits around its output while
+ * preserving the ORIGINAL file's trailing-newline state.
+ *
+ * WHY THIS EXISTS (mt#3248). Both apply paths returned `response.content.trim()`
+ * straight to their callers, and `String.prototype.trim()` removes the file's
+ * terminating newline along with the model's padding. Because the result is
+ * written to disk verbatim, every marker-based edit of a newline-terminated file
+ * silently dropped that newline — deterministically, regardless of the
+ * instruction or the model's output. It went unnoticed for as long as it did
+ * because a following `prettier --write` restores the newline; files no
+ * formatter touches kept the corruption.
+ *
+ * Deleting the trim is not the fix: the model does pad its output, and leaking
+ * that padding into files is the failure this trim was added to prevent. So the
+ * transform trims as before and then restores whatever trailing-newline state
+ * the original had.
+ *
+ * Pure over its inputs, so both apply paths share one definition and neither can
+ * drift from the other.
+ */
+export function preserveTrailingNewline(modelOutput: string, originalContent: string): string {
+  const trimmed = modelOutput.trim();
+
+  // An empty result stays empty: emitting a lone "\n" would fabricate a byte the
+  // model did not produce, turning a legitimately-emptied file into a 1-byte one.
+  if (trimmed === "") {
+    return trimmed;
+  }
+
+  return originalContent.endsWith("\n") ? `${trimmed}\n` : trimmed;
+}
+
 export function splitOnMarkers(content: string): string[] {
   return content.split(EXISTING_CODE_MARKER);
 }
