@@ -53,6 +53,12 @@ interface TranscriptUsage {
 interface TranscriptLine {
   /** Session ID of the agent that produced this line. */
   agent_session_id?: string;
+  /**
+   * Harness agent id of the agent that produced this line. Per-agent
+   * transcripts (`subagents/agent-<agentId>.jsonl`) carry this on every
+   * assistant line; a parent conversation's own lines do not.
+   */
+  agentId?: string;
   /** ISO-8601 message timestamp (when available). */
   timestamp?: string;
   /** Message role. */
@@ -63,6 +69,52 @@ interface TranscriptLine {
   usage?: TranscriptUsage;
   /** Type discriminator for some transcript formats. */
   type?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Attribution (mt#3256)
+// ---------------------------------------------------------------------------
+
+/**
+ * True when `line` is POSITIVELY attributable to `agentSessionId`.
+ *
+ * Attribution requires the line to CARRY a matching id. Both readers in this
+ * file previously skipped only lines carrying a MISMATCHING id, so lines
+ * carrying no id at all were accepted — sound only if the file being read is
+ * already scoped to that one agent.
+ *
+ * mt#3256: that precondition silently breaks. `resolveMetricsTranscriptPath`
+ * (`.minsky/hooks/record-subagent-invocation.ts`) falls back to the PARENT
+ * conversation's transcript whenever `subagents/agent-<agentId>.jsonl` does not
+ * exist, and a parent's own assistant lines carry no `agentId` — so under the
+ * old filter every one of them qualified, and `extractActualModel` returned the
+ * first: the PARENT's model, recorded as the subagent's. Observed on 4 of the 7
+ * rows that had a value, and because the parent is almost never Sonnet in this
+ * project, the wrong value consistently read as a successful frontier-model
+ * escalation.
+ *
+ * Requiring a positive match costs nothing on the path that works — real
+ * per-agent transcripts carry `agentId` on every assistant line, verified
+ * against the on-disk files — and it makes the fallback path honest in both
+ * directions: a subagent's lines interleaved into a parent transcript still
+ * match and are read correctly, while an unattributable file now yields
+ * null/no-metrics instead of the parent's values.
+ *
+ * A wrong value is strictly worse than a missing one: `null` is readable as
+ * "unknown", a confidently wrong model tier is not.
+ *
+ * When `agentSessionId` is undefined the caller is not asking for attribution
+ * (the whole file is in scope), so every line qualifies.
+ */
+function isAttributedTo(
+  line: { agentId?: string; agent_session_id?: string },
+  agentSessionId: string | undefined
+): boolean {
+  if (agentSessionId == null) {
+    return true;
+  }
+  const lineAgentId = line.agentId ?? line.agent_session_id;
+  return lineAgentId === agentSessionId;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,9 +158,10 @@ export function readTranscriptLines(transcriptPath: string): string[] | null {
  *                          When undefined (and `preReadLines` is not
  *                          supplied), all metrics are returned as null.
  * @param agentSessionId    Harness-native session ID of the subagent.
- *                          When provided, only lines whose `agent_session_id`
- *                          matches are counted. When undefined, all lines are
- *                          counted.
+ *                          When provided, only lines POSITIVELY attributed to
+ *                          it are counted — see {@link isAttributedTo}; a line
+ *                          carrying no agent id is not attributed to anyone.
+ *                          When undefined, all lines are counted.
  * @param preReadLines      Optional pre-split lines from {@link readTranscriptLines}.
  *                          When provided, `transcriptPath` is not read again —
  *                          pass this when a caller (e.g. the SubagentStop
@@ -147,11 +200,9 @@ export async function readTranscriptMetrics(
         continue;
       }
 
-      // Filter by agent session if provided
-      if (agentSessionId != null && parsed.agent_session_id != null) {
-        if (parsed.agent_session_id !== agentSessionId) {
-          continue;
-        }
+      // Filter by agent session if provided (mt#3256: positive match required)
+      if (!isAttributedTo(parsed, agentSessionId)) {
+        continue;
       }
 
       hasAnyRelevantLine = true;
@@ -257,12 +308,13 @@ interface ModelTranscriptLine {
  * @param transcriptPath   Absolute path to the `.jsonl` transcript file.
  *                         When undefined (and `preReadLines` is not
  *                         supplied), returns null.
- * @param agentSessionId   Harness-native agent id of the subagent. When a
- *                         line carries an `agentId` or `agent_session_id`
- *                         field and it does not match, the line is skipped.
- *                         Lines with neither field present are always
- *                         considered (the common case: the resolved
- *                         transcript file is already scoped to one agent).
+ * @param agentSessionId   Harness-native agent id of the subagent. When
+ *                         provided, only lines POSITIVELY attributed to it are
+ *                         considered — see {@link isAttributedTo}. A line
+ *                         carrying neither `agentId` nor `agent_session_id` is
+ *                         NOT attributed to it, so a transcript that is not the
+ *                         subagent's own yields null rather than that file's
+ *                         first model (mt#3256).
  * @param preReadLines     Optional pre-split lines from {@link readTranscriptLines}.
  *                         When provided, `transcriptPath` is not read again —
  *                         see {@link readTranscriptMetrics}'s matching parameter.
@@ -294,11 +346,8 @@ export function extractActualModel(
         continue;
       }
 
-      if (agentSessionId != null) {
-        const lineAgentId = parsed.agentId ?? parsed.agent_session_id;
-        if (lineAgentId != null && lineAgentId !== agentSessionId) {
-          continue;
-        }
+      if (!isAttributedTo(parsed, agentSessionId)) {
+        continue;
       }
 
       const model = parsed.message?.model;
