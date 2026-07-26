@@ -9,6 +9,7 @@
   ],
   "fields": {
     "status": "string",
+    "service": "string",
     "version": "string",
     "commit": "string",
     "uptimeSec": "number",
@@ -23,6 +24,7 @@
   "rustConsumedFields": ["db", "processStartedAtMs"],
   "sample": {
     "status": "ok",
+    "service": "minsky-cockpit",
     "version": "0.1.0",
     "commit": "abc1234",
     "uptimeSec": 42,

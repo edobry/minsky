@@ -604,6 +604,19 @@ deferring\` — do not silently downgrade to "the deploy succeeded" as the compl
    done until \`deployment_wait-for-latest\` returns SUCCESS AND the runtime shows
    the service started (a \`/health\` 200 or \`deployment_logs(..., type: "deploy")\`
    showing the boot). Verify outcomes, not actions.
+
+   **A 200 from /health is not by itself proof the RIGHT service started
+   (mt#3148).** Every Minsky service is built from the same monorepo, so a
+   misconfigured build can put a DIFFERENT application on the host — and it
+   answers 200 exactly like the right one. mt#3142: the MCP server served the
+   reviewer's host for ~1h while every reviewer route 404'd, and the status-code
+   check stayed green throughout. Assert the health body's "service" field
+   (minsky-cockpit / minsky-mcp / minsky-reviewer / minsky-site) via
+   assertServiceIdentity() in
+   packages/domain/src/deployment/health-identity.ts — not merely the status
+   code. The general form: **a verification probe must be able to fail**; if the
+   broken state produces the same output as the healthy one, the probe carries
+   no information.
 2. **A deploy-verification-tool flake is a BLOCKER, not a license to defer.** If
    \`deployment_wait-for-latest\` errors on auth / an MCP transport flake (e.g.
    Railway \`Unauthorized\`), reconnect (\`/mcp\`) and retry — do NOT downgrade to an

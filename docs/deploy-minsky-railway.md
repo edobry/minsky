@@ -360,6 +360,50 @@ every 10 minutes via a scheduled GitHub Action:
 - **HTTP health endpoint** — alerts when `GET <service>/health` (or `/api/health`
   for cockpit) returns non-200 or times out (10s threshold). Catches the
   runtime-crash-after-green-build class (mt#2345).
+- **Service identity** (mt#3148) — asserts the health body's `service` field
+  matches the service being probed. Catches the wrong-application-deployed class
+  (mt#3142), which a status-code check structurally cannot see.
+
+### A bare-200 healthcheck is insufficient in this monorepo (mt#3148)
+
+Every deployed Minsky service is built from the **same repository**, so a
+misconfigured build can put a _different_ application on a service's host — and
+that application answers `GET /health` with `200 {"status":"ok"}` just as
+convincingly as the right one.
+
+This is not hypothetical. During mt#3142 the Minsky MCP server was deployed onto
+the reviewer's Railway host and served `/health` 200 for roughly an hour while
+every reviewer route 404'd. Railway's healthcheck reads the status code only, so
+**the one signal wired to alerting was the one signal that could not detect the
+fault.** The outage was found because a human noticed reviews weren't arriving.
+
+The rule this yields: **a verification probe must be able to fail.** Before
+treating a probe's output as evidence, establish that the broken state would
+produce a _different_ output. A probe whose output space does not separate the
+states you care about carries zero information — and is worse than no probe,
+because nobody investigates a green check.
+
+Concretely, every Minsky service emits a `service` field in its health body:
+
+| Service    | Health path   | `service` value   |
+| ---------- | ------------- | ----------------- |
+| cockpit    | `/api/health` | `minsky-cockpit`  |
+| minsky-mcp | `/health`     | `minsky-mcp`      |
+| reviewer   | `/health`     | `minsky-reviewer` |
+| site       | `/health`     | `minsky-site`     |
+
+`minsky-ops` has no application source and therefore no health endpoint.
+
+`minsky-mcp` **also** retains its pre-existing `server: "Minsky MCP Server"`
+key. That key is what mt#3142's own diagnosis read to identify the wrong app,
+so it was kept unchanged and `service` added alongside it — the assertion is
+additive, never a rename.
+
+Assert identity with `assertServiceIdentity()` from
+`packages/domain/src/deployment/health-identity.ts` rather than hand-rolling a
+string compare; it distinguishes _wrong application_ (a hard failure — the
+mt#3142 class) from _no identity field_ (weaker: the service may simply predate
+this contract).
 
 **`/health` persistence-liveness semantics (mt#2949):**
 
