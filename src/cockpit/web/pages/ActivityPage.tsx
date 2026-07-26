@@ -156,6 +156,23 @@ function eventStyle(type: SystemEventType): EventStyle {
         label: "Session started",
         badgeClass: "bg-muted text-muted-foreground",
       };
+    default: {
+      // Exhaustiveness guard (compile-time only): adding a new SystemEventType
+      // member without a matching case above fails typecheck here. This does
+      // NOT protect against event types arriving from the wire that the
+      // client's SystemEventType union doesn't model at all — fetchActivity's
+      // response is only type-asserted (`res.json() as Promise<...>`), never
+      // runtime-validated, so a server-only event type (the server's
+      // system_event_type enum is wider than this client union — see mt#3240)
+      // reaches this switch with none of its literal cases matching. The
+      // fallback return below is what keeps that case from crashing the page.
+      const _exhaustive: never = type;
+      return {
+        icon: "?",
+        label: String(_exhaustive),
+        badgeClass: "bg-muted text-muted-foreground",
+      };
+    }
   }
 }
 
@@ -180,6 +197,14 @@ function eventSummary(event: SystemEvent): string {
       return `${String(p.agentType ?? "agent")} on ${String(p.taskId ?? "?")} — ${String(p.outcome ?? "completed")}`;
     case "session.started":
       return `Session started${p.taskId ? ` for ${String(p.taskId)}` : ""}`;
+    default: {
+      // Same exhaustiveness-plus-fallback pairing as eventStyle above (mt#3240):
+      // the assertion catches a missing case for an enumerated SystemEventType
+      // member at build time; the fallback return catches a server event type
+      // arriving from the wire that this client union never modeled.
+      const _exhaustive: never = event.eventType;
+      return `Unknown event (${String(_exhaustive)})`;
+    }
   }
 }
 
