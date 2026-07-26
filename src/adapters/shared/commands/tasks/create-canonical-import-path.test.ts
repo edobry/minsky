@@ -26,6 +26,7 @@ import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { Task } from "@minsky/domain/tasks/types";
 
 const STUB_TASK = { id: "mt#new", title: "New task", status: "TODO" } as unknown as Task;
+const LEGACY_DESCRIPTION = "Legacy description text";
 
 function makeStubTaskService(
   createMock: (title: string, spec: string, options: unknown) => Promise<Task>
@@ -58,6 +59,22 @@ describe("createTaskFromTitleAndSpec via @minsky/domain/tasks (mt#3190 — the l
       expect.objectContaining({ tags: ["tech-debt"], backend: "minsky" })
     );
   });
+
+  test("`description` alone (no `spec`) is rejected — unlike createTaskFromParams below, this narrower schema has no deprecated-alias fallback", async () => {
+    const createMock = mock(() => Promise.resolve(STUB_TASK));
+    const taskService = makeStubTaskService(createMock);
+
+    await expect(
+      createTaskFromTitleAndSpec(
+        { title: "New task", description: LEGACY_DESCRIPTION } as unknown as Record<
+          string,
+          unknown
+        >,
+        { taskService }
+      )
+    ).rejects.toThrow();
+    expect(createMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("createTaskFromParams via @minsky/domain/tasks (mt#3190 — no live production consumer, verified by grep)", () => {
@@ -66,14 +83,10 @@ describe("createTaskFromParams via @minsky/domain/tasks (mt#3190 — no live pro
     const taskService = makeStubTaskService(createMock);
 
     await createTaskFromParams(
-      { title: "New task", description: "Legacy description text" },
+      { title: "New task", description: LEGACY_DESCRIPTION },
       { taskService }
     );
 
-    expect(createMock).toHaveBeenCalledWith(
-      "New task",
-      "Legacy description text",
-      expect.anything()
-    );
+    expect(createMock).toHaveBeenCalledWith("New task", LEGACY_DESCRIPTION, expect.anything());
   });
 });

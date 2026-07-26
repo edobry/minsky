@@ -12,12 +12,16 @@
  * `updateTaskFromParams`, `createTaskFromParams`, `createTaskFromTitleAndSpec`,
  * `deleteTaskFromParams`, `getTaskSpecContentFromParams`) delegates to the
  * canonical implementation in `tasks/commands/query-commands.ts` or
- * `tasks/commands/mutation-commands.ts` (mt#2704 precedent for status-set;
- * mt#2783 consolidated listTasksFromParams; mt#3194 consolidated
- * getTaskSpecContentFromParams; mt#3190 consolidated the rest — see each
- * function and those files' headers for the specifics), so the
- * `taskCommands.ts` barrel and this facade now terminate at the same function
- * bodies instead of each holding an independent, divergently-tested copy.
+ * `tasks/commands/mutation-commands.ts`. Consolidated across three separate
+ * tasks, each responsible for exactly the function(s) named: mt#2704
+ * (setTaskStatusFromParams), mt#2783 (listTasksFromParams), mt#3194
+ * (getTaskSpecContentFromParams — landed and merged BEFORE mt#3190 started),
+ * and mt#3190 (all six of the rest: getTaskFromParams, getTaskStatusFromParams,
+ * updateTaskFromParams, createTaskFromParams, createTaskFromTitleAndSpec,
+ * deleteTaskFromParams). See each function and those files' headers for the
+ * specifics. Net effect: the `taskCommands.ts` barrel and this facade now
+ * terminate at the same function bodies instead of each holding an
+ * independent, divergently-tested copy.
  */
 
 import { log } from "@minsky/shared/logger";
@@ -66,6 +70,29 @@ export interface TaskServiceDeps {
 // injected" guard now lives solely in those files' own `requirePersistence`
 // helpers, which is where the actual `createConfiguredTaskService` calls happen.
 
+/**
+ * Workspace-path override shared by every delegation below (PR #2326 review
+ * fix). None of this facade's callers can supply a sessionProvider (that
+ * plumbing doesn't exist on `TaskServiceDeps`), so falling through to
+ * `tasks/commands/shared-helpers.ts`'s default `resolveRepoPath` would throw
+ * whenever a caller passes `session` without one — the crash mt#3194 first
+ * worked around for `getTaskSpecContentFromParams`. The mt#3194/mt#3190
+ * override that avoided that throw (`async () => process.cwd()`) went too
+ * far: it ignored its arguments entirely, so a caller-supplied `repo` was
+ * ALSO silently discarded on every one of these paths, not just create/delete
+ * — this fixes that for all of them. `repo` wins when given; `process.cwd()`
+ * is the fallback only when neither `repo` nor a resolvable session is
+ * available. `session` alone still can't be resolved to a real workspace here
+ * (no sessionProvider to resolve it with) — that remains a known, documented
+ * gap — but it no longer crashes and no longer tramples `repo`.
+ */
+export async function resolveRepoOrCwd(options: {
+  repo?: string;
+  session?: string;
+}): Promise<string> {
+  return options.repo ?? process.cwd();
+}
+
 // ---- Re-exports from sub-modules ----
 
 // Types
@@ -100,14 +127,22 @@ export async function getTaskFromParams(params: Record<string, unknown>, deps?: 
   // (mt#3190), which additionally normalizes `taskId` via normalizeTaskIdInput
   // (accepting bare "123"/"#123" forms, not just already-qualified "mt#123")
   // and resolves session/repo via resolveRepoPath when no taskService is
-  // injected. Before this delegation, this facade's own body did neither —
-  // see this file's header for the mt#2704/mt#2783/mt#3194 delegation
-  // precedent this follows, and getTaskSpecContentFromParams below for the
-  // resolveMainWorkspacePath override rationale (same reasoning applies here).
+  // injected. Before this delegation, this facade's own body did neither.
+  //
+  // getTaskFromParams's only override hook is `resolveMainWorkspacePath`
+  // (zero-arg — query-commands.ts's deps type has no `resolveRepoPath` field
+  // for this function), so unlike the other five delegations below it can't
+  // receive `repo`/`session` as call arguments; it closes over this
+  // function's own `params` instead. See resolveRepoOrCwd above for the full
+  // PR #2326 review-fix rationale.
   return getTaskFromParamsValidated(params as TaskGetParams, {
     taskService: deps?.taskService,
     persistenceProvider: deps?.persistenceProvider,
-    resolveMainWorkspacePath: async () => process.cwd(),
+    resolveMainWorkspacePath: () =>
+      resolveRepoOrCwd({
+        repo: params.repo as string | undefined,
+        session: params.session as string | undefined,
+      }),
   });
 }
 
@@ -118,11 +153,14 @@ export async function getTaskStatusFromParams(
   // Delegates to the canonical implementation in tasks/commands/query-commands.ts
   // (mt#3190), which additionally normalizes `taskId` and wraps a ZodError into
   // a ValidationError (matching this file's other consolidated functions).
-  // See getTaskFromParams above for the resolveMainWorkspacePath rationale.
+  // Uses the `resolveRepoPath` hook (not `resolveMainWorkspacePath`, which this
+  // function's deps type also exposes but which is zero-arg and so can never
+  // see `repo`/`session`) so resolveRepoOrCwd actually receives them — see
+  // resolveRepoOrCwd above for the full PR #2326 review-fix rationale.
   return getTaskStatusFromParamsValidated(params as TaskStatusGetParams, {
     taskService: deps?.taskService,
     persistenceProvider: deps?.persistenceProvider,
-    resolveMainWorkspacePath: async () => process.cwd(),
+    resolveRepoPath: resolveRepoOrCwd,
   });
 }
 
@@ -178,7 +216,9 @@ export async function updateTaskFromParams(
     {
       taskService: deps?.taskService,
       persistenceProvider: deps?.persistenceProvider,
-      resolveMainWorkspacePath: async () => process.cwd(),
+      // resolveRepoPath (args-aware), not resolveMainWorkspacePath (zero-arg,
+      // can never see repo/session) — see resolveRepoOrCwd above.
+      resolveRepoPath: resolveRepoOrCwd,
     }
   );
 }
@@ -196,7 +236,7 @@ export async function createTaskFromParams(
   return createTaskFromParamsValidated(params as TaskCreateParams, {
     taskService: deps?.taskService,
     persistenceProvider: deps?.persistenceProvider,
-    resolveRepoPath: async () => process.cwd(),
+    resolveRepoPath: resolveRepoOrCwd,
   });
 }
 
@@ -216,10 +256,13 @@ export async function createTaskFromTitleAndSpec(
   // repo/workspace/session/githubRepo/tags/kind — none pass `description` or
   // `dependsOn` — so the narrower schema is not a behavior change on any
   // observed path.
+  // resolveRepoPath (args-aware), not resolveMainWorkspacePath (zero-arg, can
+  // never see repo/session) — see resolveRepoOrCwd above for the full PR
+  // #2326 review-fix rationale.
   return createTaskFromTitleAndSpecValidated(params as TaskCreateFromTitleAndSpecParams, {
     taskService: deps?.taskService,
     persistenceProvider: deps?.persistenceProvider,
-    resolveMainWorkspacePath: async () => process.cwd(),
+    resolveRepoPath: resolveRepoOrCwd,
   });
 }
 
@@ -230,12 +273,11 @@ export async function deleteTaskFromParams(
   // Delegates to the canonical implementation in
   // tasks/commands/mutation-commands.ts (mt#3190), which additionally
   // normalizes `taskId` and wraps a ZodError into a ValidationError. See
-  // getTaskFromParams above for the resolveRepoPath/resolveMainWorkspacePath
-  // override rationale (same reasoning applies here).
+  // resolveRepoOrCwd above for the resolveRepoPath override rationale.
   return deleteTaskFromParamsValidated(params as TaskDeleteParams, {
     taskService: deps?.taskService,
     persistenceProvider: deps?.persistenceProvider,
-    resolveRepoPath: async () => process.cwd(),
+    resolveRepoPath: resolveRepoOrCwd,
   });
 }
 
@@ -257,22 +299,18 @@ export async function getTaskSpecContentFromParams(
   return getTaskSpecContentValidated(params as TaskSpecContentParams, {
     taskService: deps?.taskService,
     persistenceProvider: deps?.persistenceProvider,
-    // Preserve this facade's pre-mt#3194 workspace resolution when no
-    // taskService is injected: the old body always used `process.cwd()`
-    // unconditionally (matching every other command function in this file —
-    // getTaskFromParams, getTaskStatusFromParams, etc. — none of which
-    // resolve `session`/`repo` either). Without this override, the
-    // delegate's default resolver (tasks/commands/shared-helpers.ts's
-    // resolveRepoPath) throws when a `session` param is present and no
-    // sessionProvider is supplied, which none of this facade's callers pass.
-    // Wiring true session-aware resolution here was out of this narrow bug
-    // fix's scope (mt#3194 was scoped to the section-forwarding fix), and
-    // remains unwired after mt#3190's broader consolidation of the other five
-    // functions below — none of this facade's callers pass a real session id
-    // today, so there was no observed behavior to preserve by adding it. A
-    // future task wiring an actual sessionProvider through this facade's DI
-    // surface would need to touch every resolveRepoPath/resolveMainWorkspacePath
-    // override in this file.
-    resolveRepoPath: async () => process.cwd(),
+    // Originally (mt#3194) this was `async () => process.cwd()` unconditionally,
+    // to avoid the delegate's default resolver (tasks/commands/shared-helpers.ts's
+    // resolveRepoPath) throwing when a `session` param is present and no
+    // sessionProvider is supplied — none of this facade's callers pass one.
+    // Updated (PR #2326 review fix, mt#3190) to resolveRepoOrCwd, which fixes
+    // the same throw WITHOUT also discarding a caller-supplied `repo` — see
+    // resolveRepoOrCwd's doc comment above for the full rationale (that fix
+    // covers all six mt#3190-consolidated functions; this one predates mt#3190
+    // but shares the same override shape, so it's included for consistency).
+    // Real session-aware resolution remains unwired — no sessionProvider
+    // reaches this facade today; a future task would need to add one to
+    // TaskServiceDeps and thread it through every override in this file.
+    resolveRepoPath: resolveRepoOrCwd,
   });
 }

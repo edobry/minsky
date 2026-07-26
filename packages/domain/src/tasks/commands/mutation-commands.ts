@@ -363,17 +363,29 @@ export async function updateTaskFromParams(
       updates.spec = params.spec;
     }
 
-    // Update the task. No "falsy result" guard here (mt#3190 R1, same
-    // reasoning as the removed existence check above): the real
+    // Update the task. No THROWING "falsy result" guard here (mt#3190 R1,
+    // same reasoning as the removed existence check above): the real
     // `TaskServiceInterface.updateTask` always resolves `Promise<Task>`
     // (`packages/domain/src/tasks/multi-backend-service.ts`), so a thrown
     // guard here is unreachable on any real backend and only breaks
     // lightweight test doubles (e.g. `tests/adapters/mcp/task-edit-tools.test.ts`'s
     // mock, which returns `void`) — matching tasks.ts's pre-consolidation
-    // behavior of returning whatever `updateTask` resolves to, unguarded. The
-    // cast documents that assumption rather than widening this function's
-    // public return type to `Task | undefined` for every real caller.
-    return (await taskService.updateTask?.(qualifiedTaskId, updates)) as Task;
+    // behavior of returning whatever `updateTask` resolves to, unguarded.
+    //
+    // The cast still needs to be honest about what it's asserting (PR #2326
+    // review, non-blocking): a silent `as Task` on a falsy result would hide
+    // a genuinely broken mock or backend behind a passing-looking return
+    // value with no signal anywhere. Log (not throw) when that happens, so
+    // the assumption is visible without reintroducing the throw that broke
+    // task-edit-tools.test.ts's intentionally-void mock.
+    const updatedTask = await taskService.updateTask?.(qualifiedTaskId, updates);
+    if (!updatedTask) {
+      log.debug(
+        `[updateTaskFromParams] taskService.updateTask resolved falsy for ${qualifiedTaskId}; ` +
+          `returning it as-is rather than throwing (see the comment above this call).`
+      );
+    }
+    return updatedTask as Task;
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError(
