@@ -29,11 +29,18 @@
  * through `RunDetail`), which this page maps to `markTabError` — the tab-strip
  * entry shows an error chip for this visit and is excluded from persistence,
  * so it does not resurrect as a dead tab on the next reload.
+ *
+ * Presence chrome (mt#3261): the header carries mt#3130's single always-visible
+ * Presence value plus its Activity sub-line, read from
+ * `GET /api/conversation/:id/presence`. It sits ABOVE the tab body deliberately
+ * — mt#3130 placement decision (1) puts the rolled-up "what is it doing right
+ * now" answer in the chrome and per-turn history in the body.
  */
 import { useParams, useLocation } from "react-router-dom";
 import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { RunDetail } from "../widgets/RunDetail";
+import { ConversationPresenceChip } from "../components/ConversationPresenceChip";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { extractConversationRows } from "../lib/conversations-source";
 import { useTabs } from "../lib/tabs";
@@ -71,6 +78,7 @@ export function ConversationPage() {
         <span className="font-mono text-xs text-muted-foreground" title={id}>
           {id}
         </span>
+        <ConversationPresenceChip conversationId={id} />
       </div>
       <RunDetail key={id} id={id} keySpace="conversation" onConversationNotFound={handleNotFound} />
     </div>
