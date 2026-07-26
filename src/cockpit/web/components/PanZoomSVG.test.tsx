@@ -252,3 +252,216 @@ describe("PanZoomSVG — aspect-ratio stability", () => {
     expect(width()).toBeLessThan(fitW);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Ambient camera life (mt#3226 SC 4 — session-film aliveness pass)
+// ---------------------------------------------------------------------------
+
+describe("PanZoomSVG — ambient drift", () => {
+  test("no ambient-drift marker when the prop is omitted (the plain fit-and-hold framing)", () => {
+    renderPanZoom();
+    expect(screen.getByTestId("pan-zoom-svg-container").getAttribute("data-ambient-drift")).toBeNull();
+  });
+
+  test("no ambient-drift marker when explicitly disabled", () => {
+    render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        ambientDrift={{ enabled: false, amplitudePx: 10, periodMs: 1000 }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    expect(screen.getByTestId("pan-zoom-svg-container").getAttribute("data-ambient-drift")).toBeNull();
+  });
+
+  test("the ambient-drift marker is present when enabled", () => {
+    render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        ambientDrift={{ enabled: true, amplitudePx: 10, periodMs: 1000 }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    expect(screen.getByTestId("pan-zoom-svg-container").getAttribute("data-ambient-drift")).toBe(
+      "true"
+    );
+  });
+
+  test("ambient drift actually moves the viewBox over time, and STOPS once the user interacts", async () => {
+    render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        ambientDrift={{ enabled: true, amplitudePx: 30, periodMs: 800 }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    const container = screen.getByTestId("pan-zoom-svg-container");
+    const svg = screen.getByTestId("pan-zoom-svg");
+    const rect = {
+      width: 1280,
+      height: 820,
+      top: 0,
+      left: 0,
+      right: 1280,
+      bottom: 820,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    } as DOMRect;
+    container.getBoundingClientRect = () => rect;
+    svg.getBoundingClientRect = () => rect;
+
+    const initialVB = svg.getAttribute("viewBox") ?? "";
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    const driftedVB = svg.getAttribute("viewBox") ?? "";
+    expect(driftedVB).not.toEqual(initialVB);
+
+    // A user pan pauses ambience — subsequent ticks must not move the viewBox further.
+    fireEvent.pointerDown(svg, { clientX: 0, clientY: 0, button: 0 });
+    fireEvent.pointerUp(svg);
+    const pausedVB = svg.getAttribute("viewBox") ?? "";
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    expect(svg.getAttribute("viewBox") ?? "").toEqual(pausedVB);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Camera-follow / growing-bounding-box auto-fit (mt#3231 SC 5)
+// ---------------------------------------------------------------------------
+
+function mockRect(width: number, height: number): DOMRect {
+  return { width, height, top: 0, left: 0, right: width, bottom: height, x: 0, y: 0, toJSON() {} } as DOMRect;
+}
+
+describe("PanZoomSVG — camera-follow auto-fit (mt#3231 SC 5 / AT 5)", () => {
+  test("no growingBounds prop -> unaffected (the plain fit-and-hold framing, unchanged)", () => {
+    renderPanZoom();
+    expect(screen.getByTestId("pan-zoom-svg-container")).toBeDefined();
+  });
+
+  test("easeMs<=0 snaps the viewBox to fit the given bounds (the reduced-motion degrade), no ease", async () => {
+    render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        growingBounds={{ bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 }, padding: 10, easeMs: 0 }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    const container = screen.getByTestId("pan-zoom-svg-container");
+    const svg = screen.getByTestId("pan-zoom-svg");
+    container.getBoundingClientRect = () => mockRect(1280, 820);
+
+    // The fit is applied on the first tick that observes a real container
+    // size (see the module's "lazily resolved ease origin" comment) — the
+    // override above is applied AFTER mount, matching every other test in
+    // this file that patches getBoundingClientRect post-render.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const vb = parseViewBox(svg.getAttribute("viewBox") ?? "");
+    // The fit bounding box (0,0)-(100,100) padded by 10 on each side is
+    // 120x120 world units, centered at (50,50) — width is the binding
+    // constraint at this (1280x820, landscape) container aspect.
+    expect(vb.w).toBeGreaterThan(0);
+    expect(vb.h).toBeGreaterThan(0);
+  });
+
+  test("a non-zero easeMs eases the viewBox toward the fit over time, not an instant snap", async () => {
+    render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        growingBounds={{ bounds: { minX: 500, minY: 500, maxX: 600, maxY: 600 }, padding: 20, easeMs: 500 }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    const container = screen.getByTestId("pan-zoom-svg-container");
+    const svg = screen.getByTestId("pan-zoom-svg");
+    container.getBoundingClientRect = () => mockRect(1280, 820);
+    svg.getBoundingClientRect = () => mockRect(1280, 820);
+
+    const initialVB = svg.getAttribute("viewBox") ?? "";
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const midVB = svg.getAttribute("viewBox") ?? "";
+    expect(midVB).not.toEqual(initialVB); // moved, but the ease hasn't necessarily finished
+
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const finalVB = parseViewBox(svg.getAttribute("viewBox") ?? "");
+    // Converged near the bounds' center (550, 550).
+    const cx = finalVB.x + finalVB.w / 2;
+    const cy = finalVB.y + finalVB.h / 2;
+    expect(cx).toBeCloseTo(550, 0);
+    expect(cy).toBeCloseTo(550, 0);
+  });
+
+  test("stays put while the container is 0x0 (no fit against 0x0), then fits once real dimensions appear (mt#3231 review R1)", async () => {
+    render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        growingBounds={{ bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 }, padding: 10, easeMs: 0 }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    const container = screen.getByTestId("pan-zoom-svg-container");
+    const svg = screen.getByTestId("pan-zoom-svg");
+
+    // Container stays 0x0 (JSDOM/happy-dom default — never overridden here)
+    // for a while — the zero-size backoff should keep retrying without ever
+    // computing a fit against 0x0, leaving the viewBox at its initial state.
+    const zeroSizeVB = svg.getAttribute("viewBox") ?? "";
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(svg.getAttribute("viewBox") ?? "").toEqual(zeroSizeVB);
+
+    // Real dimensions appear — the next backoff-scheduled retry should pick
+    // them up and compute the fit (skip/retry until real dimensions, not a
+    // permanent stall).
+    container.getBoundingClientRect = () => mockRect(1280, 820);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const vb = parseViewBox(svg.getAttribute("viewBox") ?? "");
+    expect(vb.w).toBeGreaterThan(0);
+    expect(vb.w).toBeLessThan(1280); // fit to the small bounds, not the full board
+  });
+
+  test("a user pan overrides and pauses camera-follow, matching the existing ambient-drift override", async () => {
+    render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        growingBounds={{ bounds: { minX: 500, minY: 500, maxX: 600, maxY: 600 }, padding: 20, easeMs: 500 }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    const container = screen.getByTestId("pan-zoom-svg-container");
+    const svg = screen.getByTestId("pan-zoom-svg");
+    container.getBoundingClientRect = () => mockRect(1280, 820);
+    svg.getBoundingClientRect = () => mockRect(1280, 820);
+
+    // Interrupt the ease immediately with a user pan.
+    fireEvent.pointerDown(svg, { clientX: 300, clientY: 300, button: 0 });
+    fireEvent.pointerMove(svg, { clientX: 250, clientY: 250 });
+    fireEvent.pointerUp(svg);
+    const pausedVB = svg.getAttribute("viewBox") ?? "";
+
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    // The camera-follow ease must NOT have continued moving the viewBox
+    // toward the bounds fit after the user took control.
+    expect(svg.getAttribute("viewBox") ?? "").toEqual(pausedVB);
+  });
+});

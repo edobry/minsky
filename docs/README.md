@@ -21,8 +21,8 @@ For the brand foundation (locked myth, cultural code, vocabulary), see the [`min
 
 ### Session Management
 
-- [**SessionDB Migration Guide**](./sessiondb-migration-guide.md) — Migrate between SQLite and PostgreSQL backends
-- [**SessionDB Troubleshooting Guide**](./sessiondb-troubleshooting.md) — Solutions for common SessionDB issues across all backends
+- [**Persistence Migration Guide**](./sessiondb-migration-guide.md) — Postgres schema migrations and restoring session data from a JSON backup
+- [**Persistence Troubleshooting Guide**](./sessiondb-troubleshooting.md) — Diagnosing and resolving Postgres persistence issues
 - [**Postgres Persistence Configuration**](./persistence-configuration.md) — Pool sizing, retry policy, and graceful shutdown for the Postgres backend
 
 ### Task Management

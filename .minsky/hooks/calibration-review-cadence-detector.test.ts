@@ -54,11 +54,13 @@ function makeResult(
   entry: CalibrationLogEntry,
   overrides: Partial<CalibrationLogResult> = {}
 ): CalibrationLogResult {
-  return {
+  const merged = {
     entry,
     exists: true,
     totalFires: 0,
     firesSinceLastReview: 0,
+    suppressedSinceLastReview: 0,
+    injectedFiresSinceLastReview: 0,
     distinctPhrases: 0,
     atCountThreshold: false,
     lowDiversity: false,
@@ -66,6 +68,16 @@ function makeResult(
     newRecords: [],
     watermarkCount: 0,
     ...overrides,
+  };
+  return {
+    ...merged,
+    // mt#3197: unless a test says otherwise, every fire is INJECTED — which is
+    // the real-world default for every detector that records no suppression
+    // outcome. Derived rather than defaulted to 0 so existing fixtures that
+    // only set `firesSinceLastReview` keep meaning what they meant.
+    injectedFiresSinceLastReview:
+      overrides.injectedFiresSinceLastReview ??
+      merged.firesSinceLastReview - merged.suppressedSinceLastReview,
   };
 }
 
@@ -250,6 +262,53 @@ describe("shouldReWarn — policy-coverage kind (mt#2659)", () => {
 // formatCadenceWarning
 // ---------------------------------------------------------------------------
 
+describe("suppression-aware review-due legs (mt#3197, PR #2300 R1)", () => {
+  const ALL_SUPPRESSED = { firesSinceLastReview: 12, suppressedSinceLastReview: 12 };
+  /** Comfortably older than both the stale window and the never-reviewed window. */
+  const LONG_AGO = new Date(NOW - (STALE_DAYS_MS + 30 * 24 * 60 * 60 * 1000)).toISOString();
+
+  test("time-stale does not fire when every new record was suppressed", () => {
+    const entry = makeEntry(ASK_ROUTING_DEFERRAL);
+    const results = [makeResult(entry, { ...ALL_SUPPRESSED, totalFires: 40 })];
+    const watermarks = {
+      [entry.path]: { lastReviewedCount: 28, lastReviewedAt: LONG_AGO },
+    };
+    const due = computeReviewDueLogs(results, watermarks, NOW);
+    expect(due).toHaveLength(0);
+  });
+
+  test("time-stale still fires when at least one new record was injected", () => {
+    const entry = makeEntry(ASK_ROUTING_DEFERRAL);
+    const results = [
+      makeResult(entry, {
+        firesSinceLastReview: 12,
+        suppressedSinceLastReview: 11,
+        totalFires: 40,
+      }),
+    ];
+    const watermarks = {
+      [entry.path]: { lastReviewedCount: 28, lastReviewedAt: LONG_AGO },
+    };
+    const due = computeReviewDueLogs(results, watermarks, NOW);
+    expect(due).toHaveLength(1);
+    expect(due[0]?.reason).toBe("time-stale");
+    expect(due[0]?.injectedFiresSinceLastReview).toBe(1);
+  });
+
+  test("never-reviewed does not fire when every record was suppressed", () => {
+    const entry = makeEntry(ASK_ROUTING_DEFERRAL);
+    const results = [
+      makeResult(entry, {
+        ...ALL_SUPPRESSED,
+        totalFires: 12,
+        firstRecordTimestamp: LONG_AGO,
+      }),
+    ];
+    const due = computeReviewDueLogs(results, {}, NOW);
+    expect(due).toHaveLength(0);
+  });
+});
+
 describe("formatCadenceWarning", () => {
   test("names each due log with its fire count and reason", () => {
     const due: ReviewDueLog[] = [
@@ -258,6 +317,9 @@ describe("formatCadenceWarning", () => {
         path: ASK_ROUTING_DEFERRAL_PATH,
         kind: ASK_ROUTING_DEFERRAL,
         firesSinceLastReview: 43,
+        // mt#3197: no suppression outcome recorded -> every fire is injected.
+        injectedFiresSinceLastReview: 43,
+        suppressedSinceLastReview: 0,
         totalFires: 43,
         distinctPhrases: 31,
         reason: "past-threshold",
@@ -267,6 +329,8 @@ describe("formatCadenceWarning", () => {
         path: ".minsky/retrospective-trigger-calibration.jsonl",
         kind: "retrospective-trigger",
         firesSinceLastReview: 8,
+        injectedFiresSinceLastReview: 8,
+        suppressedSinceLastReview: 0,
         totalFires: 20,
         distinctPhrases: 3,
         reason: "time-stale",

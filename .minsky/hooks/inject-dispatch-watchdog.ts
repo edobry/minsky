@@ -59,6 +59,37 @@ export interface UserPromptSubmitInput extends ClaudeHookInput {
   prompt: string;
 }
 
+/**
+ * Which signal produced a flag's `lastActivityAt` (mt#3172; mt#3193 adds
+ * `"workspace-mtime"`; mirrors src/cockpit/dispatch-watchdog.ts's
+ * DispatchWatchdogActivitySource — this hook duplicates the shape rather
+ * than importing it, per this file's module-graph-isolation convention, see
+ * the cache-path comment above).
+ */
+export type DispatchWatchdogActivitySourceRecord =
+  | "dispatch-start"
+  | "commit"
+  | "event"
+  | "presence"
+  | "workspace-mtime";
+
+/**
+ * Runtime-reflectable enumeration of every recognized value (PR #2307 R1
+ * non-blocking) — kept in lockstep with `DISPATCH_WATCHDOG_ACTIVITY_SOURCES`
+ * in `src/cockpit/dispatch-watchdog.ts` via a cross-module parity TEST
+ * (`inject-dispatch-watchdog.test.ts`), NOT via a shared import (this file
+ * deliberately does not import from `src/cockpit/*` — see the cache-path
+ * comment above). Add a new value here AND there, in the same PR, or the
+ * parity test fails.
+ */
+export const RECOGNIZED_ACTIVITY_SOURCES = [
+  "dispatch-start",
+  "commit",
+  "event",
+  "presence",
+  "workspace-mtime",
+] as const satisfies readonly DispatchWatchdogActivitySourceRecord[];
+
 /** One flagged dispatch (mirrors src/cockpit/dispatch-watchdog.ts DispatchWatchdogFlag). */
 export interface DispatchWatchdogFlagRecord {
   taskId: string;
@@ -68,6 +99,8 @@ export interface DispatchWatchdogFlagRecord {
   startedAt: string;
   lastActivityAt: string;
   staleForMs: number;
+  /** Which signal produced lastActivityAt — surfaced in the banner so a flagged dispatch stays diagnosable (mt#3172). */
+  activitySource: DispatchWatchdogActivitySourceRecord;
 }
 
 /** The on-disk cache record (mirrors src/cockpit/dispatch-watchdog.ts DispatchWatchdogSnapshot). */
@@ -105,6 +138,21 @@ export function parseDispatchWatchdogCache(raw: string): DispatchWatchdogCacheRe
     if (typeof f.lastActivityAt !== "string") continue;
     if (typeof f.staleForMs !== "number" || !Number.isFinite(f.staleForMs)) continue;
     const sid = f.subagentSessionId;
+    // mt#3172: normalize a missing/unrecognized activitySource (e.g. a cache
+    // file written by a producer build that predates this field, during a
+    // rollout window) to "dispatch-start" rather than dropping the whole
+    // flag entry — mirrors the subagentSessionId normalization above.
+    // Checked against RECOGNIZED_ACTIVITY_SOURCES (single source of truth
+    // for this file, kept in lockstep with the producer's own list via the
+    // cross-module parity test — see that const's docstring) rather than a
+    // hardcoded chain, so adding a new signal only requires updating one
+    // array here, not a scattered condition.
+    const rawSource = f.activitySource;
+    const activitySource: DispatchWatchdogActivitySourceRecord =
+      typeof rawSource === "string" &&
+      (RECOGNIZED_ACTIVITY_SOURCES as readonly string[]).includes(rawSource)
+        ? (rawSource as DispatchWatchdogActivitySourceRecord)
+        : "dispatch-start";
     flags.push({
       taskId: f.taskId,
       subagentSessionId: typeof sid === "string" ? sid : null,
@@ -113,6 +161,7 @@ export function parseDispatchWatchdogCache(raw: string): DispatchWatchdogCacheRe
       startedAt: f.startedAt,
       lastActivityAt: f.lastActivityAt,
       staleForMs: f.staleForMs,
+      activitySource,
     });
   }
   return { checkedAt: rec.checkedAt, staleMs: rec.staleMs, flags };
@@ -152,7 +201,15 @@ export function formatDispatchWatchdogState(
   const lines = record.flags.map((f) => {
     const age = formatAge(f.staleForMs);
     const sidStr = f.subagentSessionId ?? "(no session id)";
-    return `  - ${f.taskId} (${f.taskStatus}, agentType=${f.agentType}, session=${sidStr}): silent for ${age} (last activity ${f.lastActivityAt})`;
+    // mt#3172: name the freshest signal consulted (parity with
+    // tasks.dispatch-recover's activitySource field) so a flagged dispatch
+    // stays diagnosable — e.g. distinguishing "nothing since dispatch start"
+    // from "a commit landed but it's still stale" from "presence activity
+    // was seen but it's still stale."
+    return (
+      `  - ${f.taskId} (${f.taskStatus}, agentType=${f.agentType}, session=${sidStr}): silent for ` +
+      `${age} (last activity ${f.lastActivityAt}, source=${f.activitySource})`
+    );
   });
 
   return (
@@ -166,7 +223,13 @@ export function formatDispatchWatchdogState(
     '`"healthy"` -> a false-positive flag, no action needed; `"recover"` -> redispatch the ' +
     "returned `continuationPrompt` VERBATIM via the Agent tool into the SAME session (do not " +
     'edit it, do not start a new session); `"escalate"` -> the 2-attempt bound is reached, ' +
-    "surface the returned escalation summary to the operator instead of retrying again; " +
+    "so no further AUTO-resume happens — but escalate is NOT a finding that the dispatch is " +
+    "dead. Before characterizing it to the operator, read the `escalation.probe` on the " +
+    "result: `dirtyFileCount` / `gitStatus` and `workspaceMtimeAgoMs` are the DISCRIMINATING " +
+    "signals (mt#3204). Push, PR and review activity go quiet while an agent edits files it " +
+    "has not committed yet, so they CANNOT tell 'working locally' from 'dead' — never report " +
+    "a dispatch as stuck on the strength of those alone, and relay the tool's hedge rather " +
+    "than flattening it into a confident claim; " +
     '`"not-in-flight"` / `"no-dispatch"` -> nothing to recover. See the /orchestrate skill\'s ' +
     '"Dispatch watchdog and resume protocol" section for the full walkthrough.'
   );

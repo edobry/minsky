@@ -40,6 +40,7 @@ import {
   composeResolvePayload,
 } from "../widgets/AskDetail";
 import { isTerminal } from "@minsky/domain/ask/state-machine";
+import { isAutomatedClosureResponder } from "@minsky/domain/ask/close-as-resolved";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { CopyId } from "../components/CopyId";
@@ -138,23 +139,42 @@ export function AskPage() {
       ) : query.isError ? (
         <ErrorState prefix="Failed to load ask" error={query.error} />
       ) : ask && terminal ? (
-        <div className="flex flex-col gap-2 py-8 text-center">
-          <p className="text-sm text-muted-foreground">
-            This ask was {terminalLabel(ask.state)}.
-          </p>
-          <p className="text-xs text-muted-foreground/70">{ask.title}</p>
-          {ask.response ? (
-            <div className="mx-auto mt-2 max-w-lg text-left">
-              <p className="text-xs text-muted-foreground mb-1">
-                Response{ask.response.responder ? ` — by ${ask.response.responder}` : ""}
-                {ask.respondedAt ? ` on ${new Date(ask.respondedAt).toLocaleString()}` : ""}:
+        // mt#3215: a system-driven closure (e.g. the stale-suspended-close
+        // sweep's parent-terminal signal) leaves `ask.response` populated —
+        // the SAME field a genuine operator answer populates — so this page
+        // must not render the two identically. `isAutomatedClosureResponder`
+        // is the single source of truth both this page and
+        // `formatAskWaitMessage` (the agent-facing wait tool) use to tell
+        // them apart. The ask#6024 incident: an operator opened this exact
+        // page to answer a pending authorization and was told it had
+        // "already been responded to" — it had actually been auto-closed,
+        // unanswered, when its parent task went terminal.
+        (() => {
+          const autoClosed = ask.response ? isAutomatedClosureResponder(ask.response.responder) : false;
+          return (
+            <div className="flex flex-col gap-2 py-8 text-center">
+              <p className="text-sm text-muted-foreground">
+                {autoClosed
+                  ? "This ask was auto-closed by the system — it was NOT answered by an operator."
+                  : `This ask was ${terminalLabel(ask.state)}.`}
               </p>
-              <pre className="text-xs bg-card border border-border rounded p-2 overflow-x-auto">
-                {JSON.stringify(ask.response.payload, null, 2)}
-              </pre>
+              <p className="text-xs text-muted-foreground/70">{ask.title}</p>
+              {ask.response ? (
+                <div className="mx-auto mt-2 max-w-lg text-left">
+                  <p className="text-xs text-muted-foreground mb-1">
+                    {autoClosed
+                      ? `Auto-closed by ${ask.response.responder} (not an operator response)`
+                      : `Response${ask.response.responder ? ` — by ${ask.response.responder}` : ""}`}
+                    {ask.respondedAt ? ` on ${new Date(ask.respondedAt).toLocaleString()}` : ""}:
+                  </p>
+                  <pre className="text-xs bg-card border border-border rounded p-2 overflow-x-auto">
+                    {JSON.stringify(ask.response.payload, null, 2)}
+                  </pre>
+                </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
+          );
+        })()
       ) : ask ? (
         <AskDetail
           ask={ask}

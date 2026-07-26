@@ -122,7 +122,7 @@ export function writeProdStateCache(
 ): boolean {
   try {
     const dir = path.dirname(cachePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true });
     const record: ProdStateCacheRecord = { ...snapshot, checkedAt: nowIso };
     // Atomic temp+rename (handles crash mid-write + Windows rename semantics) via the
     // shared helper — a partial/corrupt cache would otherwise read back as UNKNOWN.

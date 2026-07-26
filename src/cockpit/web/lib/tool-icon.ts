@@ -21,9 +21,16 @@ import {
   Bot,
   Plug,
   Wrench,
+  Search,
+  Clock,
+  MessageCircle,
+  Layers,
+  User,
+  ShieldAlert,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ParsedToolName } from "./tool-name";
+import type { EventActorKind, EventVerb } from "@minsky/domain/transcripts/event-schema";
 
 const SHELL_NAMES = new Set(["Bash", "session_exec"]);
 
@@ -72,4 +79,99 @@ export function toolIconFor(parsed: ParsedToolName): LucideIcon {
   if (isMemoryTool(name)) return BrainCircuit;
   if (server) return Plug;
   return Wrench;
+}
+
+// ── Session-film glyphic-ribbon icons (mt#3226 SC 2) ────────────────────────
+//
+// The session film's ribbon rows are keyed on the semantic-event VERB
+// vocabulary (event-schema.ts's EventVerb), not a raw tool name — a
+// different axis than `toolIconFor` above, but deliberately kept in this
+// SAME shared file (not a bespoke duplicate icon set in a session-film-only
+// module) so both the conversation view's tool-invocation icons and the
+// session film's ribbon glyphs draw from one registry and stay visually
+// consistent for the same underlying action family (e.g. a `Read` tool call
+// and a `read` semantic-event verb both read as "looking at something").
+
+/** Per-verb icon for the session film's glyphic ribbon row (mt#3226 SC 2 / AT 3). */
+export function verbIconFor(verb: EventVerb): LucideIcon {
+  switch (verb) {
+    case "read":
+    case "search":
+      return Search;
+    case "write":
+    case "create":
+    case "delete":
+      return FileText;
+    case "clone":
+      return GitBranch;
+    case "execute":
+      return Terminal;
+    case "spawn":
+      return Bot;
+    case "wait":
+      return Clock;
+    case "speak":
+    case "respond":
+    case "ask":
+      return MessageCircle;
+    case "think":
+      return BrainCircuit;
+    default:
+      return Wrench;
+  }
+}
+
+/**
+ * Human-readable label per verb (mt#3231 SC 2 / AT 2 — "icon labels/badges"):
+ * a short WORD beside the icon, since a bare glyph alone under-communicates
+ * ("Read"/"Write"/"Search"/"Think"/"Wait"/"Spawn"/"Ask" per the operator's
+ * finding). Kept in this SAME shared registry (not a bespoke ribbon-only
+ * label map) so a future legend or any other verb-icon consumer draws from
+ * one source, per the module doc's "ribbon and any future legend share one
+ * source" convention.
+ */
+export function verbLabelFor(verb: EventVerb): string {
+  switch (verb) {
+    case "read":
+      return "Read";
+    case "search":
+      return "Search";
+    case "write":
+      return "Write";
+    case "create":
+      return "Create";
+    case "delete":
+      return "Delete";
+    case "clone":
+      return "Clone";
+    case "execute":
+      return "Run";
+    case "spawn":
+      return "Spawn";
+    case "wait":
+      return "Wait";
+    case "speak":
+      return "Speak";
+    case "think":
+      return "Think";
+    case "ask":
+      return "Ask";
+    case "respond":
+      return "Respond";
+    default:
+      return "Act";
+  }
+}
+
+/** Icon for a collapsed parallel-batch row (>1 simultaneous event) — distinct from any single verb. */
+export const BATCH_ROW_ICON: LucideIcon = Layers;
+
+/** Label for a collapsed parallel-batch row's icon badge (mt#3231 SC 2). */
+export const BATCH_ROW_LABEL = "Batch";
+
+/** Per-actor-kind icon for the session film's actor-change marker (mt#3226 SC 2). */
+export function actorIconFor(kind: EventActorKind): LucideIcon {
+  if (kind === "principal") return User;
+  if (kind === "policy") return ShieldAlert;
+  return Bot;
 }

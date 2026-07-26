@@ -4,6 +4,10 @@
 
 The Session Workspace Tools provide secure, session-scoped workspace operations for AI agents working within Minsky session workspaces. These tools enforce workspace isolation by automatically validating and restricting all workspace operations to the appropriate session directory, preventing accidental modifications to the main workspace or other sessions.
 
+> These are the tools for working _inside_ an existing session workspace. For the session lifecycle
+> itself — in particular when `session start --recover` reclaims a task's branch, when it clears an
+> abandoned record, and when it refuses — see [Recovering a session](./session-recovery.md).
+
 ## Core Concepts
 
 ### Session Workspace Isolation

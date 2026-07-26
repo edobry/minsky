@@ -108,6 +108,38 @@ describe("ConversationView fetch errors (mt#2525)", () => {
     await waitFor(() => expect(notFoundCalls).toBeGreaterThan(0));
   });
 
+  // mt#3131 (D3/D5) — a syntactically-invalid id is definitively "not found",
+  // never "may still be running".
+  test("404 invalid_id renders distinct 'not found' copy, not the 'may still be running' empty state", async () => {
+    stubFetch(404, {
+      error: { code: "invalid_id", message: '"958f3805" is not a valid conversation id.' },
+    });
+
+    renderWithQuery(<ConversationView sessionId={"958f3805" as ConversationId} />);
+
+    await waitFor(() => expect(screen.getByText(/Conversation not found/i)).toBeDefined());
+    expect(screen.queryByText(/may still be running/i)).toBeNull();
+    expect(screen.queryByText(/No conversation transcript for this session yet/i)).toBeNull();
+  });
+
+  test("404 invalid_id fires onNotFound so the host can prune its tab-strip entry", async () => {
+    stubFetch(404, {
+      error: { code: "invalid_id", message: '"agent-a2a1e886c52ade5b9" is not a valid conversation id.' },
+    });
+
+    let notFoundCalls = 0;
+    renderWithQuery(
+      <ConversationView
+        sessionId={"agent-a2a1e886c52ade5b9" as ConversationId}
+        onNotFound={() => {
+          notFoundCalls += 1;
+        }}
+      />
+    );
+
+    await waitFor(() => expect(notFoundCalls).toBeGreaterThan(0));
+  });
+
   test("422 wrong_id_space does NOT fire onNotFound (routing mistake, not an invalid entity)", async () => {
     stubFetch(422, {
       error: { code: "wrong_id_space", message: "workspace id, not a conversation id" },

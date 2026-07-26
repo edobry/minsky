@@ -52,12 +52,59 @@
 //   calibration log's hadSameTurnRead field records the determination so the
 //   FP rate is reviewable.
 //
+// mt#3113 tunes FOUR live-FP shapes surfaced by the 2026-07-23 calibration
+// review (ask#5425, operator-confirmed), all at the INJECTION layer — none
+// change `detectCodeMechanismAssertion`'s core claim-detection contract:
+//
+//   1. Same-turn-read suppression: 7 of 14 recent records carried
+//      `hadSameTurnRead: true` (a DIFFERENT symbol in the same turn was
+//      backed) and still injected. `run()`/`main()` now suppress
+//      `additionalContext` when `hadSameTurnRead` is true, WITHOUT touching
+//      the pure detector's claims/hadSameTurnRead/backedClaimCount contract
+//      (mt#2673's turn-level semantics — see the `ask#5343 tune-1
+//      correction` test below — are unchanged; this is an injection-layer
+//      gate stacked on top, not a reversal of that decision).
+//   2. Symbol plausibility: generic English/tech-term words (`since`,
+//      `description`, `macOS`, `CommonJS`) and bare directory references
+//      (`target/`) were extracted as "symbols" because BACKTICK_SYMBOL_RE
+//      accepts any backtick-quoted span with no requirement that it read as
+//      a genuine project identifier. Extends (does not replace) mt#3002's
+//      SYMBOL_STOPLIST + a new bare-directory-reference exclusion — see
+//      `isPlausibleSymbol` below.
+//   3. Relay context: the detector fired on claims RELAYED from a dispatched
+//      subagent's own report — the subagent performed the read, the parent
+//      turn quotes/paraphrases its findings. `buildRelayCorpus` +
+//      `detectRelayContext` detect (a) ANY same-turn subagent-dispatch
+//      tool_result (deliberately NOT gated on the tool_result containing the
+//      claimed symbol — that case is already excluded upstream as
+//      `hadSameTurnRead`, so such a gate would be dead code), or (b) a
+//      relay-preamble phrase ("the subagent reports...") near the claim.
+//      mt#3113 SUPPRESSED injection on either signal; **mt#3152 reversed
+//      that** — relay is now SURFACED with relay-specific guidance
+//      (check-premise cue (g)) and reported separately as `relayReasons`,
+//      because a second-hand claim is the reason to check, not to stay quiet
+//      (mem#706). See `computeSuppressionReasons` for the full rationale.
+//   4. Per-claim dedup: an identical claim set re-fired (re-injected) on
+//      nearly every turn for ~10 hours in one session. A new per-session
+//      cooldown store (`code-mechanism-assertion-dedup-store.ts`, mirroring
+//      `guard-health-escalation-notify-store.ts`'s mt#3072 pattern)
+//      suppresses re-injection of an unchanged (claim-set signature, session)
+//      pair within a 1h cooldown.
+//
+// All four suppressions are recorded in the calibration record's
+// `suppressionReasons: string[]` field (empty when nothing suppressed) so
+// calibration review can grade the suppressions themselves, not just the
+// underlying detection — per this task's explicit success criterion.
+//
 // @see mt#2486 — this task; mt#2485 — strategic reframe (tier-2)
 // @see mt#3050 — R13 sourcing/provenance predicate widening (this file's
 //      PREDICATE_PATTERNS trailing entries); symbol extraction was NOT the
 //      gap, only the claim-shape coverage.
+// @see mt#3113 — same-turn-read/relay/dedup injection-layer suppression +
+//      symbol-plausibility extension (this comment's four legs above)
 // @see .claude/hooks/causal-premise-detector.ts — sibling pattern (mt#2216)
 // @see .claude/hooks/transcript.ts — shared turn-boundary helper
+// @see .claude/hooks/code-mechanism-assertion-dedup-store.ts — leg 4's cooldown store
 // @see mt#2652 — ADR-028 Phase 2a: this file's exported `run()` is the
 //      dispatcher-compatible entry point invoked in-process by
 //      `./dispatch-userpromptsubmit.ts`; `main()` / the CLI entrypoint below
@@ -74,6 +121,7 @@ import {
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { claimSetSignature, shouldInjectClaimSet } from "./code-mechanism-assertion-dedup-store";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection
@@ -181,7 +229,34 @@ const SYMBOL_STOPLIST: ReadonlySet<string> = new Set([
   "stdin",
   "stdout",
   "stderr",
+  // mt#3113 leg 2: generic English words / common tech-proper-nouns that
+  // slip through the existing shape-based checks. "since"/"description" are
+  // plain lowercase prose words with no camelCase/snake_case/path structure
+  // (only reach extraction via BACKTICK_SYMBOL_RE's permissive character
+  // class); "macos"/"commonjs" DO match CAMEL_CASE_RE's shape (mac+OS,
+  // Common+JS) but are common platform/ecosystem proper nouns, not symbols
+  // defined by this project — the exact same "camelCase-shaped but not a
+  // project symbol" class the pre-existing "github"/"gitlab"/"postgresql"
+  // entries above already cover. Comparison is case-insensitive (the
+  // isPlausibleSymbol call site lowercases before this lookup).
+  "since",
+  "description",
+  "macos",
+  "commonjs",
 ]);
+
+/**
+ * Bare-directory-reference exclusion (mt#3113 leg 2). A token that is a
+ * single path segment followed by exactly one trailing slash (`target/`,
+ * `dist/`, `build/`, `node_modules/`) reads as a generic build-artifact or
+ * output-directory mention — the 2026-07-23 calibration data's `target/`
+ * false positive — not a project-specific symbol or a genuine multi-segment
+ * path reference. Deliberately does NOT reject multi-segment paths
+ * (`src/exec.ts`, `scripts/verify-foo.ts`) or a bare filename with no
+ * trailing slash: those remain plausible under the "path-like" acceptance
+ * path (mt#3113 spec: "backtick-quoted with a path-like ... shape").
+ */
+const BARE_DIR_REF_RE = /^[A-Za-z_][\w-]*\/$/;
 
 /**
  * File-name-shaped exclusion (mt#3002). A token ending in a known doc/config
@@ -251,6 +326,7 @@ function isPlausibleSymbol(tok: string): boolean {
   if (FILE_EXTENSION_RE.test(t)) return false;
   if (HEX_ID_RE.test(t)) return false;
   if (SQL_KEYWORDS_UPPER.has(t)) return false;
+  if (BARE_DIR_REF_RE.test(t)) return false;
   return true;
 }
 
@@ -422,6 +498,165 @@ export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// Relay-context detection (mt#3113 leg 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tool names that dispatch or resume a subagent in this harness. A claim
+ * whose content is found inside one of these tools' `tool_result` in the
+ * SAME turn is very likely a RELAY of the subagent's own report — the
+ * subagent performed the read; the parent turn is quoting/paraphrasing its
+ * findings, not asserting them fresh and unverified.
+ */
+const SUBAGENT_DISPATCH_TOOL_RE = /^(?:Agent|Task|SendMessage)$/;
+
+/**
+ * Relay-preamble phrasing (mt#3113 leg 3) — a prose marker that the
+ * surrounding text is REPORTING what a dispatched subagent/background task
+ * found, rather than a fresh first-person assertion. Catches the
+ * cross-turn case `buildRelayCorpus`'s same-turn tool_result correlation
+ * cannot see (the subagent completed in an earlier turn; this turn merely
+ * narrates its already-reported findings) as well as same-turn narration
+ * that doesn't literally repeat the subagent's tool_result text verbatim.
+ * Deliberately narrow/high-precision (mirrors the RELAY_PREAMBLE naming
+ * convention of this file's PREDICATE_PATTERNS) — calibration will surface
+ * any additional phrasing worth adding.
+ */
+export const RELAY_PREAMBLE_PATTERNS: RegExp[] = [
+  /\b(?:the\s+)?(?:sub[- ]?agent|dispatched agent|implementer agent|reviewer agent)\s+(?:found|reports?|reported|confirms?|confirmed|says?|said|notes?|noted)\b/i,
+  /\bper\s+the\s+(?:sub[- ]?agent|dispatched agent)'?s?\s+(?:report|findings?)\b/i,
+  /\bthe\s+(?:sub[- ]?agent|dispatched agent)'s\s+(?:report|findings?|analysis)\b/i,
+  /\btask[- ]notification\b/i,
+  /\baccording to (?:the\s+)?(?:sub[- ]?agent|the dispatched agent)\b/i,
+];
+
+/**
+ * Build the same-turn relay corpus: the concatenation of every subagent
+ * dispatch/resume tool's `tool_result` CONTENT in the turn, correlated by
+ * `tool_use_id` (mirrors `transcript.ts`'s `findCreatedResourceIds`
+ * pass-1/pass-2 id-correlation pattern). Distinct from
+ * {@link buildVerificationCorpus}, which collects EVERY tool_result in the
+ * turn regardless of source (that corpus answers "was this symbol read this
+ * turn?"; this one answers "did a DISPATCHED SUBAGENT's own report already
+ * contain this claim?" — the relay-context signal).
+ */
+export function buildRelayCorpus(turnLines: TranscriptLine[]): string {
+  const dispatchIds = new Set<string>();
+  for (const line of turnLines) {
+    const role = line.message?.role ?? line.type;
+    const content = line.message?.content;
+    if (role === "assistant" && Array.isArray(content)) {
+      for (const block of content as Array<Record<string, unknown>>) {
+        if (
+          block["type"] === "tool_use" &&
+          typeof block["name"] === "string" &&
+          SUBAGENT_DISPATCH_TOOL_RE.test(block["name"] as string) &&
+          typeof block["id"] === "string"
+        ) {
+          dispatchIds.add(block["id"] as string);
+        }
+      }
+    }
+
+    // Top-level tool_use line shape (defensive; mirrors
+    // buildVerificationCorpus's identical fallback above — PR #2236 R1/R2
+    // finding: the harness can emit a dispatch tool_use as a top-level line
+    // rather than nested inside message.content, and without this branch
+    // dispatchIds silently stays empty for that shape).
+    if (line.type === "tool_use") {
+      const name = line.name ?? line.tool_name ?? "";
+      const id = (line as Record<string, unknown>)["id"];
+      if (SUBAGENT_DISPATCH_TOOL_RE.test(name) && typeof id === "string") {
+        dispatchIds.add(id);
+      }
+    }
+  }
+  if (dispatchIds.size === 0) return "";
+
+  const parts: string[] = [];
+  for (const line of turnLines) {
+    const role = line.message?.role ?? line.type;
+    const content = line.message?.content;
+    if (role !== "user" || !Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (
+        block["type"] === "tool_result" &&
+        typeof block["tool_use_id"] === "string" &&
+        dispatchIds.has(block["tool_use_id"] as string)
+      ) {
+        collectStrings(block["content"], parts);
+      }
+    }
+  }
+  return parts.join("\n");
+}
+
+export interface RelayDetectionResult {
+  /** true when the claim set appears to be relayed from a subagent, not freshly asserted. */
+  relayed: boolean;
+  /** Which signal fired, when relayed is true. */
+  reason?: "relayed-subagent-content" | "relayed-preamble-phrase";
+  /** Claim symbols the relay-corpus signal covers, when relayed via (a). */
+  relayedSymbols: string[];
+}
+
+/**
+ * Detect whether `claims` (already-unbacked per
+ * {@link detectCodeMechanismAssertion}) are RELAYED from a dispatched
+ * subagent's own report rather than freshly asserted:
+ *   (a) a subagent was dispatched/resumed THIS TURN and its tool_result
+ *       carries ANY content ({@link buildRelayCorpus} non-empty) — the parent
+ *       turn's claim was made in the same breath as receiving that report,
+ *       so it is very likely a quote/paraphrase of it rather than a fresh,
+ *       independently-verified assertion, or
+ *   (b) the assistant prose carries a relay-preamble phrase
+ *       ({@link RELAY_PREAMBLE_PATTERNS}) — catches the cross-turn case (the
+ *       subagent completed in an EARLIER turn; this turn merely narrates
+ *       its already-reported findings) that (a) cannot see.
+ *
+ * **Why (a) does not require the claim's literal symbol text to appear in
+ * the relay corpus.** `detectCodeMechanismAssertion`'s existing
+ * `buildVerificationCorpus` already collects EVERY same-turn tool_result
+ * (dispatch or not) as backing evidence — so a claim whose symbol literally
+ * appears in a same-turn subagent tool_result is ALREADY excluded from
+ * `claims` before this function ever runs (it would show up as
+ * `hadSameTurnRead: true` instead). Gating (a) on a literal-symbol match
+ * would therefore be unreachable dead code. Instead, (a) fires whenever a
+ * subagent report landed this turn AT ALL, accepting a wider
+ * (but log-gradeable, per this task's success criterion) suppression
+ * surface — this is the deliberate tradeoff named in the mt#3113 spec's
+ * framing ("the subagent performed the read; the parent turn quotes its
+ * findings" is treated as the DEFAULT read on any claim co-occurring with a
+ * subagent report, not something requiring an exact-text match to prove).
+ *
+ * Turn-level (like {@link CodeMechanismDetectionResult.hadSameTurnRead}), not
+ * per-claim — mirrors the existing suppression granularity in this file and
+ * keeps the injection-layer gate simple.
+ */
+export function detectRelayContext(
+  assistantText: string,
+  claims: ReadonlyArray<{ symbol: string; predicate: string }>,
+  relayCorpus: string
+): RelayDetectionResult {
+  if (claims.length === 0) return { relayed: false, relayedSymbols: [] };
+
+  if (relayCorpus.trim().length > 0) {
+    return {
+      relayed: true,
+      reason: "relayed-subagent-content",
+      relayedSymbols: claims.map((c) => c.symbol),
+    };
+  }
+
+  const prose = elideBlocksAndQuotes(assistantText);
+  if (RELAY_PREAMBLE_PATTERNS.some((re) => re.test(prose))) {
+    return { relayed: true, reason: "relayed-preamble-phrase", relayedSymbols: [] };
+  }
+
+  return { relayed: false, relayedSymbols: [] };
+}
+
+// ---------------------------------------------------------------------------
 // Detection result type
 // ---------------------------------------------------------------------------
 
@@ -529,12 +764,15 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 // Injection text (gated by INJECTION_ENABLED)
 // ---------------------------------------------------------------------------
 
-function buildInjectionReminder(claims: Array<{ symbol: string; predicate: string }>): string {
+function buildInjectionReminder(
+  claims: Array<{ symbol: string; predicate: string }>,
+  relayed = false
+): string {
   const lines = claims
     .slice(0, 6)
     .map((c) => `  - "${c.symbol}" ${c.predicate}`)
     .join("\n");
-  return [
+  const base = [
     "[code-mechanism-assertion-detector] Unread code-mechanism claim detected (mt#2486/mt#3050).",
     "",
     "The prior turn asserted what a named symbol DOES (behavior) or where its",
@@ -544,14 +782,113 @@ function buildInjectionReminder(claims: Array<{ symbol: string; predicate: strin
     "",
     "Required: READ the symbol's source before asserting its behavior/capability.",
     "The cheapest falsifier is one Read/Grep of the file — see /check-premise.",
-    "",
-    "Family: 3772c77d / b0b294ab. Override: MINSKY_ACK_CODE_MECHANISM_ASSERTION=1.",
-  ].join("\n");
+  ];
+
+  // mt#3152: a relayed claim used to be SUPPRESSED here (mt#3113 leg 3). It is
+  // now surfaced with relay-specific guidance instead — being second-hand is
+  // the reason to check a claim, not to stay quiet about it.
+  if (relayed) {
+    base.push(
+      "",
+      "RELAY CONTEXT: this turn also carries a subagent report or a relay preamble",
+      '("the subagent reports…"). A subagent\'s report is EVIDENCE the claim needs',
+      "checking, never a finding to repeat — it inherits none of this page's",
+      "guarantees. Read the primary source yourself, or state the provenance and",
+      "verification status explicitly (claim-confidence.mdc: a relayed claim is at",
+      "most `inferred`/`strong-evidence`, NEVER `verified-*`). See /check-premise",
+      "cue (g)."
+    );
+  }
+
+  base.push("", "Family: 3772c77d / b0b294ab. Override: MINSKY_ACK_CODE_MECHANISM_ASSERTION=1.");
+  return base.join("\n");
 }
 
 // ---------------------------------------------------------------------------
 // Dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652 Phase 2a)
 // ---------------------------------------------------------------------------
+
+/** Injectable deps for `run()` — tests substitute a fake dedup gate (mt#3113 leg 4). */
+export interface RunDeps {
+  /** Defaults to the real `shouldInjectClaimSet` (code-mechanism-assertion-dedup-store.ts). */
+  shouldInjectClaimSetFn?: typeof shouldInjectClaimSet;
+}
+
+/**
+ * Compute every injection-layer suppression reason for an already-matched
+ * detection result (mt#3113 legs 1/3/4). Pure aside from the dedup gate call
+ * (injectable via `shouldInjectClaimSetFn`) — factored out of `run()`/`main()`
+ * so both entry points apply the identical three gates in the identical
+ * order, and so the composition is unit-testable independent of transcript
+ * parsing.
+ *
+ * Returns BOTH the reasons (empty when nothing suppresses) and the claim-set
+ * signature (always computed, for the calibration record) so callers don't
+ * need to recompute it.
+ */
+export function computeSuppressionReasons(
+  result: CodeMechanismDetectionResult,
+  relay: RelayDetectionResult,
+  sessionId: string | undefined,
+  shouldInjectClaimSetFn: typeof shouldInjectClaimSet = shouldInjectClaimSet
+): { reasons: string[]; claimSetSignature: string; relayReasons: string[] } {
+  const reasons: string[] = [];
+
+  // Leg 1: same-turn-read suppression. hadSameTurnRead is a TURN-level
+  // aggregate (mt#2673) — it does NOT mean every logged claim's own symbol
+  // was backed (those are definitionally excluded already). This is a
+  // deliberate injection-layer gate on top of that unchanged detection
+  // semantics, per the mt#3113/ask#5425 disposition — see this file's header
+  // comment and the `ask#5343 tune-1 correction` test below for why this is
+  // NOT a reversal of the earlier (correctly rejected) detection-level
+  // proposal.
+  if (result.hadSameTurnRead) reasons.push("same-turn-read");
+
+  // Leg 3 (mt#3113) NO LONGER SUPPRESSES — reversed by mt#3152.
+  //
+  // mt#3113 treated "this claim came from a subagent's report" as grounds to
+  // stay silent, reasoning that the parent's claim "is very likely a
+  // quote/paraphrase of it rather than a fresh, independently-verified
+  // assertion." mem#706 (2026-07-24, ~6h after mt#3113 merged) reaches the
+  // opposite conclusion from the same premise: a subagent's report, a
+  // search-synthesis paragraph, and a monitor's verdict are the SAME
+  // epistemic class — evidence that a claim needs checking, never a finding
+  // to repeat. "Not independently verified" is the reason to SURFACE a
+  // claim, not to suppress it.
+  //
+  // Why each leg was retired rather than narrowed:
+  //   - Leg (a) (`relayCorpus` non-empty): mt#3113's own docblock establishes
+  //     that a symbol literally present in a same-turn dispatch tool_result is
+  //     ALREADY excluded upstream by `buildVerificationCorpus` (it lands as
+  //     `hadSameTurnRead`). So leg (a)'s only REACHABLE cases are those where
+  //     the relayed report does NOT contain the claimed symbol — i.e. the
+  //     parent asserting beyond what the report substantiates, which is
+  //     exactly mem#706's failure. There is no "topical relevance" narrowing
+  //     available: the same argument that makes a literal-symbol gate dead
+  //     code leaves no in-band relevance signal.
+  //   - Leg (b) (relay-preamble phrase): suppressing on "the subagent
+  //     reports…" lets a claim be excused by ANNOUNCING that it is
+  //     second-hand — the cheapest possible thing for an agent to type, and a
+  //     marker of the very class that needs checking.
+  //
+  // Relay DETECTION is retained and still recorded (returned as
+  // `relayReasons`, logged in the calibration record) — what changed is the
+  // POLICY applied to it: the injected reminder gains relay-specific guidance
+  // (check-premise cue (g)) instead of being withheld. Detection and policy
+  // are deliberately kept separate here so a future calibration pass can
+  // re-grade the policy without re-deriving the signal.
+  const relayReasons: string[] = [];
+  if (relay.relayed && relay.reason) relayReasons.push(relay.reason);
+
+  // Leg 4: per-claim-set dedup/cooldown (always evaluated, independent of
+  // the other gates above — a claim set repeating across many turns is
+  // exactly as noisy whether or not it also happens to be same-turn-read or
+  // relayed on any given turn).
+  const signature = claimSetSignature(result.claims);
+  if (!shouldInjectClaimSetFn(sessionId, signature)) reasons.push("deduped");
+
+  return { reasons, claimSetSignature: signature, relayReasons };
+}
 
 /**
  * Guard-dispatcher entry point. Mirrors `main()`'s orchestration but returns
@@ -561,7 +898,11 @@ function buildInjectionReminder(claims: Array<{ symbol: string; predicate: strin
  * shared context resolves the budget once per invocation, before any guard
  * runs — see the same note in `causal-premise-detector.ts`'s `run()`).
  */
-export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+export function run(
+  input: ClaudeHookInput,
+  ctx: DispatchContext,
+  deps: RunDeps = {}
+): GuardOutcome | null {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -589,10 +930,13 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   if (turnLines.length === 0) return null;
 
   let result: CodeMechanismDetectionResult;
+  let relay: RelayDetectionResult;
   try {
     const assistantText = extractAssistantText(turnLines);
     const corpus = buildVerificationCorpus(turnLines);
     result = detectCodeMechanismAssertion(assistantText, corpus);
+    const relayCorpus = buildRelayCorpus(turnLines);
+    relay = detectRelayContext(assistantText, result.claims, relayCorpus);
   } catch (err) {
     process.stderr.write(
       `[code-mechanism-assertion-detector] detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -602,6 +946,13 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   if (!result.matched) return null;
 
+  const shouldInjectClaimSetFn = deps.shouldInjectClaimSetFn ?? shouldInjectClaimSet;
+  const {
+    reasons: suppressionReasons,
+    claimSetSignature: signature,
+    relayReasons,
+  } = computeSuppressionReasons(result, relay, input.session_id, shouldInjectClaimSetFn);
+
   const outcome: GuardOutcome = {
     calibration: {
       timestamp: new Date().toISOString(),
@@ -609,11 +960,14 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
       claims: result.claims,
       hadSameTurnRead: result.hadSameTurnRead,
       backedClaimCount: result.backedClaimCount,
+      claimSetSignature: signature,
+      suppressionReasons,
+      relayReasons,
     },
   };
 
-  if (INJECTION_ENABLED) {
-    outcome.additionalContext = buildInjectionReminder(result.claims);
+  if (INJECTION_ENABLED && suppressionReasons.length === 0) {
+    outcome.additionalContext = buildInjectionReminder(result.claims, relayReasons.length > 0);
   }
 
   return outcome;
@@ -674,10 +1028,13 @@ export async function main(): Promise<void> {
   if (turnLines.length === 0) process.exit(0);
 
   let result: CodeMechanismDetectionResult;
+  let relay: RelayDetectionResult;
   try {
     const assistantText = extractAssistantText(turnLines);
     const corpus = buildVerificationCorpus(turnLines);
     result = detectCodeMechanismAssertion(assistantText, corpus);
+    const relayCorpus = buildRelayCorpus(turnLines);
+    relay = detectRelayContext(assistantText, result.claims, relayCorpus);
   } catch (err) {
     console.error(
       `[code-mechanism-assertion-detector] detection error: ${err instanceof Error ? err.message : String(err)}`
@@ -687,6 +1044,14 @@ export async function main(): Promise<void> {
 
   if (!result.matched) process.exit(0);
 
+  // mt#3113 legs 1/4 (leg 3 is now surfaced, not suppressed — see mt#3152) —
+  // identical composition to run()'s dispatcher path.
+  const {
+    reasons: suppressionReasons,
+    claimSetSignature: signature,
+    relayReasons,
+  } = computeSuppressionReasons(result, relay, input.session_id);
+
   if (Date.now() < overallDeadline) {
     appendCalibrationRecord(input.cwd, {
       timestamp: new Date().toISOString(),
@@ -694,15 +1059,18 @@ export async function main(): Promise<void> {
       claims: result.claims,
       hadSameTurnRead: result.hadSameTurnRead,
       backedClaimCount: result.backedClaimCount,
+      claimSetSignature: signature,
+      suppressionReasons,
+      relayReasons,
     });
   }
 
-  if (!INJECTION_ENABLED) process.exit(0);
+  if (!INJECTION_ENABLED || suppressionReasons.length > 0) process.exit(0);
 
   const output: HookOutput = {
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",
-      additionalContext: buildInjectionReminder(result.claims),
+      additionalContext: buildInjectionReminder(result.claims, relayReasons.length > 0),
     },
   };
   process.stdout.write(JSON.stringify(output));

@@ -19,7 +19,7 @@ locatable by grepping raw JSONL.
 **How it works:**
 
 1. Reads `session_id` from the SessionEnd hook input.
-2. Runs `minsky transcripts ingest --session=<id> --harness=claude_code`
+2. Runs `minsky transcripts ingest --session=<id> --harness=claude_code --ended`
    synchronously. The ingest is HWM-gated and incremental (a cheap no-op for an
    already-ingested session). FTS search (`transcripts_search-text`) works
    immediately after a successful ingest; no external API is needed.
@@ -27,6 +27,23 @@ locatable by grepping raw JSONL.
    so semantic `transcripts_search` is populated too — best-effort, default OFF.
 4. Appends one JSON record per run to
    `<state-dir>/transcript-ingest-hook-log.jsonl` (the observability surface).
+
+**The `--ended` flag (mt#3131 D2) — SessionEnd-only termination evidence.**
+`agent_transcripts.ended_at` asserts that a conversation TERMINATED, and it is
+populated only when an ingest call carries positive evidence of termination.
+This hook is that one caller: the harness's own SessionEnd lifecycle event is
+the evidence, so the hook's ingest invocation passes `--ended` (single-session
+mode only — it has no meaning for an `--all` sweep). Every OTHER ingest path —
+the MCP boot sweep (mt#2051), the cockpit transcript watcher, the cadence sweep
+(mt#2234), and any manual `transcripts ingest` — MUST omit the flag: before
+mt#3131, every ingest unconditionally stamped `endedAt` with the latest
+observed line timestamp, which made the field mean "last observed" while its
+name asserted "ended" (verified: 50/50 context-inspector rows carried non-null
+`endedAt`, including live conversations). A routine sweep passing `--ended`
+would reintroduce exactly that false-termination assertion. "Last observed"
+remains available separately as `lastIngestedJsonlTimestamp` (surfaced to the
+cockpit as `lastActivityAt`). A stale/duplicate SessionEnd delivery is safe:
+a non-`--ended` ingest never regresses an already-recorded `endedAt`.
 
 **Observability (the de-silenced boot sweep):** alongside the hook, the boot
 sweep's swallowed failures were surfaced — `startup-transcript-ingest.ts` now

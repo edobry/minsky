@@ -47,7 +47,7 @@ import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import { writeSpawnLink } from "./spawn-link-writer";
 import { findAgentToolCall, type AgentToolCallBlock } from "./agent-tool-call-shape";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -157,7 +157,7 @@ export class AgentSpawnsPipeline {
         .where(eq(agentTranscriptTurnsTable.isSpawnBoundary, true));
     } catch (err) {
       log.error("AgentSpawnsPipeline: failed to load spawn-boundary turns", {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       return result;
     }
@@ -256,7 +256,7 @@ export class AgentSpawnsPipeline {
         result.spawnsErrored++;
         log.warn(
           `AgentSpawnsPipeline: failed to process spawn for ${row.agentSessionId}[${row.turnIndex}]`,
-          { error: getErrorMessage(err) }
+          { error: getLoggableErrorSummary(err) }
         );
       }
     }
@@ -324,7 +324,7 @@ export class AgentSpawnsPipeline {
     } catch (err) {
       log.error(
         `AgentSpawnsPipeline: failed to load spawn-boundary turns for session ${agentSessionId}`,
-        { error: getErrorMessage(err) }
+        { error: getLoggableErrorSummary(err) }
       );
       return result;
     }
@@ -405,7 +405,7 @@ export class AgentSpawnsPipeline {
         result.spawnsErrored++;
         log.warn(
           `AgentSpawnsPipeline: failed to process spawn for ${agentSessionId}[${row.turnIndex}]`,
-          { error: getErrorMessage(err) }
+          { error: getLoggableErrorSummary(err) }
         );
       }
     }
@@ -445,7 +445,7 @@ export class AgentSpawnsPipeline {
         );
     } catch (err) {
       log.warn("AgentSpawnsPipeline: cwd-time heuristic query failed", {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       return null;
     }

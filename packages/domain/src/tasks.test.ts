@@ -1,20 +1,23 @@
 /**
  * Regression tests for packages/domain/src/tasks.ts's listTasksFromParams — mt#2762.
  *
- * IMPORTANT: this is a SEPARATE implementation from
- * packages/domain/src/tasks/commands/query-commands.ts's listTasksFromParams (covered by
- * packages/domain/src/tasks/taskCommands.test.ts). packages/domain/src/tasks/index.ts
- * re-exports listTasksFromParams from "../tasks" (this file), and that barrel is what
- * `@minsky/domain/tasks` resolves to — the import used by the actual CLI/MCP
- * `tasks.list` command (src/adapters/shared/commands/tasks/crud-commands.ts). So THIS
- * file's listTasksFromParams is the one that must forward `kind`, even though the
- * query-commands.ts copy also forwards it for its own (different) callers
- * (e.g. index-embeddings-command.ts).
+ * `tasks.ts`'s listTasksFromParams is a thin facade that delegates to
+ * packages/domain/src/tasks/commands/query-commands.ts's implementation (mt#2783
+ * consolidation — the two were independent, divergently-tested copies before
+ * that). packages/domain/src/tasks/index.ts re-exports listTasksFromParams from
+ * "../tasks" (this file), and that barrel is what `@minsky/domain/tasks`
+ * resolves to — the import used by the actual CLI/MCP `tasks.list` command
+ * (src/adapters/shared/commands/tasks/crud-commands.ts). These tests exercise
+ * the facade's delegation directly; see
+ * src/adapters/shared/commands/tasks/list-canonical-import-path.test.ts for a
+ * test that goes through the exact `@minsky/domain/tasks` specifier the
+ * production command uses, and packages/domain/src/tasks/taskCommands.test.ts
+ * for the underlying query-commands.ts implementation's own coverage.
  *
- * Discovered while implementing mt#2762: `--kind umbrella` had no effect via the CLI
- * despite query-commands.ts's listTasksFromParams correctly forwarding kind — because
- * the CLI command never reaches that function. See mt#2783 for the tracked follow-up
- * to reconcile the duplicate implementations.
+ * Discovered while implementing mt#2762: `--kind umbrella` had no effect via the
+ * CLI despite query-commands.ts's listTasksFromParams correctly forwarding kind
+ * — because the CLI command never reached that function before the mt#2783
+ * consolidation.
  */
 import { describe, test, expect, mock } from "bun:test";
 import { listTasksFromParams, createTaskFromTitleAndSpec } from "./tasks";

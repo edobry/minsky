@@ -2,6 +2,29 @@
 
 Stateless Node service. Railway is the documented default because webhooks are first-class and the AI-SaaS template matches the shape closely. Any Node-compatible host works — the service is stateless beyond its environment variables.
 
+## Production deploy path (mt#3117): CI-owned release-phase deploy
+
+**Current state, supersedes the "Production deploy (auto-deploy from main)" section below.** Production deploys of the reviewer no longer go through Railway's native repo-source build trigger. `.github/workflows/deploy-reviewer.yml` is now the **sole** path from a push on `main` to a deployed reviewer image:
+
+1. **Build** — `docker build` the image from `services/reviewer/Dockerfile` (same Dockerfile, unchanged build context).
+2. **Smoke** — boot the freshly-built image against a throwaway, job-scoped Postgres and probe `/health`. Discarded at job end; never touches prod.
+3. **Migrate** — run `services/reviewer/scripts/migrate.ts` (a standalone CI entrypoint around `applyMigrations()`) against production, connected as the DDL-capable `postgres` role sourced from the `MINSKY_PERSISTENCE_POSTGRES_URL` GitHub Actions secret. **This step is fatal**: a failing migration aborts the job before the image is pushed, so the previously-deployed reviewer keeps serving against the unchanged schema.
+4. **Push** — tag and push `ghcr.io/edobry/minsky-reviewer:latest` (+ a `:sha-<short>` tag) to GHCR.
+5. **Trigger Railway redeploy** — an explicit `serviceInstanceRedeploy` call, kept **non-fatal** (mirrors `deploy-minsky-mcp.yml`): Railway's image-source auto-redeploy-on-new-image-push is the actual trigger (same mechanism `minsky-mcp` already relies on, mt#2342) — the explicit call is belt-and-suspenders, not the deploy mechanism itself.
+
+**Migrations run in CI as `postgres`, not (only) at boot, going forward.** The reviewer's boot path still calls `applyMigrations()` unconditionally before the HTTP server starts (`server.ts`, `if (import.meta.main)`) — that is deliberately UNCHANGED by mt#3117; dual application is safe because `drizzle.__drizzle_migrations_reviewer` is an idempotent, high-water-mark ledger. Removing the boot-time call, and flipping the reviewer's runtime Postgres credential to the DML-only `minsky_app` role, is mt#3030's job — sequenced strictly after this workflow has survived a real migration-bearing deploy. Until mt#3030 lands, the reviewer's runtime credential is still the same one used before this task; the DDL-capable `postgres` credential used by the CI migrate step lives ONLY in the `MINSKY_PERSISTENCE_POSTGRES_URL` repo secret, never in the reviewer's Railway environment.
+
+**Deploy-target shape (config-as-code):** `services/reviewer/deploy.config.ts` and the `reviewerService` resource in `infra/index.ts` now declare `source.image: "ghcr.io/edobry/minsky-reviewer:latest"` (image-source), the same shape `minsky-mcp` already uses. `services/reviewer/railway.json` (the old repo-source `build.watchPatterns` config) is retired — Railway rejects `config_path` alongside `source_image` (the mt#2472 precedent for `minsky-mcp`).
+
+### Operator follow-up required after this PR merges
+
+Two live Railway mutations are **NOT** performed by the mt#3117 PR (config-as-code declarations only; no live dashboard/API mutation, no prod cutover — see the task spec's explicit out-of-scope list):
+
+1. **Flip the live service's Source setting** — Railway dashboard → `minsky-reviewer-webhook` service → Settings → Source → switch from "GitHub Repo" to "Docker Image", pointing at `ghcr.io/edobry/minsky-reviewer:latest`. Do this only after `deploy-reviewer.yml` has run at least once on `main` and produced a `:latest` image to point at. This is the same one-time flip `minsky-mcp` already has (see that service's own deploy history).
+2. **Reconcile via `pulumi up`** — once the live Source flip above is done, run `pulumi up` against `infra/index.ts` so the declared state (`sourceImage`, no `configPath`) matches. Note the existing live-state caveat (mt#1815/mt#2777, unresolved as of this task): the reviewer service's `configPath` has independently been observed drifted to null in production, so verify the live service state before and after this reconciliation rather than assuming the pre-mt#3117 declared state was actually applied.
+
+Until step 1 above happens, Railway's native repo-source auto-trigger may still be live on the dashboard side even though `services/reviewer/railway.json` no longer exists in the repo — the config-as-code change alone does not retroactively unregister a trigger that was set up via the dashboard/API historically (see "Configure the deployment trigger" below for how it was originally created). Confirm the trigger is actually gone (`service.repoTriggers` via GraphQL, or the dashboard's Source settings) as part of the Source flip.
+
 ## Prerequisites (one-time, user action)
 
 1. **Railway CLI** installed locally (`bash <(curl -fsSL cli.new)` or `brew install railway`).
@@ -179,7 +202,9 @@ curl https://<railway-domain>/health
 2. Observe Railway logs for a `review_result` event.
 3. Check the PR — `minsky-reviewer[bot]` should have posted a review.
 
-## Production deploy (auto-deploy from main)
+## Production deploy (auto-deploy from main) — SUPERSEDED (mt#3117)
+
+> **This section documents the RETIRED repo-source auto-deploy mechanism.** As of mt#3117, production deploys go through `.github/workflows/deploy-reviewer.yml` (see "Production deploy path (mt#3117)" above) — Railway's native repo-source build trigger described below is being disabled, and `services/reviewer/railway.json` (the `build.watchPatterns` config this section's trigger setup depends on) no longer exists in the repo. Kept for historical reference (how the trigger was originally provisioned, and as a rollback reference) and because the underlying Railway service may not have had its dashboard Source setting flipped yet — see "Operator follow-up required" above.
 
 > **Disclaimer:** behaviors documented below were observed during the 2026-04-22 initial deploy and the 2026-05-09 mt#1681 build-context flip on Railway CLI 4.40.2. The CLI and GraphQL API surface can change between versions, and Railway does not publish a formal schema guarantee. Verify against `railway --version` and Railway's current docs before relying on specifics — especially CLI subcommand/flag names and mutation input fields.
 

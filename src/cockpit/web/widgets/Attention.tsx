@@ -27,6 +27,7 @@ import { Link } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
+import { EntityRef } from "../components/EntityRef";
 
 // ---------------------------------------------------------------------------
 // Types — inline mirrors of server AttentionPayload / AttentionAsk.
@@ -64,7 +65,7 @@ interface ContextRef {
   description?: string;
 }
 
-interface AttentionAsk {
+export interface AttentionAsk {
   id: string;
   kind: AskKind;
   state: AskState;
@@ -216,50 +217,70 @@ function kindStyle(kind: AskKind): KindStyle {
 // No inline expansion, no response affordances (those live on AsksPage).
 // ---------------------------------------------------------------------------
 
-function DigestRow({ ask }: { ask: AttentionAsk }) {
+// The row is itself a navigation target (-> /asks). ask.parentTaskId is ALSO
+// a link (-> the task) via <EntityRef>, and an <a> nested inside an <a> is
+// invalid HTML with unpredictable click/focus behavior (mt#3187). Resolved by
+// hoisting the task ref OUT of the row's <Link> rather than making the whole
+// row a non-anchor click surface: a synthetic click-surface (div +
+// role="link" + onClick/onKeyDown) would need its own keyboard handling and
+// risks double-navigation if a click on the nested <EntityRef> anchor bubbles
+// to the row handler. Keeping <Link> as a REAL anchor, contiguous over
+// [priority badge, title, kind, deadline, age], preserves the existing
+// full-row click/keyboard-focus affordance for everything except the task-ref
+// chip, which becomes its own focusable stop pointing at the task.
+export function DigestRow({ ask }: { ask: AttentionAsk }) {
   const ks = kindStyle(ask.kind);
   const deadlineStr = formatDeadlineRemaining(ask.deadline);
   const ageStr = formatRelative(ask.createdAt);
   const isOverdue = deadlineStr === "overdue";
 
   return (
-    <Link
-      to="/asks"
-      className="flex items-center gap-2 rounded border border-border bg-card/50 px-2.5 py-1.5 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
-    >
-      {/* Priority badge */}
-      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${ks.badge}`}>
-        {ks.priority}
-      </span>
-
-      {/* Title + kind */}
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium text-foreground truncate">{ask.title}</p>
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-xs text-muted-foreground truncate min-w-0">{ask.kind}</span>
-          {ask.parentTaskId && (
-            <span
-              className="text-xs font-mono text-muted-foreground truncate max-w-[10rem]"
-              title={ask.parentTaskId}
-            >
-              {ask.parentTaskId}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Deadline badge */}
-      {deadlineStr && (
+    <div className="flex items-center gap-2 rounded border border-border bg-card/50 px-2.5 py-1.5 hover:bg-muted/30 transition-colors">
+      <Link
+        to="/asks"
+        className="flex flex-1 min-w-0 items-center gap-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {/* Priority badge */}
         <span
-          className={`text-xs flex-shrink-0 tabular-nums ${isOverdue ? "text-destructive font-medium" : "text-muted-foreground"}`}
+          className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${ks.badge}`}
         >
-          {deadlineStr}
+          {ks.priority}
         </span>
-      )}
 
-      {/* Age */}
-      <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">{ageStr}</span>
-    </Link>
+        {/* Title + kind */}
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-foreground truncate">{ask.title}</p>
+          <span className="block text-xs text-muted-foreground truncate min-w-0">{ask.kind}</span>
+        </div>
+
+        {/* Deadline badge */}
+        {deadlineStr && (
+          <span
+            className={`text-xs flex-shrink-0 tabular-nums ${isOverdue ? "text-destructive font-medium" : "text-muted-foreground"}`}
+          >
+            {deadlineStr}
+          </span>
+        )}
+
+        {/* Age */}
+        <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">{ageStr}</span>
+      </Link>
+
+      {/* Task ref — hoisted out of the /asks Link above (see comment on this
+          function). Children mode with no appendLabel keeps this dense
+          digest row's line height unchanged (same discipline as
+          ActivityPage's mt#3175 conversion); hover still surfaces the
+          task's title + status per mt#3165's "hover is supplementary" rule. */}
+      {ask.parentTaskId && (
+        <EntityRef
+          type="task"
+          id={ask.parentTaskId}
+          className="text-xs truncate max-w-[8rem] flex-shrink-0"
+        >
+          {ask.parentTaskId}
+        </EntityRef>
+      )}
+    </div>
   );
 }
 

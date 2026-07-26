@@ -206,6 +206,10 @@ export const sessionUpdateParamsSchema = z
     ),
     dryRun: flagSchema("Check for conflicts without performing actual update"),
     skipIfAlreadyMerged: flagSchema("Skip update if session changes are already in base branch"),
+    // mt#3205: override the push-phase wall-clock bound (see
+    // pushWithConfirmation/DEFAULT_PUSH_CONFIRM_TIMEOUT_MS in
+    // push-operations.ts). Mirrors session.commit's pushTimeoutMs.
+    pushTimeoutMs: z.number().int().positive().optional(),
   })
   .extend(commonCommandOptionsSchema.shape)
   .refine((data) => data.sessionId !== undefined || data.task !== undefined, {

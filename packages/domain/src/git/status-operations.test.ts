@@ -1,4 +1,10 @@
-import { describe, test, expect } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- the integration block below drives REAL git against a real temp repo; that is the contract under test */
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { exec } from "child_process";
+import { promisify } from "util";
 import { statusImpl, type StatusDependencies } from "./status-operations";
 
 const WORKDIR = "/tmp/work";
@@ -32,6 +38,7 @@ describe("statusImpl", () => {
     const result = await statusImpl({ repoPath: WORKDIR }, makeDeps(output));
     expect(result.workdir).toBe(WORKDIR);
     expect(result.branch).toBe("main");
+    expect(result.upstream).toBe("origin/main");
     expect(result.ahead).toBe(0);
     expect(result.behind).toBe(0);
     expect(result.staged).toHaveLength(0);
@@ -50,8 +57,54 @@ describe("statusImpl", () => {
     ].join(NUL);
     const result = await statusImpl({ repoPath: WORKDIR }, makeDeps(output));
     expect(result.branch).toBe("feature/x");
+    expect(result.upstream).toBe("origin/feature/x");
     expect(result.ahead).toBe(3);
     expect(result.behind).toBe(2);
+  });
+
+  describe("a branch with no upstream is distinguishable from one in sync (mt#3164)", () => {
+    // Git emits `# branch.ab` ONLY when an upstream exists. Before this, both
+    // values defaulted to 0, so a never-pushed branch and a fully-synced one
+    // returned byte-identical status — the ambiguity that forced a second tool
+    // call (`git status -sb`) to tell them apart, and that let three branches
+    // sit committed-but-unpushed overnight without it being visible.
+    const NO_UPSTREAM = [BRANCH_OID, "# branch.head task/mt-3164", ""].join(NUL);
+
+    test("reports no upstream, and ahead/behind as null rather than 0", async () => {
+      const result = await statusImpl({ repoPath: WORKDIR }, makeDeps(NO_UPSTREAM));
+      expect(result.branch).toBe("task/mt-3164");
+      expect(result.upstream).toBeNull();
+      expect(result.ahead).toBeNull();
+      expect(result.behind).toBeNull();
+    });
+
+    test("does NOT report 0 — the value that made it look in-sync", async () => {
+      // The regression assertion. `toBeNull` above would still hold if someone
+      // reintroduced a 0 default elsewhere and this parse path changed; this
+      // pins the specific wrong value.
+      const result = await statusImpl({ repoPath: WORKDIR }, makeDeps(NO_UPSTREAM));
+      expect(result.ahead).not.toBe(0);
+      expect(result.behind).not.toBe(0);
+    });
+
+    test("the in-sync case is materially different from the no-upstream case", async () => {
+      // The two states this task exists to separate, asserted side by side so a
+      // future change cannot quietly re-merge them.
+      const inSync = [
+        BRANCH_OID,
+        BRANCH_HEAD_MAIN,
+        "# branch.upstream origin/main",
+        BRANCH_AB_ZERO,
+        "",
+      ].join(NUL);
+
+      const synced = await statusImpl({ repoPath: WORKDIR }, makeDeps(inSync));
+      const unpushed = await statusImpl({ repoPath: WORKDIR }, makeDeps(NO_UPSTREAM));
+
+      expect(synced.upstream).not.toBeNull();
+      expect(unpushed.upstream).toBeNull();
+      expect(synced.ahead).not.toBe(unpushed.ahead);
+    });
   });
 
   test("parses ordinary changed entry with staged file", async () => {
@@ -146,5 +199,89 @@ describe("statusImpl", () => {
     const result = await statusImpl({ repoPath: WORKDIR }, makeDeps(output));
     expect(result.staged).toEqual(["docs/new name.md"]);
     expect(result.untracked).toHaveLength(0);
+  });
+});
+
+/**
+ * mt#3164 Acceptance Test 4 — against REAL git, not a hand-written fixture.
+ *
+ * The tests above feed the parser porcelain-v2 strings I wrote by hand, which
+ * proves the parser handles that text but NOT that real git actually omits
+ * `# branch.ab` for an upstream-less branch. That premise is the whole basis of
+ * the fix, so it is verified here against a real repository rather than assumed
+ * (PR #2314 R1 correctly flagged its absence).
+ *
+ * Both states are exercised in one flow — the same branch before and after
+ * gaining an upstream — so the difference is attributable to the upstream and
+ * nothing else.
+ */
+describe("statusImpl against real git (mt#3164 AT4)", () => {
+  const realDeps: StatusDependencies = {
+    execAsync: promisify(exec) as StatusDependencies["execAsync"],
+  };
+
+  let repo: string;
+  let origin: string;
+
+  function git(args: string[], cwd: string): void {
+    const proc = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    if (proc.exitCode !== 0) {
+      // Loud, named failure — a silently-skipped setup would leave the
+      // assertions below passing against a repo that is not what they describe.
+      throw new Error(`git ${args.join(" ")} failed: ${proc.stderr.toString().trim()}`);
+    }
+  }
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), "status-ops-repo-"));
+    origin = mkdtempSync(join(tmpdir(), "status-ops-origin-"));
+
+    git(["init", "-q", "--initial-branch=main", "."], repo);
+    git(["config", "user.email", "test@example.com"], repo);
+    git(["config", "user.name", "Test"], repo);
+    writeFileSync(join(repo, "a.txt"), "hi\n");
+    git(["add", "a.txt"], repo);
+    git(["commit", "-qm", "init"], repo);
+
+    git(["init", "-q", "--bare", "."], origin);
+  });
+
+  afterAll(() => {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(origin, { recursive: true, force: true });
+  });
+
+  test("a real committed-but-never-pushed branch reports no upstream, not 0/0", async () => {
+    const result = await statusImpl({ repoPath: repo }, realDeps);
+    expect(result.branch).toBe("main");
+    expect(result.upstream).toBeNull();
+    expect(result.ahead).toBeNull();
+    expect(result.behind).toBeNull();
+    // The pre-fix value, pinned: this is what made it read as in-sync.
+    expect(result.ahead).not.toBe(0);
+  });
+
+  test("the SAME branch reports 0/0 once it actually has an upstream", async () => {
+    // Same repo, same commit, same clean tree — the only thing that changes is
+    // that an upstream now exists. So `0/0` here vs `null/null` above isolates
+    // the distinction the fix introduces.
+    git(["remote", "add", "origin", origin], repo);
+    git(["push", "-q", "-u", "origin", "main"], repo);
+
+    const result = await statusImpl({ repoPath: repo }, realDeps);
+    expect(result.upstream).toBe("origin/main");
+    expect(result.ahead).toBe(0);
+    expect(result.behind).toBe(0);
+  });
+
+  test("a real ahead-by-one branch reports ahead 1", async () => {
+    writeFileSync(join(repo, "b.txt"), "second\n");
+    git(["add", "b.txt"], repo);
+    git(["commit", "-qm", "second"], repo);
+
+    const result = await statusImpl({ repoPath: repo }, realDeps);
+    expect(result.upstream).toBe("origin/main");
+    expect(result.ahead).toBe(1);
+    expect(result.behind).toBe(0);
   });
 });

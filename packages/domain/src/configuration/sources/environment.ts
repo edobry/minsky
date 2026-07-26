@@ -114,6 +114,17 @@ export const environmentMappings = {
   // an explicit entry documents intent and is robust to future renames.
   MINSKY_MCP_AUTH_TOKEN: "mcp.auth.token",
 
+  // Principal Telegram channel (mt#3228, made launch-independent by mt#3230).
+  // Explicit entries because the dot-path auto-conversion would produce
+  // `principal.channel.*` — a top-level `principal` key the strict schema
+  // rejects, crashing the loader at boot for anyone with these set. The
+  // environment source is merged LAST, so these still override the config file
+  // for deployed services that set them.
+  MINSKY_PRINCIPAL_CHANNEL_ENABLED: "principalChannel.enabled",
+  MINSKY_PRINCIPAL_CHANNEL_CWD: "principalChannel.cwd",
+  MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE: "principalChannel.permissionMode",
+  MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS: "principalChannel.allowedUserIds",
+
   // OAuth configuration
   MINSKY_OAUTH_SIGNING_KEY: "oauth.signingKey",
 
@@ -156,6 +167,15 @@ export const environmentMappings = {
 // so the export is a parallel signal — the const stays here regardless.
 
 export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
+  // mt#3101 — NOT hook-read: this one is read by domain code
+  // (`provenance/authorship-judging-flag.ts`). It belongs in this set for the
+  // set's actual reason rather than its historical name — it is a `MINSKY_*`
+  // var with no config-schema home, so without an entry the auto-mapping
+  // fallback would route it to `authorship.tierJudging` and mt#1612
+  // strict-mode validation would reject it, crashing the CLI whenever it is
+  // set. Default-off switch for merge-time AI authorship-tier judging
+  // (ask#5581).
+  "MINSKY_AUTHORSHIP_TIER_JUDGING",
   "MINSKY_FORCE_PARALLEL", // .claude/hooks/parallel-work-guard.ts
   "MINSKY_FORCE_DUPLICATE_OK", // .claude/hooks/parallel-work-guard.ts (mt#1435 — tasks_create dup guard)
   "MINSKY_ALLOW_NESTED_FORK", // .claude/hooks/block-nested-fork-dispatch.ts (mt#3045) — launch-time-only override for an undeclared nested fork dispatch
@@ -190,6 +210,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_VERBOSE", // src/adapters/cli/utils/error-handler.ts (debug flag)
   "MINSKY_SHOW_SQL", // (debug flag — promote to logger.* if it grows)
   "MINSKY_STATE_DIR", // src/mcp/disconnect-tracker.ts (process-local path override)
+  "MINSKY_COCKPIT_URL", // .claude/hooks/record-conversation-run-state.ts (mt#3161) — cockpit daemon origin override for the run-state writer
   "MINSKY_DEPLOY_MEMORY_FILE", // (deployment-time bootstrap; not config)
   "MINSKY_MAIN_WORKSPACE", // (test-fixture constant)
   "MINSKY_SESSIONDB_POSTGRES_URL", // legacy detection (post-mt#1610 retire)
@@ -199,6 +220,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS", // src/mcp (server config — promote to mcp.sessionIdleTimeoutMs)
   "MINSKY_MCP_TOOL_NAMES", // src/mcp/server.ts (naming convention flag)
   "MINSKY_MCP_ALLOW_UNKNOWN_PARAMS", // src/mcp/command-mapper.ts (mt#2778 — escape hatch: downgrade undeclared-param rejection to a warn log; promote to mcp.allowUnknownParams if it grows)
+  "MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES", // src/adapters/mcp/shared-command-integration.ts (mt#3155 — escape hatch: downgrade wrong-typed provided-value rejection to a warn log; promote to mcp.allowInvalidParamValues if it grows)
   "MINSKY_MCP_MEMORY_ENRICHMENT", // src/mcp (feature flag)
   "MINSKY_MCP_MEMORY_ENRICHMENT_TIMEOUT_MS", // src/mcp (feature config)
   "MINSKY_MCP_INSTRUCTIONS_BUNDLE", // src/mcp/middleware/memory-bundle.ts (mt#1625 spike — opt-in flag)
@@ -302,11 +324,16 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_SILENT_STRETCH", // .claude/hooks/silent-stretch-detector.ts (mt#2824) — override for the silent tool-only-stretch heartbeat detector
   "MINSKY_SKIP_WALL_OF_TEXT", // .claude/hooks/wall-of-text-detector.ts (mt#2870) — override for the turn-report wall-of-text shape detector
   "MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER", // .claude/hooks/substrate-bypass-detector.ts (mt#2303) — skip the log-only operator-instruction-as-feature-delivery calibration surface
+  "MINSKY_SKIP_OPERATOR_DEFERRAL", // .claude/hooks/operator-deferral-detector.ts (mt#2459) — skip BOTH log-only operator-deferral surfaces (capability-deferral prose + AskUserQuestion option labels)
   "MINSKY_SKIP_SIZE_JUSTIFICATION", // .claude/hooks/require-growth-justification-before-merge.ts (mt#2874) — override for the growth-justification merge gate (rules-touching PR that grows CLAUDE.md beyond the threshold without a Size-budget justification: marker)
   "MINSKY_ACK_BUILD_CLAIM_INJECTION", // .claude/hooks/build-claim-injection-detector.ts (mt#2923) — override for the build/deploy-claim-seam warning injection
   "MINSKY_SKIP_USABILITY_CLAIM_CHECK", // .claude/hooks/require-deploy-verification-before-merge.ts (mt#2545 Gap A) — override for the build-surface altitude-4 usability-claim merge gate
   "MINSKY_SKIP_AT_COVERAGE", // .claude/hooks/require-execution-evidence-before-merge.ts (mt#3033) — override for the calibration-first acceptance-test cross-reference check (log-only; skips both detection and calibration-log write)
   "MINSKY_ACK_DESTRUCTIVE", // packages/domain/src/safety/destructive-override.ts (mt#3021) — non-interactive escape hatch for the shared destructive-action override contract (mass-deletion sanity gate, session-delete/cleanup git-state guard); value IS the required reason string, so it can't degrade into a bare-boolean override.
+  "MINSKY_ACK_KNOWLEDGE_ACQUISITION", // .claude/hooks/knowledge-acquisition-detector.ts (mt#2708) — override for the knowledge-acquisition (research-relevant-to-loaded-skill, no propagation) calibration surface
+  "MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH", // .claude/hooks/constructed-identifier-batch-detector.ts (mt#3125) — override for the batched id-minting + id-consuming tool-call detector
+  "MINSKY_ACK_UNTAKEN_ACTION", // .claude/hooks/turn-end-untaken-action-scan.ts (mt#3179) — override for the turn-end announced-but-untaken-action Stop guard
+  "MINSKY_ACK_BARE_PROHIBITION", // .claude/hooks/warn-bare-prohibition-dispatch.ts (mt#3162) — override for the bare-prohibition dispatch-prompt detector
 ]);
 
 /**
@@ -326,6 +353,18 @@ const typeConverters = {
       return value; // Fall back to string if JSON parsing fails
     }
   },
+  /**
+   * Comma-separated list (mt#3230). For array fields whose natural env form is
+   * `a,b,c` rather than a JSON array — an operator setting an allowlist in a
+   * shell should not have to write `["1","2"]` and get the quoting right.
+   * Empty and whitespace-only entries are dropped, so a trailing comma or a
+   * blank value yields `[]` rather than `[""]`.
+   */
+  csv: (value: string): string[] =>
+    value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0),
 } as const;
 
 /**
@@ -359,6 +398,10 @@ const fieldTypes: Record<string, keyof typeof typeConverters> = {
   "ai.providers.google.enabled": "boolean",
   "ai.providers.cohere.enabled": "boolean",
   "ai.providers.mistral.enabled": "boolean",
+  "principalChannel.enabled": "boolean",
+
+  // Comma-separated lists (mt#3230)
+  "principalChannel.allowedUserIds": "csv",
 
   // JSON (arrays and objects)
   "ai.providers.openai.models": "json",

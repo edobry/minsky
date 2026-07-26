@@ -25,7 +25,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import { extractTurns } from "./turn-extractor";
 import type { AgentSessionId, RawTurnLine } from "./transcript-source";
@@ -96,7 +96,7 @@ export class SummaryPipeline {
         .from(agentTranscriptsTable);
     } catch (err) {
       log.error("SummaryPipeline: failed to load transcripts", {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       return result;
     }
@@ -122,7 +122,7 @@ export class SummaryPipeline {
       } catch (err) {
         result.transcriptsErrored++;
         log.warn(`SummaryPipeline: failed to process transcript ${agentSessionId}`, {
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
       }
     }
@@ -236,7 +236,7 @@ export class SummaryPipeline {
       result.embeddingCallsMade++;
     } catch (err) {
       log.warn(`SummaryPipeline: embedding failed for ${agentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
       // Still write the summary text even if embedding fails.
     }

@@ -246,6 +246,16 @@
               "flags": ["--remote"],
               "description": "Git remote name",
               "takesValue": true
+            },
+            {
+              "flags": ["--push-timeout-ms"],
+              "description": "Override the push wall-clock bound in milliseconds. Defaults to 2 minutes. On timeout, the remote branch head is verified directly before reporting an outcome.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--verify-timeout-ms"],
+              "description": "Override the remote-ref verification wall-clock bound in milliseconds (only used when the push itself times out). Defaults to 15 seconds.",
+              "takesValue": true
             }
           ]
         },
@@ -2257,7 +2267,12 @@
             },
             {
               "flags": ["--scope"],
-              "description": "Comma-separated file paths to constrain the subagent to",
+              "description": "Comma-separated FILE PATHS to constrain the subagent to. Paths only — this value is comma-split, each chunk is rendered as a bullet under 'Only modify the following files:', and the parallel-work guard re-reads it directly to detect PR collisions. A chunk is path-shaped when it has NO internal whitespace AND either contains a '/' or ends in a file extension; anything else (a prose fragment, or a bare word like 'tests') is REJECTED with an error naming it, rather than rendered as a fabricated path (mt#1279). Put prose scope descriptions in `scopeNotes` instead.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--scope-notes"],
+              "description": "Free-prose description of what this dispatch covers (mt#1279). Renders as its own '## Scope Notes' section in the generated prompt, kept separate from the `scope` file list so prose can never be mistaken for a path. Use this for qualifications like 'plus tests' or 'do NOT convert the render sites'.",
               "takesValue": true
             },
             {
@@ -2295,7 +2310,7 @@
         },
         {
           "name": "dispatch-recover",
-          "description": "Server-side detect/classify/prepare for a died/stalled subagent dispatch (mt#2831): captures session state, classifies the outcome, and returns a ready-to-dispatch continuation prompt. Does NOT dispatch anything — the caller must redispatch the returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched (returns status: \"healthy\") — as of mt#3086 this check ALSO consults recent presence-claim (session-scoped MCP tool-call) activity, not just commits, so a dispatch that is quietly working (reading code, running tests, no commit yet) is no longer misclassified as dead; see the activitySource field on a healthy result (\"commit\" | \"presence\" | \"dispatch-start\") for which signal decided it. Refuses a 3rd attempt for the same dispatch chain (returns status: \"escalate\"). If the dispatch tracker itself is unavailable, degrades to actionable manual-recovery guidance instead of a bare error (returns status: \"tracker-unavailable\"). DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive or a hasty manual override) puts TWO agents in the SAME Minsky session workspace at once. Observed symptoms from the originating incident: uncommitted work appearing that the new attempt didn't write, a merge conflict resolving and committing out from under the new attempt between two of its own status checks, a `git push` rejected as \"remote already at a newer commit,\" and a PR already existing with the same diagnosis the new attempt was about to produce. Both attempts CAN converge on a correct end state (idempotent work + luck), but this is not guaranteed — treat any of these symptoms as a signal to stop and check whether another attempt is genuinely still running before continuing.",
+          "description": "Server-side detect/classify/prepare for a died/stalled subagent dispatch (mt#2831): captures session state, classifies the outcome, and returns a ready-to-dispatch continuation prompt. Does NOT dispatch anything — the caller must redispatch the returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched (returns status: \"healthy\") — as of mt#3086 this check ALSO consults recent presence-claim (session-scoped MCP tool-call) activity, not just commits, so a dispatch that is quietly working (reading code, running tests, no commit yet) is no longer misclassified as dead; see the activitySource field on a healthy result (\"commit\" | \"presence\" | \"dispatch-start\") for which signal decided it. Refuses a 3rd attempt for the same dispatch chain (returns status: \"escalate\"). If the dispatch tracker itself is unavailable, degrades to actionable manual-recovery guidance instead of a bare error (returns status: \"tracker-unavailable\"). An \"escalate\" result is NOT a finding that the dispatch is dead — it only means the 2-attempt auto-resume bound is reached. Its `escalation.probe` carries the live workspace state (dirtyFileCount, gitStatus, commitsAheadOfBase, handoff, PR) plus `workspaceMtimeAgoMs`; those are the signals that distinguish a dispatch editing uncommitted files from a dead one, whereas push/PR/review activity cannot (mt#3204). DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive or a hasty manual override) puts TWO agents in the SAME Minsky session workspace at once. Observed symptoms from the originating incident: uncommitted work appearing that the new attempt didn't write, a merge conflict resolving and committing out from under the new attempt between two of its own status checks, a `git push` rejected as \"remote already at a newer commit,\" and a PR already existing with the same diagnosis the new attempt was about to produce. Both attempts CAN converge on a correct end state (idempotent work + luck), but this is not guaranteed — treat any of these symptoms as a signal to stop and check whether another attempt is genuinely still running before continuing.",
           "arguments": [
             {
               "name": "taskId",
@@ -2963,7 +2978,7 @@
             },
             {
               "flags": ["--push-timeout-ms"],
-              "description": "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes.",
+              "description": "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes. On timeout (mt#3177), the remote branch head is verified directly via `git ls-remote` before reporting an outcome — see the `pushConfirmedVia`/`pushUnconfirmed` result fields.",
               "takesValue": true
             },
             {
@@ -3966,7 +3981,12 @@
             },
             {
               "flags": ["--scope"],
-              "description": "Comma-separated list of file paths to constrain to",
+              "description": "Comma-separated list of FILE PATHS to constrain the subagent to. Paths only — this value is comma-split, each chunk is rendered as a bullet under 'Only modify the following files:', and the parallel-work guard re-reads it to detect PR collisions. A chunk is path-shaped when it has NO internal whitespace AND either contains a '/' or ends in a file extension; anything else (a prose fragment, or a bare word like 'tests') is REJECTED with an error naming it, rather than rendered as a fabricated path (mt#1279). Put prose scope descriptions in `scopeNotes` instead.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--scope-notes"],
+              "description": "Free-prose description of what this dispatch covers (mt#1279). Renders as its own '## Scope Notes' section in the generated prompt, kept separate from the `scope` file list so prose can never be mistaken for a path. Use this for qualifications like 'plus tests' or 'do NOT convert the render sites'.",
               "takesValue": true
             },
             {
@@ -4835,11 +4855,11 @@
             },
             {
               "flags": ["--execute"],
-              "description": "Actually perform the migration (default is preview mode)"
+              "description": "Actually perform the migration (default is preview mode). Ignored when --dry-run is also set — --dry-run always wins."
             },
             {
               "flags": ["-n", "--dry-run"],
-              "description": "Simulate migration without making changes"
+              "description": "Force preview mode; takes precedence over --execute, so `--dry-run --execute` previews rather than applies"
             },
             {
               "flags": ["--debug"],
@@ -6370,7 +6390,7 @@
       "subcommands": [
         {
           "name": "ingest",
-          "description": "Ingest agent conversation transcripts into the agent_transcripts table. Pass --all to sweep every discoverable conversation, or --conversationId=<uuid> to target one (the legacy --session alias is also accepted). Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged.",
+          "description": "Ingest agent conversation transcripts into the agent_transcripts table. Pass --all to sweep every discoverable conversation, or --conversationId=<uuid> to target one (the legacy --session alias is also accepted). Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged. --ended (single-session mode, SessionEnd hook ONLY) marks the ingest as carrying positive termination evidence so endedAt is recorded; routine sweeps must omit it.",
           "options": [
             {
               "flags": ["--all"],
@@ -6390,6 +6410,10 @@
               "flags": ["--harness"],
               "description": "Source harness label (default: claude_code)",
               "takesValue": true
+            },
+            {
+              "flags": ["--ended"],
+              "description": "mt#3131 (D2): mark this ingest as carrying positive evidence the session has terminated (the harness's own SessionEnd event) — ONLY the SessionEnd hook should pass this. A routine sweep/poll must omit it, or `endedAt` will falsely assert termination for a still-running conversation. Single-session mode only."
             }
           ]
         },
@@ -6817,7 +6841,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -6825,6 +6849,8 @@
                 "pr.review_posted",
                 "subagent.failed",
                 "embeddings.provider_degraded",
+                "principal.message_rejected",
+                "principal.message_failed",
                 "task.status_changed",
                 "pr.merged",
                 "subagent.completed",
@@ -6843,7 +6869,9 @@
                 "authorization.policy_covered",
                 "task.bulk_edit.dry_run",
                 "task.bulk_edit.executed",
-                "guard.overridden"
+                "guard.overridden",
+                "principal.message_received",
+                "principal.poll_advanced"
               ]
             },
             {
@@ -6903,7 +6931,7 @@
             {
               "name": "eventType",
               "required": true,
-              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden)"
+              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced)"
             }
           ]
         }
@@ -6932,6 +6960,34 @@
               "name": "refs",
               "required": true,
               "description": "Entity refs to resolve (array, or comma-separated string): task ids (mt#123), PR numbers (123 / #123 / PR #123), ask uuids"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "principal",
+      "description": "PRINCIPAL commands",
+      "subcommands": [
+        {
+          "name": "notify",
+          "description": "Send the principal a message on their configured channel (Telegram). For notifications only — anything needing an answer belongs in asks.create.",
+          "options": [
+            {
+              "flags": ["--title"],
+              "description": "Optional leading line rendered above the body (e.g. a task id).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "message",
+              "required": true,
+              "description": "Message body to deliver to the principal. Plain text."
             }
           ]
         }
@@ -7386,15 +7442,15 @@
             },
             {
               "flags": ["--update"],
-              "description": "Update an existing App's events/permissions via PATCH /app"
+              "description": "Show drift between an existing App's live and requested events/permissions, with a link to the settings page to fix it (GitHub has no API to apply this)"
             },
             {
               "flags": ["--execute"],
-              "description": "Apply changes (without this flag, --update shows a dry-run preview)"
+              "description": "No effect with --update (there is no API to apply an events/permissions change); accepted for backward compatibility"
             },
             {
               "flags": ["--permissions"],
-              "description": "Comma-separated k:v permissions (default: pull_requests:write,contents:read,metadata:read)",
+              "description": "Comma-separated k:v permissions (default: pull_requests:write,contents:write,metadata:read — contents:write is required for session_commit's App-token push, mt#1477/mt#3210)",
               "takesValue": true
             },
             {

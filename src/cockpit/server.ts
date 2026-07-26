@@ -27,6 +27,9 @@
  *                               child, local daemon only, mt#2750)
  *   POST /api/driven-session/:id/stop — graceful stop of a driven session
  *   GET /api/driven-session   — list app-started driven sessions
+ *   ANY  /api/*                — 404 JSON for any unmatched /api route (mt#3111;
+ *                               registered after every route module above, so it
+ *                               only fires when nothing else matched — never the SPA)
  *   GET /assets/*             — static files from web/dist/assets
  *   GET /                     — serves web/dist/index.html
  *
@@ -71,10 +74,14 @@ import { mountActivityRoutes } from "./routes/activity";
 import { mountAskRoutes } from "./routes/asks";
 import { mountCredentialRoutes } from "./routes/credentials";
 import { mountContextInspectorRoutes } from "./routes/context-inspector";
+import { mountSessionFilmRoutes } from "./routes/session-film";
 import { mountEmbeddingsRoutes } from "./routes/embeddings";
 import { mountSweepRoutes } from "./routes/sweeps";
 import { mountFollowUpRoutes } from "./routes/follow-ups";
 import { mountDrivenSessionRoutes } from "./routes/driven-sessions";
+import { mountConversationRunStateRoutes } from "./routes/conversation-run-state";
+import { mountConversationPresenceRoutes } from "./routes/conversation-presence";
+import type { ConversationPresenceRoutesOptions } from "./routes/conversation-presence";
 import type { DrivenSessionRoutesOptions } from "./routes/driven-sessions";
 import {
   buildAllowedHosts,
@@ -188,6 +195,15 @@ export interface CockpitServerOptions {
    * ./routes/conversation-search.ts.
    */
   overrideConversationSearch?: ConversationSearchRouteOptions;
+  /**
+   * Test-only injection seam for the conversation-presence endpoint (mt#3201)
+   * — overrides the run-state / open-ask / workspace-id readers so tests
+   * exercise the real HTTP contract against plain injected values rather than
+   * mocking drizzle's query builder or depending on whatever connection
+   * happens to exist in-process (the mt#3016 lesson). Never set in
+   * production. See ./routes/conversation-presence.ts.
+   */
+  overrideConversationPresence?: ConversationPresenceRoutesOptions;
 }
 
 /**
@@ -312,6 +328,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountAskRoutes(app, { askRepoOverride });
   mountCredentialRoutes(app, { credModuleOverride });
   mountContextInspectorRoutes(app);
+  mountSessionFilmRoutes(app); // mt#3184 — GET /api/cockpit/session-film/{events,sessions}
+  mountConversationRunStateRoutes(app);
+  mountConversationPresenceRoutes(app, opts.overrideConversationPresence ?? {});
   mountEmbeddingsRoutes(app);
   mountSweepRoutes(app); // mt#2894 — GET /api/sweeps (per-sweep liveness registry)
   mountFollowUpRoutes(app); // mt#2322 — GET/POST /api/follow-ups (scheduled-follow-up primitive)
@@ -323,6 +342,22 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   if (!opts.isPublicDeployment) {
     mountDrivenSessionRoutes(app, opts.overrideDrivenSession ?? {});
   }
+
+  /**
+   * A GET (or any other method) to an unmatched /api/* path must 404 as JSON
+   * — NOT fall through to the SPA. Mirrors the /assets guard below (mt#2674):
+   * without this, a mistyped or renamed API path returns index.html
+   * (text/html, HTTP 200), which reads to a client doing `await res.json()`
+   * as a transport/serialization bug instead of a routing bug (mt#3111).
+   * Registered unconditionally (not inside the `!opts.dev` block below) so it
+   * also covers dev mode: `--dev` attaches Vite's own SPA-fallback middleware
+   * OUTSIDE this factory (see start-command.ts), after every route this
+   * function registers — so this guard must run here, before that, to
+   * intercept an unmatched /api/* request in both modes.
+   */
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ error: "API route not found" });
+  });
 
   // --- Static SPA assets ---
 
@@ -348,6 +383,32 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
      */
     app.use("/assets", (_req, res) => {
       res.status(404).json({ error: "Asset not found" });
+    });
+
+    /**
+     * GET /fonts/* — served from web/dist/fonts.
+     *
+     * The self-hosted design-system webfonts (mt#3111) are vendored under
+     * web/public/fonts/, and Vite copies its publicDir to the ROOT of outDir
+     * — so they build to web/dist/fonts/, NOT under web/dist/assets/. Without
+     * this mount the SPA fallback below would answer
+     * /fonts/geist-latin.woff2 with index.html at HTTP 200, the browser would
+     * reject the text/html body as a font, and every page would silently fall
+     * back to system fonts — exactly the defect this task set out to fix, and
+     * the same failure shape mt#2674 fixed for content-hashed chunks.
+     */
+    if (fs.existsSync(path.join(webDistDir, "fonts"))) {
+      app.use("/fonts", express.static(path.join(webDistDir, "fonts")));
+    }
+
+    /**
+     * A missing /fonts file must 404 — NOT fall through to the SPA fallback,
+     * for the MIME-type reason above. Registered unconditionally so the 404
+     * holds even when the fonts dir itself is absent (an unbuilt or partial
+     * bundle), rather than degrading to a 200 text/html.
+     */
+    app.use("/fonts", (_req, res) => {
+      res.status(404).json({ error: "Font not found" });
     });
 
     /**

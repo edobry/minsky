@@ -29,7 +29,8 @@ import type { PluggableList } from "unified";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { rehypeEntityLinks, type EntityIndex } from "../lib/entity-linkifier";
-import { minskyUriToPath } from "../lib/entity-codec";
+import { minskyUriToPath, type RoutableEntityType } from "../lib/entity-codec";
+import { EntityRef } from "./EntityRef";
 
 /**
  * URL transform that admits the `minsky://` deeplink scheme (mt#2797).
@@ -51,7 +52,18 @@ function urlTransformWithMinsky(value: string): string {
 // `prose` defaults are tuned for article spacing and clash with mission-control
 // density — so we hand-roll a tight set of element styles instead).
 const COMPONENTS: Components = {
-  a: ({ href, children, className }) => {
+  a: (props) => {
+    const { href, children, className } = props;
+    // Entity identity carried by rehypeEntityLinks' makeAnchor (mt#3174) —
+    // only ever present on anchors produced from bare mt#NNNN/UUID refs
+    // resolved against the entity index, never on markdown-authored links.
+    // Read from the raw properties bag (react-markdown's `Components["a"]`
+    // prop type has no `data-entity-*` entries — these are additive hast
+    // properties, not a typed prop) so no href re-parsing is needed.
+    const extra = props as Record<string, unknown>;
+    const entityType = extra["data-entity-type"] as RoutableEntityType | undefined;
+    const entityId = extra["data-entity-id"] as string | undefined;
+
     // Defensive: an anchor with no destination (shouldn't occur for
     // react-markdown-generated links) renders as plain inline text, not a
     // dangling <a href={undefined}>.
@@ -73,6 +85,27 @@ const COMPONENTS: Components = {
         >
           {children}
         </Link>
+      );
+    }
+    // Entity links carrying resolved (type, id) identity (mt#3174): render
+    // through the shared <EntityRef> so the hover-card badge treatment is
+    // available. `children` is passed through unchanged as EntityRef's
+    // inline content — the visible text stays EXACTLY what the linkifier
+    // matched, whether or not a label ever resolves (failure-tolerant, no
+    // layout shift; see EntityRef's module doc).
+    //
+    // `appendLabel` (mt#3189): prose additionally shows the resolved title
+    // INLINE, truncated, after the matched text. Without it the title reached
+    // the reader only via the hover card — which Radix documents as
+    // inaccessible to keyboard users and ignored by screen readers, so a bare
+    // `mt#NNNN` was unidentifiable for them and required a click for everyone
+    // else. Dense list rows deliberately do NOT set this flag (it would grow
+    // their line height); prose is the surface with room for it.
+    if (entityType && entityId && href.startsWith("/")) {
+      return (
+        <EntityRef type={entityType} id={entityId} className={className} appendLabel>
+          {children}
+        </EntityRef>
       );
     }
     // Entity links and internal markdown links resolve to SPA routes (href

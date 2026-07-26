@@ -11,7 +11,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { computeBundleDecision } from "../../scripts/cli-entry";
+import { computeBundleDecision, bunBuildArgs, bunBuildCommand } from "../../scripts/cli-entry";
 import type { FsDeps, ExecDeps, StderrDeps } from "../../scripts/cli-entry";
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────
@@ -463,5 +463,49 @@ describe("computeBundleDecision / stamp write failure", () => {
     // Stamp write failed but the build itself succeeded
     expect(result.rebuildSucceeded).toBe(true);
     expect(stderr.messages.some((m) => m.includes("could not write build stamp"))).toBe(true);
+  });
+});
+
+// ─── Canonical bun-build invocation (mt#3091) ────────────────────────────────
+
+describe("bunBuildArgs / bunBuildCommand (mt#3091)", () => {
+  test("default args match the three build sites' canonical invocation", () => {
+    expect(bunBuildArgs()).toEqual([
+      "build",
+      "--target=bun",
+      "--outdir=dist",
+      "--entry-naming",
+      "minsky.js",
+      "--sourcemap=external",
+      "--minify",
+      "src/cli.ts",
+    ]);
+  });
+
+  test("bunBuildCommand() renders the default args as a shell-ready string", () => {
+    expect(bunBuildCommand()).toBe(
+      "bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify src/cli.ts"
+    );
+  });
+
+  test("accepts overrides for outDir/entryName/sourceEntry (used by the self-rebuild path)", () => {
+    expect(
+      bunBuildArgs({ outDir: "/tmp/out", entryName: "custom.js", sourceEntry: "/tmp/src/cli.ts" })
+    ).toEqual([
+      "build",
+      "--target=bun",
+      "--outdir=/tmp/out",
+      "--entry-naming",
+      "custom.js",
+      "--sourcemap=external",
+      "--minify",
+      "/tmp/src/cli.ts",
+    ]);
+  });
+
+  test("uses --outdir + --entry-naming, never --outfile (mt#3023: bun rejects an external source map through --outfile)", () => {
+    const args = bunBuildArgs();
+    expect(args).toContain("--outdir=dist");
+    expect(args.some((a) => a.startsWith("--outfile"))).toBe(false);
   });
 });

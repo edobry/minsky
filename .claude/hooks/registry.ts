@@ -865,6 +865,119 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#3125 — root-tier sibling of the guidance-detector family above. Fires
+  // on the BATCH itself (an id-minting call + an id-consuming call in the
+  // same parallel tool-call batch) rather than a downstream symptom surface
+  // (mt#2195's fs path, mt#2197's narrated prose). Calibration-first
+  // (INJECTION_ENABLED=false in the module) — see the module header.
+  // -------------------------------------------------------------------------
+  {
+    name: "constructed-identifier-batch-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./constructed-identifier-batch-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "constructed-identifier-batch",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                name: "mcp__minsky__tasks_create",
+                input: { title: "canary task" },
+              },
+              {
+                type: "tool_use",
+                name: "mcp__minsky__session_commit",
+                input: { message: "fix(mt#0000): canary commit referencing the minted id" },
+              },
+            ],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      // Calibration-first (INJECTION_ENABLED=false) — same posture as
+      // causal-premise-detector's canary above: assert the calibration
+      // outcome, not additionalContext, so a future INJECTION_ENABLED flip
+      // doesn't silently break this canary (it would simply gain an
+      // ADDITIONAL warn outcome).
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#2459 — operator-deferral family (probe-before-defer / operator-must-do-X).
+  // TWO surfaces from ONE module, sharing ONE calibration log (they are two
+  // detection surfaces on one failure family): the UserPromptSubmit prose scan
+  // here, and the PreToolUse `AskUserQuestion` option-label scan below it. Both
+  // calibration-first (INJECTION_ENABLED=false in the module). The
+  // ACTIVATION-instruction half of this family belongs to
+  // substrate-bypass-detector's mt#2303 surface — see that module's
+  // SCOPE BOUNDARY note before adding a pattern to either.
+  // -------------------------------------------------------------------------
+  {
+    name: "operator-deferral-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./operator-deferral-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "operator-deferral",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Deferred to operator: requires Railway access." }],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      // Calibration-first (INJECTION_ENABLED=false) — assert the calibration
+      // outcome, not additionalContext, so a future flip doesn't break the
+      // canary (it would simply gain an ADDITIONAL warn outcome).
+      expects: "calibration",
+    },
+  },
+  {
+    name: "operator-deferral-ask-surface",
+    event: "PreToolUse",
+    matcher: "AskUserQuestion",
+    module: () => import("./operator-deferral-detector").then((m) => ({ run: m.runAskSurface })),
+    timeoutMs: 10000,
+    calibrationLog: "operator-deferral",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    canary: {
+      input: {
+        transcript_path: "mt2889-canary-transcript",
+        tool_name: "AskUserQuestion",
+        tool_input: {
+          questions: [
+            {
+              question: "The reviewer service is CRASHED. How should we proceed?",
+              options: [{ label: "You recover the reviewer service" }],
+            },
+          ],
+        },
+      },
+      transcriptLines: [{ type: "user", message: { role: "user", content: "first turn" } }],
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
   // mt#2812 — new guard, not part of any legacy settings.json migration.
   // Reads the guard-health JSONL log (a pure fs read + string compare, no
   // network/git calls) and injects a warning when any guard has reached
@@ -956,10 +1069,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   // mt#2870 — wall-of-text turn-report shape detector. The OVER-signaling
   // sibling of silent-stretch-detector above (communication-altitude RFC
-  // Phase 3, calibration-first): measures the just-completed turn's FINAL
-  // assistant text block against the Tier-1 contract shape
-  // (communication-contract.mdc). Authored directly onto this framework —
-  // no bespoke pre-migration settings.json slot. Needs transcriptLines (D6).
+  // Phase 3): measures the just-completed turn's FINAL assistant text block
+  // against the Tier-1 contract shape (communication-contract.mdc).
+  // Authored directly onto this framework — no bespoke pre-migration
+  // settings.json slot. Needs transcriptLines (D6).
   // -------------------------------------------------------------------------
   {
     name: "wall-of-text-detector",
@@ -969,8 +1082,13 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "wall-of-text",
     denyCapable: false,
     needsTranscript: true,
-    // Calibration-first (INJECTION_ENABLED=false in the module) — same
-    // rationale as silent-stretch-detector above.
+    // mt#3112: INJECTION_ENABLED=true — LIVE since 2026-07-23 (the mt#2483
+    // calibration-review sweep, ask 109807e1/ask#5425, disposed 60 lifetime
+    // fires + a confirmed operator-bounced true positive as a flip, paired
+    // with a depth-request override that suppresses-but-logs). Canary below
+    // still asserts calibration (the calibration-log write), not warn — it
+    // does not assert the presence/absence of additionalContext (mirrors
+    // code-mechanism-assertion-detector's identical canary note above).
     attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
@@ -1059,6 +1177,73 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#2708 — knowledge-acquisition detector (mt#2707 RFC's B proactive-
+  // trigger half of the learn-capture primitive). New guard, not part of any
+  // legacy settings.json migration. Fires on in-task research relevant to a
+  // loaded skill with no propagation (memory_create / /learn / tasks_create)
+  // in a trailing window of turns. Needs transcriptLines (D6) to scan the
+  // WHOLE session (loaded skills + research occurrences), not just the last
+  // turn — mirrors build-claim-injection-detector.ts's widening.
+  // -------------------------------------------------------------------------
+  {
+    name: "knowledge-acquisition-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./knowledge-acquisition-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "knowledge-acquisition",
+    denyCapable: false,
+    needsTranscript: true,
+    // mt#2708: INJECTION_ENABLED=false — calibration-first, same rationale as
+    // causal-premise-detector/build-claim-injection-detector above; canary
+    // asserts calibration, not warn.
+    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    canary: {
+      // input.cwd defaults to the canary runner's real process.cwd() (a real
+      // repo checkout, per baseCanaryInput) — readSkillDescription resolves
+      // the REAL `.claude/skills/engineering-writing/SKILL.md` frontmatter,
+      // so the canary exercises the rung-2-lite keyword-overlap gate against
+      // real skill data, not a synthetic stand-in. `session_id` is a
+      // canary-only literal, distinct from any real conversation id, so the
+      // dedupe read in `loadAlreadyLoggedDedupeKeys` can never match a
+      // genuine prior record and silently suppress this canary forever.
+      input: { session_id: "mt2708-canary-session", transcript_path: "mt2708-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", name: "Skill", input: { skill: "engineering-writing" } }],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                name: "WebSearch",
+                input: { query: "argumentative prose AI writing tells overused phrases" },
+              },
+            ],
+          },
+        },
+        // TRAILING_WINDOW_TURNS (5) filler turns so the grace period has elapsed.
+        ...Array.from({ length: 5 }, (_, i) => [
+          { type: "user", message: { role: "user", content: `filler turn ${i}` } },
+          {
+            type: "assistant",
+            message: { role: "assistant", content: [{ type: "text", text: "continuing" }] },
+          },
+        ]).flat(),
+        { type: "user", message: { role: "user", content: "current turn" } },
+      ],
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
   // Stop event (mt#2357) — the framework's FIRST Stop-event guard. Runs via
   // the new `dispatch-stop.ts` entrypoint. Placed BEFORE the
   // calibration-review-cadence-detector entry to preserve that entry's
@@ -1101,6 +1286,39 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       setup: async () => {
         const store = await import("./turn-end-scan-store");
         store.clearFlagged("mt2357-turn-end-canary");
+      },
+    },
+  },
+  {
+    // mt#3179 — turn-end sibling of the guard above: scans for a turn that ends
+    // by NAMING a next action without taking it. Keyed on POSITION (the text is
+    // in `last_assistant_message`, so nothing followed it), not on the agent's
+    // stated reason. Full rationale: the guard module's header.
+    name: "turn-end-untaken-action-scan",
+    event: "Stop",
+    module: () => import("./turn-end-untaken-action-scan").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    calibrationLog: "untaken-action",
+    denyCapable: false,
+    // False by design (PR #2293 R1): detection reads last_assistant_message, and
+    // the dedup key is derived from that message — NOT from the transcript,
+    // whose absent-case default would suppress the phrase session-wide.
+    needsTranscript: false,
+    attentionCost: { denialMessageSizeChars: 700, optionCount: 2 },
+    canary: {
+      input: {
+        session_id: "mt3179-untaken-action-canary",
+        transcript_path: "/nonexistent/mt3179-canary.jsonl",
+        // Verbatim tail of the R3 incident this guard exists to catch.
+        last_assistant_message:
+          "mt#3179 is incident-response, so I'm taking it forward rather than leaving it filed — that's the next step, not a question.",
+      },
+      // No transcriptLines: detection reads last_assistant_message only; the
+      // dedup turn-key degrades to a stable default without a transcript.
+      expects: "warn",
+      setup: async () => {
+        const store = await import("./turn-end-scan-store");
+        store.clearFlagged("mt3179-untaken-action-canary");
       },
     },
   },

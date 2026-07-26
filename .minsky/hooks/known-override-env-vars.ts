@@ -37,6 +37,7 @@ export const KNOWN_OVERRIDE_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_ACK_RETROSPECTIVE_TRIGGER",
   "MINSKY_ACK_SUBSTRATE_BYPASS",
   "MINSKY_ACK_TASK_HIJACK",
+  "MINSKY_ACK_UNTAKEN_ACTION",
   // mt#3084 (Phase-3 merge-gate fire-log build-out): the four entries below
   // were already registered in the canonical HOOK_ONLY_ENV_VARS
   // (packages/domain/src/configuration/sources/environment.ts) but missing
@@ -64,6 +65,7 @@ export const KNOWN_OVERRIDE_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_HOOK_OVERRIDE",
   "MINSKY_LOADED_COMMIT",
   "MINSKY_MAIN_WORKSPACE",
+  "MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES",
   "MINSKY_MCP_ALLOW_UNKNOWN_PARAMS",
   "MINSKY_MCP_INIT_RETRY_INTERVAL_MS",
   "MINSKY_MCP_INSTRUCTIONS_BUNDLE",

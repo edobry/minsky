@@ -7,6 +7,7 @@
 import { MinskyError, NothingToCommitError } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { safeShellQuote } from "@minsky/shared/exec";
+import { raceAgainstTimeout } from "@minsky/shared/timeout";
 import type { AskRepository } from "../ask/repository";
 import { closeAskAsResolved } from "../ask/close-as-resolved";
 import { isActionCovered, loadAllPolicySources } from "../ask/policy";
@@ -14,6 +15,7 @@ import { emitSystemEventFromProvider } from "../events/emit-best-effort";
 import type { PersistenceProvider } from "../persistence/types";
 import type { TokenProvider } from "../auth/token-provider";
 import type { GitServiceInterface } from "../git/types";
+import type { PushWithConfirmationResult } from "../git/push-operations";
 import { checkFreshnessCas, cleanupFreshnessMarker } from "./freshness-marker";
 import {
   computeCommitDeletionStats,
@@ -147,36 +149,16 @@ export const DEFAULT_COMMIT_PHASE_TIMEOUT_MS = 10 * 60 * 1000;
  */
 export const DEFAULT_PUSH_PHASE_TIMEOUT_MS = 2 * 60 * 1000;
 
-/** Real `setTimeout`-backed timeout signal — the non-test default for `raceAgainstTimeout`. */
-function defaultTimeoutSignal(ms: number): Promise<{ timedOut: true }> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve({ timedOut: true }), ms);
-  });
-}
-
 /**
- * Generic bounded race between a real async operation and a timeout signal
- * (mt#3049). Returns a discriminated result so callers never need to infer
- * "timed out" from an operation's own return shape.
- *
- * `timeoutSignal` is injectable (mirrors the `sleep`-injection pattern
- * already established by `LockAwareExecOptions` in `git/lock-operations.ts`,
- * mt#2886/mt#2980) so tests can simulate an instantly-elapsed timeout without
- * any real wall-clock wait — pair an injected `timeoutSignal` that resolves
- * immediately with an `operation` that never resolves on its own (e.g.
- * `new Promise(() => {})`) to deterministically exercise the "timeout wins"
- * branch in well under a millisecond.
+ * mt#3177: `raceAgainstTimeout` moved to `@minsky/shared/timeout` so the git
+ * domain package (`push-operations.ts`) can share the exact same bounded-race
+ * primitive without introducing a git -> session layering violation (git is
+ * lower-level than session; this file already imports FROM `../git`, never
+ * the reverse). Re-exported here unchanged so existing imports from
+ * `./session-commands` (this file's own callers and its test suite) keep
+ * working without a call-site change.
  */
-export function raceAgainstTimeout<T>(
-  operation: Promise<T>,
-  timeoutMs: number,
-  timeoutSignal: (ms: number) => Promise<{ timedOut: true }> = defaultTimeoutSignal
-): Promise<{ timedOut: false; value: T } | { timedOut: true }> {
-  return Promise.race([
-    operation.then((value) => ({ timedOut: false as const, value })),
-    timeoutSignal(timeoutMs),
-  ]);
-}
+export { raceAgainstTimeout };
 
 /**
  * Which credential path a session-commit push used (mt#2897).
@@ -185,10 +167,13 @@ export function raceAgainstTimeout<T>(
  *   that reliably triggers pull_request workflows (mt#1477).
  * - "keychain-unconfigured": no service account is configured; system
  *   credentials are the expected path for this install (not a failure).
- * - "keychain-fallback": a service account IS configured but token resolution
- *   failed — the push falls back to system keychain credentials, which may
- *   silently fail to trigger pull_request workflows (the intermittent CI-miss
- *   class in docs/ci-check-never-ran-playbook.md §Root cause).
+ * - "keychain-fallback": the App-token path could not complete the push —
+ *   either token resolution failed, or (mt#3210) a successfully-minted
+ *   token was itself denied by GitHub (403) because the App installation's
+ *   `contents` permission does not include write access. Either way the
+ *   push falls back to system keychain credentials, which may silently
+ *   fail to trigger pull_request workflows (the intermittent CI-miss class
+ *   in docs/ci-check-never-ran-playbook.md §Root cause).
  */
 export type PushCredentialPath = "app-token" | "keychain-unconfigured" | "keychain-fallback";
 
@@ -240,6 +225,122 @@ export async function resolvePushCredential(
 }
 
 /**
+ * Detects a GitHub permission-denied push failure — the signature the
+ * App-token push path produces when the App installation's `contents`
+ * permission does not include write access (mt#3210, root cause confirmed
+ * via a live `GET /app` read against the `minsky-ai[bot]` App: permissions
+ * resolved to `{contents: "read", ...}`, not `write`). Matched against BOTH
+ * halves of the field-observed denial together — `git`'s own rejection
+ * message ("remote: Permission ... denied to <bot>.") AND the generic HTTP
+ * status line ("The requested URL returned error: 403"), which appear
+ * together in the same failure per mem#721.
+ *
+ * mt#3210 R1: a bare `403` is deliberately NOT sufficient on its own. A 403
+ * can also mean an INTENTIONAL denial unrelated to the missing-contents-write
+ * gap — e.g. branch protection or another repo-level restriction rejecting
+ * the App. Falling back to the operator's personal keychain credentials in
+ * that case would silently convert a deliberate block into a successful push
+ * under a different identity, which is worse than the push failing visibly.
+ * Requiring the permission-denial phrase to co-occur with the 403 status
+ * line keeps the detector scoped to the specific failure it exists to catch.
+ */
+export function isPermissionDeniedPushError(message: string | undefined): boolean {
+  if (!message) return false;
+  const hasPermissionDenialPhrase = /permission[\s\S]*denied/i.test(message);
+  const hasStatusLine = /\b403\b/.test(message);
+  return hasPermissionDenialPhrase && hasStatusLine;
+}
+
+/**
+ * A session-commit push, wrapped with automatic fallback to system keychain
+ * credentials when the resolved App-token push is denied (mt#3210).
+ *
+ * The App-token push path (mt#1477) can fail two structurally different
+ * ways: (1) token *minting* itself throws — `resolvePushCredential`'s
+ * pre-existing `keychain-fallback` path (mt#2897) already handles this by
+ * never attempting the push with a token at all; or (2) minting succeeds
+ * but the push itself is denied because the App installation lacks
+ * `contents: write`. Case (2) previously surfaced as a returned
+ * `pushed:false` result the caller had to notice and retry by hand — the
+ * exact defect mt#3210 exists to fix, observed at a measured 8-of-8 rate
+ * across three independent dispatches on 2026-07-25. This function folds
+ * case (2) into the same fallback vocabulary as case (1), reusing the
+ * `session.commit.push_credential_fallback` event: from the caller's
+ * perspective both cases land in the same place — the push succeeded, but
+ * via a credential that may not reliably trigger `pull_request` workflows
+ * (mt#1477), so the same "verify CI fired" discipline applies either way.
+ *
+ * Deliberately conservative: the retry fires ONLY when (a) the ORIGINAL
+ * attempt used the app-token path, (b) it did not merely time out
+ * (`pushOutcome.pushTimedOut` — an ambiguous outcome mt#3177 already
+ * verifies against the remote directly; retrying blind on top of that would
+ * risk a redundant concurrent push against a possibly-still-running
+ * background attempt), and (c) the failure text matches the permission-
+ * denied signature — an unrelated push failure (rejected non-fast-forward,
+ * network error) is surfaced as-is rather than masked by a same-content
+ * keychain retry.
+ */
+export async function pushSessionCommitWithFallback(
+  tokenProvider: Pick<TokenProvider, "isServiceAccountConfigured" | "getToken"> | undefined,
+  pushParams: { repo: string; branch?: string },
+  config: { pushTimeoutMs: number; session?: string },
+  deps: {
+    pushFromParamsWithConfirmation: (
+      params: {
+        repo?: string;
+        remote?: string;
+        force?: boolean;
+        debug?: boolean;
+        authToken?: string;
+      },
+      config?: { pushTimeoutMs?: number; verifyTimeoutMs?: number; branch?: string }
+    ) => Promise<PushWithConfirmationResult>;
+    warn?: (message: string, context?: Record<string, unknown>) => void;
+  }
+): Promise<
+  PushWithConfirmationResult & { credentialPath: PushCredentialPath; appTokenPushError?: string }
+> {
+  const warn = deps.warn ?? log.warn;
+  const pushCredential = await resolvePushCredential(tokenProvider, { session: config.session });
+
+  const pushOutcome = await deps.pushFromParamsWithConfirmation(
+    { repo: pushParams.repo, authToken: pushCredential.authToken },
+    { pushTimeoutMs: config.pushTimeoutMs, branch: pushParams.branch }
+  );
+
+  const appTokenWasDenied =
+    pushCredential.credentialPath === "app-token" &&
+    !pushOutcome.pushed &&
+    !pushOutcome.pushTimedOut &&
+    isPermissionDeniedPushError(pushOutcome.pushError);
+
+  if (!appTokenWasDenied) {
+    return { ...pushOutcome, credentialPath: pushCredential.credentialPath };
+  }
+
+  warn(
+    "[session.commit] App-token push denied (403); retrying with system keychain credentials — pull_request workflows may not trigger (mt#1477/mt#3210)",
+    {
+      event: "session.commit.push_credential_fallback",
+      session: config.session,
+      stage: "push-denied",
+      reason: pushOutcome.pushError,
+    }
+  );
+
+  const retryOutcome = await deps.pushFromParamsWithConfirmation(
+    { repo: pushParams.repo },
+    { pushTimeoutMs: config.pushTimeoutMs, branch: pushParams.branch }
+  );
+
+  return {
+    ...retryOutcome,
+    credentialPath: "keychain-fallback",
+    appTokenPushError: pushOutcome.pushError,
+  };
+}
+
+/**
  * Session PR creation parameters
  */
 export interface SessionPrParams {
@@ -258,20 +359,13 @@ export interface SessionPrParams {
 // This function was a wrapper around sessionPrFromParams (legacy implementation).
 // All callers should use the modern sessionPr() from ./commands/pr-command.ts instead.
 
-/**
- * Session update interface with explicit parameters
- */
-export interface SessionUpdateParams {
-  session: string; // ✅ ALWAYS required
-  branch?: string;
-  force?: boolean;
-  dryRun?: boolean;
-  noStash?: boolean;
-  noPush?: boolean;
-  skipConflictCheck?: boolean;
-  skipIfAlreadyMerged?: boolean;
-  autoResolveDeleteConflicts?: boolean;
-}
+// mt#3211: the hand-written `SessionUpdateParams` interface that used to live here
+// was deleted — it was a second, independently-maintained definition of the same
+// name as `packages/domain/src/schemas/session.ts`'s `SessionUpdateParams`
+// (`z.infer<typeof sessionUpdateParamsSchema>`), had zero consumers, and let a
+// parameter (mt#3205's `pushTimeoutMs`) go missing from it silently because
+// nothing pointed here. The schema-derived type in `../schemas/session` is now
+// the single source of truth; import it from there.
 
 /**
  * Pure domain interface for session approval
@@ -371,6 +465,37 @@ export interface SessionCommitResult {
    */
   pushTimedOut?: boolean;
   /**
+   * mt#3177: set (with `pushed: true`) when the push phase timed out but a
+   * follow-up remote-ref check (`git ls-remote`, see `verifyRemoteRefAdvanced`
+   * in `push-operations.ts`) confirmed the remote branch head already
+   * matches the local commit — the push landed server-side even though this
+   * call's own confirmation did not. Distinguishes a slow-but-successful
+   * push from the ordinary fast-success path (which never sets this field).
+   */
+  pushConfirmedVia?: "remote-check";
+  /**
+   * mt#3177: set (with `pushed: false`) when the push phase timed out AND a
+   * follow-up remote-ref check did NOT confirm the push landed (either the
+   * remote genuinely has not advanced, or the verification check itself was
+   * inconclusive — network failure, no matching ref, or its own timeout).
+   * This is the explicit "we do not know" state: unlike a bare
+   * `pushTimedOut: true`, which a careless caller could still misread
+   * against a `pushed: false` it never inspects, `pushUnconfirmed: true` is
+   * the field intended to be checked directly — no consumer should read it
+   * as, or adjacent to, success.
+   */
+  pushUnconfirmed?: boolean;
+  /**
+   * mt#3210: set (alongside `credentialPath: "keychain-fallback"`, whether
+   * `pushed` ends up true or false) when the App-token push attempt was
+   * denied (403) and `pushSessionCommitWithFallback` retried via system
+   * keychain credentials. Preserves the original denial for diagnosis even
+   * though the caller may see a successful `pushed: true` overall outcome —
+   * the retry succeeding does not mean the App-token permission gap
+   * (`contents: read` on the installation, not `write`) has been fixed.
+   */
+  appTokenPushError?: string;
+  /**
    * mt#3049: true when this call found an existing LOCAL commit already
    * ahead of `origin/<branch>` on an otherwise-clean tree (the resumable
    * path — a prior call's push phase failed/timed out after its commit
@@ -434,7 +559,8 @@ export async function sessionCommit(
     assertSessionMutable(sessionRecordForFreeze, "commit changes");
   }
 
-  const { commitChangesFromParams, pushFromParams, createGitService } = await import("../git");
+  const { commitChangesFromParams, pushFromParamsWithConfirmation, createGitService } =
+    await import("../git");
 
   // Resolve session to repo path at this boundary (needed for clean-tree check below)
   const workdir = await sessionProvider.getSessionWorkdir(params.session);
@@ -841,9 +967,10 @@ export async function sessionCommit(
       // mt#2897: credential resolution is loud + surfaced — the silent
       // fallback here was the leading root-cause hypothesis for the
       // intermittent "push delivered but zero workflow runs" class.
-      const pushCredential = await resolvePushCredential(tokenProvider, {
-        session: params.session,
-      });
+      // mt#3210: pushSessionCommitWithFallback wraps resolution + push +
+      // an automatic keychain retry when the App-token push itself is
+      // denied (403) — the case resolution-loudness alone (mt#2897) did
+      // not cover, since token minting succeeds and only the push fails.
 
       // mt#3049: bounded AND non-throwing on failure/timeout. A push problem
       // after a successful commit now returns a STRUCTURED partial outcome
@@ -853,43 +980,47 @@ export async function sessionCommit(
       // incident (session_commit hung ~30 minutes with no result, then the
       // commit turned out to have landed but never pushed).
       //
-      // Same non-cancellation caveat as the commit phase (review R1, see
+      // mt#3177: on a `pushTimedOut` outcome, `pushWithConfirmation` (called
+      // via `pushFromParamsWithConfirmation` below) additionally verifies the
+      // remote ref directly (`git ls-remote`) before reporting anything — the
+      // 2nd occurrence of this task's originating incident established that
+      // the underlying push had ALREADY LANDED server-side while the tool's
+      // own confirmation was still hanging. When the remote check confirms
+      // the push landed, this reports `pushed:true` +
+      // `pushConfirmedVia:"remote-check"` instead of the previous ambiguous
+      // `pushed:false, pushTimedOut:true` shape; when it cannot confirm
+      // either way, it reports the new explicit `pushUnconfirmed:true` state
+      // that no consumer can mistake for success. Same non-cancellation
+      // caveat as the commit phase (review R1, see
       // SessionCommitPhaseTimeoutError's doc comment for the full
-      // explanation): on a `pushTimedOut` outcome, the underlying `git push`
-      // is NOT killed — it may still complete in the background after this
-      // function returns `pushed:false`. A caller that retries immediately
-      // (including this file's own `tryResumePendingPush` on a later call)
-      // could in principle race a still-running abandoned push; the CAS
-      // check above and git's own atomicity around ref updates bound the
-      // damage (worst case: a harmless redundant push of the same content),
-      // but this is not a fully closed race. True cancellation would need
-      // `Bun.spawn` + an `AbortSignal` threaded through `pushFromParams`.
+      // explanation): on a still-inconclusive outcome, the underlying `git
+      // push` is NOT killed — it may still complete in the background after
+      // this function returns. A caller that retries immediately (including
+      // this file's own `tryResumePendingPush` on a later call) could in
+      // principle race a still-running abandoned push; the CAS check above
+      // and git's own atomicity around ref updates bound the damage (worst
+      // case: a harmless redundant push of the same content), but this is
+      // not a fully closed race. True cancellation would need `Bun.spawn` +
+      // an `AbortSignal` threaded through the push call.
       const pushTimeoutMs = params.pushTimeoutMs ?? DEFAULT_PUSH_PHASE_TIMEOUT_MS;
-      let pushed = false;
-      let pushTimedOut = false;
-      let pushError: string | undefined;
-      try {
-        const raced = await raceAgainstTimeout(
-          pushFromParams({ repo: workdir, authToken: pushCredential.authToken }),
-          pushTimeoutMs
-        );
-        if (raced.timedOut) {
-          pushTimedOut = true;
-        } else {
-          pushed = raced.value.pushed;
-        }
-      } catch (err: unknown) {
-        pushError = err instanceof Error ? err.message : String(err);
-      }
+      const pushOutcome = await pushSessionCommitWithFallback(
+        tokenProvider,
+        { repo: workdir, branch: metadata.branch },
+        { pushTimeoutMs, session: params.session },
+        { pushFromParamsWithConfirmation }
+      );
+      const pushCredential = { credentialPath: pushOutcome.credentialPath };
+      const pushed = pushOutcome.pushed;
 
       if (!pushed) {
         log.warn(
-          "[session.commit] commit succeeded but push did not — returning structured partial outcome (mt#3049)",
+          "[session.commit] commit succeeded but push did not — returning structured partial outcome (mt#3049/mt#3177)",
           {
             session: params.session,
             commitHash: commitResult.commitHash,
-            pushTimedOut,
-            pushError,
+            pushTimedOut: pushOutcome.pushTimedOut,
+            pushError: pushOutcome.pushError,
+            pushUnconfirmed: pushOutcome.pushUnconfirmed,
           }
         );
         return {
@@ -898,10 +1029,25 @@ export async function sessionCommit(
           ...metadata,
           message: commitResult.message,
           pushed: false,
-          ...(pushError !== undefined ? { pushError } : {}),
-          ...(pushTimedOut ? { pushTimedOut: true } : {}),
+          ...(pushOutcome.pushError !== undefined ? { pushError: pushOutcome.pushError } : {}),
+          ...(pushOutcome.pushTimedOut ? { pushTimedOut: true } : {}),
+          ...(pushOutcome.pushUnconfirmed ? { pushUnconfirmed: true } : {}),
+          ...(pushOutcome.appTokenPushError !== undefined
+            ? { appTokenPushError: pushOutcome.appTokenPushError }
+            : {}),
           credentialPath: pushCredential.credentialPath,
         };
+      }
+
+      if (pushOutcome.pushConfirmedVia) {
+        log.debug(
+          "[session.commit] push timed out but remote-ref check confirmed it landed (mt#3177)",
+          {
+            session: params.session,
+            commitHash: commitResult.commitHash,
+            pushConfirmedVia: pushOutcome.pushConfirmedVia,
+          }
+        );
       }
 
       return {
@@ -910,6 +1056,11 @@ export async function sessionCommit(
         ...metadata,
         message: commitResult.message,
         pushed: true,
+        ...(pushOutcome.pushTimedOut ? { pushTimedOut: true } : {}),
+        ...(pushOutcome.pushConfirmedVia ? { pushConfirmedVia: pushOutcome.pushConfirmedVia } : {}),
+        ...(pushOutcome.appTokenPushError !== undefined
+          ? { appTokenPushError: pushOutcome.appTokenPushError }
+          : {}),
         credentialPath: pushCredential.credentialPath,
       };
     } catch (error) {
@@ -1107,7 +1258,7 @@ async function tryResumePendingPush(
     pushTimeoutMs: number;
   }
 ): Promise<SessionCommitResult | undefined> {
-  const { createGitService, pushFromParams } = await import("../git");
+  const { createGitService, pushFromParamsWithConfirmation } = await import("../git");
   const gitService = createGitService();
 
   let branch: string;
@@ -1179,26 +1330,18 @@ async function tryResumePendingPush(
     remoteSha,
   });
 
-  const pushCredential = await resolvePushCredential(deps.tokenProvider, {
-    session: deps.session,
-  });
-
-  let pushed = false;
-  let pushTimedOut = false;
-  let pushError: string | undefined;
-  try {
-    const raced = await raceAgainstTimeout(
-      pushFromParams({ repo: workdir, authToken: pushCredential.authToken }),
-      deps.pushTimeoutMs
-    );
-    if (raced.timedOut) {
-      pushTimedOut = true;
-    } else {
-      pushed = raced.value.pushed;
-    }
-  } catch (err: unknown) {
-    pushError = err instanceof Error ? err.message : String(err);
-  }
+  // mt#3210: same automatic-fallback wrapper as the main sessionCommit push
+  // path — retries via system keychain credentials when the App-token push
+  // is denied (403), instead of surfacing a failed push the caller must
+  // notice and retry by hand.
+  const pushOutcome = await pushSessionCommitWithFallback(
+    deps.tokenProvider,
+    { repo: workdir, branch },
+    { pushTimeoutMs: deps.pushTimeoutMs, session: deps.session },
+    { pushFromParamsWithConfirmation }
+  );
+  const pushCredential = { credentialPath: pushOutcome.credentialPath };
+  const pushed = pushOutcome.pushed;
 
   const metadata = await collectCommitMetadata(gitService, workdir);
 
@@ -1220,8 +1363,13 @@ async function tryResumePendingPush(
       ? "Nothing new to commit; completed a previously pending push"
       : "Nothing new to commit; a previously pending push is still outstanding",
     pushed,
-    ...(pushError !== undefined ? { pushError } : {}),
-    ...(pushTimedOut ? { pushTimedOut: true } : {}),
+    ...(pushOutcome.pushError !== undefined ? { pushError: pushOutcome.pushError } : {}),
+    ...(pushOutcome.pushTimedOut ? { pushTimedOut: true } : {}),
+    ...(pushOutcome.pushConfirmedVia ? { pushConfirmedVia: pushOutcome.pushConfirmedVia } : {}),
+    ...(pushOutcome.pushUnconfirmed ? { pushUnconfirmed: true } : {}),
+    ...(pushOutcome.appTokenPushError !== undefined
+      ? { appTokenPushError: pushOutcome.appTokenPushError }
+      : {}),
     credentialPath: pushCredential.credentialPath,
   };
 }

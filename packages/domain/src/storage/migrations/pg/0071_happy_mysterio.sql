@@ -1,1 +1,0 @@
-ALTER TYPE "public"."system_event_type" ADD VALUE 'guard.overridden';

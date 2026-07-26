@@ -39,7 +39,7 @@ import { log } from "@minsky/shared/logger";
 import type { ConversationId } from "../ids";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { minskySessionLinksTable } from "../storage/schemas/minsky-session-links-schema";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /** Link-type value written by this module (mt#2752's `driven_spawn` class). */
 export const DRIVEN_SPAWN_LINK_TYPE = "driven_spawn";
@@ -107,7 +107,7 @@ export async function writeDrivenSpawnLink(
     return "written";
   } catch (err) {
     log.warn(`writeDrivenSpawnLink: failed for session ${input.agentSessionId}`, {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
       minskySessionId: input.minskySessionId,
     });
     return "error";

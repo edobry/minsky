@@ -196,6 +196,68 @@ describe("extractTurns", () => {
     });
   });
 
+  // mt#3131 (D6) — synthetic interrupt markers must not become turn boundaries.
+  describe("synthetic interrupt marker exclusion", () => {
+    test("an interrupt marker directly followed by an assistant response does not become its own turn", () => {
+      const transcript: RawTurnLine[] = [
+        userLine("real prompt", TS1),
+        assistantLine("working on it", [{ type: "tool_use", id: "t1", name: "Bash" }], TS2),
+        userLine("[Request interrupted by user for tool use]", TS3),
+        // Without the D6 fix, this assistant line would pair with the
+        // sentinel above and inflate turnCount with a synthetic turn.
+        assistantLine("Understood, stopping.", [], TS4),
+      ];
+      const turns = extractTurns(transcript);
+
+      // Exactly one turn: the real (prompt, first-response) pair. The
+      // sentinel + its follow-on assistant acknowledgment must NOT produce a
+      // second turn.
+      expect(turns).toHaveLength(1);
+      const turn0 = assertTurn(turns, 0);
+      expect(turn0.userText).toBe("real prompt");
+    });
+
+    test("an interrupt marker sandwiched between real user lines is discarded, not counted", () => {
+      const transcript: RawTurnLine[] = [
+        userLine("first attempt", TS1),
+        userLine("[Request interrupted by user]", TS2),
+        userLine("second attempt", TS3),
+        assistantLine("response", [], TS4),
+      ];
+      const turns = extractTurns(transcript);
+
+      expect(turns).toHaveLength(1);
+      const turn0 = assertTurn(turns, 0);
+      expect(turn0.userText).toBe("second attempt");
+    });
+
+    test("both synthetic marker variants are excluded", () => {
+      for (const marker of [
+        "[Request interrupted by user]",
+        "[Request interrupted by user for tool use]",
+      ]) {
+        const transcript: RawTurnLine[] = [userLine(marker, TS1), assistantLine("reply", [], TS2)];
+        const turns = extractTurns(transcript);
+        // The sentinel is skipped entirely; the assistant line has no
+        // pending user, so it emits its own partial turn with null userText —
+        // NOT a turn whose userText is the marker text.
+        expect(turns).toHaveLength(1);
+        expect(turns[0]?.userText).toBeNull();
+        expect(turns[0]?.assistantText).toBe("reply");
+      }
+    });
+
+    test("a real user message that merely mentions the marker text is NOT excluded", () => {
+      const transcript: RawTurnLine[] = [
+        userLine("why did [Request interrupted by user] show up?", TS1),
+        assistantLine("reply", [], TS2),
+      ];
+      const turns = extractTurns(transcript);
+      expect(turns).toHaveLength(1);
+      expect(turns[0]?.userText).toBe("why did [Request interrupted by user] show up?");
+    });
+  });
+
   describe("spawn-boundary detection", () => {
     test("a turn without Agent tool call has is_spawn_boundary = false", () => {
       const transcript: RawTurnLine[] = [

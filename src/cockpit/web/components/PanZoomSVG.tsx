@@ -51,6 +51,40 @@ interface ViewBox {
   h: number;
 }
 
+/**
+ * Ambient camera life (mt#3226 SC 4 — session film aliveness pass): a slow
+ * viewBox drift/zoom-breathing wobble around the current fit, PAUSED the
+ * instant the user pans/zooms manually (reuses `userInteractedRef` — the
+ * SAME ref that already gates auto-refit-on-resize). The CALLER decides
+ * `enabled` (SessionFilmStage.tsx passes `!reducedMotion`) — PanZoomSVG
+ * itself stays reduced-motion-agnostic, matching this component's existing
+ * "resize policy" ownership split.
+ */
+interface AmbientDriftOptions {
+  enabled: boolean;
+  /** Position-drift amplitude, board coordinate units. */
+  amplitudePx: number;
+  /** One full drift cycle, ms. */
+  periodMs: number;
+}
+
+/**
+ * Camera-follow / growing-bounding-box auto-fit (mt#3231 SC 5 — the RFC's
+ * A3 "camera-follow" rung, pulled forward). HONEST, event-driven motion
+ * (unlike `AmbientDriftOptions` above): the bounds this eases toward exist
+ * because the caller's real content actually grew, not a decorative loop —
+ * see `SessionFilmStage.tsx` for how it derives `bounds` from the touched-
+ * set's live positions every frame.
+ */
+interface GrowingBoundsOptions {
+  /** World-space bounding box of the content to keep framed, or `null` when there's nothing to fit yet (no-op). */
+  bounds: { minX: number; minY: number; maxX: number; maxY: number } | null;
+  /** World-space padding added around `bounds` before fitting. */
+  padding: number;
+  /** Ease duration toward a new fit, ms. `0` snaps instantly instead of tweening — the reduced-motion degrade (matches every other motion class in this codebase: discrete state change, not a zeroed-duration tween). */
+  easeMs: number;
+}
+
 interface PanZoomSVGProps {
   /** Intrinsic coordinate width of the SVG drawing area. */
   boardWidth: number;
@@ -58,6 +92,10 @@ interface PanZoomSVGProps {
   boardHeight: number;
   /** Accessible label for the SVG region. */
   ariaLabel: string;
+  /** Ambient drift/zoom-breathing (mt#3226 SC 4) — omit or `enabled: false` for the plain fit-and-hold framing. */
+  ambientDrift?: AmbientDriftOptions;
+  /** Camera-follow auto-fit (mt#3231 SC 5) — omit for the plain fit-and-hold framing (existing behavior, unchanged). */
+  growingBounds?: GrowingBoundsOptions;
   className?: string;
   children: React.ReactNode;
 }
@@ -97,11 +135,58 @@ function fitViewBox(boardWidth: number, boardHeight: number, containerWidth: num
   };
 }
 
+/**
+ * Fit-to-bounds viewBox (mt#3231 SC 5): the smallest no-distortion viewBox
+ * (matching the container's own aspect, same invariant `fitViewBox` above
+ * keeps) that contains `bounds` plus `padding` on every side, centered on
+ * the bounds' own center — the camera-follow counterpart of `fitViewBox`'s
+ * fixed full-board fit.
+ */
+function fitToBoundsViewBox(
+  bounds: { minX: number; minY: number; maxX: number; maxY: number },
+  padding: number,
+  containerWidth: number,
+  containerHeight: number
+): ViewBox {
+  const containerAspect = containerHeight / containerWidth;
+  const boundsW = Math.max(1, bounds.maxX - bounds.minX + padding * 2);
+  const boundsH = Math.max(1, bounds.maxY - bounds.minY + padding * 2);
+  const boundsAspect = boundsH / boundsW;
+  // Whichever dimension the bounds are relatively "taller"/"wider" than the
+  // container in determines which one is the binding constraint — the SAME
+  // "fit inside, don't crop" logic as CSS `object-fit: contain`.
+  let w: number;
+  let h: number;
+  if (boundsAspect > containerAspect) {
+    h = boundsH;
+    w = h / containerAspect;
+  } else {
+    w = boundsW;
+    h = w * containerAspect;
+  }
+  const cx = (bounds.minX + bounds.maxX) / 2;
+  const cy = (bounds.minY + bounds.maxY) / 2;
+  return { x: cx - w / 2, y: cy - h / 2, w, h };
+}
+
+/** Ease-out-cubic — per interface-design motion guidance (exponential ease-out, no bounce/elastic). */
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function PanZoomSVG({ boardWidth, boardHeight, ariaLabel, className, children }: PanZoomSVGProps) {
+export function PanZoomSVG({
+  boardWidth,
+  boardHeight,
+  ariaLabel,
+  ambientDrift,
+  growingBounds,
+  className,
+  children,
+}: PanZoomSVGProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -157,6 +242,157 @@ export function PanZoomSVG({ boardWidth, boardHeight, ariaLabel, className, chil
     observer.observe(el);
     return () => observer.disconnect();
   }, [applyFit]);
+
+  // -------------------------------------------------------------------------
+  // Ambient camera life (mt#3226 SC 4): a slow drift/zoom-breathing wobble
+  // RECOMPUTED FRESH from the current fit every tick (not compounded onto
+  // itself — the camera breathes AROUND the fitted center, it doesn't
+  // random-walk away from it). Ticks are skipped entirely once
+  // `userInteractedRef.current` is true: "user pan/zoom always overrides
+  // and pauses ambience" (spec) — checked live inside the tick, not just at
+  // effect-setup time, so a mid-drift user interaction stops it immediately
+  // on the NEXT tick without needing to tear down and restart the interval.
+  // -------------------------------------------------------------------------
+  const ambientStartRef = useRef<number>(Date.now());
+  useEffect(() => {
+    if (!ambientDrift?.enabled) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const tick = () => {
+      if (userInteractedRef.current) return; // paused — the user is in control
+      const { width, height } = el.getBoundingClientRect();
+      if (width === 0 || height === 0) return;
+      const fit = fitViewBox(boardWidth, boardHeight, width, height);
+      const elapsed = Date.now() - ambientStartRef.current;
+      const amp = ambientDrift.amplitudePx;
+      const period = ambientDrift.periodMs;
+      const dx = amp * Math.sin((2 * Math.PI * elapsed) / period);
+      // Different period ratio for y — an organic (Lissajous-like) drift
+      // path rather than a perfect circle.
+      const dy = amp * Math.cos((2 * Math.PI * elapsed) / (period * 1.37));
+      // Subtle zoom breathing — a small scale wobble around the SAME fit,
+      // kept centered (adjusting x/y by half the size delta).
+      const scaleWobble = 1 + 0.02 * Math.sin((2 * Math.PI * elapsed) / (period * 0.6));
+      const w = fit.w * scaleWobble;
+      const h = fit.h * scaleWobble;
+      setViewBox({
+        x: fit.x + dx - (w - fit.w) / 2,
+        y: fit.y + dy - (h - fit.h) / 2,
+        w,
+        h,
+      });
+    };
+    const id = setInterval(tick, 200);
+    return () => clearInterval(id);
+  }, [ambientDrift?.enabled, ambientDrift?.amplitudePx, ambientDrift?.periodMs, boardWidth, boardHeight]);
+
+  // -------------------------------------------------------------------------
+  // Camera-follow / growing-bounding-box auto-fit (mt#3231 SC 5): eases the
+  // viewBox toward fitting `growingBounds.bounds` — "the viewport auto-fits
+  // the world's growing bounding box... a smooth camera that follows growth
+  // (ease toward the new fit, don't snap)." Paused by the SAME
+  // `userInteractedRef` the resize/ambient-drift logic already uses ("user
+  // pan/zoom overrides and pauses auto-fit" — spec, extending the existing
+  // override behavior rather than inventing a second one). `easeMs <= 0`
+  // (the reduced-motion caller contract) snaps instantly instead of
+  // tweening, matching every other motion class in this codebase.
+  //
+  // Rounded to the nearest world-unit for the dependency key: the touched-
+  // set's live force-simulated positions drift continuously by fractions of
+  // a pixel every tick: a raw-float key would restart the ease on every
+  // single tick even when nothing meaningfully changed. A restart on every
+  // GENUINE (>=1 world-unit) bounds change is intentional, not a bug — the
+  // camera keeps re-aiming at a continuously-updating target as the world
+  // evolves, which is exactly "follows growth."
+  //
+  // Zero-size backoff (mt#3231 review R1, BLOCKING): a self-rescheduling
+  // `setTimeout` (not a bare `setInterval`) so the retry CADENCE can differ
+  // from the tween cadence. While the container reports 0x0 (hidden tab,
+  // `display:none` transition, not yet laid out at mount) we do NOT compute
+  // a fit against 0x0 — we back off to `ZERO_SIZE_RETRY_MS`, a much slower
+  // poll than the 50ms tween rate, so a long-hidden container doesn't spin a
+  // tight do-nothing loop. The instant real dimensions appear, the fit
+  // resumes at the normal 50ms cadence. `cancelled` + clearing the pending
+  // timeout together are the cleanup this effect returns on every dep
+  // change AND on unmount — belt-and-suspenders like the rest of this file
+  // (see the ambient-drift interval's own cleanup above).
+  // -------------------------------------------------------------------------
+  const boundsKey = growingBounds?.bounds
+    ? `${Math.round(growingBounds.bounds.minX)},${Math.round(growingBounds.bounds.minY)},${Math.round(growingBounds.bounds.maxX)},${Math.round(growingBounds.bounds.maxY)}`
+    : null;
+  useEffect(() => {
+    // Narrow via a direct property check (not optional chaining) so `bounds`/
+    // `padding`/`easeMs` destructure as definitely-non-null `const`s — safe
+    // to reference from the nested `runTick` function declaration below
+    // without repeated non-null assertions.
+    if (!growingBounds || !growingBounds.bounds) return;
+    const { bounds, padding, easeMs } = growingBounds;
+    const el = containerRef.current;
+    if (!el) return;
+
+    const ZERO_SIZE_RETRY_MS = 250;
+    const TWEEN_TICK_MS = 50;
+
+    // The EASE ORIGIN (`start`) and its clock are resolved LAZILY, on the
+    // first tick that sees a real (non-zero) container size — NOT read
+    // once up front — so a container that hasn't laid out yet at effect-
+    // setup time (its `getBoundingClientRect()` still reporting 0x0, e.g.
+    // during initial mount) doesn't strand this effect with no interval to
+    // ever retry from. Every ambient/resize path in this component already
+    // re-reads `getBoundingClientRect()` per-tick for the same reason.
+    let start: ViewBox | null = null;
+    let startTime = 0;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const scheduleTick = (delayMs: number) => {
+      timeoutId = setTimeout(runTick, delayMs);
+    };
+
+    function runTick() {
+      if (cancelled) return;
+      if (userInteractedRef.current) return; // stopped for good — see module doc's resize-policy note
+      // `el` is narrowed non-null above, but TS control-flow narrowing of a
+      // `const` doesn't persist into a nested `function` DECLARATION
+      // (unlike an arrow function) — safe by construction, since `el` is
+      // never reassigned between the check above and every call here.
+      const { width, height } = el!.getBoundingClientRect();
+      if (width === 0 || height === 0) {
+        // Not laid out yet (or genuinely hidden) — don't compute a fit
+        // against 0x0. Retry at a slower cadence than the tween rate
+        // instead of busy-polling at 20Hz while there's nothing to do.
+        scheduleTick(ZERO_SIZE_RETRY_MS);
+        return;
+      }
+      const target = fitToBoundsViewBox(bounds, padding, width, height);
+
+      if (easeMs <= 0) {
+        setViewBox(target);
+        return; // converged — nothing left to schedule
+      }
+
+      if (start === null) {
+        start = viewBoxRef.current;
+        startTime = Date.now();
+      }
+      const t = Math.min(1, (Date.now() - startTime) / easeMs);
+      const eased = easeOutCubic(t);
+      setViewBox({
+        x: start.x + (target.x - start.x) * eased,
+        y: start.y + (target.y - start.y) * eased,
+        w: start.w + (target.w - start.w) * eased,
+        h: start.h + (target.h - start.h) * eased,
+      });
+      if (t < 1) scheduleTick(TWEEN_TICK_MS);
+    }
+
+    scheduleTick(0);
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) clearTimeout(timeoutId);
+    };
+    // `boundsKey` is the intentional rounded proxy for `growingBounds.bounds`'s identity (see the comment above); padding/easeMs are the other two primitives this effect reads.
+  }, [boundsKey, growingBounds?.padding, growingBounds?.easeMs]);
 
   // -------------------------------------------------------------------------
   // Zoom (focal point as fractions of the viewport; resolved against the LIVE
@@ -276,6 +512,7 @@ export function PanZoomSVG({ boardWidth, boardHeight, ariaLabel, className, chil
       ref={containerRef}
       className={cn("relative flex-1 min-w-0 min-h-0 overflow-hidden", className)}
       data-testid="pan-zoom-svg-container"
+      data-ambient-drift={ambientDrift?.enabled ? "true" : undefined}
     >
       {/* Zoom controls — docked top-right, keyboard-focusable */}
       <div className="absolute top-2 right-2 z-10 flex flex-col gap-1" role="group" aria-label="Zoom controls">

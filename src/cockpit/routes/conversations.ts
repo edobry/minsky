@@ -33,6 +33,15 @@ import { log } from "@minsky/shared/logger";
 import { getContextInspectorDb, getServerSessionProvider } from "../db-providers";
 import type { ConversationId } from "@minsky/domain/ids";
 import type { ResolveJsonlFsMod, StatFn, TailerLike } from "../live-tail-poller";
+import { looksLikeConversationId, withBoundedTimeout } from "../conversation-id-space";
+
+/**
+ * Bound for the `/overview` transcript lookup (mt#3131 D3) — see the sibling
+ * bound on the context-inspector snapshot route
+ * (`SNAPSHOT_ASSEMBLY_TIMEOUT_MS`) for the same rationale: a DB pool under
+ * contention must not leave this response pending indefinitely.
+ */
+const OVERVIEW_QUERY_TIMEOUT_MS = 15_000;
 
 /**
  * Options accepted by {@link mountConversationRoutes}. Every field here is a
@@ -255,6 +264,21 @@ export function mountConversationRoutes(
         return;
       }
 
+      // mt#3131 (D3/D5): a syntactically-invalid conversation id (not
+      // UUID-shaped) can never resolve — reject before the transcript query
+      // (checked after DB-availability so a genuine 503 still takes
+      // precedence, matching the pre-existing "infra unavailable" contract),
+      // both for speed (zero I/O, can never hang) and so the client can
+      // distinguish "not found" from "not yet ingested" (mirrors the same
+      // check on the context-inspector snapshot endpoint).
+      if (!looksLikeConversationId(agentSessionId)) {
+        res.status(404).json({
+          error: `"${agentSessionId}" is not a valid conversation id.`,
+          code: "invalid_id",
+        });
+        return;
+      }
+
       const { agentTranscriptsTable } = await import(
         "@minsky/domain/storage/schemas/agent-transcripts-schema"
       );
@@ -266,23 +290,29 @@ export function mountConversationRoutes(
       );
       const { eq, count } = await import("drizzle-orm");
 
-      const transcriptRows = await db
-        .select({
-          harness: agentTranscriptsTable.harness,
-          cwd: agentTranscriptsTable.cwd,
-          startedAt: agentTranscriptsTable.startedAt,
-          endedAt: agentTranscriptsTable.endedAt,
-          // mt#2792 Overview enrichment — regex-extracted refs (mt#1329
-          // metadata-extractor) and the incremental-ingest high-water-mark
-          // (used as the duration fallback for a conversation with no
-          // endedAt yet, i.e. one still in progress).
-          relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
-          relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
-          lastIngestedJsonlTimestamp: agentTranscriptsTable.lastIngestedJsonlTimestamp,
-        })
-        .from(agentTranscriptsTable)
-        .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
-        .limit(1);
+      // mt#3131 (D3): bound the lookup — a DB pool under contention (e.g. a
+      // live conversation's own polling load) must not leave this response
+      // pending indefinitely.
+      const transcriptRows = await withBoundedTimeout(
+        db
+          .select({
+            harness: agentTranscriptsTable.harness,
+            cwd: agentTranscriptsTable.cwd,
+            startedAt: agentTranscriptsTable.startedAt,
+            endedAt: agentTranscriptsTable.endedAt,
+            // mt#2792 Overview enrichment — regex-extracted refs (mt#1329
+            // metadata-extractor) and the incremental-ingest high-water-mark
+            // (used as the duration fallback for a conversation with no
+            // endedAt yet, i.e. one still in progress).
+            relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
+            relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
+            lastIngestedJsonlTimestamp: agentTranscriptsTable.lastIngestedJsonlTimestamp,
+          })
+          .from(agentTranscriptsTable)
+          .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
+          .limit(1),
+        OVERVIEW_QUERY_TIMEOUT_MS
+      );
 
       const transcript = transcriptRows[0];
       if (!transcript) {

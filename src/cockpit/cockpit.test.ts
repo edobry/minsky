@@ -21,6 +21,7 @@ import { FakeAskRepository } from "@minsky/domain/ask/repository";
 import type { AgentRow } from "./widgets/agents";
 import { createTaskGraphWidget } from "./widgets/task-graph";
 import type { GraphNode, GraphEdge, TaskGraphDeps } from "./widgets/task-graph";
+import { createMcpServerStatusWidget } from "./widgets/mcp-server-status";
 import { createWorkstreamsWidget } from "./widgets/workstreams";
 import type { WorkstreamCard, WorkstreamsDeps } from "./widgets/workstreams";
 import type {
@@ -188,18 +189,61 @@ describe("Cockpit server", () => {
   // test would have failed before mt#2294 (the memories-* widgets 404'd until an
   // operator hand-added them to cockpit.json).
   test("every registered widget's data endpoint is served (never 404); unregistered id 404s", async () => {
-    const url = await server();
-    const ids = Object.keys(WIDGET_REGISTRY);
+    // mt#3069: the registry's real `mcp-server-status` singleton binds five live
+    // deps — three outbound HTTP calls (health probe, Railway deploy state,
+    // Railway metrics) plus a probe-history file read AND write. Hitting its
+    // endpoint here cost 1109-1287ms against a ~120-190ms cohort, made the sweep
+    // wall-clock equal to that ONE endpoint, and wrote real probe history to disk
+    // from a test. Overriding the registry entry with a dep-stubbed instance of
+    // the SAME widget removes all five without touching what this test asserts:
+    // the id set is unchanged, so registry-gating is still exercised for real,
+    // and an unregistered id still 404s. (Stubbing the widget's DEPS is not
+    // stubbing the ROUTE — that distinction is why this does not contradict the
+    // mt#3047 note below.) Production behavior is untouched; this is test-seam
+    // only. The other 19 widgets keep their real fetch, so the "a registered
+    // widget whose backend is unavailable degrades to 200, never 404" property
+    // above stays live for them.
+    const overrideRegistry = {
+      "mcp-server-status": createMcpServerStatusWidget({
+        probeHealth: async () => ({ ok: true, statusCode: 200 }),
+        getDeploymentData: async () => null,
+        getMetricsData: async () => null,
+        readHistory: () => ({ samples: [] }),
+        writeHistory: () => {
+          // no-op: a routing test must not write probe history to disk
+        },
+        now: () => Date.UTC(2026, 0, 1),
+      }),
+    };
+    const url = await server({ overrideRegistry });
+    // Probe the EFFECTIVE registry the server resolved, not the static builtin
+    // map (PR #2243 R1). `createCockpitServer` serves `{...WIDGET_REGISTRY,
+    // ...overrideRegistry}`, so enumerating only the builtins would silently
+    // skip any override-only widget — a gap that was unreachable before this
+    // test started passing an override, and is now one line away from mattering.
+    // Today the override replaces an existing id, so the set is identical; this
+    // keeps it correct if that ever stops being true.
+    const ids = Object.keys({ ...WIDGET_REGISTRY, ...overrideRegistry });
+    // ...and cross-check that set against what the server ACTUALLY serves. R1
+    // suggested driving the sweep from /api/widgets directly; asserting equality
+    // instead gets the same server-truth guarantee without the failure mode that
+    // would introduce — if /api/widgets ever returned an empty or partial list,
+    // sourcing `ids` from it would silently shrink the sweep to nothing and pass.
+    // Here a divergence between "what the server serves" and "what we probe"
+    // fails loudly, and the sweep's size can never be set by the thing under test.
+    const servedIds = ((await (await fetch(`${url}/api/widgets`)).json()) as Array<{ id: string }>)
+      .map((w) => w.id)
+      .sort();
+    expect(servedIds).toEqual([...ids].sort());
     // Probe concurrently (mt#3047). These requests are independent, but
     // serializing ~20 of them made this test's runtime the SUM of endpoint
     // latencies: fine in isolation (~50-70ms each), but under full-suite
     // parallel load per-request latency inflates and the sum crossed the 15s
     // budget — a timeout that looked like a regression in whatever PR happened
     // to be pushing. Concurrent probing makes the runtime max-latency instead,
-    // without stubbing (this test exists to verify REAL registry-gated routing,
-    // the mt#2294 regression) and without relaxing the budget (so a genuinely
-    // slow endpoint is still caught). Collect { id, status } rather than
-    // asserting inside the map, so a failure still names the offending widget.
+    // and without relaxing the budget (so a genuinely slow endpoint is still
+    // caught). Collect { id, status } rather than asserting inside the map, so
+    // a failure still names the offending widget.
     const results = await Promise.all(
       ids.map(async (id) => ({
         id,
@@ -211,6 +255,25 @@ describe("Cockpit server", () => {
 
     const missing = await fetch(`${url}/api/widget/not-a-real-widget/data`);
     expect(missing.status).toBe(404);
+  });
+
+  // mt#3069: pin the sweep's teeth. Removing a widget's live I/O must not quietly
+  // make the assertion above vacuous, so exercise its FAILURE path directly —
+  // the same collect-then-filter expression, over a list that deliberately
+  // contains an unregistered id. The offender must appear in `notFound` BY NAME.
+  // If the collection or the filter ever stops surfacing offenders, this test
+  // fails while the sweep above would still pass green.
+  test("the sweep's collection names an unregistered id rather than passing silently", async () => {
+    const url = await server();
+    const probed = ["basic-health", "not-a-real-widget"];
+    const results = await Promise.all(
+      probed.map(async (id) => ({
+        id,
+        status: (await fetch(`${url}/api/widget/${id}/data`)).status,
+      }))
+    );
+    const notFound = results.filter((r) => r.status === 404).map((r) => r.id);
+    expect(notFound).toEqual(["not-a-real-widget"]);
   });
 
   // ---------------------------------------------------------------------------

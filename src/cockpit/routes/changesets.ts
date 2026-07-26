@@ -10,11 +10,16 @@ import {
   getServerSessionProvider,
   getServerTaskService,
   getServerChangesetService,
+  getServerChecksReader,
 } from "../db-providers";
 import { resolveCockpitProjectScope } from "../project-scope";
 import type { Changeset } from "@minsky/domain/changeset/types";
 import type { SessionRecord } from "@minsky/domain/session/types";
-import type { SessionCommitRef } from "../session-detail";
+import type {
+  SessionCommitRef,
+  ChangesetChecksSummary,
+  ChangesetChecksUnavailableReason,
+} from "../session-detail";
 
 /** Message text for a caught unknown. */
 function errText(e: unknown): string {
@@ -171,6 +176,42 @@ export function mountChangesetRoutes(app: express.Express): void {
 
       const [localCommits, taskTitle] = await Promise.all([commitsPromise, taskTitlePromise]);
 
+      // ---------------------------------------------------------------
+      // (3) CI CHECK-RUNS (mt#3097) — keyed on the live PR's head SHA.
+      // Degrades to null, never throws. The REASON is carried alongside:
+      // "no commit to check" and "the query failed" are different facts, and
+      // reporting the second when the first is true is a false statement
+      // (PR #2233 R1).
+      // ---------------------------------------------------------------
+      let checks: ChangesetChecksSummary | null = null;
+      let checksUnavailableReason: ChangesetChecksUnavailableReason | null = null;
+      const headSha = liveChangeset?.metadata?.github?.headSha;
+      if (!headSha) {
+        checksUnavailableReason = "no-commit";
+      } else {
+        try {
+          const checksReader = await getServerChecksReader();
+          if (!checksReader) {
+            checksUnavailableReason = "not-configured";
+          } else {
+            const result = await checksReader(headSha);
+            checks = {
+              allPassed: result.allPassed,
+              total: result.summary.total,
+              passed: result.summary.passed,
+              failed: result.summary.failed,
+              pending: result.summary.pending,
+              checks: result.checks,
+            };
+          }
+        } catch (checksErr) {
+          checksUnavailableReason = "fetch-failed";
+          log.debug(
+            `[changeset] check-runs enrichment degraded for #${changesetId}: ${errText(checksErr)}`
+          );
+        }
+      }
+
       // PR block: live when available, else the session snapshot.
       const snapshotPr = record ? buildPrRef(record) : null;
       const pr = liveChangeset
@@ -197,6 +238,8 @@ export function mountChangesetRoutes(app: express.Express): void {
         session: record ? buildSessionMeta(record, taskTitle) : null,
         commits,
         detail: liveChangeset ? liveDetailFromChangeset(liveChangeset) : null,
+        checks,
+        checksUnavailableReason,
       });
     } catch (err) {
       log.error(`[changeset] GET /api/changeset/:id — internal error: ${errText(err)}`);

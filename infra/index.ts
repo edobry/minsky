@@ -91,13 +91,31 @@ const reviewerServiceId = "3913e8a4-81ab-465a-aad8-b76b5e3f66ed";
 export const reviewerService = new railway.Service("reviewer", {
   projectId: reviewerProject,
   name: "minsky-reviewer-webhook",
-  sourceRepo: "edobry/minsky",
-  sourceRepoBranch: "main",
-  // Scope the deploy trigger to the reviewer's build/dependency closure via
-  // Railway config-as-code `build.watchPatterns` (the provider exposes no
-  // watch field). Without this the service redeploys on EVERY push to main,
-  // and each restart drops in-flight GitHub->reviewer webhooks (mt#2345).
-  configPath: "services/reviewer/railway.json",
+  sourceImage: "ghcr.io/edobry/minsky-reviewer:latest",
+  // mt#3117 — converted from repo-source (Railway's native GitHub webhook,
+  // rebuilding on EVERY push to main matching the now-retired
+  // railway.json's build.watchPatterns — mt#2345's original fix for
+  // unsynchronized redeploys) to image-source, the SAME shape minsky-mcp
+  // uses above. Deploy-scoping now lives entirely in
+  // `.github/workflows/deploy-reviewer.yml`'s `paths:` filter — the
+  // workflow builds, smoke-tests, migrates, and pushes the GHCR image only
+  // on changes within the reviewer's build closure; that is the single
+  // source of truth (mirrors the minsky-mcp comment above in intent).
+  //
+  // `configPath` is INTENTIONALLY DROPPED, not just omitted — Railway
+  // rejects `config_path` when `source_image` is set ("Invalid Attribute
+  // Combination"), the exact mt#2472 incident that removed minsky-mcp's own
+  // config_path. `services/reviewer/railway.json` is retired for the same
+  // reason (see services/reviewer/deploy.config.ts's mt#3117 comment).
+  //
+  // LIVE-STATE CAVEAT (mt#1815/mt#2777, unresolved as of this task): the
+  // live reviewer service's `configPath` has been independently observed
+  // drifted to null in production — i.e. even the PRE-mt#3117 config-as-code
+  // state was not reliably applying to the live service. `pulumi up`
+  // against this declaration is what reconciles the live service to
+  // sourceImage; running it, and flipping the dashboard's Settings > Source
+  // to Docker Image, are documented OPERATOR follow-ups performed after
+  // this PR merges (see services/reviewer/DEPLOY.md) — not an in-PR action.
   regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 
@@ -116,25 +134,30 @@ defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
   BRAINTRUST_API_KEY: sealed("braintrust-api-key"),
   SWEEPER_ENABLED: plain("true"),
   REVIEWER_COMPOSITION_CONVERGENCE_ENABLED: plain("true"),
-  // mt#2799: zero-downtime redeploy drain/overlap. These duplicate
-  // services/reviewer/railway.json's `deploy.drainingSeconds` /
-  // `deploy.overlapSeconds` (the config-as-code path Railway's schema
-  // documents for this — see docs.railway.com/reference/config-as-code).
-  // Declared HERE too (as service variables, which Railway also accepts for
-  // these two settings per the Deployments reference) because the live
-  // reviewer service's `configPath` has been observed drifted to null in
-  // production (memory mt1815_soak_still_failing_2026_07_15, tracked as
-  // mt#1815/mt#2777 SC#3, unresolved as of this task) — i.e. the
-  // railway.json `deploy` block may not actually apply until that drift is
-  // fixed. Service variables are a separate Railway mechanism unaffected by
-  // the configPath drift, so this is the belt to railway.json's suspenders.
-  // Values: 300s draining covers a typical review (kill-test target <30s
-  // recovery + normal review latency ~60-90s, well under 300s); 60s overlap
-  // gives the new deployment time to pass its healthcheck and start
-  // draining the old one gracefully. There is no service-variable
-  // equivalent for `deploy.healthcheckPath` — that setting depends solely
-  // on the railway.json config-as-code path (or the dashboard) actually
-  // applying.
+  // mt#2799: zero-downtime redeploy drain/overlap. Originally declared to
+  // DUPLICATE services/reviewer/railway.json's `deploy.drainingSeconds` /
+  // `deploy.overlapSeconds` as a belt-and-suspenders measure, because the
+  // live reviewer service's `configPath` had been observed drifted to null
+  // in production (memory mt1815_soak_still_failing_2026_07_15, tracked as
+  // mt#1815/mt#2777 SC#3, unresolved as of this task).
+  //
+  // mt#3117 UPDATE: `services/reviewer/railway.json` is now RETIRED (the
+  // service converted from repo-source to image-source deploy — Railway
+  // rejects `config_path` alongside `source_image`; see this file's
+  // `reviewerService` resource comment). These two service variables are
+  // therefore no longer a belt-and-suspenders duplicate of anything — they
+  // are the SOLE declarative source for drain/overlap now (still a plain
+  // Railway service-variable mechanism, unaffected by the configPath
+  // question, which no longer applies at all). Values unchanged: 300s
+  // draining covers a typical review (kill-test target <30s recovery +
+  // normal review latency ~60-90s, well under 300s); 60s overlap gives the
+  // new deployment time to pass its healthcheck and start draining the old
+  // one gracefully. `deploy.healthcheckPath` has NO service-variable
+  // equivalent and, with railway.json gone, now has NO config-as-code
+  // declaration at all — the same gap minsky-mcp's image-source service
+  // already has (see that service's comment above). One-time dashboard
+  // verification of the healthcheck path is an operator follow-up
+  // (services/reviewer/DEPLOY.md), not something this file can declare.
   RAILWAY_DEPLOYMENT_DRAINING_SECONDS: plain("300"),
   RAILWAY_DEPLOYMENT_OVERLAP_SECONDS: plain("60"),
   MINSKY_MCP_URL: plain("https://minsky-mcp-production.up.railway.app/mcp"),

@@ -1,7 +1,10 @@
 /**
  * Tests for updateGithubApp.
  *
- * @see mt#2167
+ * @see mt#3218 — rewritten after discovering the PATCH /app endpoint this
+ *   module previously called does not exist (404 on every real invocation).
+ *   These tests assert the real contract: GET /app to read current state,
+ *   NO mutating call, and an actionable message naming the settings URL.
  */
 
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
@@ -68,51 +71,13 @@ describe("updateGithubApp", () => {
     expect(result.message).toContain("Nothing to update");
   });
 
-  it("shows dry-run preview without calling PATCH", async () => {
+  it("shows no-op message when proposed matches current, with no mutating request", async () => {
     const store = makeMockStore(FAKE_CREDS);
     const fetchCalls: { url: string; method?: string }[] = [];
 
     globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       fetchCalls.push({ url, method: init?.method });
-
-      if (url.endsWith("/app") && !init?.method) {
-        return new Response(
-          JSON.stringify({
-            events: ["pull_request"],
-            permissions: { pull_requests: "write", metadata: "read" },
-            name: "test-app",
-            slug: "test-app",
-          }),
-          { status: 200 }
-        );
-      }
-      return new Response("Not found", { status: 404 });
-    }) as typeof fetch;
-
-    const result = await updateGithubApp({
-      name: "test-app",
-      store,
-      events: ["pull_request", "issue_comment"],
-      execute: false,
-      buildJwt: mockBuildJwt,
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.dryRun).toBe(true);
-    expect(result.message).toContain("Would update");
-    expect(result.message).toContain("issue_comment");
-    expect(result.message).toContain("Pass --execute to apply");
-
-    const patchCalls = fetchCalls.filter((c) => c.method === "PATCH");
-    expect(patchCalls).toHaveLength(0);
-  });
-
-  it("shows no-op message when proposed matches current", async () => {
-    const store = makeMockStore(FAKE_CREDS);
-
-    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input.toString();
       if (url.endsWith("/app") && !init?.method) {
         return new Response(
           JSON.stringify({
@@ -138,24 +103,60 @@ describe("updateGithubApp", () => {
     expect(result.success).toBe(true);
     expect(result.dryRun).toBe(true);
     expect(result.message).toContain("No changes");
-    expect(result.message).not.toContain("Would update");
+
+    // No request other than the GET /app read was made.
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0]?.method).toBeUndefined();
   });
 
-  it("calls PATCH /app when --execute is true", async () => {
+  it("no-op when permissions match but are ordered differently (PR #2317 R1)", async () => {
+    // GET /app can return permission keys in a different order than the
+    // caller's --permissions map was parsed in. JSON.stringify compares by
+    // insertion order, so a naive comparison would false-positive as drift.
     const store = makeMockStore(FAKE_CREDS);
-    const fetchCalls: { url: string; method?: string; body?: string }[] = [];
 
     globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
-      fetchCalls.push({ url, method: init?.method, body: init?.body as string });
-
-      if (url.endsWith("/app") && init?.method === "PATCH") {
-        return new Response(JSON.stringify({ ok: true }), { status: 200 });
-      }
-      if (url.endsWith("/app")) {
+      if (url.endsWith("/app") && !init?.method) {
         return new Response(
           JSON.stringify({
-            events: ["pull_request", "issue_comment"],
+            events: [],
+            // Live order: contents, then pull_requests, then metadata.
+            permissions: { contents: "write", pull_requests: "write", metadata: "read" },
+            name: "test-app",
+            slug: "test-app",
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("Not found", { status: 404 });
+    }) as typeof fetch;
+
+    const result = await updateGithubApp({
+      name: "test-app",
+      store,
+      // Requested order: pull_requests, then metadata, then contents — same
+      // set, different insertion order.
+      permissions: { pull_requests: "write", metadata: "read", contents: "write" },
+      execute: false,
+      buildJwt: mockBuildJwt,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("No changes");
+  });
+
+  it("never issues a PATCH request, regardless of --execute", async () => {
+    const store = makeMockStore(FAKE_CREDS);
+    const fetchCalls: { url: string; method?: string }[] = [];
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      fetchCalls.push({ url, method: init?.method });
+      if (url.endsWith("/app") && !init?.method) {
+        return new Response(
+          JSON.stringify({
+            events: ["pull_request"],
             permissions: { pull_requests: "write", metadata: "read" },
             name: "test-app",
             slug: "test-app",
@@ -174,35 +175,25 @@ describe("updateGithubApp", () => {
       buildJwt: mockBuildJwt,
     });
 
-    expect(result.success).toBe(true);
-    expect(result.dryRun).toBe(false);
-    expect(result.message).toContain("updated successfully");
-
     const patchCalls = fetchCalls.filter((c) => c.method === "PATCH");
-    expect(patchCalls).toHaveLength(1);
+    expect(patchCalls).toHaveLength(0);
 
-    const patchBody = JSON.parse(patchCalls[0]?.body ?? "{}");
-    expect(patchBody.default_events).toEqual(["pull_request", "issue_comment"]);
+    expect(result.success).toBe(false);
+    expect(result.dryRun).toBe(true);
   });
 
-  it("sends permissions via PATCH when specified", async () => {
+  it("names the exact settings URL and the specific field that differs", async () => {
     const store = makeMockStore(FAKE_CREDS);
-    const fetchCalls: { url: string; method?: string; body?: string }[] = [];
 
     globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
-      fetchCalls.push({ url, method: init?.method, body: init?.body as string });
-
-      if (url.endsWith("/app") && init?.method === "PATCH") {
-        return new Response(JSON.stringify({ ok: true }), { status: 200 });
-      }
-      if (url.endsWith("/app")) {
+      if (url.endsWith("/app") && !init?.method) {
         return new Response(
           JSON.stringify({
             events: ["pull_request"],
             permissions: { pull_requests: "write", contents: "read", metadata: "read" },
             name: "test-app",
-            slug: "test-app",
+            slug: "minsky-ai",
           }),
           { status: 200 }
         );
@@ -218,53 +209,14 @@ describe("updateGithubApp", () => {
       buildJwt: mockBuildJwt,
     });
 
-    expect(result.success).toBe(true);
-
-    const patchCalls = fetchCalls.filter((c) => c.method === "PATCH");
-    expect(patchCalls).toHaveLength(1);
-
-    const patchBody = JSON.parse(patchCalls[0]?.body ?? "{}");
-    expect(patchBody.default_permissions).toEqual({
-      pull_requests: "write",
-      contents: "write",
-      metadata: "read",
-    });
-  });
-
-  it("reports PATCH failure with HTTP status", async () => {
-    const store = makeMockStore(FAKE_CREDS);
-
-    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input.toString();
-
-      if (url.endsWith("/app") && init?.method === "PATCH") {
-        return new Response("Validation Failed", { status: 422 });
-      }
-      if (url.endsWith("/app")) {
-        return new Response(
-          JSON.stringify({
-            events: ["pull_request"],
-            permissions: { pull_requests: "write" },
-            name: "test-app",
-            slug: "test-app",
-          }),
-          { status: 200 }
-        );
-      }
-      return new Response("Not found", { status: 404 });
-    }) as typeof fetch;
-
-    const result = await updateGithubApp({
-      name: "test-app",
-      store,
-      events: ["invalid_event"],
-      execute: true,
-      buildJwt: mockBuildJwt,
-    });
-
     expect(result.success).toBe(false);
-    expect(result.message).toContain("PATCH /app failed");
-    expect(result.message).toContain("422");
+    expect(result.settingsUrl).toBe("https://github.com/settings/apps/minsky-ai/permissions");
+    expect(result.message).toContain("https://github.com/settings/apps/minsky-ai/permissions");
+    expect(result.message).toContain("contents:read");
+    expect(result.message).toContain("contents:write");
+    expect(result.message).toMatch(/no api/i);
+    expect(result.message).toMatch(/accept/i);
+    expect(result.message).toContain("--execute was passed but has no effect");
   });
 
   it("reports GET /app failure during initial read", async () => {

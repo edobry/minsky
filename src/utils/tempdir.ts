@@ -23,9 +23,7 @@ export function createRobustTempDir(
 
   for (const base of locations) {
     try {
-      if (!fs.existsSync(base)) {
-        fs.mkdirSync(base, { recursive: true });
-      }
+      fs.mkdirSync(base, { recursive: true });
       const tempDir = fs.mkdtempSync(path.join(base, prefix));
       if (process.env.DEBUG_TEST_UTILS) {
         log.debug(`createRobustTempDir: ${tempDir}`);

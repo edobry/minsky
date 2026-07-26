@@ -1,5 +1,5 @@
 {
-  "id": "ea9b65c3-6c0c-4eeb-9b20-9f8b6fa48c5d",
+  "id": "92be1ce0-0dcd-4d25-bd17-1a9083609605",
   "prevId": "c72cadcd-eb84-4e47-b481-2aee22764e57",
   "version": "7",
   "dialect": "postgresql",
@@ -3630,6 +3630,194 @@
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
+    },
+    "public.conversation_run_state": {
+      "name": "conversation_run_state",
+      "schema": "",
+      "columns": {
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "last_event_name": {
+          "name": "last_event_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_event_at": {
+          "name": "last_event_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "activity": {
+          "name": "activity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tool_name": {
+          "name": "tool_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tool_started_at": {
+          "name": "tool_started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "prompt_id": {
+          "name": "prompt_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "needs_input_reason": {
+          "name": "needs_input_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "needs_input_tool": {
+          "name": "needs_input_tool",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "needs_input_at": {
+          "name": "needs_input_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error_type": {
+          "name": "last_error_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error_message": {
+          "name": "last_error_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error_at": {
+          "name": "last_error_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_compaction_trigger": {
+          "name": "last_compaction_trigger",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_compaction_at": {
+          "name": "last_compaction_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_compaction_ended_at": {
+          "name": "last_compaction_ended_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ended_hint_at": {
+          "name": "ended_hint_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ended_hint_reason": {
+          "name": "ended_hint_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cwd": {
+          "name": "cwd",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_conversation_run_state_last_event_at": {
+          "name": "idx_conversation_run_state_last_event_at",
+          "columns": [
+            {
+              "expression": "last_event_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_conversation_run_state_project_id": {
+          "name": "idx_conversation_run_state_project_id",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "conversation_run_state_project_id_projects_id_fk": {
+          "name": "conversation_run_state_project_id_projects_id_fk",
+          "tableFrom": "conversation_run_state",
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     }
   },
   "enums": {
@@ -3700,8 +3888,7 @@
         "ask.policy_closed",
         "authorization.policy_covered",
         "task.bulk_edit.dry_run",
-        "task.bulk_edit.executed",
-        "guard.overridden"
+        "task.bulk_edit.executed"
       ]
     },
     "public.follow_up_status": {

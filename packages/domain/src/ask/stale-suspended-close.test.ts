@@ -33,6 +33,7 @@ interface SeedInput {
   parentTaskId?: string;
   parentSessionId?: string;
   commitMessage?: string;
+  routingTarget?: Ask["routingTarget"];
 }
 
 /**
@@ -49,6 +50,7 @@ async function seed(repo: FakeAskRepository, input: SeedInput): Promise<string> 
     question: "test?",
     parentTaskId: input.parentTaskId,
     parentSessionId: input.parentSessionId,
+    routingTarget: input.routingTarget,
     metadata: input.commitMessage !== undefined ? { commitMessage: input.commitMessage } : {},
   });
   const target = input.state ?? "suspended";
@@ -227,7 +229,7 @@ describe("runStaleSuspendedAskCloseSweep", () => {
     expect(await stateOf(repo, id)).toBe("suspended");
   });
 
-  it("never TTL-expires or supersedes a NON-commit authorization ask; closes it only on parent-terminal", async () => {
+  it("never TTL-expires, supersedes, OR parent-terminal-closes a NON-commit authorization ask (mt#3215)", async () => {
     // A canary/credential-style approval: no metadata.commitMessage.
     const canaryId = await seed(repo, { kind: KIND_AUTH_APPROVE, parentTaskId: "mt#400" });
     const canaryCreatedMs = await createdAtMs(repo, canaryId);
@@ -238,12 +240,31 @@ describe("runStaleSuspendedAskCloseSweep", () => {
     });
     expect(old.untouched).toBe(1);
     expect(await stateOf(repo, canaryId)).toBe("suspended");
-    // Parent goes terminal → now it closes as moot.
+    // mt#3215: parent going terminal must NOT close it either — the ask#6024
+    // incident. Parent-terminal is evidence the subject may have been
+    // rehomed to a follow-up task, not that it was answered.
     const after = await runStaleSuspendedAskCloseSweep(repo, {
       taskStatusById: new Map([["mt#400", "DONE"]]),
     });
-    expect(after.closedParentTerminal).toBe(1);
-    expect(await stateOf(repo, canaryId)).toBe("closed");
+    expect(after.closedParentTerminal).toBe(0);
+    expect(after.untouched).toBe(1);
+    expect(await stateOf(repo, canaryId)).toBe("suspended");
+  });
+
+  it("does not close an unanswered, operator-routed, non-commit authorization.approve ask on parent-terminal (mt#3215 AT1 — the ask#6024 shape)", async () => {
+    const id = await seed(repo, {
+      kind: KIND_AUTH_APPROVE,
+      parentTaskId: "mt#3210",
+      routingTarget: "operator",
+    });
+    const outcome = await runStaleSuspendedAskCloseSweep(repo, {
+      taskStatusById: new Map([["mt#3210", "DONE"]]),
+    });
+    expect(outcome.closedParentTerminal).toBe(0);
+    expect(outcome.untouched).toBe(1);
+    const ask = await repo.getById(id);
+    expect(ask?.state).toBe("suspended");
+    expect(ask?.response).toBeUndefined();
   });
 
   it("never touches direction.decide, even with a terminal parent and an ancient clock", async () => {

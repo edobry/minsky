@@ -24,12 +24,30 @@ import {
   respondToAsk,
   validateAsksCreateParams,
   validateAsksEditParams,
+  validateAuthorizationApproveOptions,
   formatAskWaitMessage,
   toAskSummary,
   getAskByResolvedId,
   resolveAskIdInput,
   listAsksFiltered,
+  askOptionSchema,
+  asksCreateParams,
 } from "./asks";
+import { APPROVAL_TOKEN } from "@minsky/shared/ask-approval";
+// The REAL production normalization function both the CLI and MCP dispatch
+// paths run raw caller input through BEFORE `command.validate()` is called
+// (see command-generator-core.ts:165-175 and shared-command-integration.ts:
+// 571-601) — used below to empirically pin that validateAuthorizationApproveOptions
+// observes POST-transform params (mt#3203 review R1), not a claim taken on
+// the type signature's word.
+import { normalizeCliParameters } from "../bridges/parameter-mapper";
+// Cross-boundary parity import (mt#3203): the redemption-time verifier this
+// authoring-time guard must agree with. A pure function import from a test
+// file — the compiled `.claude/hooks/*` runtime output never includes
+// `*.test.ts`, so this does not violate the hook's "self-contained, no
+// src/ import at runtime" constraint (that constraint binds the SOURCE
+// script, not its test suite).
+import { isApprovingPayload } from "../../../../.minsky/hooks/ask-verification";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { CreateAskInput } from "@minsky/domain/ask/repository";
 import type { AskWaitForResponseResult } from "@minsky/domain/ask/wait-for-response";
@@ -75,6 +93,12 @@ const FIXTURE_RESPONDER_ID = "com.anthropic.claude-code:proc:abc123";
 // custom/no-magic-string-duplication now that it's reused across the
 // original asks.create tests and the mt#2748 toAskSummary/asks.get tests.
 const FIXTURE_QUESTION = "Which approach should we ship?";
+
+// mt#3203 fixture labels — extracted to defang custom/no-magic-string-duplication
+// across the validateAuthorizationApproveOptions describe block, which reuses
+// the originating incident's exact option labels in several tests.
+const FIXTURE_APPROVE_LABEL = "Approve the override and merge";
+const FIXTURE_DECLINE_LABEL = "Leave it blocked — I'll look at the PR myself";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -901,6 +925,240 @@ describe("validateAsksCreateParams", () => {
 });
 
 // ---------------------------------------------------------------------------
+// validateAuthorizationApproveOptions — mt#3203: reject an authorization.approve
+// Ask whose options can never satisfy the redemption-time approval verifier.
+// ---------------------------------------------------------------------------
+
+describe("validateAuthorizationApproveOptions (mt#3203)", () => {
+  test("rejects an authorization.approve Ask whose options carry only descriptive labels", () => {
+    // The originating incident's exact shape: both options' `value` defaulted
+    // to their `label` (asks_create's mt#3181 defaulting), so neither could
+    // ever satisfy the verifier's APPROVAL_TOKEN.
+    expect(() =>
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [
+          { label: FIXTURE_APPROVE_LABEL, value: FIXTURE_APPROVE_LABEL },
+          { label: FIXTURE_DECLINE_LABEL, value: FIXTURE_DECLINE_LABEL },
+        ],
+      })
+    ).toThrow(ValidationError);
+  });
+
+  test("error message names the accepted tokens and echoes the offending labels", () => {
+    let caught: unknown;
+    try {
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [{ label: FIXTURE_APPROVE_LABEL, value: FIXTURE_APPROVE_LABEL }],
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ValidationError);
+    const error = caught as ValidationError;
+    expect(error.message).toContain("approve");
+    expect(error.message).toContain(FIXTURE_APPROVE_LABEL);
+  });
+
+  test("passes when an explicit approve-shaped value accompanies an arbitrary descriptive label", () => {
+    // The label stays fully descriptive; only the value is constrained.
+    expect(() =>
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [
+          { label: FIXTURE_APPROVE_LABEL, value: "approve" },
+          { label: FIXTURE_DECLINE_LABEL, value: "decline" },
+        ],
+      })
+    ).not.toThrow();
+  });
+
+  test("passes for any of the accepted tokens (approve/approved/yes, case-insensitive)", () => {
+    for (const value of ["approve", "approved", "Approved", "yes", "YES"]) {
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: KIND_AUTHORIZATION_APPROVE,
+          options: [{ label: "Go ahead", value }],
+        })
+      ).not.toThrow();
+    }
+  });
+
+  test("does not fire for other ask kinds, regardless of option shape", () => {
+    // Out of scope per spec: only authorization.approve feeds the grant verifier.
+    for (const kind of [
+      KIND_DIRECTION_DECIDE,
+      KIND_CAPABILITY_ESCALATE,
+      KIND_COORDINATION_NOTIFY,
+      KIND_QUALITY_REVIEW,
+      KIND_STUCK_UNBLOCK,
+      KIND_INFORMATION_RETRIEVE,
+    ]) {
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind,
+          options: [{ label: "Use Postgres", value: "Use Postgres" }],
+        })
+      ).not.toThrow();
+    }
+  });
+
+  test("does not fire when options are absent (free-text authorization asks are out of scope)", () => {
+    expect(() =>
+      validateAuthorizationApproveOptions({ kind: KIND_AUTHORIZATION_APPROVE, options: undefined })
+    ).not.toThrow();
+    expect(() =>
+      validateAuthorizationApproveOptions({ kind: KIND_AUTHORIZATION_APPROVE, options: [] })
+    ).not.toThrow();
+  });
+
+  test("vocabulary parity with the redemption-time verifier's APPROVAL_TOKEN (drift guard)", () => {
+    // Both this authoring-time guard and .minsky/hooks/ask-verification.ts's
+    // isApprovingPayload import APPROVAL_TOKEN from the SAME
+    // @minsky/shared/ask-approval module. This test proves the authoring
+    // guard's accept/reject boundary tracks that shared regex directly,
+    // rather than a second, independently-maintained copy that could drift.
+    const acceptedTokens = ["approve", "approved", "yes", "Approve", "YES"];
+    const rejectedTokens = ["ok", "sure", "affirmative", FIXTURE_APPROVE_LABEL];
+
+    for (const token of acceptedTokens) {
+      expect(APPROVAL_TOKEN.test(token)).toBe(true);
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: KIND_AUTHORIZATION_APPROVE,
+          options: [{ label: "whatever label", value: token }],
+        })
+      ).not.toThrow();
+    }
+    for (const token of rejectedTokens) {
+      expect(APPROVAL_TOKEN.test(token)).toBe(false);
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: KIND_AUTHORIZATION_APPROVE,
+          options: [{ label: "whatever label", value: token }],
+        })
+      ).toThrow(ValidationError);
+    }
+  });
+
+  test("end-to-end: an option that passes this guard also verifies as approved at redemption time", () => {
+    // Closes the loop the spec's acceptance tests describe: an option shaped
+    // like {label: "Approve the override and merge", value: "approve"} both
+    // (a) passes asks_create's authoring-time guard, and (b) verifies as
+    // approved when .minsky/hooks/ask-verification.ts's isApprovingPayload
+    // evaluates the response payload an operator's selection would produce.
+    const option = askOptionSchema.parse({
+      label: FIXTURE_APPROVE_LABEL,
+      value: "approve",
+    });
+
+    expect(() =>
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [option],
+      })
+    ).not.toThrow();
+
+    // Simulate the inbox response shape (mt#3007): {chosen, option} carrying
+    // the SELECTED option's value.
+    expect(isApprovingPayload({ chosen: option.value, option: option.value })).toBe(true);
+  });
+
+  test("end-to-end: the ORIGINATING incident's malformed ask fails both the guard and the verifier", () => {
+    const option = askOptionSchema.parse({ label: FIXTURE_APPROVE_LABEL });
+
+    expect(() =>
+      validateAuthorizationApproveOptions({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        options: [option],
+      })
+    ).toThrow(ValidationError);
+
+    // Had the guard not fired, this is the exact payload shape that produced
+    // the confusing "not approved" error after the operator already approved.
+    expect(isApprovingPayload({ chosen: option.value, option: option.value })).toBe(false);
+  });
+
+  describe("validate() observes POST-transform params, not raw input (mt#3203 review R1)", () => {
+    // This guard's correctness depends on `askOptionSchema`'s value-defaults-
+    // to-label transform having ALREADY run by the time
+    // validateAuthorizationApproveOptions sees `params.options`. If the
+    // command-registry's validate→execute pipeline ran `validate` on RAW
+    // caller input instead, an option with only a `label` would arrive with
+    // `value: undefined` — which `isApproveShapedToken` also treats as
+    // non-approving, so a pre-parse guard would happen to reject the same
+    // input for the WRONG reason, and would silently stop working the
+    // moment someone reordered the pipeline.
+    //
+    // Verified empirically (not asserted from the type signature) by
+    // tracing both dispatch paths' source:
+    //   - CLI: command-generator-core.ts:165 calls
+    //     `normalizeCliParameters(commandDef.parameters, rawParameters)`
+    //     BEFORE line 175's `commandDef.validate(normalizedParams, context)`.
+    //   - MCP: shared-command-integration.ts:571 calls
+    //     `convertMcpArgsToParameters(filteredArgs, command.parameters)`
+    //     BEFORE line 601's `command.validate(parameters, context)`.
+    // Both normalization functions assign the Zod `.parse()` OUTPUT (see
+    // parameter-mapper.ts:356 and shared-command-integration.ts:164), so
+    // `askOptionSchema`'s `.transform()` has already run by the time
+    // `validate` sees `params.options`.
+    //
+    // This test pins that behavior using the REAL production function
+    // (`normalizeCliParameters`) and the REAL parameter map `asks.create`
+    // is registered with (`asksCreateParams`) — not a hand-rolled
+    // substitute — so a future change to either would break this test
+    // rather than silently drifting.
+    test("an option with a label and NO explicit value passes normalization with value=label, then correctly fails the guard", () => {
+      const rawParameters = {
+        kind: KIND_AUTHORIZATION_APPROVE,
+        title: "Override needed",
+        question: FIXTURE_QUESTION,
+        options: [{ label: FIXTURE_APPROVE_LABEL }, { label: FIXTURE_DECLINE_LABEL }],
+      };
+
+      const normalized = normalizeCliParameters(asksCreateParams, rawParameters);
+      const options = normalized.options as Array<{ label: string; value: unknown }>;
+
+      // Pin the transform: value defaulted to label, NOT left undefined.
+      expect(options[0]?.value).toBe(FIXTURE_APPROVE_LABEL);
+      expect(options[0]?.value).not.toBeUndefined();
+      expect(options[1]?.value).toBe(FIXTURE_DECLINE_LABEL);
+
+      // And the guard, given what validate() actually receives, rejects —
+      // correctly, because neither defaulted value is approve-shaped.
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: normalized.kind as typeof KIND_AUTHORIZATION_APPROVE,
+          options,
+        })
+      ).toThrow(ValidationError);
+    });
+
+    test("an option with an explicit approve-shaped value survives normalization unchanged, then passes the guard", () => {
+      const rawParameters = {
+        kind: KIND_AUTHORIZATION_APPROVE,
+        title: "Override needed",
+        question: FIXTURE_QUESTION,
+        options: [{ label: FIXTURE_APPROVE_LABEL, value: "approve" }],
+      };
+
+      const normalized = normalizeCliParameters(asksCreateParams, rawParameters);
+      const options = normalized.options as Array<{ label: string; value: unknown }>;
+
+      expect(options[0]?.value).toBe("approve");
+
+      expect(() =>
+        validateAuthorizationApproveOptions({
+          kind: normalized.kind as typeof KIND_AUTHORIZATION_APPROVE,
+          options,
+        })
+      ).not.toThrow();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // createAsk — window-deferred suspended state persistence (R1 fix, mt#1490)
 // ---------------------------------------------------------------------------
 
@@ -1366,6 +1624,24 @@ describe("formatAskWaitMessage", () => {
     expect(msg).not.toContain('"proceed with option B"');
   });
 
+  test("a system-auto-closed result (mt#3215) is NOT rendered as an operator response", () => {
+    const result: AskWaitForResponseResult = {
+      resolved: true,
+      ask: {} as never,
+      response: {
+        responder: "system:parent-task-terminal",
+        payload: { sweep: "stale-suspended-close", task: "mt#3001" },
+      },
+      state: "closed",
+      elapsedMs: 1000,
+      pollCount: 1,
+    };
+    const msg = formatAskWaitMessage(result);
+    expect(msg).toContain("⚠ Ask auto-closed (closed) by system:parent-task-terminal");
+    expect(msg).toContain("NOT an operator response");
+    expect(msg).not.toContain("✓ Ask resolved");
+  });
+
   test("terminal-without-response result names the terminal state", () => {
     const result: AskWaitForResponseResult = {
       resolved: false,
@@ -1732,5 +2008,47 @@ describe("listAsksFiltered — asks.list id filter (mt#2965 R1)", () => {
     await expect(listAsksFiltered(repo, resolveId, { id: "ask#999" })).rejects.toThrow(
       /not found/i
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// askOptionSchema — decision-frame option normalization (mt#3181)
+// ---------------------------------------------------------------------------
+
+describe("askOptionSchema value normalization (mt#3181)", () => {
+  test("an option with no `value` gets `label` as its value", () => {
+    // The originating shape: `{label, description}`, which is what
+    // `humility.mdc §Escalation packaging` describes and what agents write.
+    // Under the previous bare `z.unknown()` declaration this parsed cleanly
+    // with `value` ABSENT from the output — every response writer then
+    // stringified `undefined`/`""` and the operator's selection was lost.
+    const label = "B - scope stays paths";
+    const description = "Non-breaking; the bad input fails loudly.";
+    const parsed = askOptionSchema.parse({ label, description });
+
+    expect(parsed.value).toBe(label);
+    expect(parsed.label).toBe(label);
+    expect(parsed.description).toBe(description);
+  });
+
+  test("an explicit `value` is preserved, not overwritten by `label`", () => {
+    const parsed = askOptionSchema.parse({ label: "Use Postgres", value: "postgres" });
+
+    expect(parsed.value).toBe("postgres");
+    expect(parsed.label).toBe("Use Postgres");
+  });
+
+  test("a falsy-but-present `value` is preserved (not treated as absent)", () => {
+    // `null`, `false`, `0`, and `""` are legitimate machine values. Only
+    // `undefined` means "the caller omitted it", so the normalization keys
+    // off `=== undefined` rather than falsiness.
+    expect(askOptionSchema.parse({ label: "No", value: false }).value).toBe(false);
+    expect(askOptionSchema.parse({ label: "Zero", value: 0 }).value).toBe(0);
+    expect(askOptionSchema.parse({ label: "Null", value: null }).value).toBe(null);
+    expect(askOptionSchema.parse({ label: "Empty", value: "" }).value).toBe("");
+  });
+
+  test("`label` is still required", () => {
+    expect(askOptionSchema.safeParse({ value: "orphan" }).success).toBe(false);
   });
 });

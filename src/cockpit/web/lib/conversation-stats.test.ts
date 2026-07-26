@@ -132,6 +132,28 @@ describe("computeConversationStats", () => {
     expect(stats.toolErrorCount).toBe(1);
   });
 
+  // mt#3131 (D6) — interruption-rejections are is_error:true at the harness
+  // level but are not genuine tool failures; they must not inflate the
+  // aggregate error tally.
+  test("excludes interruption-rejections from toolErrorCount", () => {
+    const stats = computeConversationStats([
+      assistantToolCallBlock(0, "c1", "Bash", { command: "ls" }),
+      userToolResultBlock(1, "c1", "command failed: not found", true),
+      assistantToolCallBlock(2, "c2", "Edit", { file: "foo.ts" }),
+      userToolResultBlock(
+        3,
+        "c2",
+        "The user doesn't want to proceed with this tool use. The tool use was rejected " +
+          "(eg. if it was a file edit, the new_string was NOT written to the file). STOP " +
+          "what you are doing and wait for the user to tell you how to proceed.",
+        true
+      ),
+    ]);
+    expect(stats.toolCallCount).toBe(2);
+    // Only the genuine failure counts — the interruption-rejection is excluded.
+    expect(stats.toolErrorCount).toBe(1);
+  });
+
   test("captures the FIRST user-prompt text snippet, ignoring later user turns", () => {
     const stats = computeConversationStats([
       userTextBlock(0, "first message"),

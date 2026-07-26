@@ -381,9 +381,12 @@ export interface AcceptanceTestItem {
 
 /**
  * Extracts the raw body of a spec's `## Acceptance Tests` section (everything between
- * the heading and the next `##` heading, a `---` divider, or end-of-string). Mirrors the
- * section-extraction regex in `require-acceptance-tests-before-done.ts` for consistency
- * across the two hooks that read this same spec convention.
+ * the heading and the next `##` heading, a `---` divider, or end-of-string).
+ *
+ * Historical note: this regex originally mirrored one in
+ * `require-acceptance-tests-before-done.ts`, an unregistered, never-live DONE-transition
+ * hook deleted as dead code in mt#975. This hook is now the sole reader of this spec
+ * convention.
  *
  * Returns `null` when no such section exists.
  */

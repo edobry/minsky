@@ -104,6 +104,7 @@ describe("runTranscriptIngestOnSessionEnd", () => {
       "ingest",
       "--session=sess-1",
       "--harness=claude_code",
+      "--ended",
     ]);
 
     const record = JSON.parse(h.logLines[0] as string);

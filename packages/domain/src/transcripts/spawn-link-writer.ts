@@ -44,7 +44,7 @@ import { log } from "@minsky/shared/logger";
 import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-turns-schema";
 import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import { minskySessionLinksTable } from "../storage/schemas/minsky-session-links-schema";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import { findAgentToolCall } from "./agent-tool-call-shape";
 
 /** Link-type value written by this module (mt#1313's `subagent_spawn` class). */
@@ -168,7 +168,7 @@ export async function writeSpawnLink(
     return "written";
   } catch (err) {
     log.warn(`writeSpawnLink: failed to upsert link for session ${childAgentSessionId}`, {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
       minskySessionId,
     });
     return "error";
@@ -236,7 +236,7 @@ export async function backfillSpawnLinks(
       );
   } catch (err) {
     log.error("backfillSpawnLinks: failed to load agent_spawns rows", {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
     });
     return result;
   }
@@ -273,7 +273,7 @@ export async function backfillSpawnLinks(
     } catch (err) {
       result.linksErrored++;
       log.warn(`backfillSpawnLinks: failed for ${row.childAgentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }

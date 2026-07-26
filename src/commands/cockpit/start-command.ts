@@ -15,6 +15,7 @@ import {
   startDispatchWatchdogSweeper,
   startDeploySmokeSweeper,
   startFollowUpSweeper,
+  startConversationPresenceSweeper,
   startSweepMetaWatchdog,
 } from "../../cockpit/sweepers";
 import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
@@ -35,6 +36,13 @@ import {
   buildAllowedHosts,
 } from "../../cockpit/auth";
 import { attachDrivenSessionWebSocket } from "../../cockpit/driven-session-ws";
+import {
+  createHighestUpdateIdReader,
+  createInboundEventRecorder,
+  getPrincipalChannelDb,
+  respondToAskFromChannel,
+  startPrincipalChannel,
+} from "../../cockpit/principal-channel-launch";
 import { loadPersistedDrivenSessions } from "../../cockpit/driven-session-launch";
 
 const DEFAULT_PORT = 3737;
@@ -336,6 +344,25 @@ export function createStartCommand(): Command {
       // expire) so the /asks surface reflects reality. Boot pass + 60s loop;
       // fail-open inside the sweeper.
       const stopAskSweeper = startAskAdvancementSweeper();
+      // Principal channel (mt#3228): the inbound Telegram poller, which drives
+      // a local `claude` conversation with the principal's messages. LOCAL
+      // DAEMON ONLY, like the driven-session surfaces above — it spawns the
+      // genuine binary with the operator's own credentials. Opt-in
+      // (`principalChannel.enabled`); fire-and-forget so a Telegram or
+      // Pulumi hiccup can never keep the cockpit from serving.
+      let stopPrincipalChannel: (() => void) | null = null;
+      void startPrincipalChannel({
+        respondToAsk: respondToAskFromChannel,
+        recordEvent: createInboundEventRecorder(getPrincipalChannelDb),
+        readHighestUpdateId: createHighestUpdateIdReader(getPrincipalChannelDb),
+      })
+        .then((handle) => {
+          stopPrincipalChannel = handle ? () => handle.stop() : null;
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(`Warning: principal channel failed to start: ${message}`);
+        });
       // Stale-suspended-ask close sweep (mt#3001): recurring reconciliation
       // over `suspended` asks — close parent-terminal authz/review asks,
       // close failed-commit orphans superseded by a later landed commit,
@@ -375,6 +402,14 @@ export function createStartCommand(): Command {
       // general by every sweeper in this list); this is simply its newest
       // registrant plus a DB-durable one-shot primitive layered on top.
       const stopFollowUpSweeper = startFollowUpSweeper();
+      // Conversation presence absence-detection sweep (mt#3201, mt#3130
+      // Phase 2): detects presence TRANSITIONS the write path structurally
+      // cannot emit — above all LIVE -> STALLED, since a killed process emits
+      // no event to retract its own `running` row — and pushes them on
+      // `minsky.conversation.presence_changed` for the SSE broker. Started
+      // BEFORE the meta-watchdog below so the watchdog covers it like every
+      // other sweep.
+      const stopConversationPresenceSweeper = startConversationPresenceSweeper();
       // Sweep meta-watchdog (mt#2894): a "sweep of sweeps" on its OWN
       // self-rescheduling setTimeout chain (deliberately not setInterval —
       // see sweepers.ts's docblock) that force-restarts any of the eight
@@ -396,7 +431,11 @@ export function createStartCommand(): Command {
         stopDispatchWatchdogSweeper();
         stopDeploySmokeSweeper();
         stopFollowUpSweeper();
+        stopConversationPresenceSweeper();
         stopSweepMetaWatchdog();
+        // Aborts the in-flight long poll rather than letting shutdown wait it
+        // out; null when the channel is disabled or still starting.
+        stopPrincipalChannel?.();
         removeCurrentCockpitState();
       };
       const cleanupAndExit = () => {

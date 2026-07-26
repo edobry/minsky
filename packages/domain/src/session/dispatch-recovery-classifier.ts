@@ -23,8 +23,32 @@
  * the harness transcript JSONL mtime was evaluated and rejected in favor of
  * the `presence_claims` table) and the documented residual blind spot.
  *
+ * mt#3149 update: `classifyDispatchRecoveryState` below now ALSO consults
+ * PR existence as a liveness signal, not just `commitsAheadOfBase` — see
+ * that function's docstring for the originating incident (a dispatch with
+ * an open PR and pushed commits was classified `crashed-no-output` twice,
+ * because the CALLER never re-probed live state at all for the second
+ * classification — see `dispatch-recover-command.ts`'s escalate-branch
+ * restructuring for the other half of this fix).
+ *
+ * mt#3193 update: `computeDispatchStaleness` below now ALSO consults a
+ * workspace-mtime signal (dirty-file filesystem timestamps) — closing the
+ * gap where a dispatch working entirely through non-MCP harness tools
+ * (`Read`/`Edit`/`Write`/`Glob`/`Grep`) produces neither a commit nor a
+ * `presence_claims` refresh, and was therefore still misclassified as dead
+ * by the mt#3086 fix. See `computeDispatchStaleness`'s docstring and
+ * `./workspace-activity.ts` for the full rationale. Separately, the
+ * IN-REVIEW-with-open-PR false positive this task also fixes (a completed
+ * dispatch correctly idling while `minsky-reviewer[bot]` reviews its PR,
+ * flagged as stalled because "no commits" is the DESIRED state there) is
+ * handled by the CALLER (`dispatch-recover-command.ts`), not this module —
+ * it is a pre-staleness-check suppression, not a new activity signal.
+ *
  * @see mt#2831 — this task (original staleness/classification/prompt logic)
  * @see mt#3086 — false-positive staleness fix (presence-claim liveness signal)
+ * @see mt#3149 — false-positive crashed-no-output fix (PR-existence liveness signal)
+ * @see mt#3193 — false-positive staleness fix (workspace-mtime signal;
+ *   IN-REVIEW+open-PR suppression in the caller)
  * @see mt#2646 — dispatch-watchdog detection + the recovery-probe shape reused here
  * @see packages/domain/src/session/dispatch-recovery-probe.ts — the probe shape
  * @see packages/domain/src/storage/schemas/subagent-invocations-schema.ts — the outcome enum
@@ -51,13 +75,22 @@ import type { SubagentInvocationOutcome } from "../storage/schemas/subagent-invo
 export const DISPATCH_RECOVERY_STALE_MS = 30 * 60 * 1000;
 
 /**
- * Which signal produced `lastActivityAtMs` (mt#3086). Surfaced so a caller
- * can explain WHY a dispatch was judged healthy — in particular so
- * "healthy, no commits, but recent tool-call activity" is distinguishable
- * from "healthy, recent commit" in logs/messages, rather than collapsing
- * both into an opaque timestamp.
+ * Which signal produced `lastActivityAtMs` (mt#3086; mt#3193 adds
+ * `"workspace-mtime"` and `"in-review-open-pr"`). Surfaced so a caller can
+ * explain WHY a dispatch was judged healthy — in particular so "healthy, no
+ * commits, but recent tool-call activity" is distinguishable from "healthy,
+ * recent commit" in logs/messages, rather than collapsing both into an
+ * opaque timestamp. `"in-review-open-pr"` is produced by the CALLER
+ * (`dispatch-recover-command.ts`), not by `computeDispatchStaleness` itself —
+ * it is included in this union so every `activitySource` an operator might
+ * see on a `healthy` result is one enumerated, documented vocabulary.
  */
-export type DispatchActivitySource = "dispatch-start" | "commit" | "presence";
+export type DispatchActivitySource =
+  | "dispatch-start"
+  | "commit"
+  | "presence"
+  | "workspace-mtime"
+  | "in-review-open-pr";
 
 /** Result of the staleness check for a single in-flight invocation. */
 export interface DispatchStalenessResult {
@@ -113,15 +146,36 @@ export interface DispatchStalenessResult {
  * SESSION id, which this command already has (`subagentSessionId`) — no new
  * join key is needed.
  *
+ * ## Workspace-mtime signal (mt#3193)
+ *
+ * `presence_claims` only refreshes on a Minsky-MCP-routed tool call. A
+ * dispatch doing a long stretch of work through harness-NATIVE tools
+ * (`Read`, `Edit`, `Write`, `Glob`, `Grep` — never `session_read_file`,
+ * `session_edit_file`, etc.) produces neither a commit NOR a presence
+ * refresh, and was therefore STILL misclassified as dead even after
+ * mt#3086 (the mt#3193 originating incident: a `refactorer` dispatch spent
+ * 55 minutes splitting a 2132-line file into nine modules entirely through
+ * non-MCP tools, was flagged stalled at the 32-minute silent mark, and the
+ * orchestrator redispatched a second agent into the occupied session).
+ * `lastWorkspaceMtimeAtMs` — the freshest mtime among currently-dirty files
+ * in the session's git working tree, resolved by
+ * `resolveLastWorkspaceMtimeAtMs` (`./workspace-activity.ts`) — closes this
+ * specific gap: a Write/Edit call touches the filesystem regardless of
+ * which tool surface (MCP or harness-native) made it. It is checked LAST in
+ * the precedence chain (dispatch-start -> commit -> presence ->
+ * workspace-mtime), consistent with strict-`>` tie semantics (see below).
+ *
  * ## Residual blind spot (documented, not silently accepted)
  *
  * A dispatch that goes an entire `staleMs` window WITHOUT making any
- * Minsky-MCP-routed tool call — e.g. stuck inside one very long non-MCP
- * subprocess call — is still invisible to every signal here (commit,
- * presence, or otherwise) and will still misclassify as `recover`. This is
- * a real, narrower gap than the pre-mt#3086 state (which missed a much
- * broader class: any quiet-but-MCP-active stretch), not a claim of full
- * coverage.
+ * Minsky-MCP-routed tool call AND without writing/touching any file in its
+ * workspace — e.g. stuck inside one very long non-MCP subprocess call, or a
+ * pure-reasoning stretch with no file writes — is still invisible to every
+ * signal here (commit, presence, workspace-mtime, or otherwise) and will
+ * still misclassify as `recover`. This is a real, narrower gap than the
+ * pre-mt#3086 state (which missed a much broader class: any quiet-but-MCP-
+ * active stretch) or the pre-mt#3193 state (which additionally missed any
+ * quiet-but-file-writing stretch), not a claim of full coverage.
  *
  * **SendMessage-resumed agent confound.** A `SendMessage`-resumed subagent
  * (per `subagent-routing.mdc`'s "Continuation" section) writes no NEW
@@ -139,7 +193,28 @@ export interface DispatchStalenessResult {
  * ever reaching this function, so a SendMessage-resumed continuation of an
  * already-Stopped dispatch is never staleness-checked at all (arguably
  * correct: from `subagent_invocations`' point of view nothing is "in
- * flight" to recover).
+ * flight" to recover). mt#3193: `lastWorkspaceMtimeAtMs` is keyed on the
+ * session's WORKING DIRECTORY, an even weaker binding than
+ * `presence_claims`' session-id key — a SendMessage-resumed continuation's
+ * file writes are visible here under the exact same "row still open"
+ * condition, AND regardless of whether the resumed work happens to route
+ * through MCP tools or harness-native ones.
+ *
+ * ## Tie semantics (documented mt#3172, PR #2294 R1; mt#3193 extends to workspace-mtime)
+ *
+ * Each candidate below (`lastCommitAtMs`, then `lastPresenceActivityAtMs`,
+ * then `lastWorkspaceMtimeAtMs`) only replaces the running max when
+ * STRICTLY GREATER than it (`>`, not `>=`). So on an exact timestamp tie
+ * between two signals, the running max does NOT advance and the
+ * EARLIER-checked signal wins: a commit and a presence-claim refresh at the
+ * identical ms both present as `"commit"`, not `"presence"`, because the
+ * presence check requires strictly exceeding the value the commit check
+ * already set (and likewise a presence refresh beats a tied workspace-mtime
+ * touch). This is the reference tie behavior the dispatch-watchdog
+ * producer's own staleness computation (`computeDispatchWatchdogFlags`,
+ * `src/cockpit/dispatch-watchdog.ts`, mt#3172/mt#3193) mirrors for parity —
+ * see that function's docstring for its multi-signal version of this same
+ * rule.
  *
  * Pure and synchronous — no I/O. Unit-testable with an injected clock.
  */
@@ -148,7 +223,8 @@ export function computeDispatchStaleness(
   lastCommitAtMs: number | null,
   nowMs: number,
   staleMs: number = DISPATCH_RECOVERY_STALE_MS,
-  lastPresenceActivityAtMs: number | null = null
+  lastPresenceActivityAtMs: number | null = null,
+  lastWorkspaceMtimeAtMs: number | null = null
 ): DispatchStalenessResult {
   let lastActivityAtMs = startedAtMs;
   let activitySource: DispatchActivitySource = "dispatch-start";
@@ -160,6 +236,12 @@ export function computeDispatchStaleness(
   if (lastPresenceActivityAtMs !== null && lastPresenceActivityAtMs > lastActivityAtMs) {
     lastActivityAtMs = lastPresenceActivityAtMs;
     activitySource = "presence";
+  }
+  // mt#3193: closes the non-MCP-tool blind spot (see docstring's "Workspace-
+  // mtime signal" section) — checked last, same strict-`>` tie semantics.
+  if (lastWorkspaceMtimeAtMs !== null && lastWorkspaceMtimeAtMs > lastActivityAtMs) {
+    lastActivityAtMs = lastWorkspaceMtimeAtMs;
+    activitySource = "workspace-mtime";
   }
 
   const staleForMs = nowMs - lastActivityAtMs;
@@ -198,6 +280,30 @@ export interface DispatchRecoveryClassificationInput {
   commitsAheadOfBase: number | null;
   /** Whether `.minsky/sessions/<id>/handoff.md` exists. */
   handoffExists: boolean;
+  /**
+   * Whether a still-open (or draft) PR exists for the session branch
+   * (mt#3149). This is DIRECT, POSITIVE evidence of prior output — a PR
+   * cannot exist without a push having happened — and is deliberately
+   * consulted INDEPENDENTLY of `commitsAheadOfBase`, which is a `git
+   * rev-list`-derived proxy that can misreport zero for reasons unrelated to
+   * whether the dispatch actually produced anything (e.g. the caller not
+   * re-probing live state before reporting a classification — see the
+   * mt#3149 originating incident: a dispatch with PR #2244 open and commits
+   * pushed was classified `crashed-no-output` because the CALLER never
+   * re-ran the commits-ahead probe for that classification at all, not
+   * because the probe itself misread a ref/worktree). A caller that cannot
+   * determine PR state should pass `false` — this is the conservative
+   * default that preserves the pre-mt#3149 behavior for the case where no
+   * PR information is available.
+   *
+   * Safe to add as a REQUIRED field (not optional): this module's sole
+   * consumer is `dispatch-recover-command.ts` (grep-verified 2026-07-24, the
+   * mt#3149 spec's gate-h consumer enumeration) — no other production or
+   * test code constructs a `DispatchRecoveryClassificationInput` literal
+   * outside this module's own test file, so there is no unseen call site
+   * that a required field could silently break.
+   */
+  hasOpenPr: boolean;
 }
 
 /**
@@ -214,15 +320,25 @@ export interface DispatchRecoveryClassificationInput {
  *   2. Dirty tree, no handoff.md        -> `partial-uncommitted-no-handoff`
  *      (the failure class per `subagent-dispatch-cadence.mdc` — lost/stranded
  *      work a successor can't find automatically without this probe).
- *   3. Clean tree, commits ahead of base -> `committed-no-pr`
+ *   3. Clean tree, commits ahead of base OR an open PR exists -> `committed-no-pr`
  *      (work landed cleanly; the dispatch died before `session_pr_create`,
  *      or — when a PR already exists — before driving it to convergence;
  *      the continuation-prompt builder differentiates those two shapes via
  *      the caller-supplied `prExists`/`prNumber`, since both map to this
- *      same persisted outcome value).
- *   4. Clean tree, no commits            -> `crashed-no-output`
+ *      same persisted outcome value). mt#3149: an open PR is checked HERE,
+ *      as an alternative to `commitsAheadOfBase > 0` rather than a
+ *      replacement for it — either signal alone is sufficient, since a PR
+ *      implies commits were pushed even when `commitsAheadOfBase`'s
+ *      `git rev-list` comparison happens to read stale or zero.
+ *   4. Clean tree, no commits, no PR     -> `crashed-no-output`
  *      (nothing was ever produced — the dispatch died at or before its
- *      first commit).
+ *      first commit). This is the ONLY path to `crashed-no-output` — a
+ *      dispatch with an open PR or commits ahead of base can never reach it
+ *      (mt#3149 SC1/SC2), and this is the class the hard constraint (mt#3149
+ *      Acceptance Test 4) pins: a genuinely dead dispatch (no PR, no
+ *      commits, no dirty tree) must still land here — this branch is not
+ *      weakened by the mt#3149 fix, only the OTHER branches gained a new
+ *      way to be reached.
  *
  * Pure — no I/O.
  */
@@ -230,6 +346,10 @@ export function classifyDispatchRecoveryState(
   input: DispatchRecoveryClassificationInput
 ): DispatchRecoveryClassification {
   const hasCommits = (input.commitsAheadOfBase ?? 0) > 0;
+  // mt#3149: an open PR is positive, direct evidence of prior output,
+  // independent of (and not overridden by) a possibly-stale/zero
+  // `commitsAheadOfBase` reading. See this function's docstring, step 3.
+  const hasPositiveLivenessEvidence = hasCommits || input.hasOpenPr;
 
   if (input.dirtyFileCount > 0) {
     return input.handoffExists
@@ -237,7 +357,7 @@ export function classifyDispatchRecoveryState(
       : "partial-uncommitted-no-handoff";
   }
 
-  if (hasCommits) {
+  if (hasPositiveLivenessEvidence) {
     return "committed-no-pr";
   }
 

@@ -1,0 +1,2 @@
+ALTER TYPE "public"."system_event_type" ADD VALUE 'principal.message_rejected' BEFORE 'task.status_changed';--> statement-breakpoint
+ALTER TYPE "public"."system_event_type" ADD VALUE 'principal.message_received';

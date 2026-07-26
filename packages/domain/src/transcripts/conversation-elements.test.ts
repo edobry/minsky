@@ -120,7 +120,13 @@ describe("snapshotBlockToConversationTurn — element extraction", () => {
       })
     );
     expect(t?.elements).toEqual([
-      { kind: "tool-result", toolUseId: "toolu_1", content: "result text", isError: false },
+      {
+        kind: "tool-result",
+        toolUseId: "toolu_1",
+        content: "result text",
+        isError: false,
+        isInterruptionRejection: false,
+      },
     ]);
   });
 
@@ -135,6 +141,54 @@ describe("snapshotBlockToConversationTurn — element extraction", () => {
       })
     );
     expect((t?.elements[0] as { isError: boolean }).isError).toBe(true);
+  });
+
+  // mt#3131 (D6) — interruption-rejection detection.
+  test("tool_result with the interruption-rejection message → isInterruptionRejection true", () => {
+    const t = snapshotBlockToConversationTurn(
+      block({
+        rawJsonlType: "user",
+        content: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "t",
+              content:
+                "The user doesn't want to proceed with this tool use. The tool use was " +
+                "rejected (eg. if it was a file edit, the new_string was NOT written to the " +
+                "file). STOP what you are doing and wait for the user to tell you how to proceed.",
+              is_error: true,
+            },
+          ],
+        },
+      })
+    );
+    const el = t?.elements[0] as { isError: boolean; isInterruptionRejection: boolean };
+    expect(el.isError).toBe(true);
+    expect(el.isInterruptionRejection).toBe(true);
+  });
+
+  test("a genuine tool error is NOT classified as an interruption-rejection", () => {
+    const t = snapshotBlockToConversationTurn(
+      block({
+        rawJsonlType: "user",
+        content: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "t",
+              content: "ENOENT: no such file or directory",
+              is_error: true,
+            },
+          ],
+        },
+      })
+    );
+    const el = t?.elements[0] as { isError: boolean; isInterruptionRejection: boolean };
+    expect(el.isError).toBe(true);
+    expect(el.isInterruptionRejection).toBe(false);
   });
 
   test("mixed thinking + text + tool_use preserve order", () => {

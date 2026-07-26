@@ -9,6 +9,15 @@ Six TypeScript hooks (in `.claude/hooks/`) forming two subsystems:
 
 All hooks share types and a sync exec helper from `types.ts`. They are self-contained — no imports from `src/` — so they work even when the main codebase has type errors.
 
+**`@minsky/shared` is an allowed exception, not a violation of this rule.** It is a
+dependency-free leaf package (not `src/`), so it carries no risk of pulling in a
+type-broken `src/` module. Several hooks already import from it directly —
+e.g. `record-subagent-invocation.ts` imports `@minsky/shared/safe-truncate`,
+and `ask-verification.ts` imports `@minsky/shared/ask-approval` (mt#3203, to
+share vocabulary with the `asks_create` authoring-time guard rather than
+maintain a second copy). Importing `@minsky/shared/*` from a hook is
+consistent with this convention; importing `packages/domain` or `src/*` is not.
+
 Additional standalone hooks beyond the original two subsystems (e.g.,
 `transcript-ingest-on-session-end.ts`) are documented in their own sections
 below; the guard/detector hooks live in `.minsky/rules/hook-files.mdc`.

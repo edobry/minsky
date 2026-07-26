@@ -62,6 +62,29 @@ import { writeFreshnessMarker } from "./freshness-marker";
 import { FakeSessionProvider } from "./fake-session-provider";
 import type { SessionRecord } from "./types";
 
+// Guard against ambient GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL/GIT_COMMITTER_NAME/
+// GIT_COMMITTER_EMAIL env vars leaking into this file's git subprocesses.
+// Git itself sets these when invoking hooks (pre-commit, commit-msg) for the
+// OUTER commit being made — so when THIS test file is picked up by
+// `run-related-tests.ts` as part of an actual `session_commit`-driven
+// pre-commit run, `sessionCommit()`'s internal `git commit` call (via
+// `child_process.exec`, which inherits `process.env` by default) silently
+// picks up the OUTER commit's real identity instead of the isolated temp
+// repo's LOCAL `user.name`/`user.email` config — env vars always override
+// local config. Reproduced deterministically by setting these 4 vars before
+// running this file directly; not a bug in `sessionCommit` this task needs to
+// fix (out of mt#3177's scope — this task is about push confirmation, not
+// commit identity), just a test-isolation gap this file needs regardless of
+// invocation context.
+for (const key of [
+  "GIT_AUTHOR_NAME",
+  "GIT_AUTHOR_EMAIL",
+  "GIT_COMMITTER_NAME",
+  "GIT_COMMITTER_EMAIL",
+]) {
+  delete process.env[key];
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -124,6 +147,43 @@ async function makeTmpCleanGitRepoWithSlowPreCommitHook(sleepSeconds: number): P
   await writeFile(hookPath, hookScript); // eslint-disable-line custom/no-real-fs-in-tests -- real git hook for a real temp repo
   execSync(`chmod +x "${hookPath}"`, { stdio: "ignore" });
   return dir;
+}
+
+/**
+ * Bare-clone the repo as its own origin (like `addLocalRemote`) but install a
+ * hook INSIDE the bare "remote" that sleeps for `sleepSeconds` — used to
+ * force a genuine, deterministic push-phase timeout for the mt#3177 tests
+ * below without any network dependency or fake server.
+ *
+ * `hookName` picks WHERE in the remote's push lifecycle the sleep happens,
+ * which is what distinguishes the two mt#3177 acceptance-test shapes:
+ *   - "pre-receive" fires BEFORE the remote updates its refs — sleeping here
+ *     delays the ref update itself, so a client-side timeout that fires
+ *     during the sleep is genuinely correct that the push has NOT landed yet
+ *     (AT1: pushUnconfirmed).
+ *   - "post-receive" fires AFTER the remote has ALREADY updated its refs —
+ *     sleeping here reproduces the exact mt#3177 recurrence shape: the push
+ *     has already landed server-side, but the client (waiting for the git
+ *     process to return) is still blocked (AT2: pushConfirmedVia).
+ */
+async function addLocalRemoteWithHook(
+  repoDir: string,
+  hookName: "pre-receive" | "post-receive",
+  sleepSeconds: number
+): Promise<string> {
+  const bareDir = addLocalRemote(repoDir);
+  const hookPath = join(bareDir, "hooks", hookName);
+  const hookScript = ["#!/bin/sh", `sleep ${sleepSeconds}`, "exit 0", ""].join("\n");
+  await writeFile(hookPath, hookScript); // eslint-disable-line custom/no-real-fs-in-tests -- real git hook for a real temp bare repo
+  execSync(`chmod +x "${hookPath}"`, { stdio: "ignore" });
+  return bareDir;
+}
+
+/** `git log --oneline -N` in `dir`, as a string — shared helper (was duplicated
+ * across several tests below; `custom/no-magic-string-duplication` flags the
+ * repeated literal command strings). */
+function gitLogOneline(dir: string, count: number): string {
+  return execSync(`git log --oneline -${count}`, { cwd: dir }).toString();
 }
 
 const tmpDirs: string[] = [];
@@ -190,7 +250,7 @@ describe("sessionCommit push-failure structured partial outcome (mt#3049 AT1)", 
 
     // The commit really did land locally (this is the "committed but push
     // omitted" gap mt#3049 closes — verify it's not a fabricated sha).
-    const log = execSync("git log --oneline -2", { cwd: repoDir }).toString();
+    const log = gitLogOneline(repoDir, 2);
     expect(log).toContain("push should fail");
   });
 });
@@ -253,7 +313,7 @@ describe("sessionCommit resumable push (mt#3049 AT2)", () => {
     expect(second.commitHash).toBe(first.commitHash);
 
     // Verify the commit actually reached the (now-fixed) remote.
-    const remoteLog = execSync("git log --oneline -3", { cwd: bareDir }).toString();
+    const remoteLog = gitLogOneline(bareDir, 3);
     expect(remoteLog).toContain("pending push");
   });
 
@@ -290,6 +350,94 @@ describe("sessionCommit resumable push (mt#3049 AT2)", () => {
     expect(second.pushed).toBe(false);
     expect(second.commitHash).toBeNull();
   });
+});
+
+// ---------------------------------------------------------------------------
+// sessionCommit: push-phase timeout + remote-ref confirmation (mt#3177)
+// ---------------------------------------------------------------------------
+
+describe("sessionCommit push-timeout remote confirmation (mt#3177 acceptance tests)", () => {
+  test("AT1: push times out and the remote genuinely has not advanced -> pushUnconfirmed:true, pushed:false", async () => {
+    // pre-receive fires BEFORE the remote updates its ref, so a client-side
+    // timeout that fires during the sleep is genuinely correct: the push has
+    // NOT landed. pushTimeoutMs (20ms) is far below the hook's sleep (2s), so
+    // the timeout deterministically wins. Sleep kept short (not the 5-8s used
+    // by an earlier revision) to minimize how long the abandoned background
+    // push subprocess lingers after this test returns — raceAgainstTimeout
+    // does not kill it (see pushWithConfirmation's doc comment), and a longer
+    // lingering orphan raised observed cross-test flakiness under load.
+    const repoDir = await makeTmpDirtyGitRepo();
+    tmpDirs.push(repoDir);
+    const bareDir = await addLocalRemoteWithHook(repoDir, "pre-receive", 2);
+    tmpDirs.push(bareDir);
+
+    const record = makeSessionRecord({ sessionId: "push-unconfirmed-session" });
+    const sessionProvider = makeSessionProvider(record, repoDir);
+
+    const result = await sessionCommit(
+      {
+        session: "push-unconfirmed-session",
+        message: "test: push should time out unconfirmed",
+        all: true,
+        pushTimeoutMs: 20,
+      },
+      sessionProvider
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.commitHash).toBeTruthy();
+    expect(result.pushed).toBe(false);
+    expect(result.pushTimedOut).toBe(true);
+    expect(result.pushUnconfirmed).toBe(true);
+    expect(result.pushConfirmedVia).toBeUndefined();
+
+    // No consumer can mistake this for success: never both pushed:true and
+    // pushUnconfirmed:true at once.
+    expect(result.pushed && result.pushUnconfirmed).toBeFalsy();
+  }, 15000);
+
+  test("AT2: push times out but the remote already landed it -> pushed:true, pushConfirmedVia:'remote-check'", async () => {
+    // post-receive fires AFTER the remote has ALREADY updated its ref —
+    // reproducing the exact mt#3177 recurrence shape: the push has landed
+    // server-side, but the client (waiting for git to return) is still
+    // blocked. pushTimeoutMs (500ms) needs to be LONGER than the actual
+    // transfer + ref-update (tens of ms for this tiny repo) so the remote
+    // genuinely has the new ref by the time our client-side bound fires, but
+    // far shorter than the hook's 3s sleep so the timeout still deterministically
+    // wins (session_commit's own confirmation never waits for the hook to
+    // finish) — the remote-ref check run immediately after is what discovers
+    // the ref already advanced. Sleep kept short for the same lingering-orphan
+    // reason noted on AT1 above.
+    const repoDir = await makeTmpDirtyGitRepo();
+    tmpDirs.push(repoDir);
+    const bareDir = await addLocalRemoteWithHook(repoDir, "post-receive", 3);
+    tmpDirs.push(bareDir);
+
+    const record = makeSessionRecord({ sessionId: "push-confirmed-session" });
+    const sessionProvider = makeSessionProvider(record, repoDir);
+
+    const result = await sessionCommit(
+      {
+        session: "push-confirmed-session",
+        message: "test: push confirmed via remote check",
+        all: true,
+        pushTimeoutMs: 500,
+      },
+      sessionProvider
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.commitHash).toBeTruthy();
+    expect(result.pushed).toBe(true);
+    expect(result.pushTimedOut).toBe(true);
+    expect(result.pushConfirmedVia).toBe("remote-check");
+    expect(result.pushUnconfirmed).toBeUndefined();
+
+    // Verify the commit really did land on the remote (not a fabricated
+    // confirmation) — read the bare repo's ref directly.
+    const remoteLog = gitLogOneline(bareDir, 2);
+    expect(remoteLog).toContain("push confirmed via remote check");
+  }, 15000);
 });
 
 // ---------------------------------------------------------------------------
@@ -437,10 +585,10 @@ describe("sessionCommit branch-freshness CAS check (mt#3049 regression)", () => 
     expect(err.mainRef).toBe(`origin/${branch}`);
     // The commit itself lands locally (freshness is checked AFTER commit,
     // BEFORE push) — the CAS check exists to stop the PUSH, not the commit.
-    const log = execSync("git log --oneline -2", { cwd: repoDir }).toString();
+    const log = gitLogOneline(repoDir, 2);
     expect(log).toContain("should be CAS-blocked");
     // And critically, it must NOT have reached the remote.
-    const remoteLog = execSync("git log --oneline -3", { cwd: bareDir }).toString();
+    const remoteLog = gitLogOneline(bareDir, 3);
     expect(remoteLog).not.toContain("should be CAS-blocked");
   });
 

@@ -10,11 +10,13 @@
  * retires them.
  *
  * ## Covers
- *   - Suspended asks whose parent task has since reached a terminal status
- *     (`authorization.approve` AND `quality.review`) — the mt#2760 backfill
- *     semantics made recurring. Coverage of gh#-parented asks depends on the
- *     caller-supplied status map (multi-backend task service); asks whose
- *     parent never resolves fall through to the commit-auth TTL below.
+ *   - Suspended asks whose parent task has since reached a terminal status:
+ *     `quality.review` (any), and `authorization.approve` asks that are
+ *     COMMIT-AUTH-SHAPED (carry `metadata.commitMessage`) — the mt#2760
+ *     backfill semantics made recurring. Coverage of gh#-parented asks
+ *     depends on the caller-supplied status map (multi-backend task
+ *     service); asks whose parent never resolves fall through to the
+ *     commit-auth TTL below.
  *   - Failed-commit orphan asks: a commit-auth ask whose session later landed
  *     a NEWER commit (a later commit-auth ask from the same session reached
  *     `closed`) — the session moved past the failed attempt.
@@ -25,8 +27,20 @@
  * ## Does NOT cover
  *   - `direction.decide` and every other kind — never touched.
  *   - Non-commit `authorization.approve` asks (no `metadata.commitMessage`,
- *     e.g. credential-rotation approvals): parent-terminal is their ONLY
- *     close signal — supersession and TTL never apply to them.
+ *     e.g. credential-rotation / canary approvals): NEVER auto-closed by
+ *     this sweep — not by parent-terminal, not by supersession, not by TTL.
+ *     The subject of such an ask can legitimately outlive its parent task
+ *     (an authorization can be deliberately rehomed to a follow-up task
+ *     while the original task closes around it), so parent-terminal is not
+ *     evidence the question was answered — only that it may have been
+ *     rehomed. This matches mt#3001's spec text verbatim ("## Does NOT
+ *     cover": "Legitimate open authorization asks (non-commit, e.g.
+ *     credential-rotation / canary approvals) — never auto-closed"). An
+ *     earlier version of this file's code and this header CONTRADICTED that
+ *     spec text by closing these on parent-terminal, discarding a live,
+ *     unanswered operator decision (ask#6024, 2026-07-25) — see mt#3215,
+ *     which made the mt#3001 spec text authoritative and fixed both the
+ *     code and this header to match it.
  *   - Emission-side behavior (what gets emitted at all) — owned by mt#1241.
  *
  * ## Invocation path
@@ -183,10 +197,13 @@ async function classify(
     return isParentTerminal(ask, taskStatusById) ? "close-parent-terminal" : "keep";
   }
   if (ask.kind !== KIND_AUTH_APPROVE) return "keep";
-  if (isParentTerminal(ask, taskStatusById)) return "close-parent-terminal";
-  // Non-commit authorization asks (credential rotations, canary approvals)
-  // close on parent-terminal ONLY — never by supersession or TTL.
+  // Non-commit authorization asks (credential rotations, canary approvals):
+  // the subject can legitimately outlive the parent task (mt#3215 — the
+  // ask#6024 incident), so this sweep NEVER auto-closes them, by ANY
+  // signal — not parent-terminal, not supersession, not TTL. Only
+  // commit-auth-shaped asks (below) are this sweep's actual target.
   if (!isCommitAuthAsk(ask)) return "keep";
+  if (isParentTerminal(ask, taskStatusById)) return "close-parent-terminal";
   if (await isSupersededByLaterLandedCommit(repo, ask, sessionSiblingsCache)) {
     return "close-superseded";
   }

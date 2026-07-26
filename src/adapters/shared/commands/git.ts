@@ -74,6 +74,25 @@ const pushCommandParams = composeParams(
   },
   {
     remote: GitParameters.remote,
+    // mt#3177: the standalone git.push command previously awaited the
+    // underlying push subprocess with NO bound at all — the exact gap the
+    // mt#3177 recurrence found (a direct git_push call hung the full
+    // ~1800s MCP-transport idle-timeout). Both overrides mirror
+    // session.commit's commitTimeoutMs/pushTimeoutMs pattern.
+    pushTimeoutMs: {
+      schema: z.number().int().positive(),
+      description:
+        "Override the push wall-clock bound in milliseconds. Defaults to 2 minutes. " +
+        "On timeout, the remote branch head is verified directly before reporting an outcome.",
+      required: false,
+    },
+    verifyTimeoutMs: {
+      schema: z.number().int().positive(),
+      description:
+        "Override the remote-ref verification wall-clock bound in milliseconds (only used " +
+        "when the push itself times out). Defaults to 15 seconds.",
+      required: false,
+    },
   }
 ) satisfies CommandParameterMap;
 
@@ -772,20 +791,41 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: pushCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.push command", { params });
-      const { pushFromParams } = await import("@minsky/domain/git");
+      // mt#3177: bounded + remote-ref-confirming, replacing the previously
+      // unbounded pushFromParams call — see pushWithConfirmation's doc
+      // comment in push-operations.ts for the root-cause context (a direct
+      // git_push call hanging the full ~1800s MCP-transport idle-timeout
+      // while the underlying push had already landed server-side).
+      const { pushFromParamsWithConfirmation } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
-      const result = await pushFromParams({
-        repo,
-        remote: params.remote,
-        force: params.force,
-        debug: params.debug,
-      });
+      const result = await pushFromParamsWithConfirmation(
+        {
+          repo,
+          remote: params.remote,
+          force: params.force,
+          debug: params.debug,
+        },
+        {
+          pushTimeoutMs: params.pushTimeoutMs as number | undefined,
+          verifyTimeoutMs: params.verifyTimeoutMs as number | undefined,
+        }
+      );
 
       return {
+        // mt#3177: `success` now reflects the CONFIRMED outcome — true on a
+        // direct success or a remote-check confirmation, false when the push
+        // is genuinely unconfirmed. A caller checking only `success`/`pushed`
+        // (the pre-existing contract) never sees a false positive; callers
+        // that want the full diagnostic detail can read the fields below.
         success: result.pushed,
         workdir: result.workdir,
+        pushed: result.pushed,
+        ...(result.pushError !== undefined ? { pushError: result.pushError } : {}),
+        ...(result.pushTimedOut ? { pushTimedOut: true } : {}),
+        ...(result.pushConfirmedVia ? { pushConfirmedVia: result.pushConfirmedVia } : {}),
+        ...(result.pushUnconfirmed ? { pushUnconfirmed: true } : {}),
       };
     },
   });
@@ -1208,6 +1248,11 @@ export function registerGitCommands(container?: AppContainerInterface): void {
         success: true,
         workdir: result.workdir,
         branch: result.branch,
+        // mt#3164: passed through as-is, including null. Do NOT default these
+        // to 0 — null means "no upstream configured", and collapsing it to 0
+        // is exactly the ambiguity that made a never-pushed branch read as
+        // in-sync.
+        upstream: result.upstream,
         ahead: result.ahead,
         behind: result.behind,
         staged: result.staged,

@@ -15,3 +15,12 @@ export { provisionGithubApp } from "./provision";
 export { pemToPkcs8ArrayBuffer } from "./pem-utils";
 export { buildAppJwt } from "./app-jwt";
 export { updateGithubApp, type UpdateGithubAppOptions, type UpdateGithubAppResult } from "./update";
+export {
+  detectPermissionDrift,
+  formatPermissionDriftMessage,
+  githubAppSettingsUrl,
+  REQUIRED_APP_PERMISSIONS,
+  type RequiredPermission,
+  type MissingPermission,
+  type PermissionDriftResult,
+} from "./permission-drift";

@@ -394,21 +394,6 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
     ],
   },
 
-  // PreToolUse: require acceptance tests before marking DONE
-  {
-    ruleId: "acceptance-test-gate",
-    mechanisms: [
-      {
-        type: "claude-code-hook",
-        name: "PreToolUse[tasks_status_set]: require-acceptance-tests-before-done.ts",
-        description:
-          "Blocks tasks_status_set to DONE if the task spec has an Acceptance Tests section with executable commands that haven't been acknowledged as run",
-        configPath: ".claude/hooks/require-acceptance-tests-before-done.ts",
-        portability: "harness-trapped",
-      },
-    ],
-  },
-
   // Stop/SubagentStop: typecheck gate before completion
   {
     ruleId: "typecheck-gate",
@@ -424,10 +409,257 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
     ],
   },
 
+  // ── Claude Code merge gates (PreToolUse[session_pr_merge]) ─────────────────
+  // mt#975: this block + the two below were added to give the bidirectional
+  // parity test (see enforcement-mapping.test.ts "settings.json parity") full
+  // coverage of every hook registered in .claude/settings.json — the exact
+  // defect class that let require-acceptance-tests-before-done.ts sit
+  // unregistered and undetected until this task deleted it.
+
+  {
+    ruleId: "subagent-merge-capability",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[session_pr_merge]: block-subagent-merge-without-grant.ts",
+        description:
+          "Blocks a subagent from calling session_pr_merge unless the main agent has granted merge capability for that session; prevents subagents from merging on their own authority",
+        configPath: ".claude/hooks/block-subagent-merge-without-grant.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "execution-evidence-gate",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[session_pr_merge]: require-execution-evidence-before-merge.ts",
+        description:
+          "Blocks session_pr_merge when new test files lack an 'Execution evidence:' cross-reference to each executable acceptance test. Successor to the deleted require-acceptance-tests-before-done.ts (mt#975): gates at merge time instead of the DONE transition, and is satisfiable (the earlier hook was not). MINSKY_SKIP_AT_COVERAGE is the documented, audit-logged override.",
+        configPath: ".claude/hooks/require-execution-evidence-before-merge.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "deploy-verification-gate",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[session_pr_merge]: require-deploy-verification-before-merge.ts",
+        description:
+          "Blocks session_pr_merge on deploy/infra PRs and tray usability-claim PRs that lack a deploy-verification commitment. MINSKY_SKIP_DEPLOY_VERIFY / MINSKY_SKIP_USABILITY_CLAIM_CHECK are the documented overrides.",
+        configPath: ".claude/hooks/require-deploy-verification-before-merge.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "growth-justification-gate",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[session_pr_merge]: require-growth-justification-before-merge.ts",
+        description:
+          "Blocks session_pr_merge on rules-touching PRs that grow CLAUDE.md past its size budget without an explicit justification. MINSKY_SKIP_SIZE_JUSTIFICATION is the documented override.",
+        configPath: ".claude/hooks/require-growth-justification-before-merge.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "out-of-band-merge-guard",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[session_pr_merge|Bash]: block-out-of-band-merge.ts",
+        description:
+          "Blocks merge attempts whose PR body couples unconfirmed out-of-band steps. MINSKY_ACK_OOB_MERGE is the documented override.",
+        configPath: ".claude/hooks/block-out-of-band-merge.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  // ── Claude Code dispatch/session gates ──────────────────────────────────────
+
+  {
+    ruleId: "nested-fork-dispatch-guard",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[Agent]: block-nested-fork-dispatch.ts",
+        description:
+          "Denies a nested fork-type Agent dispatch (a subagent dispatching another fork) unless a live dispatch-intent declaration already covers the calling session. MINSKY_ALLOW_NESTED_FORK is the documented override (mt#3045).",
+        configPath: ".claude/hooks/block-nested-fork-dispatch.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "bypass-merge-guard",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[Bash]: block-subagent-bypass-merge.ts",
+        description:
+          "Blocks a subagent from bypass-merging via `gh api PUT .../merge`. MINSKY_FORCE_BYPASS is the documented override.",
+        configPath: ".claude/hooks/block-subagent-bypass-merge.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "required-checks-guard",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[Bash]: require-checks-on-bypass-merge.ts",
+        description:
+          "Blocks a bypass-merge unless required CI status checks have passed. MINSKY_SKIP_REQUIRED_CHECKS is the documented override.",
+        configPath: ".claude/hooks/require-checks-on-bypass-merge.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "parallel-work-guard",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[session_start|tasks_dispatch|tasks_create]: parallel-work-guard.ts",
+        description:
+          "Blocks starting parallel work on a task another actor already has an open PR/session for, and blocks creating a duplicate sibling task. MINSKY_FORCE_PARALLEL / MINSKY_FORCE_DUPLICATE_OK are the documented overrides.",
+        configPath: ".claude/hooks/parallel-work-guard.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "spec-read-gate",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[tasks_status_set|session_start|tasks_dispatch]: check-task-spec-read.ts",
+        description:
+          "Blocks a status-transition or session-binding operation on a task whose spec was not read this conversation. MINSKY_SKIP_SPEC_READ_CHECK is the documented override.",
+        configPath: ".claude/hooks/check-task-spec-read.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "branch-freshness-gate",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[session_commit|session_pr_create|session_pr_edit]: check-branch-fresh.ts",
+        description:
+          "Blocks a commit/PR operation when the session branch is behind main. MINSKY_SKIP_FRESHNESS is the documented override.",
+        configPath: ".claude/hooks/check-branch-fresh.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "generated-file-edit-guard",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[Edit|Write|session_*_file]: check-generated-file-edit.ts",
+        description:
+          "Blocks direct edits to generated files (e.g. .claude/hooks/* compiled from .minsky/hooks/*). MINSKY_FORCE_EDIT_GENERATED is the documented override.",
+        configPath: ".claude/hooks/check-generated-file-edit.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "dispatch-intent-write-gate",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[session_commit|session_pr_create|session_pr_edit|session_*_file]: dispatch-intent-write-gate.ts",
+        description:
+          "Denies session-mutating/PR-mutating tool calls for a session under a declared read-only dispatch intent, regardless of which agent_id makes the call (mt#2865).",
+        configPath: ".claude/hooks/dispatch-intent-write-gate.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "task-status-workflow-protocol",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[tasks_status_set]: tasks-status-set-guard.ts",
+        description:
+          "Validates task status state-machine transitions on tasks_status_set (e.g. denies setting DONE directly from a session). Occupies the matcher slot the deleted require-acceptance-tests-before-done.ts never actually held (mt#975) — this is the real gate on that tool call.",
+        configPath: ".claude/hooks/tasks-status-set-guard.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "ask-permission-bridge",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[Bash]: ask-permission-bridge.ts",
+        description:
+          "Grants ALLOW for actions covered by an approved Ask (mt#2823). A sibling hook's deny decision still outranks this allow — harness deny-precedence.",
+        configPath: ".claude/hooks/ask-permission-bridge.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "main-workspace-edit-guard",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[Edit|Write|NotebookEdit]: require-session-for-main-workspace-edits.ts",
+        description:
+          "Blocks Edit/Write/NotebookEdit against files inside the main workspace outside any session workspace; enforces that all code edits happen in a session (mt#1099).",
+        configPath: ".claude/hooks/require-session-for-main-workspace-edits.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
+  {
+    ruleId: "loop-preflight-check",
+    mechanisms: [
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[Skill]: loop-preflight-pr-merge-check.ts",
+        description:
+          "Blocks invoking the /loop skill against a PR or task already in a terminal (merged/closed/done) state, preventing hours of orphan-commit iteration on a closed branch (mt#1496).",
+        configPath: ".claude/hooks/loop-preflight-pr-merge-check.ts",
+        portability: "harness-trapped",
+      },
+    ],
+  },
+
   // ── Claude Code operational hooks (not enforcement — UX/automation) ────────
-  // auto-session-title.ts (UserPromptSubmit) — sets Claude Code session title from task info
-  // post-session-start.ts (PostToolUse[session_start]) — sets iTerm2 tab color/label
-  // session-start.ts (SessionStart) — bootstraps remote session environments (bun install, gitleaks)
+  // See NON_ENFORCEMENT_CLAUDE_HOOKS below for the full, test-checked list of
+  // settings.json-registered hooks (dispatchers, observers, operational
+  // automation) deliberately excluded from this array.
 
   // ── MCP tool-level enforcement ─────────────────────────────────────────────
 
@@ -474,6 +706,120 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
         portability: "portable",
       },
     ],
+  },
+];
+
+export interface NonEnforcementHook {
+  /** Path as it appears in a settings.json "command" value, e.g. ".claude/hooks/foo.ts". */
+  configPath: string;
+  /** Why this hook is deliberately excluded from ENFORCEMENT_MAPPINGS. */
+  reason: string;
+}
+
+/**
+ * Claude Code hooks registered in .claude/settings.json that are deliberately NOT
+ * enforcement mechanisms: guard-dispatcher entrypoints that fan out to
+ * individually-registered GUARD_REGISTRY sub-guards (not 1:1 with a single rule),
+ * observers/recorders that make no permission decision, calibration-mode
+ * detectors that default to log-only, and pure UX/operational automation.
+ *
+ * mt#975: this list exists so the settings.json parity test (see
+ * enforcement-mapping.test.ts) can require every registered hook to be
+ * EXPLICITLY triaged into either ENFORCEMENT_MAPPINGS or here — closing the
+ * gap that let require-acceptance-tests-before-done.ts sit in the tree,
+ * unregistered in settings.json AND untracked in enforcement-mapping.ts,
+ * until this task found and deleted it. A hook landing in neither place now
+ * fails the test instead of rotting silently.
+ */
+export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
+  // ── Guard-dispatcher entrypoints (ADR-028): fan out to GUARD_REGISTRY, not 1:1 with a rule ──
+  {
+    configPath: ".claude/hooks/dispatch-pretooluse.ts",
+    reason:
+      "PreToolUse guard-dispatcher; routes to individually-registered GUARD_REGISTRY sub-guards (e.g. check-guessed-session-path), not itself one rule's mechanism",
+  },
+  {
+    configPath: ".claude/hooks/dispatch-stop.ts",
+    reason:
+      "Stop guard-dispatcher; routes to GUARD_REGISTRY Stop-event sub-guards (e.g. turn-end-retro-scan)",
+  },
+  {
+    configPath: ".claude/hooks/dispatch-userpromptsubmit.ts",
+    reason:
+      "UserPromptSubmit guard-dispatcher; routes to 20+ GUARD_REGISTRY sub-guards (detectors, injectors, calibration-review cadence)",
+  },
+
+  // ── Calibration-mode detectors: default to log-only, not yet graduated to blocking ──
+  {
+    configPath: ".claude/hooks/warn-bare-prohibition-dispatch.ts",
+    reason:
+      "Calibration-first observer (mt#3162); graduation to blocking is tracked separately at mt#3167 per hook-observers.mdc",
+  },
+  {
+    configPath: ".claude/hooks/policy-coverage-detector.ts",
+    reason:
+      "DetectorMode defaults to log-only (mt#2755); records calibration data for a future flip to block mode, not yet live",
+  },
+
+  // ── Pure observers/recorders: no permission decision, fail-open ──
+  {
+    configPath: ".claude/hooks/record-conversation-run-state.ts",
+    reason:
+      "mt#3161 run-state writer; explicitly an observer per its own settings.json annotations, fail-open on every event",
+  },
+  {
+    configPath: ".claude/hooks/record-subagent-invocation.ts",
+    reason:
+      "SubagentStop recording — writes dispatch-row columns, makes no permission decision (hook-observers.mdc)",
+  },
+  {
+    configPath: ".claude/hooks/transcript-ingest-on-session-end.ts",
+    reason:
+      "Ingests the finished transcript at SessionEnd — recording, not enforcement (hook-observers.mdc)",
+  },
+  {
+    configPath: ".claude/hooks/post-merge-unasked-direction-scan.ts",
+    reason: "Post-merge scanner for unasked directions — detector, log-only (hook-observers.mdc)",
+  },
+  {
+    configPath: ".claude/hooks/deploy-verification-after-merge.ts",
+    reason:
+      "Post-merge companion reminder to require-deploy-verification-before-merge.ts; no deny logic — the merge it would gate has already happened",
+  },
+  {
+    configPath: ".claude/hooks/stamp-session-creator-link.ts",
+    reason:
+      "Stamps the workspace<->conversation link at session_start — recording, not enforcement (hook-observers.mdc)",
+  },
+  {
+    configPath: ".claude/hooks/drive-pr-to-convergence.ts",
+    reason:
+      "Reminds the agent to watch for bot review — advisory, no permission decision (hook-observers.mdc)",
+  },
+  {
+    configPath: ".claude/hooks/stamp-pr-author-link.ts",
+    reason:
+      "Stamps the workspace<->conversation link at session_pr_create — recording, not enforcement (hook-observers.mdc)",
+  },
+  {
+    configPath: ".claude/hooks/bridge-memory-retirement.ts",
+    reason: "Retires stale bridge memories post-merge — housekeeping automation, no deny logic",
+  },
+  {
+    configPath: ".claude/hooks/two-strikes-record.ts",
+    reason:
+      "Records tool-error streak data for the 2-strikes rule; the rule itself is agent-followed discipline, not hook-enforced",
+  },
+
+  // ── Pure UX/operational automation ──
+  {
+    configPath: ".claude/hooks/session-start.ts",
+    reason:
+      "Bootstraps remote session environments (bun install, gitleaks) — operational, not enforcement",
+  },
+  {
+    configPath: ".claude/hooks/post-session-start.ts",
+    reason: "Sets the iTerm2 tab color/label from task info — UX automation, not enforcement",
   },
 ];
 
