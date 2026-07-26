@@ -121,35 +121,18 @@ async function closeByCurrentState(
 }
 
 /**
- * True when `responder` names a closure that nobody actually answered — the
- * `system:<event>` convention documented on
- * {@link CloseAsResolvedInput.responder} (e.g. `system:commit-landed`,
- * `system:pr-merged`, `system:parent-task-terminal`,
- * `system:superseded-by-later-commit`), OR the fixed `"timeout"` responder
- * (`accounting/index.ts`'s `deriveTransportAndResolvedIn`,
- * `transports/subagent.ts`) recorded when a deadline passed with no response
- * — rather than a genuine operator response or another agent's answer.
- *
- * Deliberately does NOT include `"policy"`: a policy-covered resolution is a
- * real, designed-for-purpose answer (a covering policy statement
- * pre-authorized the action) — not a heuristic mootness signal that may have
- * discarded a still-pending question. It is automated, but it IS an answer,
- * so surfaces are free to render `policy` as resolved; the string itself
- * already tells a reader it wasn't a human operator.
- *
- * Answer-surfaces (the cockpit ask detail page, the `asks.wait-for-response`
- * render helper) use this to distinguish "closed, never actually answered"
- * from a real response. Both `responded` and `closed` are response-BEARING
- * states (see `wait-for-response.ts`), so without this check an automated
- * closure and a genuine operator answer are indistinguishable to a caller
- * that only checks `ask.response` is present (mt#3215 — the ask#6024
- * incident: an operator was told their pending authorization ask had
- * "already been responded to" when it had actually been auto-closed,
- * unanswered, by the parent-terminal sweep).
+ * Re-exported from `@minsky/shared/ask-closure` (mt#3239) so existing Node callers
+ * (`src/adapters/shared/commands/asks.ts`, `packages/domain/src/ask/index.ts`) keep working
+ * unchanged. The predicate itself moved to a browser-safe module because this file also imports
+ * `@minsky/shared/logger` (for `closeAskAsResolved`'s best-effort error logging below) — and an
+ * ES module's top-level body, including every import, is evaluated in full regardless of which
+ * export a consumer actually uses. The cockpit ask page imported `isAutomatedClosureResponder`
+ * from here, which pulled the logger's `process.env` reads into the browser bundle and crashed
+ * the page (`Can't find variable: process`). The cockpit page now imports the predicate directly
+ * from `@minsky/shared/ask-closure` instead of through this file. See that module's doc comment
+ * for the full incident writeup and the mt#3215 behavior this predicate preserves.
  */
-export function isAutomatedClosureResponder(responder: string): boolean {
-  return responder.startsWith("system:") || responder === "timeout";
-}
+export { isAutomatedClosureResponder } from "@minsky/shared/ask-closure";
 
 export async function closeAskAsResolved(
   repo: AskRepository,

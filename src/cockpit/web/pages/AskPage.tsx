@@ -40,7 +40,11 @@ import {
   composeResolvePayload,
 } from "../widgets/AskDetail";
 import { isTerminal } from "@minsky/domain/ask/state-machine";
-import { isAutomatedClosureResponder } from "@minsky/domain/ask/close-as-resolved";
+// Browser-safe import (mt#3239): NOT from "@minsky/domain/ask/close-as-resolved" — that module
+// also imports "@minsky/shared/logger", whose top-level `process.env` reads crash the browser
+// bundle regardless of which export is used. See packages/shared/src/ask-closure.ts for the full
+// incident writeup.
+import { isAutomatedClosureResponder } from "@minsky/shared/ask-closure";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { CopyId } from "../components/CopyId";

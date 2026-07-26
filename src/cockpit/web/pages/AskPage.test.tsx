@@ -22,6 +22,8 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { AskPage } from "./AskPage";
 import { TabsProvider } from "../lib/tabs";
 import type { AskItem } from "../widgets/AskDetail";
@@ -216,5 +218,87 @@ describe("AskPage deeplink resolution (mt#2669)", () => {
     await waitFor(() => {
       expect(screen.getByText("Calibration-review disposition")).toBeDefined();
     });
+  });
+});
+
+/**
+ * Browser-safety regression guard (mt#3239).
+ *
+ * mt#3215 (PR #2315) added `import { isAutomatedClosureResponder } from
+ * "@minsky/domain/ask/close-as-resolved"` to this page. That module transitively imports
+ * `@minsky/shared/logger`, which reads `process.env.*` at its top level — a Node global with no
+ * browser equivalent — so the cockpit ask page crashed on load with `Can't find variable:
+ * process`. Nothing in the tests ABOVE caught this: they pass under Bun, where `process` IS
+ * defined, so importing the Node-dependent chain never throws in that environment.
+ *
+ * This block reproduces the actual failure mode instead of re-testing rendered output. It
+ * extracts the import specifier this file currently uses for `isAutomatedClosureResponder` (by
+ * reading its own source — so the check tracks whatever AskPage.tsx actually imports, not a
+ * hardcoded assumption), then dynamically imports THAT specifier in a freshly spawned Bun
+ * subprocess with `globalThis.process` deleted before the import runs — the closest simulation
+ * of a real browser's absence of `process` available without a full browser/jsdom harness.
+ *
+ * Subprocess isolation is deliberate, not incidental: bunfig.toml runs this file with
+ * `randomize = true` test-file ordering, and a same-process `delete globalThis.process` followed
+ * by a dynamic `import()` is a no-op once ANY earlier-run file in the same invocation has already
+ * imported the same module specifier — ES module bodies evaluate once per process and are cached
+ * by resolved specifier, so re-importing (even with `process` deleted) just returns the
+ * already-evaluated, already-cached export without re-running any top-level code. A fresh
+ * subprocess has an empty module cache, so this check is independent of suite ordering.
+ *
+ * Coverage note: this targets the SPECIFIC import this incident was about
+ * (`isAutomatedClosureResponder`), not every import in AskPage.tsx — importing the whole
+ * `AskPage.tsx` module directly via a bare `bun -e` subprocess (verified during authoring, not
+ * kept as a test) fails for an UNRELATED reason: react-router-dom/@tanstack/react-query resolve
+ * to Node-targeted builds outside a real bundler's "browser" export conditions, which Vite's
+ * production build does not hit. That mismatch is a test-environment artifact, not a real
+ * regression, which is why "verify in a real browser" (this task's PR body) is the higher-fidelity
+ * check for the whole-page question and this subprocess check is scoped to the one import mt#3239
+ * actually fixed.
+ */
+describe("AskPage import-chain browser safety (mt#3239)", () => {
+  const ASK_PAGE_PATH = fileURLToPath(new URL("./AskPage.tsx", import.meta.url));
+  const ASK_PAGE_SOURCE = readFileSync(ASK_PAGE_PATH, "utf8");
+
+  function extractIsAutomatedClosureResponderSpecifier(): string {
+    const match = ASK_PAGE_SOURCE.match(
+      /import\s*\{\s*isAutomatedClosureResponder\s*\}\s*from\s*["']([^"']+)["']/
+    );
+    const specifier = match?.[1];
+    if (!specifier) {
+      throw new Error(
+        "AskPage.tsx no longer imports isAutomatedClosureResponder by this exact pattern -- " +
+          "update this test's extraction regex to match the current import shape."
+      );
+    }
+    return specifier;
+  }
+
+  /** Import `specifier` in a fresh Bun subprocess with `process` deleted first. */
+  async function importsWithoutProcess(specifier: string): Promise<{ exitCode: number; stderr: string }> {
+    const resolvedSpecifier = specifier.startsWith(".")
+      ? fileURLToPath(new URL(specifier, `file://${ASK_PAGE_PATH}`))
+      : specifier;
+    const script = `delete globalThis.process; await import(${JSON.stringify(resolvedSpecifier)});`;
+    const proc = Bun.spawn({ cmd: ["bun", "-e", script], stderr: "pipe", stdout: "pipe" });
+    const exitCode = await proc.exited;
+    const stderr = await new Response(proc.stderr).text();
+    return { exitCode, stderr };
+  }
+
+  test("the module AskPage.tsx currently imports isAutomatedClosureResponder from has no Node dependency", async () => {
+    const specifier = extractIsAutomatedClosureResponderSpecifier();
+    const { exitCode, stderr } = await importsWithoutProcess(specifier);
+    expect(
+      exitCode,
+      `AskPage.tsx imports isAutomatedClosureResponder from "${specifier}", which crashes when ` +
+        `\`process\` is undefined (the browser condition that broke the cockpit ask page, ` +
+        `mt#3239):\n${stderr}`
+    ).toBe(0);
+  });
+
+  test("regression guard: the pre-mt#3239 Node import path DOES crash without `process` (proves the check above has teeth)", async () => {
+    const { exitCode } = await importsWithoutProcess("@minsky/domain/ask/close-as-resolved");
+    expect(exitCode).not.toBe(0);
   });
 });
