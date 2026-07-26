@@ -5,8 +5,14 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import type { Server } from "http";
 import express from "express";
-import { mountSessionFilmRoutes, type SessionFilmRouteOptions } from "./session-film";
+import {
+  mountSessionFilmRoutes,
+  filterAdmissiblePickerRows,
+  type SessionFilmRouteOptions,
+  type SessionFilmPickerRow,
+} from "./session-film";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
+import { looksLikeConversationId } from "../conversation-id-space";
 
 const servers: Server[] = [];
 
@@ -28,6 +34,8 @@ afterEach(async () => {
 });
 
 const VALID_ID = "12345678-1234-1234-1234-123456789012";
+// mt#3225: the live-repro shape — a real, ingested subagent transcript id.
+const AGENT_ID = "agent-ae944bce40bdc1dd6";
 
 function fakeEvent(overrides: Partial<SemanticEvent> = {}): SemanticEvent {
   return {
@@ -83,6 +91,31 @@ describe("GET /api/cockpit/session-film/events", () => {
     const body = (await res.json()) as { events: SemanticEvent[]; ingestedAt: string | null };
     expect(body.events).toEqual(events);
     expect(body.ingestedAt).toBe("2026-07-20T00:00:00.000Z");
+  });
+
+  // mt#3225 AT2: the operator-reported failure — an ingested agent-*
+  // subagent transcript must return its ordered events, not `invalid_id`.
+  test("returns ordered events for an agent-prefixed subagent-transcript id (mt#3225 AT2)", async () => {
+    const events = [
+      fakeEvent({ actor: { kind: "agent", agentSessionId: AGENT_ID } }),
+      fakeEvent({
+        tStart: "2026-07-24T00:00:01.000Z",
+        actor: { kind: "agent", agentSessionId: AGENT_ID },
+        target: { realm: "repo", id: "second" },
+      }),
+    ];
+    let seenConversationId: string | undefined;
+    const { url } = await makeHarness({
+      overrideFetchEvents: async (conversationId) => {
+        seenConversationId = conversationId;
+        return { events, ingestedAt: "2026-07-20T00:00:00.000Z" };
+      },
+    });
+    const res = await fetch(`${url}/api/cockpit/session-film/events?conversationId=${AGENT_ID}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { events: SemanticEvent[]; ingestedAt: string | null };
+    expect(body.events).toEqual(events);
+    expect(seenConversationId).toBe(AGENT_ID);
   });
 
   test("stable-sorts a transposed adjacent pair by tStart (mt#3188 AT1)", async () => {
@@ -213,5 +246,44 @@ describe("GET /api/cockpit/session-film/sessions", () => {
     expect(res.status).toBe(500);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("internal");
+  });
+});
+
+// mt#3225 SC3/SC4/AT3: the picker and the events endpoint must share one
+// admissibility predicate — `defaultListSessions` filters its DB rows
+// through `filterAdmissiblePickerRows`, which is exported specifically so
+// this structural anti-drift check doesn't need a live DB.
+describe("filterAdmissiblePickerRows (mt#3225 SC3/SC4/AT3)", () => {
+  function pickerRow(agentSessionId: string): SessionFilmPickerRow {
+    return {
+      agentSessionId,
+      label: agentSessionId,
+      startedAt: "2026-07-20T00:00:00.000Z",
+      cwd: "/repo",
+      ingestedAt: "2026-07-20T00:00:00.000Z",
+      scrubGateOk: true,
+    };
+  }
+
+  test("keeps only validator-admissible rows given all three observed id classes", () => {
+    // The live mt#3225 breakdown: UUID rows, agent-* subagent-transcript
+    // rows, and a diagnostic row that was never a real conversation.
+    const rows = [pickerRow(VALID_ID), pickerRow(AGENT_ID), pickerRow("probe-mt3120-diagnostic")];
+
+    const filtered = filterAdmissiblePickerRows(rows);
+
+    expect(filtered.map((r) => r.agentSessionId)).toEqual([VALID_ID, AGENT_ID]);
+    // Anti-drift assertion: every row this function returns is, by
+    // construction, a subset of what looksLikeConversationId admits — this
+    // is the structural guarantee SC4 asks for (picker output ⊆ validator-
+    // admissible ids), not just a fixed-example check.
+    for (const row of filtered) {
+      expect(looksLikeConversationId(row.agentSessionId)).toBe(true);
+    }
+  });
+
+  test("returns an empty array when no row is admissible", () => {
+    const rows = [pickerRow("probe-mt3120-diagnostic"), pickerRow("not-a-real-id")];
+    expect(filterAdmissiblePickerRows(rows)).toEqual([]);
   });
 });

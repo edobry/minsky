@@ -109,6 +109,25 @@ export interface SessionFilmRouteOptions {
 
 const MAX_PICKER_SESSIONS = 50;
 
+/**
+ * Filters picker rows down to those whose `agentSessionId` is admissible
+ * under the SAME `looksLikeConversationId` predicate the events endpoint
+ * enforces (mt#3225 SC3/AT3) — the picker and the events endpoint must never
+ * again disagree about which ids are valid conversation ids. This is also
+ * what drops a non-conversation row (e.g. a diagnostic probe row written
+ * directly to `agent_transcripts` outside normal ingest) from the picker —
+ * one shared predicate, not a second ad-hoc filter that could drift from it.
+ *
+ * Exported (rather than inlined in {@link defaultListSessions}) so it can be
+ * unit-tested against fixture rows spanning all observed id classes without
+ * a live DB connection.
+ */
+export function filterAdmissiblePickerRows<T extends { agentSessionId: string }>(
+  rows: readonly T[]
+): T[] {
+  return rows.filter((r) => looksLikeConversationId(r.agentSessionId));
+}
+
 async function resolveUserTurnActor(
   db: PostgresJsDatabase,
   conversationId: string
@@ -202,7 +221,7 @@ async function defaultListSessions(): Promise<SessionFilmPickerRow[]> {
 
   const cutoff = new Date(CREDENTIAL_SCRUB_CUTOFF_ISO).getTime();
 
-  return rows.map((r) => {
+  return filterAdmissiblePickerRows(rows).map((r) => {
     const startedAt = r.startedAt ? new Date(r.startedAt) : null;
     const ingestedAt = r.ingestedAt ? new Date(r.ingestedAt) : null;
     return {

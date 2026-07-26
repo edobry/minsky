@@ -18,6 +18,13 @@
  * @see mt#2525 — this file (Tier-0 fail-loud id-space hardening)
  * @see mt#2420 — the id-space confusion bug
  * @see mt#2524 — the compile-time branded-id guard this complements
+ * @see mt#3131 — `looksLikeConversationId` + `withBoundedTimeout` (D3/D5),
+ *   originally UUID-only
+ * @see mt#3109 — inline agent-spawns ingest that widened the real id space
+ *   `looksLikeConversationId` must accept (see the doc comment above
+ *   {@link UUID_RE} for the full premise-change trail)
+ * @see mt#3225 — reconciled `looksLikeConversationId` with the post-mt#3109
+ *   id space (this predicate's second shape, `AGENT_PREFIXED_RE`)
  */
 
 /**
@@ -31,28 +38,79 @@
 export type SnapshotMissClass = "wrong_id_space" | "not_found";
 
 /**
- * A harness conversation id (`ConversationId`/`AgentSessionId`) is, by this
- * system's own data model, "the harness-native UUID from the JSONL
- * transcript file name" (see `transcript-source.ts`'s `DiscoveredSession`
- * doc comment) — so a value that isn't UUID-shaped can never resolve to a
- * transcript no matter how long a caller waits on it. mt#3131 (D3/D5):
- * reject these BEFORE any DB query or provider probe, both endpoints named
- * in scope (`/api/conversation/:id/overview`,
- * `/api/cockpit/context-inspector/snapshot`) — this is a zero-I/O regex
- * test, so it can never hang, and it lets the caller distinguish "this could
- * never have been a conversation id" (D5: "Not found") from "syntactically
- * plausible, just not ingested (yet)" (D5: "Not yet ingested" / "may still
- * be running").
+ * Premise history (mt#3225): this predicate's admissible id-shape set has
+ * changed once already, and the change is recorded here rather than
+ * silently overwriting the superseded reasoning.
  *
- * Verified against the two mt#3131 repro ids: `agent-a2a1e886c52ade5b9`
- * (wrong prefix, wrong hyphen positions) and `958f3805` (8 hex chars, no
- * hyphens at all) — both fail this check, regardless of which OTHER id space
- * either one might belong to (e.g. a subagent dispatch-tracking id).
+ * **mt#3131 (D3/D5), original premise — UUID-only.** At the time mt#3131
+ * shipped, a harness conversation id (`ConversationId`/`AgentSessionId`) was,
+ * by this system's own data model, "the harness-native UUID from the JSONL
+ * transcript file name" (see `transcript-source.ts`'s `DiscoveredSession`
+ * doc comment) — so a value that wasn't UUID-shaped could never resolve to a
+ * transcript no matter how long a caller waited on it. That reasoning was
+ * CORRECT at the time: reject non-UUID ids before any DB query or provider
+ * probe (zero-I/O, can never hang), distinguishing "this could never have
+ * been a conversation id" (D5: "Not found") from "syntactically plausible,
+ * just not ingested (yet)" (D5: "Not yet ingested" / "may still be
+ * running"). The repro id cited then, `agent-a2a1e886c52ade5b9`, was a
+ * subagent dispatch-tracking id with no corresponding transcript row — at
+ * the time, no ingest path ever wrote a transcript keyed by that shape.
+ *
+ * **mt#3109, merged the SAME DAY, changed the data model underneath this
+ * premise.** `AgentTranscriptIngestService` wired `AgentSpawnsPipeline` (and,
+ * more directly, `ClaudeCodeTranscriptSource.discoverSessions()`'s existing
+ * `<projectDir>/<sessionId>/subagents/*.jsonl` scan) into the normal ingest
+ * path, so subagent transcripts are now routinely ingested as their own
+ * `agent_transcripts` rows — keyed by the JSONL basename Claude Code itself
+ * assigns those files, which is NOT UUID-shaped. Verified against the real
+ * writer (not the observed DB corpus alone, per mt#3225): Claude Code's own
+ * subagent-transcript file-naming convention (`agent-${agentId}.jsonl`,
+ * where `agentId` is a FIXED literal `"a"` tag followed by 16 lowercase hex
+ * characters from an 8-byte random value) produces ids of the exact shape
+ * `agent-a` + 16 lowercase hex characters (17 characters total after the
+ * `agent-` prefix, the first of which is always the literal `a`, not merely
+ * a hex digit that happens to fall in `a`-`f`) — confirmed against 748 real
+ * on-disk subagent transcript files (100% consistent: every single one
+ * begins `agent-a`) and against both ids this file has ever cited:
+ * `agent-a2a1e886c52ade5b9` and `agent-ae944bce40bdc1dd6` both start with
+ * that literal `a` and are each exactly 17 characters after the `agent-`
+ * prefix. Neither mt#3131 nor mt#3109 was wrong; the invariant they
+ * disagreed on — "what id shapes can hold a transcript" — changed under one
+ * of them, and this predicate now matches the CURRENT data model.
+ *
+ * The D5 miss-class semantics this predicate feeds (`wrong_id_space` /
+ * `not_found` in {@link classifySnapshotMiss}) are unchanged: a value that
+ * matches NEITHER shape below still gets the zero-I/O reject; a value that
+ * matches one of these shapes but has no transcript row still falls through
+ * to the DB-backed miss classification below, exactly as before.
+ *
+ * Verified rejects: `probe-mt3120-diagnostic` (neither shape) and
+ * `958f3805` (8 hex chars, no hyphens, too short for either shape) both
+ * still fail this check.
  */
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+/**
+ * Subagent-transcript id shape (mt#3109 / mt#3225): `agent-` followed by a
+ * FIXED literal `a` tag, then exactly 16 hex characters — the shape Claude
+ * Code's own subagent-transcript JSONL file naming produces
+ * (`agent-${tag}${hex}.jsonl`, where `tag` is always the literal `"a"` and
+ * `hex` is 16 hex characters from an 8-byte random value hex-encoded; see
+ * the doc comment above {@link UUID_RE} for the verification trail —
+ * confirmed against 748 real on-disk subagent transcripts, ALL of which
+ * begin with that literal `a`, not just a hex digit that happens to be
+ * `a`-`f`). The leading `a` is therefore part of the verified shape, not an
+ * incidental hex character — a regex that only counted 17 hex characters
+ * without anchoring that first one would over-admit ids the real generator
+ * never emits (e.g. an id starting `f`, `0`, `9`, etc., none of which were
+ * ever observed). The remaining character class is case-insensitive for the
+ * same defensive reason {@link UUID_RE} is, even though the real generator
+ * only ever emits lowercase.
+ */
+const AGENT_PREFIXED_RE = /^agent-a[0-9a-fA-F]{16}$/;
+
 export function looksLikeConversationId(id: string): boolean {
-  return UUID_RE.test(id);
+  return UUID_RE.test(id) || AGENT_PREFIXED_RE.test(id);
 }
 
 /**

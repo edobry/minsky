@@ -90,6 +90,26 @@ describe("GET /api/conversation/:id/presence", () => {
     expect(body.conversationId).toBe(CONV_ID);
   });
 
+  // mt#3225 SC2 consistency sweep: an ingested agent-* subagent-transcript
+  // id must be treated like any other admissible conversation id — reaching
+  // the store, not the zero-I/O invalid_id reject.
+  test("an agent-prefixed subagent-transcript id reaches the store like any other admissible id (mt#3225)", async () => {
+    let readerCalled = false;
+    const url = await startTestServer({
+      getRunState: async () => {
+        readerCalled = true;
+        return null;
+      },
+      isKnownWorkspaceId: async () => false,
+    });
+
+    const res = await fetch(`${url}/api/conversation/agent-ae944bce40bdc1dd6/presence`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as ConversationPresenceResult;
+    expect(body.presence).toBe("UNKNOWN");
+    expect(readerCalled).toBe(true);
+  });
+
   test("a non-UUID id is rejected with zero I/O and copy that does NOT hedge 'may still be running'", async () => {
     let readerCalled = false;
     const url = await startTestServer({
