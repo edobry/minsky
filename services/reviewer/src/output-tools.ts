@@ -142,6 +142,13 @@ export type SubmitThreadResolveArgs = z.infer<typeof SubmitThreadResolveArgsSche
  *
  * Records whether a single success criterion from the task spec was satisfied
  * by the changes under review. Submit one call per criterion.
+ *
+ * Also used for recovery-layer carve-out entries (a `### Does NOT cover` or
+ * `## Does NOT cover` section, per `work-completion.mdc §Recovery layer spec
+ * discipline`) — one call per carve-out entry, per the prompt instruction in
+ * `prompt.ts` (mt#3217). The schema is identical; `criterion` carries the
+ * carve-out's text and `status`/`evidence` follow the same Met/Not Met/N/A
+ * contract.
  */
 export const SubmitSpecVerificationArgsSchema = z.object({
   /** The exact text of the success criterion being evaluated. */
