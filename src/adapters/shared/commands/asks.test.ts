@@ -577,6 +577,9 @@ describe("createAskWithFormLint", () => {
     expect(formWarnings).toEqual([]);
     expect(formLintMatches).toEqual([]);
   });
+
+  // Option-label checks reaching this seam (mt#3253) live in
+  // ./asks.form-lint-options.test.ts — this file is at its max-lines ceiling.
 });
 
 // ---------------------------------------------------------------------------

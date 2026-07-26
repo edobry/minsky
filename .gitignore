@@ -135,3 +135,9 @@ supabase/
 # mt#2609: the literal `~/` directory tracked via an unquoted tilde-expansion
 # bug in some historical command (reviewer-bot suggestion, PR #1787 R1).
 /~/
+
+# Per-session detector state written at runtime, keyed by session id (e.g.
+# unasked-direction postmortem output). Machine-local: it regenerates, and a
+# `session_commit --all` in any session would otherwise sweep in state files
+# belonging to OTHER sessions — which is exactly how one landed in PR #2341.
+/.minsky/state/
