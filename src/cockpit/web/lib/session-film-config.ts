@@ -180,6 +180,14 @@ export interface SessionFilmConfig {
     avatarFloatAmplitudePx: number;
     /** Avatar idle-float period, ms. */
     avatarFloatPeriodMs: number;
+    /**
+     * Glow-brightness threshold (mt#3258 SC 2), `(0, 1]`, above which a leaf
+     * node earns a persistent short text label (not just the halo) — "the
+     * scene isn't all anonymous dots" for whatever is still hot/recently
+     * touched. Reuses `computeGlowBrightness`'s existing continuous decay
+     * (session-film-aliveness.ts) rather than a second recency signal.
+     */
+    hotLabelBrightnessThreshold: number;
   };
   /**
    * Living layout (mt#3231 SC 4 — the A2->A3 motion climb): tunables for the
@@ -281,6 +289,7 @@ export const DEFAULT_SESSION_FILM_CONFIG: SessionFilmConfig = {
     driftPeriodMs: 14_000,
     avatarFloatAmplitudePx: 3,
     avatarFloatPeriodMs: 4_200,
+    hotLabelBrightnessThreshold: 0.5,
   },
   forceLayout: {
     chargeStrength: -18,

@@ -359,6 +359,31 @@ export function SessionFilmStage({
   const [pinnedAgentKey, setPinnedAgentKey] = useState<string | null>(null);
   const activeContourKey = hoveredAgentKey ?? pinnedAgentKey;
 
+  // Real hover tooltip (mt#3258 SC 2, TOP priority — the operator's "it
+  // looks cool but tells me nothing" complaint). Leaf nodes previously
+  // carried ONLY a native SVG `<title>` (browser-default ~1s hover delay,
+  // easy to miss — coordinator's live-DOM finding) + an `aria-label`
+  // (screen-reader only, invisible to a sighted mouse user). This state
+  // drives an IMMEDIATE (no delay) styled DOM tooltip on `mouseenter`,
+  // positioned at the cursor via `clientX`/`clientY` (viewport-fixed
+  // positioning sidesteps having to account for PanZoomSVG's pan/zoom
+  // transform on the SVG-local coordinate space). The `<title>` itself
+  // stays in place alongside this — it remains the documented a11y floor
+  // for non-pointer/assistive contexts; this tooltip is the ADDITIONAL
+  // sighted-mouse-user affordance the spec calls for.
+  const [hoverTooltip, setHoverTooltip] = useState<{
+    clientX: number;
+    clientY: number;
+    text: string;
+  } | null>(null);
+  const showHoverTooltip = useCallback((e: React.MouseEvent, text: string) => {
+    setHoverTooltip({ clientX: e.clientX, clientY: e.clientY, text });
+  }, []);
+  const moveHoverTooltip = useCallback((e: React.MouseEvent) => {
+    setHoverTooltip((cur) => (cur ? { ...cur, clientX: e.clientX, clientY: e.clientY } : cur));
+  }, []);
+  const hideHoverTooltip = useCallback(() => setHoverTooltip(null), []);
+
   const repoRoot = useMemo(
     () => layout.nodes.find((n) => n.realm === "repo" && n.depth === 0) ?? null,
     [layout.nodes]
@@ -593,6 +618,9 @@ export function SessionFilmStage({
                 data-clone-territory="true"
                 className="cursor-pointer"
                 onClick={() => node.entityId && selectEntity(node.entityId)}
+                onMouseEnter={(e) => showHoverTooltip(e, nodeTooltipText(node.label, node.realm, entity))}
+                onMouseMove={moveHoverTooltip}
+                onMouseLeave={hideHoverTooltip}
                 role="button"
                 aria-label={`${node.label} (workspace clone)`}
               >
@@ -637,6 +665,9 @@ export function SessionFilmStage({
                 data-spawn-kind={spawnKindLabel(entity?.raw)}
                 className="cursor-pointer"
                 onClick={() => node.entityId && selectEntity(node.entityId)}
+                onMouseEnter={(e) => showHoverTooltip(e, nodeTooltipText(node.label, node.realm, entity))}
+                onMouseMove={moveHoverTooltip}
+                onMouseLeave={hideHoverTooltip}
                 role="button"
                 aria-label={`${node.label} (spawn: ${spawnKindLabel(entity?.raw)})`}
               >
@@ -660,6 +691,26 @@ export function SessionFilmStage({
             );
           }
 
+          const leafTooltipText = isRoot
+            ? `${node.label} (${node.childCount} touched)`
+            : nodeTooltipText(node.label, node.realm, entity);
+
+          // Persistent short label on hot/recently-touched LEAF nodes (mt#3258
+          // SC 2 — "consider a persistent short label ... so the scene isn't
+          // all anonymous dots"): reuses the SAME continuous glow-brightness
+          // computation the halo underlay pass already derives per node (this
+          // module's aliveness pass, mt#3226 SC 4) rather than inventing a
+          // second recency signal — a node still "warm" enough to glow
+          // noticeably also earns a label, no extra state needed. Root nodes
+          // are excluded (they already render a persistent count label
+          // below); reduced motion disables this too (no glow computation
+          // runs in that mode either, per the ambient-register carve-out).
+          const brightness =
+            !isRoot && !reducedMotion && entity
+              ? computeGlowBrightness(entity.lastTouchedAt, ambientNowIso, config)
+              : 0;
+          const showHotLabel = brightness > config.aliveness.hotLabelBrightnessThreshold;
+
           return (
             <g
               key={node.id}
@@ -670,14 +721,13 @@ export function SessionFilmStage({
               data-depth={node.depth}
               className="cursor-pointer"
               onClick={() => node.entityId && selectEntity(node.entityId)}
+              onMouseEnter={(e) => showHoverTooltip(e, leafTooltipText)}
+              onMouseMove={moveHoverTooltip}
+              onMouseLeave={hideHoverTooltip}
               role={node.entityId ? "button" : undefined}
               aria-label={node.label}
             >
-              <title>
-                {isRoot
-                  ? `${node.label} (${node.childCount} touched)`
-                  : nodeTooltipText(node.label, node.realm, entity)}
-              </title>
+              <title>{leafTooltipText}</title>
               <circle
                 r={isRoot ? ROOT_RADIUS : NODE_RADIUS}
                 className={cn(
@@ -695,6 +745,16 @@ export function SessionFilmStage({
                   className="fill-muted-foreground text-[9px] font-mono uppercase"
                 >
                   {node.label} ({node.childCount})
+                </text>
+              ) : null}
+              {showHotLabel ? (
+                <text
+                  data-testid={`session-film-hot-label-${node.id}`}
+                  y={NODE_RADIUS + 9}
+                  textAnchor="middle"
+                  className="pointer-events-none fill-muted-foreground text-[7px] font-mono"
+                >
+                  {node.label.length > 14 ? `${node.label.slice(0, 13)}…` : node.label}
                 </text>
               ) : null}
             </g>
@@ -907,6 +967,22 @@ export function SessionFilmStage({
               <EntityRef type={selectedRoutable.type} id={selectedRoutable.id} />
             </div>
           ) : null}
+        </div>
+      ) : null}
+      {/* Real hover tooltip (mt#3258 SC 2, TOP priority): IMMEDIATE (no
+          delay, unlike the native <title> browser tooltip) + styled, unlike
+          the invisible-to-sighted-users aria-label. Viewport-`fixed`,
+          positioned at the cursor via clientX/clientY — sidesteps needing to
+          convert through PanZoomSVG's pan/zoom transform. `pointer-events-none`
+          so it never itself becomes the mouseleave target. */}
+      {hoverTooltip ? (
+        <div
+          data-testid="session-film-hover-tooltip"
+          role="tooltip"
+          className="pointer-events-none fixed z-20 max-w-xs whitespace-nowrap rounded border border-border bg-popover px-2 py-1 font-mono text-[11px] text-popover-foreground shadow-md"
+          style={{ left: hoverTooltip.clientX + 12, top: hoverTooltip.clientY + 12 }}
+        >
+          {hoverTooltip.text}
         </div>
       ) : null}
     </div>

@@ -549,3 +549,85 @@ describe("SessionFilmStage — node labels + hover + working click (mt#3231 SC 6
     expect(screen.queryByTestId("session-film-entity-detail-panel")).toBeNull();
   });
 });
+
+describe("SessionFilmStage — real IMMEDIATE hover tooltip (mt#3258 SC 2, TOP priority)", () => {
+  test("hovering a leaf node shows an immediate styled tooltip with kind/label/outcome — no tooltip before hover", () => {
+    const events: SemanticEvent[] = [
+      ev({ target: { realm: "minsky-substrate", id: "minsky:task:mt#2544" }, verb: "write", outcome: undefined }),
+    ];
+    const { world, layout } = buildFixture(events);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const node = layout.nodes.find((n) => n.entityId === "minsky:task:mt#2544");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+
+    expect(screen.queryByTestId("session-film-hover-tooltip")).toBeNull();
+    fireEvent.mouseEnter(screen.getByTestId(`session-film-node-${node.id}`), { clientX: 100, clientY: 200 });
+    const tooltip = screen.getByTestId("session-film-hover-tooltip");
+    expect(tooltip.textContent).toContain("write");
+    expect(tooltip.textContent).toContain("in-flight");
+    expect(tooltip.getAttribute("role")).toBe("tooltip");
+  });
+
+  test("mouseleave hides the tooltip", () => {
+    const { world, layout } = buildFixture([ev()]);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    const el = screen.getByTestId(`session-film-node-${node.id}`);
+    fireEvent.mouseEnter(el, { clientX: 10, clientY: 10 });
+    expect(screen.getByTestId("session-film-hover-tooltip")).toBeDefined();
+    fireEvent.mouseLeave(el);
+    expect(screen.queryByTestId("session-film-hover-tooltip")).toBeNull();
+  });
+
+  test("a spawn-bud node also shows an immediate hover tooltip", () => {
+    const events: SemanticEvent[] = [ev({ verb: "spawn", target: { realm: "agents", id: "agents:Explore" } })];
+    const { world, layout } = buildFixture(events);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const node = layout.nodes.find((n) => n.entityId === "agents:Explore");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.mouseEnter(screen.getByTestId(`session-film-node-${node.id}`), { clientX: 5, clientY: 5 });
+    expect(screen.getByTestId("session-film-hover-tooltip")).toBeDefined();
+  });
+});
+
+describe("SessionFilmStage — persistent hot-label on recently-touched nodes (mt#3258 SC 2)", () => {
+  test("a just-touched node (elapsed=0, max recency) renders a persistent short label, not just a dot", () => {
+    const events: SemanticEvent[] = [ev({ tStart: "2026-07-24T00:00:00.000Z" })];
+    const world = foldEvents(events, 0);
+    const nowIso = "2026-07-24T00:00:00.000Z"; // elapsed = 0 -> brightness = 1
+    const layout = computeStageLayout(world, nowIso, DEFAULT_SESSION_FILM_CONFIG);
+    render(
+      <SessionFilmStage layout={layout} world={world} reducedMotion={false} nowIso={nowIso} config={DEFAULT_SESSION_FILM_CONFIG} />
+    );
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    expect(screen.getByTestId(`session-film-hot-label-${node.id}`)).toBeDefined();
+  });
+
+  test("reduced motion never renders a hot label (ambient-register carve-out)", () => {
+    const events: SemanticEvent[] = [ev({ tStart: "2026-07-24T00:00:00.000Z" })];
+    const world = foldEvents(events, 0);
+    const nowIso = "2026-07-24T00:00:00.000Z";
+    const layout = computeStageLayout(world, nowIso, DEFAULT_SESSION_FILM_CONFIG);
+    render(
+      <SessionFilmStage layout={layout} world={world} reducedMotion={true} nowIso={nowIso} config={DEFAULT_SESSION_FILM_CONFIG} />
+    );
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    expect(screen.queryByTestId(`session-film-hot-label-${node.id}`)).toBeNull();
+  });
+
+  test("a long-idle node does NOT render a hot label", () => {
+    const events: SemanticEvent[] = [ev({ tStart: "2026-07-24T00:00:00.000Z" })];
+    const world = foldEvents(events, 0);
+    const nowIso = "2026-07-24T02:00:00.000Z"; // 2 hours later -> brightness ~0
+    const layout = computeStageLayout(world, nowIso, DEFAULT_SESSION_FILM_CONFIG);
+    render(
+      <SessionFilmStage layout={layout} world={world} reducedMotion={false} nowIso={nowIso} config={DEFAULT_SESSION_FILM_CONFIG} />
+    );
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    expect(screen.queryByTestId(`session-film-hot-label-${node.id}`)).toBeNull();
+  });
+});
