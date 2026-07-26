@@ -616,25 +616,56 @@ function isApiErrorText(text: string): boolean {
  * The per-turn Outcome chip's value, or `null` when none is evidenced.
  *
  * mt#3130's Outcome register has six values (`Completed` · `Interrupted` ·
- * `Errored` · `Rate-limited` · `Crashed` · `Stalled`), but only `Errored` has a
- * positively-evidenced signal in the transcript as parsed TODAY. The rest need
- * the sentinel classification that is mt#3260's scope (interrupt sentinels,
- * `"<synthetic>"` retry markers, compaction boundaries).
+ * `Errored` · `Rate-limited` · `Crashed` · `Stalled`). Two are evidenced by the
+ * transcript as parsed today:
  *
- * So this returns `null` rather than `Completed` for an unremarkable turn — and
- * that is deliberate, not a stub. Labeling a turn `Completed` before interrupt
- * classification exists would assert completion for turns that were actually
- * cut off, and interrupts appear in 44% of transcripts (73 of 165, mt#3130's
- * audit). An absent chip says "nothing to report"; a wrong `Completed` chip is
- * the falsely-confident derived field this whole umbrella exists to remove.
+ *  - **`Interrupted`** — a tool-result carrying `isInterruptionRejection`
+ *    (`conversation-elements.ts`), i.e. the operator cancelled a pending tool
+ *    call. mt#3260.
+ *  - **`Errored`** — assistant text starting with the API-error prefix.
+ *
+ * The rest need signals that do not exist in the persisted transcript
+ * (`Completed` has no terminator field; `Rate-limited`/`Crashed`/`Stalled` are
+ * run-state, not transcript, facts).
+ *
+ * So an unremarkable turn returns `null` rather than `Completed` — deliberate,
+ * not a stub. Labeling a turn `Completed` without a completion signal would
+ * assert completion for turns that were actually cut off. An absent chip says
+ * "nothing to report"; a wrong `Completed` chip is the falsely-confident
+ * derived field this umbrella exists to remove.
  */
-function turnOutcome(turn: PreparedTurn): "Errored" | null {
-  if (turn.role !== "assistant") return null;
-  for (const element of turn.elements) {
-    if (element.kind === "text" && isApiErrorText(element.text)) return "Errored";
-  }
-  return null;
+type TurnOutcome = "Interrupted" | "Errored";
+
+function elementIsInterruption(element: PreparedElement): boolean {
+  if (element.kind === "tool-invocation") return element.result?.isInterruptionRejection === true;
+  if (element.kind === "tool-result-orphan") return element.result.isInterruptionRejection === true;
+  return false;
 }
+
+function turnOutcome(turn: PreparedTurn): TurnOutcome | null {
+  if (turn.role !== "assistant") return null;
+  let errored = false;
+  for (const element of turn.elements) {
+    // Interruption WINS over error, and the precedence is load-bearing: the
+    // harness marks a cancelled tool call `isError`, but the operator
+    // cancelling is not a failure. Reporting it as `Errored` is exactly the
+    // miscount mt#3131 removed from the tallies — this keeps the RENDER
+    // consistent with those already-corrected counts.
+    if (elementIsInterruption(element)) return "Interrupted";
+    if (element.kind === "text" && isApiErrorText(element.text)) errored = true;
+  }
+  return errored ? "Errored" : null;
+}
+
+/**
+ * `Interrupted` is amber, never red — `docs/design-system.md`'s red-scarcity
+ * rule reserves the destructive tone for genuine failures, and mt#3130 calls
+ * out this exact distinction ("amber, NOT red — distinct from error").
+ */
+const OUTCOME_STYLES: Record<TurnOutcome, string> = {
+  Interrupted: "bg-warn-amber/15 text-warn-amber",
+  Errored: "bg-destructive/15 text-destructive",
+};
 
 function ElementView({
   element,
@@ -762,7 +793,10 @@ function TurnView({
         )}
         {outcome && (
           <span
-            className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium normal-case text-destructive"
+            className={cn(
+              "rounded px-1.5 py-0.5 text-[10px] font-medium normal-case",
+              OUTCOME_STYLES[outcome]
+            )}
             data-testid="turn-outcome"
           >
             {outcome}
