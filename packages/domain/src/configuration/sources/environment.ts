@@ -213,6 +213,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_COCKPIT_URL", // .claude/hooks/record-conversation-run-state.ts (mt#3161) — cockpit daemon origin override for the run-state writer
   "MINSKY_DEPLOY_MEMORY_FILE", // (deployment-time bootstrap; not config)
   "MINSKY_MAIN_WORKSPACE", // (test-fixture constant)
+  "MINSKY_ALLOW_TEST_DB", // src/cockpit/db-providers.ts (mt#3254) — opts a test into a real LOCAL database; without it the production resolution path refuses to hand a live connection to a test process
   "MINSKY_SESSIONDB_POSTGRES_URL", // legacy detection (post-mt#1610 retire)
   "MINSKY_MCP_MAX_SESSIONS", // src/mcp/server.ts (server config — promote to mcp.maxSessions)
   "MINSKY_MCP_PROFILE", // src/utils/cold-start-profile.ts (debug flag)

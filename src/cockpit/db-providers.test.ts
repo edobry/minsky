@@ -9,7 +9,12 @@
  * or `shared-persistence` module mocking is needed.
  */
 import { describe, test, expect } from "bun:test";
-import { createCachedSqlDbGetter, __resetDbProvidersForTests } from "./db-providers";
+import {
+  createCachedSqlDbGetter,
+  __resetDbProvidersForTests,
+  shouldRefuseTestEnvironmentDb,
+  TestEnvironmentDbAccessError,
+} from "./db-providers";
 
 type FakeDb = { marker: string };
 
@@ -191,5 +196,146 @@ describe("createCachedSqlDbGetter", () => {
 
     expect(await getDb()).toBe(db as unknown as never);
     expect(calls).toBe(2); // the bulk reset forced this getter to re-probe too
+  });
+});
+
+// -------------------------------------------------------------------------
+// Test-process live-database guard (mt#3254).
+//
+// Under `bun test`, module state and configuration are shared across every
+// file in one process, so once ANY test calls initializeConfiguration() the
+// PRODUCTION provider path resolves the real configured database — prod
+// Supabase in this repo. That is not hypothetical: it wrote 29 fixture rows
+// into prod `driven_sessions` and 2 into `driven_session_cost` across four
+// test runs on 2026-07-22/23/24.
+//
+// mt#3016 addressed the same root by threading `getDb` DI seams through four
+// individual consumers; the driven-session path was not one of them and
+// leaked anyway. The guard therefore lives at the shared choke point, so a
+// consumer added tomorrow is covered without remembering anything.
+//
+// The discriminator is PRODUCTION RESOLUTION — a getter built WITHOUT the
+// `getProvider` seam. A getter given an explicit provider is receiving a
+// deliberately-injected fake and is left alone; that is what every test
+// above does, and none of them change.
+// -------------------------------------------------------------------------
+
+describe("test-process live-database guard (mt#3254)", () => {
+  describe("shouldRefuseTestEnvironmentDb", () => {
+    test("refuses production resolution under NODE_ENV=test with no opt-in", () => {
+      expect(
+        shouldRefuseTestEnvironmentDb({
+          isProductionResolution: true,
+          nodeEnv: "test",
+          optIn: undefined,
+        })
+      ).toBe(true);
+    });
+
+    test("allows a seam-injected provider even under NODE_ENV=test", () => {
+      // This is the case every other test in this file exercises. If this
+      // ever flips to `true`, the guard has become a blanket "no db in
+      // tests" rule and will break deliberate fake injection.
+      expect(
+        shouldRefuseTestEnvironmentDb({
+          isProductionResolution: false,
+          nodeEnv: "test",
+          optIn: undefined,
+        })
+      ).toBe(false);
+    });
+
+    test("allows production resolution outside a test process", () => {
+      expect(
+        shouldRefuseTestEnvironmentDb({
+          isProductionResolution: true,
+          nodeEnv: "production",
+          optIn: undefined,
+        })
+      ).toBe(false);
+      expect(
+        shouldRefuseTestEnvironmentDb({
+          isProductionResolution: true,
+          nodeEnv: undefined,
+          optIn: undefined,
+        })
+      ).toBe(false);
+    });
+
+    test("allows production resolution under an explicit opt-in", () => {
+      expect(
+        shouldRefuseTestEnvironmentDb({
+          isProductionResolution: true,
+          nodeEnv: "test",
+          optIn: "1",
+        })
+      ).toBe(false);
+    });
+
+    test("an empty opt-in value is NOT an opt-in", () => {
+      // `MINSKY_ALLOW_TEST_DB=` in a shell exports an empty string. Treating
+      // that as consent would let a stray unset-looking export disable the
+      // guard silently.
+      expect(
+        shouldRefuseTestEnvironmentDb({
+          isProductionResolution: true,
+          nodeEnv: "test",
+          optIn: "",
+        })
+      ).toBe(true);
+    });
+  });
+
+  describe("wiring into createCachedSqlDbGetter", () => {
+    // No test-only seam is needed to exercise these: the guard decides from
+    // the resolution SHAPE and the environment, so a getter built with no
+    // `getProvider` throws before it ever reaches a provider.
+
+    test("a production-resolution getter in a test process THROWS", async () => {
+      const getDb = createCachedSqlDbGetter({ cacheNegative: false });
+
+      await expect(getDb()).rejects.toBeInstanceOf(TestEnvironmentDbAccessError);
+    });
+
+    test("it throws BEFORE any provider or connection work is attempted (PR #2342 R1)", async () => {
+      // The reviewer's point: connecting is itself the hazard, because the
+      // real provider may run connect-time side effects. Reaching the
+      // provider at all would fail this test.
+      let providerWasCalled = false;
+      const getDb = createCachedSqlDbGetter({ cacheNegative: false });
+
+      // Sanity-check the inverse in the same breath: an explicitly injected
+      // provider IS reached, so this assertion can actually fail.
+      const seamed = createCachedSqlDbGetter({
+        cacheNegative: false,
+        getProvider: async () => {
+          providerWasCalled = true;
+          return { getDatabaseConnection: async () => ({ marker: "fake" }) };
+        },
+      });
+
+      await expect(getDb()).rejects.toBeInstanceOf(TestEnvironmentDbAccessError);
+      expect(providerWasCalled).toBe(false);
+
+      await seamed();
+      expect(providerWasCalled).toBe(true);
+    });
+
+    test("a null-returning or throwing provider cannot downgrade the guard into silence", async () => {
+      // Keying off the resolution shape rather than the resolved value means
+      // there is no provider outcome — null, throw, partial connect — that
+      // routes the guard into the "probe failed -> null" path.
+      const getDb = createCachedSqlDbGetter({ cacheNegative: true });
+
+      await expect(getDb()).rejects.toBeInstanceOf(TestEnvironmentDbAccessError);
+      // Still throws on the second call: no negative result was cached.
+      await expect(getDb()).rejects.toBeInstanceOf(TestEnvironmentDbAccessError);
+    });
+
+    test("the error names the opt-in variable so the fix is discoverable from the message", async () => {
+      const getDb = createCachedSqlDbGetter({ cacheNegative: false });
+
+      await expect(getDb()).rejects.toThrow(/MINSKY_ALLOW_TEST_DB/);
+    });
   });
 });

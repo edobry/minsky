@@ -68,7 +68,7 @@ import type { ConversationRoutesOptions } from "./routes/conversations";
 import { mountConversationSearchRoutes } from "./routes/conversation-search";
 import type { ConversationSearchRouteOptions } from "./routes/conversation-search";
 import { mountChangesetRoutes } from "./routes/changesets";
-import { mountProjectRoutes } from "./routes/projects";
+import { mountProjectRoutes, type ProjectRoutesOptions } from "./routes/projects";
 import { mountEventsRoutes } from "./routes/events";
 import { mountActivityRoutes } from "./routes/activity";
 import { mountAskRoutes } from "./routes/asks";
@@ -178,6 +178,12 @@ export interface CockpitServerOptions {
    * ./driven-session-host.ts. Never set in production.
    */
   overrideDrivenSession?: DrivenSessionRoutesOptions;
+  /**
+   * Test seam for the /api/projects route's database resolution (mt#3254).
+   * Without it a test process reaches the production resolution path, which
+   * the live-database guard refuses.
+   */
+  overrideProjectRoutes?: ProjectRoutesOptions;
   /**
    * Test-only injection seams for the Agents-view "go to" focus endpoint
    * (mt#2286) — overrides the SQL-connection getter and the mt#2285 focus
@@ -322,7 +328,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountConversationRoutes(app, opts.overrideConversationLiveTail ?? {});
   mountConversationSearchRoutes(app, opts.overrideConversationSearch ?? {});
   mountChangesetRoutes(app);
-  mountProjectRoutes(app); // mt#2418 — GET /api/projects (shell project selector)
+  mountProjectRoutes(app, opts.overrideProjectRoutes ?? {}); // mt#2418 — GET /api/projects (shell project selector)
   mountEventsRoutes(app, { sseBrokerOverride });
   mountActivityRoutes(app);
   mountAskRoutes(app, { askRepoOverride });
