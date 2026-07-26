@@ -37,7 +37,7 @@
  * @see packages/domain/src/transcripts/conversation-elements.ts — the shared parser
  * @see mt#2370 — the session-tab frame this will eventually render into
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
@@ -47,7 +47,10 @@ import {
   type ConversationRole,
   type ConversationTurn,
 } from "@minsky/domain/transcripts/conversation-elements";
-import type { SessionContextSnapshot, SessionContextSnapshotBlock } from "@minsky/domain/context/types";
+import type {
+  SessionContextSnapshot,
+  SessionContextSnapshotBlock,
+} from "@minsky/domain/context/types";
 import type { ConversationId, WorkspaceId } from "@minsky/domain/ids";
 import type { EntityIndex } from "../lib/entity-linkifier";
 import { useEntityIndex } from "../lib/use-entity-index";
@@ -66,6 +69,7 @@ import {
   snapshotRetry,
 } from "../lib/conversation-snapshot";
 import { splitInjectedContent, type InjectedSpan } from "../lib/injected-content";
+import { formatLocalTime, turnSeparator, type TurnSeparator } from "../lib/conversation-timeline";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -151,9 +155,7 @@ type ConversationViewProps =
 
 function formatTime(iso: string): string {
   try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return iso;
-    return d.toISOString().slice(11, 19); // HH:MM:SS
+    return formatLocalTime(iso);
   } catch {
     return iso;
   }
@@ -266,7 +268,10 @@ function ToolInvocation({
         />
         <span
           title={call.name}
-          className={cn("shrink-0 font-mono font-medium", isError ? "text-destructive" : "text-sky-300")}
+          className={cn(
+            "shrink-0 font-mono font-medium",
+            isError ? "text-destructive" : "text-sky-300"
+          )}
         >
           {label}
         </span>
@@ -604,7 +609,31 @@ function hasRenderablePreparedElement(el: PreparedElement): boolean {
 const API_ERROR_PREFIX = "API Error:";
 
 function isApiErrorText(text: string): boolean {
-  return text.trim().startsWith(API_ERROR_PREFIX);
+  return text.trimStart().startsWith(API_ERROR_PREFIX);
+}
+
+/**
+ * The per-turn Outcome chip's value, or `null` when none is evidenced.
+ *
+ * mt#3130's Outcome register has six values (`Completed` · `Interrupted` ·
+ * `Errored` · `Rate-limited` · `Crashed` · `Stalled`), but only `Errored` has a
+ * positively-evidenced signal in the transcript as parsed TODAY. The rest need
+ * the sentinel classification that is mt#3260's scope (interrupt sentinels,
+ * `"<synthetic>"` retry markers, compaction boundaries).
+ *
+ * So this returns `null` rather than `Completed` for an unremarkable turn — and
+ * that is deliberate, not a stub. Labeling a turn `Completed` before interrupt
+ * classification exists would assert completion for turns that were actually
+ * cut off, and interrupts appear in 44% of transcripts (73 of 165, mt#3130's
+ * audit). An absent chip says "nothing to report"; a wrong `Completed` chip is
+ * the falsely-confident derived field this whole umbrella exists to remove.
+ */
+function turnOutcome(turn: PreparedTurn): "Errored" | null {
+  if (turn.role !== "assistant") return null;
+  for (const element of turn.elements) {
+    if (element.kind === "text" && isApiErrorText(element.text)) return "Errored";
+  }
+  return null;
 }
 
 function ElementView({
@@ -632,7 +661,10 @@ function ElementView({
       // assistant output; a user asking about an "API Error:" is ordinary prose.
       if (role === "assistant" && isApiErrorText(element.text)) {
         return (
-          <div role="alert" className="rounded border border-destructive/40 bg-destructive/5 px-2 py-1">
+          <div
+            role="alert"
+            className="rounded border border-destructive/40 bg-destructive/5 px-2 py-1"
+          >
             <Prose entityIndex={entityIndex} className="text-destructive">
               {element.text}
             </Prose>
@@ -656,11 +688,19 @@ function ElementView({
       );
     case "tool-result-orphan":
       return (
-        <ToolResult element={element.result} callName={element.callName} entityIndex={entityIndex} />
+        <ToolResult
+          element={element.result}
+          callName={element.callName}
+          entityIndex={entityIndex}
+        />
       );
     case "injected":
       return (
-        <InjectedContentBlock span={element.span} entityIndex={entityIndex} expandSignal={expandSignal} />
+        <InjectedContentBlock
+          span={element.span}
+          entityIndex={entityIndex}
+          expandSignal={expandSignal}
+        />
       );
     case "unknown":
       return (
@@ -694,6 +734,7 @@ function TurnView({
   expandSignal: ExpandSignal;
 }) {
   const roleStyle = ROLE_STYLES[turn.role];
+  const outcome = turnOutcome(turn);
   const rendered = turn.elements
     .map((element, i) => {
       const node = (
@@ -719,6 +760,14 @@ function TurnView({
             → subagent{turn.spawnAgentKind ? ` (${turn.spawnAgentKind})` : ""}
           </span>
         )}
+        {outcome && (
+          <span
+            className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium normal-case text-destructive"
+            data-testid="turn-outcome"
+          >
+            {outcome}
+          </span>
+        )}
         <span className="ml-auto tabular-nums text-muted-foreground/60">
           {formatTime(turn.timestamp)}
         </span>
@@ -739,6 +788,27 @@ function TurnView({
  */
 const INITIAL_TURNS = 50;
 const OLDER_CHUNK = 100;
+
+/**
+ * A day boundary or a long-gap marker between two turns. Renders as a quiet
+ * rule with a centered label — it is orientation, not content, so it must not
+ * compete with the turns on either side.
+ */
+function TurnSeparatorRow({ separator }: { separator: TurnSeparator }) {
+  const isDay = separator.kind === "day";
+  return (
+    <div
+      className="flex items-center gap-3 py-1 text-[11px] text-muted-foreground/70"
+      data-testid={isDay ? "turn-day-divider" : "turn-gap-divider"}
+    >
+      <span className="h-px flex-1 bg-border" />
+      <span className={cn("tabular-nums", isDay && "font-medium text-muted-foreground")}>
+        {isDay ? separator.label : `${separator.label} gap`}
+      </span>
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
 
 function ConversationThread({
   snapshot,
@@ -763,7 +833,9 @@ function ConversationThread({
   // Merge snapshot blocks with any live-tail appends.
   const allBlocks = useMemo(
     () =>
-      extraBlocks && extraBlocks.length > 0 ? [...snapshot.blocks, ...extraBlocks] : snapshot.blocks,
+      extraBlocks && extraBlocks.length > 0
+        ? [...snapshot.blocks, ...extraBlocks]
+        : snapshot.blocks,
     [snapshot.blocks, extraBlocks]
   );
 
@@ -908,9 +980,22 @@ function ConversationThread({
           </button>
         </div>
       )}
-      {preparedTurns.map((turn) => (
-        <TurnView key={turn.blockId} turn={turn} entityIndex={entityIndex} expandSignal={expandSignal} />
-      ))}
+      {preparedTurns.flatMap((turn, i) => {
+        const separator = turnSeparator(preparedTurns[i - 1]?.timestamp, turn.timestamp);
+        const nodes: ReactNode[] = [];
+        if (separator) {
+          nodes.push(<TurnSeparatorRow key={`${turn.blockId}-sep`} separator={separator} />);
+        }
+        nodes.push(
+          <TurnView
+            key={turn.blockId}
+            turn={turn}
+            entityIndex={entityIndex}
+            expandSignal={expandSignal}
+          />
+        );
+        return nodes;
+      })}
       <div ref={endRef} aria-hidden />
     </div>
   );
@@ -1084,7 +1169,9 @@ function ConversationFetcher({
         </div>
       );
     }
-    return <ErrorState prefix="Failed to load conversation" error={query.error} className={className} />;
+    return (
+      <ErrorState prefix="Failed to load conversation" error={query.error} className={className} />
+    );
   }
   if (query.isLoading || !query.data) {
     return <LoadingState message="Loading conversation…" className={className} />;
