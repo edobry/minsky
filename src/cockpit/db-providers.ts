@@ -158,24 +158,40 @@ export function shouldRefuseTestEnvironmentDb(input: {
 export function createCachedSqlDbGetter(options: {
   cacheNegative: boolean;
   getProvider?: () => Promise<unknown>;
-  /**
-   * @internal Test-only. Stands in for {@link getCachedPersistenceProvider} on
-   * the PRODUCTION resolution path, so the mt#3254 guard can be exercised
-   * without a live connection. Unlike `getProvider`, supplying this does NOT
-   * mark the resolution as seam-injected — the guard still applies, which is
-   * the whole point of the seam.
-   */
-  __productionProviderForTests?: () => Promise<unknown>;
 }): CachedSqlDbGetter {
   // A getter built without `getProvider` resolves the REAL configured
   // database; that is what the mt#3254 guard keys on.
   const isProductionResolution = options.getProvider === undefined;
-  const getProvider =
-    options.getProvider ?? options.__productionProviderForTests ?? getCachedPersistenceProvider;
+  const getProvider = options.getProvider ?? getCachedPersistenceProvider;
   let cachedDb: PostgresJsDatabase | null = null;
   let probedAndFailed = false;
 
   const getCachedSqlDb = async function getCachedSqlDb(): Promise<PostgresJsDatabase | null> {
+    // FIRST statement, before the caches and before any provider work (PR #2342
+    // R1): connecting is itself the hazard. The real provider may run
+    // connect-time side effects — migrations, session initialization — so a
+    // guard that fires after `getDatabaseConnection()` resolves has already let
+    // them happen. Deciding purely from `isProductionResolution` + the
+    // environment needs no connection at all, so nothing is attempted.
+    //
+    // Keying off the resolution SHAPE rather than the resolved value also means
+    // a provider that returns null, or throws, cannot silently downgrade the
+    // guard into the "probe failed -> null" path below.
+    if (
+      shouldRefuseTestEnvironmentDb({
+        isProductionResolution,
+        nodeEnv: process.env.NODE_ENV,
+        optIn: process.env[ALLOW_TEST_DB_ENV_VAR],
+      })
+    ) {
+      throw new TestEnvironmentDbAccessError(
+        "Refusing to resolve a live database in a test process. This getter uses the real " +
+          "configured provider, which under `bun test` is whatever the environment points at — " +
+          "prod, in this repo. Inject a fake via the `getProvider` seam, or set " +
+          `${ALLOW_TEST_DB_ENV_VAR}=1 if this test genuinely needs a real LOCAL database. ` +
+          "(mt#3254 — test runs previously wrote 31 rows into production tables.)"
+      );
+    }
     if (cachedDb) return cachedDb;
     if (options.cacheNegative && probedAndFailed) return null;
     try {
@@ -198,27 +214,14 @@ export function createCachedSqlDbGetter(options: {
         probedAndFailed = true;
         return null;
       }
-      if (
-        shouldRefuseTestEnvironmentDb({
-          isProductionResolution,
-          nodeEnv: process.env.NODE_ENV,
-          optIn: process.env[ALLOW_TEST_DB_ENV_VAR],
-        })
-      ) {
-        throw new TestEnvironmentDbAccessError(
-          "Refusing to hand a live database to a test process. This connection came from the " +
-            "real configured provider, which under `bun test` is whatever the environment points " +
-            "at — prod, in this repo. Inject a fake via the `getProvider` seam, or set " +
-            `${ALLOW_TEST_DB_ENV_VAR}=1 if this test genuinely needs a real LOCAL database. ` +
-            "(mt#3254 — test runs previously wrote 31 rows into production tables.)"
-        );
-      }
       cachedDb = db;
       return cachedDb;
     } catch (err) {
-      // The guard must NOT degrade into the "probe failed -> null" path below:
-      // a silent null is indistinguishable from "no database configured",
-      // which is exactly the silence this guard exists to break.
+      // Defensive: the guard now throws before this try block, so it cannot
+      // reach here. Kept so a future refactor that moves the check back inside
+      // cannot silently re-degrade it into the "probe failed -> null" path — a
+      // null is indistinguishable from "no database configured", which is the
+      // silence this guard exists to break.
       if (err instanceof TestEnvironmentDbAccessError) throw err;
       probedAndFailed = true;
       return null;

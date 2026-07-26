@@ -220,14 +220,6 @@ describe("createCachedSqlDbGetter", () => {
 // above does, and none of them change.
 // -------------------------------------------------------------------------
 
-/** Stands in for the real configured connection the production path resolves. */
-const PROD_CONNECTION_MARKER = "REAL-PROD-CONNECTION";
-
-/** A production-path provider stub: guarded, unlike the `getProvider` seam. */
-const fakeProductionProvider = async () => ({
-  getDatabaseConnection: async () => ({ marker: PROD_CONNECTION_MARKER }),
-});
-
 describe("test-process live-database guard (mt#3254)", () => {
   describe("shouldRefuseTestEnvironmentDb", () => {
     test("refuses production resolution under NODE_ENV=test with no opt-in", () => {
@@ -295,41 +287,53 @@ describe("test-process live-database guard (mt#3254)", () => {
   });
 
   describe("wiring into createCachedSqlDbGetter", () => {
-    test("a production-resolved db in a test process THROWS rather than being handed out", async () => {
-      const getDb = createCachedSqlDbGetter({
-        cacheNegative: false,
-        // No `getProvider` — this is the production resolution path. The
-        // test-only override below stands in for the real
-        // getCachedPersistenceProvider so the assertion needs no live DB.
-        __productionProviderForTests: fakeProductionProvider,
-      });
+    // No test-only seam is needed to exercise these: the guard decides from
+    // the resolution SHAPE and the environment, so a getter built with no
+    // `getProvider` throws before it ever reaches a provider.
+
+    test("a production-resolution getter in a test process THROWS", async () => {
+      const getDb = createCachedSqlDbGetter({ cacheNegative: false });
 
       await expect(getDb()).rejects.toBeInstanceOf(TestEnvironmentDbAccessError);
     });
 
-    test("the guard error is NOT swallowed into a null by the probe-failure catch", async () => {
-      // createCachedSqlDbGetter converts every thrown probe failure into
-      // `null`. If the guard rides that path it degrades to "no db
-      // available" — silent, which is the exact failure mode being fixed.
-      const getDb = createCachedSqlDbGetter({
-        cacheNegative: true,
-        __productionProviderForTests: fakeProductionProvider,
+    test("it throws BEFORE any provider or connection work is attempted (PR #2342 R1)", async () => {
+      // The reviewer's point: connecting is itself the hazard, because the
+      // real provider may run connect-time side effects. Reaching the
+      // provider at all would fail this test.
+      let providerWasCalled = false;
+      const getDb = createCachedSqlDbGetter({ cacheNegative: false });
+
+      // Sanity-check the inverse in the same breath: an explicitly injected
+      // provider IS reached, so this assertion can actually fail.
+      const seamed = createCachedSqlDbGetter({
+        cacheNegative: false,
+        getProvider: async () => {
+          providerWasCalled = true;
+          return { getDatabaseConnection: async () => ({ marker: "fake" }) };
+        },
       });
 
-      let threw = false;
-      try {
-        await getDb();
-      } catch {
-        threw = true;
-      }
-      expect(threw).toBe(true);
+      await expect(getDb()).rejects.toBeInstanceOf(TestEnvironmentDbAccessError);
+      expect(providerWasCalled).toBe(false);
+
+      await seamed();
+      expect(providerWasCalled).toBe(true);
+    });
+
+    test("a null-returning or throwing provider cannot downgrade the guard into silence", async () => {
+      // Keying off the resolution shape rather than the resolved value means
+      // there is no provider outcome — null, throw, partial connect — that
+      // routes the guard into the "probe failed -> null" path.
+      const getDb = createCachedSqlDbGetter({ cacheNegative: true });
+
+      await expect(getDb()).rejects.toBeInstanceOf(TestEnvironmentDbAccessError);
+      // Still throws on the second call: no negative result was cached.
+      await expect(getDb()).rejects.toBeInstanceOf(TestEnvironmentDbAccessError);
     });
 
     test("the error names the opt-in variable so the fix is discoverable from the message", async () => {
-      const getDb = createCachedSqlDbGetter({
-        cacheNegative: false,
-        __productionProviderForTests: fakeProductionProvider,
-      });
+      const getDb = createCachedSqlDbGetter({ cacheNegative: false });
 
       await expect(getDb()).rejects.toThrow(/MINSKY_ALLOW_TEST_DB/);
     });
