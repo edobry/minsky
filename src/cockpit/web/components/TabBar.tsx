@@ -77,11 +77,32 @@ export interface HorizontalExtent {
 /**
  * How many of `tabs` fall outside `strip`'s visible extent (mt#3252).
  *
- * A tab counts as hidden when either edge is clipped: a half-visible tab can
- * be neither read nor reliably clicked, so counting it as visible would
- * undercount exactly the tabs the operator is missing. The 1px tolerance
- * absorbs sub-pixel layout rounding, which would otherwise report a
- * flush-fitting tab as clipped.
+ * ## The bound is the strip's border-box rect, deliberately — do NOT subtract padding
+ *
+ * `overflow-x: auto` clips at the **padding box**, not the content box: padding
+ * is inside the scrollport, so a tab scrolled into the strip's `px-1` zone is
+ * still painted and still clickable. The strip has no border, so its
+ * `getBoundingClientRect()` IS its padding box — the exact clip region.
+ * Subtracting `paddingLeft`/`paddingRight` would narrow the bound below the real
+ * clip and report a visible tab as hidden.
+ *
+ * Measured on the running cockpit (12 tabs, 600px strip, 1548px of content) at
+ * four scroll offsets — start, end, mid, and a fractional `scrollLeft` — the
+ * padding-subtracting variant returns an identical count at every one, because
+ * a tab edge never lands strictly inside the 4px padding band. So the change
+ * would be a no-op here and wrong in the general case. (PR #2339 R1 asked for
+ * it; this is the refutation.)
+ *
+ * ## A partially clipped tab counts as HIDDEN, by design
+ *
+ * The count answers "how many tabs can I not read from here". Clipping truncates
+ * the label, and a tab showing three pixels of its title is not identifiable —
+ * so any clipped edge counts. This is a definitional choice, not an off-by-one:
+ * a midpoint-visibility rule (what a hit-test measures) reports one fewer
+ * whenever a tab straddles an edge. Pinned by test.
+ *
+ * The 1px tolerance absorbs sub-pixel layout rounding, which would otherwise
+ * report a flush-fitting tab as clipped.
  *
  * Pure (rects in, count out) so the measurement rule is unit-testable — jsdom
  * reports every rect as zero, so it cannot be exercised through the DOM.
@@ -201,17 +222,21 @@ function TabOverflowMenu({ hiddenCount }: { hiddenCount: number }) {
   const { tabs, activePath, closeAllTabs, closeOtherTabs } = useTabs();
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
+  const label =
+    hiddenCount > 0
+      ? `Open entities: ${tabs.length} open, ${hiddenCount} out of view`
+      : `Open entities: ${tabs.length} open`;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={
-            hiddenCount > 0
-              ? `Open entities: ${tabs.length} open, ${hiddenCount} out of view`
-              : `Open entities: ${tabs.length} open`
-          }
+          aria-label={label}
+          // Sighted users get the same sentence on hover: the control is
+          // icon-only (plus the conditional +N), so without this its purpose is
+          // legible to a screen reader and to nobody else (PR #2339 R1).
+          title={label}
           className="flex flex-shrink-0 items-center gap-1 self-center rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         >
           <ChevronsRight aria-hidden className="h-3.5 w-3.5" />

@@ -82,10 +82,16 @@ export const MAX_OPEN_TABS = 12;
  * Trim `tabs` to `cap` by dropping least-recently-active entries.
  *
  * `protectPath` (the active tab) is never a candidate: evicting the tab the
- * operator is looking at would navigate the shell out from under them. When
- * the protected tab alone exceeds the cap the protected tab wins and the
- * result stays one over — a cap is a budget for the working set, not a licence
- * to close what's on screen.
+ * operator is looking at would navigate the shell out from under them.
+ *
+ * The result therefore exceeds `cap` in exactly one situation: `cap < 1`, where
+ * the single protected tab is already over budget and wins anyway (a cap is a
+ * budget for the working set, not a licence to close what is on screen). At any
+ * `cap >= 1` — every production path, since `MAX_OPEN_TABS` is 12 — the returned
+ * length is always `<= cap`, because at most one tab is protected and the
+ * remaining `length - 1` are all evictable. PR #2339 R1 read the documented
+ * over-budget case as a general possibility; it is reachable only from a test
+ * passing `cap: 0`, and both facts are pinned by test.
  *
  * Ties break by array position, which is open order. That matters for tabs
  * back-filled by `loadTabs`, whose synthetic recencies are ordinal.
