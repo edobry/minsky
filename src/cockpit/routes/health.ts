@@ -121,6 +121,13 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
 
     res.json({
       status: "ok",
+      // mt#3148: the discriminator a healthcheck asserts on. A bare
+      // `status: "ok"` cannot tell "this service is healthy" from "a DIFFERENT
+      // application is answering on this host" — mt#3142 is the proof (the MCP
+      // server answered /health 200 on the reviewer's host for ~1h while every
+      // reviewer route 404'd). Declared in contract/cockpit-health-shape.json
+      // and asserted by BOTH sides of the tray/cockpit split.
+      service: "minsky-cockpit",
       version,
       commit: getGitCommit(),
       uptimeSec,
