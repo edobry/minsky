@@ -280,7 +280,19 @@ describe("AskPage import-chain browser safety (mt#3239)", () => {
       ? fileURLToPath(new URL(specifier, `file://${ASK_PAGE_PATH}`))
       : specifier;
     const script = `delete globalThis.process; await import(${JSON.stringify(resolvedSpecifier)});`;
-    const proc = Bun.spawn({ cmd: ["bun", "-e", script], stderr: "pipe", stdout: "pipe" });
+    // process.execPath (not a bare "bun") guarantees the subprocess is the SAME Bun binary
+    // running this suite, not whatever "bun" resolves to on PATH (which can differ in CI or a
+    // multi-version dev machine). NOTE: `Bun.execPath` is NOT a real Bun API (verified against
+    // Bun v1.2.21 -- `Bun.execPath` is `undefined`, calling it throws "not a function"); the
+    // correct binary path is `process.execPath`, the Node-compat property Bun implements. This
+    // spawn call runs in the PARENT process, where `process` is still fully intact -- only the
+    // CHILD script (the `-e` argument below) deletes `globalThis.process`, so resolving the
+    // binary here doesn't conflict with what the test is proving.
+    const proc = Bun.spawn({
+      cmd: [process.execPath, "-e", script],
+      stderr: "pipe",
+      stdout: "pipe",
+    });
     const exitCode = await proc.exited;
     const stderr = await new Response(proc.stderr).text();
     return { exitCode, stderr };
