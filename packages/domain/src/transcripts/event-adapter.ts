@@ -332,6 +332,20 @@ function agentSpawnTargetExtractor(input: unknown): TargetResult {
   return { id: `agents:${kind ?? "unknown"}`, raw: input };
 }
 
+/**
+ * Target extractor for the `Skill` tool (mt#3258 SC 3): the invocation's
+ * `skill` input field IS the meaningful target — "cockpit-design",
+ * "create-task", etc. — not the literal tool name. Coordinator's live-DOM
+ * finding: an unregistered `Skill` tool fell through to `FALLBACK_MAPPING`
+ * (realm "unknown"), rendering the literal string `unknown:Skill` on both
+ * the ribbon and the stage.
+ */
+function skillTargetExtractor(input: unknown): TargetResult {
+  const rec = asRecord(input);
+  const skill = rec ? str(rec.skill) : undefined;
+  return { id: `agents:skill:${skill ?? "unknown"}`, raw: input };
+}
+
 /** A synthetic directory-grain target for `session_start` (RFC Amendment 3's "clone" mapping). */
 function sessionCloneTargetExtractor(input: unknown): TargetResult {
   const rec = asRecord(input);
@@ -488,6 +502,27 @@ const EXPLICIT_TOOL_REGISTRY: Record<string, ToolMapping> = {
   WebFetch: { verb: "read", realm: "web", extractTarget: webTargetExtractor },
   WebSearch: { verb: "search", realm: "web", extractTarget: webSearchTargetExtractor },
   Agent: { verb: "spawn", realm: "agents", extractTarget: agentSpawnTargetExtractor },
+  // mt#3258 SC 3 — coverage-hole sweep. The coordinator's live-DOM check
+  // found `Skill` and `tasks_children` (both real, frequently-invoked
+  // tools) falling through to FALLBACK_MAPPING and rendering the literal
+  // string "unknown:<name>". `Skill` gets its own extractor (the skill NAME
+  // is the meaningful target, not the bare tool name); the rest of this
+  // block is a modest additional sweep for other commonly-deferred tools in
+  // the current harness's tool surface that don't match any
+  // `inferGenericMapping` keyword pattern (see that function's regexes) and
+  // would otherwise ALSO fall through to the "unknown" realm.
+  Skill: { verb: "execute", realm: "agents", extractTarget: skillTargetExtractor },
+  tasks_children: {
+    verb: "read",
+    realm: "minsky-substrate",
+    extractTarget: minskySubstrateTargetExtractor("task"),
+  },
+  SendMessage: { verb: "write", realm: "agents" },
+  TaskStop: { verb: "delete", realm: "agents" },
+  Monitor: { verb: "read", realm: "shell" },
+  EnterWorktree: { verb: "write", realm: "repo" },
+  ExitWorktree: { verb: "write", realm: "repo" },
+  ExitPlanMode: { verb: "write", realm: "agents" },
 };
 
 /** Realm inference from MCP server name / bare-name prefix (generic fallback tier). */

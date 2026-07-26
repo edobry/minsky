@@ -70,10 +70,32 @@
  * "at most one row is ever expanded" (this component's own
  * `expandedRowIndex` invariant), not a general solution.
  *
- * Row root is a `<div role="listitem">` (not a `<button>`): EntityRef renders
- * an anchor internally, and nesting an anchor inside a native `<button>` is
- * invalid HTML (button forbids interactive-content descendants). The row
- * stays keyboard-operable via `tabIndex={0}` + an Enter/Space key handler.
+ * Row root is a `<div role="button">` (mt#3258 SC 5 fix — was
+ * `role="listitem"`): EntityRef renders an anchor internally, and nesting an
+ * anchor inside a NATIVE `<button>` element is invalid HTML (button forbids
+ * interactive-content descendants) — but `role="button"` on a `<div>` is a
+ * pure ARIA annotation, not a real `<button>` tag, so the nesting concern
+ * doesn't apply to it. The row stays keyboard-operable via `tabIndex={0}` +
+ * an Enter/Space key handler.
+ *
+ * ### Why `role="button"`, not `role="listitem"` (mt#3258 SC 5)
+ *
+ * Coordinator's live-DOM accessibility check found NEITHER `role="button"`
+ * NOR an accessible `aria-expanded` on these rows. Root cause: `aria-expanded`
+ * is not a supported state for ARIA's `listitem` role (WAI-ARIA 1.2's
+ * supported-states table for `listitem` lists only
+ * `aria-level`/`aria-posinset`/`aria-setsize`) — browsers compute the
+ * accessibility tree by DROPPING an unsupported state/role combination, so
+ * the attribute was present in the raw DOM (and in this file's source) but
+ * absent from the accessibility tree the coordinator's a11y snapshot reads.
+ * `role="button"` DOES support `aria-expanded` (ARIA 1.2 lists it as a
+ * disclosure/toggle-button state), so switching to it makes the expand/
+ * collapse semantics actually reach assistive tech. Trade-off accepted: the
+ * ribbon's container root switched from `role="list"` to `role="group"` to
+ * avoid an invalid `list > button` parent/child ARIA combination (a `list`
+ * requires `listitem`/`group`/`presentation` children) — the container is
+ * still labeled (`aria-label="Session event ribbon"`), just no longer
+ * announced as a literal "list" landmark.
  *
  * @see session-film-batches.ts — BatchRow / ChapterMarker / gap+wait/actor-change helpers
  * @see session-film-virtualization.ts — the windowing math this component wires up
@@ -96,6 +118,7 @@ import { realmColorStyle } from "../../lib/session-film-config";
 import {
   deriveFilmSubjectAgentId,
   isSelfReferenceTarget,
+  isUnknownRealmTarget,
   parseRoutableTarget,
   SELF_REFERENCE_LABEL,
   targetDisplayLabel,
@@ -163,7 +186,18 @@ function EventTargetLabel({
   if (routableTarget) {
     return <EntityRef type={routableTarget.type} id={routableTarget.id} className="truncate text-xs" />;
   }
-  return <span className="truncate">{targetDisplayLabel(event.target)}</span>;
+  // Unknown-realm fallback (mt#3258 SC 3): a clean generic tool-name label
+  // (never the literal "unknown:" — see targetDisplayLabel's doc comment),
+  // muted so it visually reads as "unidentified" rather than a normal
+  // resolved target.
+  return (
+    <span
+      data-testid={isUnknownRealmTarget(event.target) ? "session-film-unknown-target" : undefined}
+      className={cn("truncate", isUnknownRealmTarget(event.target) && "italic text-muted-foreground/60")}
+    >
+      {targetDisplayLabel(event.target)}
+    </span>
+  );
 }
 
 /** One member event's row inside an expanded batch's detail (mt#3231 SC 3 / AT 3). */
@@ -357,7 +391,7 @@ export function SessionFilmRibbon({
       ref={containerRef}
       onScroll={handleScroll}
       data-testid="session-film-ribbon"
-      role="list"
+      role="group"
       aria-label="Session event ribbon"
       className={cn("relative flex-1 min-h-0 overflow-y-auto font-mono text-xs", className)}
     >
@@ -396,7 +430,7 @@ export function SessionFilmRibbon({
                   data-capture-gap={isCaptureGap ? "true" : undefined}
                   data-chapter={chapter ? "true" : undefined}
                   data-actor-change={showActorMarker ? "true" : undefined}
-                  role="listitem"
+                  role="button"
                   tabIndex={0}
                   aria-current={isPlayhead ? "true" : undefined}
                   aria-expanded={isExpanded}

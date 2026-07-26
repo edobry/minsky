@@ -147,7 +147,9 @@ describe("SessionFilmRibbon — virtualization (SC 4)", () => {
       events.push(ev({ batchId: `b${i}`, target: { realm: "repo", id: `file:ws:${i}.ts` } }));
     }
     renderRibbon(events);
-    const mounted = screen.getAllByRole("listitem");
+    // Row role is "button" (mt#3258 SC 5 — was "listitem"; see
+    // SessionFilmRibbon.tsx's module doc for the accessibility fix).
+    const mounted = screen.getAllByRole("button");
     // Container clientHeight defaults to 0 in happy-dom -> component falls
     // back to a 400px viewport assumption; well under 500 rows regardless.
     expect(mounted.length).toBeLessThan(500);
@@ -359,5 +361,51 @@ describe("SessionFilmRibbon — click-to-expand inline accordion (mt#3231 SC 3 /
     const { onSelectRow } = renderRibbon(events);
     fireEvent.click(screen.getByTestId("session-film-row-1"));
     expect(onSelectRow).toHaveBeenCalledWith(1);
+  });
+});
+
+describe("SessionFilmRibbon — row accessibility (mt#3258 SC 5)", () => {
+  test("a row exposes role=button + aria-expanded (was role=listitem, which drops aria-expanded from the a11y tree)", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1" })];
+    renderRibbon(events);
+    const row = screen.getByTestId("session-film-row-0");
+    expect(row.getAttribute("role")).toBe("button");
+    expect(row.getAttribute("aria-expanded")).not.toBeNull();
+    expect(row.getAttribute("tabindex")).toBe("0");
+  });
+
+  test("Enter and Space both toggle expansion; click also toggles it", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1" })];
+    renderRibbon(events);
+    const row = screen.getByTestId("session-film-row-0");
+
+    fireEvent.keyDown(row, { key: " " });
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(row, { key: " " });
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(row);
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("the ribbon container is a labeled group (role=list would require listitem children, invalid alongside role=button rows)", () => {
+    renderRibbon([ev({ batchId: "b1" })]);
+    const container = screen.getByTestId("session-film-ribbon");
+    expect(container.getAttribute("role")).toBe("group");
+    expect(container.getAttribute("aria-label")).toBe("Session event ribbon");
+  });
+});
+
+describe("SessionFilmRibbon — unknown-target fallback never leaks 'unknown:' (mt#3258 SC 3)", () => {
+  test("a target that fell through the adapter's total fallback renders a clean muted label, never the literal 'unknown:' prefix", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", target: { realm: "unknown", id: "unknown:SomeNewTool" }, unmapped: true }),
+    ];
+    renderRibbon(events);
+    const row = screen.getByTestId("session-film-row-0");
+    expect(row.textContent).not.toContain("unknown:");
+    expect(row.textContent).toContain("SomeNewTool");
+    const label = screen.getByTestId("session-film-unknown-target");
+    expect(label.className).toContain("text-muted-foreground");
   });
 });
