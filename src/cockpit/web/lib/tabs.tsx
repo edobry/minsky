@@ -47,11 +47,69 @@ export interface EntityTab {
    * reload. Never read from localStorage — always undefined on load.
    */
   error?: boolean;
+  /**
+   * Epoch ms of the tab's last activation — the LRU key (mt#3252). Absent in
+   * payloads persisted before this field existed; `loadTabs` back-fills those
+   * from persisted (open) order, the only recency proxy available for them.
+   */
+  lastActiveAt?: number;
 }
 
 // localStorage key name, not a credential — gitleaks generic-api-key
 // false-positives on the `*KEY = "<string>"` shape.
 const STORAGE_KEY = "cockpit.tabs.v1"; // gitleaks:allow
+
+/**
+ * Ceiling on the open-tab working set (mt#3252).
+ *
+ * Grounded in the strip's measured geometry rather than a round number (per
+ * `decision-defaults §Thresholds`): at the observed cockpit width (1360px) and
+ * median tab width (127px) the strip fits 9 tabs. A cap of 12 keeps the whole
+ * working set inside ~1.3 strip-widths — any tab is one short scroll or one
+ * overflow-menu open away — while leaving headroom above what fits so the cap
+ * does not fight ordinary multi-entity work.
+ *
+ * Before this cap existed nothing ever removed a tab: the open-on-visit effect
+ * appended one per entity route visited and persisted it forever, so merely
+ * LOOKING at an entity committed it to the working set. The measured result was
+ * 49 tabs, 9 visible, 40 unreachable behind a deliberately-hidden scrollbar.
+ * Retiring open-on-visit in favour of preview-tab semantics — the model fix
+ * this cap only bounds — is mt#3255.
+ */
+export const MAX_OPEN_TABS = 12;
+
+/**
+ * Trim `tabs` to `cap` by dropping least-recently-active entries.
+ *
+ * `protectPath` (the active tab) is never a candidate: evicting the tab the
+ * operator is looking at would navigate the shell out from under them.
+ *
+ * The result therefore exceeds `cap` in exactly one situation: `cap < 1`, where
+ * the single protected tab is already over budget and wins anyway (a cap is a
+ * budget for the working set, not a licence to close what is on screen). At any
+ * `cap >= 1` — every production path, since `MAX_OPEN_TABS` is 12 — the returned
+ * length is always `<= cap`, because at most one tab is protected and the
+ * remaining `length - 1` are all evictable. PR #2339 R1 read the documented
+ * over-budget case as a general possibility; it is reachable only from a test
+ * passing `cap: 0`, and both facts are pinned by test.
+ *
+ * Ties break by array position, which is open order. That matters for tabs
+ * back-filled by `loadTabs`, whose synthetic recencies are ordinal.
+ */
+export function evictToCap(
+  tabs: EntityTab[],
+  opts: { cap?: number; protectPath?: string | null } = {}
+): EntityTab[] {
+  const cap = opts.cap ?? MAX_OPEN_TABS;
+  if (tabs.length <= cap) return tabs;
+  const protectPath = opts.protectPath ?? null;
+  const evictable = tabs
+    .map((tab, index) => ({ tab, index }))
+    .filter(({ tab }) => tab.path !== protectPath)
+    .sort((a, b) => (a.tab.lastActiveAt ?? 0) - (b.tab.lastActiveAt ?? 0) || a.index - b.index);
+  const evicted = new Set(evictable.slice(0, tabs.length - cap).map(({ tab }) => tab.path));
+  return tabs.filter((tab) => !evicted.has(tab.path));
+}
 
 /**
  * Match a location pathname against the entity-route registry. Returns the
@@ -155,6 +213,16 @@ interface TabsContextValue {
    */
   closeTab: (path: string, opts?: { navigateTo?: string }) => void;
   /**
+   * Close every tab and return to the default landing (mt#3252). The strip's
+   * bulk-release gesture — the counterpart to open-on-visit's bulk-acquire.
+   */
+  closeAllTabs: () => void;
+  /**
+   * Close every tab except `path`, and navigate to it (mt#3252). Keeping the
+   * kept tab active is the point of the gesture: "just this one".
+   */
+  closeOtherTabs: (path: string) => void;
+  /**
    * Mark the tab at `path` as unresolved — its entity 404s (mt#2769). Sets
    * `EntityTab.error`, which `TabBar` renders as an error chip; the tab is
    * EXCLUDED from persistence (see the persist effect below) so a reload does
@@ -219,6 +287,26 @@ function dedupeTabsByPath(tabs: EntityTab[]): EntityTab[] {
   return out;
 }
 
+/**
+ * Back-fill `lastActiveAt` for tabs persisted before the field existed, and
+ * repair non-finite values (a hand-edited or truncated payload).
+ *
+ * The synthetic recency is the tab's ORDINAL position in the persisted array —
+ * open order, the only recency proxy a legacy payload carries. Ordinals are
+ * necessarily smaller than any real epoch-ms timestamp, so a back-filled tab
+ * always ranks older than one activated in this session: the cap sheds history
+ * before it sheds live work.
+ *
+ * Exported for direct unit testing without mocking localStorage.
+ */
+export function backfillTabRecency(tabs: EntityTab[]): EntityTab[] {
+  return tabs.map((tab, index) =>
+    typeof tab.lastActiveAt === "number" && Number.isFinite(tab.lastActiveAt)
+      ? tab
+      : { ...tab, lastActiveAt: index }
+  );
+}
+
 function loadTabs(): EntityTab[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -233,7 +321,12 @@ function loadTabs(): EntityTab[] {
         typeof (t as EntityTab).label === "string" &&
         isAcceptedTabKind((t as EntityTab).kind)
     );
-    return dedupeTabsByPath(accepted.map(migrateLegacySessionPath));
+    const restored = backfillTabRecency(dedupeTabsByPath(accepted.map(migrateLegacySessionPath)));
+    // The cap applies at LOAD, not only when opening tab N+1: an operator
+    // arriving with a 49-tab payload persisted by an earlier build must land
+    // on a bounded strip, not keep the backlog until they happen to open one
+    // more. No tab is protected here — nothing is active yet at load time.
+    return evictToCap(restored);
   } catch {
     return [];
   }
@@ -257,11 +350,20 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     }
   }, [tabs]);
 
-  // Open-on-visit: navigating to an entity route ensures its tab exists.
+  // Open-on-visit: navigating to an entity route ensures its tab exists, and
+  // stamps it as the most-recently-active (the LRU key). The set is then
+  // trimmed to MAX_OPEN_TABS, protecting the tab just navigated to.
   useEffect(() => {
     const match = matchEntityRoute(pathname);
     if (!match) return;
-    setTabs((prev) => (prev.some((t) => t.path === match.path) ? prev : [...prev, match]));
+    const now = Date.now();
+    setTabs((prev) => {
+      const existing = prev.find((t) => t.path === match.path);
+      const next = existing
+        ? prev.map((t) => (t.path === match.path ? { ...t, lastActiveAt: now } : t))
+        : [...prev, { ...match, lastActiveAt: now }];
+      return evictToCap(next, { protectPath: match.path });
+    });
   }, [pathname]);
 
   const activePath = useMemo(() => {
@@ -286,13 +388,26 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     [navigate, pathname]
   );
 
+  const closeAllTabs = useCallback(() => {
+    setTabs([]);
+    navigate("/");
+  }, [navigate]);
+
+  const closeOtherTabs = useCallback(
+    (path: string) => {
+      setTabs((prev) => prev.filter((t) => t.path === path));
+      if (path !== pathname) navigate(path);
+    },
+    [navigate, pathname]
+  );
+
   const markTabError = useCallback((path: string) => {
     setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, error: true } : t)));
   }, []);
 
   const value = useMemo(
-    () => ({ tabs, activePath, closeTab, markTabError }),
-    [tabs, activePath, closeTab, markTabError]
+    () => ({ tabs, activePath, closeTab, closeAllTabs, closeOtherTabs, markTabError }),
+    [tabs, activePath, closeTab, closeAllTabs, closeOtherTabs, markTabError]
   );
 
   return <TabsContext.Provider value={value}>{children}</TabsContext.Provider>;
