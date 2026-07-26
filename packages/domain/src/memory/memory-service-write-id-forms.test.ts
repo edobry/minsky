@@ -43,17 +43,24 @@ function columnsOf(cond: unknown): string[] {
 }
 
 /**
- * Records the column each write's WHERE clause targets, and how many
- * statements were issued at all. `queries()` staying at 0 is what proves a
- * malformed id never reached the driver.
+ * Records the column each write's WHERE clause targets, how many statements
+ * were issued at all, and which id the VECTOR store was asked to delete.
+ *
+ * `queries()` staying at 0 is what proves a malformed id never reached the
+ * driver. `vectorDeletes()` is what proves the embedding was removed by the
+ * canonical uuid rather than the caller's alias — a short-id delete that left
+ * the vector behind would otherwise look completely successful.
  */
-function recordingDb(): {
+function recordingDb(opts: { deleteReturns?: Record<string, unknown>[] } = {}): {
   db: MemoryServiceDb;
   queries: () => number;
   whereColumns: () => string[];
+  vectorDeletes: () => string[];
+  vectorStorage: VectorStorage;
 } {
   let queries = 0;
   const columns: string[] = [];
+  const vectorDeleted: string[] = [];
   const track = (cond: unknown) => {
     queries++;
     columns.push(...columnsOf(cond));
@@ -79,7 +86,7 @@ function recordingDb(): {
     delete: () => ({
       where: (c: unknown) => {
         track(c);
-        return Promise.resolve([]);
+        return { returning: () => Promise.resolve(opts.deleteReturns ?? [ROW]) };
       },
     }),
     insert: () => ({
@@ -91,13 +98,28 @@ function recordingDb(): {
     transaction: async (fn: (tx: MemoryServiceDb) => Promise<unknown>) => fn(db),
   } as unknown as MemoryServiceDb;
 
-  return { db, queries: () => queries, whereColumns: () => columns };
+  const vectorStorage = {
+    delete: async (id: string) => {
+      vectorDeleted.push(id);
+    },
+    store: async () => {},
+  } as unknown as VectorStorage;
+
+  return {
+    db,
+    queries: () => queries,
+    whereColumns: () => columns,
+    vectorDeletes: () => vectorDeleted,
+    vectorStorage,
+  };
 }
 
-function serviceWith(db: MemoryServiceDb): MemoryService {
+function serviceWith(db: MemoryServiceDb, vectorStorage?: VectorStorage): MemoryService {
   return new MemoryService({
     db,
-    vectorStorage: { delete: async () => {}, store: async () => {} } as unknown as VectorStorage,
+    vectorStorage:
+      vectorStorage ??
+      ({ delete: async () => {}, store: async () => {} } as unknown as VectorStorage),
     embeddingService: {
       generateEmbedding: async () => [0, 0, 0, 0],
     } as unknown as EmbeddingService,
@@ -124,6 +146,25 @@ describe("MemoryService write paths accept mem#N (mt#3108)", () => {
     const { db, whereColumns } = recordingDb();
     await serviceWith(db).delete("mem#728");
     expect(whereColumns()).toContain("short_id");
+  });
+
+  test("delete() removes the embedding by the CANONICAL uuid, not the alias", async () => {
+    // The regression this task would otherwise have introduced (PR #2348 R1):
+    // making the row deletion work for short ids means the vector deletion is
+    // now reached with whatever the caller passed. Keyed by uuid, a `mem#728`
+    // there matches nothing and silently orphans the embedding — while both
+    // operations report success.
+    const { db, vectorDeletes, vectorStorage } = recordingDb();
+    await serviceWith(db, vectorStorage).delete("mem#728");
+    expect(vectorDeletes()).toEqual([UUID]);
+    expect(vectorDeletes()).not.toContain("mem#728");
+  });
+
+  test("delete() skips the embedding entirely when no row matched", async () => {
+    // No deleted row means no id to delete a vector by — and nothing to delete.
+    const { db, vectorDeletes, vectorStorage } = recordingDb({ deleteReturns: [] });
+    await serviceWith(db, vectorStorage).delete(UUID);
+    expect(vectorDeletes()).toEqual([]);
   });
 
   test("supersede() resolves the old id against short_id", async () => {
@@ -169,5 +210,35 @@ describe("write paths refuse a malformed id without querying (mt#3108)", () => {
       })
     ).rejects.toThrow(/Invalid memory id .* expected a full uuid or a mem#N short id/);
     expect(queries()).toBe(0);
+  });
+
+  test("supersede() names the problem when the old row does not exist", async () => {
+    // A well-formed id that matches nothing previously fell through to
+    // rowToRecord(undefined) — an error about reading properties of undefined,
+    // saying nothing about the actual cause (PR #2348 R1). The transaction
+    // rolls back, so the already-inserted replacement is not left behind.
+    const emptySelectDb = {
+      select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
+      insert: () => ({
+        values: () => ({
+          returning: () => Promise.resolve([ROW]),
+          onConflictDoNothing: () => ({ returning: () => Promise.resolve([ROW]) }),
+        }),
+      }),
+      update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
+      delete: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }),
+      transaction: async (fn: (tx: MemoryServiceDb) => Promise<unknown>) =>
+        fn(emptySelectDb as unknown as MemoryServiceDb),
+    };
+
+    await expect(
+      serviceWith(emptySelectDb as unknown as MemoryServiceDb).supersede(UUID, {
+        type: "feedback",
+        name: "n",
+        description: "d",
+        content: "c",
+        scope: "project",
+      })
+    ).rejects.toThrow(/Memory not found: .* nothing to supersede/);
   });
 });

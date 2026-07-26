@@ -891,13 +891,14 @@ export function registerMemoryCommands(
     execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.update", { id: params.id });
 
-      const service = await resolveMemoryService(deps, ctx ?? {});
-
-      // Same resolver the READ commands use (mt#3108) — accepts a full uuid,
-      // an unambiguous >=8-hex prefix, or a `mem#N` short id, and throws a
-      // named error rather than letting a non-uuid reach the driver as a cast.
+      // Resolve BEFORE building the service, matching the read commands'
+      // ordering (PR #2348 R1). Same resolver they use (mt#3108): a full uuid,
+      // an unambiguous >=8-hex prefix, or a `mem#N` short id, throwing a named
+      // error rather than letting a non-uuid reach the driver as a cast.
       const { id: rawId, ...updateFields } = params;
       const id = await resolveMemoryIdInput(rawId, ctx ?? {});
+
+      const service = await resolveMemoryService(deps, ctx ?? {});
       const record = await service.update(id, updateFields);
 
       if (!record) {
@@ -921,8 +922,9 @@ export function registerMemoryCommands(
     execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.delete", { id: params.id });
 
-      const service = await resolveMemoryService(deps, ctx ?? {});
       const id = await resolveMemoryIdInput(params.id, ctx ?? {});
+
+      const service = await resolveMemoryService(deps, ctx ?? {});
       await service.delete(id);
 
       // Report the RESOLVED id: echoing the caller's `mem#N` back would leave
@@ -978,8 +980,9 @@ export function registerMemoryCommands(
     execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.supersede", { oldId: params.oldId });
 
-      const service = await resolveMemoryService(deps, ctx ?? {});
       const oldId = await resolveMemoryIdInput(params.oldId, ctx ?? {});
+
+      const service = await resolveMemoryService(deps, ctx ?? {});
 
       const newInput: MemoryCreateInput = {
         type: params.type,

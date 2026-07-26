@@ -472,9 +472,28 @@ export class MemoryService implements MemoryServiceSurface {
     const where = memoryIdWhere(id);
     // A malformed id deletes nothing rather than raising a uuid cast (mt#3108).
     if (!where) return;
-    await this.deps.db.delete(memoriesTable).where(where);
-    await this.deps.vectorStorage.delete(id).catch((err: unknown) => {
-      log.warn("[memory.delete] Failed to delete embedding", { id, err });
+
+    // Delete the row and read back WHICH row went, because the vector store is
+    // keyed by the canonical uuid — never by a `mem#N` alias. Passing the
+    // caller's raw input to `vectorStorage.delete` would silently orphan the
+    // embedding whenever a short id was used: the row deletion succeeds, the
+    // vector deletion matches nothing, and neither reports a problem
+    // (PR #2348 R1). That is the exact "a failure that looks like success"
+    // shape mem#728 describes, and it is a regression this task would have
+    // introduced — before short ids resolved here, the row deletion itself
+    // raised a cast error, so the vector delete never ran on a bad key.
+    const deleted = (await this.deps.db.delete(memoriesTable).where(where).returning()) as Record<
+      string,
+      unknown
+    >[];
+
+    const deletedId = deleted?.[0]?.["id"];
+    // Nothing matched — no embedding to remove, and no id to remove it by.
+    if (deletedId === undefined || deletedId === null) return;
+
+    const canonicalId = String(deletedId);
+    await this.deps.vectorStorage.delete(canonicalId).catch((err: unknown) => {
+      log.warn("[memory.delete] Failed to delete embedding", { id: canonicalId, err });
     });
   }
 
@@ -688,6 +707,14 @@ export class MemoryService implements MemoryServiceSurface {
       // Read the old memory's current metadata so we can append rather than overwrite.
       const oldRowsBefore = await tx.select().from(memoriesTable).where(oldWhere);
       const oldBefore = oldRowsBefore[0] as Record<string, unknown> | undefined;
+      // Fail loudly and by name when the old memory does not exist. Without
+      // this the missing row surfaces further down as `rowToRecord(undefined)`
+      // reading properties of undefined — an error whose text says nothing
+      // about the actual problem (PR #2348 R1). The transaction rolls back, so
+      // the replacement inserted above is not left behind.
+      if (!oldBefore) {
+        throw new Error(`Memory not found: "${oldId}" — nothing to supersede.`);
+      }
       const existingMetadata =
         (oldBefore?.["metadata"] as Record<string, unknown> | null | undefined) ?? {};
       const mergedMetadata = {
