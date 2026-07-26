@@ -348,7 +348,7 @@ export function createStartCommand(): Command {
       // a local `claude` conversation with the principal's messages. LOCAL
       // DAEMON ONLY, like the driven-session surfaces above — it spawns the
       // genuine binary with the operator's own credentials. Opt-in
-      // (MINSKY_PRINCIPAL_CHANNEL_ENABLED); fire-and-forget so a Telegram or
+      // (`principalChannel.enabled`); fire-and-forget so a Telegram or
       // Pulumi hiccup can never keep the cockpit from serving.
       let stopPrincipalChannel: (() => void) | null = null;
       void startPrincipalChannel({

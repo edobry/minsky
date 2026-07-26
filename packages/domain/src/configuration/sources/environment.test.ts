@@ -459,3 +459,71 @@ describe("environment configuration source — MINSKY_PROJECT observability (mt#
     expect(config.project).toBeUndefined();
   });
 });
+
+describe("environment configuration source — principal channel (mt#3230)", () => {
+  const KEYS = [
+    "MINSKY_PRINCIPAL_CHANNEL_ENABLED",
+    "MINSKY_PRINCIPAL_CHANNEL_CWD",
+    "MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE",
+    "MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS",
+  ];
+  let originals: Record<string, string | undefined>;
+
+  type ChannelShape = {
+    principalChannel?: {
+      enabled?: unknown;
+      cwd?: unknown;
+      permissionMode?: unknown;
+      allowedUserIds?: unknown;
+    };
+    principal?: unknown;
+  };
+
+  const load = (): ChannelShape => loadEnvironmentConfiguration() as ChannelShape;
+
+  beforeEach(() => {
+    originals = {};
+    for (const key of KEYS) {
+      originals[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const key of KEYS) {
+      const value = originals[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  test("enabled maps as a BOOLEAN, not the string 'true'", () => {
+    // The schema is z.boolean() with no coercion — a string here would fail
+    // validation and take the whole config load down at daemon boot.
+    process.env.MINSKY_PRINCIPAL_CHANNEL_ENABLED = "true";
+    expect(load().principalChannel?.enabled).toBe(true);
+  });
+
+  test("the allowlist maps as an ARRAY from a comma-separated value", () => {
+    // An operator setting an allowlist in a shell writes `1,2` — not a JSON
+    // array — so this needs the csv converter, and the schema needs an array.
+    process.env.MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS = "777, 888 ,";
+    expect(load().principalChannel?.allowedUserIds).toEqual(["777", "888"]);
+  });
+
+  test("cwd and permissionMode map through as strings", () => {
+    process.env.MINSKY_PRINCIPAL_CHANNEL_CWD = "/srv/work";
+    process.env.MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE = "default";
+    const config = load();
+    expect(config.principalChannel?.cwd).toBe("/srv/work");
+    expect(config.principalChannel?.permissionMode).toBe("default");
+  });
+
+  test("does NOT route to a top-level `principal` key under the auto-mapping fallback", () => {
+    // Without the explicit mappings, MINSKY_PRINCIPAL_CHANNEL_* auto-converts
+    // to `principal.channel.*` — a top-level key the strict schema rejects,
+    // crashing the loader at boot for anyone who has these set.
+    process.env.MINSKY_PRINCIPAL_CHANNEL_ENABLED = "true";
+    expect(load().principal).toBeUndefined();
+  });
+});

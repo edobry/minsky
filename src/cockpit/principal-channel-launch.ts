@@ -12,7 +12,9 @@
  * them there). An inbound message becomes a user turn in a local `claude`
  * process; starting that off the mere PRESENCE of a credential provisioned for
  * a different purpose would be a silent capability escalation. It starts when
- * `MINSKY_PRINCIPAL_CHANNEL_ENABLED` says so.
+ * `principalChannel.enabled` says so — config rather than an env var (mt#3230)
+ * because the tray spawns the daemon with the GUI session's environment, which
+ * a shell `export` never reaches.
  *
  * @see mt#3228 — the bidirectional principal channel
  * @see ./principal-channel-poller.ts — the loop this starts
@@ -21,6 +23,8 @@
 
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
+import { getConfiguration } from "@minsky/domain/configuration/index";
+import type { PrincipalChannelConfig } from "@minsky/domain/configuration/schemas/principal-channel";
 import { resolvePrincipalChannel } from "@minsky/domain/notify/principal-channel";
 import {
   inboundEventToken,
@@ -72,7 +76,7 @@ export interface PrincipalChannelLaunchConfig {
  * - group (negative id) — chat and sender are genuinely different things, and
  *   there is nothing to derive. Without an explicit list this stays chat-only,
  *   which means ANY member of that group can drive the swarm. Configure
- *   `MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS` for a group.
+ *   `principalChannel.allowedUserIds` for a group.
  *
  * Added in PR #2324 R1: the docs claimed `from.id` was checked while only the
  * chat id was enforced. This makes the claim true for the case that actually
@@ -84,29 +88,49 @@ export function resolveAllowedUserIds(chatId: string, configured: string[]): str
 }
 
 /**
- * Read the channel's launch settings from the environment.
+ * Read the channel's launch settings from Minsky configuration.
  *
- * The permission mode is read as an explicit opt-DOWN ("default" tightens it):
- * an unrecognized value falls back to the same mode every other driven session
- * uses rather than to the strict mode, so a typo cannot silently produce a
- * channel that answers but can never act — a failure that looks like the agent
- * being unhelpful rather than like a misconfiguration.
+ * Config, not `process.env` directly (mt#3230). The env vars still work and
+ * still win — they are registered as explicit paths into `principalChannel.*`
+ * and the environment source merges last — but reading the CONFIG makes
+ * enablement independent of how the daemon process was launched. That matters
+ * because the tray spawns the daemon inheriting the macOS GUI session
+ * environment, which a user's shell is not part of, so an `export` never
+ * reached it.
+ *
+ * The permission mode stays an explicit opt-DOWN ("default" tightens it) and
+ * an unparseable section falls back to the same mode every other driven
+ * session uses: a broken config must not silently produce a channel that
+ * answers but can never act — a failure that reads as an unhelpful agent
+ * rather than a misconfiguration.
  */
 export function loadPrincipalChannelLaunchConfig(
-  env: NodeJS.ProcessEnv = process.env
+  section: Partial<PrincipalChannelConfig> = readPrincipalChannelSection()
 ): PrincipalChannelLaunchConfig {
   return {
-    enabled: env["MINSKY_PRINCIPAL_CHANNEL_ENABLED"] === "true",
-    cwd: env["MINSKY_PRINCIPAL_CHANNEL_CWD"] || process.cwd(),
-    permissionMode:
-      env["MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE"] === "default"
-        ? "default"
-        : "bypassPermissions",
-    allowedUserIds: (env["MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS"] ?? "")
-      .split(",")
-      .map((id) => id.trim())
-      .filter((id) => id.length > 0),
+    enabled: section.enabled === true,
+    cwd: section.cwd && section.cwd.length > 0 ? section.cwd : process.cwd(),
+    permissionMode: section.permissionMode === "default" ? "default" : "bypassPermissions",
+    allowedUserIds: (section.allowedUserIds ?? []).filter((id) => id.trim().length > 0),
   };
+}
+
+/**
+ * Read the `principalChannel` section, treating an unavailable config as absent.
+ *
+ * The cockpit daemon must boot even when configuration cannot be loaded, so a
+ * failure here disables the channel rather than propagating — the same posture
+ * `startPrincipalChannel` takes for a missing Telegram credential.
+ */
+function readPrincipalChannelSection(): Partial<PrincipalChannelConfig> {
+  try {
+    return getConfiguration().principalChannel ?? {};
+  } catch (err: unknown) {
+    log.warn("[principal-channel] could not read configuration; channel stays disabled", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {};
+  }
 }
 
 /**
@@ -224,7 +248,7 @@ export async function startPrincipalChannel(opts: {
   if (allowedUserIds.length === 0) {
     log.warn(
       "[principal-channel] group chat with no sender allowlist — ANY member of that group can " +
-        "drive this swarm. Set MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS.",
+        "drive this swarm. Run: minsky config set principalChannel.allowedUserIds <id>[,<id>...]",
       { chatId }
     );
   }

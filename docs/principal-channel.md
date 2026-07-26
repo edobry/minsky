@@ -1,8 +1,9 @@
 # The principal channel — talking to the swarm from a phone
 
-**Status:** outbound live-verified; inbound built and unit-tested, pending daemon
-wiring and a live round-trip. Task: mt#3228. Program: mt#2230 (harness-host
-observe→drive ladder), of which this is the first Rung-3 (mt#2238) surface.
+**Status:** merged and wired into the cockpit daemon; outbound live-verified,
+inbound pending a live round-trip. Tasks: mt#3228 (the channel), mt#3230 (the
+config switch). Program: mt#2230 (harness-host observe→drive ladder), of which
+this is the first Rung-3 (mt#2238) surface.
 
 ## What it is
 
@@ -72,32 +73,33 @@ It does **not** auto-enable off the mere presence of credentials, even though
 they resolve today: those were provisioned for reviewer alerts, and starting a
 local-`claude`-driving surface off them would be a silent capability escalation.
 
-To turn the inbound half on, **how you set the flag depends on how the daemon
-was started** — a shell `export` only reaches a daemon started from that same
-shell:
+To turn the inbound half on:
 
 ```bash
-# Daemon started from a terminal:
-MINSKY_PRINCIPAL_CHANNEL_ENABLED=true bun run src/cli.ts cockpit start --port <port>
-
-# Daemon supervised by the cockpit-tray app: the tray spawns it inheriting the
-# macOS GUI session environment (supervisor.rs's spawn_daemon overrides only
-# PATH), which your shell is NOT part of. Set it on the GUI session, then
-# restart the tray so the daemon it spawns picks it up:
-launchctl setenv MINSKY_PRINCIPAL_CHANNEL_ENABLED true
+minsky config set principalChannel.enabled true
 ```
 
-`launchctl setenv` does not survive a reboot. A config-file switch, which would
-work regardless of how the daemon was launched, is tracked in mt#3230 — until
-that lands, the tray path needs the `launchctl` step re-run after a restart.
+Then restart the cockpit daemon. That is the whole switch — it works regardless
+of how the daemon was launched, and it survives a reboot.
 
-| Variable                                    | Effect                                                                                                      |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `MINSKY_PRINCIPAL_CHANNEL_ENABLED`          | `true` starts the inbound poller. Nothing else enables it.                                                  |
-| `MINSKY_PRINCIPAL_CHANNEL_CWD`              | Working directory for the standing conversation. Defaults to the daemon's.                                  |
-| `MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE`  | `default` tightens the session below the driven-session default of `bypassPermissions`.                     |
-| `MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS` | Comma-separated Telegram sender ids. Required for a group chat; derived from the chat id for a private one. |
-| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`   | Override the Pulumi-resolved credentials (how deployed services already receive them).                      |
+That last part is why it is config rather than an environment variable
+(mt#3230). The cockpit-tray app spawns the daemon inheriting the **macOS GUI
+session environment** (`supervisor.rs`'s `spawn_daemon` overrides only `PATH`),
+which your shell is not part of — so a shell `export` never reached it, and the
+`launchctl setenv` workaround did not survive a reboot.
+
+| Setting                           | Effect                                                                                      |
+| --------------------------------- | ------------------------------------------------------------------------------------------- |
+| `principalChannel.enabled`        | `true` starts the inbound poller. Nothing else enables it.                                  |
+| `principalChannel.cwd`            | Working directory for the standing conversation. Defaults to the daemon's.                  |
+| `principalChannel.permissionMode` | `default` tightens the session below the driven-session default of `bypassPermissions`.     |
+| `principalChannel.allowedUserIds` | Telegram sender ids. Required for a group chat; derived from the chat id for a private one. |
+
+Each has an environment override, which **wins over config** — the environment
+source is merged last, so a deployed service can keep setting them:
+`MINSKY_PRINCIPAL_CHANNEL_ENABLED`, `..._CWD`, `..._PERMISSION_MODE`,
+`..._ALLOWED_USER_IDS` (comma-separated). Credentials override the same way via
+`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`.
 
 On a fresh deployment with no bot yet: create one with `/newbot` in
 [@BotFather](https://t.me/BotFather), store the token through the cockpit
@@ -129,9 +131,9 @@ channel is only as safe as the Telegram account that drives it.**
     exact, and it rejects an update with a spoofed or missing `from` that would
     otherwise match on chat alone.
   - **Group chat** (negative id): chat and sender are genuinely different, and
-    there is nothing to derive. Without `MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS`
-    the channel enforces chat-only, meaning **any member of that group can drive
-    the swarm**. The daemon logs a warning at startup when this is the case.
+    there is nothing to derive. Without `principalChannel.allowedUserIds` the
+    channel enforces chat-only, meaning **any member of that group can drive the
+    swarm**. The daemon logs a warning at startup when this is the case.
 - **Refused messages are not stored verbatim.** A rejected message's metadata is
   recorded but its text is not — otherwise an unauthorized chat could write
   attacker-chosen content into the event feed the operator reads.
