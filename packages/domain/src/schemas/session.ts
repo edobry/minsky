@@ -151,8 +151,8 @@ export const sessionDeleteParamsSchema = z
     // mt#3021 SC2: justification required to delete a workspace with an
     // in-progress merge (MERGE_HEAD present) or uncommitted changes — this is
     // INDEPENDENT of `force` above (which does not affect the new git-state
-    // guard). NAME IS A PLACEHOLDER, principal-reserved (see mt#3021 PR body).
-    destructiveOverrideReason: z
+    // guard).
+    overrideReason: z
       .string()
       .min(1)
       .optional()

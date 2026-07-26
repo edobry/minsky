@@ -93,7 +93,7 @@ export const sessionDirCommandParams = composeParams(
  * The two files share several export names by coincidence; only
  * `sessionCommitCommandParams` in THIS file is live (consumed by
  * `workflow-commands.ts` via `"../session-parameters"`). The
- * `destructiveOverrideReason` field for `session delete` lives in the other
+ * `overrideReason` field for `session delete` lives in the other
  * file's `sessionDeleteCommandParams` — see it for the real implementation.
  * Left unedited here to avoid maintaining two copies of a param that only
  * one of which does anything.
@@ -294,9 +294,8 @@ export const sessionCommitCommandParams = composeParams(
       required: false,
     },
     // mt#3021 SC3: justification required to push a commit whose staged
-    // delta trips the mass-deletion sanity gate. NAME IS A PLACEHOLDER,
-    // principal-reserved (see the mt#3021 PR body).
-    destructiveOverrideReason: {
+    // delta trips the mass-deletion sanity gate.
+    overrideReason: {
       schema: z.string().min(1),
       description:
         "Justification to override the mass-deletion sanity gate when the staged delta deletes an abnormal number of tracked files. Required (non-empty) to bypass the gate; recorded in a structured audit event.",

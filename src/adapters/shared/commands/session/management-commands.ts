@@ -41,7 +41,7 @@ export function createSessionDeleteCommand(getDeps: LazySessionDeps): CommandDef
         repo: params.repo as string | undefined,
         json: (params.json as boolean | undefined) ?? false,
         // mt#3021 SC2: git-state guard override.
-        destructiveOverrideReason: params.destructiveOverrideReason as string | undefined,
+        overrideReason: params.overrideReason as string | undefined,
       });
 
       return {

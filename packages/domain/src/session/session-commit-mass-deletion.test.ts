@@ -136,7 +136,7 @@ describe("sessionCommit mass-deletion sanity gate", () => {
         session: "mass-deletion-override-session",
         message: "chore: intentional cleanup",
         all: true,
-        destructiveOverrideReason: "intentional directory purge, verified by hand",
+        overrideReason: "intentional directory purge, verified by hand",
       },
       sessionProvider
     );

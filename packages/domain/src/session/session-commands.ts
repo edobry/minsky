@@ -401,10 +401,9 @@ export async function sessionCommit(
      * mt#3021 SC3: justification required to push a commit whose staged
      * delta trips the mass-deletion sanity gate (see
      * `MassDeletionGuardError`). Threaded through the shared
-     * destructive-override contract (`../safety/destructive-override.ts`) —
-     * NAME IS A PLACEHOLDER, principal-reserved (see the mt#3021 PR body).
+     * destructive-override contract (`../safety/destructive-override.ts`).
      */
-    destructiveOverrideReason?: string;
+    overrideReason?: string;
   },
   sessionProvider: import("./types").SessionProviderInterface,
   askRepository?: AskRepository,
@@ -783,7 +782,7 @@ export async function sessionCommit(
       // the diff is against the first parent specifically.
       const deletionStats = await computeCommitDeletionStats(gitService, workdir);
       if (deletionStats && deletionStats.deletionCount > DEFAULT_MASS_DELETION_THRESHOLD) {
-        const override = resolveDestructiveOverride(params.destructiveOverrideReason);
+        const override = resolveDestructiveOverride(params.overrideReason);
         if (!isValidDestructiveOverride(override)) {
           throw new MassDeletionGuardError(
             `session_commit: staged delta deletes ${deletionStats.deletionCount} tracked file(s), ` +
@@ -791,8 +790,8 @@ export async function sessionCommit(
               `The commit has landed LOCALLY but was NOT pushed. Sample of deleted paths: ` +
               `${deletionStats.sampleDeletedPaths.slice(0, 10).join(", ")}` +
               `${deletionStats.sampleDeletedPaths.length > 10 ? ", ..." : ""}. ` +
-              `If this deletion is intentional, retry with destructiveOverrideReason set to a ` +
-              `justification (or set MINSKY_DESTRUCTIVE_OVERRIDE_REASON).`,
+              `If this deletion is intentional, retry with overrideReason set to a ` +
+              `justification (or set MINSKY_ACK_DESTRUCTIVE).`,
             deletionStats.deletionCount,
             DEFAULT_MASS_DELETION_THRESHOLD,
             deletionStats.sampleDeletedPaths

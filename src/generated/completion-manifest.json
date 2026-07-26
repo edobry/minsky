@@ -2775,7 +2775,7 @@
               "description": "Output in JSON format"
             },
             {
-              "flags": ["--destructive-override-reason"],
+              "flags": ["--override-reason"],
               "description": "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard. Required (non-empty) to delete a workspace with in-progress work; recorded in a structured audit event.",
               "takesValue": true
             }
@@ -2967,7 +2967,7 @@
               "takesValue": true
             },
             {
-              "flags": ["--destructive-override-reason"],
+              "flags": ["--override-reason"],
               "description": "Justification to override the mass-deletion sanity gate when the staged delta deletes an abnormal number of tracked files. Required (non-empty) to bypass the gate; recorded in a structured audit event.",
               "takesValue": true
             }

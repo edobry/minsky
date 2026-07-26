@@ -22,12 +22,15 @@
  * `recordDestructiveOverride` below and the `SYSTEM_EVENT_TYPE_VALUES` doc
  * comment in `../storage/schemas/system-events-schema.ts`.
  *
- * NAMING NOTE (principal-reserved): `MINSKY_DESTRUCTIVE_OVERRIDE_REASON` and
- * the `destructiveOverrideReason` param name used by every consuming guard
- * are PLACEHOLDERS. Naming of new flags/params is a principal decision per
- * CLAUDE.md `§Principal Context`; this task flags the choice in its PR body
- * rather than deciding it unilaterally. Renaming later is a mechanical
- * find-replace across the guard call sites plus this module.
+ * NAMING (decided by the principal 2026-07-25): the param is `overrideReason`
+ * and the env var is `MINSKY_ACK_DESTRUCTIVE`. Both follow existing precedent
+ * rather than inventing a shape: `session_pr_merge` already takes a
+ * `bypassReason` string for the same job — an operator justifying a guarded
+ * action — and `MINSKY_ACK_*` is the established family for acknowledgement-style
+ * hook overrides (`MINSKY_ACK_OOB_MERGE`, `MINSKY_ACK_SUBSTRATE_BYPASS`). The
+ * param is deliberately NOT named `bypassReason`: that word is bound to the
+ * reviewer-bypass sense, and blurring it would make two different guard families
+ * read as one.
  */
 import { emitSystemEventFromProvider } from "../events/emit-best-effort";
 import type { PersistenceProvider } from "../persistence/types";
@@ -44,7 +47,7 @@ import type { PersistenceProvider } from "../persistence/types";
  * (`packages/domain/src/configuration/sources/environment.ts`) per
  * `custom/no-unregistered-minsky-env-var`.
  */
-export const DESTRUCTIVE_OVERRIDE_REASON_ENV_VAR = "MINSKY_DESTRUCTIVE_OVERRIDE_REASON";
+export const DESTRUCTIVE_OVERRIDE_REASON_ENV_VAR = "MINSKY_ACK_DESTRUCTIVE";
 
 /**
  * The override contract every destructive-action guard consumes.
@@ -68,7 +71,7 @@ export function isValidDestructiveOverride(
 
 /**
  * Resolve an override from an explicit caller-supplied reason string, falling
- * back to the `MINSKY_DESTRUCTIVE_OVERRIDE_REASON` env var when the caller
+ * back to the `MINSKY_ACK_DESTRUCTIVE` env var when the caller
  * didn't supply one. Callers pass whatever raw (possibly undefined) reason
  * string their own param surface received; this normalizes it into the
  * shared contract shape (or `undefined` if neither source is present).

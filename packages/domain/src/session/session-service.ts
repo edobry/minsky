@@ -325,7 +325,7 @@ export class SessionService {
     force?: boolean;
     dryRun?: boolean;
     /** mt#3021 SC2: git-state guard override — see cleanupSessionImpl. */
-    destructiveOverrideReason?: string;
+    overrideReason?: string;
   }): Promise<{
     sessionDeleted: boolean;
     directoriesRemoved: string[];

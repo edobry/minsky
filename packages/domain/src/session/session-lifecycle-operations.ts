@@ -200,13 +200,13 @@ export async function deleteSessionImpl(
       fsOps
     );
     if (gitState.blocked) {
-      const override = resolveDestructiveOverride(params.destructiveOverrideReason);
+      const override = resolveDestructiveOverride(params.overrideReason);
       if (!isValidDestructiveOverride(override)) {
         return {
           deleted: false,
           error:
             `${gitState.message} — refusing to delete session '${resolvedSessionId}' without ` +
-            `an explicit destructiveOverrideReason.`,
+            `an explicit overrideReason.`,
         };
       }
       await recordDestructiveOverride({
@@ -382,9 +382,8 @@ export async function cleanupSessionImpl(
      * passes `force: true` unconditionally on every post-merge cleanup — the
      * exact "already reasoned itself into safe, passes a bare flag without
      * pausing" failure mode the shared override contract exists to stop.
-     * NAME IS A PLACEHOLDER, principal-reserved (see mt#3021 PR body).
      */
-    destructiveOverrideReason?: string;
+    overrideReason?: string;
   },
   deps: {
     sessionDB: SessionProviderInterface;
@@ -448,11 +447,11 @@ export async function cleanupSessionImpl(
       for (const directory of sessionDirectories) {
         const gitState = await checkWorkspaceGitStateForDelete(guardGitService, directory);
         if (gitState.blocked) {
-          const override = resolveDestructiveOverride(params.destructiveOverrideReason);
+          const override = resolveDestructiveOverride(params.overrideReason);
           if (!isValidDestructiveOverride(override)) {
             const msg =
               `${gitState.message} — refusing to clean up session '${sessionId}' without ` +
-              `an explicit destructiveOverrideReason.`;
+              `an explicit overrideReason.`;
             log.warn(msg);
             return {
               sessionDeleted: false,

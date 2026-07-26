@@ -3,7 +3,7 @@
  * Integration tests for mt#3021 SC2's acceptance tests: deleteSessionImpl
  * and cleanupSessionImpl refuse to touch a session workspace with an
  * in-progress merge or uncommitted changes, absent an explicit
- * destructiveOverrideReason — and do NOT permanently block a genuinely
+ * overrideReason — and do NOT permanently block a genuinely
  * abandoned session's recovery once the override is supplied.
  *
  * `getSessionsDir()` resolves via `XDG_STATE_HOME`, so these tests redirect
@@ -134,7 +134,7 @@ describe("deleteSessionImpl — mt#3021 SC2 acceptance tests", () => {
       {
         sessionId: SESSION_ID,
         force: false,
-        destructiveOverrideReason: "session confirmed abandoned; recovering disk space",
+        overrideReason: "session confirmed abandoned; recovering disk space",
       },
       { sessionDB, persistenceProvider }
     );
@@ -189,7 +189,7 @@ describe("cleanupSessionImpl — mt#3021 SC2 acceptance tests", () => {
         sessionId: SESSION_ID,
         taskId: sessionRecord.taskId,
         force: true,
-        destructiveOverrideReason: "confirmed abandoned via presence check",
+        overrideReason: "confirmed abandoned via presence check",
       },
       { sessionDB }
     );
