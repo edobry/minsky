@@ -55,6 +55,15 @@
 import { readdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+// Relative import: this script runs from the non-package `scripts/` context on
+// a GitHub Actions runner, where the `@minsky/domain/*` workspace alias is not
+// guaranteed to resolve (same rationale as scripts/smoke-retrigger-default-url.ts).
+import {
+  assertServiceIdentity,
+  describeHealthIdentityResult,
+  identityForServiceDir,
+  type ServiceIdentity,
+} from "../packages/domain/src/deployment/health-identity";
 
 // ---------------------------------------------------------------------------
 // Service definitions — discovered at runtime from deploy.config.ts files
@@ -217,10 +226,19 @@ interface HealthProbeResult {
   statusCode: number | null;
   /** Short snippet of response body for the alert body (redacted if sensitive). */
   bodySnippet: string;
+  /**
+   * mt#3148: set when the `service` identity could not be confirmed. A
+   * `wrong-service` result ALSO sets `ok: false` + `error`; a `missing-identity`
+   * result sets only this, so it is reported without paging.
+   */
+  identityWarning: string | null;
   error: string | null;
 }
 
-async function probeHealth(url: string): Promise<HealthProbeResult> {
+async function probeHealth(
+  url: string,
+  expectedIdentity: ServiceIdentity | null = null
+): Promise<HealthProbeResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
 
@@ -230,11 +248,48 @@ async function probeHealth(url: string): Promise<HealthProbeResult> {
     // Limit snippet to 200 chars to keep issue bodies readable.
     // eslint-disable-next-line custom/no-unsafe-string-truncation -- HTTP health response bodies are ASCII (JSON, plain text status)
     const bodySnippet = bodyText.slice(0, 200);
+
+    // mt#3148: a 200 is necessary but NOT sufficient. Every service here is
+    // built from the same monorepo, so a misconfigured build can put a
+    // DIFFERENT application on this host — and it will answer 200 (mt#3142:
+    // the MCP server served the reviewer's host for ~1h while every reviewer
+    // route 404'd, and this monitor stayed green throughout).
+    //
+    // The two identity failure modes are deliberately NOT treated alike:
+    //
+    //  - `wrong-service` — a different Minsky app is deployed here. This is the
+    //    mt#3142 class and is a hard FAILURE.
+    //  - `missing-identity` — no `service` key. Expected transiently for any
+    //    service that has not redeployed since mt#3148 merged, so it is
+    //    surfaced as a WARNING, not an alert. This monitor opens a P0 GitHub
+    //    issue every 10 minutes; failing on absence would page continuously
+    //    during rollout for services that are perfectly healthy. Tightening
+    //    this to a hard failure once all four services carry the field is
+    //    tracked as a follow-up.
+    let identityWarning: string | null = null;
+    let identityFailed = false;
+    if (expectedIdentity && res.status === 200) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(bodyText);
+      } catch {
+        parsed = bodyText;
+      }
+      const identity = assertServiceIdentity(parsed, expectedIdentity);
+      if (!identity.ok) {
+        if (identity.reason === "wrong-service") {
+          identityFailed = true;
+        }
+        identityWarning = describeHealthIdentityResult(identity);
+      }
+    }
+
     return {
-      ok: res.status === 200,
+      ok: res.status === 200 && !identityFailed,
       statusCode: res.status,
       bodySnippet,
-      error: null,
+      identityWarning,
+      error: identityFailed ? `Wrong application deployed on this host — ${identityWarning}` : null,
     };
   } catch (err) {
     const isTimeout = err instanceof Error && err.name === "AbortError";
@@ -242,6 +297,7 @@ async function probeHealth(url: string): Promise<HealthProbeResult> {
       ok: false,
       statusCode: null,
       bodySnippet: "",
+      identityWarning: null,
       error: isTimeout ? `Timeout after ${HEALTH_TIMEOUT_MS}ms` : String(err),
     };
   } finally {
@@ -606,7 +662,11 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
   let healthError: string | null = null;
 
   if (svc.healthUrl) {
-    const probe = await probeHealth(svc.healthUrl);
+    // mt#3148: resolve the expected identity from the service DIRECTORY name
+    // (they differ — `services/cockpit` emits `minsky-cockpit`). Null for a
+    // service with no identifiable endpoint, which skips the assertion rather
+    // than failing it.
+    const probe = await probeHealth(svc.healthUrl, identityForServiceDir(svc.name));
     healthOk = probe.ok;
     healthStatus = probe.statusCode;
     healthError = probe.error;

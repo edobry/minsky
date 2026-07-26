@@ -588,6 +588,12 @@ async function startHttpServer(
     const persistenceHealth = assessPersistenceHealth(persistence);
     res.status(persistenceHealth.healthy ? 200 : 503).json({
       status: persistenceHealth.healthy ? "ok" : "unhealthy",
+      // mt#3148: `service` is the uniform, assertable identity key every
+      // Minsky service emits. `server` is retained UNCHANGED alongside it —
+      // mt#3142's own diagnosis read `server` to identify the wrong app on the
+      // reviewer host, and mem#704's probe recipe still cites it. Renaming
+      // would break the diagnostic path this field exists to strengthen.
+      service: "minsky-mcp",
       server: "Minsky MCP Server",
       transport: "http",
       timestamp: new Date().toISOString(),

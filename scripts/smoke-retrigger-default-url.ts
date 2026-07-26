@@ -26,6 +26,13 @@ import { DEFAULT_REVIEWER_URL } from "../src/adapters/shared/commands/reviewer-r
 // ad hoc from the non-package `scripts/` context via `bun scripts/...`, where the
 // workspace alias is not guaranteed to resolve. `src/utils/safe-truncate` re-exports it.
 import { safeTruncate } from "../src/utils/safe-truncate";
+// Same relative-import rationale as above — this script runs from the
+// non-package `scripts/` context where `@minsky/domain/*` is not guaranteed.
+import {
+  assertServiceIdentity,
+  describeHealthIdentityResult,
+  SERVICE_IDENTITIES,
+} from "../packages/domain/src/deployment/health-identity";
 
 const SKIP_ENV = "SKIP_REVIEWER_URL_SMOKE";
 
@@ -54,7 +61,50 @@ async function main(): Promise<number> {
   const body = await res.text().catch(() => "");
 
   if (res.status === 200) {
-    console.log(`PASS: ${DEFAULT_REVIEWER_URL} is live (HTTP 200).`);
+    // mt#3148: a 200 alone is NOT a pass. mt#3142 is the proof — the Minsky MCP
+    // server was deployed onto this exact host and answered /health 200 for ~1h
+    // while every reviewer route 404'd, so this probe stayed green through the
+    // entire outage. Assert the service IDENTITY, which only the reviewer emits.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      parsed = body;
+    }
+    const identity = assertServiceIdentity(parsed, SERVICE_IDENTITIES.reviewer);
+    if (!identity.ok) {
+      // Report the two failure modes DISTINCTLY. `wrong-service` is the mt#3142
+      // signature — a different application is genuinely deployed here.
+      // `missing-identity` is weaker and must not be described as the same
+      // thing: the correct service may well be running and simply predate the
+      // mt#3148 field (expected between this task's merge and that service's
+      // next deploy). Collapsing them would be the same overclaiming this guard
+      // exists to prevent.
+      const diagnosis =
+        identity.reason === "wrong-service"
+          ? `This is the mt#3142 signature: a healthy-looking host serving a DIFFERENT application.`
+          : `Cannot confirm which application is deployed here. If this service has not ` +
+            `redeployed since mt#3148 merged, that is the expected transient; otherwise treat ` +
+            `it as unidentified and investigate.`;
+      console.error(
+        `FAIL: ${DEFAULT_REVIEWER_URL} answered HTTP 200 but its identity could not be ` +
+          `confirmed — ${describeHealthIdentityResult(identity)}. ${diagnosis}`
+      );
+      console.error(
+        JSON.stringify({
+          ok: false,
+          url,
+          status: res.status,
+          identity,
+          body: safeTruncate(body, 200, "head"),
+        })
+      );
+      return 1;
+    }
+
+    console.log(
+      `PASS: ${DEFAULT_REVIEWER_URL} is live (HTTP 200) and ${describeHealthIdentityResult(identity)}.`
+    );
     console.log(
       JSON.stringify({ ok: true, url, status: res.status, body: safeTruncate(body, 200, "head") })
     );
