@@ -54,7 +54,19 @@ import type {
  * exported Set, per `custom/no-domain-singleton`. The grouping is documented
  * here for readers; the routing logic lives in `agent-transcript-ingest-service.ts`.
  */
-const RETAINED_TYPES = new Set(["user", "assistant", "attachment", "system"]);
+/**
+ * `queue-operation` (mt#3260) records the operator queueing/dequeueing a message
+ * while a turn is in flight. Verified shape (2026-07-26, 170 of 1003 local
+ * transcripts): `{type, operation, timestamp, sessionId}` — **no `message`, no
+ * `uuid`**, unlike every other retained type.
+ *
+ * Retaining it is safe for turn extraction: `turn-extractor.ts` branches
+ * explicitly on `line.type === "user"` / `"assistant"` and ignores every other
+ * type, so a `queue-operation` line cannot open, close, or pollute a turn. It is
+ * retained so queued-message state is recoverable downstream at all — before
+ * this it was dropped at ingest and unrecoverable.
+ */
+const RETAINED_TYPES = new Set(["user", "assistant", "attachment", "system", "queue-operation"]);
 
 const HARNESS = "claude_code";
 

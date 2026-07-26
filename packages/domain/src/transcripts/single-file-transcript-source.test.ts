@@ -23,6 +23,18 @@ const ASSISTANT_LINE = JSON.stringify({
   timestamp: "2026-06-18T00:00:01.000Z",
 });
 const SUMMARY_LINE = JSON.stringify({ type: "summary", summary: "ignored" });
+/**
+ * mt#3260: the verified real shape of a `queue-operation` line — `{type,
+ * operation, timestamp, sessionId}`, with NO `message` and NO `uuid`, unlike
+ * every other retained type. Measured across the local transcript corpus
+ * 2026-07-26 (present in 170 of 1003 files).
+ */
+const QUEUE_OPERATION_LINE = JSON.stringify({
+  type: "queue-operation",
+  operation: "enqueue",
+  timestamp: "2026-06-18T00:00:02.000Z",
+  sessionId: "abc-123",
+});
 
 describe("SingleFileTranscriptSource", () => {
   let dir: string;
@@ -69,6 +81,42 @@ describe("SingleFileTranscriptSource", () => {
     for await (const line of src.readSession("ignored-id")) lines.push(line);
 
     expect(lines.map((l) => l.type)).toEqual(["user", "assistant"]);
+  });
+
+  test("readSession retains queue-operation lines (mt#3260)", async () => {
+    await writeFile(file, `${USER_LINE}\n${QUEUE_OPERATION_LINE}\n${ASSISTANT_LINE}\n`);
+    const src = new SingleFileTranscriptSource(file);
+
+    const lines: RawTurnLine[] = [];
+    for await (const line of src.readSession("ignored-id")) lines.push(line);
+
+    // Before mt#3260 this line was dropped and queued-message state was
+    // unrecoverable downstream.
+    expect(lines.map((l) => l.type)).toEqual(["user", "queue-operation", "assistant"]);
+  });
+
+  test("a retained queue-operation line keeps its fields despite having no message", async () => {
+    await writeFile(file, `${QUEUE_OPERATION_LINE}\n`);
+    const src = new SingleFileTranscriptSource(file);
+
+    const lines: RawTurnLine[] = [];
+    for await (const line of src.readSession("ignored-id")) lines.push(line);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.message).toBeUndefined();
+    expect(lines[0]?.uuid).toBeUndefined();
+    expect(lines[0]?.["operation"]).toBe("enqueue");
+    expect(lines[0]?.timestamp).toBe("2026-06-18T00:00:02.000Z");
+  });
+
+  test("widening the set did not start retaining genuinely unretained types", async () => {
+    await writeFile(file, `${SUMMARY_LINE}\n${QUEUE_OPERATION_LINE}\n`);
+    const src = new SingleFileTranscriptSource(file);
+
+    const lines: RawTurnLine[] = [];
+    for await (const line of src.readSession("ignored-id")) lines.push(line);
+
+    expect(lines.map((l) => l.type)).toEqual(["queue-operation"]);
   });
 
   test("readSession ignores the agentSessionId argument (reads the bound path)", async () => {
