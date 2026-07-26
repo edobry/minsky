@@ -98,6 +98,24 @@ describe("SessionFilmPage — picker", () => {
   });
 });
 
+describe("SessionFilmPage — layout balance (mt#3258 SC 4)", () => {
+  test("the ribbon rail is a narrow fixed width, not a proportion of the stage's flex-1 space", async () => {
+    // Operator (round 2): "why allocate real estate this way" — narrowed
+    // from w-80 (320px, mt#3226 SC 1) to w-64 (256px). Asserting the
+    // Tailwind class directly (jsdom/happy-dom has no real box layout to
+    // measure pixel widths against) plus `shrink-0` so the stage's flex-1
+    // sibling can't be squeezed by it growing.
+    mockFetches();
+    renderPage("/session-film");
+    const row = await screen.findByTestId(`session-film-picker-row-${CONVERSATION_ID}`);
+    fireEvent.click(row);
+    const ribbon = await screen.findByTestId("session-film-ribbon");
+    expect(ribbon.className).toContain("w-64");
+    expect(ribbon.className).not.toContain("w-80");
+    expect(ribbon.className).toContain("shrink-0");
+  });
+});
+
 describe("SessionFilmPage — ?t= deep link (AT 3)", () => {
   test("opens the film with the playhead at the row named by ?t=", async () => {
     mockFetches();
