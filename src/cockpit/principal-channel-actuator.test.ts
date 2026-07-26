@@ -354,10 +354,15 @@ describe("createDrivenSessionActuator — readiness (mt#3234)", () => {
     expect(calls).toHaveLength(1);
   });
 
-  test("concurrent first messages share ONE conversation (PR #2329 R1)", async () => {
-    // The poller is sequential today, so this cannot race in practice — but two
-    // concurrent starts must still not spawn two children for one standing
-    // conversation.
+  test("concurrent callers share one conversation AND one result — documented, not supported", async () => {
+    // Pins the concurrency contract in the module header (PR #2330 R1): a
+    // standing conversation is a single sequential turn-taker. Overlapping
+    // callers subscribe to the same stream, so both resolve on the first
+    // `result` and the second receives the first's answer. Per-caller
+    // correlation would need the child to tag results with their input, which
+    // stream-json does not do. The poller upholds the contract by handling
+    // messages strictly sequentially; this test exists so the limitation is
+    // explicit rather than discovered.
     const { actuator, calls } = makeActuator();
 
     const a = actuator.converse("one");
@@ -366,8 +371,29 @@ describe("createDrivenSessionActuator — readiness (mt#3234)", () => {
     await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
 
     expect(calls).toHaveLength(1);
-    calls[0]?.proc.finishTurn("answered");
-    expect(await a).toBe("answered");
-    expect(await b).toBe("answered");
+    calls[0]?.proc.finishTurn("first answer");
+    expect(await a).toBe("first answer");
+    expect(await b).toBe("first answer");
+  });
+});
+
+describe("awaitSessionReady outcomes (PR #2330 R1)", () => {
+  test("a child that exits before init is reported as exited, not as a timeout", async () => {
+    // Different remedies: a crash points at the spawn (binary, cwd, flags), a
+    // timeout at startup cost. Collapsing both sends whoever reads it on a
+    // phone looking in the wrong place.
+    const { actuator, calls } = makeActuator({ neverReady: true, readyTimeoutMs: 5000 });
+    const pending = actuator.converse(BLOCKED_Q);
+
+    await waitForSpawn(calls, 1);
+    await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
+    calls[0]?.proc.exit(1);
+
+    await expect(pending).rejects.toThrow(/exited before it finished starting/);
+  });
+
+  test("a child that stays silent is reported as a timeout", async () => {
+    const { actuator } = makeActuator({ neverReady: true, readyTimeoutMs: 100 });
+    await expect(actuator.converse(BLOCKED_Q)).rejects.toThrow(/did not finish starting within/);
   });
 });

@@ -28,9 +28,27 @@
  * `permissionMode: "default"` and accept that the channel can answer questions
  * but not act. This is a deliberate, configurable choice, not an oversight.
  *
+ * ## Concurrency contract: one caller at a time
+ *
+ * `converse` is NOT safe to call concurrently, and deliberately so (PR #2330
+ * R1). A standing conversation is a single sequential turn-taker: every caller
+ * subscribes to the same event stream, so two overlapping calls both resolve on
+ * whichever `result` arrives first, and the second caller receives the first
+ * one's answer.
+ *
+ * That is not a bug to guard against here — it is what "one conversation"
+ * means. Per-caller correlation would require the child to tag results with the
+ * input that produced them, which the stream-json protocol does not do. The
+ * poller enforces the contract by handling messages strictly sequentially,
+ * which is also what the principal means: two messages in a row are two turns
+ * in one conversation, in order.
+ *
+ * A future caller that needs parallelism needs its OWN conversation, not a
+ * lock around this one.
+ *
  * @see mt#3228 — the bidirectional principal channel
  * @see ./driven-session-host.ts — spawn / input / registry mechanics
- * @see ./principal-channel-poller.ts — what calls this
+ * @see ./principal-channel-poller.ts — what calls this, sequentially
  */
 
 import { log } from "@minsky/shared/logger";
@@ -159,22 +177,30 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
     return record;
   };
 
-  const abandonUnreadyRecord = (record: DrivenSessionRecord): void => {
+  const abandonUnreadyRecord = (
+    record: DrivenSessionRecord,
+    outcome: SessionReadyOutcome
+  ): void => {
     // Stop it and drop the handle so the NEXT message spawns fresh rather than
     // writing into a session that will never answer.
     stopDrivenSession(record);
     standingLocalId = null;
     log.error("[principal-channel] conversation never finished starting", {
       localId: record.localId,
+      outcome,
       waitedMs: readyTimeoutMs,
+      exitCode: record.exitCode,
     });
   };
 
-  const startTimeoutError = (waitedMs: number): Error =>
+  /** Names WHICH failure happened — see `SessionReadyOutcome`. */
+  const startFailureError = (outcome: SessionReadyOutcome): Error =>
     new Error(
-      `the channel conversation did not finish starting within ${Math.round(
-        waitedMs / 1000
-      )}s — send anything to retry`
+      outcome === "exited"
+        ? "the channel conversation exited before it finished starting — send anything to retry"
+        : `the channel conversation did not finish starting within ${Math.round(
+            readyTimeoutMs / 1000
+          )}s — send anything to retry`
     );
 
   /**
@@ -188,9 +214,10 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
   const confirmReady = async (record: DrivenSessionRecord): Promise<void> => {
     if (record.harnessSessionId) return;
 
-    if (!(await awaitSessionReady(record, readyTimeoutMs, readyPollMs))) {
-      abandonUnreadyRecord(record);
-      throw startTimeoutError(readyTimeoutMs);
+    const outcome = await awaitSessionReady(record, readyTimeoutMs, readyPollMs);
+    if (outcome !== "ready") {
+      abandonUnreadyRecord(record, outcome);
+      throw startFailureError(outcome);
     }
     log.info("[principal-channel] channel conversation ready", {
       localId: record.localId,
@@ -249,19 +276,25 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
  * the record itself, and a poll cannot miss an event that fired between the
  * spawn returning and a subscription being attached.
  *
- * Returns false on timeout, and immediately if the child reached a terminal
- * status first (a spawn that died before init has nothing to wait for).
+ * The outcome distinguishes a child that DIED from one that is merely slow
+ * (PR #2330 R1): they have different remedies — a crash points at the spawn
+ * (binary, cwd, flags), a timeout at startup cost — and collapsing both into
+ * "did not finish starting within 120s" sends whoever reads it, on a phone,
+ * looking in the wrong place.
  */
+export type SessionReadyOutcome = "ready" | "timeout" | "exited";
+
 export async function awaitSessionReady(
   record: DrivenSessionRecord,
   timeoutMs: number,
   pollMs: number = READY_POLL_MS
-): Promise<boolean> {
+): Promise<SessionReadyOutcome> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (record.harnessSessionId) return true;
-    if (isTerminalStatus(record.status)) return false;
-    if (Date.now() >= deadline) return false;
+    if (record.harnessSessionId) return "ready";
+    // A spawn that died before init has nothing left to wait for.
+    if (isTerminalStatus(record.status)) return "exited";
+    if (Date.now() >= deadline) return "timeout";
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
 }
