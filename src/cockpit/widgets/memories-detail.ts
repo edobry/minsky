@@ -28,28 +28,25 @@ export const memoriesDetailWidget: WidgetModule = {
         };
       }
 
-      // Fetch record, lineage, and similar in parallel
-      const [recordResult, lineageResult, similarResult] = await Promise.allSettled([
-        memSvc.get(id),
-        memSvc.lineage(id),
-        memSvc.similar(id, { limit: 5 }),
-      ]);
-
-      if (recordResult.status === "rejected") {
-        const msg =
-          recordResult.reason instanceof Error
-            ? recordResult.reason.message
-            : String(recordResult.reason);
-        if (msg.includes("not found") || msg.includes("Memory not found")) {
-          return { state: "degraded", reason: `Memory not found: ${id}` };
-        }
-        return { state: "degraded", reason: `Failed to fetch memory: ${msg}` };
-      }
-
-      const record = recordResult.value;
+      // Resolve the record FIRST, then fan out on its canonical uuid.
+      //
+      // `id` here is a raw route param and may be a `mem#N` short id
+      // (mt#3259). `get` accepts both forms, but `lineage`/`similar` are
+      // uuid-only — issuing all three against the raw param left the two
+      // rejected promises to be swallowed by `allSettled` into empty
+      // lineage/similar, so a short-id URL would have rendered a record with
+      // silently missing relationships rather than an error. Sequencing the
+      // resolve first costs one round-trip and makes the fan-out
+      // unambiguously uuid-keyed.
+      const record = await memSvc.get(id);
       if (!record) {
         return { state: "degraded", reason: `Memory not found: ${id}` };
       }
+
+      const [lineageResult, similarResult] = await Promise.allSettled([
+        memSvc.lineage(record.id),
+        memSvc.similar(record.id, { limit: 5 }),
+      ]);
 
       const lineage =
         lineageResult.status === "fulfilled"

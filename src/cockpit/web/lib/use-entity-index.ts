@@ -24,7 +24,7 @@
  */
 import { useMemo } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { buildEntityIndex, type EntityIndex } from "./entity-linkifier";
+import { buildEntityIndex, type EntityIndex, type ShortIdAlias } from "./entity-linkifier";
 import type { RoutableEntityType } from "./entity-codec";
 import { fetchWidgetData, type WidgetData } from "./widget-client";
 import type { ChangesetsListResponse } from "../widgets/Changesets";
@@ -55,6 +55,22 @@ function extractAgentSessionIds(data: WidgetData | undefined): string[] {
   return payload.agents.map((a) => a.sessionId);
 }
 
+/**
+ * `ws#N` → sessionId aliases from the same agents payload (mt#3259). Rows
+ * without a short id (conversation-derived rows, or workspaces predating the
+ * backfill) are filtered out — an alias with no canonical target could only
+ * link to itself, which is the non-canonical address the alias indirection
+ * exists to avoid.
+ */
+function extractAgentSessionShortIds(data: WidgetData | undefined): ShortIdAlias[] {
+  if (!data || data.state !== "ok") return [];
+  const payload = data.payload as { agents?: { sessionId: string; shortId?: string | null }[] };
+  if (!Array.isArray(payload?.agents)) return [];
+  return payload.agents
+    .filter((a) => Boolean(a.shortId))
+    .map((a) => ({ shortId: a.shortId as string, id: a.sessionId }));
+}
+
 function extractAskIds(data: WidgetData | undefined): string[] {
   if (!data || data.state !== "ok") return [];
   const payload = data.payload as { cohort?: { id: string }[] };
@@ -62,11 +78,37 @@ function extractAskIds(data: WidgetData | undefined): string[] {
   return payload.cohort.map((a) => a.id);
 }
 
+/** `ask#N` → uuid aliases from the same attention payload (mt#3259). */
+function extractAskShortIds(data: WidgetData | undefined): ShortIdAlias[] {
+  if (!data || data.state !== "ok") return [];
+  const payload = data.payload as { cohort?: { id: string; shortId?: string | null }[] };
+  if (!Array.isArray(payload?.cohort)) return [];
+  return payload.cohort
+    .filter((a) => Boolean(a.shortId))
+    .map((a) => ({ shortId: a.shortId as string, id: a.id }));
+}
+
 function extractMemoryIds(data: WidgetData | undefined): string[] {
   if (!data || data.state !== "ok") return [];
   const payload = data.payload as { records?: { id: string }[] };
   if (!Array.isArray(payload?.records)) return [];
   return payload.records.map((r) => r.id);
+}
+
+/**
+ * `mem#N` → uuid aliases from the same memories-list payload (mt#3259). This
+ * one needed NO payload change — `MemoryRecord.shortId` was already
+ * serialized (`packages/domain/src/memory/types.ts`, populated by
+ * `rowToRecord`), so memory short-id linkification costs zero additional
+ * requests.
+ */
+function extractMemoryShortIds(data: WidgetData | undefined): ShortIdAlias[] {
+  if (!data || data.state !== "ok") return [];
+  const payload = data.payload as { records?: { id: string; shortId?: string | null }[] };
+  if (!Array.isArray(payload?.records)) return [];
+  return payload.records
+    .filter((r) => Boolean(r.shortId))
+    .map((r) => ({ shortId: r.shortId as string, id: r.id }));
 }
 
 /**
@@ -128,6 +170,10 @@ function extractAgentSessionLabels(data: WidgetData | undefined): [string, Entit
     agents?: { sessionId: string; title: string; liveness: string | null }[];
   };
   if (!Array.isArray(payload?.agents)) return [];
+  // Keyed by the CANONICAL id only: the linkifier resolves every reference
+  // form (uuid or `ws#N`) to the canonical id before it reaches
+  // `data-entity-id`, so a short-id anchor looks its label up under the same
+  // key a uuid anchor does (mt#3259).
   return payload.agents.map((a) => [
     a.sessionId,
     { label: a.title, status: a.liveness ?? undefined },
@@ -377,6 +423,9 @@ export function useEntityIndex(): EntityIndex {
           []
         ).map((c) => c.id),
         conversationIds: extractConversationIds(conversationsQ.data as WidgetData | undefined),
+        memoryShortIds: extractMemoryShortIds(memoriesQ.data as WidgetData | undefined),
+        askShortIds: extractAskShortIds(attentionQ.data as WidgetData | undefined),
+        sessionShortIds: extractAgentSessionShortIds(agentsQ.data as WidgetData | undefined),
       }),
     [
       tasksQ.data,

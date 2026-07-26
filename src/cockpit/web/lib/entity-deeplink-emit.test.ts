@@ -67,6 +67,32 @@ describe("Surface A deeplink emit format", () => {
   });
 });
 
+describe("short ids are a LABEL form, never a link target (mt#3259)", () => {
+  // ADR-029 §"What this ADR does NOT change": the UUID "remains canonical,
+  // unchanged, and the sole `minsky://<type>/<uuid>` deeplink target." These
+  // pin that constraint against the obvious-but-wrong shortcut of emitting
+  // `minsky://memory/mem%23728`, which would break as soon as anything tried
+  // to resolve it.
+
+  test("the canonical form pairs a short-id LABEL with a UUID target", () => {
+    expect(deeplink("mem#728", "memory", MEMORY_ID)).toBe(
+      `[mem#728](minsky://memory/${MEMORY_ID})`
+    );
+  });
+
+  test("the emitted target carries the uuid, not the short id", () => {
+    const target = linkTarget(deeplink("mem#728", "memory", MEMORY_ID)) as string;
+    expect(target).toContain(MEMORY_ID);
+    expect(target).not.toContain("mem%23728");
+    expect(target).not.toContain("mem#728");
+  });
+
+  test("a short-id label round-trips to the uuid, so the label never leaks into the id", () => {
+    const target = linkTarget(deeplink("mem#728", "memory", MEMORY_ID)) as string;
+    expect(parseMinskyUri(target)?.id).toBe(MEMORY_ID);
+  });
+});
+
 describe("emitted link target round-trips through the codec", () => {
   const cases: Array<{ type: RoutableEntityType; id: string }> = [
     { type: "task", id: "mt#2370" },

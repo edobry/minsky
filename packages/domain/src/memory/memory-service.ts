@@ -23,7 +23,7 @@ import { memoriesTable } from "../storage/schemas/memory-embeddings";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
 import { MEMORY_SCOPES } from "./types";
-import { nextShortId } from "../utils/short-id";
+import { nextShortId, formatShortId, parseShortId } from "../utils/short-id";
 import type {
   MemoryRecord,
   MemoryCreateInput,
@@ -103,6 +103,42 @@ export interface MemoryServiceDeps {
   db: MemoryServiceDb;
   vectorStorage: VectorStorage;
   embeddingService: EmbeddingService;
+}
+
+// ---------------------------------------------------------------------------
+// Id-shape resolution (mt#3259)
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical UUID shape. `memories.id` is a Postgres `uuid` column, so a
+ * comparison against a non-uuid string is a CAST ERROR, not an empty result —
+ * this guard is what turns a malformed id into a clean miss.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Build the WHERE clause selecting a single memory by its id, accepting
+ * either id form (ADR-029: the uuid is canonical, the `mem#N` short id is an
+ * additional display/lookup handle).
+ *
+ * Returns `null` — explicitly, not a clause matching nothing — when the input
+ * is NEITHER form. That distinction is the point: a null return means "this
+ * string cannot name a memory," which callers render as a miss without ever
+ * issuing a query. Deliberately NOT typed as returning a clause that matches
+ * zero rows, so a future caller can't mistake "unqueryable input" for
+ * "queried and found nothing" (mem#728: an unmeasured value must not be
+ * representable as a legitimate one).
+ */
+function memoryIdWhere(id: string) {
+  const trimmed = (id ?? "").trim();
+  const parsed = parseShortId(trimmed);
+  if (parsed && parsed.prefix === "mem") {
+    // Re-format from the PARSED parts rather than reusing the raw input, so
+    // casing and stray whitespace normalize to the stored form.
+    return eq(memoriesTable.shortId, formatShortId("mem", parsed.n));
+  }
+  if (UUID_RE.test(trimmed)) return eq(memoriesTable.id, trimmed);
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -285,10 +321,31 @@ export class MemoryService implements MemoryServiceSurface {
 
   /**
    * Fetch a single memory record by ID.
+   *
+   * Accepts either the canonical UUID primary key or a `mem#N` short id
+   * (ADR-029). The short-id branch matters because `memories.id` is a
+   * Postgres `uuid` column: passing a non-uuid string straight into
+   * `eq(memoriesTable.id, ...)` does not return "not found", it raises
+   * `invalid input syntax for type uuid` and echoes the whole failing
+   * statement — which is how a `mem#N` route param surfaced as a raw driver
+   * error in the cockpit rather than a miss (mt#3259; the same split
+   * mt#3108 records on the `memory_update` surface).
+   *
+   * Note this is EXACT short-id / uuid resolution only. Unambiguous
+   * uuid-PREFIX resolution (mt#2696) lives one layer up, in the command
+   * adapter's `resolveMemoryIdInput`, which hands this method a full uuid —
+   * unchanged by this method's new branch.
+   *
    * Access tracking: bumps last_accessed_at and access_count non-blocking (fire-and-forget).
    */
   async get(id: string): Promise<MemoryRecord | null> {
-    const rows = await this.deps.db.select().from(memoriesTable).where(eq(memoriesTable.id, id));
+    const where = memoryIdWhere(id);
+    // Neither a uuid nor a `mem#N` short id — a genuine miss, not a query.
+    // Returning null here is what keeps a malformed route param from
+    // reaching the driver as a uuid cast.
+    if (!where) return null;
+
+    const rows = await this.deps.db.select().from(memoriesTable).where(where);
 
     const row = rows[0] as Record<string, unknown> | undefined;
     if (!row) return null;
