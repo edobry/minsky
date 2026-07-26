@@ -396,6 +396,14 @@ describe("SessionFilmRibbon — row accessibility (mt#3258 SC 5)", () => {
   });
 });
 
+describe("SessionFilmRibbon — start/end-of-session affordance (mt#3258 SC 1, minor)", () => {
+  test("renders a non-empty label inside the leading and trailing spacers", () => {
+    renderRibbon([ev({ batchId: "b1" })]);
+    expect(screen.getByTestId("session-film-start-marker").textContent).toBe("start of session");
+    expect(screen.getByTestId("session-film-end-marker").textContent).toBe("end of session");
+  });
+});
+
 describe("SessionFilmRibbon — unknown-target fallback never leaks 'unknown:' (mt#3258 SC 3)", () => {
   test("a target that fell through the adapter's total fallback renders a clean muted label, never the literal 'unknown:' prefix", () => {
     const events: SemanticEvent[] = [

@@ -393,9 +393,52 @@ export function SessionFilmRibbon({
       data-testid="session-film-ribbon"
       role="group"
       aria-label="Session event ribbon"
-      className={cn("relative flex-1 min-h-0 overflow-y-auto font-mono text-xs", className)}
+      // mt#3258 SC 4: was "flex-1" — live-verified (chrome-devtools MCP) that
+      // this component's OWN `flex-1` fought the page's `w-64` width
+      // override: a flex item's `flex-basis` (here 0%, from `flex: 1 1 0%`)
+      // wins over an explicit `width` for main-axis sizing, so the ribbon
+      // rendered at ~600px regardless of what width utility the caller
+      // passed — the mt#3226 SC1 "fixed-width narrow rail" design intent was
+      // silently defeated by this component's own base classes. `w-full` is
+      // the sane standalone default (a caller with no width override still
+      // fills its container); the ONE real caller (SessionFilmPage.tsx)
+      // overrides it with `w-64 shrink-0`, and tailwind-merge correctly
+      // dedupes width-vs-width (unlike flex-vs-width, which it can't model).
+      className={cn("relative w-full min-h-0 overflow-y-auto font-mono text-xs", className)}
     >
       <div style={{ height: range.totalHeightPx, position: "relative" }}>
+        {/*
+          Start/end-of-session affordance (mt#3258 SC 1, minor/cheap fix per
+          principal re-prioritization — "the void isn't that big of a deal").
+          The leading/trailing half-viewport spacers (session-film-virtualization.ts's
+          scroll-padding fix, mt#3226 SC 3 / AT 1) are load-bearing for the
+          centered-scrub invariant — row 0 and the final row must be
+          reachable/centerable, which REQUIRES that empty space to exist.
+          Rather than touching that shared, tested math (real regression
+          risk to the centered-scrub feature this task must not break),
+          this renders a subtle non-empty label INSIDE each spacer's own
+          region so it reads as "this is the start/end of the recording,"
+          not "something broke" — spec option (b), the cheapest of the
+          three listed options that doesn't fight the virtualization
+          formulas. `pointer-events-none` so it never intercepts a click
+          meant for the ribbon; sits BEHIND the rows (declared first, and
+          the rows themselves never render into this exact region in
+          practice — see the module's offsetTopPx math).
+        */}
+        <div
+          data-testid="session-film-start-marker"
+          style={{ position: "absolute", top: 0, height: viewportHeightPx / 2, left: 0, right: 0 }}
+          className="pointer-events-none flex items-end justify-center pb-2 text-[10px] uppercase tracking-widest text-muted-foreground/30"
+        >
+          start of session
+        </div>
+        <div
+          data-testid="session-film-end-marker"
+          style={{ position: "absolute", bottom: 0, height: viewportHeightPx / 2, left: 0, right: 0 }}
+          className="pointer-events-none flex items-start justify-center pt-2 text-[10px] uppercase tracking-widest text-muted-foreground/30"
+        >
+          end of session
+        </div>
         <div style={{ position: "absolute", top: range.offsetTopPx, left: 0, right: 0 }}>
           {visibleRows.map((row) => {
             const chapter = chapterByRow.get(row.rowIndex);
