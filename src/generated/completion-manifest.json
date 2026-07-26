@@ -6108,7 +6108,7 @@
         },
         {
           "name": "update",
-          "description": "Update fields on an existing memory record.",
+          "description": "Update fields on an existing memory record. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966) for `id`.",
           "options": [
             {
               "flags": ["--type"],
@@ -6178,7 +6178,7 @@
         },
         {
           "name": "delete",
-          "description": "Delete a memory record by its identifier.",
+          "description": "Delete a memory record by its identifier. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966).",
           "arguments": [
             {
               "name": "id",
@@ -6216,7 +6216,7 @@
         },
         {
           "name": "supersede",
-          "description": "Atomically replace an existing memory with a new one. The old memory is retained but marked superseded.",
+          "description": "Atomically replace an existing memory with a new one. The old memory is retained but marked superseded. Accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id (mt#2966) for `oldId`.",
           "options": [
             {
               "flags": ["--type"],
