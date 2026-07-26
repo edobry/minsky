@@ -67,6 +67,8 @@ function harness(
     actuator?: Partial<ChannelActuator>;
     cursorStart?: number;
     recordEventThrows?: boolean;
+    /** Update ids the recorder reports as already-recorded replays. */
+    duplicateUpdateIds?: number[];
   } = {}
 ): Harness {
   const recorded: Recorded[] = [];
@@ -130,6 +132,7 @@ function harness(
       order.push("record");
       if (overrides.recordEventThrows) throw new Error("db down");
       recorded.push({ type, payload });
+      return overrides.duplicateUpdateIds?.includes(payload.updateId) ? "duplicate" : "recorded";
     },
     fetchFn: baseFetch,
   };
@@ -142,7 +145,7 @@ describe("runPollCycle — happy path", () => {
     const h = harness(updateBody([{ updateId: 5, text: "what is blocked?" }]));
     const outcome = await runPollCycle(h.deps);
 
-    expect(outcome).toEqual({ received: 1, handled: 1, rejected: 0 });
+    expect(outcome).toEqual({ received: 1, handled: 1, failed: 0, rejected: 0, duplicates: 0 });
     expect(h.actuatorCalls).toEqual(["converse:what is blocked?"]);
     expect(h.sentTexts).toEqual(["answered: what is blocked?"]);
   });
@@ -193,7 +196,7 @@ describe("runPollCycle — authorization", () => {
     const h = harness(updateBody([{ updateId: 5, text: "rm -rf /", chatId: "999" }]));
     const outcome = await runPollCycle(h.deps);
 
-    expect(outcome).toEqual({ received: 1, handled: 0, rejected: 1 });
+    expect(outcome).toEqual({ received: 1, handled: 0, failed: 0, rejected: 1, duplicates: 0 });
     expect(h.actuatorCalls).toEqual([]);
     expect(h.sentTexts).toEqual([]);
     expect(h.recorded[0]?.type).toBe("principal.message_rejected");
@@ -233,6 +236,93 @@ describe("runPollCycle — audit", () => {
     const h = harness(updateBody([{ updateId: 5, text: "go" }]));
     await runPollCycle(h.deps);
     expect(h.recorded[0]?.payload.token).toBe("telegram:update:5");
+  });
+});
+
+describe("runPollCycle — replay dedupe (PR #2324 R1)", () => {
+  test("a duplicate is NOT acted on", async () => {
+    // The regression this whole branch exists for: the recorder used to signal
+    // a replay by throwing, which landed in the same catch as a DB failure —
+    // so the poller logged it and executed the replay anyway.
+    const h = harness(updateBody([{ updateId: 5, text: "deploy everything" }]), {
+      duplicateUpdateIds: [5],
+    });
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome).toEqual({ received: 1, handled: 0, failed: 0, rejected: 0, duplicates: 1 });
+    expect(h.actuatorCalls).toEqual([]);
+    expect(h.sentTexts).toEqual([]);
+  });
+
+  test("a duplicate does not block the fresh messages beside it", async () => {
+    const h = harness(
+      updateBody([
+        { updateId: 5, text: "old" },
+        { updateId: 6, text: "new" },
+      ]),
+      { duplicateUpdateIds: [5] }
+    );
+    const outcome = await runPollCycle(h.deps);
+
+    expect(h.actuatorCalls).toEqual(["converse:new"]);
+    expect(outcome.duplicates).toBe(1);
+    expect(outcome.handled).toBe(1);
+  });
+
+  test("a duplicate still advances the cursor", async () => {
+    const h = harness(updateBody([{ updateId: 5, text: "old" }]), { duplicateUpdateIds: [5] });
+    await runPollCycle(h.deps);
+    expect(h.cursorWrites).toEqual([5]);
+  });
+
+  test("a recorder ERROR is not treated as a duplicate", async () => {
+    // The two must stay distinguishable: a DB outage means "proceed anyway",
+    // a duplicate means "stop". Collapsing them is what caused the bug.
+    const h = harness(updateBody([{ updateId: 5, text: "go" }]), { recordEventThrows: true });
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome.duplicates).toBe(0);
+    expect(outcome.handled).toBe(1);
+    expect(h.actuatorCalls).toEqual(["converse:go"]);
+  });
+});
+
+describe("runPollCycle — failure outcome (PR #2324 R1)", () => {
+  const failing = { converse: async (): Promise<string> => Promise.reject(new Error("no binary")) };
+
+  test("a failed actuator counts as failed, not handled", async () => {
+    const h = harness(updateBody([{ updateId: 5, text: "go" }]), { actuator: failing });
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome.handled).toBe(0);
+    expect(outcome.failed).toBe(1);
+  });
+
+  test("records a failure outcome event so the log says whether it worked", async () => {
+    const h = harness(updateBody([{ updateId: 5, text: "go" }]), { actuator: failing });
+    await runPollCycle(h.deps);
+
+    const failure = h.recorded.find((r) => r.type === "principal.message_failed");
+    expect(failure).toBeDefined();
+    expect(failure?.payload.failureDetail).toContain("no binary");
+  });
+
+  test("the failure row's token differs from the pre-action row's", async () => {
+    // Otherwise the recorder's own dedupe would reject it as a replay of the
+    // row written moments earlier for the same update.
+    const h = harness(updateBody([{ updateId: 5, text: "go" }]), { actuator: failing });
+    await runPollCycle(h.deps);
+
+    const tokens = h.recorded.map((r) => r.payload.token);
+    expect(new Set(tokens).size).toBe(tokens.length);
+    expect(tokens).toContain("telegram:update:5");
+    expect(tokens).toContain("telegram:update:5:failed");
+  });
+
+  test("the principal is still told, despite the failure being recorded", async () => {
+    const h = harness(updateBody([{ updateId: 5, text: "go" }]), { actuator: failing });
+    await runPollCycle(h.deps);
+    expect(h.sentTexts[0]).toContain("no binary");
   });
 });
 
@@ -304,7 +394,10 @@ describe("runPollCycle — failure handling", () => {
     });
     const outcome = await runPollCycle(h.deps);
 
-    expect(outcome.handled).toBe(1);
+    // Counted as failed, not handled — the message WAS acted on, but the
+    // action did not succeed, and the two must stay distinguishable.
+    expect(outcome.handled).toBe(0);
+    expect(outcome.failed).toBe(1);
     expect(h.sentTexts[0]).toContain("claude binary not found");
   });
 

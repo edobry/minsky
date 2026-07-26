@@ -44,6 +44,11 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   // party attempting to drive the local swarm is something the operator must
   // see; its accepted sibling below is informational.
   "principal.message_rejected",
+  // mt#3228 (PR #2324 R1) — carrying out an accepted message FAILED. Actionable
+  // for the same reason the pre-action row is not sufficient on its own: "audit
+  // before action" records what the channel was asked to do, and without this
+  // the log never says whether it worked.
+  "principal.message_failed",
   // --- informational / trajectory (mt#2340) — discoverable on the operator's
   //     own schedule; primary consumer is the Phase 2 noticer ---
   "task.status_changed",
@@ -216,6 +221,7 @@ export const eventCategory = {
   "task.bulk_edit.dry_run": "informational",
   "task.bulk_edit.executed": "informational",
   "principal.message_rejected": "actionable",
+  "principal.message_failed": "actionable",
   "principal.message_received": "informational",
 } satisfies Record<SystemEventType, EventCategory>;
 
@@ -273,6 +279,7 @@ export const systemEventsTable = pgTable(
      * deploy.smoke:                   { phase, sha, status }
      * principal.message_received:     { token, updateId, messageId, route, text?, sentAt? }
      * principal.message_rejected:     { token, updateId, messageId, route, rejectionReason, sentAt? }
+     * principal.message_failed:       { token: "<base>:failed", updateId, messageId, route, failureDetail, text?, sentAt? }
      *   (mt#3228 — see PrincipalMessageEventPayload in ../../notify/principal-inbound.ts.
      *    `text` is deliberately absent on the rejected variant: an unauthorized
      *    chat must not be able to write attacker-chosen content into the feed.)

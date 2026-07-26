@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import {
   createEventLogCursor,
   loadPrincipalChannelLaunchConfig,
+  resolveAllowedUserIds,
   startPrincipalChannel,
 } from "./principal-channel-launch";
 
@@ -58,6 +59,25 @@ describe("loadPrincipalChannelLaunchConfig", () => {
   });
 });
 
+describe("resolveAllowedUserIds (PR #2324 R1)", () => {
+  test("derives the sender from a private chat id", () => {
+    // Telegram gives a private chat the same id as the user on the other end,
+    // so pinning the sender to it is exact — and it hardens against a spoofed
+    // `from` on an update that otherwise matches the chat.
+    expect(resolveAllowedUserIds("167346572", [])).toEqual(["167346572"]);
+  });
+
+  test("derives nothing from a group chat id", () => {
+    // Group ids are negative and distinct from any member's user id; there is
+    // nothing to derive, so this must stay chat-only until configured.
+    expect(resolveAllowedUserIds("-100123456", [])).toEqual([]);
+  });
+
+  test("an explicit list wins over the derived one", () => {
+    expect(resolveAllowedUserIds("167346572", ["777", "888"])).toEqual(["777", "888"]);
+  });
+});
+
 describe("createEventLogCursor", () => {
   test("reads through to the event log", async () => {
     const cursor = createEventLogCursor(async () => 77);
@@ -75,13 +95,13 @@ describe("createEventLogCursor", () => {
 describe("startPrincipalChannel", () => {
   const unusedDeps = {
     respondToAsk: async () => "",
-    recordEvent: async () => {},
+    recordEvent: async () => "recorded" as const,
     readHighestUpdateId: async () => undefined,
   };
 
   test("does not start when disabled, without touching credentials", async () => {
     const handle = await startPrincipalChannel({
-      config: { enabled: false, cwd: "/tmp", permissionMode: "default" },
+      config: { enabled: false, cwd: "/tmp", permissionMode: "default", allowedUserIds: [] },
       ...unusedDeps,
     });
     expect(handle).toBeNull();

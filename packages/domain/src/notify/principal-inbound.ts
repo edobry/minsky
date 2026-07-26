@@ -30,7 +30,19 @@
  * @see mt#2238 — Rung 3, remote interface / local execution
  */
 
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 import type { InboundTelegramMessage } from "./telegram-transport";
+
+/**
+ * Cap on message text stored in the append-only event log.
+ *
+ * `system_events` rows are never deleted, so an unbounded string write is
+ * permanent row bloat (PR #2324 R1 non-blocking). Telegram's own ceiling is
+ * 4096 characters; 2000 keeps every realistic instruction intact while bounding
+ * the pathological case. The full text was never the artifact of record here —
+ * the conversation transcript is.
+ */
+export const MAX_STORED_TEXT = 2000;
 
 /** Who is permitted to drive this channel. */
 export interface InboundAuthorization {
@@ -131,10 +143,17 @@ export interface PrincipalMessageEventPayload {
   route: InboundRoute["kind"];
   /** Present only on a rejection. */
   rejectionReason?: InboundRejectionReason;
-  /** The message text. Absent on a rejection — unauthorized content is not stored. */
+  /**
+   * The message text, bounded by {@link MAX_STORED_TEXT}. Absent on a
+   * rejection — unauthorized content is not stored.
+   */
   text?: string;
+  /** True when `text` was clipped to fit the bound. */
+  textTruncated?: boolean;
   /** Telegram's send time, distinct from when this row was written. */
   sentAt?: number;
+  /** Why carrying the message out failed. Only on `principal.message_failed`. */
+  failureDetail?: string;
 }
 
 /** Build the idempotency token for an update id. */
@@ -166,5 +185,11 @@ export function buildInboundEventPayload(
   if (route.kind === "rejected") {
     return { ...base, rejectionReason: route.reason };
   }
-  return { ...base, text: message.text };
+
+  const text = safeTruncate(message.text, MAX_STORED_TEXT);
+  return {
+    ...base,
+    text,
+    ...(text.length < message.text.length ? { textTruncated: true } : {}),
+  };
 }

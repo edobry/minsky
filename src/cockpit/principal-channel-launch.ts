@@ -22,7 +22,6 @@
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { resolvePrincipalChannel } from "@minsky/domain/notify/principal-channel";
-import { inboundEventToken } from "@minsky/domain/notify/principal-inbound";
 import type { PrincipalMessageEventPayload } from "@minsky/domain/notify/principal-inbound";
 import { createCachedSqlDbGetter, getServerAskRepository } from "./db-providers";
 import { createDrivenSessionActuator } from "./principal-channel-actuator";
@@ -35,11 +34,38 @@ import {
 import type { PermissionMode } from "./driven-session-host";
 
 const RECEIVED_EVENT = "principal.message_received";
+const REJECTED_EVENT = "principal.message_rejected";
+const FAILED_EVENT = "principal.message_failed";
 
 export interface PrincipalChannelLaunchConfig {
   enabled: boolean;
   cwd: string;
   permissionMode: PermissionMode;
+  /** Explicit sender allowlist. Empty means "derive it" — see {@link resolveAllowedUserIds}. */
+  allowedUserIds: string[];
+}
+
+/**
+ * Decide which Telegram senders may drive the channel.
+ *
+ * Telegram gives a PRIVATE chat the same id as the user on the other end of
+ * it, and a GROUP a negative id distinct from any user's. So:
+ *
+ * - private chat (positive id) — the chat id IS the sender id, so pinning the
+ *   sender to it is exact, and it hardens the channel against a malformed or
+ *   spoofed `from` in an update that otherwise matches the chat.
+ * - group (negative id) — chat and sender are genuinely different things, and
+ *   there is nothing to derive. Without an explicit list this stays chat-only,
+ *   which means ANY member of that group can drive the swarm. Configure
+ *   `MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS` for a group.
+ *
+ * Added in PR #2324 R1: the docs claimed `from.id` was checked while only the
+ * chat id was enforced. This makes the claim true for the case that actually
+ * ships (a discovered private chat) rather than walking the claim back.
+ */
+export function resolveAllowedUserIds(chatId: string, configured: string[]): string[] {
+  if (configured.length > 0) return configured;
+  return chatId.startsWith("-") ? [] : [chatId];
 }
 
 /**
@@ -61,6 +87,10 @@ export function loadPrincipalChannelLaunchConfig(
       env["MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE"] === "default"
         ? "default"
         : "bypassPermissions",
+    allowedUserIds: (env["MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS"] ?? "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0),
   };
 }
 
@@ -156,19 +186,27 @@ export async function startPrincipalChannel(opts: {
     respondToAsk: opts.respondToAsk,
   });
 
+  const allowedUserIds = resolveAllowedUserIds(chatId, config.allowedUserIds);
+  if (allowedUserIds.length === 0) {
+    log.warn(
+      "[principal-channel] group chat with no sender allowlist — ANY member of that group can " +
+        "drive this swarm. Set MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS.",
+      { chatId }
+    );
+  }
+
   log.info("[principal-channel] inbound poller started", {
     chatId,
     cwd: config.cwd,
     permissionMode: config.permissionMode,
+    senderAllowlistSize: allowedUserIds.length,
   });
   opts.onStarted?.(chatId);
 
   return startPrincipalChannelPoller({
     token,
     chatId,
-    // The discovered chat id IS the allowlist. A 1:1 private chat has exactly
-    // one other participant, so no separate sender list is needed here.
-    auth: { allowedChatId: chatId },
+    auth: { allowedChatId: chatId, allowedUserIds },
     actuator,
     cursor: createEventLogCursor(opts.readHighestUpdateId),
     recordEvent: opts.recordEvent,
@@ -190,7 +228,7 @@ export function createHighestUpdateIdReader(getDb: DbGetter): () => Promise<numb
       const rows = (await db.execute(
         sql`SELECT MAX((payload->>'updateId')::bigint) AS max_id
             FROM system_events
-            WHERE event_type IN ('principal.message_received', 'principal.message_rejected')`
+            WHERE event_type IN (${RECEIVED_EVENT}, ${REJECTED_EVENT}, ${FAILED_EVENT})`
       )) as Array<{ max_id: string | number | null }>;
       const raw = rows[0]?.max_id;
       if (raw === null || raw === undefined) return undefined;
@@ -216,47 +254,32 @@ export function createHighestUpdateIdReader(getDb: DbGetter): () => Promise<numb
  * re-receives up to a day of messages — without this check, every one of them
  * would be re-run against the swarm.
  */
-export function createInboundEventRecorder(
-  getDb: DbGetter,
-  onDuplicate?: (updateId: number) => void
-): InboundEventRecorder {
+export function createInboundEventRecorder(getDb: DbGetter): InboundEventRecorder {
   return async (eventType, payload: PrincipalMessageEventPayload) => {
     const db = await getDb();
     if (!db) throw new Error("persistence unavailable — cannot record the inbound audit event");
 
     const { sql } = await import("drizzle-orm");
-    const token = inboundEventToken(payload.updateId);
+    // The payload's own token, not one derived from the update id: the
+    // failure-outcome row deliberately carries a suffixed token so it does not
+    // collide with the pre-action row for the same update.
+    const token = payload.token;
     const existing = (await db.execute(
       sql`SELECT 1 FROM system_events
-          WHERE event_type IN ('principal.message_received', 'principal.message_rejected')
+          WHERE event_type IN (${RECEIVED_EVENT}, ${REJECTED_EVENT}, ${FAILED_EVENT})
             AND payload->>'token' = ${token}
           LIMIT 1`
     )) as unknown[];
 
-    if (Array.isArray(existing) && existing.length > 0) {
-      onDuplicate?.(payload.updateId);
-      throw new DuplicateInboundUpdateError(payload.updateId);
-    }
+    // Reported, not thrown (PR #2324 R1 BLOCKING): a replay and a DB outage are
+    // different situations — one means STOP, the other means proceed anyway —
+    // and routing both through the same catch made the poller act on replays.
+    if (Array.isArray(existing) && existing.length > 0) return "duplicate";
 
     await db.execute(
       sql`INSERT INTO system_events (event_type, payload, actor)
-          VALUES (${eventType === RECEIVED_EVENT ? RECEIVED_EVENT : "principal.message_rejected"},
-                  ${JSON.stringify(payload)}::jsonb,
-                  'principal-channel')`
+          VALUES (${eventType}, ${JSON.stringify(payload)}::jsonb, 'principal-channel')`
     );
+    return "recorded";
   };
-}
-
-/**
- * Signals that an update was already recorded and must not be acted on again.
- *
- * A distinct type rather than a boolean return so the poller's existing
- * "recorder threw" path covers it: the message is skipped, loudly, without a
- * second control-flow branch.
- */
-export class DuplicateInboundUpdateError extends Error {
-  constructor(readonly updateId: number) {
-    super(`Telegram update ${updateId} was already recorded; skipping replay`);
-    this.name = "DuplicateInboundUpdateError";
-  }
 }

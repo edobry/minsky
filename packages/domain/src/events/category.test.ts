@@ -29,6 +29,9 @@ describe("event category classification", () => {
         // swarm is something the operator must see, unlike its accepted
         // sibling (informational, below).
         "principal.message_rejected",
+        // mt#3228: carrying out an accepted message failed — the pre-action
+        // audit row alone never says whether the channel actually worked.
+        "principal.message_failed",
       ].sort()
     );
   });

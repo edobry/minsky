@@ -252,6 +252,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_PRINCIPAL_CHANNEL_ENABLED", // src/cockpit/principal-channel-launch.ts (mt#3228) — opt in to the inbound Telegram poller (RCE-adjacent: a message becomes a local claude turn, so it never auto-enables off credentials alone)
   "MINSKY_PRINCIPAL_CHANNEL_CWD", // src/cockpit/principal-channel-launch.ts (mt#3228) — working directory for the standing channel conversation
   "MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE", // src/cockpit/principal-channel-launch.ts (mt#3228) — "default" tightens the channel session below the driven-session default of bypassPermissions
+  "MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS", // src/cockpit/principal-channel-launch.ts (mt#3228) — comma-separated Telegram sender allowlist; required for a GROUP chat, derived from the chat id for a private one
   "MINSKY_FORCE_BYPASS", // .claude/hooks/block-subagent-bypass-merge.ts (mt#1869) — override for bypass-merge block
   "MINSKY_SKIP_TIME_INJECTION", // .claude/hooks/inject-current-time.ts (mt#2181) — skip current-time injection
   "MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — skip session-end transcript ingest

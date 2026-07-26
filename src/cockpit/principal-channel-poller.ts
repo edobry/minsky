@@ -48,6 +48,7 @@ import {
 } from "@minsky/domain/notify/telegram-transport";
 import {
   buildInboundEventPayload,
+  inboundEventToken,
   routeInboundMessage,
   type InboundAuthorization,
   type InboundRoute,
@@ -92,11 +93,29 @@ export interface PollCursor {
   write(updateId: number): Promise<void>;
 }
 
+/** Which append-only event a record call writes. */
+export type InboundEventType =
+  | "principal.message_received"
+  | "principal.message_rejected"
+  | "principal.message_failed";
+
+/**
+ * Outcome of a record attempt.
+ *
+ * `"duplicate"` is a RETURN VALUE, not an exception (PR #2324 R1 BLOCKING):
+ * signalling a replay by throwing meant it landed in the same catch as a
+ * genuine DB failure, and the poller's "keep going despite a persistence
+ * hiccup" behaviour then silently re-executed the replay — defeating the
+ * dedupe entirely. The two outcomes need different handling, so they get
+ * different channels.
+ */
+export type RecordOutcome = "recorded" | "duplicate";
+
 /** Append-only audit sink. One row per inbound update, before any side effect. */
 export type InboundEventRecorder = (
-  eventType: "principal.message_received" | "principal.message_rejected",
+  eventType: InboundEventType,
   payload: PrincipalMessageEventPayload
-) => Promise<void>;
+) => Promise<RecordOutcome>;
 
 export interface PollCycleDeps {
   token: string;
@@ -113,8 +132,15 @@ export interface PollCycleDeps {
 export interface PollCycleOutcome {
   /** Messages Telegram returned, including ones the allowlist refused. */
   received: number;
+  /** Acted on AND the actuator succeeded. */
   handled: number;
+  /** Acted on but the actuator threw. Counted apart from `handled` so a
+   * channel that is answering-but-failing is distinguishable from a healthy
+   * one (PR #2324 R1 — "attempted" was being conflated with "succeeded"). */
+  failed: number;
   rejected: number;
+  /** Already recorded by a previous run; skipped without re-executing. */
+  duplicates: number;
   /** Set when the poll itself failed; the caller backs off. */
   error?: string;
 }
@@ -138,18 +164,32 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
   });
 
   if (!result.ok) {
-    return { received: 0, handled: 0, rejected: 0, error: result.detail };
+    return emptyCycle({ error: result.detail });
   }
 
   let handled = 0;
+  let failed = 0;
   let rejected = 0;
+  let duplicates = 0;
 
   for (const message of result.messages) {
     const route = routeInboundMessage(message, deps.auth);
 
     // Audit BEFORE acting. An RCE-adjacent surface must leave a record of what
     // it was asked to do even if carrying it out then fails or hangs.
-    await recordSafely(deps, message, route);
+    const recorded = await recordSafely(deps, message, route);
+
+    // A replay of an update a previous run already recorded. Skipping is the
+    // whole point of the idempotency token: Telegram re-delivers up to 24h of
+    // updates to a poller that restarts without a readable cursor, and acting
+    // on them again would re-run a day of the principal's instructions.
+    if (recorded === "duplicate") {
+      duplicates += 1;
+      log.info("[principal-channel] skipping an already-recorded update", {
+        updateId: message.updateId,
+      });
+      continue;
+    }
 
     if (route.kind === "rejected") {
       rejected += 1;
@@ -160,8 +200,9 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
       continue;
     }
 
-    await handleRoute(deps, message, route);
-    handled += 1;
+    const succeeded = await handleRoute(deps, message, route);
+    if (succeeded) handled += 1;
+    else failed += 1;
   }
 
   // Advance the cursor past EVERY update Telegram handed over, including ones
@@ -171,28 +212,70 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
     await deps.cursor.write(result.highestUpdateId);
   }
 
-  return { received: result.messages.length, handled, rejected };
+  return { received: result.messages.length, handled, failed, rejected, duplicates };
+}
+
+/** A cycle that acted on nothing, optionally carrying a poll error. */
+function emptyCycle(extra: { error?: string } = {}): PollCycleOutcome {
+  return { received: 0, handled: 0, failed: 0, rejected: 0, duplicates: 0, ...extra };
 }
 
 /**
- * Record the audit row without letting a recorder failure drop the message.
+ * Record the audit row without letting a recorder FAILURE drop the message.
  *
  * The audit is the priority, but a DB hiccup must not make the channel
- * unresponsive — a principal whose messages vanish during a Postgres blip has
- * a channel they cannot trust. The failure is logged loudly instead.
+ * unresponsive — a principal whose messages vanish during a Postgres blip has a
+ * channel they cannot trust. So a thrown error is logged and treated as
+ * `"recorded"`: proceed, unaudited, rather than go silent.
+ *
+ * A DUPLICATE is a different thing entirely and must not take that path — it is
+ * the recorder reporting "this was already acted on", which is a reason to
+ * STOP. Hence the return value rather than an exception.
  */
 async function recordSafely(
   deps: PollCycleDeps,
   message: InboundTelegramMessage,
   route: InboundRoute
-): Promise<void> {
+): Promise<RecordOutcome> {
   try {
-    await deps.recordEvent(
+    return await deps.recordEvent(
       route.kind === "rejected" ? "principal.message_rejected" : "principal.message_received",
       buildInboundEventPayload(message, route)
     );
   } catch (err: unknown) {
     log.error("[principal-channel] failed to record the inbound audit event", {
+      updateId: message.updateId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return "recorded";
+  }
+}
+
+/**
+ * Record that carrying out a message failed.
+ *
+ * Best-effort and deliberately separate from the pre-action row: "audit before
+ * action" says what the channel was ASKED to do, and without this the log never
+ * says whether it worked (PR #2324 R1). A failure to record the failure is
+ * logged and dropped — the principal has already been told, and a recursive
+ * audit failure helps nobody.
+ */
+async function recordFailureOutcome(
+  deps: PollCycleDeps,
+  message: InboundTelegramMessage,
+  route: InboundRoute,
+  detail: string
+): Promise<void> {
+  try {
+    await deps.recordEvent("principal.message_failed", {
+      ...buildInboundEventPayload(message, route),
+      // A distinct token: the pre-action row already holds the plain one, and
+      // the recorder's dedupe would otherwise treat this as that same row.
+      token: `${inboundEventToken(message.updateId)}:failed`,
+      failureDetail: detail,
+    });
+  } catch (err: unknown) {
+    log.error("[principal-channel] failed to record the failure outcome", {
       updateId: message.updateId,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -203,7 +286,7 @@ async function handleRoute(
   deps: PollCycleDeps,
   message: InboundTelegramMessage,
   route: Exclude<InboundRoute, { kind: "rejected" }>
-): Promise<void> {
+): Promise<boolean> {
   // Silence reads as breakage on a chat channel, and a conversational turn can
   // take a while. Show the typing indicator before starting — except on
   // interrupt, whose whole point is to be immediate.
@@ -216,20 +299,22 @@ async function handleRoute(
   }
 
   let reply: string;
+  let succeeded = true;
   try {
     reply = await runActuator(deps.actuator, route);
   } catch (err: unknown) {
+    succeeded = false;
+    const detail = err instanceof Error ? err.message : String(err);
     // Report the failure TO THE PRINCIPAL rather than only to the log. They are
     // holding a phone waiting for an answer; a silent swallow is the one
     // outcome the channel must never produce.
-    reply = `Could not carry that out: ${err instanceof Error ? err.message : String(err)}`;
-    log.error("[principal-channel] actuator failed", {
-      route: route.kind,
-      error: reply,
-    });
+    reply = `Could not carry that out: ${detail}`;
+    log.error("[principal-channel] actuator failed", { route: route.kind, error: detail });
+    await recordFailureOutcome(deps, message, route, detail);
   }
 
   await sendReply(deps, message, reply);
+  return succeeded;
 }
 
 function runActuator(
@@ -309,12 +394,7 @@ export function startPrincipalChannelPoller(
       try {
         outcome = await runPollCycle({ ...deps, signal: controller.signal });
       } catch (err: unknown) {
-        outcome = {
-          received: 0,
-          handled: 0,
-          rejected: 0,
-          error: err instanceof Error ? err.message : String(err),
-        };
+        outcome = emptyCycle({ error: err instanceof Error ? err.message : String(err) });
       }
       if (stopped) return;
       if (outcome.error) {

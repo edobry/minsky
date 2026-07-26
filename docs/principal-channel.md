@@ -78,12 +78,13 @@ It does **not** auto-enable off the mere presence of credentials, even though
 they resolve today: those were provisioned for reviewer alerts, and starting a
 local-`claude`-driving surface off them would be a silent capability escalation.
 
-| Variable                                   | Effect                                                                                  |
-| ------------------------------------------ | --------------------------------------------------------------------------------------- |
-| `MINSKY_PRINCIPAL_CHANNEL_ENABLED`         | `true` starts the inbound poller. Nothing else enables it.                              |
-| `MINSKY_PRINCIPAL_CHANNEL_CWD`             | Working directory for the standing conversation. Defaults to the daemon's.              |
-| `MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE` | `default` tightens the session below the driven-session default of `bypassPermissions`. |
-| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`  | Override the Pulumi-resolved credentials (how deployed services already receive them).  |
+| Variable                                    | Effect                                                                                                      |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `MINSKY_PRINCIPAL_CHANNEL_ENABLED`          | `true` starts the inbound poller. Nothing else enables it.                                                  |
+| `MINSKY_PRINCIPAL_CHANNEL_CWD`              | Working directory for the standing conversation. Defaults to the daemon's.                                  |
+| `MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE`  | `default` tightens the session below the driven-session default of `bypassPermissions`.                     |
+| `MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS` | Comma-separated Telegram sender ids. Required for a group chat; derived from the chat id for a private one. |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`   | Override the Pulumi-resolved credentials (how deployed services already receive them).                      |
 
 On a fresh deployment with no bot yet: create one with `/newbot` in
 [@BotFather](https://t.me/BotFather), store the token through the cockpit
@@ -107,14 +108,25 @@ agent-invocable surface works, not merely that Telegram is reachable.
 An accepted message becomes a user turn in a local `claude` process. **The
 channel is only as safe as the Telegram account that drives it.**
 
-- **Allowlist first.** Only the configured chat id is accepted; the check runs
-  before parsing, before logging, before anything. Other chats are counted and
-  dropped.
+- **Allowlist first.** The check runs before parsing, before logging, before
+  anything. Other chats are counted and dropped.
+  - **Private chat** (the shape a discovered chat id has): both the chat id and
+    the sender id are enforced. Telegram gives a private chat the same id as the
+    user on the other end, so the sender allowlist is derived from the chat id —
+    exact, and it rejects an update with a spoofed or missing `from` that would
+    otherwise match on chat alone.
+  - **Group chat** (negative id): chat and sender are genuinely different, and
+    there is nothing to derive. Without `MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS`
+    the channel enforces chat-only, meaning **any member of that group can drive
+    the swarm**. The daemon logs a warning at startup when this is the case.
 - **Refused messages are not stored verbatim.** A rejected message's metadata is
   recorded but its text is not — otherwise an unauthorized chat could write
   attacker-chosen content into the event feed the operator reads.
 - **Audit before action.** Every accepted update is written to the append-only
-  `system_events` log before any side effect.
+  `system_events` log before any side effect, and a failure to carry it out is
+  recorded afterwards as `principal.message_failed` — so the log says both what
+  the channel was asked to do and whether it worked. Stored message text is
+  bounded (`MAX_STORED_TEXT`), since these rows are never deleted.
 - **Permission mode.** Defaults to `bypassPermissions`, matching every other
   driven session the cockpit spawns: in headless `-p` mode a permission prompt
   has nowhere to go, so `default` leaves the session able to answer questions
