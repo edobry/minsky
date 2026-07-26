@@ -114,16 +114,28 @@ export interface ChapterMarker {
 }
 
 /**
- * A Skill-invocation tool call falls through the mt#3157 adapter's total
- * fallback (no explicit "Skill" registry entry — see event-adapter.ts's
- * `EXPLICIT_TOOL_REGISTRY` / `inferGenericMapping`), so it lands as
- * `execute` in the `unknown` realm with a synthetic target id of
- * `unknown:Skill` (the `extractTargets` fallback shape
- * `` `${mapping.realm}:${name}` `` where `name` is the bare tool name). That
- * id shape is this module's detection signal for a chapter boundary — the
- * session structure the RFC says "the data already carries."
+ * A Skill-invocation tool call's detection signal for a chapter boundary —
+ * the session structure the RFC says "the data already carries."
+ *
+ * Pre-mt#3258, `Skill` had no explicit adapter registry entry, so it fell
+ * through to the total fallback and landed as `execute` in the `unknown`
+ * realm with a synthetic target id of literally `unknown:Skill` — which
+ * ALSO leaked that literal string to the operator on both the ribbon and
+ * the stage (mt#3258 SC 3's coordinator-verified finding). `event-adapter.ts`
+ * now gives `Skill` its own registry entry + extractor
+ * (`skillTargetExtractor`), producing `agents:skill:<name>` instead — this
+ * module's detection updates to match, checked via a realm+prefix pair
+ * (not exact-id equality) since the skill NAME varies per invocation. The
+ * OLD `unknown:Skill` shape is still recognized too (belt-and-suspenders
+ * for any event stream computed by a not-yet-upgraded adapter build) — see
+ * `isSkillInvocationTarget`.
  */
-const SKILL_TARGET_ID = "unknown:Skill";
+const LEGACY_SKILL_TARGET_ID = "unknown:Skill";
+const SKILL_TARGET_ID_PREFIX = "agents:skill:";
+
+function isSkillInvocationTarget(target: { realm: string; id: string }): boolean {
+  return target.id === LEGACY_SKILL_TARGET_ID || target.id.startsWith(SKILL_TARGET_ID_PREFIX);
+}
 
 function skillNameFromRaw(raw: unknown): string | null {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -134,6 +146,13 @@ function skillNameFromRaw(raw: unknown): string | null {
     }
   }
   return null;
+}
+
+/** Fallback skill-name source: the target id itself (`agents:skill:<name>`) when `raw` didn't survive (e.g. a payload boundary that strips it). */
+function skillNameFromTargetId(targetId: string): string | null {
+  if (!targetId.startsWith(SKILL_TARGET_ID_PREFIX)) return null;
+  const name = targetId.slice(SKILL_TARGET_ID_PREFIX.length);
+  return name.length > 0 && name !== "unknown" ? name : null;
 }
 
 // ── Actor-change annotation (mt#3226 SC 2 / AT 2) ────────────────────────────
@@ -185,8 +204,9 @@ export function deriveChapters(
   for (const row of batchRows) {
     for (const idx of row.eventIndices) {
       const event = events[idx];
-      if (event && event.target.id === SKILL_TARGET_ID) {
-        const skillName = skillNameFromRaw(event.target.raw);
+      if (event && isSkillInvocationTarget(event.target)) {
+        const skillName =
+          skillNameFromRaw(event.target.raw) ?? skillNameFromTargetId(event.target.id);
         chapters.push({
           rowIndex: row.rowIndex,
           label: skillName ? `Skill: ${skillName}` : "Skill invocation",

@@ -6,6 +6,7 @@ import type { EventRealm } from "@minsky/domain/transcripts/event-schema";
 import {
   deriveFilmSubjectAgentId,
   isSelfReferenceTarget,
+  isUnknownRealmTarget,
   parseRoutableTarget,
   targetDisplayLabel,
 } from "./session-film-target-ref";
@@ -85,17 +86,27 @@ describe("targetDisplayLabel", () => {
     expect(targetDisplayLabel({ realm: "agents", id: "agents:implementer" })).toBe("implementer");
   });
 
-  test("an unrecognized shape falls back to the raw id VERBATIM (no prefix matches: not repo/file:, not web:/notion:/shell:/agents:)", () => {
-    // "unknown:Skill" deliberately matches none of targetDisplayLabel's known
-    // prefixes (realm is "unknown", not "repo"; id doesn't start with
-    // "web:"/"notion:"/"shell:"/"agents:") — the PREVIOUS version of this
-    // test used {realm:"agents", id:"agents:implementer"}, which actually
-    // exercises the RECOGNIZED "agents:" prefix-strip path (asserted above
-    // as its own test), not the fallback (PR #2323 R1: same class of bug as
-    // the BATCH_ROW_ICON test — the name claimed "unrecognized," the fixture
-    // was recognized).
+  test("an unknown-realm target NEVER surfaces the literal 'unknown:' prefix (mt#3258 SC 3)", () => {
+    // Coordinator's live-DOM finding: "unknown:Skill" / "unknown:tasks_children"
+    // rendered VERBATIM on the ribbon — the adapter's total-fallback shape
+    // (`${realm}:${toolName}`) leaked straight through because "unknown:" was
+    // not in the stripped-prefix list. Fixed: strip it like every other
+    // recognized prefix, degrading to the bare tool name.
     const target = { realm: "unknown" as const, id: "unknown:Skill" };
-    expect(targetDisplayLabel(target)).toBe(target.id);
+    expect(targetDisplayLabel(target)).toBe("Skill");
+    expect(targetDisplayLabel(target)).not.toContain("unknown");
+  });
+
+  test("an unknown-realm target with an unprefixed id still never contains 'unknown:' after display", () => {
+    const target = { realm: "unknown" as const, id: "unknown:tasks_children" };
+    expect(targetDisplayLabel(target)).toBe("tasks_children");
+  });
+});
+
+describe("isUnknownRealmTarget (mt#3258 SC 3)", () => {
+  test("true only for the unknown realm", () => {
+    expect(isUnknownRealmTarget({ realm: "unknown", id: "unknown:Skill" })).toBe(true);
+    expect(isUnknownRealmTarget({ realm: "repo", id: "file:ws:a.ts" })).toBe(false);
   });
 });
 

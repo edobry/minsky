@@ -1,7 +1,4 @@
 {
-  "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
-  },
   "autoMemoryEnabled": false,
   "hooks": {
     "PreToolUse": [
