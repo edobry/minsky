@@ -1014,6 +1014,13 @@ export function createApp(
         return new Response(
           JSON.stringify({
             status: "ok",
+            // mt#3148: a bare `status: "ok"` cannot distinguish "this service is
+            // healthy" from "a DIFFERENT application is answering on this host".
+            // mt#3142 is the proof: the Minsky MCP server was deployed onto the
+            // reviewer's host and answered /health 200 for ~1h while every
+            // reviewer route 404'd. This field is the discriminator a healthcheck
+            // can assert on.
+            service: "minsky-reviewer",
             provider: cfg.provider,
             model: cfg.providerModel,
             tier2Enabled: cfg.tier2Enabled,
