@@ -185,6 +185,43 @@ export function resolveMetricsTranscriptPath(
   return perAgentPath && existsSync(perAgentPath) ? perAgentPath : transcriptPath;
 }
 
+/**
+ * True when `resolvedPath` is the per-agent transcript for `agentId` rather
+ * than a parent-transcript fallback. Exported for testing.
+ */
+export function usedPerAgentTranscript(resolvedPath: string | undefined, agentId: string): boolean {
+  if (!resolvedPath) return false;
+  return resolvedPath.endsWith(join("subagents", `agent-${agentId}.jsonl`));
+}
+
+/**
+ * Build the warning emitted when `actual_model` cannot be attributed (mt#3256,
+ * SC2).
+ *
+ * `null` in the column says attribution failed but not WHY, and the two causes
+ * need different follow-ups: a parent-transcript fallback means no per-agent
+ * file was written for this dispatch (mt#2292's territory), while an
+ * unattributable per-agent file means the file exists but carries no line for
+ * this agent. Naming the path and which case it was makes that distinguishable
+ * from the outside, which a bare null does not.
+ *
+ * Exported for testing — the emitting path needs a live DB, this does not.
+ */
+export function buildUnattributedModelWarning(
+  agentId: string,
+  resolvedPath: string,
+  perAgent: boolean
+): string {
+  const source = perAgent
+    ? "its per-agent transcript"
+    : "a PARENT-transcript fallback (no per-agent file exists for this agent)";
+  return (
+    `[record-subagent-invocation] actual_model unresolved for agent ${agentId}: ` +
+    `no assistant line in ${resolvedPath} is attributed to it — read from ${source}. ` +
+    `Recording null rather than another agent's model (mt#3256).\n`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Recording decision (PR #2178 R1 BLOCKING #3)
 // ---------------------------------------------------------------------------
@@ -372,6 +409,19 @@ async function classifyAndRecord(params: {
   // resolved transcript's assistant-message lines. Best-effort — never throws,
   // returns null when no genuine model id is found.
   const actualModel = extractActualModel(resolvedTranscriptPath, agentId, transcriptLines);
+
+  // mt#3256 SC2: a null here is not self-explaining — say which transcript was
+  // read and why nothing in it was attributable, so the absence is diagnosable
+  // rather than merely present.
+  if (actualModel === null && resolvedTranscriptPath) {
+    process.stderr.write(
+      buildUnattributedModelWarning(
+        agentId,
+        resolvedTranscriptPath,
+        usedPerAgentTranscript(resolvedTranscriptPath, agentId)
+      )
+    );
+  }
 
   // 4. Open a DB connection and record the invocation.
   //
