@@ -65,13 +65,16 @@ export type SnapshotMissClass = "wrong_id_space" | "not_found";
  * assigns those files, which is NOT UUID-shaped. Verified against the real
  * writer (not the observed DB corpus alone, per mt#3225): Claude Code's own
  * subagent-transcript file-naming convention (`agent-${agentId}.jsonl`,
- * where `agentId` is a fixed `"a"` tag followed by 16 lowercase hex
+ * where `agentId` is a FIXED literal `"a"` tag followed by 16 lowercase hex
  * characters from an 8-byte random value) produces ids of the exact shape
- * `agent-` + 17 lowercase hex characters — confirmed against 748 real
- * on-disk subagent transcript files (100% consistent) and against both ids
- * this file has ever cited: `agent-a2a1e886c52ade5b9` and
- * `agent-ae944bce40bdc1dd6` are each exactly 17 hex characters after the
- * `agent-` prefix. Neither mt#3131 nor mt#3109 was wrong; the invariant they
+ * `agent-a` + 16 lowercase hex characters (17 characters total after the
+ * `agent-` prefix, the first of which is always the literal `a`, not merely
+ * a hex digit that happens to fall in `a`-`f`) — confirmed against 748 real
+ * on-disk subagent transcript files (100% consistent: every single one
+ * begins `agent-a`) and against both ids this file has ever cited:
+ * `agent-a2a1e886c52ade5b9` and `agent-ae944bce40bdc1dd6` both start with
+ * that literal `a` and are each exactly 17 characters after the `agent-`
+ * prefix. Neither mt#3131 nor mt#3109 was wrong; the invariant they
  * disagreed on — "what id shapes can hold a transcript" — changed under one
  * of them, and this predicate now matches the CURRENT data model.
  *
@@ -88,16 +91,23 @@ export type SnapshotMissClass = "wrong_id_space" | "not_found";
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 /**
- * Subagent-transcript id shape (mt#3109 / mt#3225): `agent-` followed by
- * exactly 17 lowercase hex characters — the shape Claude Code's own
- * subagent-transcript JSONL file naming produces (`agent-${tag}${hex}.jsonl`,
- * a fixed `"a"` tag + 16 hex characters from an 8-byte random value; see the
- * doc comment above {@link UUID_RE} for the verification trail). The
- * character class is case-insensitive for the same defensive reason
- * {@link UUID_RE} is, even though the real generator only ever emits
- * lowercase.
+ * Subagent-transcript id shape (mt#3109 / mt#3225): `agent-` followed by a
+ * FIXED literal `a` tag, then exactly 16 hex characters — the shape Claude
+ * Code's own subagent-transcript JSONL file naming produces
+ * (`agent-${tag}${hex}.jsonl`, where `tag` is always the literal `"a"` and
+ * `hex` is 16 hex characters from an 8-byte random value hex-encoded; see
+ * the doc comment above {@link UUID_RE} for the verification trail —
+ * confirmed against 748 real on-disk subagent transcripts, ALL of which
+ * begin with that literal `a`, not just a hex digit that happens to be
+ * `a`-`f`). The leading `a` is therefore part of the verified shape, not an
+ * incidental hex character — a regex that only counted 17 hex characters
+ * without anchoring that first one would over-admit ids the real generator
+ * never emits (e.g. an id starting `f`, `0`, `9`, etc., none of which were
+ * ever observed). The remaining character class is case-insensitive for the
+ * same defensive reason {@link UUID_RE} is, even though the real generator
+ * only ever emits lowercase.
  */
-const AGENT_PREFIXED_RE = /^agent-[0-9a-fA-F]{17}$/;
+const AGENT_PREFIXED_RE = /^agent-a[0-9a-fA-F]{16}$/;
 
 export function looksLikeConversationId(id: string): boolean {
   return UUID_RE.test(id) || AGENT_PREFIXED_RE.test(id);

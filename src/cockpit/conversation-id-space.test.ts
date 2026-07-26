@@ -95,6 +95,18 @@ describe("looksLikeConversationId (mt#3131 D3/D5, widened mt#3225)", () => {
     expect(looksLikeConversationId("agent-g2a1e886c52ade5b9")).toBe(false);
   });
 
+  // mt#3225 R1 BLOCKING fix: the generator's leading tag is a FIXED literal
+  // "a" (see the doc comment above `AGENT_PREFIXED_RE` in
+  // conversation-id-space.ts — confirmed against 748 real on-disk subagent
+  // transcripts, every one of which begins `agent-a`). A regex that merely
+  // counted 17 hex characters without anchoring that first one would
+  // over-admit an id shaped like this one — correct width, valid hex
+  // throughout, but starting with a DIFFERENT hex digit ("f") the real
+  // generator never produces. This must stay rejected.
+  test('rejects a correct-width, all-hex agent-prefixed id that does NOT start with the generator\'s fixed "a" tag', () => {
+    expect(looksLikeConversationId("agent-fe944bce40bdc1dd6")).toBe(false);
+  });
+
   // The diagnostic-row repro (mt#3225 Context: `probe-mt3120-diagnostic`,
   // one of the 45/4/1 picker breakdown) and the mt#3131 malformed-id repro
   // — neither matches either admissible shape and both must stay rejected.
