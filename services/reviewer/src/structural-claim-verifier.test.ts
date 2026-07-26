@@ -96,6 +96,38 @@ describe("countDeclarationForms", () => {
     expect(countDeclarationForms("export default class X {}", "X")).toBe(1);
   });
 
+  // PR #2334 R1 review: the modifier tolerance claim below was checked against this exact
+  // module rather than assumed true — the pattern already tolerates any keyword preceding
+  // "class"/"function" (the `\b` anchor only cares what immediately precedes the keyword
+  // itself), so `abstract class` was already counted correctly before this test existed.
+  // Added as verification evidence, not a behavior change.
+  it("tolerates an `abstract` modifier before class (verified, not just asserted)", () => {
+    expect(countDeclarationForms("abstract class X {}", "X")).toBe(1);
+    expect(countDeclarationForms("export abstract class X {}", "X")).toBe(1);
+  });
+
+  it("counts a declare-ambient function declaration", () => {
+    expect(countDeclarationForms("declare function X(): void;", "X")).toBe(1);
+  });
+
+  // PR #2334 R1 review, genuine finding: without stripping comments/strings first, a
+  // doc-comment or string/template literal that merely QUOTES a declaration-shaped excerpt
+  // inflated the count — dangerous because inflation only ever moves toward PRESERVING
+  // BLOCKING (declarationCount > 1), i.e. toward keeping a false claim posted. Fixed via
+  // stripCommentsAndStrings; these are the regression tests for that fix.
+  it("does not count a declaration-shaped excerpt quoted inside a comment", () => {
+    const content = ["/**", " * Example: const FOO = 1;", " */", "const FOO = 1;"].join("\n");
+    expect(countDeclarationForms(content, "FOO")).toBe(1);
+  });
+
+  it("does not count a declaration-shaped excerpt quoted inside a string or template literal", () => {
+    const stringContent = 'const msg = "const FOO = 1; const FOO = 2;"; const FOO = 1;';
+    expect(countDeclarationForms(stringContent, "FOO")).toBe(1);
+
+    const templateContent = "const X = `const FOO = 1;`;\nconst FOO = 1;";
+    expect(countDeclarationForms(templateContent, "FOO")).toBe(1);
+  });
+
   it("does not partial-match a longer identifier that shares a prefix", () => {
     const content = "const FOO_BAR_EXTENDED = 1;";
     expect(countDeclarationForms(content, "FOO_BAR")).toBe(0);

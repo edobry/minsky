@@ -104,17 +104,102 @@ function escapeRegExp(s: string): string {
 }
 
 /**
+ * Strip `//` line comments, `/* *\/` block comments, and string/template literal bodies from
+ * `content`, replacing stripped characters with spaces (newlines are preserved as newlines, so
+ * line count is unchanged — not load-bearing here since counting doesn't use line numbers, but
+ * keeps the output easy to reason about).
+ *
+ * Minimal single-pass tokenizer (reviewer PR #2334 R1 finding, verified real): without this,
+ * `countDeclarationForms` runs over raw file text, so a doc-comment or a template-literal value
+ * that QUOTES a declaration-shaped excerpt (e.g. a JSDoc example, or exactly the kind of
+ * `` `const X = ...` `` string this module's own test fixtures and doc comments contain) inflates
+ * the count — confirmed empirically: a file with one real `const FOO = 1;` plus a comment
+ * containing the literal text `const FOO = 1;` counted as 2, not 1. Inflation is dangerous in the
+ * PRESERVE direction: `declarationCount > 1` preserves BLOCKING, so a comment artifact could keep
+ * a genuinely-false claim posted as BLOCKING — the opposite of what this module exists to fix.
+ *
+ * Deliberately simple, not a full lexer: template-literal `${...}` interpolation is NOT
+ * specially tracked — the whole `` `...` `` span (including any `${}` inside it) is treated as
+ * string content. This can only under-count (miss a genuine declaration written inside a
+ * template-literal interpolation, an extremely rare pattern), never over-count, so it does not
+ * reintroduce the false-BLOCKING-preservation risk this pre-pass exists to close. Regex literals
+ * (`/pattern/flags`) are not tracked either (real risk, judged low: a regex containing the exact
+ * text `const X =` immediately followed by a real duplicate elsewhere is not a shape observed in
+ * this codebase's reviewer-flagged files) — noted here rather than silently ignored.
+ */
+function stripCommentsAndStrings(content: string): string {
+  let out = "";
+  let i = 0;
+  const n = content.length;
+  while (i < n) {
+    const ch = content[i];
+    const next = content[i + 1];
+
+    if (ch === "/" && next === "/") {
+      // Line comment: blank out through end of line (newline itself preserved).
+      while (i < n && content[i] !== "\n") {
+        out += " ";
+        i++;
+      }
+      continue;
+    }
+
+    if (ch === "/" && next === "*") {
+      out += "  ";
+      i += 2;
+      while (i < n && !(content[i] === "*" && content[i + 1] === "/")) {
+        out += content[i] === "\n" ? "\n" : " ";
+        i++;
+      }
+      if (i < n) {
+        out += "  ";
+        i += 2;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      out += " ";
+      i++;
+      while (i < n && content[i] !== quote) {
+        if (content[i] === "\\" && i + 1 < n) {
+          out += "  ";
+          i += 2;
+          continue;
+        }
+        out += content[i] === "\n" ? "\n" : " ";
+        i++;
+      }
+      if (i < n) {
+        out += " ";
+        i++;
+      }
+      continue;
+    }
+
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/**
  * Count declaration FORMS (not occurrences) of `identifier` in `content`. Matches
  * `const X =` / `let X =` / `var X =` / `function X` / `class X` / `type X =` / `interface X`
- * only — a bare usage, import, or property-access mention of `identifier` never matches.
+ * only — a bare usage, import, or property-access mention of `identifier` never matches. Runs
+ * against a comments-and-strings-stripped view of `content` (see `stripCommentsAndStrings`) so a
+ * comment or string/template literal that merely QUOTES a declaration-shaped excerpt is never
+ * counted as a real declaration.
  *
  * Exported for unit testing.
  */
 export function countDeclarationForms(content: string, identifier: string): number {
   const escaped = escapeRegExp(identifier);
+  const stripped = stripCommentsAndStrings(content);
   let count = 0;
   for (const source of declarationFormSources(escaped)) {
-    const matches = content.match(new RegExp(source, "g"));
+    const matches = stripped.match(new RegExp(source, "g"));
     if (matches) count += matches.length;
   }
   return count;
