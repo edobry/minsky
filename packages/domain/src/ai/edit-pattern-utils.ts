@@ -61,7 +61,14 @@ export function preserveTrailingNewline(modelOutput: string, originalContent: st
     return trimmed;
   }
 
-  return originalContent.endsWith("\n") ? `${trimmed}\n` : trimmed;
+  // Restore the original's exact terminator, not a hardcoded "\n". `trim()` strips
+  // \r as readily as \n, so a CRLF file whose terminator was rebuilt as a bare LF
+  // would come back with its last line silently converted — a different corruption
+  // than the one this helper exists to prevent, and one that leaves the file with
+  // mixed endings.
+  const trailingNewline = /(\r\n|\n|\r)$/.exec(originalContent)?.[1] ?? "";
+
+  return `${trimmed}${trailingNewline}`;
 }
 
 export function splitOnMarkers(content: string): string[] {

@@ -95,4 +95,22 @@ describe("preserveTrailingNewline", () => {
   test("an original that is itself only a newline still counts as newline-terminated", () => {
     expect(preserveTrailingNewline("x", "\n")).toBe("x\n");
   });
+
+  test("a CRLF original gets CRLF back, not a bare LF", () => {
+    // trim() strips \r as readily as \n, so rebuilding with a hardcoded "\n"
+    // would silently convert the last line's ending and leave mixed endings.
+    expect(preserveTrailingNewline("const a = 1;\r\n", "orig\r\n")).toBe("const a = 1;\r\n");
+    expect(preserveTrailingNewline("  const a = 1;  \r\n\r\n", "a\r\nb\r\n")).toBe(
+      "const a = 1;\r\n"
+    );
+  });
+
+  test("a CRLF file's interior line endings survive the transform", () => {
+    const body = "line one\r\nline two\r\nline three";
+    expect(preserveTrailingNewline(`\r\n${body}\r\n`, "orig\r\n")).toBe(`${body}\r\n`);
+  });
+
+  test("a lone-CR original gets CR back", () => {
+    expect(preserveTrailingNewline("x", "orig\r")).toBe("x\r");
+  });
 });
