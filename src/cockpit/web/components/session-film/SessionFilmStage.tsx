@@ -53,9 +53,24 @@
  * motion (excursions, beams, arrivals) remains strictly honest. Operator
  * approved this direction 2026-07-25 by requesting it.
  *
+ * ## Beam-on-every-action (mt#3231 SC 7)
+ *
+ * v1.1 only fired a beam for a genuine PARALLEL batch (`fanOutTargetIds`
+ * below). A singleton (non-batch) action just moved the avatar with no
+ * pulse — the operator's exact v1.2 finding: "it goes somewhere and
+ * something happens but it's not clear it's doing stuff." Every actor whose
+ * CURRENT folded action resolves to a target now draws ONE beam with
+ * "outcome physics" (`session-film-beams.ts`): pull for read, push for
+ * write/create, fan for search, a louder push for delete, and bounce/policy
+ * overrides for error/denied outcomes regardless of verb. This is honest,
+ * event-driven motion (not the ambient register) — the beam exists because
+ * the fold's CURRENT state has a real `lastVerb`/`currentTargetId`, not a
+ * decorative loop.
+ *
  * @see session-film-layout.ts — the node positions this renders
  * @see session-film-links.ts — entity receipt resolution for node clicks
  * @see session-film-aliveness.ts — glow-brightness math + the full design-decision record
+ * @see session-film-beams.ts — beam-kind/direction/styling logic for the beam-on-every-action pass
  * @see PanZoomSVG.tsx — ambient camera drift
  */
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -70,6 +85,13 @@ import {
 } from "../../lib/session-film-contour";
 import { DEFAULT_SESSION_FILM_CONFIG, type SessionFilmConfig } from "../../lib/session-film-config";
 import { bloomOpacity, bloomStdDeviation, computeGlowBrightness } from "../../lib/session-film-aliveness";
+import {
+  beamClassName,
+  beamDashArray,
+  beamEndpoints,
+  beamKindForAgentState,
+  beamStrokeWidth,
+} from "../../lib/session-film-beams";
 import { useAmbientClock } from "../../hooks/useAmbientClock";
 import { cn } from "../../lib/utils";
 
@@ -491,6 +513,57 @@ export function SessionFilmStage({
               />
             );
           });
+        })}
+
+        {/* Singleton action beams (mt#3231 SC 7 / AT 7): "a beam on EVERY
+            action, not just batches" — v1.1 only beamed a genuine parallel
+            fan-out; a lone action just moved the avatar with no pulse
+            (operator: "it's not clear it's doing stuff"). One beam per
+            agent whose CURRENT folded action has outcome physics
+            (`session-film-beams.ts`) and isn't already covered by the
+            fan-out beams above (a fanned-out agent's beams are already
+            drawn — never double-beam the same actor). */}
+        {agents.map((agent) => {
+          if (fanOutTargetIds(agent, world)) return null; // fan-out beams above already cover this actor
+          const kind = beamKindForAgentState(agent);
+          if (!kind) return null;
+          const targetNode = agent.currentTargetId
+            ? layout.nodes.find((n) => n.entityId === agent.currentTargetId)
+            : undefined;
+          if (!targetNode) return null; // target collapsed out of the DOI budget this frame
+          const { x1, y1, x2, y2 } = beamEndpoints(
+            kind,
+            { x: layout.homeX, y: layout.homeY },
+            { x: targetNode.x, y: targetNode.y }
+          );
+          const dash = beamDashArray(kind);
+          return (
+            <line
+              key={`beam-${agent.key}`}
+              data-testid={`session-film-beam-${agent.key}-${agent.currentTargetId}`}
+              data-beam-kind={kind}
+              x1={x1}
+              y1={y1}
+              x2={x2}
+              y2={y2}
+              className={cn(
+                beamClassName(kind),
+                !reducedMotion && "session-film-beam-pulse",
+                !reducedMotion && kind === "bounce" && "session-film-beam-bounce"
+              )}
+              style={
+                !reducedMotion
+                  ? ({
+                      "--beam-duration": `${config.motion.beamDurationMs}ms`,
+                      "--beam-dash": dash ?? "5 4",
+                    } as React.CSSProperties)
+                  : undefined
+              }
+              strokeWidth={beamStrokeWidth(kind)}
+              strokeDasharray={dash}
+              strokeOpacity={0.75}
+            />
+          );
         })}
 
         {/* Touched-set contour (spec SC 7 / AT 5): off by default, drawn on
