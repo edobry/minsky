@@ -8,6 +8,15 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { deleteSessionImpl } from "./session-lifecycle-operations";
 import type { SessionRecord } from "./types";
+import { getSessionsDir } from "@minsky/shared/paths";
+
+// mt#3021 SC2: deleteSessionImpl computes the workspace dir itself via
+// `getSessionsDir()` + sessionId (NOT via sessionDB.getSessionWorkdir, which
+// this file's mock sessionDB stubs separately) — the fs mocks below must be
+// scoped to THIS path, not the mock's `/mock/sessions/<id>` convention.
+function workspaceDirFor(sessionId: string): string {
+  return `${getSessionsDir()}/${sessionId}`;
+}
 
 /** Minimal in-memory session provider sufficient for deleteSessionImpl. */
 function makeSessionDB(sessions: SessionRecord[]) {
@@ -51,7 +60,11 @@ describe("deleteSessionImpl — filesystem failure preserves DB record (mt#789)"
       {
         sessionDB,
         fs: {
-          existsSync: () => true,
+          // mt#3021 SC2: path-scoped (not a blanket `() => true`) so the new
+          // MERGE_HEAD-presence sub-check (a different path under the same
+          // workspace dir) reads "absent," not "present" — this test is
+          // about rmSync failure, not the git-state guard.
+          existsSync: (p) => p === workspaceDirFor(SESSION_ID),
           rmSync: () => {
             throw new Error("EPERM: operation not permitted");
           },
@@ -105,7 +118,7 @@ describe("deleteSessionImpl — filesystem failure preserves DB record (mt#789)"
       {
         sessionDB,
         fs: {
-          existsSync: () => true,
+          existsSync: (p) => p === workspaceDirFor(SESSION_ID),
           rmSync: rmSyncMock,
         },
       }

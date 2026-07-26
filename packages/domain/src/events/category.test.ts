@@ -24,6 +24,7 @@ describe("event category classification", () => {
         "pr.review_posted",
         "subagent.failed",
         "embeddings.provider_degraded",
+        "guard.overridden",
         // mt#3228: an inbound message refused by the principal channel's
         // allowlist — an unauthorized party attempting to drive the local
         // swarm is something the operator must see, unlike its accepted

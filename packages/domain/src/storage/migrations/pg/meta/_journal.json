@@ -526,6 +526,13 @@
       "when": 1785046916406,
       "tag": "0074_funny_sprite",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1785065802377,
+      "tag": "0075_naive_edwin_jarvis",
+      "breakpoints": true
     }
   ]
 }

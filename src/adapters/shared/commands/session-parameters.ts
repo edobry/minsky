@@ -83,6 +83,20 @@ export const sessionDirCommandParams = composeParams(
 
 /**
  * Parameters for the session delete command
+ *
+ * NOTE (mt#3021 R2): this export is DEAD CODE — the `session.delete` command
+ * actually registered in `management-commands.ts` imports its
+ * `sessionDeleteCommandParams` from the SIBLING file
+ * `src/adapters/shared/commands/session/session-parameters.ts` (relative
+ * import `"./session-parameters"` from inside the `session/` directory,
+ * distinct from this file at `src/adapters/shared/commands/session-parameters.ts`).
+ * The two files share several export names by coincidence; only
+ * `sessionCommitCommandParams` in THIS file is live (consumed by
+ * `workflow-commands.ts` via `"../session-parameters"`). The
+ * `overrideReason` field for `session delete` lives in the other
+ * file's `sessionDeleteCommandParams` — see it for the real implementation.
+ * Left unedited here to avoid maintaining two copies of a param that only
+ * one of which does anything.
  */
 export const sessionDeleteCommandParams = composeParams(
   {
@@ -291,6 +305,14 @@ export const sessionCommitCommandParams = composeParams(
         "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes. " +
         "On timeout (mt#3177), the remote branch head is verified directly via `git ls-remote` " +
         "before reporting an outcome — see the `pushConfirmedVia`/`pushUnconfirmed` result fields.",
+      required: false,
+    },
+    // mt#3021 SC3: justification required to push a commit whose staged
+    // delta trips the mass-deletion sanity gate.
+    overrideReason: {
+      schema: z.string().min(1),
+      description:
+        "Justification to override the mass-deletion sanity gate when the staged delta deletes an abnormal number of tracked files. Required (non-empty) to bypass the gate; recorded in a structured audit event.",
       required: false,
     },
   }
