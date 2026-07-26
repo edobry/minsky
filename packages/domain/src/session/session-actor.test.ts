@@ -237,3 +237,26 @@ describe("resolveSessionActor — multi-claim reduction", () => {
     expect(r.verdict).toBe("not-live");
   });
 });
+
+describe("resolveSessionActor — the repository's `stale` annotation is ignored (PR #2347 R1)", () => {
+  // listClaims returns AnnotatedPresenceClaim: PresenceClaim + a `stale` boolean
+  // the REPOSITORY computed against its own 15-minute TTL. This gate asks a
+  // different question ("older than recencyThresholdMs?"), so reading that flag
+  // would silently re-impose 15 minutes and make the injectable threshold inert.
+  // These two tests pin that it is not consulted, in BOTH directions.
+
+  it("a row annotated stale:true is still live when it is inside OUR threshold", async () => {
+    const annotatedStale = { ...claim({ lastRefreshedAt: agoMs(2) }), stale: true };
+    const r = await resolveSessionActor(SESSION_ID, deps([annotatedStale]));
+    expect(r.verdict).toBe("live");
+  });
+
+  it("a row annotated stale:false is still not-live when it is outside OUR threshold", async () => {
+    const annotatedFresh = {
+      ...claim({ pid: DEAD_PID, lastRefreshedAt: agoMs(45) }),
+      stale: false,
+    };
+    const r = await resolveSessionActor(SESSION_ID, deps([annotatedFresh]));
+    expect(r.verdict).toBe("not-live");
+  });
+});

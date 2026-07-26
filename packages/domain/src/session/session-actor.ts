@@ -38,7 +38,12 @@
  */
 import { hostname } from "node:os";
 import { log } from "@minsky/shared/logger";
-import type { PresenceClaimRepository, PresenceClaim } from "../presence/index";
+import type {
+  PresenceClaimRepository,
+  PresenceClaim,
+  AnnotatedPresenceClaim,
+} from "../presence/index";
+import { isPidAlive as defaultIsPidAlive } from "./attachment";
 
 /**
  * Tri-state, never a bare boolean (mt#3103 SC1). A boolean would collapse
@@ -103,6 +108,12 @@ const VERDICT_RANK: Record<SessionActorVerdict, number> = {
  * `unverifiable` is NOT `dead`: a claim from another host cannot be probed
  * from here, and treating "I can't check" as "nobody's there" is exactly the
  * inversion this module exists to prevent.
+ *
+ * Deliberately not `isAttachmentConfirmedLive` (`./attachment.ts`), which
+ * collapses the same inputs into a BOOLEAN — it returns false for both "the
+ * pid is dead" and "this row is from another host." Those two must stay apart
+ * here: the first can authorize a delete, the second never can. Same host/pid
+ * inputs, one bit more resolution.
  */
 type PidState = "alive" | "dead" | "unverifiable";
 
@@ -168,7 +179,7 @@ export async function resolveSessionActor(
     return { verdict: "inconclusive", reason: "no sessionId supplied" };
   }
 
-  let claims: PresenceClaim[];
+  let claims: AnnotatedPresenceClaim[];
   try {
     const repo = await deps.getRepository();
     if (!repo) {
@@ -180,6 +191,14 @@ export async function resolveSessionActor(
     }
     // Full history: this module applies its OWN recency math, so the
     // repository's 15-minute TTL annotation must not pre-filter rows out.
+    //
+    // The rows come back as `AnnotatedPresenceClaim` — `PresenceClaim` plus a
+    // `stale` boolean the repository computed against THAT threshold. We
+    // deliberately ignore `stale`: it answers "older than 15 min?", while this
+    // gate asks "older than `recencyThresholdMs`?" (10 min by default, and
+    // injectable per SC5). Reading the annotation would silently re-introduce
+    // the repository's threshold and make the injectable one a no-op. The
+    // timestamp is the input; the verdict is ours.
     claims = await repo.listClaims("session", sessionId, Number.MAX_SAFE_INTEGER);
   } catch (err) {
     log.warn("resolveSessionActor: presence read failed — returning inconclusive", {
@@ -218,13 +237,4 @@ export async function resolveSessionActor(
   }
 
   return best as SessionActorResult;
-}
-
-function defaultIsPidAlive(pid: number): boolean {
-  try {
-    const result = Bun.spawnSync(["kill", "-0", String(pid)]);
-    return result.exitCode === 0;
-  } catch {
-    return false;
-  }
 }
