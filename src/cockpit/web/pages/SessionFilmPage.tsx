@@ -36,10 +36,25 @@ import {
 import { deriveChapters, groupEventsIntoBatchRows } from "../lib/session-film-batches";
 import { buildKeyframes, foldAtBatchIndex } from "../lib/session-film-fold";
 import { computeStageLayout } from "../lib/session-film-layout";
-import { DEFAULT_SESSION_FILM_CONFIG } from "../lib/session-film-config";
+import { DEFAULT_SESSION_FILM_CONFIG, type SessionFilmConfig } from "../lib/session-film-config";
 
 const SESSION_PARAM = "session";
 const PLAYHEAD_PARAM = "t";
+
+export interface SessionFilmPageProps {
+  /**
+   * Tunables override (mt#3247 R1, BLOCKING #2). Defaults to
+   * `DEFAULT_SESSION_FILM_CONFIG`, but every camera/DOI/motion computation in
+   * this page reads from THIS single binding — not the module constant
+   * directly — and the SAME binding is threaded down to `SessionFilmStage`'s
+   * `config` prop below. Before this fix the page read
+   * `DEFAULT_SESSION_FILM_CONFIG` directly in three places (keyframes,
+   * layout, the scroll-idle debounce) while never even passing a `config`
+   * prop to the stage — a future override had no single point of injection
+   * and the page's own tunables (scrollIdleMs) couldn't be overridden at all.
+   */
+  config?: SessionFilmConfig;
+}
 
 /** Clamp a parsed `?t=` value into `[0, rowCount-1]`, defaulting to 0 for anything unparsable. */
 function parsePlayheadParam(raw: string | null, rowCount: number): number {
@@ -49,7 +64,7 @@ function parsePlayheadParam(raw: string | null, rowCount: number): number {
   return Math.max(0, Math.min(rowCount - 1, Math.round(parsed)));
 }
 
-export function SessionFilmPage() {
+export function SessionFilmPage({ config = DEFAULT_SESSION_FILM_CONFIG }: SessionFilmPageProps = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const reducedMotion = usePrefersReducedMotion();
 
@@ -78,14 +93,21 @@ export function SessionFilmPage() {
   // scroll event by the ribbon) rather than adding a new prop/listener.
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleScrollRowChange = useCallback((rowIndex: number) => {
-    setPlayheadRowIndex(rowIndex);
-    setIsScrolling(true);
-    if (scrollIdleTimeoutRef.current !== null) clearTimeout(scrollIdleTimeoutRef.current);
-    scrollIdleTimeoutRef.current = setTimeout(() => {
-      setIsScrolling(false);
-    }, DEFAULT_SESSION_FILM_CONFIG.camera.scrollIdleMs);
-  }, []);
+  const handleScrollRowChange = useCallback(
+    (rowIndex: number) => {
+      setPlayheadRowIndex(rowIndex);
+      setIsScrolling(true);
+      if (scrollIdleTimeoutRef.current !== null) clearTimeout(scrollIdleTimeoutRef.current);
+      // mt#3247 R1 BLOCKING #2: reads the SAME `config` binding the stage
+      // receives below (not the module default directly), so a config
+      // override actually changes this debounce, not just the stage's own
+      // camera math.
+      scrollIdleTimeoutRef.current = setTimeout(() => {
+        setIsScrolling(false);
+      }, config.camera.scrollIdleMs);
+    },
+    [config]
+  );
   useEffect(
     () => () => {
       if (scrollIdleTimeoutRef.current !== null) clearTimeout(scrollIdleTimeoutRef.current);
@@ -110,13 +132,13 @@ export function SessionFilmPage() {
   const batchRows = useMemo(() => groupEventsIntoBatchRows(events), [events]);
   const chapters = useMemo(() => deriveChapters(events, batchRows), [events, batchRows]);
   const keyframes = useMemo(
-    () => buildKeyframes(events, batchRows, DEFAULT_SESSION_FILM_CONFIG),
-    [events, batchRows]
+    () => buildKeyframes(events, batchRows, config),
+    [events, batchRows, config]
   );
 
   // `?t=` deep-link arrival (spec: default "snap" — instant, no catch-up
-  // replay per DEFAULT_SESSION_FILM_CONFIG.deepLinkArrival). Applied once,
-  // as soon as the row data needed to clamp it is available.
+  // replay per `config.deepLinkArrival`). Applied once, as soon as the row
+  // data needed to clamp it is available.
   useEffect(() => {
     if (hasAppliedDeepLinkPlayhead || batchRows.length === 0) return;
     setPlayheadRowIndex(parsePlayheadParam(searchParams.get(PLAYHEAD_PARAM), batchRows.length));
@@ -169,8 +191,8 @@ export function SessionFilmPage() {
   const nowIso =
     batchRows[playheadRowIndex]?.tStart ?? events[0]?.tStart ?? new Date(0).toISOString();
   const layout = useMemo(
-    () => computeStageLayout(worldState, nowIso, DEFAULT_SESSION_FILM_CONFIG),
-    [worldState, nowIso]
+    () => computeStageLayout(worldState, nowIso, config),
+    [worldState, nowIso, config]
   );
 
   // Keyboard stepping — one batch row per arrow press (spec SC 6).
@@ -264,6 +286,7 @@ export function SessionFilmPage() {
           onSelectEntity={setSelectedEntityId}
           selectedEntityId={selectedEntityId}
           scrollSuppressed={isScrolling}
+          config={config}
           className="min-w-0 flex-1"
         />
       </div>

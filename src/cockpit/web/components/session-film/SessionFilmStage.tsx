@@ -135,6 +135,22 @@ const BLOOM_FILTER_ID = "session-film-bloom";
 
 export const STAGE_BOARD_WIDTH = 900;
 export const STAGE_BOARD_HEIGHT = 700;
+/**
+ * Scene-to-viewBox origin shift (mt#3247 R1, non-blocking #4): the SINGLE
+ * source of truth for how far the `<g>` scene root is translated from the
+ * board's own (0,0). Both the `<g transform>` JSX below AND `growingBounds`'
+ * local-to-absolute coordinate conversion MUST use these exact values — they
+ * were previously two independent `STAGE_BOARD_WIDTH / 2` / `STAGE_BOARD_HEIGHT
+ * / 2` computations (one inline in the transform string, one inline in the
+ * growingBounds useMemo) that happened to agree only because nothing had
+ * changed either formula yet; deriving both from ONE named constant makes
+ * that agreement structural instead of coincidental — if the stage's own
+ * transform ever stops being a pure half-board-centering translate, this is
+ * the one place to update, and `growingBounds` cannot silently drift out of
+ * sync with it.
+ */
+export const STAGE_ORIGIN_X = STAGE_BOARD_WIDTH / 2;
+export const STAGE_ORIGIN_Y = STAGE_BOARD_HEIGHT / 2;
 const NODE_RADIUS = 5;
 const ROOT_RADIUS = 9;
 const AVATAR_RADIUS = 8;
@@ -400,9 +416,9 @@ export function SessionFilmStage({
   // looks wrong" symptom): `layout.nodes`/`homeX`/`homeY` are LOCAL scene
   // coordinates, centered on the scene's own origin (`homeX`/`homeY` default
   // to 0 — session-film-layout.ts). The `<g>` below renders that scene
-  // shifted by `translate(STAGE_BOARD_WIDTH/2, STAGE_BOARD_HEIGHT/2)`, so a
-  // node at LOCAL (0,0) actually paints at ABSOLUTE viewBox coordinate
-  // (450,350) — the SAME absolute space `PanZoomSVG`'s viewBox attribute and
+  // shifted by `translate(STAGE_ORIGIN_X, STAGE_ORIGIN_Y)`, so a node at
+  // LOCAL (0,0) actually paints at ABSOLUTE viewBox coordinate (450,350) —
+  // the SAME absolute space `PanZoomSVG`'s viewBox attribute and
   // `fitToBoundsViewBox` operate in (confirmed by the plain fit-and-hold
   // default: `fitViewBox` covers x:[0,900] y:[0,700] absolute, which only
   // correctly frames content whose LOCAL range is roughly ±450/±350 BECAUSE
@@ -410,6 +426,13 @@ export function SessionFilmStage({
   // region in the WRONG coordinate space — off by exactly this offset — so
   // camera-follow could confidently fit to a viewBox containing no rendered
   // content at all.
+  //
+  // Single-source-of-truth fix (mt#3247 R1, non-blocking #4): this shift
+  // MUST equal whatever the `<g>` below actually translates by. Reading
+  // `STAGE_ORIGIN_X`/`STAGE_ORIGIN_Y` (the SAME named constants the JSX
+  // `transform` attribute uses, not a second independent
+  // `STAGE_BOARD_WIDTH / 2` computation) makes that an invariant instead of
+  // an assumption two separate call sites happened to agree on.
   const growingBounds = useMemo(() => {
     let minX = layout.homeX;
     let maxX = layout.homeX;
@@ -422,10 +445,10 @@ export function SessionFilmStage({
       if (node.y > maxY) maxY = node.y;
     }
     return {
-      minX: minX + STAGE_BOARD_WIDTH / 2,
-      maxX: maxX + STAGE_BOARD_WIDTH / 2,
-      minY: minY + STAGE_BOARD_HEIGHT / 2,
-      maxY: maxY + STAGE_BOARD_HEIGHT / 2,
+      minX: minX + STAGE_ORIGIN_X,
+      maxX: maxX + STAGE_ORIGIN_X,
+      minY: minY + STAGE_ORIGIN_Y,
+      maxY: maxY + STAGE_ORIGIN_Y,
     };
   }, [layout]);
 
@@ -450,7 +473,7 @@ export function SessionFilmStage({
       className="flex-1"
     >
       <g
-        transform={`translate(${STAGE_BOARD_WIDTH / 2}, ${STAGE_BOARD_HEIGHT / 2})`}
+        transform={`translate(${STAGE_ORIGIN_X}, ${STAGE_ORIGIN_Y})`}
         data-testid="session-film-stage-scene"
         data-ambient={!reducedMotion ? "true" : undefined}
       >

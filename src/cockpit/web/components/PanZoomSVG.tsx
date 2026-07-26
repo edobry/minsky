@@ -45,6 +45,17 @@
  * still while bounds stays within the last committed fit's viewBox plus a
  * margin (`GrowingBoundsOptions.deadZoneMarginPx`), only re-fitting when
  * content would clip past it — see the growing-bounds effect below.
+ *
+ * Single-writer guarantee (mt#3247 R1, BLOCKING #1): the dead-zone fix alone
+ * did not stop `viewBox` from having TWO concurrent writers — the ambient-
+ * drift tick (its own independent 200ms timer) kept calling `setViewBox`
+ * even while a growing-bounds ease was actively converging, producing
+ * residual jitter (the exact bug class this hotfix exists to kill, just one
+ * layer down). `growingBoundsBusyRef` is the fix: ambient drift checks it
+ * and refuses to write whenever growing-bounds either has an ease in flight
+ * OR `bounds` already sits outside the dead zone (a follow is pending, about
+ * to start on the next tick). `viewBox` now has exactly one writer at a
+ * time; ambient drift only runs when the camera is genuinely at rest.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -287,6 +298,24 @@ export function PanZoomSVG({
   /** Is camera-follow active at all (the prop was supplied), regardless of whether a fit has been committed yet. Read by the resize-observer effect below to avoid fighting camera-follow the same way ambient-drift did. */
   const hasGrowingBounds = growingBounds !== undefined;
 
+  /**
+   * Camera "busy" flag (mt#3247 R1, BLOCKING #1): true whenever growing-bounds
+   * either has an ease actively in flight OR `bounds` currently sits outside
+   * the last committed fit's dead zone (a follow is "pending" — it will
+   * start on the growing-bounds effect's NEXT tick, or as soon as
+   * `suppressed` clears, even though no ease has technically begun yet).
+   * `viewBox` may have only ONE writer per moment: recomputed by the
+   * growing-bounds tick BEFORE its own suppressed/no-bounds/zero-size early
+   * returns (so a transient camera-follow pause doesn't blind this flag —
+   * "pending" must still suppress ambient drift), and checked by the
+   * ambient-drift tick below before it calls `setViewBox`. Without this, the
+   * two effects could both write `viewBox` in the same tick window (the
+   * ambient-drift tick fires on its own independent 200ms timer, unaware the
+   * growing-bounds tick just started or is mid-ease) — the exact
+   * two-concurrent-writers bug class this hotfix exists to kill.
+   */
+  const growingBoundsBusyRef = useRef(false);
+
   const applyFit = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -344,6 +373,13 @@ export function PanZoomSVG({
     if (!el) return;
     const tick = () => {
       if (userInteractedRef.current) return; // paused — the user is in control
+      // Single-writer guarantee (mt#3247 R1, BLOCKING #1): a camera-follow
+      // ease in flight, or one about to start (bounds already outside the
+      // dead zone / a follow "pending"), owns `viewBox` exclusively — ambient
+      // drift must not ALSO write it this tick. See `growingBoundsBusyRef`'s
+      // doc above. Ambient drift only runs once the camera is genuinely at
+      // rest (fit-and-hold, no pending follow).
+      if (growingBoundsBusyRef.current) return;
       const { width, height } = el.getBoundingClientRect();
       if (width === 0 || height === 0) return;
       // Wobble around the ACTIVE camera-follow fit when one exists (mt#3247
@@ -457,6 +493,33 @@ export function PanZoomSVG({
     function runTick() {
       if (cancelled) return;
       if (userInteractedRef.current) return; // stopped for good — see module doc's resize-policy note
+
+      // Recompute the "camera busy" flag (mt#3247 R1, BLOCKING #1) on EVERY
+      // tick, BEFORE the suppressed/no-bounds early returns below — a
+      // transient suppression (active scroll) or a not-yet-laid-out
+      // container doesn't mean ambient drift is safe to write: if `bounds`
+      // already sits outside the last committed target's dead zone, a
+      // follow is "pending" (will fire the moment suppression clears / the
+      // container gets a real size) and ambient drift must stay paused for
+      // it, exactly as if the ease were already running.
+      {
+        const bounds = boundsRef.current;
+        if (!bounds) {
+          growingBoundsBusyRef.current = false;
+        } else if (committedTarget === null) {
+          growingBoundsBusyRef.current = true; // no fit committed yet — the first follow is pending
+        } else {
+          const committedBox = {
+            minX: committedTarget.x,
+            minY: committedTarget.y,
+            maxX: committedTarget.x + committedTarget.w,
+            maxY: committedTarget.y + committedTarget.h,
+          };
+          growingBoundsBusyRef.current =
+            !withinDeadZone(bounds, committedBox, marginPx) || easeStart !== null;
+        }
+      }
+
       if (suppressedRef.current) {
         // Transient pause (e.g. active scroll, mt#3247 SC2c) — re-check
         // shortly; don't advance any in-flight ease while suppressed.
@@ -529,6 +592,7 @@ export function PanZoomSVG({
       cancelled = true;
       if (timeoutId !== null) clearTimeout(timeoutId);
       growingBoundsTargetRef.current = null; // camera-follow torn down — ambient drift (if any) falls back to the full-board fit
+      growingBoundsBusyRef.current = false; // camera-follow torn down — nothing pending to guard ambient drift against
     };
   }, [hasGrowingBounds, growingPadding, growingEaseMs, growingDeadZoneMarginPx]);
 
