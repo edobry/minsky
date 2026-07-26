@@ -387,6 +387,75 @@
   stroke-width: 3px !important;
 }
 
+/* ---------------------------------------------------------------------------
+ * Session-film aliveness pass (mt#3226 SC 4).
+ *
+ * Design-decision record (verbatim — see session-film-aliveness.ts's module
+ * doc for the full text): the plant board's honest-motion law is
+ * deliberately carved out for the film's AMBIENT register (camera drift,
+ * idle float, decay breathing) — the film is a narrative surface, not a
+ * status instrument; ambience must never be event-mimicking. Event-driven
+ * motion stays strictly honest. Operator approved this direction 2026-07-25
+ * by requesting it.
+ *
+ * These classes are applied ONLY when `!reducedMotion` (component-level
+ * gate in SessionFilmStage.tsx / PanZoomSVG.tsx — AT 5: "renders no ambient
+ * animation classes/elements" under reduced motion, not merely a zeroed
+ * duration); the blanket `prefers-reduced-motion` rule below is a second,
+ * belt-and-suspenders layer.
+ * --------------------------------------------------------------------------- */
+
+@keyframes session-film-arrival-settle {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(var(--arrival-overshoot, 1.15));
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.session-film-arrival-settle {
+  animation: session-film-arrival-settle var(--arrival-duration, 480ms)
+    cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@keyframes session-film-edge-ease-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.session-film-edge-ease-in {
+  animation: session-film-edge-ease-in var(--arrival-duration, 480ms) ease-out both;
+}
+
+@keyframes session-film-avatar-float {
+  0%,
+  100% {
+    transform: translateY(calc(-1 * var(--float-amplitude, 3px)));
+  }
+  50% {
+    transform: translateY(var(--float-amplitude, 3px));
+  }
+}
+
+.session-film-avatar-float {
+  animation: session-film-avatar-float var(--float-period, 4200ms) ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

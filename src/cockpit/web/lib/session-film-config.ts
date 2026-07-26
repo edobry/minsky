@@ -36,6 +36,52 @@ export const REALM_BEARINGS_DEG: Record<EventRealm, number> = {
   unknown: 270, // northwest-adjacent catch-all — kept visually distinct, low DOI weight
 };
 
+/**
+ * Operator-facing display label per realm (mt#3226 SC 5): the `unknown`
+ * realm is an internal adapter-coverage fallback name (event-adapter.ts's
+ * total-fallback path) and must never leak to the operator verbatim — the
+ * 2026-07-25 screenshot showed a bare "UNKNOWN" root label. Every other
+ * realm's display label is its own name (no change from today's rendering).
+ */
+export const REALM_DISPLAY_LABEL: Record<EventRealm, string> = {
+  repo: "repo",
+  "minsky-substrate": "minsky-substrate",
+  web: "web",
+  notion: "notion",
+  shell: "shell",
+  agents: "agents",
+  unknown: "other",
+};
+
+/**
+ * Realm color accent, expressed as the SAME `oklch(var(--token) / alpha)`
+ * pattern `status-colors.ts` uses for inline-style consumers (mt#3226 SC 2).
+ * Reuses the existing VSM-organ brand tokens (`docs/brand-system.md` §7)
+ * rather than minting a new 7-color palette — seven realms, seven existing
+ * organ tokens, no new hex anywhere in the semantic layer. The mapping is a
+ * thematic fit, not an organ-identity claim: repo/execution work reads as
+ * "operations" (S1), the Minsky substrate itself as "management" (S3),
+ * external web research as "future-facing" (S4), Notion/docs as the
+ * "learning loop", shell commands as "coordination" (S2), spawned
+ * agents/workspaces as the "attention seam" (spawn boundaries ARE an
+ * attention event), and the `unknown`/"other" catch-all as neutral (S5).
+ */
+export const REALM_COLOR_VAR: Record<EventRealm, string> = {
+  repo: "--vsm-s1",
+  "minsky-substrate": "--vsm-s3",
+  web: "--vsm-s4",
+  notion: "--vsm-learn",
+  shell: "--vsm-s2",
+  agents: "--vsm-seam",
+  unknown: "--vsm-s5",
+};
+
+/** Resolve a realm's color accent to a CSS color string, at the given alpha. */
+export function realmColorStyle(realm: EventRealm, alpha = 1): string {
+  const token = REALM_COLOR_VAR[realm];
+  return alpha >= 1 ? `oklch(var(${token}))` : `oklch(var(${token}) / ${alpha})`;
+}
+
 export interface SessionFilmConfig {
   /** Degree-of-interest: fixed per-realm-depth a-priori importance weight (before recency/distance terms). */
   doi: {
@@ -76,6 +122,65 @@ export interface SessionFilmConfig {
     padding: number;
     opacity: number;
   };
+  /**
+   * Organic child layout (mt#3226 SC 5): radial-arc distribution replacing
+   * the previous Cartesian perpendicular-spread, which degenerated into a
+   * rigid "comb" (long straight diagonal lines) at high fanout — the
+   * operator's 2026-07-25 screenshot (minsky-substrate 25 children, shell
+   * 32 children).
+   */
+  layout: {
+    /** Minimum angular span (degrees) allocated to a realm's children, before the per-leaf scaling term. */
+    arcSpanBaseDeg: number;
+    /** Additional angular span (degrees) per sqrt(leafCount) — sublinear so a busy realm gets more room without unbounded growth. */
+    arcSpanPerLeafDeg: number;
+    /**
+     * Hard cap on total angular span (degrees). Kept safely under the 45deg
+     * gap between adjacent fixed realm bearings (REALM_BEARINGS_DEG) so a
+     * high-fanout realm's fan never visually crosses into a neighboring
+     * realm's sector — the "kill the dead-space imbalance" directive cuts
+     * both ways: adaptive room for busy realms, a ceiling so busy realms
+     * don't collide with their neighbors.
+     */
+    arcSpanMaxDeg: number;
+    /** Deterministic per-node angular jitter magnitude (degrees), seeded by node id — organic irregularity without randomness (stable across re-renders/replays). */
+    jitterAngleDeg: number;
+    /** Deterministic per-node radial jitter magnitude (world units), seeded by node id. */
+    jitterRadiusPx: number;
+    /** Collision-aware spacing: alternating radial stagger (world units) applied by sibling order parity, so a dense fan of same-depth siblings doesn't render as a single flat overlapping ring. */
+    siblingStaggerPx: number;
+  };
+  /**
+   * Aliveness pass (mt#3226 SC 4): bloom/glow, continuous decay brightness,
+   * spring-settle arrivals, and ambient camera drift. AMBIENT-register
+   * carve-out from the plant board's honest-motion law (design-decision
+   * record — see SessionFilmStage.tsx's module doc comment for the full
+   * text): these tunables drive PURELY DECORATIVE motion (camera drift,
+   * idle float, brightness decay) that never invents an event (no fake
+   * beams, no fake node touches) — event-driven motion (excursions, beams,
+   * arrivals) stays strictly honest and is gated by the SAME
+   * `prefers-reduced-motion` signal as every value below.
+   */
+  aliveness: {
+    /** SVG `feGaussianBlur` stdDeviation for the bloom/glow filter (world units). */
+    bloomBlurStdDeviation: number;
+    /** Continuous brightness-decay rate, per elapsed second since an entity/agent's last touch (mirrors doi.recencyDecayPerSecond's shape, independent knob — see the module doc's "scene cools between events" requirement). */
+    glowDecayPerSecond: number;
+    /** How often the ambient brightness clock re-renders, ms (NOT an event — a pure visual re-paint of already-known recency; disabled entirely under reduced motion). */
+    glowTickIntervalMs: number;
+    /** Arrival spring overshoot scale (1 = no overshoot; >1 = the node grows past its final size before settling back). */
+    arrivalOvershootScale: number;
+    /** Arrival spring-settle duration, ms. */
+    arrivalSettleMs: number;
+    /** Ambient camera drift amplitude (world units) — a slow position/zoom breathing when idle. */
+    driftAmplitudePx: number;
+    /** Ambient camera drift period, ms (one full drift cycle). */
+    driftPeriodMs: number;
+    /** Avatar idle-float amplitude (world units, vertical). */
+    avatarFloatAmplitudePx: number;
+    /** Avatar idle-float period, ms. */
+    avatarFloatPeriodMs: number;
+  };
 }
 
 export const DEFAULT_SESSION_FILM_CONFIG: SessionFilmConfig = {
@@ -98,5 +203,24 @@ export const DEFAULT_SESSION_FILM_CONFIG: SessionFilmConfig = {
     strokeWidth: 2,
     padding: 12,
     opacity: 0.28,
+  },
+  layout: {
+    arcSpanBaseDeg: 16,
+    arcSpanPerLeafDeg: 5,
+    arcSpanMaxDeg: 40,
+    jitterAngleDeg: 2.5,
+    jitterRadiusPx: 6,
+    siblingStaggerPx: 14,
+  },
+  aliveness: {
+    bloomBlurStdDeviation: 3,
+    glowDecayPerSecond: 0.015,
+    glowTickIntervalMs: 400,
+    arrivalOvershootScale: 1.18,
+    arrivalSettleMs: 480,
+    driftAmplitudePx: 10,
+    driftPeriodMs: 14_000,
+    avatarFloatAmplitudePx: 3,
+    avatarFloatPeriodMs: 4_200,
   },
 };

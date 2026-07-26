@@ -252,3 +252,84 @@ describe("PanZoomSVG — aspect-ratio stability", () => {
     expect(width()).toBeLessThan(fitW);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Ambient camera life (mt#3226 SC 4 — session-film aliveness pass)
+// ---------------------------------------------------------------------------
+
+describe("PanZoomSVG — ambient drift", () => {
+  test("no ambient-drift marker when the prop is omitted (the plain fit-and-hold framing)", () => {
+    renderPanZoom();
+    expect(screen.getByTestId("pan-zoom-svg-container").getAttribute("data-ambient-drift")).toBeNull();
+  });
+
+  test("no ambient-drift marker when explicitly disabled", () => {
+    render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        ambientDrift={{ enabled: false, amplitudePx: 10, periodMs: 1000 }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    expect(screen.getByTestId("pan-zoom-svg-container").getAttribute("data-ambient-drift")).toBeNull();
+  });
+
+  test("the ambient-drift marker is present when enabled", () => {
+    render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        ambientDrift={{ enabled: true, amplitudePx: 10, periodMs: 1000 }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    expect(screen.getByTestId("pan-zoom-svg-container").getAttribute("data-ambient-drift")).toBe(
+      "true"
+    );
+  });
+
+  test("ambient drift actually moves the viewBox over time, and STOPS once the user interacts", async () => {
+    render(
+      <PanZoomSVG
+        boardWidth={1280}
+        boardHeight={820}
+        ariaLabel="Test schematic"
+        ambientDrift={{ enabled: true, amplitudePx: 30, periodMs: 800 }}
+      >
+        <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+      </PanZoomSVG>
+    );
+    const container = screen.getByTestId("pan-zoom-svg-container");
+    const svg = screen.getByTestId("pan-zoom-svg");
+    const rect = {
+      width: 1280,
+      height: 820,
+      top: 0,
+      left: 0,
+      right: 1280,
+      bottom: 820,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    } as DOMRect;
+    container.getBoundingClientRect = () => rect;
+    svg.getBoundingClientRect = () => rect;
+
+    const initialVB = svg.getAttribute("viewBox") ?? "";
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    const driftedVB = svg.getAttribute("viewBox") ?? "";
+    expect(driftedVB).not.toEqual(initialVB);
+
+    // A user pan pauses ambience — subsequent ticks must not move the viewBox further.
+    fireEvent.pointerDown(svg, { clientX: 0, clientY: 0, button: 0 });
+    fireEvent.pointerUp(svg);
+    const pausedVB = svg.getAttribute("viewBox") ?? "";
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    expect(svg.getAttribute("viewBox") ?? "").toEqual(pausedVB);
+  });
+});

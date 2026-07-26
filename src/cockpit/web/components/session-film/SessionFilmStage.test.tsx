@@ -262,3 +262,78 @@ describe("SessionFilmStage — spawn buds + workspace-clone sub-territory (SC5)"
     expect(arc.getAttribute("aria-label")).toBe("clone-of");
   });
 });
+
+describe("SessionFilmStage — aliveness pass (mt#3226 SC 4 / AT 5)", () => {
+  test("prefers-reduced-motion renders NO ambient affordances at all", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1" })];
+    const { world, layout } = buildFixture(events);
+    const { container } = render(
+      <SessionFilmStage layout={layout} world={world} reducedMotion={true} nowIso={events[0]?.tStart} />
+    );
+    // No bloom filter defs, no glow-underlay circles, no avatar glow, no
+    // ambient scene marker — "renders no ambient animation classes/elements."
+    expect(container.querySelector("defs")).toBeNull();
+    expect(container.querySelector('[data-testid^="session-film-glow-"]')).toBeNull();
+    expect(container.querySelector('[data-testid^="session-film-avatar-glow-"]')).toBeNull();
+    expect(screen.getByTestId("session-film-stage-scene").getAttribute("data-ambient")).toBeNull();
+    expect(container.querySelector(".session-film-avatar-float")).toBeNull();
+    expect(container.querySelector(".session-film-arrival-settle")).toBeNull();
+  });
+
+  test("default (motion allowed) renders the ambient scene marker, bloom defs, and avatar glow/float", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1" })];
+    const { world, layout } = buildFixture(events);
+    const { container } = render(
+      <SessionFilmStage layout={layout} world={world} reducedMotion={false} nowIso={events[0]?.tStart} />
+    );
+    expect(screen.getByTestId("session-film-stage-scene").getAttribute("data-ambient")).toBe("true");
+    expect(container.querySelector("defs filter")).not.toBeNull();
+    const agentKey = [...world.agents.keys()][0];
+    if (!agentKey) throw new Error("fixture agent missing — test setup bug");
+    expect(screen.getByTestId(`session-film-avatar-glow-${agentKey}`)).toBeDefined();
+    expect(
+      screen.getByTestId(`session-film-avatar-${agentKey}`).className
+    ).toContain("session-film-avatar-float");
+  });
+
+  test("a touched entity renders a glow-underlay circle whose opacity reflects recency (brighter = more recent)", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", target: { realm: "repo", id: "file:ws:fresh.ts" } }),
+    ];
+    const { world, layout } = buildFixture(events);
+    const node = layout.nodes.find((n) => n.entityId === "file:ws:fresh.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+
+    // Fresh touch, playhead AT the touch moment — near-max brightness.
+    const { container: freshContainer } = render(
+      <SessionFilmStage layout={layout} world={world} reducedMotion={false} nowIso="2026-07-24T00:00:00.000Z" />
+    );
+    const freshGlow = freshContainer.querySelector(`[data-testid="session-film-glow-${node.id}"]`);
+    expect(freshGlow).not.toBeNull();
+    const freshOpacity = Number((freshGlow as SVGCircleElement).style.opacity);
+
+    cleanup();
+
+    // Same touch, playhead an hour later — cooled, dimmer halo.
+    const { container: staleContainer } = render(
+      <SessionFilmStage layout={layout} world={world} reducedMotion={false} nowIso="2026-07-24T01:00:00.000Z" />
+    );
+    const staleGlow = staleContainer.querySelector(`[data-testid="session-film-glow-${node.id}"]`);
+    const staleOpacity = Number((staleGlow as SVGCircleElement).style.opacity);
+
+    expect(freshOpacity).toBeGreaterThan(staleOpacity);
+  });
+
+  test("a newly-materialized node gets the arrival spring-settle class", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", target: { realm: "repo", id: "file:ws:brand-new.ts" } }),
+    ];
+    const { world, layout } = buildFixture(events);
+    const node = layout.nodes.find((n) => n.entityId === "file:ws:brand-new.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} nowIso={events[0]?.tStart} />);
+    const el = screen.getByTestId(`session-film-node-${node.id}`);
+    const circle = el.querySelector("circle");
+    expect(circle?.getAttribute("class")).toContain("session-film-arrival-settle");
+  });
+});
