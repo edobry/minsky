@@ -1032,7 +1032,14 @@ export async function createAskWithFormLint(
   routerOptions: PolicyFirstRouteOptions = {}
 ): Promise<CreateAskWithFormLintResult> {
   const ask = await createAsk(repo, params, routerOptions);
-  const formLintMatches = computeFormLintMatches({ kind: params.kind, question: params.question });
+  const formLintMatches = computeFormLintMatches({
+    kind: params.kind,
+    question: params.question,
+    // Option labels are lint input too (mt#3253) — they render as the decision
+    // buttons, so a 167-char label or one repeating the surface-rendered letter
+    // is a form defect the producer should hear about.
+    options: params.options,
+  });
   return {
     ask,
     formWarnings: formLintMatches.map((m) => m.message),
