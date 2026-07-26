@@ -109,18 +109,6 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
   const readyTimeoutMs = opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
   const readyPollMs = opts.readyPollMs ?? READY_POLL_MS;
   let standingLocalId: string | null = null;
-  /**
-   * In-flight readiness, shared by concurrent callers (PR #2329 R1).
-   *
-   * Today the only caller is the poller, which handles messages strictly
-   * sequentially — so this cannot race in practice. It is here because the
-   * INVARIANT ("input is never written to an unready child") should hold for
-   * the actuator itself, not depend on a property of one caller that a future
-   * caller would silently break. Without it, a second concurrent `converse`
-   * would find the record live-but-unready and write immediately, which is the
-   * exact bug this task fixes.
-   */
-  let pendingReady: Promise<DrivenSessionRecord> | null = null;
 
   const liveRecord = (): DrivenSessionRecord | null => {
     if (!standingLocalId) return null;
@@ -136,42 +124,39 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
   };
 
   /**
-   * Get the standing conversation, spawning and WAITING FOR READY if needed.
+   * Get the standing conversation, spawning one if needed. Does NOT wait.
    *
-   * The wait is the mt#3234 fix. A freshly spawned child accepts a stdin write
-   * long before it can act on one — it is still running SessionStart hooks and
-   * starting its MCP servers — so writing immediately succeeds whether or not
-   * the child will ever come up. Observed live: a conversation sat `running`
-   * with a null harness id for 20 minutes, swallowing every message routed to
-   * it, because nothing distinguished "still starting" from "never will".
+   * mt#3234 waited for `init` here, before writing input. That is a deadlock:
+   * `claude -p --input-format stream-json` does not emit `init` until it has
+   * RECEIVED its first input message. Measured through this exact code path —
+   * input withheld: hook events at ~1s then nothing, ever; input written
+   * immediately: init at 3006ms. The write is what causes readiness, so it
+   * cannot be gated on readiness (mt#3238).
+   *
+   * Readiness is still checked — after the write, in `converse` — which keeps
+   * mt#3234's actual purpose: a child that never comes up is detected and
+   * abandoned rather than silently swallowing messages forever.
    */
-  const ensureReadyRecord = async (): Promise<DrivenSessionRecord> => {
-    // Join an in-flight start rather than racing it or spawning a second child.
-    if (pendingReady) return pendingReady;
-
+  const ensureRecord = (): DrivenSessionRecord => {
     const existing = liveRecord();
-    // Live AND ready — the common path once the conversation is up.
-    if (existing?.harnessSessionId) return existing;
+    if (existing) return existing;
 
-    pendingReady = existing ? waitForExisting(existing) : spawnAndWait();
-    try {
-      return await pendingReady;
-    } finally {
-      pendingReady = null;
-    }
-  };
-
-  /**
-   * A record that exists but has not reported ready yet.
-   *
-   * Reachable only if a prior start was abandoned mid-wait; waiting is still
-   * correct — spawning a second child for the same standing conversation would
-   * leave an orphan holding the first one's context.
-   */
-  const waitForExisting = async (record: DrivenSessionRecord): Promise<DrivenSessionRecord> => {
-    if (await awaitSessionReady(record, readyTimeoutMs, readyPollMs)) return record;
-    abandonUnreadyRecord(record);
-    throw startTimeoutError(readyTimeoutMs);
+    const { record } = startDrivenSession({
+      cwd: opts.cwd,
+      permissionMode: opts.permissionMode ?? "bypassPermissions",
+      ...(opts.model === undefined ? {} : { model: opts.model }),
+      taskId: null,
+      minskySessionId: null,
+      registry,
+      ...(opts.spawnFn === undefined ? {} : { spawnFn: opts.spawnFn }),
+      ...(opts.command === undefined ? {} : { command: opts.command }),
+    });
+    standingLocalId = record.localId;
+    log.info("[principal-channel] starting the standing channel conversation", {
+      localId: record.localId,
+      cwd: opts.cwd,
+    });
+    return record;
   };
 
   const abandonUnreadyRecord = (record: DrivenSessionRecord): void => {
@@ -192,44 +177,44 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
       )}s — send anything to retry`
     );
 
-  const spawnAndWait = async (): Promise<DrivenSessionRecord> => {
-    const { record } = startDrivenSession({
-      cwd: opts.cwd,
-      permissionMode: opts.permissionMode ?? "bypassPermissions",
-      ...(opts.model === undefined ? {} : { model: opts.model }),
-      taskId: null,
-      minskySessionId: null,
-      registry,
-      ...(opts.spawnFn === undefined ? {} : { spawnFn: opts.spawnFn }),
-      ...(opts.command === undefined ? {} : { command: opts.command }),
-    });
-    standingLocalId = record.localId;
-    log.info("[principal-channel] starting the standing channel conversation", {
-      localId: record.localId,
-      cwd: opts.cwd,
-    });
+  /**
+   * Confirm the conversation came up, AFTER its first input was written.
+   *
+   * Already-ready is the common path and costs nothing. For a fresh spawn this
+   * is where mt#3234's detection actually happens: the input has been
+   * delivered, so a healthy child reports `init` within seconds; one that never
+   * does is abandoned rather than left to swallow every future message.
+   */
+  const confirmReady = async (record: DrivenSessionRecord): Promise<void> => {
+    if (record.harnessSessionId) return;
 
     if (!(await awaitSessionReady(record, readyTimeoutMs, readyPollMs))) {
       abandonUnreadyRecord(record);
       throw startTimeoutError(readyTimeoutMs);
     }
-
     log.info("[principal-channel] channel conversation ready", {
       localId: record.localId,
       harnessSessionId: record.harnessSessionId,
     });
-    return record;
   };
 
   return {
     async converse(text: string): Promise<string> {
-      const record = await ensureReadyRecord();
+      const record = ensureRecord();
       // Subscribe BEFORE writing: a fast turn could otherwise emit its result
       // between the write and the subscribe, and the reply would be lost.
       const turn = awaitTurnResult(record, turnTimeoutMs);
       if (!sendDrivenSessionInput(record, text)) {
         turn.cancel();
         throw new Error("the channel conversation is not accepting input");
+      }
+
+      // Only now — the write above is what makes the child emit `init`.
+      try {
+        await confirmReady(record);
+      } catch (err) {
+        turn.cancel();
+        throw err;
       }
       return turn.result;
     },

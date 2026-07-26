@@ -25,6 +25,15 @@ class FakeClaudeProcess extends EventEmitter implements ProcessLike {
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
   readonly stdin = new PassThrough();
+  /** Everything written to stdin, accumulated (the stream is in flowing mode). */
+  written = "";
+
+  constructor() {
+    super();
+    this.stdin.on("data", (chunk) => {
+      this.written += String(chunk);
+    });
+  }
 
   kill(): boolean {
     return true;
@@ -37,9 +46,11 @@ class FakeClaudeProcess extends EventEmitter implements ProcessLike {
   /**
    * Emit the `init` event — the child saying "I am up".
    *
-   * The host records `harnessSessionId` from this, which is what the actuator
-   * waits for before writing input (mt#3234). A fake that never emits it is a
-   * fake that never becomes ready, which is the failure this suite must cover.
+   * The host records `harnessSessionId` from this. Wired to fire only ON INPUT
+   * (see `fakeSpawn`), because that is what the real binary does — and a fake
+   * that emitted it unprompted is exactly what let mt#3234 ship a deadlock:
+   * the code waited for init before writing, the real child waits for a write
+   * before init, and no test could see it (mt#3238).
    */
   emitInit(sessionId = "fake-harness-session"): void {
     this.emitLine({ type: "system", subtype: "init", session_id: sessionId });
@@ -62,11 +73,17 @@ interface SpawnCapture {
 }
 
 /**
- * Build a spawnFn whose children come up by default.
+ * Build a spawnFn whose children behave like the real binary.
  *
- * `neverReady: true` produces a child that spawns and then goes silent —
- * exactly the live incident (mt#3234), where a conversation sat `running` with
- * a null harness id for twenty minutes while messages routed into it vanished.
+ * The load-bearing detail (mt#3238): a child emits `init` only AFTER it
+ * receives input on stdin. `claude -p --input-format stream-json` works that
+ * way, and the previous fake did not — it emitted on a timer regardless of
+ * input, which made a deadlocked ordering (wait for init, then write) look
+ * correct in every test while failing every real message.
+ *
+ * `neverReady: true` produces a child that takes input and still never reports
+ * init — the mt#3234 incident, where a conversation sat `running` with a null
+ * harness id while messages routed into it vanished.
  */
 function fakeSpawn(opts: { neverReady?: boolean } = {}): {
   spawnFn: SpawnFn;
@@ -75,20 +92,17 @@ function fakeSpawn(opts: { neverReady?: boolean } = {}): {
   const calls: SpawnCapture[] = [];
   const spawnFn: SpawnFn = (_command, args, options) => {
     const proc = new FakeClaudeProcess();
+    const index = calls.length + 1;
     calls.push({ args, options, proc });
     if (!opts.neverReady) {
-      // Next tick, so the actuator's readiness wait is genuinely exercised
-      // rather than satisfied before it starts.
-      setTimeout(() => proc.emitInit(`harness-${calls.length}`), 1);
+      proc.stdin.once("data", () => {
+        // Async, mirroring a real child's startup latency after the write.
+        setTimeout(() => proc.emitInit(`harness-${index}`), 1);
+      });
     }
     return proc;
   };
   return { spawnFn, calls };
-}
-
-function readStdin(proc: FakeClaudeProcess): string {
-  const chunk = proc.stdin.read();
-  return chunk === null ? "" : String(chunk);
 }
 
 function makeActuator(
@@ -135,14 +149,19 @@ async function waitUntil(predicate: () => boolean, what: string, attempts = 2000
   throw new Error(`timed out waiting for: ${what}`);
 }
 
-/** Wait until the conversation is ready and the pending input has been written. */
-async function waitForWrite(proc: FakeClaudeProcess): Promise<string> {
-  let written = "";
-  await waitUntil(() => {
-    written += readStdin(proc);
-    return written.length > 0;
-  }, "input to be written to the child");
-  return written;
+/**
+ * Wait until input has been written to the child, optionally containing `needle`.
+ *
+ * Matches on CONTENT rather than growth: the write usually lands before this is
+ * called, so waiting for the buffer to grow would wait for a second write that
+ * never comes.
+ */
+async function waitForWrite(proc: FakeClaudeProcess, needle?: string): Promise<string> {
+  await waitUntil(
+    () => proc.written.length > 0 && (needle === undefined || proc.written.includes(needle)),
+    `input${needle === undefined ? "" : ` containing "${needle}"`} to be written to the child`
+  );
+  return proc.written;
 }
 
 /** Wait until a spawn has been recorded. */
@@ -173,7 +192,7 @@ describe("createDrivenSessionActuator — conversing", () => {
     await first;
 
     const second = actuator.converse("focus on the second one");
-    await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
+    await waitForWrite(calls[0]?.proc as FakeClaudeProcess, "focus on the second one");
     calls[0]?.proc.finishTurn("focusing");
     await second;
 
@@ -300,20 +319,23 @@ describe("createDrivenSessionActuator — readiness (mt#3234)", () => {
     expect(calls).toHaveLength(2);
   });
 
-  test("input is written only AFTER the child reports ready", async () => {
-    // The spawn itself is synchronous; what the readiness gate defers is the
-    // stdin WRITE. Writing before the child is up is what made the live
-    // incident silent — the pipe accepts it and nothing ever reads it.
+  test("input is written BEFORE readiness — the write is what causes init", async () => {
+    // The inverse of what mt#3234 asserted, and the reason it deadlocked
+    // (mt#3238): `claude -p --input-format stream-json` emits `init` only after
+    // it receives input, so gating the write on init means neither ever
+    // happens. Measured live: input withheld -> no init, ever; input written
+    // -> init at 3006ms.
     const { actuator, calls } = makeActuator({ neverReady: true, readyTimeoutMs: 200 });
     const pending = actuator.converse(BLOCKED_Q);
 
+    await waitForSpawn(calls, 1);
     const spawned = calls[0]?.proc as FakeClaudeProcess;
-    expect(spawned).toBeDefined();
+    // The write lands even though this child will never report ready.
+    expect(await waitForWrite(spawned)).toContain(BLOCKED_Q);
 
-    // The child never comes up, so the write must never happen — asserted at
-    // the point the wait gives up rather than after a guessed interval.
+    // Readiness is still verified — after the write — so a child that never
+    // comes up is abandoned rather than swallowing every future message.
     await expect(pending).rejects.toThrow(/did not finish starting/);
-    expect(readStdin(spawned)).toBe("");
   });
 
   test("a ready conversation is reused without waiting again", async () => {
@@ -326,16 +348,16 @@ describe("createDrivenSessionActuator — readiness (mt#3234)", () => {
     await first;
 
     const second = actuator.converse("two");
-    await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
+    await waitForWrite(calls[0]?.proc as FakeClaudeProcess, "two");
     calls[0]?.proc.finishTurn("b");
     expect(await second).toBe("b");
     expect(calls).toHaveLength(1);
   });
 
   test("concurrent first messages share ONE conversation (PR #2329 R1)", async () => {
-    // The poller is sequential today, so this cannot race in practice — but the
-    // invariant belongs to the actuator, not to a property of one caller. Two
-    // concurrent starts must not spawn two children or write to an unready one.
+    // The poller is sequential today, so this cannot race in practice — but two
+    // concurrent starts must still not spawn two children for one standing
+    // conversation.
     const { actuator, calls } = makeActuator();
 
     const a = actuator.converse("one");
@@ -346,7 +368,6 @@ describe("createDrivenSessionActuator — readiness (mt#3234)", () => {
     expect(calls).toHaveLength(1);
     calls[0]?.proc.finishTurn("answered");
     expect(await a).toBe("answered");
-    calls[0]?.proc.finishTurn("answered");
     expect(await b).toBe("answered");
   });
 });
