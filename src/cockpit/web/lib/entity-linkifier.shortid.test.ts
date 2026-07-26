@@ -23,9 +23,17 @@ import { describe, test, expect } from "bun:test";
 import { buildEntityIndex, tokenizeEntities } from "./entity-linkifier";
 
 const MEMORY_UUID = "d8891fad-b156-46e1-8940-98067eb097a9";
+const ASK_UUID = "0a1b2c3d-1111-2222-3333-444455556666";
+const SESSION_UUID = "4d44d12b-58f0-433e-95b3-8b914693fa39";
 
-/** The path a resolved `mem#728` token must link to (`#` percent-encoded). */
-const MEM_PATH = "/memory/mem%23728";
+/**
+ * The path a resolved `mem#728` token must link to. This is the CANONICAL
+ * uuid path — identical to what the uuid form produces — NOT
+ * `/memory/mem%23728`. A short id is a display form for the reader; the
+ * address stays the uuid (ADR-029's discipline, applied to SPA paths and
+ * `data-entity-id` as well as to `minsky://` targets).
+ */
+const MEM_PATH = `/memory/${MEMORY_UUID}`;
 
 /** A sentence-final short id — the trailing-punctuation boundary case. */
 const SENTENCE_WITH_MEM = "as recorded in mem#728.";
@@ -33,20 +41,20 @@ const SENTENCE_WITH_MEM = "as recorded in mem#728.";
 /** An index carrying one entity of each short-id-bearing type, both id forms. */
 const INDEX = buildEntityIndex({
   taskIds: ["mt#2370"],
-  sessionIds: [],
-  askIds: [],
+  sessionIds: [SESSION_UUID],
+  askIds: [ASK_UUID],
   memoryIds: [MEMORY_UUID],
   changesetIds: ["1234"],
-  memoryShortIds: ["mem#728"],
-  askShortIds: ["ask#3346"],
-  sessionShortIds: ["ws#42"],
+  memoryShortIds: [{ shortId: "mem#728", id: MEMORY_UUID }],
+  askShortIds: [{ shortId: "ask#3346", id: ASK_UUID }],
+  sessionShortIds: [{ shortId: "ws#42", id: SESSION_UUID }],
 });
 
 /** An index with the SAME entity types but NO short ids registered. */
 const INDEX_WITHOUT_SHORT_IDS = buildEntityIndex({
   taskIds: ["mt#2370"],
-  sessionIds: [],
-  askIds: [],
+  sessionIds: [SESSION_UUID],
+  askIds: [ASK_UUID],
   memoryIds: [MEMORY_UUID],
   changesetIds: ["1234"],
 });
@@ -67,27 +75,36 @@ function plainText(text: string, index = INDEX): string {
 }
 
 describe("short-id linkification (mt#3259)", () => {
-  test("resolves mem#N, ask#N and ws#N in one pass", () => {
+  test("resolves mem#N, ask#N and ws#N to their canonical uuid paths", () => {
     expect(links("see mem#728 and ask#3346 and ws#42")).toEqual([
       ["mem#728", MEM_PATH],
-      ["ask#3346", "/ask/ask%233346"],
-      ["ws#42", "/agents/ws%2342"],
+      ["ask#3346", `/ask/${ASK_UUID}`],
+      ["ws#42", `/agents/${SESSION_UUID}`],
     ]);
   });
 
-  test("the `#` is percent-encoded in the path, never left raw", () => {
-    const to = links("mem#728")[0]?.[1];
-    // A raw `#` would make the browser read everything after it as a
-    // fragment, so the route would receive `/memory/mem` and 404.
-    expect(to).not.toContain("#");
-    expect(to).toBe(MEM_PATH);
+  test("a short id and its uuid produce the IDENTICAL link target", () => {
+    // The property the whole alias design exists for: one entity, one address,
+    // regardless of which reference form the author typed. This is also what
+    // keeps `data-entity-id` (mt#3174) uniform across both forms.
+    const viaShortId = links("mem#728")[0]?.[1] ?? "";
+    const viaUuid = links(MEMORY_UUID)[0]?.[1] ?? "";
+    expect(viaShortId).toBe(viaUuid);
+    expect(viaShortId).toBe(MEM_PATH);
+  });
+
+  test("the short id never leaks into the link target", () => {
+    const to = links("mem#728")[0]?.[1] ?? "";
+    expect(to).not.toContain("mem#728");
+    expect(to).not.toContain("mem%23728");
+    expect(to.includes("#")).toBe(false);
   });
 
   test("a ws#N link targets /agents/ (the workspace detail route), not /session/", () => {
     // ADR-022 stage 1: the cockpit route for a workspace is `/agents/:id`.
     // Encoded here because it is the one type whose route segment does not
     // match its entity-type name.
-    expect(links("ws#42")[0]?.[1]).toBe("/agents/ws%2342");
+    expect(links("ws#42")[0]?.[1]).toBe(`/agents/${SESSION_UUID}`);
   });
 
   test("case-insensitive: MEM#728 resolves identically to mem#728", () => {
@@ -97,7 +114,7 @@ describe("short-id linkification (mt#3259)", () => {
   });
 
   test("the rendered text keeps the author's original token, not the normalized one", () => {
-    // The link TEXT is what the author wrote; only the target is normalized.
+    // The link TEXT is what the author wrote; only the target is canonicalized.
     expect(links("MEM#728")[0]?.[0]).toBe("MEM#728");
   });
 });
@@ -177,19 +194,33 @@ describe("pre-existing token classes are unaffected (ordering regression)", () =
       ["mt#2370", "/tasks/mt%232370"],
       ["mem#728", MEM_PATH],
       ["PR #1234", "/changeset/1234"],
-      ["ws#42", "/agents/ws%2342"],
+      ["ws#42", `/agents/${SESSION_UUID}`],
     ]);
   });
 });
 
 describe("buildEntityIndex short-id registration", () => {
-  test("indexes both id forms for the same entity", () => {
-    expect(INDEX.get(MEMORY_UUID)).toBe("memory");
-    expect(INDEX.get("mem#728")).toBe("memory");
+  test("indexes both id forms, both pointing at the canonical id", () => {
+    expect(INDEX.get(MEMORY_UUID)).toEqual({ type: "memory", id: MEMORY_UUID });
+    expect(INDEX.get("mem#728")).toEqual({ type: "memory", id: MEMORY_UUID });
   });
 
   test("short-id arrays are optional — omitting them changes nothing else", () => {
-    expect(INDEX_WITHOUT_SHORT_IDS.get(MEMORY_UUID)).toBe("memory");
+    expect(INDEX_WITHOUT_SHORT_IDS.get(MEMORY_UUID)).toEqual({ type: "memory", id: MEMORY_UUID });
     expect(INDEX_WITHOUT_SHORT_IDS.has("mem#728")).toBe(false);
+  });
+
+  test("an alias with no canonical target is skipped, never self-linked", () => {
+    // A `{shortId, id: ""}` pair would otherwise register a key that could
+    // only resolve to the short id itself — the non-canonical address this
+    // indirection exists to prevent.
+    const idx = buildEntityIndex({
+      taskIds: [],
+      sessionIds: [],
+      askIds: [],
+      memoryIds: [],
+      memoryShortIds: [{ shortId: "mem#999", id: "" }],
+    });
+    expect(idx.has("mem#999")).toBe(false);
   });
 });

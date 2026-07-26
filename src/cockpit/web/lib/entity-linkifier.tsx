@@ -56,24 +56,47 @@ const SHORT_ID_PREFIX_TO_TYPE: Record<string, RoutableEntityType> = {
 };
 
 /**
- * A map from entity id → entity type, used to resolve bare references.
+ * What an index key resolves to: the entity's type, plus its CANONICAL id.
+ *
+ * `id` is what the link target is built from, and it is NOT always the key.
+ * For a canonical key (a uuid, an `mt#N`, a PR number) it is the key itself.
+ * For a short-id alias key (`mem#728`) it is the entity's UUID — so a
+ * short-id reference links to `/memory/<uuid>`, exactly like a uuid
+ * reference to the same entity, and carries the same `data-entity-id`
+ * (mt#3174). Keeping the UUID canonical in every emitted path is the same
+ * discipline ADR-029 applies to `minsky://` targets; the short id is a
+ * display form for the reader, never an address.
+ */
+export interface EntityIndexEntry {
+  type: RoutableEntityType;
+  id: string;
+}
+
+/**
+ * A map from a REFERENCE STRING to the entity it names. Keys are every form a
+ * reference can take (uuid, `mt#N`, PR number, `mem#N`/`ask#N`/`ws#N`);
+ * values carry the canonical id those forms all resolve to.
+ *
  * Built from the data CommandPalette already fetches
  * (tasks/sessions/asks/memories/changesets/conversations).
  */
-export type EntityIndex = Map<string, RoutableEntityType>;
+export type EntityIndex = Map<string, EntityIndexEntry>;
+
+/** A short id paired with the canonical uuid it resolves to. */
+export interface ShortIdAlias {
+  shortId: string;
+  id: string;
+}
 
 /**
  * Build an EntityIndex from flat lists of ids per type.
  *
  * Pass the same data CommandPalette uses — no new queries needed.
  *
- * Short ids (`mem#728`, `ask#3346`, `ws#42`) are indexed as ADDITIONAL keys
- * alongside their entity's UUID — both forms resolve to the same type, and a
- * short-id token links to `/<segment>/<shortid>` (the cockpit SPA route, which
- * resolves short ids server-side). This does NOT make a short id a
- * `minsky://` deeplink target: per ADR-029 the UUID remains "the sole
- * `minsky://<type>/<uuid>` deeplink target". A short id is a display/lookup
- * form, which is exactly what this bare-reference path is.
+ * Short ids are registered as ADDITIONAL keys pointing at their entity's
+ * canonical uuid, so `mem#728` and the uuid produce the identical link target
+ * and the identical `data-entity-id`. They are aliases in the id-set, not a
+ * second address space.
  */
 export function buildEntityIndex(opts: {
   taskIds: string[];
@@ -88,23 +111,35 @@ export function buildEntityIndex(opts: {
    * linkification to `/conversation/:id` (mt#2769).
    */
   conversationIds?: string[];
-  /** `mem#N` short ids (mt#3259). Additive — never replaces the UUID keys. */
-  memoryShortIds?: string[];
-  /** `ask#N` short ids (mt#3259). */
-  askShortIds?: string[];
-  /** `ws#N` workspace short ids (mt#3259). */
-  sessionShortIds?: string[];
+  /** `mem#N` → uuid aliases (mt#3259). Additive — never replaces the uuid keys. */
+  memoryShortIds?: ShortIdAlias[];
+  /** `ask#N` → uuid aliases (mt#3259). */
+  askShortIds?: ShortIdAlias[];
+  /** `ws#N` → workspace-sessionId aliases (mt#3259). */
+  sessionShortIds?: ShortIdAlias[];
 }): EntityIndex {
   const index: EntityIndex = new Map();
-  for (const id of opts.taskIds) index.set(id, "task");
-  for (const id of opts.sessionIds) index.set(id, "session");
-  for (const id of opts.askIds) index.set(id, "ask");
-  for (const id of opts.memoryIds) index.set(id, "memory");
-  for (const id of opts.changesetIds ?? []) index.set(id, "changeset");
-  for (const id of opts.conversationIds ?? []) index.set(id, "conversation");
-  for (const id of opts.memoryShortIds ?? []) index.set(id, "memory");
-  for (const id of opts.askShortIds ?? []) index.set(id, "ask");
-  for (const id of opts.sessionShortIds ?? []) index.set(id, "session");
+  const addCanonical = (ids: string[], type: RoutableEntityType): void => {
+    for (const id of ids) index.set(id, { type, id });
+  };
+  const addAliases = (aliases: ShortIdAlias[], type: RoutableEntityType): void => {
+    // Skip an alias with no canonical target: a key whose `id` we don't know
+    // could only produce a link to the short id itself, which is the exact
+    // non-canonical address this indirection exists to avoid.
+    for (const a of aliases) {
+      if (a.shortId && a.id) index.set(a.shortId, { type, id: a.id });
+    }
+  };
+
+  addCanonical(opts.taskIds, "task");
+  addCanonical(opts.sessionIds, "session");
+  addCanonical(opts.askIds, "ask");
+  addCanonical(opts.memoryIds, "memory");
+  addCanonical(opts.changesetIds ?? [], "changeset");
+  addCanonical(opts.conversationIds ?? [], "conversation");
+  addAliases(opts.memoryShortIds ?? [], "memory");
+  addAliases(opts.askShortIds ?? [], "ask");
+  addAliases(opts.sessionShortIds ?? [], "session");
   return index;
 }
 
@@ -112,28 +147,26 @@ export function buildEntityIndex(opts: {
  * Resolve a candidate token against the EntityIndex.
  *
  * Supports:
- *   - Exact match (the full id is in the index)
- *   - Unique-prefix match (the token is a prefix of exactly ONE id in the index)
+ *   - Exact match (the token is a known reference form)
+ *   - Unique-prefix match (the token is a prefix of exactly ONE key)
  *
- * Returns `{type, id}` (the FULL id) on match, null on no-match / ambiguous.
+ * Returns `{type, id}` where `id` is the CANONICAL id (never the alias key),
+ * or null on no-match / ambiguous.
  */
-function resolveEntityId(
-  token: string,
-  index: EntityIndex
-): { type: RoutableEntityType; id: string } | null {
+function resolveEntityId(token: string, index: EntityIndex): EntityIndexEntry | null {
   // Exact match wins immediately.
-  const exactType = index.get(token);
-  if (exactType !== undefined) return { type: exactType, id: token };
+  const exact = index.get(token);
+  if (exact !== undefined) return exact;
 
-  // Prefix match — the token must be a prefix of exactly one known id.
+  // Prefix match — the token must be a prefix of exactly one known key.
   // Only meaningful for UUID-shaped tokens (≥8 hex chars) to avoid false
   // positives on very short prefixes.
   if (token.length < 8) return null;
 
-  const matches: Array<{ type: RoutableEntityType; id: string }> = [];
-  for (const [id, type] of index) {
-    if (id.startsWith(token)) {
-      matches.push({ type, id });
+  const matches: EntityIndexEntry[] = [];
+  for (const [key, entry] of index) {
+    if (key.startsWith(token)) {
+      matches.push(entry);
       if (matches.length > 1) return null; // ambiguous
     }
   }
