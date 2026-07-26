@@ -67,7 +67,19 @@
  * the fold's CURRENT state has a real `lastVerb`/`currentTargetId`, not a
  * decorative loop.
  *
- * @see session-film-layout.ts — the node positions this renders
+ * ## Living layout (mt#3231 SC 4)
+ *
+ * `layout` (the `computeStageLayout` prop) is immediately wrapped by
+ * `useSessionFilmForceLayout` into `layout` (shadowed) — a LIVE d3-force
+ * simulation warm-started from the same tidy-tree positions. Every
+ * reference to `layout` below therefore already reads live, gently-
+ * drifting positions; nothing downstream needed to change since nodes stay
+ * keyed by the same `id`/`entityId`. See `session-film-force-layout.ts`
+ * for the honest-motion carve-out record for this pass specifically.
+ *
+ * @see session-film-layout.ts — the STATIC tidy-tree this warm-starts from
+ * @see session-film-force-layout.ts — the live simulation + its honest-motion carve-out record
+ * @see ../hooks/useSessionFilmForceLayout.ts — the React tick-loop wiring
  * @see session-film-links.ts — entity receipt resolution for node clicks
  * @see session-film-aliveness.ts — glow-brightness math + the full design-decision record
  * @see session-film-beams.ts — beam-kind/direction/styling logic for the beam-on-every-action pass
@@ -95,6 +107,7 @@ import {
   beamStrokeWidth,
 } from "../../lib/session-film-beams";
 import { useAmbientClock } from "../../hooks/useAmbientClock";
+import { useSessionFilmForceLayout } from "../../hooks/useSessionFilmForceLayout";
 import { cn } from "../../lib/utils";
 
 /** Shared bloom-filter id — one filter definition, referenced by every glowing element. */
@@ -207,7 +220,7 @@ function avatarPosition(
 }
 
 export function SessionFilmStage({
-  layout,
+  layout: staticLayout,
   world,
   reducedMotion,
   onSelectEntity,
@@ -216,6 +229,12 @@ export function SessionFilmStage({
   nowIso,
   className,
 }: SessionFilmStageProps) {
+  // Living layout (mt#3231 SC 4): every downstream reference to `layout`
+  // below (edges, beams, avatar excursions, node clicks, the contour) reads
+  // LIVE force-simulated positions instead of the compute-once tidy-tree —
+  // nodes are still keyed by the SAME `id`/`entityId`, so nothing else in
+  // this component needs to change.
+  const layout = useSessionFilmForceLayout(staticLayout, config, reducedMotion);
   const agents = useMemo(() => [...world.agents.values()], [world.agents]);
 
   // Working click -> visible detail affordance (mt#3231 SC 6 / AT 6):
