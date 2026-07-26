@@ -14,8 +14,27 @@ export interface ProjectSummary {
   displayName: string | null;
 }
 
+/** Injection seam for {@link mountProjectRoutes}. */
+export interface ProjectRoutesOptions {
+  /**
+   * Test seam: override the database resolution (mt#3254).
+   *
+   * The default reaches `getContextInspectorDb()`, the PRODUCTION resolution
+   * path, which a test process is refused. A test asserting this route's
+   * no-database degradation injects `async () => null` rather than resolving
+   * whatever the environment happens to point at.
+   *
+   * Simplified signature, deliberately NOT `typeof getContextInspectorDb` —
+   * that type also carries the production-only `__resetForTests` method, which
+   * a plain test fake has no reason to implement (same convention as
+   * `driven-session-launch.ts`'s seams).
+   */
+  getDb?: () => ReturnType<typeof getContextInspectorDb>;
+}
+
 /** Mount the /api/projects route on `app`. */
-export function mountProjectRoutes(app: express.Express): void {
+export function mountProjectRoutes(app: express.Express, opts: ProjectRoutesOptions = {}): void {
+  const resolveDb = opts.getDb ?? getContextInspectorDb;
   /**
    * GET /api/projects — every known project (mt#2418).
    *
@@ -28,7 +47,7 @@ export function mountProjectRoutes(app: express.Express): void {
    */
   app.get("/api/projects", async (_req, res) => {
     try {
-      const db = await getContextInspectorDb();
+      const db = await resolveDb();
       if (!db) {
         res.json({ projects: [] });
         return;

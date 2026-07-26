@@ -75,10 +75,24 @@ interface TestServer {
   close: () => Promise<void>;
 }
 
+/**
+ * Hermetic default for the restart-recovery seam (mt#3254).
+ *
+ * Omitting `orchestrateResume` used to fall through to the real
+ * `orchestrateDrivenSessionResume`, which calls `getContextInspectorDb()` —
+ * the PRODUCTION resolution path. Under `bun test` that resolves whatever the
+ * environment points at, which is how this file contributed fixture rows to
+ * prod `driven_sessions`. "No persisted row" is the right default for a test
+ * that has not set one up; a test needing real resume behavior passes its own.
+ */
+const notFoundResume: typeof orchestrateDrivenSessionResume = async () => ({
+  outcome: "not-found",
+});
+
 async function startTestServer(
   registry: DrivenSessionRegistry,
   spawnFn: SpawnFn,
-  orchestrateResume?: typeof orchestrateDrivenSessionResume
+  orchestrateResume: typeof orchestrateDrivenSessionResume = notFoundResume
 ): Promise<TestServer> {
   const app = createCockpitServer({
     overrideToken: TEST_TOKEN,
