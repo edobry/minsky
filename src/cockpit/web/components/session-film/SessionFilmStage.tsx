@@ -96,7 +96,7 @@
  * @see session-film-beams.ts — beam-kind/direction/styling logic for the beam-on-every-action pass
  * @see PanZoomSVG.tsx — ambient camera drift
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EventOutcome } from "@minsky/domain/transcripts/event-schema";
 import { PanZoomSVG } from "../PanZoomSVG";
 import type { StageLayout } from "../../lib/session-film-layout";
@@ -134,7 +134,16 @@ export interface SessionFilmStageProps {
   layout: StageLayout;
   world: WorldFoldState;
   reducedMotion: boolean;
-  onSelectEntity?: (entityId: string) => void;
+  /**
+   * Fired both on selection (a non-null id) AND on clear (`null` — the
+   * detail panel's close button, Esc, or click-outside). Widened from
+   * `(entityId: string) => void` (mt#3231 review R1, BLOCKING): a
+   * controlling parent that passes `selectedEntityId` must ALSO be able to
+   * clear it from inside this component, or the close affordance below has
+   * no way to reach the parent's state and the panel becomes permanently
+   * non-dismissible whenever a parent controls selection.
+   */
+  onSelectEntity?: (entityId: string | null) => void;
   selectedEntityId?: string | null;
   /** Tunables (DOI/motion/contour styling/aliveness) — defaults to DEFAULT_SESSION_FILM_CONFIG. */
   config?: SessionFilmConfig;
@@ -256,12 +265,56 @@ export function SessionFilmStage({
   // control `selectedEntityId` — a controlling parent's prop still wins.
   const [internalSelectedEntityId, setInternalSelectedEntityId] = useState<string | null>(null);
   const effectiveSelectedEntityId = selectedEntityId ?? internalSelectedEntityId;
-  const selectEntity = (entityId: string) => {
-    onSelectEntity?.(entityId);
-    setInternalSelectedEntityId(entityId);
-  };
+  /** The rendered detail-panel DOM node, for the click-outside dismissal below. */
+  const detailPanelRef = useRef<HTMLDivElement | null>(null);
+  const selectEntity = useCallback(
+    (entityId: string) => {
+      onSelectEntity?.(entityId);
+      setInternalSelectedEntityId(entityId);
+    },
+    [onSelectEntity]
+  );
+  // Close affordance (mt#3231 review R1, BLOCKING): clears BOTH the internal
+  // fallback state AND the parent's controlled state via `onSelectEntity(null)`
+  // — clearing only `internalSelectedEntityId` (the pre-fix behavior) left
+  // `effectiveSelectedEntityId` pinned to the parent's non-null
+  // `selectedEntityId` whenever a parent controls selection, making the
+  // panel's close button a no-op in controlled mode.
+  const clearSelectedEntity = useCallback(() => {
+    onSelectEntity?.(null);
+    setInternalSelectedEntityId(null);
+  }, [onSelectEntity]);
   const selectedEntity = effectiveSelectedEntityId ? world.entities.get(effectiveSelectedEntityId) : undefined;
   const selectedRoutable = selectedEntity ? parseRoutableTarget(selectedEntity) : null;
+
+  // Esc + click-outside dismissal (mt#3231 review R1, BLOCKING — "add a
+  // working close (X / Esc / click-outside)"). Scoped to a `pointerdown`
+  // listener checked against `detailPanelRef` (not a bare document click)
+  // so a click that STARTS the selection (a node click on the SVG stage)
+  // never races with this handler closing the panel it just opened in the
+  // same event — the SVG click is a separate `onClick` on the node, not
+  // inside this panel, so `!panel.contains(target)` would otherwise also
+  // fire for the very click that sets `effectiveSelectedEntityId` in the
+  // first place. Guarding the whole listener on `effectiveSelectedEntityId`
+  // being non-null (attach/detach per open/close) avoids that: the panel
+  // doesn't exist in the DOM yet at the moment the opening click fires, so
+  // there's nothing to attach a listener to until the NEXT render.
+  useEffect(() => {
+    if (!effectiveSelectedEntityId) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") clearSelectedEntity();
+    };
+    const handlePointerDown = (e: PointerEvent) => {
+      const panel = detailPanelRef.current;
+      if (panel && !panel.contains(e.target as Node)) clearSelectedEntity();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [effectiveSelectedEntityId, clearSelectedEntity]);
 
   // Touched-set contour visibility (spec SC 7 / AT 5): "off by default;"
   // hover shows transiently, click PINS it open until clicked again — so a
@@ -750,6 +803,7 @@ export function SessionFilmStage({
           PanZoomSVG so it stays screen-fixed regardless of pan/zoom. */}
       {selectedEntity ? (
         <div
+          ref={detailPanelRef}
           data-testid="session-film-entity-detail-panel"
           className="absolute bottom-2 left-2 z-10 max-w-xs rounded border border-border bg-card p-2 text-xs shadow-sm"
         >
@@ -759,7 +813,7 @@ export function SessionFilmStage({
               type="button"
               aria-label="Close entity detail"
               className="shrink-0 text-muted-foreground hover:text-foreground"
-              onClick={() => setInternalSelectedEntityId(null)}
+              onClick={clearSelectedEntity}
             >
               ×
             </button>

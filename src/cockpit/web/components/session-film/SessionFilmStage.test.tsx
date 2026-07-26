@@ -5,6 +5,7 @@
  *   src/cockpit/web/components/session-film/SessionFilmStage.test.tsx
  */
 import { describe, test, expect, afterEach, mock } from "bun:test";
+import { useState } from "react";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -489,6 +490,62 @@ describe("SessionFilmStage — node labels + hover + working click (mt#3231 SC 6
     fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
     expect(screen.getByTestId("session-film-entity-detail-panel")).toBeDefined();
     fireEvent.click(screen.getByLabelText("Close entity detail"));
+    expect(screen.queryByTestId("session-film-entity-detail-panel")).toBeNull();
+  });
+
+  // ── mt#3231 review R1, BLOCKING: the panel was non-dismissible whenever a
+  // parent controlled `selectedEntityId` — the close button only cleared
+  // this component's OWN internal fallback state, never the parent's. ──
+
+  test("closing the detail panel ALSO works when a parent controls selectedEntityId (open-then-close, controlled mode)", () => {
+    const { world, layout } = buildFixture([ev()]);
+    function ControlledHarness() {
+      const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+      return (
+        <SessionFilmStage
+          layout={layout}
+          world={world}
+          reducedMotion={false}
+          onSelectEntity={setSelectedEntityId}
+          selectedEntityId={selectedEntityId}
+        />
+      );
+    }
+    render(<ControlledHarness />);
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+    expect(screen.getByTestId("session-film-entity-detail-panel")).toBeDefined();
+
+    fireEvent.click(screen.getByLabelText("Close entity detail"));
+    expect(screen.queryByTestId("session-film-entity-detail-panel")).toBeNull();
+  });
+
+  test("the Escape key closes the detail panel", () => {
+    const { world, layout } = buildFixture([ev()]);
+    render(<SessionFilmStage layout={layout} world={world} reducedMotion={false} />);
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+    expect(screen.getByTestId("session-film-entity-detail-panel")).toBeDefined();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("session-film-entity-detail-panel")).toBeNull();
+  });
+
+  test("a pointerdown outside the detail panel closes it", () => {
+    const { world, layout } = buildFixture([ev()]);
+    render(
+      <div>
+        <div data-testid="outside-target">elsewhere on the page</div>
+        <SessionFilmStage layout={layout} world={world} reducedMotion={false} />
+      </div>
+    );
+    const node = layout.nodes.find((n) => n.entityId === "file:workspace:foo.ts");
+    if (!node) throw new Error("fixture node missing — test setup bug");
+    fireEvent.click(screen.getByTestId(`session-film-node-${node.id}`));
+    expect(screen.getByTestId("session-film-entity-detail-panel")).toBeDefined();
+    fireEvent.pointerDown(screen.getByTestId("outside-target"));
     expect(screen.queryByTestId("session-film-entity-detail-panel")).toBeNull();
   });
 });
