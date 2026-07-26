@@ -82,6 +82,12 @@ describe("hasRedundantOptionLetterPrefix — negative controls (mt#3253)", () =>
     ["a single letter with no separator", "A"],
     ["a two-letter token before a separator", "AB — both variants"],
     ["a slash after the letter", "A/B test both variants"],
+    // PR #2341 R1, a real finding: a dotted token is not a marker. Without the
+    // whitespace guard these stripped to "B test both variants" / "CLI option".
+    ["a dotted token (A.B)", "A.B test both variants"],
+    ["a dotted token before a word (A.CLI)", "A.CLI option"],
+    ["a separator with no space after it", "A -B variant"],
+    ["a marker-only label with no trailing space", "A."],
     ["an empty label", ""],
   ];
 

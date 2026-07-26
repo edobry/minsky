@@ -50,13 +50,26 @@ export const OPTION_LABEL_BUDGET = 60;
  * (`A — text`). The separator class covers hyphen, en/em dash, period, colon,
  * and the closing paren of `a)`.
  *
- * The bare-letter form REQUIRES that separator, which is what keeps ordinary
- * prose safe: "Adopt fully — vocabulary + one-pager reframe" starts with a
- * letter and contains an em dash, but `Adopt` is multi-character so the pattern
- * cannot match it. Verified against the corpus — all 35 matching labels are
- * genuine prefixes, zero false positives.
+ * Two guards keep ordinary prose safe, and both are load-bearing:
+ *
+ *  1. **The bare-letter form requires a separator.** "Adopt fully — vocabulary +
+ *     one-pager reframe" starts with a letter and contains an em dash, but
+ *     `Adopt` is multi-character so the pattern cannot reach it.
+ *  2. **The bare-letter form requires WHITESPACE after that separator** (`\s+`,
+ *     not `\s*`). Without it, `.` in the separator class made `"A.B test both
+ *     variants"` match and strip to `"B test both variants"` — silent, destructive
+ *     text loss on a label that carried no prefix at all (PR #2341 R1, a real
+ *     finding). A genuine marker is always followed by a space; a dotted token
+ *     like `A.B` or `A.CLI` never is. Same guard incidentally protects `"A -B"`.
+ *
+ * The bracketed form keeps `\s*` — `[a]` cannot be part of a word, so it needs no
+ * trailing space to be unambiguous.
+ *
+ * Verified against the corpus at both revisions: 35 of 200 labels match, and the
+ * whitespace guard loses NONE of them (every genuine marker has its space) while
+ * eliminating the `A.B` class.
  */
-export const OPTION_LETTER_PREFIX_PATTERN = /^(?:\[[A-Za-z]\]|[A-Za-z]\s*[-—–.):])\s*/;
+export const OPTION_LETTER_PREFIX_PATTERN = /^(?:\[[A-Za-z]\]\s*|[A-Za-z]\s*[-—–.):]\s+)/;
 
 /**
  * True when `label` opens with a letter marker the rendering surface would
