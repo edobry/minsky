@@ -56,6 +56,17 @@ export function sanitizeOctokitMessage(message: string): string {
 export interface OctokitErrorInfo {
   /** HTTP status code, if present */
   status?: number;
+  /**
+   * True when the error carries a `response` — i.e. GitHub actually sent one.
+   *
+   * Load-bearing for the 5xx branch (mt#3221). `@octokit/request`'s fetch wrapper
+   * synthesizes `status: 500` for EVERY transport-level failure (DNS failure, connection
+   * refused, TLS error, abort), rethrowing as `new RequestError(message, 500, { request })`
+   * with no `response`; every path that throws for a response GitHub actually SENT passes
+   * `response: octokitResponse`. So this flag — not the status — is what distinguishes
+   * "GitHub returned a server error" from "the request never reached GitHub."
+   */
+  hasResponse: boolean;
   /** Top-level error message */
   message: string;
   /** Lowercased message for quick substring checks */
@@ -90,6 +101,7 @@ export function classifyOctokitError(error: unknown): OctokitErrorInfo {
   const rawMessage: string = error instanceof Error ? error.message : String(error);
   const message: string = sanitizeOctokitMessage(rawMessage);
   const status: number | undefined = anyErr?.status ?? anyErr?.response?.status;
+  const hasResponse: boolean = anyErr?.response != null;
   const ghData = anyErr?.response?.data;
   const rawGhMessage: string = typeof ghData?.message === "string" ? ghData.message : "";
   const ghMessage: string = sanitizeOctokitMessage(rawGhMessage);
@@ -100,6 +112,7 @@ export function classifyOctokitError(error: unknown): OctokitErrorInfo {
 
   return {
     status,
+    hasResponse,
     message,
     messageLower: message.toLowerCase(),
     ghErrors,
@@ -285,7 +298,7 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     );
   }
 
-  // ── Server-side degradation (5xx) ────────────────────────────────
+  // ── Server-side degradation (5xx GitHub actually responded with) ──
   //
   // mt#2890: distinct from the generic fallback below so the status code
   // survives into the message text — the fallback's `getErrorMessage(error)`
@@ -293,7 +306,29 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
   // classifiers (workflow-commands.ts's merge-error classifier) rely on to
   // tell a real GitHub-side outage apart from a merge conflict or a rate
   // limit.
-  if (info.status !== undefined && info.status >= 500 && info.status < 600) {
+  //
+  // mt#3221: `hasResponse` is a correctness guard, not a refinement. Octokit
+  // synthesizes `status: 500` for every transport-level failure, so without it
+  // the operator's OWN connectivity failure renders as "GitHub API
+  // degraded/unavailable" and `classifyMergeError` records a GitHub outage —
+  // pointing the operator at githubstatus.com for a fault on their end.
+  //
+  // Trade-off, taken deliberately: a genuine GitHub 5xx re-thrown through a
+  // wrapper that preserved only `.status` would lose `.response` and route to
+  // the network branch instead. No such wrapper exists on any current path —
+  // every `handleOctokitError` call site passes the raw caught error — and
+  // claiming a GitHub outage from an error carrying no evidence GitHub
+  // responded is the same unearned-cause assertion mt#3171 removed from this
+  // branch's own text.
+  const isServer5xx =
+    info.status !== undefined && info.status >= 500 && info.status < 600 && info.hasResponse;
+
+  // A 5xx WITHOUT a response is Octokit's synthesized transport failure — it
+  // belongs in the network branch below, where the guidance actually matches.
+  const isSynthesizedTransport5xx =
+    info.status !== undefined && info.status >= 500 && info.status < 600 && !info.hasResponse;
+
+  if (isServer5xx) {
     throw new MinskyError(
       `GitHub API degraded/unavailable (HTTP ${info.status})\n\n` +
         `GitHub's API returned a server error for this request. A 5xx is a server-side ` +
@@ -306,7 +341,16 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
   }
 
   // ── Network / connectivity ──────────────────────────────────────
+  //
+  // mt#3221: a status-LESS error whose message merely mentions a gateway
+  // timeout stays here deliberately, rather than being promoted to the
+  // degraded branch above. With neither a status nor a response there is no
+  // evidence GitHub responded at all, so naming it a GitHub outage would
+  // assert precisely what cannot be established — and matching `5xx` out of
+  // message text would additionally misfire on ordinary prose, since `500` is
+  // a common round number in a way `403`/`404` are not.
   if (
+    isSynthesizedTransport5xx ||
     info.messageLower.includes("network") ||
     info.messageLower.includes("timeout") ||
     info.messageLower.includes("enotfound")
