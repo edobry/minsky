@@ -68,3 +68,30 @@ describe("ActivityPage EventRow — Shape 3: event.relatedTaskId (mt#3175)", () 
     expect(container.querySelector('a[href^="/tasks/"]')).toBeNull();
   });
 });
+
+describe("ActivityPage EventRow — unknown event type fallback (mt#3240)", () => {
+  test("renders a fallback row instead of crashing for an event type outside the client union", () => {
+    global.fetch = mock(async () => ({ ok: false, json: async () => ({}) }) as Response) as unknown as typeof fetch;
+
+    // Simulates a real /api/activity response carrying a server-only event
+    // type (the server's system_event_type enum has 27 members; the client's
+    // SystemEventType union models only 9 — see mt#3240). fetchActivity's
+    // response is only type-asserted (`res.json() as Promise<...>`), never
+    // runtime-validated, so this cast reproduces a realistic wire shape, not
+    // a test-only artifact.
+    const unknownEvent = baseEvent({
+      eventType: "principal.poll_advanced" as SystemEvent["eventType"],
+    });
+
+    // Before the fix, eventStyle/eventSummary's exhaustive-looking switches
+    // had no default case, fell through, and EventRow crashed reading
+    // `style.badgeClass` off `undefined`. render() throws synchronously on a
+    // render-time error, so a fix regression fails this test immediately.
+    const { container } = renderRow(unknownEvent);
+
+    // Fallback renders the raw event type (never crashes), muted badge class.
+    expect(container.textContent).toContain("principal.poll_advanced");
+    const badge = container.querySelector("span.bg-muted");
+    expect(badge).not.toBeNull();
+  });
+});
