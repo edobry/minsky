@@ -28,6 +28,7 @@ import {
   MERGE_ERROR_SUMMARY_EXCERPT_LIMIT,
 } from "./workflow-commands";
 import { SessionConflictError } from "@minsky/domain/errors/index";
+import { handleOctokitError } from "@minsky/domain/repository/github-error-handler";
 
 describe("classifyMergeError", () => {
   test("SessionConflictError instance classifies as conflict", () => {
@@ -213,5 +214,57 @@ describe("classifyMergeError + withOriginalMessage composition (mt#2890 acceptan
     const summary = buildSummary(`GitHub API degraded/unavailable${statusSuffix}`, err);
     expect(summary).toContain("HTTP 500");
     expect(summary).not.toContain("Merge conflict");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3221 — end-to-end through the REAL producer.
+//
+// The tests above construct the degraded message by hand. These run the actual
+// `handleOctokitError` output through `classifyMergeError`, so the producer and
+// the parser are pinned together: Octokit synthesizes `status: 500` for every
+// transport-level failure, and before mt#3221 that made the operator's own
+// connectivity failure classify as a GitHub outage here.
+// ---------------------------------------------------------------------------
+
+describe("mt#3221 — transport failure vs GitHub-responded 5xx, end to end", () => {
+  const CTX = {
+    operation: "merge pull request",
+    owner: "owner",
+    repo: "repo",
+    prNumber: 1988,
+  };
+
+  function thrownMessage(error: unknown): string {
+    try {
+      handleOctokitError(error, CTX);
+    } catch (err) {
+      return (err as Error).message;
+    }
+    throw new Error("expected handleOctokitError to throw");
+  }
+
+  test("a synthesized transport 5xx (status, no response) does NOT classify as degraded", () => {
+    // The exact shape Octokit's fetch wrapper throws for a DNS/connection failure.
+    const transport = new Error(
+      "Unable to connect. Is the computer able to access the url?"
+    ) as Error & { status: number };
+    transport.status = 500;
+
+    expect(classifyMergeError(new Error(thrownMessage(transport))).kind).toBe("other");
+  });
+
+  test("a GitHub-responded 5xx still classifies as degraded with its status", () => {
+    const responded = new Error("boom") as Error & {
+      status: number;
+      response: { status: number };
+    };
+    responded.status = 503;
+    responded.response = { status: 503 };
+
+    expect(classifyMergeError(new Error(thrownMessage(responded)))).toEqual({
+      kind: "degraded",
+      status: "503",
+    });
   });
 });

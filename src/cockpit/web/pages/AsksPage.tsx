@@ -40,6 +40,7 @@ import {
   isStanding,
   STANDING_ASK_BUDGET,
   type AskGroup,
+  type InlineAction,
 } from "../lib/ask-groups";
 import { cn } from "../lib/utils";
 import {
@@ -125,6 +126,72 @@ function RequestorCell({
 }
 
 // ---------------------------------------------------------------------------
+// Inline action bar — the ask's own typed actions (mt#2882).
+//
+// Option labels are producer-supplied and routinely 40-60 chars ("[a] GitHub
+// Actions migrate-on-merge (recommended)"), so this bar CANNOT share the
+// title line: three of them need ~860px against a row width of ~970px, which
+// is what pushed Defer and the open-detail affordance off-screen and squeezed
+// the title button to zero width (mt#3246). It wraps within its own band
+// instead, and each label is width-capped with the full text on hover so one
+// pathological label can't reintroduce the overflow.
+// ---------------------------------------------------------------------------
+
+const ACTION_LABEL_MAX_W = "max-w-[22rem]";
+
+function InlineActionBar({
+  ask,
+  actions,
+  inline,
+  pending,
+}: {
+  ask: AskItem;
+  actions: InlineAskActions;
+  inline: InlineAction[];
+  pending: boolean;
+}) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1">
+      {inline.map((a) =>
+        a.action === "resolve" ? (
+          <Button
+            key={a.label}
+            size="sm"
+            variant={a.optionLetter === "A" ? "default" : "outline"}
+            className={cn("h-6 min-w-0 px-2 text-xs", ACTION_LABEL_MAX_W)}
+            disabled={pending}
+            title={optionTitle(ask, a)}
+            onClick={() =>
+              actions.resolveMutation.mutate({ ask, optionLetter: a.optionLetter ?? "A" })
+            }
+          >
+            <span className="truncate">{a.label}</span>
+          </Button>
+        ) : (
+          <Button
+            key={a.label}
+            size="sm"
+            variant="ghost"
+            className="h-6 flex-shrink-0 px-2 text-xs"
+            disabled={pending}
+            onClick={() => actions.deferMutation.mutate(ask.id)}
+          >
+            {a.label}
+          </Button>
+        )
+      )}
+    </div>
+  );
+}
+
+/** Hover text for an option button: the label (which may be truncated on
+ *  screen) plus its description when the producer supplied one. */
+function optionTitle(ask: AskItem, a: InlineAction): string {
+  const description = ask.options?.[(a.optionLetter ?? "A").charCodeAt(0) - 65]?.description;
+  return description ? `${a.label} — ${description}` : a.label;
+}
+
+// ---------------------------------------------------------------------------
 // One ask row — badge, title, inline actions, expandable question.
 // ---------------------------------------------------------------------------
 
@@ -160,7 +227,7 @@ function AskRow({
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
           aria-label={expanded ? "Collapse question" : "Expand question"}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+          className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
         >
           {expanded ? (
             <ChevronDown aria-hidden className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
@@ -215,77 +282,65 @@ function AskRow({
           {formatRelative(ask.createdAt)}
         </span>
 
-        {/* Inline actions — answer from here (act-here over navigate-away). */}
-        <div className="flex flex-shrink-0 items-center gap-1">
-          {inline.map((a) =>
-            a.action === "resolve" ? (
-              <Button
-                key={a.label}
-                size="sm"
-                variant={a.optionLetter === "A" ? "default" : "outline"}
-                className="h-6 px-2 text-xs"
-                disabled={pending}
-                title={
-                  ask.options?.[(a.optionLetter ?? "A").charCodeAt(0) - 65]?.description ??
-                  undefined
-                }
-                onClick={() =>
-                  actions.resolveMutation.mutate({ ask, optionLetter: a.optionLetter ?? "A" })
-                }
-              >
-                {a.label}
-              </Button>
-            ) : (
-              <Button
-                key={a.label}
-                size="sm"
-                variant="ghost"
-                className="h-6 px-2 text-xs"
-                disabled={pending}
-                onClick={() => actions.deferMutation.mutate(ask.id)}
-              >
-                {a.label}
-              </Button>
-            )
-          )}
-          <button
-            type="button"
-            aria-label={`Open ask ${ask.shortId ?? ask.id}`}
-            title="Full detail (context, escalate)"
-            onClick={() => navigate(`/ask/${encodeURIComponent(ask.id)}`)}
-            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <ExternalLink aria-hidden className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        {/* Navigation, not a decision — anchored at the row's right edge so
+            full detail is reachable from a fixed position on every row. */}
+        <button
+          type="button"
+          aria-label={`Open ask ${ask.shortId ?? ask.id}`}
+          title="Full detail (context, escalate)"
+          onClick={() => navigate(`/ask/${encodeURIComponent(ask.id)}`)}
+          className="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ExternalLink aria-hidden className="h-3.5 w-3.5" />
+        </button>
       </div>
 
-      {/* Collapsed consequence line (PR #2027 R2): the question's lead
-          sentence — what this decision DOES — readable without expansion. */}
+      {/* Consequence + actions share one band, consequence FIRST: what the
+          decision does is read before it is taken. Short action sets (Approve
+          / Deny / Defer) sit on the consequence's line, so a row that already
+          fit keeps its two-line height; a long option set wraps beneath it
+          rather than overflowing the card (mt#3246). */}
       {!expanded && (
-        <p className="truncate px-9 pb-1.5 text-xs text-muted-foreground">
-          {consequenceSnippet(ask.question)}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 pb-2 pl-9">
+          {/* Collapsed consequence line (PR #2027 R2): the question's lead
+              sentence — what this decision DOES — readable without expansion.
+              `basis-64` is what makes the band wrap correctly: flex line
+              breaking uses the flex BASE size, so a zero-basis consequence
+              would let a 900px action bar share its line and collapse it to an
+              ellipsis. Declaring 16rem of wanted width means the actions wrap
+              below whenever they'd starve it, while still shrinking (min-w-0)
+              on a narrow window. */}
+          <p className="min-w-0 flex-1 basis-64 truncate text-xs text-muted-foreground">
+            {consequenceSnippet(ask.question)}
+          </p>
+          <InlineActionBar ask={ask} actions={actions} inline={inline} pending={pending} />
+        </div>
       )}
 
       {/* Expanded: the full question + option descriptions — the decision is
-          readable here, without opening the detail page. */}
+          readable here, without opening the detail page. Actions follow the
+          question so the expanded read order is question → options → act. */}
       {expanded && (
-        <div className="border-t border-border/60 px-9 py-2 text-sm text-muted-foreground">
-          <p className="whitespace-pre-wrap">{ask.question}</p>
-          {ask.options && ask.options.length > 0 && (
-            <ul className="mt-2 space-y-1">
-              {ask.options.map((opt, i) => (
-                <li key={`${opt.label}-${i}`} className="text-xs">
-                  <span className="font-medium text-foreground">
-                    {String.fromCharCode(65 + i)}. {opt.label}
-                  </span>
-                  {opt.description && <span className="ml-1">— {opt.description}</span>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <>
+          <div className="border-t border-border/60 px-9 py-2 text-sm text-muted-foreground">
+            <p className="whitespace-pre-wrap">{ask.question}</p>
+            {ask.options && ask.options.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {ask.options.map((opt, i) => (
+                  <li key={`${opt.label}-${i}`} className="text-xs">
+                    <span className="font-medium text-foreground">
+                      {String.fromCharCode(65 + i)}. {opt.label}
+                    </span>
+                    {opt.description && <span className="ml-1">— {opt.description}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="px-3 pb-2 pl-9">
+            <InlineActionBar ask={ask} actions={actions} inline={inline} pending={pending} />
+          </div>
+        </>
       )}
     </div>
   );
@@ -328,13 +383,13 @@ function GroupCard({ group, actions }: { group: AskGroup; actions: InlineAskActi
   const ks = kindStyle(group.kind);
   return (
     <div className="rounded-md border border-border bg-card/60">
-      <div className="flex items-center gap-2 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
         <span
           className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${ks.badge}`}
         >
           {ks.priority}
         </span>
-        <span className="text-sm font-medium text-foreground">
+        <span className="truncate text-sm font-medium text-foreground">
           {group.asks.length} × {group.kind}
         </span>
         {group.subject && <GroupSubjectBadge subject={group.subject} />}
@@ -448,9 +503,7 @@ export function AsksPage() {
             <span
               className={cn(
                 "ml-2 rounded px-1.5 py-0.5 text-xs tabular-nums",
-                overBudget
-                  ? "bg-warn-amber/40 text-foreground"
-                  : "bg-muted text-muted-foreground"
+                overBudget ? "bg-warn-amber/40 text-foreground" : "bg-muted text-muted-foreground"
               )}
               title={`Asks open >24h. Standing budget: ${STANDING_ASK_BUDGET} (ISA-18.2 standing-alarm ceiling) — above it the QUEUE is unhealthy, independent of any single ask.`}
             >
@@ -459,7 +512,7 @@ export function AsksPage() {
           )}
         </h1>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <select
             value={controls.filters.kind}
             onChange={(e) => controls.setFilter("kind", e.target.value)}

@@ -15,6 +15,7 @@ import { first } from "@minsky/shared/array-safety";
 import {
   analyzeEditPattern,
   createMorphCompletionParams,
+  preserveTrailingNewline,
   type MorphFastApplyRequest,
 } from "./edit-pattern-utils";
 import { getConfiguration } from "../configuration";
@@ -153,7 +154,7 @@ Instructions:
 
     // Generate the edited content using the enhanced completion service
     const response = await completionService.complete(completionParams);
-    const result = response.content.trim();
+    const result = preserveTrailingNewline(response.content, originalContent);
 
     // Log usage for monitoring
     log.debug(
