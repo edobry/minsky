@@ -15,7 +15,7 @@ import {
 } from "../storage/schemas/system-events-schema";
 
 describe("event category classification", () => {
-  test("the 5 actionable types are classified actionable", () => {
+  test("the actionable types are classified actionable", () => {
     const actionable = eventTypesForCategory("actionable");
     expect(actionable.sort()).toEqual(
       [
@@ -24,6 +24,14 @@ describe("event category classification", () => {
         "pr.review_posted",
         "subagent.failed",
         "embeddings.provider_degraded",
+        // mt#3228: an inbound message refused by the principal channel's
+        // allowlist — an unauthorized party attempting to drive the local
+        // swarm is something the operator must see, unlike its accepted
+        // sibling (informational, below).
+        "principal.message_rejected",
+        // mt#3228: carrying out an accepted message failed — the pre-action
+        // audit row alone never says whether the channel actually worked.
+        "principal.message_failed",
       ].sort()
     );
   });
@@ -50,6 +58,8 @@ describe("event category classification", () => {
         "authorization.policy_covered",
         "task.bulk_edit.dry_run",
         "task.bulk_edit.executed",
+        "principal.message_received",
+        "principal.poll_advanced",
       ].sort()
     );
   });
