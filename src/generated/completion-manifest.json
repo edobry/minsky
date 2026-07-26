@@ -6951,6 +6951,34 @@
       ]
     },
     {
+      "name": "principal",
+      "description": "PRINCIPAL commands",
+      "subcommands": [
+        {
+          "name": "notify",
+          "description": "Send the principal a message on their configured channel (Telegram). For notifications only — anything needing an answer belongs in asks.create.",
+          "options": [
+            {
+              "flags": ["--title"],
+              "description": "Optional leading line rendered above the body (e.g. a task id).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "message",
+              "required": true,
+              "description": "Message body to deliver to the principal. Plain text."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "mcp",
       "description": "Model Context Protocol (MCP) server commands",
       "subcommands": [

@@ -34,6 +34,7 @@ export const commandCategorySchema = z.enum([
   "FORGE",
   "EVENTS",
   "REFS",
+  "PRINCIPAL",
 ]);
 
 /**
