@@ -76,6 +76,8 @@ import { sanitizeReviewBody, redactForLog } from "./sanitize";
 import { extractFixCommitDiff, type FixCommitLineRangeMap } from "./diff-scoper";
 import { submitReviewWithGuards } from "./guarded-submit";
 import { fetchAndVerifyDocImpact } from "./doc-impact-verifier";
+import { fetchAndApplyStructuralClaimVerification } from "./structural-claim-verifier";
+import type { ReviewToolCall } from "./output-tools";
 import { acquireMarker, releaseMarker } from "./inflight-marker";
 import { log } from "./logger";
 import { extractPgErrorContext } from "./webhook-events";
@@ -860,6 +862,15 @@ async function runReviewBody(
       (process.env.REVIEWER_REFUTATION_RECOVERY_ENABLED ?? "").trim()
     );
 
+    // mt#3245 structural-claim verification: before a BLOCKING finding asserting a
+    // duplicate identifier / duplicate declaration is posted, deterministically count
+    // declaration FORMS (not identifier occurrences) for the named identifier against the
+    // file's actual current content and drop/demote the claim if it does not reproduce.
+    // Default-off, same convention as the sibling recovery passes above.
+    const structuralClaimVerificationEnabled = /^(true|1|yes|on)$/i.test(
+      (process.env.REVIEWER_STRUCTURAL_CLAIM_VERIFICATION_ENABLED ?? "").trim()
+    );
+
     // Compute iteration index (1-based) for the convergence threshold gate.
     // iterationCount is the count of prior reviews (0 for first review, 1 for second, etc.)
     // so iterationIndex = iterationCount + 1.
@@ -927,10 +938,46 @@ async function runReviewBody(
       });
     }
 
+    // mt#3245 structural-claim verification: when enabled, deterministically falsify
+    // BLOCKING findings that assert a duplicate identifier / duplicate declaration by
+    // counting declaration FORMS (not occurrences) against the file's actual current
+    // content at the review ref — never the diff alone (the incident's two identifiers
+    // were split across distant hunks, so a diff-only count reproduces the exact
+    // failure). Runs before doc-impact verification; the two passes touch disjoint
+    // finding shapes (duplicate-declaration vs. documentation-impact) so order between
+    // them does not matter. Flag off reproduces current behavior exactly: the fetcher
+    // is never invoked and output.toolCalls passes through unchanged.
+    let toolCallsAfterStructuralVerification: ReadonlyArray<ReviewToolCall> = output.toolCalls;
+    if (structuralClaimVerificationEnabled) {
+      const structuralVerification = await fetchAndApplyStructuralClaimVerification(
+        output.toolCalls,
+        async (filePath) => {
+          const result = await readFileAtRef(
+            octokit,
+            pr.headOwner,
+            pr.headRepo,
+            filePath,
+            pr.headSha
+          );
+          return result !== null && result.kind === "text" ? result.content : null;
+        }
+      );
+      toolCallsAfterStructuralVerification = structuralVerification.toolCalls;
+      if (structuralVerification.downgrades.length > 0) {
+        log.info("reviewer.structural_claim_verification", {
+          event: "reviewer.structural_claim_verification",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          downgrades: structuralVerification.downgrades,
+          downgradeCount: structuralVerification.downgrades.length,
+        });
+      }
+    }
+
     // mt#2154: doc-impact verification — check that docs listed in affectedDocs
     // actually reference the changed surfaces before flagging them as BLOCKING.
     const docVerification = await fetchAndVerifyDocImpact(
-      output.toolCalls,
+      toolCallsAfterStructuralVerification,
       pr.filesChanged,
       pr.diff,
       async (docPath) => {
