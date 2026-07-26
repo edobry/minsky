@@ -51,6 +51,23 @@ interface ViewBox {
   h: number;
 }
 
+/**
+ * Ambient camera life (mt#3226 SC 4 — session film aliveness pass): a slow
+ * viewBox drift/zoom-breathing wobble around the current fit, PAUSED the
+ * instant the user pans/zooms manually (reuses `userInteractedRef` — the
+ * SAME ref that already gates auto-refit-on-resize). The CALLER decides
+ * `enabled` (SessionFilmStage.tsx passes `!reducedMotion`) — PanZoomSVG
+ * itself stays reduced-motion-agnostic, matching this component's existing
+ * "resize policy" ownership split.
+ */
+interface AmbientDriftOptions {
+  enabled: boolean;
+  /** Position-drift amplitude, board coordinate units. */
+  amplitudePx: number;
+  /** One full drift cycle, ms. */
+  periodMs: number;
+}
+
 interface PanZoomSVGProps {
   /** Intrinsic coordinate width of the SVG drawing area. */
   boardWidth: number;
@@ -58,6 +75,8 @@ interface PanZoomSVGProps {
   boardHeight: number;
   /** Accessible label for the SVG region. */
   ariaLabel: string;
+  /** Ambient drift/zoom-breathing (mt#3226 SC 4) — omit or `enabled: false` for the plain fit-and-hold framing. */
+  ambientDrift?: AmbientDriftOptions;
   className?: string;
   children: React.ReactNode;
 }
@@ -101,7 +120,14 @@ function fitViewBox(boardWidth: number, boardHeight: number, containerWidth: num
 // Component
 // ---------------------------------------------------------------------------
 
-export function PanZoomSVG({ boardWidth, boardHeight, ariaLabel, className, children }: PanZoomSVGProps) {
+export function PanZoomSVG({
+  boardWidth,
+  boardHeight,
+  ariaLabel,
+  ambientDrift,
+  className,
+  children,
+}: PanZoomSVGProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -157,6 +183,49 @@ export function PanZoomSVG({ boardWidth, boardHeight, ariaLabel, className, chil
     observer.observe(el);
     return () => observer.disconnect();
   }, [applyFit]);
+
+  // -------------------------------------------------------------------------
+  // Ambient camera life (mt#3226 SC 4): a slow drift/zoom-breathing wobble
+  // RECOMPUTED FRESH from the current fit every tick (not compounded onto
+  // itself — the camera breathes AROUND the fitted center, it doesn't
+  // random-walk away from it). Ticks are skipped entirely once
+  // `userInteractedRef.current` is true: "user pan/zoom always overrides
+  // and pauses ambience" (spec) — checked live inside the tick, not just at
+  // effect-setup time, so a mid-drift user interaction stops it immediately
+  // on the NEXT tick without needing to tear down and restart the interval.
+  // -------------------------------------------------------------------------
+  const ambientStartRef = useRef<number>(Date.now());
+  useEffect(() => {
+    if (!ambientDrift?.enabled) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const tick = () => {
+      if (userInteractedRef.current) return; // paused — the user is in control
+      const { width, height } = el.getBoundingClientRect();
+      if (width === 0 || height === 0) return;
+      const fit = fitViewBox(boardWidth, boardHeight, width, height);
+      const elapsed = Date.now() - ambientStartRef.current;
+      const amp = ambientDrift.amplitudePx;
+      const period = ambientDrift.periodMs;
+      const dx = amp * Math.sin((2 * Math.PI * elapsed) / period);
+      // Different period ratio for y — an organic (Lissajous-like) drift
+      // path rather than a perfect circle.
+      const dy = amp * Math.cos((2 * Math.PI * elapsed) / (period * 1.37));
+      // Subtle zoom breathing — a small scale wobble around the SAME fit,
+      // kept centered (adjusting x/y by half the size delta).
+      const scaleWobble = 1 + 0.02 * Math.sin((2 * Math.PI * elapsed) / (period * 0.6));
+      const w = fit.w * scaleWobble;
+      const h = fit.h * scaleWobble;
+      setViewBox({
+        x: fit.x + dx - (w - fit.w) / 2,
+        y: fit.y + dy - (h - fit.h) / 2,
+        w,
+        h,
+      });
+    };
+    const id = setInterval(tick, 200);
+    return () => clearInterval(id);
+  }, [ambientDrift?.enabled, ambientDrift?.amplitudePx, ambientDrift?.periodMs, boardWidth, boardHeight]);
 
   // -------------------------------------------------------------------------
   // Zoom (focal point as fractions of the viewport; resolved against the LIVE
@@ -276,6 +345,7 @@ export function PanZoomSVG({ boardWidth, boardHeight, ariaLabel, className, chil
       ref={containerRef}
       className={cn("relative flex-1 min-w-0 min-h-0 overflow-hidden", className)}
       data-testid="pan-zoom-svg-container"
+      data-ambient-drift={ambientDrift?.enabled ? "true" : undefined}
     >
       {/* Zoom controls — docked top-right, keyboard-focusable */}
       <div className="absolute top-2 right-2 z-10 flex flex-col gap-1" role="group" aria-label="Zoom controls">

@@ -1,6 +1,6 @@
 /**
  * SessionFilmStage — the A2 stage (mt#3184 — Watchable world Phase 1, spec
- * SC 5 / SC 6).
+ * SC 5 / SC 6; aliveness pass mt#3226 SC 4).
  *
  * SVG scene: the collapsed world-forest (via `computeStageLayout`), avatar
  * figures making excursions from home to their current target, outcome
@@ -20,10 +20,45 @@
  * overlays"), the agent avatar renders in `fill-iso-pastel`; the principal's
  * own figure uses the signal-cyan accent to stay visually distinct.
  *
+ * ## Aliveness pass (mt#3226 SC 4)
+ *
+ * Operator's summary judgment on v1: "it doesn't feel alive... I don't get
+ * the sense of excitement I got from [Gource]." Four mechanics, all gated
+ * behind the SAME `!reducedMotion` flag that already gates the excursion
+ * tween above (AT 5: "renders no ambient animation classes/elements" under
+ * reduced motion — a coarse `data-ambient` marker on the scene root plus
+ * per-affordance absence, not merely a zeroed CSS duration):
+ *
+ *   - **Bloom/glow** — one shared SVG `<filter>` (feGaussianBlur), applied
+ *     to nodes/beams/avatar with brightness/blur-radius driven by
+ *     `session-film-aliveness.ts`'s `computeGlowBrightness` — a CONTINUOUS
+ *     decay of wall-clock time since last touch (via `useAmbientClock`'s
+ *     ticking "now"), so the scene visibly cools between events instead of
+ *     snapping. This ticking clock reads already-known `lastTouchedAt`
+ *     values; it never mutates fold/world state or invents an event.
+ *   - **Arrival physics** — a newly-materialized node gets the
+ *     `session-film-arrival-settle` class (index.css) for one settle
+ *     duration (spring overshoot + damp), tracked via a "seen ids" ref
+ *     compared each render; its connecting edge eases in alongside it.
+ *   - **Camera life** — `PanZoomSVG`'s `ambientDrift` (mt#3226) drives slow
+ *     viewBox drift/zoom breathing, paused the instant the user pans/zooms.
+ *   - **Avatar aliveness** — the SAME iso-pastel-filled avatar gets the
+ *     bloom filter plus a subtle idle-float class (`session-film-avatar-float`).
+ *
+ * Design-decision record (verbatim — required in code AND the PR body): the
+ * plant board's honest-motion law is deliberately carved out for the film's
+ * AMBIENT register (camera drift, idle float, decay breathing) — the film
+ * is a narrative surface, not a status instrument; ambience must NEVER be
+ * event-mimicking (no fake beams, no fake node activity). Event-driven
+ * motion (excursions, beams, arrivals) remains strictly honest. Operator
+ * approved this direction 2026-07-25 by requesting it.
+ *
  * @see session-film-layout.ts — the node positions this renders
  * @see session-film-links.ts — entity receipt resolution for node clicks
+ * @see session-film-aliveness.ts — glow-brightness math + the full design-decision record
+ * @see PanZoomSVG.tsx — ambient camera drift
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { EventOutcome } from "@minsky/domain/transcripts/event-schema";
 import { PanZoomSVG } from "../PanZoomSVG";
 import type { StageLayout } from "../../lib/session-film-layout";
@@ -34,7 +69,12 @@ import {
   touchedSetContourColorClass,
 } from "../../lib/session-film-contour";
 import { DEFAULT_SESSION_FILM_CONFIG, type SessionFilmConfig } from "../../lib/session-film-config";
+import { bloomOpacity, bloomStdDeviation, computeGlowBrightness } from "../../lib/session-film-aliveness";
+import { useAmbientClock } from "../../hooks/useAmbientClock";
 import { cn } from "../../lib/utils";
+
+/** Shared bloom-filter id — one filter definition, referenced by every glowing element. */
+const BLOOM_FILTER_ID = "session-film-bloom";
 
 export const STAGE_BOARD_WIDTH = 900;
 export const STAGE_BOARD_HEIGHT = 700;
@@ -48,8 +88,16 @@ export interface SessionFilmStageProps {
   reducedMotion: boolean;
   onSelectEntity?: (entityId: string) => void;
   selectedEntityId?: string | null;
-  /** Tunables (DOI/motion/contour styling) — defaults to DEFAULT_SESSION_FILM_CONFIG. */
+  /** Tunables (DOI/motion/contour styling/aliveness) — defaults to DEFAULT_SESSION_FILM_CONFIG. */
   config?: SessionFilmConfig;
+  /**
+   * The fold's current playhead moment (mt#3226 SC 4) — the STATIC fallback
+   * `computeGlowBrightness` uses under reduced motion (no ticking clock, per
+   * the ambient-register carve-out). Optional: a caller that doesn't pass it
+   * (existing tests) falls back to a one-time `new Date()` snapshot, which
+   * only matters when ambience is enabled anyway.
+   */
+  nowIso?: string;
   className?: string;
 }
 
@@ -126,6 +174,7 @@ export function SessionFilmStage({
   onSelectEntity,
   selectedEntityId,
   config = DEFAULT_SESSION_FILM_CONFIG,
+  nowIso,
   className,
 }: SessionFilmStageProps) {
   const agents = useMemo(() => [...world.agents.values()], [world.agents]);
@@ -142,17 +191,109 @@ export function SessionFilmStage({
     [layout.nodes]
   );
 
+  // ── Aliveness pass (mt#3226 SC 4) — see module doc for the full design ──
+  const fallbackNowRef = useRef<string>(new Date().toISOString());
+  const staticNowIso = nowIso ?? fallbackNowRef.current;
+  // Continuous decay brightness (glow): the ONE ticking clock in this
+  // component, disabled entirely under reduced motion (falls back to the
+  // static playhead moment — no ticking, matching "no ambient animation").
+  const ambientNowIso = useAmbientClock(!reducedMotion, config.aliveness.glowTickIntervalMs, staticNowIso);
+
+  // Arrival physics: a node id newly present in `layout.nodes` (vs. the
+  // PREVIOUS render) gets the spring-settle treatment for one settle
+  // duration. Tracked via a ref (survives renders without re-triggering
+  // itself) — the diff and the timer both live in an effect so a discarded
+  // render (StrictMode double-invoke) can't corrupt the "seen" set.
+  const prevNodeIdsRef = useRef<Set<string>>(new Set());
+  const [justArrivedIds, setJustArrivedIds] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    if (reducedMotion) {
+      prevNodeIdsRef.current = new Set(layout.nodes.map((n) => n.id));
+      setJustArrivedIds(new Set());
+      return;
+    }
+    const currentIds = new Set(layout.nodes.map((n) => n.id));
+    const newlyArrived = new Set<string>();
+    for (const id of currentIds) {
+      if (!prevNodeIdsRef.current.has(id)) newlyArrived.add(id);
+    }
+    prevNodeIdsRef.current = currentIds;
+    if (newlyArrived.size === 0) return;
+    setJustArrivedIds(newlyArrived);
+    const timeout = setTimeout(() => setJustArrivedIds(new Set()), config.aliveness.arrivalSettleMs);
+    return () => clearTimeout(timeout);
+  }, [layout.nodes, reducedMotion, config.aliveness.arrivalSettleMs]);
+
+  const arrivalCssVars = {
+    "--arrival-overshoot": config.aliveness.arrivalOvershootScale,
+    "--arrival-duration": `${config.aliveness.arrivalSettleMs}ms`,
+  } as React.CSSProperties;
+  const avatarFloatCssVars = {
+    "--float-amplitude": `${config.aliveness.avatarFloatAmplitudePx}px`,
+    "--float-period": `${config.aliveness.avatarFloatPeriodMs}ms`,
+  } as React.CSSProperties;
+
   return (
     <PanZoomSVG
       boardWidth={STAGE_BOARD_WIDTH}
       boardHeight={STAGE_BOARD_HEIGHT}
       ariaLabel="Session film stage"
+      ambientDrift={{
+        enabled: !reducedMotion,
+        amplitudePx: config.aliveness.driftAmplitudePx,
+        periodMs: config.aliveness.driftPeriodMs,
+      }}
       className={className}
     >
       <g
         transform={`translate(${STAGE_BOARD_WIDTH / 2}, ${STAGE_BOARD_HEIGHT / 2})`}
         data-testid="session-film-stage-scene"
+        data-ambient={!reducedMotion ? "true" : undefined}
       >
+        {/* Bloom/glow filter (mt#3226 SC 4): ONE shared, FIXED-blur filter —
+            "activity brightens, idleness dims" is expressed by modulating
+            each glow-underlay circle's own RADIUS + OPACITY (cheap, ordinary
+            SVG/CSS properties, correct at ~80 nodes) rather than minting a
+            per-node filter with a continuously-varying stdDeviation (a
+            distinct SVG filter per element is comparatively expensive —
+            the nearest feasible treatment per the task's SVG-perf carve-out;
+            see the PR body). */}
+        {!reducedMotion ? (
+          <defs>
+            <filter id={BLOOM_FILTER_ID} x="-100%" y="-100%" width="300%" height="300%">
+              <feGaussianBlur stdDeviation={config.aliveness.bloomBlurStdDeviation} result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+        ) : null}
+
+        {/* Glow-underlay layer (mt#3226 SC 4): drawn BEFORE every other pass
+            so the halo sits fully behind the crisp solid node it belongs to
+            — the node's own fill/legibility never dims, only its halo does. */}
+        {!reducedMotion
+          ? layout.nodes.map((node) => {
+              if (!node.entityId) return null; // roots/synthetic path segments don't glow
+              const entity = world.entities.get(node.entityId);
+              if (!entity) return null;
+              const brightness = computeGlowBrightness(entity.lastTouchedAt, ambientNowIso, config);
+              const glowRadius = bloomStdDeviation(brightness, config) + NODE_RADIUS;
+              return (
+                <circle
+                  key={`glow-${node.id}`}
+                  data-testid={`session-film-glow-${node.id}`}
+                  cx={node.x}
+                  cy={node.y}
+                  r={glowRadius}
+                  filter={`url(#${BLOOM_FILTER_ID})`}
+                  className={outcomeClassName(entity.lastOutcome)}
+                  style={{ opacity: bloomOpacity(brightness) }}
+                />
+              );
+            })
+          : null}
         {/* Realm-tree edges (parent -> child), drawn before nodes so nodes paint over them. */}
         {layout.nodes.map((node) => {
           if (node.depth === 0) return null;
@@ -160,6 +301,9 @@ export function SessionFilmStage({
             (n) => n.realm === node.realm && n.depth === node.depth - 1
           );
           if (!parent) return null;
+          // Arrival physics (mt#3226 SC 4): an edge to a JUST-arrived node
+          // eases in alongside it, instead of popping into place.
+          const isNewEdge = !reducedMotion && justArrivedIds.has(node.id);
           return (
             <line
               key={`edge-${node.id}`}
@@ -167,7 +311,8 @@ export function SessionFilmStage({
               y1={parent.y}
               x2={node.x}
               y2={node.y}
-              className="stroke-border"
+              className={cn("stroke-border", isNewEdge && "session-film-edge-ease-in")}
+              style={isNewEdge ? arrivalCssVars : undefined}
               strokeWidth={1}
             />
           );
@@ -303,8 +448,10 @@ export function SessionFilmStage({
                 r={isRoot ? ROOT_RADIUS : NODE_RADIUS}
                 className={cn(
                   isRoot ? "fill-muted stroke-border" : outcomeClassName(entity?.lastOutcome),
-                  isSelected && "stroke-primary stroke-2"
+                  isSelected && "stroke-primary stroke-2",
+                  !reducedMotion && justArrivedIds.has(node.id) && "session-film-arrival-settle"
                 )}
+                style={!reducedMotion && justArrivedIds.has(node.id) ? arrivalCssVars : undefined}
                 strokeWidth={isRoot ? 1.5 : undefined}
               />
               {isRoot && node.childCount > 0 ? (
@@ -367,34 +514,66 @@ export function SessionFilmStage({
           );
         })}
 
-        {/* Avatars — one per actor with fold state; excursions per honest-motion (no idle animation). */}
+        {/* Avatars — one per actor with fold state. Excursions (cx/cy) are
+            honest-motion (fold-driven, spec AT 7); the glow halo + idle
+            float below are the AMBIENT register (mt#3226 SC 4 — "the avatar
+            is the most alive object"), gated behind !reducedMotion. Avatar
+            glow brightness derives from the `thinking` flag (a binary
+            hot/baseline signal already on AgentFoldState) rather than
+            continuous recency-decay like world nodes: AgentFoldState
+            doesn't carry a last-activity timestamp, and extending the fold
+            schema for it is out of this round's scope (nearest feasible
+            treatment — see the PR body). */}
         {agents.map((agent) => {
           const pos = avatarPosition(agent, world, layout);
           const isPolicy = agent.kind === "policy";
           const isPrincipal = agent.kind === "principal";
           const receiptPath = isPolicy ? guardDocReceiptPath(agent.guardName ?? "unknown") : undefined;
+          const fillClass = isPolicy ? "fill-warn-red" : isPrincipal ? "fill-signal-cyan" : "fill-iso-pastel";
+          const avatarBrightness = agent.thinking ? 1 : 0.6;
           return (
-            <circle
-              key={agent.key}
-              data-testid={`session-film-avatar-${agent.key}`}
-              data-at-home={pos.atHome ? "true" : undefined}
-              data-thinking={agent.thinking ? "true" : undefined}
-              data-receipt-path={receiptPath}
-              cx={pos.x}
-              cy={pos.y}
-              r={AVATAR_RADIUS}
-              onMouseEnter={() => setHoveredAgentKey(agent.key)}
-              onMouseLeave={() => setHoveredAgentKey((k) => (k === agent.key ? null : k))}
-              onClick={() => setPinnedAgentKey((k) => (k === agent.key ? null : agent.key))}
-              className={cn(
-                "cursor-pointer",
-                isPolicy ? "fill-warn-red" : isPrincipal ? "fill-signal-cyan" : "fill-iso-pastel",
-                !reducedMotion && "transition-[cx,cy] duration-300 ease-out",
-                agent.thinking && "animate-status-dot"
-              )}
-            >
-              {isPolicy ? <title>{`Denied by ${agent.guardName ?? "unknown guard"} — ${receiptPath}`}</title> : null}
-            </circle>
+            <g key={agent.key}>
+              {!reducedMotion ? (
+                <circle
+                  data-testid={`session-film-avatar-glow-${agent.key}`}
+                  cx={pos.x}
+                  cy={pos.y}
+                  r={bloomStdDeviation(avatarBrightness, config) + AVATAR_RADIUS}
+                  filter={`url(#${BLOOM_FILTER_ID})`}
+                  className={cn(fillClass, "pointer-events-none")}
+                  style={{ opacity: bloomOpacity(avatarBrightness) }}
+                />
+              ) : null}
+              <circle
+                data-testid={`session-film-avatar-${agent.key}`}
+                data-at-home={pos.atHome ? "true" : undefined}
+                data-thinking={agent.thinking ? "true" : undefined}
+                data-receipt-path={receiptPath}
+                cx={pos.x}
+                cy={pos.y}
+                r={AVATAR_RADIUS}
+                onMouseEnter={() => setHoveredAgentKey(agent.key)}
+                onMouseLeave={() => setHoveredAgentKey((k) => (k === agent.key ? null : k))}
+                onClick={() => setPinnedAgentKey((k) => (k === agent.key ? null : agent.key))}
+                style={!reducedMotion ? avatarFloatCssVars : undefined}
+                className={cn(
+                  "cursor-pointer",
+                  fillClass,
+                  // Pronounced excursion arcs (mt#3226 SC 4): a spring/
+                  // overshoot easing + longer duration than the plain
+                  // ease-out every other node uses — the avatar's arrival
+                  // reads as WEIGHT settling, not a linear glide.
+                  !reducedMotion &&
+                    "transition-[cx,cy] duration-500 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)]",
+                  !reducedMotion && "session-film-avatar-float",
+                  agent.thinking && "animate-status-dot"
+                )}
+              >
+                {isPolicy ? (
+                  <title>{`Denied by ${agent.guardName ?? "unknown guard"} — ${receiptPath}`}</title>
+                ) : null}
+              </circle>
+            </g>
           );
         })}
       </g>

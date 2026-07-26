@@ -227,6 +227,7 @@ export function SessionFilmPage() {
           layout={layout}
           world={worldState}
           reducedMotion={reducedMotion}
+          nowIso={nowIso}
           className="min-w-0 flex-1"
         />
       </div>
