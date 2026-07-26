@@ -293,41 +293,78 @@ jobs:
       # ambiguity to reason about.
       #
       # FATAL (revised 2026-07-25 during review, per reviewer-bot pushback
-      # on an initial loud-but-non-fatal draft): cockpit-preview.yml
-      # already proves the IDENTICAL mechanism — a Railway project token
-      # set as RAILWAY_TOKEN, consumed by the `railway` CLI with no
-      # `railway link` step — works in THIS repo's CI via `railway up`,
-      # the same auth path `railway redeploy` uses. A false-green report
-      # here is worse than an honest failure: redeploys are not currently
-      # landing AT ALL for this service (the exact bug this PR fixes), so
-      # failing loud is not a regression against today's actual deploy
-      # behavior — it makes the CI status honest instead of silently green
-      # while nothing deploys. See mt#3180 for the full incident.
+      # on an initial loud-but-non-fatal draft): a false-green report here
+      # is worse than an honest failure — redeploys were not landing AT ALL
+      # for this service, so failing loud is not a regression against
+      # today's actual deploy behavior; it makes the CI status honest
+      # instead of silently green while nothing deploys. See mt#3180.
+      #
+      # mt#3223 — TOKEN SCOPE + PROJECT CONTEXT. The first CLI version of
+      # this step passed the secret as `RAILWAY_TOKEN` and failed with
+      # `Service '3913e8a4-…' not found` (run 30178827355) — note: NOT
+      # `Not Authorized`, i.e. a context-resolution failure, not a
+      # permission one. Railway's CLI reads `RAILWAY_TOKEN` as
+      # PROJECT-scoped (project + environment implied BY the token) and
+      # `RAILWAY_API_TOKEN` as ACCOUNT-scoped. `railway redeploy` exposes NO
+      # --project/--environment flags, and the CLI has no global ones, so an
+      # account-scoped token leaves the command with no project context in
+      # an unlinked CI checkout. Hence the explicit `railway link` by IDs
+      # below — verified non-interactive from an unlinked directory on CLI
+      # 4.44.0 (mt#3223).
+      #
+      # CORRECTION: an earlier version of this comment claimed
+      # cockpit-preview.yml proves the IDENTICAL `RAILWAY_TOKEN` mechanism
+      # works in this repo's CI. That was WRONG — cockpit-preview.yml
+      # consumes a DIFFERENT secret (`RAILWAY_COCKPIT_TOKEN`), a per-project
+      # token that carries its own project/environment context, which is
+      # precisely why it needs no `railway link` step.
       - name: Trigger Railway redeploy
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          # Passed as RAILWAY_API_TOKEN (account scope) rather than
+          # RAILWAY_TOKEN (project scope) — see the scope note above.
+          # post-deploy-health-monitor.yml documents this same secret as a
+          # "Railway API token with read access to all services".
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           set -uo pipefail
 
-          if [ -z "${RAILWAY_TOKEN:-}" ]; then
-            echo "::error::RAILWAY_TOKEN not set — reviewer redeploy cannot be triggered. Add the secret (a Railway PROJECT token scoped to minsky-reviewer-webhook)."
+          if [ -z "${RAILWAY_API_TOKEN:-}" ]; then
+            echo "::error::RAILWAY_TOKEN secret not set — reviewer redeploy cannot be triggered."
             exit 1
           fi
 
           npm install -g @railway/cli
 
-          # Railway service identifier from services/reviewer/deploy.config.ts
+          # Railway identifiers from services/reviewer/deploy.config.ts
           # (kept inline, matching the pre-existing convention in this file and
           # in deploy-minsky-mcp.yml; extracting a single shared source of
           # truth is a reasonable follow-up but out of scope for this fix).
+          PROJECT_ID="41e5ee9c-49e6-44ff-9bfe-7f03d0e94d4b"
+          ENVIRONMENT_ID="b3ea3f5d-8560-40ea-8824-17fe3ca0b32a"
           SERVICE_ID="3913e8a4-81ab-465a-aad8-b76b5e3f66ed"
+
+          # Diagnostic: prints the authenticated ACCOUNT NAME — never the
+          # token. If the secret turns out to be a project token rather than
+          # an account token, this is where that surfaces, making a failure
+          # self-diagnosing instead of another round of guessing (mt#3223).
+          echo "Railway auth identity:"
+          railway whoami || echo "::warning::railway whoami failed — the secret may be a PROJECT token, which cannot authenticate account-scoped calls."
+
+          # `railway redeploy` has no --project/--environment flags, and a CI
+          # checkout is never linked, so establish context explicitly.
+          railway link --project "${PROJECT_ID}" --environment "${ENVIRONMENT_ID}" --service "${SERVICE_ID}"
+          link_rc=$?
+          if [ "$link_rc" -ne 0 ]; then
+            echo "::error::railway link failed (exit ${link_rc}) — could not establish project context for minsky-reviewer. If 'whoami' above also failed, the RAILWAY_TOKEN secret is not an account-scoped token for this workspace; mint a project token for the minsky-reviewer project and pass it as RAILWAY_TOKEN instead (mt#3223)."
+            exit "$link_rc"
+          fi
 
           railway redeploy --from-source --service "${SERVICE_ID}" -y
           rc=$?
           if [ "$rc" -eq 0 ]; then
             echo "Railway redeploy triggered successfully via the CLI."
           else
-            echo "::error::railway redeploy failed (exit ${rc}) — check that RAILWAY_TOKEN is scoped to the minsky-reviewer-webhook project/environment (see mt#3180)."
+            echo "::error::railway redeploy failed (exit ${rc}). See the 'whoami' and 'link' output above to distinguish a token-scope problem from a genuine redeploy failure (mt#3223)."
           fi
           exit "$rc"
