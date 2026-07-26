@@ -19,12 +19,12 @@
  * @see ./principal-channel-actuator.ts — what carries out the decisions
  */
 
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { resolvePrincipalChannel } from "@minsky/domain/notify/principal-channel";
 import { inboundEventToken } from "@minsky/domain/notify/principal-inbound";
 import type { PrincipalMessageEventPayload } from "@minsky/domain/notify/principal-inbound";
-import type { AppContainerInterface } from "@minsky/domain/composition/types";
-import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import { createCachedSqlDbGetter, getServerAskRepository } from "./db-providers";
 import { createDrivenSessionActuator } from "./principal-channel-actuator";
 import {
   startPrincipalChannelPoller,
@@ -83,22 +83,44 @@ export function createEventLogCursor(
   };
 }
 
-interface DbLike {
-  execute: (query: unknown) => Promise<unknown>;
-}
+/** The narrow slice of a Drizzle connection this module needs. */
+export type DbLike = Pick<PostgresJsDatabase, "execute">;
 
-async function getDb(container: AppContainerInterface | undefined): Promise<DbLike | null> {
-  if (!container?.has("persistence")) return null;
+/** Supplies the DB connection. Matches the cockpit's own cached-getter style. */
+export type DbGetter = () => Promise<DbLike | null>;
+
+/**
+ * The channel's DB handle.
+ *
+ * `cacheNegative: false` — unlike a read-only widget, a failed probe here must
+ * not latch: the channel outlives a transient DB outage and needs to start
+ * recording again once persistence recovers.
+ */
+const cachedChannelDb = createCachedSqlDbGetter({ cacheNegative: false });
+export const getPrincipalChannelDb: DbGetter = async () => cachedChannelDb();
+
+/**
+ * Answer an ask from the channel, resolving the ref the principal typed.
+ *
+ * Returns human prose rather than a status object because the return value goes
+ * straight to a phone: `asks.respond`'s own result shape would be noise there.
+ */
+export async function respondToAskFromChannel(askRef: string, text: string): Promise<string> {
+  const repo = await getServerAskRepository();
+  if (!repo) return "The ask store is unavailable right now — try again shortly.";
+
   try {
-    const provider = container.get("persistence") as SqlCapablePersistenceProvider;
-    if (!provider.getDatabaseConnection) return null;
-    const db = await provider.getDatabaseConnection();
-    return (db as DbLike | null) ?? null;
-  } catch (err: unknown) {
-    log.warn("[principal-channel] persistence unavailable", {
-      error: err instanceof Error ? err.message : String(err),
+    const { respondToAsk } = await import("../adapters/shared/commands/asks");
+    const { ask } = await respondToAsk(repo, {
+      id: askRef,
+      message: text,
+      responder: "principal-channel",
     });
-    return null;
+    return `Answered: ${ask.title ?? askRef}`;
+  } catch (err: unknown) {
+    // Relay the reason. "Answered" when it was not, or bare silence, are both
+    // worse than a message saying which ask could not be resolved and why.
+    return `Could not answer ${askRef}: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
@@ -110,11 +132,11 @@ async function getDb(container: AppContainerInterface | undefined): Promise<DbLi
  * cockpit from booting.
  */
 export async function startPrincipalChannel(opts: {
-  container?: AppContainerInterface;
   config?: PrincipalChannelLaunchConfig;
   respondToAsk: (askRef: string, text: string) => Promise<string>;
   recordEvent: InboundEventRecorder;
   readHighestUpdateId: () => Promise<number | undefined>;
+  onStarted?: (chatId: string) => void;
 }): Promise<PollerHandle | null> {
   const config = opts.config ?? loadPrincipalChannelLaunchConfig();
   if (!config.enabled) return null;
@@ -139,6 +161,7 @@ export async function startPrincipalChannel(opts: {
     cwd: config.cwd,
     permissionMode: config.permissionMode,
   });
+  opts.onStarted?.(chatId);
 
   return startPrincipalChannelPoller({
     token,
@@ -158,11 +181,9 @@ export async function startPrincipalChannel(opts: {
  * Reads BOTH event types: a rejected message advances the cursor too, or one
  * unauthorized message would be re-fetched on every restart forever.
  */
-export function createHighestUpdateIdReader(
-  container: AppContainerInterface | undefined
-): () => Promise<number | undefined> {
+export function createHighestUpdateIdReader(getDb: DbGetter): () => Promise<number | undefined> {
   return async () => {
-    const db = await getDb(container);
+    const db = await getDb();
     if (!db) return undefined;
     try {
       const { sql } = await import("drizzle-orm");
@@ -196,11 +217,11 @@ export function createHighestUpdateIdReader(
  * would be re-run against the swarm.
  */
 export function createInboundEventRecorder(
-  container: AppContainerInterface | undefined,
+  getDb: DbGetter,
   onDuplicate?: (updateId: number) => void
 ): InboundEventRecorder {
   return async (eventType, payload: PrincipalMessageEventPayload) => {
-    const db = await getDb(container);
+    const db = await getDb();
     if (!db) throw new Error("persistence unavailable — cannot record the inbound audit event");
 
     const { sql } = await import("drizzle-orm");
