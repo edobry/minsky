@@ -1,8 +1,9 @@
 # The principal channel — talking to the swarm from a phone
 
-**Status:** outbound live-verified; inbound built and unit-tested, pending daemon
-wiring and a live round-trip. Task: mt#3228. Program: mt#2230 (harness-host
-observe→drive ladder), of which this is the first Rung-3 (mt#2238) surface.
+**Status:** merged and wired into the cockpit daemon; outbound live-verified,
+inbound pending a live round-trip. Tasks: mt#3228 (the channel), mt#3230 (the
+config switch). Program: mt#2230 (harness-host observe→drive ladder), of which
+this is the first Rung-3 (mt#2238) surface.
 
 ## What it is
 
@@ -130,9 +131,9 @@ channel is only as safe as the Telegram account that drives it.**
     exact, and it rejects an update with a spoofed or missing `from` that would
     otherwise match on chat alone.
   - **Group chat** (negative id): chat and sender are genuinely different, and
-    there is nothing to derive. Without `MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS`
-    the channel enforces chat-only, meaning **any member of that group can drive
-    the swarm**. The daemon logs a warning at startup when this is the case.
+    there is nothing to derive. Without `principalChannel.allowedUserIds` the
+    channel enforces chat-only, meaning **any member of that group can drive the
+    swarm**. The daemon logs a warning at startup when this is the case.
 - **Refused messages are not stored verbatim.** A rejected message's metadata is
   recorded but its text is not — otherwise an unauthorized chat could write
   attacker-chosen content into the event feed the operator reads.
