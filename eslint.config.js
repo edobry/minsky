@@ -107,6 +107,14 @@ const COCKPIT_NODE_IMPORT_GUARD_OPTIONS = {
     "@minsky/domain/transcripts/event-schema",
     "@minsky/domain/transcripts/conversation-elements",
     "@minsky/domain/ai/dispatch-models",
+    // mt#3259: verified stronger than the "one hop deep" bar above — short-id.ts
+    // has ZERO import statements of any kind (145 lines of pure string/number
+    // logic: normalizeShortIdPrefix / formatShortId / parseShortId / nextShortId),
+    // so it has no Node dependency at ANY hop, not merely at one. The cockpit
+    // linkifier imports `parseShortId` from it so the `<prefix>#<n>` token shape
+    // has ONE authority shared with the minting side, rather than a second
+    // hand-rolled regex in the web bundle that could drift from it.
+    "@minsky/domain/utils/short-id",
   ],
 };
 

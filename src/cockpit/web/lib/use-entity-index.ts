@@ -55,6 +55,19 @@ function extractAgentSessionIds(data: WidgetData | undefined): string[] {
   return payload.agents.map((a) => a.sessionId);
 }
 
+/**
+ * `ws#N` workspace short ids from the same agents payload (mt#3259). Rows
+ * without one (conversation-derived rows, or workspaces predating the
+ * backfill) carry `shortId: null` and are filtered out — an entry keyed on a
+ * missing id would linkify nothing and could collide in the prefix scan.
+ */
+function extractAgentSessionShortIds(data: WidgetData | undefined): string[] {
+  if (!data || data.state !== "ok") return [];
+  const payload = data.payload as { agents?: { shortId?: string | null }[] };
+  if (!Array.isArray(payload?.agents)) return [];
+  return payload.agents.map((a) => a.shortId).filter((s): s is string => Boolean(s));
+}
+
 function extractAskIds(data: WidgetData | undefined): string[] {
   if (!data || data.state !== "ok") return [];
   const payload = data.payload as { cohort?: { id: string }[] };
@@ -62,11 +75,32 @@ function extractAskIds(data: WidgetData | undefined): string[] {
   return payload.cohort.map((a) => a.id);
 }
 
+/** `ask#N` short ids from the same attention payload (mt#3259). */
+function extractAskShortIds(data: WidgetData | undefined): string[] {
+  if (!data || data.state !== "ok") return [];
+  const payload = data.payload as { cohort?: { shortId?: string | null }[] };
+  if (!Array.isArray(payload?.cohort)) return [];
+  return payload.cohort.map((a) => a.shortId).filter((s): s is string => Boolean(s));
+}
+
 function extractMemoryIds(data: WidgetData | undefined): string[] {
   if (!data || data.state !== "ok") return [];
   const payload = data.payload as { records?: { id: string }[] };
   if (!Array.isArray(payload?.records)) return [];
   return payload.records.map((r) => r.id);
+}
+
+/**
+ * `mem#N` short ids from the same memories-list payload (mt#3259). This one
+ * needed NO payload change — `MemoryRecord.shortId` was already serialized
+ * (`packages/domain/src/memory/types.ts`, populated by `rowToRecord`), so
+ * memory short-id linkification costs zero additional requests.
+ */
+function extractMemoryShortIds(data: WidgetData | undefined): string[] {
+  if (!data || data.state !== "ok") return [];
+  const payload = data.payload as { records?: { shortId?: string | null }[] };
+  if (!Array.isArray(payload?.records)) return [];
+  return payload.records.map((r) => r.shortId).filter((s): s is string => Boolean(s));
 }
 
 /**
@@ -125,27 +159,52 @@ export type EntityLabelIndex = Map<string, EntityLabelInfo>;
 function extractAgentSessionLabels(data: WidgetData | undefined): [string, EntityLabelInfo][] {
   if (!data || data.state !== "ok") return [];
   const payload = data.payload as {
-    agents?: { sessionId: string; title: string; liveness: string | null }[];
+    agents?: {
+      sessionId: string;
+      shortId?: string | null;
+      title: string;
+      liveness: string | null;
+    }[];
   };
   if (!Array.isArray(payload?.agents)) return [];
-  return payload.agents.map((a) => [
-    a.sessionId,
-    { label: a.title, status: a.liveness ?? undefined },
-  ]);
+  return payload.agents.flatMap((a) => {
+    const info = { label: a.title, status: a.liveness ?? undefined };
+    // Key by BOTH id forms (mt#3259) so a `ws#42` anchor's hover card resolves
+    // the same label a uuid anchor does — the label index is keyed by whatever
+    // string the linkifier put in `data-entity-id`, which for a short-id token
+    // is the short id.
+    const entries: [string, EntityLabelInfo][] = [[a.sessionId, info]];
+    if (a.shortId) entries.push([a.shortId, info]);
+    return entries;
+  });
 }
 
 function extractAskLabels(data: WidgetData | undefined): [string, EntityLabelInfo][] {
   if (!data || data.state !== "ok") return [];
-  const payload = data.payload as { cohort?: { id: string; title: string; state?: string }[] };
+  const payload = data.payload as {
+    cohort?: { id: string; shortId?: string | null; title: string; state?: string }[];
+  };
   if (!Array.isArray(payload?.cohort)) return [];
-  return payload.cohort.map((a) => [a.id, { label: a.title, status: a.state }]);
+  return payload.cohort.flatMap((a) => {
+    const info = { label: a.title, status: a.state };
+    const entries: [string, EntityLabelInfo][] = [[a.id, info]];
+    if (a.shortId) entries.push([a.shortId, info]);
+    return entries;
+  });
 }
 
 function extractMemoryLabels(data: WidgetData | undefined): [string, EntityLabelInfo][] {
   if (!data || data.state !== "ok") return [];
-  const payload = data.payload as { records?: { id: string; name: string }[] };
+  const payload = data.payload as {
+    records?: { id: string; shortId?: string | null; name: string }[];
+  };
   if (!Array.isArray(payload?.records)) return [];
-  return payload.records.map((r) => [r.id, { label: r.name }]);
+  return payload.records.flatMap((r) => {
+    const info = { label: r.name };
+    const entries: [string, EntityLabelInfo][] = [[r.id, info]];
+    if (r.shortId) entries.push([r.shortId, info]);
+    return entries;
+  });
 }
 
 function extractConversationLabels(data: WidgetData | undefined): [string, EntityLabelInfo][] {
@@ -377,6 +436,9 @@ export function useEntityIndex(): EntityIndex {
           []
         ).map((c) => c.id),
         conversationIds: extractConversationIds(conversationsQ.data as WidgetData | undefined),
+        memoryShortIds: extractMemoryShortIds(memoriesQ.data as WidgetData | undefined),
+        askShortIds: extractAskShortIds(attentionQ.data as WidgetData | undefined),
+        sessionShortIds: extractAgentSessionShortIds(agentsQ.data as WidgetData | undefined),
       }),
     [
       tasksQ.data,

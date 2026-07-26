@@ -31,11 +31,29 @@ import { createElement, Fragment } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Root, Element, ElementContent } from "hast";
+import { parseShortId } from "@minsky/domain/utils/short-id";
 import { parseMinskyUri, entityToPath, type RoutableEntityType } from "./entity-codec";
 
 // ---------------------------------------------------------------------------
 // Id-set index
 // ---------------------------------------------------------------------------
+
+/**
+ * The numeric short-id prefixes (ADR-029) that name a routable entity, mapped
+ * to their type. These are the prefixes minted today — `mem`
+ * (`memory-service.ts`), `ask` (`ask/repository.ts`), and `ws`
+ * (`SESSION_SHORT_ID_PREFIX`, `drizzle-session-repository.ts`). A
+ * `<prefix>#<n>` token whose prefix is NOT in this map stays plain text, so
+ * ordinary prose like `issue#42` or `chapter#3` is never linkified.
+ *
+ * Tasks are deliberately absent: `mt#NNNN` IS a task's primary key, so it is
+ * handled by the `taskId` token class above, not as a short-id alias.
+ */
+const SHORT_ID_PREFIX_TO_TYPE: Record<string, RoutableEntityType> = {
+  mem: "memory",
+  ask: "ask",
+  ws: "session",
+};
 
 /**
  * A map from entity id → entity type, used to resolve bare references.
@@ -48,6 +66,14 @@ export type EntityIndex = Map<string, RoutableEntityType>;
  * Build an EntityIndex from flat lists of ids per type.
  *
  * Pass the same data CommandPalette uses — no new queries needed.
+ *
+ * Short ids (`mem#728`, `ask#3346`, `ws#42`) are indexed as ADDITIONAL keys
+ * alongside their entity's UUID — both forms resolve to the same type, and a
+ * short-id token links to `/<segment>/<shortid>` (the cockpit SPA route, which
+ * resolves short ids server-side). This does NOT make a short id a
+ * `minsky://` deeplink target: per ADR-029 the UUID remains "the sole
+ * `minsky://<type>/<uuid>` deeplink target". A short id is a display/lookup
+ * form, which is exactly what this bare-reference path is.
  */
 export function buildEntityIndex(opts: {
   taskIds: string[];
@@ -62,6 +88,12 @@ export function buildEntityIndex(opts: {
    * linkification to `/conversation/:id` (mt#2769).
    */
   conversationIds?: string[];
+  /** `mem#N` short ids (mt#3259). Additive — never replaces the UUID keys. */
+  memoryShortIds?: string[];
+  /** `ask#N` short ids (mt#3259). */
+  askShortIds?: string[];
+  /** `ws#N` workspace short ids (mt#3259). */
+  sessionShortIds?: string[];
 }): EntityIndex {
   const index: EntityIndex = new Map();
   for (const id of opts.taskIds) index.set(id, "task");
@@ -70,6 +102,9 @@ export function buildEntityIndex(opts: {
   for (const id of opts.memoryIds) index.set(id, "memory");
   for (const id of opts.changesetIds ?? []) index.set(id, "changeset");
   for (const id of opts.conversationIds ?? []) index.set(id, "conversation");
+  for (const id of opts.memoryShortIds ?? []) index.set(id, "memory");
+  for (const id of opts.askShortIds ?? []) index.set(id, "ask");
+  for (const id of opts.sessionShortIds ?? []) index.set(id, "session");
   return index;
 }
 
@@ -169,7 +204,14 @@ const TOKEN_RE = new RegExp(
     // whole as a URL and never mis-split into a changeset ref (mt#2536 R1).
     `|(?<httpsUrl>https?:\\/\\/${_URL_BODY}+)` +
     // prRef: PR/changeset ref — "PR #N" or "PR#N"; bounded. prNumber: the nested digits.
-    `|(?<prRef>(?<!\\w)PR\\s*#(?<prNumber>\\d+)\\b)`,
+    `|(?<prRef>(?<!\\w)PR\\s*#(?<prNumber>\\d+)\\b)` +
+    // shortId: a generic `<prefix>#<n>` short-id CANDIDATE (mt#3259). Declared LAST on
+    // purpose: `mt#N` must be consumed by `taskId` and `PR#N` by `prRef` (both of which
+    // this pattern would otherwise match), so ordering — not a negative lookahead — is
+    // what keeps those two classes on their existing paths. The prefix is validated by
+    // `parseShortId` + SHORT_ID_PREFIX_TO_TYPE at handling time, not here, so this
+    // regex stays a cheap candidate-finder and the SHAPE authority stays in the domain.
+    `|(?<shortId>(?<![a-zA-Z0-9_])[a-zA-Z][a-zA-Z0-9]*#\\d+\\b)`,
   "gi"
 );
 
@@ -222,7 +264,7 @@ export function tokenizeEntities(text: string, index: EntityIndex): EntityToken[
     // reordering and self-documenting (mt#2536 R1: reviewer flagged positional
     // brittleness in the prior `match[0..6]` destructuring).
     const fullMatch = match[0];
-    const { minskyUri, taskId, uuid: uuidCandidate, httpsUrl, prRef, prNumber } = match.groups ?? {};
+    const { minskyUri, taskId, uuid: uuidCandidate, httpsUrl, prRef, prNumber, shortId } = match.groups ?? {};
     const matchStart = match.index;
 
     if (matchStart > lastIndex) pushText(text.slice(lastIndex, matchStart));
@@ -283,6 +325,31 @@ export function tokenizeEntities(text: string, index: EntityIndex): EntityToken[
           mono: true,
         });
       } else pushText(prRef); // PR number not in changeset id-set → plain text
+      continue;
+    }
+
+    // --- (f) Numeric short id: `mem#728` / `ask#3346` / `ws#42` — id-set GATED ---
+    // Two independent gates, both required: the prefix must name a routable entity
+    // type, AND the token must be in the id-set. `parseShortId` (the same domain
+    // helper the MINTING side uses) is the shape authority — it rejects `mem#0`,
+    // `mem#5abc`, and anything else not exactly `<prefix>#<positive-int>` — and it
+    // normalizes the prefix, so `MEM#728` resolves identically to `mem#728`.
+    if (shortId) {
+      const parsed = parseShortId(shortId);
+      const type = parsed ? SHORT_ID_PREFIX_TO_TYPE[parsed.prefix] : undefined;
+      if (type) {
+        const resolved = resolveEntityId(`${parsed!.prefix}#${parsed!.n}`, index);
+        if (resolved) {
+          tokens.push({
+            kind: "link",
+            text: shortId,
+            to: entityToPath(resolved.type, resolved.id),
+            mono: true,
+          });
+          continue;
+        }
+      }
+      pushText(shortId); // unknown prefix, malformed, or not in the id-set → plain text
       continue;
     }
 

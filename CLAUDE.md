@@ -107,6 +107,27 @@ must always be a readable ref on its own). Full mechanism: `docs/rules-rationale
 
 Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are already URL-safe. PR numbers contain only digits and need no encoding.
 
+## Short ids (`mem#N` / `ask#N` / `ws#N`) are a LABEL form, not a link target
+
+Memories, asks, and workspaces also have numeric short ids (ADR-029). They are **not** a
+`minsky://` id form: ADR-029 fixes the UUID as "the **sole** `minsky://<type>/<uuid>` deeplink
+target," so that every already-emitted link keeps resolving forever. Do not write
+`minsky://memory/mem%23728`.
+
+Use the short id as the **label** and the UUID as the **target** — the same label/target split
+the table above already prescribes (clean readable ref in the label, full id in the URL):
+
+```
+[mem#728](minsky://memory/d8891fad-b156-46e1-8940-98067eb097a9)
+```
+
+**When you don't have the UUID, write the bare short id and leave it unlinked.** In the cockpit it
+still resolves: the linkifier recognizes `mem#N`/`ask#N`/`ws#N` as bare references and links them
+against its id-set, exactly as it already does for `mt#NNNN` (mt#3259). A bare short id in a spec,
+memory, or PR body is therefore clickable in the cockpit without any markdown — it just isn't
+clickable in the terminal, which is why the linked form above is still preferred when the UUID is
+at hand.
+
 ## Format rules
 
 - **Label = the clean human-readable ref, kept verbatim.** For a task that is the bare `mt#2370` (with the `#`, unencoded — only the URI gets `%23`). For a UUID entity use a short readable label (a name, or a short id prefix) so the principal is not reading a raw UUID; the target still carries the **full** id.

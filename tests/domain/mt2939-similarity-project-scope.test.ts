@@ -522,7 +522,15 @@ function splitMemTopLevel(sql: string, keyword: string): string[] {
 
 let memIdCounter = 1;
 function genMemId(): string {
-  return `mem-${String(memIdCounter++).padStart(4, "0")}`;
+  // UUID-shaped, deterministic, and unique per call. `memories.id` is a
+  // Postgres `uuid` column, so a `mem-0001`-style synthetic id could never
+  // occur in production — and since mt#3259 `MemoryService.get` enforces that
+  // by treating a non-uuid, non-`mem#N` string as an unqueryable miss rather
+  // than letting it reach the driver as a cast error. Minting a realistic id
+  // here keeps this fixture exercising the same path production does; the
+  // counter only fills the last segment, which is enough for uniqueness at
+  // fixture scale.
+  return `00000000-0000-4000-8000-${String(memIdCounter++).padStart(12, "0")}`;
 }
 
 function createMemoryFakeDb(
