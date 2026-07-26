@@ -12,7 +12,9 @@
  * them there). An inbound message becomes a user turn in a local `claude`
  * process; starting that off the mere PRESENCE of a credential provisioned for
  * a different purpose would be a silent capability escalation. It starts when
- * `MINSKY_PRINCIPAL_CHANNEL_ENABLED` says so.
+ * `principalChannel.enabled` says so — config rather than an env var (mt#3230)
+ * because the tray spawns the daemon with the GUI session's environment, which
+ * a shell `export` never reaches.
  *
  * @see mt#3228 — the bidirectional principal channel
  * @see ./principal-channel-poller.ts — the loop this starts
@@ -74,7 +76,7 @@ export interface PrincipalChannelLaunchConfig {
  * - group (negative id) — chat and sender are genuinely different things, and
  *   there is nothing to derive. Without an explicit list this stays chat-only,
  *   which means ANY member of that group can drive the swarm. Configure
- *   `MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS` for a group.
+ *   `principalChannel.allowedUserIds` for a group.
  *
  * Added in PR #2324 R1: the docs claimed `from.id` was checked while only the
  * chat id was enforced. This makes the claim true for the case that actually
@@ -246,7 +248,7 @@ export async function startPrincipalChannel(opts: {
   if (allowedUserIds.length === 0) {
     log.warn(
       "[principal-channel] group chat with no sender allowlist — ANY member of that group can " +
-        "drive this swarm. Set MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS.",
+        "drive this swarm. Run: minsky config set principalChannel.allowedUserIds <id>[,<id>...]",
       { chatId }
     );
   }
