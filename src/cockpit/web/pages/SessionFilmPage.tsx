@@ -256,17 +256,25 @@ export function SessionFilmPage({ config = DEFAULT_SESSION_FILM_CONFIG }: Sessio
     <div className="flex h-[calc(100vh-3.5rem)] flex-col" data-testid="session-film-page">
       <div className="flex min-h-0 flex-1">
         {/*
-          Stage-first layout rebalance (mt#3226 SC 1). Operator finding:
-          "why does the split exist at all" — a fixed 50/50 split gave the
-          stage (the affect-bearing surface) the SAME width as the ribbon
-          (a text receipts log), which is backwards for a film whose whole
-          point is "watch the world move." Design note: the ribbon becomes
-          a fixed-WIDTH narrow rail (not a proportion of viewport width) so
-          the stage always dominates regardless of window size, while
-          staying the scroll-as-scrub driver, keyboard-stepping target, and
-          `?t=` receipts surface — none of that coupling lives in the
-          ribbon's WIDTH, so narrowing it changes nothing structural, only
-          how much of the screen prose gets vs. how much the stage gets.
+          Stage-first layout rebalance (mt#3226 SC 1; narrowed further mt#3258
+          SC 4). Operator finding (round 1): "why does the split exist at
+          all" — a fixed 50/50 split gave the stage (the affect-bearing
+          surface) the SAME width as the ribbon (a text receipts log), which
+          is backwards for a film whose whole point is "watch the world
+          move." Design note: the ribbon is a fixed-WIDTH narrow rail (not a
+          proportion of viewport width) so the stage always dominates
+          regardless of window size, while staying the scroll-as-scrub
+          driver, keyboard-stepping target, and `?t=` receipts surface — none
+          of that coupling lives in the ribbon's WIDTH, so narrowing it
+          changes nothing structural, only how much of the screen prose gets
+          vs. how much the stage gets.
+
+          mt#3258 round 2: even at `w-80` (320px) the operator asked "why
+          allocate real estate this way" — narrowed to `w-64` (256px), the
+          smallest width that still fits the glyphic row's icon badge +
+          realm swatch + a readable truncated target label without wrapping
+          (verified live: row content already truncates via `truncate`, so
+          this only tightens the truncation point, not the row grammar).
         */}
         <SessionFilmRibbon
           events={events}
@@ -276,7 +284,7 @@ export function SessionFilmPage({ config = DEFAULT_SESSION_FILM_CONFIG }: Sessio
           selectedRowIndex={selectedRowIndex}
           onSelectRow={setSelectedRowIndex}
           onScrollRowChange={handleScrollRowChange}
-          className="w-80 shrink-0 border-r border-border"
+          className="w-64 shrink-0 border-r border-border"
         />
         <SessionFilmStage
           layout={layout}

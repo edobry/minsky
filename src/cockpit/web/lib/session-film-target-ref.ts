@@ -65,6 +65,21 @@ export function parseRoutableTarget(target: TargetLike): RoutableTargetRef | nul
  * counterpart — strips the realm-prefix scaffolding from the synthetic
  * composite id so the ribbon shows a readable fragment (a file path, a
  * domain, a shell command digest) rather than the raw `realm:...` id.
+ *
+ * ## The "unknown:" leak (mt#3258 SC 3)
+ *
+ * The `unknown` realm is `event-adapter.ts`'s TOTAL fallback path — an
+ * unmapped tool's target id is literally `${realm}:${toolName}` (e.g.
+ * `unknown:Skill`, `unknown:tasks_children` — the coordinator's live-DOM
+ * finding). `"unknown:"` was NOT in the stripped-prefix list below, so the
+ * bare fallback (this function's final `return id`) surfaced that literal
+ * composite id verbatim. Stripping it here is the display-layer half of the
+ * two-part fix: even a tool name the adapter registry sweep (event-adapter.ts's
+ * `EXPLICIT_TOOL_REGISTRY`) doesn't yet cover degrades to a clean bare tool
+ * name (e.g. "Skill", "tasks_children") — NEVER the literal word "unknown" —
+ * regardless of how complete the registry ever gets. See
+ * {@link isUnknownRealmTarget} for the muted-styling signal consumers should
+ * pair with this.
  */
 export function targetDisplayLabel(target: TargetLike): string {
   const { realm, id } = target;
@@ -73,10 +88,20 @@ export function targetDisplayLabel(target: TargetLike): string {
     const sepIdx = rest.indexOf(":");
     return sepIdx >= 0 ? rest.slice(sepIdx + 1) : rest;
   }
-  for (const prefix of ["web:", "notion:", "shell:", "agents:"]) {
+  for (const prefix of ["web:", "notion:", "shell:", "agents:", "unknown:"]) {
     if (id.startsWith(prefix)) return id.slice(prefix.length);
   }
   return id;
+}
+
+/**
+ * True when `target` fell through the adapter's total fallback (mt#3258
+ * SC 3) — the signal a ribbon/stage consumer uses to apply muted styling to
+ * an otherwise-clean generic label, distinguishing "we genuinely don't know
+ * what this is" from an ordinary recognized target.
+ */
+export function isUnknownRealmTarget(target: TargetLike): boolean {
+  return target.realm === "unknown";
 }
 
 // ── Self-reference elision (mt#3231 SC 1 / AT 1) ─────────────────────────────

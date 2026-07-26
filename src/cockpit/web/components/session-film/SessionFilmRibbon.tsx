@@ -70,10 +70,32 @@
  * "at most one row is ever expanded" (this component's own
  * `expandedRowIndex` invariant), not a general solution.
  *
- * Row root is a `<div role="listitem">` (not a `<button>`): EntityRef renders
- * an anchor internally, and nesting an anchor inside a native `<button>` is
- * invalid HTML (button forbids interactive-content descendants). The row
- * stays keyboard-operable via `tabIndex={0}` + an Enter/Space key handler.
+ * Row root is a `<div role="button">` (mt#3258 SC 5 fix — was
+ * `role="listitem"`): EntityRef renders an anchor internally, and nesting an
+ * anchor inside a NATIVE `<button>` element is invalid HTML (button forbids
+ * interactive-content descendants) — but `role="button"` on a `<div>` is a
+ * pure ARIA annotation, not a real `<button>` tag, so the nesting concern
+ * doesn't apply to it. The row stays keyboard-operable via `tabIndex={0}` +
+ * an Enter/Space key handler.
+ *
+ * ### Why `role="button"`, not `role="listitem"` (mt#3258 SC 5)
+ *
+ * Coordinator's live-DOM accessibility check found NEITHER `role="button"`
+ * NOR an accessible `aria-expanded` on these rows. Root cause: `aria-expanded`
+ * is not a supported state for ARIA's `listitem` role (WAI-ARIA 1.2's
+ * supported-states table for `listitem` lists only
+ * `aria-level`/`aria-posinset`/`aria-setsize`) — browsers compute the
+ * accessibility tree by DROPPING an unsupported state/role combination, so
+ * the attribute was present in the raw DOM (and in this file's source) but
+ * absent from the accessibility tree the coordinator's a11y snapshot reads.
+ * `role="button"` DOES support `aria-expanded` (ARIA 1.2 lists it as a
+ * disclosure/toggle-button state), so switching to it makes the expand/
+ * collapse semantics actually reach assistive tech. Trade-off accepted: the
+ * ribbon's container root switched from `role="list"` to `role="group"` to
+ * avoid an invalid `list > button` parent/child ARIA combination (a `list`
+ * requires `listitem`/`group`/`presentation` children) — the container is
+ * still labeled (`aria-label="Session event ribbon"`), just no longer
+ * announced as a literal "list" landmark.
  *
  * @see session-film-batches.ts — BatchRow / ChapterMarker / gap+wait/actor-change helpers
  * @see session-film-virtualization.ts — the windowing math this component wires up
@@ -96,6 +118,7 @@ import { realmColorStyle } from "../../lib/session-film-config";
 import {
   deriveFilmSubjectAgentId,
   isSelfReferenceTarget,
+  isUnknownRealmTarget,
   parseRoutableTarget,
   SELF_REFERENCE_LABEL,
   targetDisplayLabel,
@@ -163,7 +186,18 @@ function EventTargetLabel({
   if (routableTarget) {
     return <EntityRef type={routableTarget.type} id={routableTarget.id} className="truncate text-xs" />;
   }
-  return <span className="truncate">{targetDisplayLabel(event.target)}</span>;
+  // Unknown-realm fallback (mt#3258 SC 3): a clean generic tool-name label
+  // (never the literal "unknown:" — see targetDisplayLabel's doc comment),
+  // muted so it visually reads as "unidentified" rather than a normal
+  // resolved target.
+  return (
+    <span
+      data-testid={isUnknownRealmTarget(event.target) ? "session-film-unknown-target" : undefined}
+      className={cn("truncate", isUnknownRealmTarget(event.target) && "italic text-muted-foreground/60")}
+    >
+      {targetDisplayLabel(event.target)}
+    </span>
+  );
 }
 
 /** One member event's row inside an expanded batch's detail (mt#3231 SC 3 / AT 3). */
@@ -357,11 +391,54 @@ export function SessionFilmRibbon({
       ref={containerRef}
       onScroll={handleScroll}
       data-testid="session-film-ribbon"
-      role="list"
+      role="group"
       aria-label="Session event ribbon"
-      className={cn("relative flex-1 min-h-0 overflow-y-auto font-mono text-xs", className)}
+      // mt#3258 SC 4: was "flex-1" — live-verified (chrome-devtools MCP) that
+      // this component's OWN `flex-1` fought the page's `w-64` width
+      // override: a flex item's `flex-basis` (here 0%, from `flex: 1 1 0%`)
+      // wins over an explicit `width` for main-axis sizing, so the ribbon
+      // rendered at ~600px regardless of what width utility the caller
+      // passed — the mt#3226 SC1 "fixed-width narrow rail" design intent was
+      // silently defeated by this component's own base classes. `w-full` is
+      // the sane standalone default (a caller with no width override still
+      // fills its container); the ONE real caller (SessionFilmPage.tsx)
+      // overrides it with `w-64 shrink-0`, and tailwind-merge correctly
+      // dedupes width-vs-width (unlike flex-vs-width, which it can't model).
+      className={cn("relative w-full min-h-0 overflow-y-auto font-mono text-xs", className)}
     >
       <div style={{ height: range.totalHeightPx, position: "relative" }}>
+        {/*
+          Start/end-of-session affordance (mt#3258 SC 1, minor/cheap fix per
+          principal re-prioritization — "the void isn't that big of a deal").
+          The leading/trailing half-viewport spacers (session-film-virtualization.ts's
+          scroll-padding fix, mt#3226 SC 3 / AT 1) are load-bearing for the
+          centered-scrub invariant — row 0 and the final row must be
+          reachable/centerable, which REQUIRES that empty space to exist.
+          Rather than touching that shared, tested math (real regression
+          risk to the centered-scrub feature this task must not break),
+          this renders a subtle non-empty label INSIDE each spacer's own
+          region so it reads as "this is the start/end of the recording,"
+          not "something broke" — spec option (b), the cheapest of the
+          three listed options that doesn't fight the virtualization
+          formulas. `pointer-events-none` so it never intercepts a click
+          meant for the ribbon; sits BEHIND the rows (declared first, and
+          the rows themselves never render into this exact region in
+          practice — see the module's offsetTopPx math).
+        */}
+        <div
+          data-testid="session-film-start-marker"
+          style={{ position: "absolute", top: 0, height: viewportHeightPx / 2, left: 0, right: 0 }}
+          className="pointer-events-none flex items-end justify-center pb-2 text-[10px] uppercase tracking-widest text-muted-foreground/30"
+        >
+          start of session
+        </div>
+        <div
+          data-testid="session-film-end-marker"
+          style={{ position: "absolute", bottom: 0, height: viewportHeightPx / 2, left: 0, right: 0 }}
+          className="pointer-events-none flex items-start justify-center pt-2 text-[10px] uppercase tracking-widest text-muted-foreground/30"
+        >
+          end of session
+        </div>
         <div style={{ position: "absolute", top: range.offsetTopPx, left: 0, right: 0 }}>
           {visibleRows.map((row) => {
             const chapter = chapterByRow.get(row.rowIndex);
@@ -396,7 +473,7 @@ export function SessionFilmRibbon({
                   data-capture-gap={isCaptureGap ? "true" : undefined}
                   data-chapter={chapter ? "true" : undefined}
                   data-actor-change={showActorMarker ? "true" : undefined}
-                  role="listitem"
+                  role="button"
                   tabIndex={0}
                   aria-current={isPlayhead ? "true" : undefined}
                   aria-expanded={isExpanded}
