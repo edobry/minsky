@@ -206,12 +206,39 @@ export interface SessionFilmConfig {
   /**
    * Camera-follow / growing-bounding-box auto-fit (mt#3231 SC 5 — the RFC's
    * A3 "camera-follow" rung). See `PanZoomSVG.tsx`'s `GrowingBoundsOptions`.
+   *
+   * Dead-zone + scroll-idle hotfix (mt#3247): v1.2 eased toward a new fit on
+   * EVERY bounds change, and the live d3-force sim + scroll-driven touched-
+   * set change bounds almost every frame — the camera never settled
+   * (continuous jump/flicker, operator-blocking). `deadZoneMarginPx` and
+   * `scrollIdleMs` are the two knobs that fix it; see PanZoomSVG.tsx's
+   * module doc for the dead-zone mechanism itself.
    */
   camera: {
     /** World-space padding added around the touched-set's live bounding box before fitting. */
     paddingPx: number;
     /** Ease duration toward a new camera fit, ms. Callers pass 0 under `prefers-reduced-motion` (snap instead of tween). */
     easeMs: number;
+    /**
+     * Camera dead-zone margin (mt#3247 SC1), world-space units. The camera
+     * holds its current fit while the live bounds stay within that fit's
+     * viewBox expanded by this margin on every side; it only re-fits when
+     * bounds would clip past the margin. Sized comfortably above ordinary
+     * per-tick force-sim jiggle (chargeStrength/homeStrength above keep that
+     * jiggle small) so noise never re-triggers a fit, while a genuinely new
+     * region of the world (a distant node, a scroll-driven touched-set jump)
+     * still does.
+     */
+    deadZoneMarginPx: number;
+    /**
+     * How long scrolling must be idle before camera-follow resumes (mt#3247
+     * SC2c): scroll advances the playhead, which can jump the touched set
+     * discontinuously frame-to-frame — treated like a user pan/zoom (pauses
+     * the camera) but transient, not permanent. `SessionFilmPage` derives
+     * the "is scrolling" signal from the ribbon's own scroll callback and
+     * debounces it by this duration before clearing the pause.
+     */
+    scrollIdleMs: number;
   };
 }
 
@@ -265,5 +292,7 @@ export const DEFAULT_SESSION_FILM_CONFIG: SessionFilmConfig = {
   camera: {
     paddingPx: 60,
     easeMs: 900,
+    deadZoneMarginPx: 40,
+    scrollIdleMs: 150,
   },
 };

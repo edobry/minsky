@@ -15,6 +15,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   resolveMetricsTranscriptPath,
+  usedPerAgentTranscript,
+  buildUnattributedModelWarning,
   decideRecordingAction,
   HOOK_UNKNOWN_TASK_ID,
   recordFailureBestEffort,
@@ -42,6 +44,13 @@ function metricsLine(opts: {
   outputTokens?: number;
   timestamp?: string;
   agentSessionId?: string;
+  /**
+   * Harness agent id. Real per-agent transcripts carry this on every line
+   * (verified 60/60 against on-disk `subagents/agent-<id>.jsonl` files), and
+   * mt#3256 made attribution require a POSITIVE match — so a fixture standing
+   * in for a per-agent file must set it, or it is not a faithful stand-in.
+   */
+  agentId?: string;
 }): Record<string, unknown> {
   const blocks = Array.from({ length: opts.toolUseCount ?? 0 }, () => ({ type: "tool_use" }));
   return {
@@ -54,6 +63,7 @@ function metricsLine(opts: {
         : undefined,
     timestamp: opts.timestamp,
     agent_session_id: opts.agentSessionId,
+    agentId: opts.agentId,
   };
 }
 
@@ -316,8 +326,9 @@ describe("readTranscriptMetrics on the resolved path (mt#2649 acceptance test)",
           inputTokens: 100,
           outputTokens: 50,
           timestamp: "2026-07-07T00:00:00.000Z",
+          agentId: "abc123",
         }),
-        metricsLine({ toolUseCount: 1, timestamp: "2026-07-07T00:01:00.000Z" }),
+        metricsLine({ toolUseCount: 1, timestamp: "2026-07-07T00:01:00.000Z", agentId: "abc123" }),
       ]
     );
 
@@ -328,12 +339,18 @@ describe("readTranscriptMetrics on the resolved path (mt#2649 acceptance test)",
     expect(metrics.totalTokens).toBe(150); // 100 + 50 from the per-agent file
     expect(metrics.durationMs).toBe(60000); // 1 minute between the per-agent timestamps
 
-    // Sanity check: reading the PARENT directly produces a different (wrong)
-    // result — proves the fixtures are actually distinguishable, and that
-    // the resolved path above is not accidentally reading the parent.
+    // Sanity check: reading the PARENT directly does NOT yield the per-agent
+    // numbers — proving the fixtures are distinguishable and the resolved path
+    // above is not accidentally reading the parent.
+    //
+    // mt#3256 changed WHAT the parent read returns: it used to return the
+    // parent's own counts (toolUseCount 1, totalTokens 15), because a line
+    // carrying no agent id was attributed to whoever was asked about. It now
+    // returns all-null, because those lines are attributable to no one. Both
+    // are "different from the per-agent numbers"; null is the honest one.
     const parentMetrics = await readTranscriptMetrics(parentPath, "abc123");
-    expect(parentMetrics.toolUseCount).toBe(1);
-    expect(parentMetrics.totalTokens).toBe(15);
+    expect(parentMetrics.toolUseCount).toBeNull();
+    expect(parentMetrics.totalTokens).toBeNull();
   });
 
   test("agent_session_id line-filter is preserved on the resolved file", async () => {
@@ -361,5 +378,43 @@ describe("readTranscriptMetrics on the resolved path (mt#2649 acceptance test)",
     expect(metrics.toolUseCount).toBeNull();
     expect(metrics.totalTokens).toBeNull();
     expect(metrics.durationMs).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3256 SC2 — an unattributable read must SAY so, not just record null
+// ---------------------------------------------------------------------------
+
+describe("attribution-failure warning (mt#3256 SC2)", () => {
+  test("usedPerAgentTranscript distinguishes the per-agent file from a parent fallback", () => {
+    const { parentPath, agentPath } = buildTranscriptTree(
+      [metricsLine({ toolUseCount: 1 })],
+      "abc123",
+      [metricsLine({ toolUseCount: 1, agentId: "abc123" })]
+    );
+
+    expect(usedPerAgentTranscript(agentPath, "abc123")).toBe(true);
+    expect(usedPerAgentTranscript(parentPath, "abc123")).toBe(false);
+    expect(usedPerAgentTranscript(undefined, "abc123")).toBe(false);
+    // A per-agent file belonging to a DIFFERENT agent is not this agent's.
+    expect(usedPerAgentTranscript(agentPath, "zzz999")).toBe(false);
+  });
+
+  test("the parent-fallback warning names the path and the cause", () => {
+    const warning = buildUnattributedModelWarning("abc123", "/tmp/parent.jsonl", false);
+
+    expect(warning).toContain("abc123");
+    expect(warning).toContain("/tmp/parent.jsonl");
+    expect(warning).toContain("PARENT-transcript fallback");
+    // The point of the line: why null was recorded instead of a model.
+    expect(warning).toContain("Recording null rather than another agent's model");
+    expect(warning.endsWith("\n")).toBe(true);
+  });
+
+  test("the per-agent warning distinguishes itself from the fallback case", () => {
+    const warning = buildUnattributedModelWarning("abc123", "/tmp/agent-abc123.jsonl", true);
+
+    expect(warning).toContain("its per-agent transcript");
+    expect(warning).not.toContain("PARENT-transcript fallback");
   });
 });
