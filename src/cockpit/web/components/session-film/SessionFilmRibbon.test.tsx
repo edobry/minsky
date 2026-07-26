@@ -6,11 +6,29 @@
  */
 import { describe, test, expect, afterEach, mock } from "bun:test";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
 import { deriveChapters, groupEventsIntoBatchRows } from "../../lib/session-film-batches";
 import { ROW_HEIGHT_PX, SessionFilmRibbon } from "./SessionFilmRibbon";
 
-afterEach(() => cleanup());
+const originalFetch = global.fetch;
+
+afterEach(() => {
+  cleanup();
+  global.fetch = originalFetch;
+});
+
+// EntityRef's label-resolution channel (mt#3174) fetches in the background;
+// stub it to a harmless degraded response so tests exercise the "bare id,
+// no resolved label yet" rendering path deterministically, not a real
+// network call or an unresolved hanging promise.
+function stubEntityLabelFetch() {
+  global.fetch = mock(async () => ({
+    ok: false,
+    json: async () => ({ state: "degraded", reason: "not mocked in test" }),
+  })) as unknown as typeof fetch;
+}
 
 function ev(overrides: Partial<SemanticEvent> = {}): SemanticEvent {
   return {
@@ -27,21 +45,27 @@ function ev(overrides: Partial<SemanticEvent> = {}): SemanticEvent {
 }
 
 function renderRibbon(events: SemanticEvent[], overrides: Partial<Parameters<typeof SessionFilmRibbon>[0]> = {}) {
+  stubEntityLabelFetch();
   const rows = groupEventsIntoBatchRows(events);
   const chapters = deriveChapters(events, rows);
   const onSelectRow = mock(() => {});
   const onScrollRowChange = mock(() => {});
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <SessionFilmRibbon
-      events={events}
-      batchRows={rows}
-      chapters={chapters}
-      playheadRowIndex={0}
-      selectedRowIndex={null}
-      onSelectRow={onSelectRow}
-      onScrollRowChange={onScrollRowChange}
-      {...overrides}
-    />
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <SessionFilmRibbon
+          events={events}
+          batchRows={rows}
+          chapters={chapters}
+          playheadRowIndex={0}
+          selectedRowIndex={null}
+          onSelectRow={onSelectRow}
+          onScrollRowChange={onScrollRowChange}
+          {...overrides}
+        />
+      </MemoryRouter>
+    </QueryClientProvider>
   );
   return { rows, chapters, onSelectRow, onScrollRowChange };
 }
@@ -139,5 +163,80 @@ describe("SessionFilmRibbon — virtualization (SC 4)", () => {
     const container = screen.getByTestId("session-film-ribbon");
     fireEvent.scroll(container, { target: { scrollTop: ROW_HEIGHT_PX * 10 } });
     expect(onScrollRowChange).toHaveBeenCalled();
+  });
+});
+
+describe("SessionFilmRibbon — glyphic rows (mt#3226 SC 2 / AT 3)", () => {
+  test("a row renders a verb icon and a realm-color swatch", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", verb: "execute", target: { realm: "shell", id: "shell:git status" } }),
+    ];
+    renderRibbon(events);
+    const row = screen.getByTestId("session-film-row-0");
+    expect(row.querySelector('[data-testid="session-film-row-icon"]')).not.toBeNull();
+    expect(row.querySelector('[data-testid="session-film-realm-swatch"]')).not.toBeNull();
+    expect(row.textContent).toContain("git status");
+  });
+
+  test("a row whose target is a routable minsky-substrate entity renders via EntityRef (an in-SPA link)", () => {
+    const events: SemanticEvent[] = [
+      ev({
+        batchId: "b1",
+        verb: "read",
+        target: { realm: "minsky-substrate", id: "minsky:task:mt#1772" },
+      }),
+    ];
+    renderRibbon(events);
+    const row = screen.getByTestId("session-film-row-0");
+    const link = row.querySelector("a");
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("href")).toBe("/tasks/mt%231772");
+    expect(row.textContent).toContain("mt#1772");
+  });
+
+  test("a row whose target has no routable counterpart renders a plain label, not a link", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", verb: "read", target: { realm: "repo", id: "file:ws:src/App.tsx" } }),
+    ];
+    renderRibbon(events);
+    const row = screen.getByTestId("session-film-row-0");
+    expect(row.querySelector("a")).toBeNull();
+    expect(row.textContent).toContain("src/App.tsx");
+  });
+
+  test("a parallel batch row still renders its own batch icon (not a bespoke duplicate)", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", target: { realm: "repo", id: "file:ws:a.ts" } }),
+      ev({ batchId: "b1", target: { realm: "repo", id: "file:ws:b.ts" } }),
+    ];
+    renderRibbon(events);
+    const row = screen.getByTestId("session-film-row-0");
+    expect(row.querySelector('[data-testid="session-film-row-icon"]')).not.toBeNull();
+  });
+});
+
+describe("SessionFilmRibbon — actor-change marker (mt#3226 SC 2 / AT 2)", () => {
+  test("a single-actor fixture renders NO actor markers at all", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", actor: { kind: "agent", agentSessionId: "a1" } }),
+      ev({ batchId: "b2", actor: { kind: "agent", agentSessionId: "a1" } }),
+    ];
+    renderRibbon(events);
+    expect(screen.queryAllByTestId("session-film-actor-marker")).toHaveLength(0);
+  });
+
+  test("a principal interjection row carries exactly one actor marker", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", actor: { kind: "agent", agentSessionId: "a1" } }),
+      ev({ batchId: "b2", verb: "respond", actor: { kind: "principal" } }),
+    ];
+    renderRibbon(events);
+    const changedRow = screen.getByTestId("session-film-row-1");
+    expect(changedRow.getAttribute("data-actor-change")).toBe("true");
+    expect(
+      changedRow.querySelector('[data-testid="session-film-actor-marker"]')
+    ).not.toBeNull();
+    const unchangedRow = screen.getByTestId("session-film-row-0");
+    expect(unchangedRow.getAttribute("data-actor-change")).toBeNull();
   });
 });

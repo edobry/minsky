@@ -4,6 +4,7 @@
 import { describe, test, expect } from "bun:test";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
 import {
+  deriveActorChanges,
   deriveChapters,
   groupEventsIntoBatchRows,
   isWaitRow,
@@ -128,5 +129,64 @@ describe("deriveChapters — Skill-invocation chapter boundaries", () => {
     ];
     const rows = groupEventsIntoBatchRows(events);
     expect(deriveChapters(events, rows)[0]?.label).toBe("Skill invocation");
+  });
+});
+
+describe("deriveActorChanges — actor-change annotation (mt#3226 SC 2 / AT 2)", () => {
+  test("a single-actor fixture renders ZERO actor-change rows (no per-row repetition)", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", actor: { kind: "agent", agentSessionId: "a1" } }),
+      ev({ batchId: "b2", actor: { kind: "agent", agentSessionId: "a1" } }),
+      ev({ batchId: "b3", actor: { kind: "agent", agentSessionId: "a1" } }),
+    ];
+    const rows = groupEventsIntoBatchRows(events);
+    expect(deriveActorChanges(events, rows).size).toBe(0);
+  });
+
+  test("a principal interjection produces exactly ONE actor-change marker at the interjection row", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", actor: { kind: "agent", agentSessionId: "a1" } }),
+      ev({ batchId: "b2", actor: { kind: "agent", agentSessionId: "a1" } }),
+      ev({ batchId: "b3", verb: "respond", actor: { kind: "principal" } }),
+      ev({ batchId: "b4", actor: { kind: "agent", agentSessionId: "a1" } }),
+    ];
+    const rows = groupEventsIntoBatchRows(events);
+    const changes = deriveActorChanges(events, rows);
+    // Row 2 (the principal turn) AND row 3 (back to the agent) both count as
+    // changes — each is a distinct actor-change EVENT, not a single blip.
+    expect(changes.has(2)).toBe(true);
+    expect(changes.has(3)).toBe(true);
+    expect(changes.has(0)).toBe(false);
+    expect(changes.has(1)).toBe(false);
+  });
+
+  test("a policy denial produces exactly one actor-change marker", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", actor: { kind: "agent", agentSessionId: "a1" } }),
+      ev({
+        batchId: "b2",
+        verb: "execute",
+        outcome: "denied",
+        actor: { kind: "policy", guardName: "require-review-before-merge" },
+      }),
+    ];
+    const rows = groupEventsIntoBatchRows(events);
+    const changes = deriveActorChanges(events, rows);
+    expect([...changes]).toEqual([1]);
+  });
+
+  test("a spawn boundary (a different agentSessionId) counts as an actor change", () => {
+    const events: SemanticEvent[] = [
+      ev({ batchId: "b1", actor: { kind: "agent", agentSessionId: "parent" } }),
+      ev({ batchId: "b2", actor: { kind: "agent", agentSessionId: "child" } }),
+    ];
+    const rows = groupEventsIntoBatchRows(events);
+    expect([...deriveActorChanges(events, rows)]).toEqual([1]);
+  });
+
+  test("row 0 is never itself a change, even with events present", () => {
+    const events: SemanticEvent[] = [ev({ batchId: "b1" })];
+    const rows = groupEventsIntoBatchRows(events);
+    expect(deriveActorChanges(events, rows).size).toBe(0);
   });
 });

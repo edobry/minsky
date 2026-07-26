@@ -11,8 +11,14 @@ import {
   Bot,
   Plug,
   Wrench,
+  Search,
+  Clock,
+  MessageCircle,
+  Layers,
+  User,
+  ShieldAlert,
 } from "lucide-react";
-import { toolIconFor } from "./tool-icon";
+import { actorIconFor, BATCH_ROW_ICON, toolIconFor, verbIconFor } from "./tool-icon";
 import { parseToolName } from "./tool-name";
 
 describe("toolIconFor", () => {
@@ -51,5 +57,56 @@ describe("toolIconFor", () => {
 
   test("an unrecognized native tool gets the generic Wrench icon", () => {
     expect(toolIconFor(parseToolName("WebFetch"))).toBe(Wrench);
+  });
+});
+
+describe("verbIconFor (mt#3226 SC 2 — session-film glyphic ribbon)", () => {
+  test("read/search verbs get the Search icon", () => {
+    expect(verbIconFor("read")).toBe(Search);
+    expect(verbIconFor("search")).toBe(Search);
+  });
+
+  test("write/create/delete verbs get the FileText icon", () => {
+    expect(verbIconFor("write")).toBe(FileText);
+    expect(verbIconFor("create")).toBe(FileText);
+    expect(verbIconFor("delete")).toBe(FileText);
+  });
+
+  test("clone gets the GitBranch icon", () => {
+    expect(verbIconFor("clone")).toBe(GitBranch);
+  });
+
+  test("execute gets the Terminal icon", () => {
+    expect(verbIconFor("execute")).toBe(Terminal);
+  });
+
+  test("spawn gets the Bot icon", () => {
+    expect(verbIconFor("spawn")).toBe(Bot);
+  });
+
+  test("wait gets the Clock icon", () => {
+    expect(verbIconFor("wait")).toBe(Clock);
+  });
+
+  test("speak/respond/ask get the MessageCircle icon", () => {
+    expect(verbIconFor("speak")).toBe(MessageCircle);
+    expect(verbIconFor("respond")).toBe(MessageCircle);
+    expect(verbIconFor("ask")).toBe(MessageCircle);
+  });
+
+  test("think gets the BrainCircuit icon", () => {
+    expect(verbIconFor("think")).toBe(BrainCircuit);
+  });
+});
+
+describe("BATCH_ROW_ICON / actorIconFor (mt#3226 SC 2)", () => {
+  test("BATCH_ROW_ICON is the Layers icon, distinct from any single verb icon", () => {
+    expect(BATCH_ROW_ICON).toBe(Layers);
+  });
+
+  test("actorIconFor maps principal/policy/agent to distinct icons", () => {
+    expect(actorIconFor("principal")).toBe(User);
+    expect(actorIconFor("policy")).toBe(ShieldAlert);
+    expect(actorIconFor("agent")).toBe(Bot);
   });
 });

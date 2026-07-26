@@ -11,6 +11,7 @@
  * @see packages/domain/src/transcripts/event-schema.ts — `batchId` doc comment
  */
 import type { EventVerb, SemanticEvent } from "@minsky/domain/transcripts/event-schema";
+import { actorKey } from "./session-film-fold";
 
 export interface BatchRow {
   /** Index of this row within the ribbon's batch-row array — the playhead's addressing unit. */
@@ -133,6 +134,46 @@ function skillNameFromRaw(raw: unknown): string | null {
     }
   }
   return null;
+}
+
+// ── Actor-change annotation (mt#3226 SC 2 / AT 2) ────────────────────────────
+
+/**
+ * The row's dominant actor key — the FIRST event's actor (a parallel batch's
+ * events always share one actor per `event-adapter.ts`'s batching rule, so
+ * "first event's actor" is unambiguous for a genuine parallel batch too).
+ */
+function rowActorKey(events: readonly SemanticEvent[], row: BatchRow): string | null {
+  const firstIdx = row.eventIndices[0];
+  const event = firstIdx !== undefined ? events[firstIdx] : undefined;
+  return event ? actorKey(event.actor) : null;
+}
+
+/**
+ * Row indices where the actor CHANGES from the immediately preceding row —
+ * a principal interjection, a policy denial, or a subagent spawn boundary
+ * (spec SC 2: "actor renders only on actor-CHANGE... never repeated per-row
+ * in a single-actor film"). Row 0 is never itself a "change" (there is no
+ * preceding row to differ from) — a single-actor film therefore renders
+ * ZERO actor markers end to end, matching AT 2's "single-actor fixture
+ * renders zero per-row actor repetition."
+ */
+export function deriveActorChanges(
+  events: readonly SemanticEvent[],
+  batchRows: readonly BatchRow[]
+): ReadonlySet<number> {
+  const changes = new Set<number>();
+  let previousActor: string | null = null;
+  for (let i = 0; i < batchRows.length; i++) {
+    const row = batchRows[i];
+    if (!row) continue;
+    const actor = rowActorKey(events, row);
+    if (i > 0 && actor !== null && actor !== previousActor) {
+      changes.add(row.rowIndex);
+    }
+    if (actor !== null) previousActor = actor;
+  }
+  return changes;
 }
 
 /** Derive chapter markers (one per Skill-invocation row) from an ordered event/batch-row pair. */

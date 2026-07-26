@@ -1,12 +1,30 @@
 /**
  * SessionFilmRibbon — the A0 event ribbon (mt#3184 — Watchable world Phase 1,
- * spec SC 4).
+ * spec SC 4; glyphic-row redesign mt#3226 SC 1 / SC 2).
  *
  * Batch-grain, virtualized rows: a parallel batch (`BatchRow.isParallelBatch`)
  * renders as ONE expandable "N parallel actions" row; a wall-clock density
  * annotation and a capture-gap annotation are distinct row decorations (not
  * separate rows — see the uniform-row-height note below); chapter headers
  * derive from Skill invocations (`session-film-batches.ts`'s `deriveChapters`).
+ *
+ * Glyphic row grammar (mt#3226 SC 2, replacing the v1 plain-prose row): a
+ * VERB icon (`tool-icon.ts`'s `verbIconFor` — the SAME shared per-family icon
+ * registry the conversation view's tool-invocation block uses, not a bespoke
+ * duplicate set), a REALM color swatch (`session-film-config.ts`'s brand-token
+ * accents, one of the existing VSM-organ colors per realm — never a raw hex),
+ * and the target rendered via the mt#3174 EntityRef layer when it resolves to
+ * a routable minsky-substrate entity (`session-film-target-ref.ts`), else a
+ * plain display-label fallback (a file path, a domain, a shell digest — every
+ * other realm has no routable id-space counterpart in v0). An actor marker
+ * renders ONLY on actor-CHANGE (principal interjection, policy denial, spawn
+ * boundary) — never repeated per-row in a single-actor film, per
+ * `session-film-batches.ts`'s `deriveActorChanges`.
+ *
+ * Row root is a `<div role="listitem">` (not a `<button>`): EntityRef renders
+ * an anchor internally, and nesting an anchor inside a native `<button>` is
+ * invalid HTML (button forbids interactive-content descendants). The row
+ * stays keyboard-operable via `tabIndex={0}` + an Enter/Space key handler.
  *
  * Uniform-row-height simplification: every row renders at the SAME fixed
  * height (`ROW_HEIGHT_PX`) regardless of chapter/gap/wait status — the
@@ -18,16 +36,22 @@
  * (`onSelectRow` + the parent page's detail view), not inline-expanding
  * content — same rationale.
  *
- * @see session-film-batches.ts — BatchRow / ChapterMarker / gap+wait helpers
+ * @see session-film-batches.ts — BatchRow / ChapterMarker / gap+wait/actor-change helpers
  * @see session-film-virtualization.ts — the windowing math this component wires up
+ * @see session-film-target-ref.ts — EntityRef routing / display-label fallback
+ * @see tool-icon.ts — the shared verb/actor icon registry
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
 import type { BatchRow, ChapterMarker } from "../../lib/session-film-batches";
-import { isWaitRow, precedingGapMs } from "../../lib/session-film-batches";
+import { deriveActorChanges, isWaitRow, precedingGapMs } from "../../lib/session-film-batches";
 import { computeVisibleRowRange, rowIndexForScrollTop } from "../../lib/session-film-virtualization";
 import { formatDurationShort } from "../../lib/format-duration";
 import { cn } from "../../lib/utils";
+import { actorIconFor, BATCH_ROW_ICON, verbIconFor } from "../../lib/tool-icon";
+import { realmColorStyle } from "../../lib/session-film-config";
+import { parseRoutableTarget, targetDisplayLabel } from "../../lib/session-film-target-ref";
+import { EntityRef } from "../EntityRef";
 
 /** Fixed collapsed-row height, px — see the module doc's uniform-height rationale. */
 export const ROW_HEIGHT_PX = 32;
@@ -49,16 +73,26 @@ export interface SessionFilmRibbonProps {
   className?: string;
 }
 
+function outcomeSuffix(outcome: SemanticEvent["outcome"]): string {
+  if (outcome === undefined) return " [in-flight]";
+  if (outcome !== "ok") return ` [${outcome}]`;
+  return "";
+}
+
+/** A row's single dominant event, for the glyphic (non-batch) rendering path. */
+function soleEvent(events: readonly SemanticEvent[], row: BatchRow): SemanticEvent | undefined {
+  const idx = row.eventIndices[0];
+  return idx !== undefined ? events[idx] : undefined;
+}
+
+/** Plain-text fallback summary (used when a row's event is missing — defensive only). */
 function rowSummary(events: readonly SemanticEvent[], row: BatchRow): string {
   if (row.isParallelBatch) {
     return `${row.eventIndices.length} parallel actions`;
   }
-  const idx = row.eventIndices[0];
-  const event = idx !== undefined ? events[idx] : undefined;
+  const event = soleEvent(events, row);
   if (!event) return "(unknown event)";
-  const outcomeSuffix =
-    event.outcome === undefined ? " [in-flight]" : event.outcome !== "ok" ? ` [${event.outcome}]` : "";
-  return `${event.verb} ${event.target.id}${outcomeSuffix}`;
+  return `${event.verb} ${event.target.id}${outcomeSuffix(event.outcome)}`;
 }
 
 export function SessionFilmRibbon({
@@ -96,6 +130,15 @@ export function SessionFilmRibbon({
     return m;
   }, [chapters]);
 
+  // Actor-change annotation (mt#3226 SC 2 / AT 2): precomputed over the FULL
+  // batchRows array (not just the virtualized window) — "did the actor
+  // change from the PRECEDING row" is only answerable with full context, and
+  // must stay stable regardless of which window happens to be mounted.
+  const actorChangeRows = useMemo(
+    () => deriveActorChanges(events, batchRows),
+    [events, batchRows]
+  );
+
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -129,22 +172,38 @@ export function SessionFilmRibbon({
             const isCaptureGap = !wait && gapMs >= CAPTURE_GAP_THRESHOLD_MS;
             const isPlayhead = row.rowIndex === playheadRowIndex;
             const isSelected = row.rowIndex === selectedRowIndex;
+            const firstEvent = soleEvent(events, row);
+            const event = row.isParallelBatch ? undefined : firstEvent;
+            const routableTarget = event ? parseRoutableTarget(event.target) : null;
+            const showActorMarker = actorChangeRows.has(row.rowIndex) && firstEvent !== undefined;
+            const ActorIcon = firstEvent ? actorIconFor(firstEvent.actor.kind) : undefined;
+            const RowIcon = row.isParallelBatch ? BATCH_ROW_ICON : event ? verbIconFor(event.verb) : undefined;
+
+            const activate = () => onSelectRow(row.rowIndex);
 
             return (
-              <button
+              <div
                 key={row.rowIndex}
-                type="button"
                 data-testid={`session-film-row-${row.rowIndex}`}
                 data-row-index={row.rowIndex}
                 data-wait={wait ? "true" : undefined}
                 data-capture-gap={isCaptureGap ? "true" : undefined}
                 data-chapter={chapter ? "true" : undefined}
+                data-actor-change={showActorMarker ? "true" : undefined}
                 role="listitem"
+                tabIndex={0}
                 aria-current={isPlayhead ? "true" : undefined}
-                onClick={() => onSelectRow(row.rowIndex)}
+                onClick={activate}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    activate();
+                  }
+                }}
                 style={{ height: ROW_HEIGHT_PX }}
                 className={cn(
-                  "flex w-full items-center gap-2 border-l-2 px-2 text-left",
+                  "flex w-full cursor-pointer items-center gap-1.5 border-l-2 px-2 text-left",
+                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                   isPlayhead ? "border-l-primary bg-primary/10" : "border-l-transparent",
                   isSelected && "bg-secondary",
                   wait && "italic text-muted-foreground",
@@ -172,8 +231,48 @@ export function SessionFilmRibbon({
                     ⏳ wait
                   </span>
                 ) : null}
-                <span className="truncate">{rowSummary(events, row)}</span>
-              </button>
+                {showActorMarker && ActorIcon ? (
+                  <span
+                    data-testid="session-film-actor-marker"
+                    aria-label={`actor: ${firstEvent?.actor.kind}`}
+                    className="shrink-0"
+                    style={{ color: "oklch(var(--foreground))" }}
+                  >
+                    <ActorIcon className="size-3" aria-hidden="true" />
+                  </span>
+                ) : null}
+                {RowIcon ? (
+                  <RowIcon
+                    data-testid="session-film-row-icon"
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                ) : null}
+                {event ? (
+                  <span
+                    data-testid="session-film-realm-swatch"
+                    aria-hidden="true"
+                    className="size-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: realmColorStyle(event.target.realm) }}
+                  />
+                ) : null}
+                {event ? (
+                  <span className="min-w-0 flex-1 truncate">
+                    {routableTarget ? (
+                      <EntityRef
+                        type={routableTarget.type}
+                        id={routableTarget.id}
+                        className="truncate text-xs"
+                      />
+                    ) : (
+                      <span className="truncate">{targetDisplayLabel(event.target)}</span>
+                    )}
+                    <span className="text-muted-foreground">{outcomeSuffix(event.outcome)}</span>
+                  </span>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate">{rowSummary(events, row)}</span>
+                )}
+              </div>
             );
           })}
         </div>
