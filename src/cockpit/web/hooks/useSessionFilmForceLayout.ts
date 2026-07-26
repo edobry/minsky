@@ -59,6 +59,19 @@ export function useSessionFilmForceLayout(
   reducedMotion: boolean
 ): StageLayout {
   const stateRef = useRef<ForceLayoutState | null>(null);
+  // Latest-`config` mirror (mt#3231 review R1, non-blocking #5 — "interval
+  // captures state/tickIntervalMs, not updated on nested config change").
+  // `config` IS already a full effect dependency below, so a caller that
+  // gives it a NEW reference on every relevant change already gets a fresh
+  // tick loop for free. This ref is the defensive belt for the documented
+  // anti-pattern the reviewer flagged: a caller that mutates `config`'s
+  // NESTED fields in place on a STABLE reference (contrary to the
+  // immutability this hook assumes elsewhere). Reading through this ref on
+  // every scheduled tick (see the self-rescheduling `setTimeout` below)
+  // means the interval always uses the CURRENT `tickIntervalMs`, not the
+  // value the tick loop's closure captured at effect-setup time.
+  const configRef = useRef(config);
+  configRef.current = config;
   // A COUNTER (not a bare `[, forceTick]`) — deliberately included in the
   // final `useMemo` dependency array below. Every downstream consumer
   // (`SessionFilmStage.tsx`'s "arrival physics" effect, keyed off
@@ -89,20 +102,34 @@ export function useSessionFilmForceLayout(
     }
 
     const state = stateRef.current;
+    // Self-rescheduling `setTimeout` (mt#3231 review R1, non-blocking #5 —
+    // NOT a bare `setInterval`): a `setInterval`'s delay is fixed at the
+    // moment it's created, from whatever `config.forceLayout.tickIntervalMs`
+    // the closure captured then — reading `configRef.current` fresh on
+    // EVERY reschedule instead means a nested config change (even one that
+    // violates the "config is immutable" assumption by mutating in place on
+    // a stable reference) takes effect on the very next tick, not never.
     // Self-clearing (belt-and-suspenders alongside the effect cleanup
-    // below): once the simulation settles, the interval clears ITSELF
-    // rather than ticking-and-no-op'ing forever — bounds how long any one
-    // interval can possibly stay alive even if an unmount were ever missed
-    // (e.g. a synchronous test error skipping React's normal teardown).
-    const id = setInterval(() => {
-      if (!state || isForceLayoutSettled(state)) {
-        clearInterval(id);
-        return;
-      }
-      tickForceLayout(state);
-      setTick((n) => n + 1);
-    }, config.forceLayout.tickIntervalMs);
-    return () => clearInterval(id);
+    // below): once the simulation settles, the loop stops rescheduling
+    // ITSELF rather than ticking-and-no-op'ing forever — bounds how long
+    // any one loop can possibly stay alive even if an unmount were ever
+    // missed (e.g. a synchronous test error skipping React's normal
+    // teardown).
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let cancelled = false;
+    const scheduleNextTick = () => {
+      timeoutId = setTimeout(() => {
+        if (cancelled || !state || isForceLayoutSettled(state)) return;
+        tickForceLayout(state);
+        setTick((n) => n + 1);
+        scheduleNextTick();
+      }, configRef.current.forceLayout.tickIntervalMs);
+    };
+    scheduleNextTick();
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, [layout, config, reducedMotion]);
 
   // Memoized on `[layout, tick]` (NOT recomputed on every render) — see the

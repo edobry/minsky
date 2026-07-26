@@ -697,6 +697,20 @@ export function SessionFilmStage({
                 !reducedMotion && "session-film-beam-pulse",
                 !reducedMotion && kind === "bounce" && "session-film-beam-bounce"
               )}
+              // CSS-vs-attribute precedence (mt#3231 review R1, non-blocking
+              // #6 — keep this note here, not ONLY in index.css, so an editor
+              // touching this JSX sees it too): `.session-film-beam-pulse`
+              // (applied via `className` above whenever `!reducedMotion`)
+              // sets `stroke-dasharray: var(--beam-dash, 5 4)` in CSS, which
+              // ALWAYS wins over the `strokeDasharray` presentation
+              // attribute set below — a CSS property beats an SVG
+              // presentation attribute of the same name, full stop. The
+              // `--beam-dash` custom property here is what keeps the
+              // per-kind dash pattern (`beamDashArray`) alive under that
+              // class; DO NOT remove it thinking `strokeDasharray` alone
+              // suffices — under reduced motion the class isn't applied, so
+              // the attribute IS what renders, but as soon as the pulse
+              // class comes back the CSS rule reasserts control.
               style={
                 !reducedMotion
                   ? ({

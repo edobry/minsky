@@ -108,11 +108,27 @@ export function deriveFilmSubjectAgentId(
 ): string | null {
   for (const event of events) {
     if (
-      event.actor.kind === "agent" &&
-      event.actor.agentSessionId &&
-      event.target.realm === "agents" &&
-      event.target.id === `agents:${event.actor.agentSessionId}`
+      event.actor.kind !== "agent" ||
+      !event.actor.agentSessionId ||
+      event.target.realm !== "agents"
     ) {
+      continue;
+    }
+    // ASSUMPTION this derivation rests on (mt#3231 review R1, non-blocking
+    // #7): every current adapter targets a self-verb at EXACTLY
+    // `agents:<agentSessionId>` — no additional namespacing
+    // (`event-adapter.ts`'s `emitSimpleEvent`). Exact equality is the
+    // primary check.
+    //
+    // Defensive fallback: a future or alternate adapter that namespaces
+    // agent ids differently (e.g. multi-tenant `agents:<tenant>:<id>`) would
+    // fail the exact check but still genuinely self-target if its id ENDS
+    // with this actor's own session id. Suffix (not substring) match, with
+    // the mandatory leading `:` separator, avoids a false positive against
+    // an unrelated id that merely contains this session id as a fragment
+    // (e.g. it would NOT wrongly match `agents:Explore` for session id
+    // `"1"` — "Explore" doesn't end with ":1").
+    if (event.target.id.endsWith(`:${event.actor.agentSessionId}`)) {
       return event.target.id;
     }
   }

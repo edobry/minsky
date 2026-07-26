@@ -148,6 +148,26 @@ describe("deriveFilmSubjectAgentId / isSelfReferenceTarget (mt#3231 SC 1 / AT 1)
     expect(deriveFilmSubjectAgentId(events)).toBe("agents:a1");
   });
 
+  test("a namespaced self-target (agents:<tenant>:<id>) is caught by the defensive suffix fallback (mt#3231 review R1, non-blocking #7)", () => {
+    const events = [
+      {
+        actor: { kind: "agent", agentSessionId: "a1" },
+        target: { realm: "agents" as const, id: "agents:tenant:a1" },
+      },
+    ];
+    expect(deriveFilmSubjectAgentId(events)).toBe("agents:tenant:a1");
+  });
+
+  test("the suffix fallback does not false-positive on an unrelated id that merely contains the session id as a fragment", () => {
+    const events = [
+      {
+        actor: { kind: "agent", agentSessionId: "1" },
+        target: { realm: "agents" as const, id: "agents:Explore1" },
+      },
+    ];
+    expect(deriveFilmSubjectAgentId(events)).toBeNull();
+  });
+
   test("isSelfReferenceTarget is true only when both the realm and id match the derived subject id", () => {
     expect(isSelfReferenceTarget({ realm: "agents", id: "agents:a1" }, "agents:a1")).toBe(true);
     expect(isSelfReferenceTarget({ realm: "agents", id: "agents:Explore" }, "agents:a1")).toBe(
