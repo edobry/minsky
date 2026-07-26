@@ -3,7 +3,12 @@
  */
 import { describe, test, expect } from "bun:test";
 import type { EventRealm } from "@minsky/domain/transcripts/event-schema";
-import { parseRoutableTarget, targetDisplayLabel } from "./session-film-target-ref";
+import {
+  deriveFilmSubjectAgentId,
+  isSelfReferenceTarget,
+  parseRoutableTarget,
+  targetDisplayLabel,
+} from "./session-film-target-ref";
 
 const SUBSTRATE_REALM: EventRealm = "minsky-substrate";
 
@@ -91,5 +96,64 @@ describe("targetDisplayLabel", () => {
     // was recognized).
     const target = { realm: "unknown" as const, id: "unknown:Skill" };
     expect(targetDisplayLabel(target)).toBe(target.id);
+  });
+});
+
+describe("deriveFilmSubjectAgentId / isSelfReferenceTarget (mt#3231 SC 1 / AT 1)", () => {
+  test("a think event targeting the SAME actor's own agents:<id> reveals the subject id", () => {
+    const events = [
+      {
+        actor: { kind: "agent", agentSessionId: "a3f9c21b" },
+        target: { realm: "agents" as const, id: "agents:a3f9c21b" },
+      },
+    ];
+    expect(deriveFilmSubjectAgentId(events)).toBe("agents:a3f9c21b");
+  });
+
+  test("a real tool-call event (target != actor's own id) does not, by itself, reveal a subject id", () => {
+    const events = [
+      {
+        actor: { kind: "agent", agentSessionId: "a1" },
+        target: { realm: "repo" as const, id: "file:ws:a.ts" },
+      },
+    ];
+    expect(deriveFilmSubjectAgentId(events)).toBeNull();
+  });
+
+  test("a spawn target (agents:<kind>, e.g. agents:Explore) is NOT mistaken for a self-reference", () => {
+    const events = [
+      {
+        actor: { kind: "agent", agentSessionId: "a1" },
+        target: { realm: "agents" as const, id: "agents:Explore" },
+      },
+    ];
+    expect(deriveFilmSubjectAgentId(events)).toBeNull();
+  });
+
+  test("returns the FIRST self-targeting id found, deterministically", () => {
+    const events = [
+      {
+        actor: { kind: "agent", agentSessionId: "a1" },
+        target: { realm: "repo" as const, id: "file:ws:a.ts" },
+      },
+      {
+        actor: { kind: "agent", agentSessionId: "a1" },
+        target: { realm: "agents" as const, id: "agents:a1" },
+      },
+      {
+        actor: { kind: "agent", agentSessionId: "a1" },
+        target: { realm: "agents" as const, id: "agents:a1" },
+      },
+    ];
+    expect(deriveFilmSubjectAgentId(events)).toBe("agents:a1");
+  });
+
+  test("isSelfReferenceTarget is true only when both the realm and id match the derived subject id", () => {
+    expect(isSelfReferenceTarget({ realm: "agents", id: "agents:a1" }, "agents:a1")).toBe(true);
+    expect(isSelfReferenceTarget({ realm: "agents", id: "agents:Explore" }, "agents:a1")).toBe(
+      false
+    );
+    expect(isSelfReferenceTarget({ realm: "repo", id: "agents:a1" }, "agents:a1")).toBe(false);
+    expect(isSelfReferenceTarget({ realm: "agents", id: "agents:a1" }, null)).toBe(false);
   });
 });
