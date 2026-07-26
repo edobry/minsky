@@ -146,6 +146,29 @@ describe("computeStageLayout — UNKNOWN realm label fix (mt#3226 SC 5)", () => 
     expect(unknownRoot?.label).toBe("other");
     expect(unknownRoot?.label.toUpperCase()).not.toBe("UNKNOWN");
   });
+
+  test("an unknown-realm LEAF node never renders the literal 'unknown:' prefix (mt#3258 SC 3)", () => {
+    // Coordinator's live-DOM finding: the stage's <title> tooltip showed the
+    // literal string "unknown:tasks_children" — traced to buildFlatTree
+    // using the raw entityId (which already carries the realm-prefix
+    // scaffolding) as the leaf's display label instead of routing it through
+    // targetDisplayLabel like the ribbon does.
+    const events: SemanticEvent[] = [
+      ev({
+        target: { realm: "unknown", id: "unknown:tasks_children" },
+        tStart: "2026-07-24T00:00:00.000Z",
+      }),
+    ];
+    const world = foldEvents(events, 0);
+    const layout = computeStageLayout(
+      world,
+      "2026-07-24T00:00:00.000Z",
+      DEFAULT_SESSION_FILM_CONFIG
+    );
+    const unknownLeaf = layout.nodes.find((n) => n.realm === "unknown" && n.depth > 0);
+    expect(unknownLeaf?.label).toBe("tasks_children");
+    expect(unknownLeaf?.label).not.toContain("unknown");
+  });
 });
 
 // ── Organic child layout (mt#3226 SC 5 / AT 4) ───────────────────────────────

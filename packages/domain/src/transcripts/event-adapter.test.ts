@@ -286,7 +286,59 @@ describe("adaptTranscriptToEvents — AT3: unknown-tool fallback + coverage metr
     expect(coverage.nonFallbackToolEvents).toBe(1);
     expect(coverage.coverage).toBe(0.5);
   });
+});
 
+describe("adaptTranscriptToEvents — mt#3258 SC 3: coverage-hole sweep (Skill, tasks_children, + others)", () => {
+  test("a Skill invocation maps to a real realm/target, not unknown:Skill", () => {
+    const transcript: TranscriptMessage[] = [
+      assistantMsg(
+        [{ type: "tool_use", id: "call-skill", name: "Skill", input: { skill: "cockpit-design" } }],
+        "2026-07-26T12:00:00.000Z",
+        "line-skill"
+      ),
+      userMsg(
+        [{ type: "tool_result", tool_use_id: "call-skill", content: "ok", is_error: false }],
+        "2026-07-26T12:00:01.000Z"
+      ),
+    ];
+    const events = adaptTranscriptToEvents(transcript, PRINCIPAL_CONTEXT);
+    const skillEvent = events.find((e) => e.verb === "execute" && e.target.realm === "agents");
+    expect(skillEvent).toBeDefined();
+    expect(skillEvent?.unmapped).toBe(false);
+    expect(skillEvent?.target.id).toBe("agents:skill:cockpit-design");
+    expect(skillEvent?.target.id).not.toContain("unknown");
+  });
+
+  test("mcp__minsky__tasks_children maps to minsky-substrate, not unknown:tasks_children", () => {
+    const transcript: TranscriptMessage[] = [
+      assistantMsg(
+        [
+          {
+            type: "tool_use",
+            id: "call-children",
+            name: "mcp__minsky__tasks_children",
+            input: { taskId: "mt#3258" },
+          },
+        ],
+        "2026-07-26T12:00:00.000Z",
+        "line-children"
+      ),
+      userMsg(
+        [{ type: "tool_result", tool_use_id: "call-children", content: "ok", is_error: false }],
+        "2026-07-26T12:00:01.000Z"
+      ),
+    ];
+    const events = adaptTranscriptToEvents(transcript, PRINCIPAL_CONTEXT);
+    const childrenEvent = events.find(
+      (e) => e.verb === "read" && e.target.realm === "minsky-substrate"
+    );
+    expect(childrenEvent).toBeDefined();
+    expect(childrenEvent?.unmapped).toBe(false);
+    expect(childrenEvent?.target.id).toBe("minsky:task:mt#3258");
+  });
+});
+
+describe("adaptTranscriptToEvents — AT3: unknown-tool fallback + coverage metric", () => {
   test("conversational events (speak/think/ask) are excluded from the coverage denominator", () => {
     const transcript: TranscriptMessage[] = [
       userMsg("hello there", "2026-07-24T12:20:00.000Z"),

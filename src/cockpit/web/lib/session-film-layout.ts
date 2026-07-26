@@ -77,6 +77,7 @@ import {
   REALM_DISPLAY_LABEL,
   type SessionFilmConfig,
 } from "./session-film-config";
+import { targetDisplayLabel } from "./session-film-target-ref";
 
 // ── Deterministic per-node jitter (mt#3226 SC 5) ─────────────────────────────
 //
@@ -157,11 +158,29 @@ function buildRepoTree(realm: EventRealm, entityIds: readonly string[]): RawNode
   return root;
 }
 
-/** Every non-repo realm: a flat root -> touched-entity tree (v0 has no deeper containment data for these realms). */
+/**
+ * Every non-repo realm: a flat root -> touched-entity tree (v0 has no deeper
+ * containment data for these realms).
+ *
+ * Leaf `label` routes through `targetDisplayLabel` (mt#3258 SC 3) rather than
+ * the raw `entityId` — the raw composite id already carries the realm-prefix
+ * scaffolding (`event-adapter.ts`'s "Observed id shapes"), so a leaf under
+ * the `unknown` realm previously rendered its `<title>` tooltip as the
+ * literal string `unknown:Skill`/`unknown:tasks_children` (the coordinator's
+ * live-DOM finding) — the SAME leak the ribbon's `EventTargetLabel` had,
+ * just reached via the stage instead of `targetDisplayLabel`'s bare
+ * fallback. Reusing that one display function keeps both surfaces
+ * consistent and means a future prefix fix only has one call site to touch.
+ */
 function buildFlatTree(realm: EventRealm, entityIds: readonly string[]): RawNode {
   const root: RawNode = { id: realmRootId(realm), label: realm, entityId: null, children: [] };
   for (const entityId of entityIds) {
-    root.children.push({ id: `${realm}:${entityId}`, label: entityId, entityId, children: [] });
+    root.children.push({
+      id: `${realm}:${entityId}`,
+      label: targetDisplayLabel({ realm, id: entityId }),
+      entityId,
+      children: [],
+    });
   }
   return root;
 }
