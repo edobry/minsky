@@ -110,7 +110,13 @@ function isAttributedTo(
   line: { agentId?: string; agent_session_id?: string },
   agentSessionId: string | undefined
 ): boolean {
-  if (agentSessionId == null) {
+  // Strict, not `== null` (PR #2340 R1): "not provided" means exactly
+  // undefined or null. An EMPTY STRING is not "not provided" — it stays a real
+  // id that no real line can match, so nothing is attributed and the caller
+  // gets null rather than another agent's data. That is the conservative
+  // direction and it is deliberate; widening it to "no id requested, take
+  // everything" would reintroduce this task's defect for an empty id.
+  if (agentSessionId === undefined || agentSessionId === null) {
     return true;
   }
   const lineAgentId = line.agentId ?? line.agent_session_id;

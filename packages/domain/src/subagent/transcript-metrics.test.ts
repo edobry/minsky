@@ -261,4 +261,16 @@ describe("mt#3256 — attribution requires a positive id match", () => {
     expect(metrics.totalTokens).toBe(165);
     expect(metrics.durationMs).toBe(5000);
   });
+
+  test("an EMPTY-STRING agentSessionId is not 'not provided' (PR #2340 R1)", () => {
+    // `"" == null` is false, so an empty id never took the not-provided path;
+    // it stays a real id that no real line matches. Pinned in the conservative
+    // direction: widening it to "take everything" would reintroduce this
+    // task's defect for an empty id.
+    const path = writeTranscript([assistantLine({ model: "claude-opus-4-8" })]);
+
+    expect(extractActualModel(path, "")).toBeNull();
+    // ...and the genuinely-not-provided case is unaffected.
+    expect(extractActualModel(path, undefined)).toBe("claude-opus-4-8");
+  });
 });

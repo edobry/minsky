@@ -15,6 +15,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   resolveMetricsTranscriptPath,
+  usedPerAgentTranscript,
+  buildUnattributedModelWarning,
   decideRecordingAction,
   HOOK_UNKNOWN_TASK_ID,
   recordFailureBestEffort,
@@ -376,5 +378,43 @@ describe("readTranscriptMetrics on the resolved path (mt#2649 acceptance test)",
     expect(metrics.toolUseCount).toBeNull();
     expect(metrics.totalTokens).toBeNull();
     expect(metrics.durationMs).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3256 SC2 — an unattributable read must SAY so, not just record null
+// ---------------------------------------------------------------------------
+
+describe("attribution-failure warning (mt#3256 SC2)", () => {
+  test("usedPerAgentTranscript distinguishes the per-agent file from a parent fallback", () => {
+    const { parentPath, agentPath } = buildTranscriptTree(
+      [metricsLine({ toolUseCount: 1 })],
+      "abc123",
+      [metricsLine({ toolUseCount: 1, agentId: "abc123" })]
+    );
+
+    expect(usedPerAgentTranscript(agentPath, "abc123")).toBe(true);
+    expect(usedPerAgentTranscript(parentPath, "abc123")).toBe(false);
+    expect(usedPerAgentTranscript(undefined, "abc123")).toBe(false);
+    // A per-agent file belonging to a DIFFERENT agent is not this agent's.
+    expect(usedPerAgentTranscript(agentPath, "zzz999")).toBe(false);
+  });
+
+  test("the parent-fallback warning names the path and the cause", () => {
+    const warning = buildUnattributedModelWarning("abc123", "/tmp/parent.jsonl", false);
+
+    expect(warning).toContain("abc123");
+    expect(warning).toContain("/tmp/parent.jsonl");
+    expect(warning).toContain("PARENT-transcript fallback");
+    // The point of the line: why null was recorded instead of a model.
+    expect(warning).toContain("Recording null rather than another agent's model");
+    expect(warning.endsWith("\n")).toBe(true);
+  });
+
+  test("the per-agent warning distinguishes itself from the fallback case", () => {
+    const warning = buildUnattributedModelWarning("abc123", "/tmp/agent-abc123.jsonl", true);
+
+    expect(warning).toContain("its per-agent transcript");
+    expect(warning).not.toContain("PARENT-transcript fallback");
   });
 });
