@@ -967,6 +967,16 @@ A recovery layer is only as strong as the failure modes its spec enumerates. Imp
 
 **Trigger keywords:** "missed", "silent", "drop", "fail", "lost", "stale", "expired", "unhealthy", "out-of-sync" + a recovery mechanism. Same family as `Temporary mechanism budget`. Tracking: mt#1567.
 
+**Carve-out verification (mt#3217).** Enumerating `### Does NOT cover` is necessary but not
+sufficient — mt#3001/PR #2146 shipped an implementation that violated its own carve-out
+(closed asks its spec said would "never" be auto-closed) and documented the contradiction in a
+code comment; every prior gate passed because nothing read the carve-out list. The reviewer's
+`submit_spec_verification` check (`services/reviewer/src/prompt.ts`) now ALSO verifies each
+carve-out entry against the diff's actual behavior — never against a code comment claiming
+compliance — and explicitly defers to a later Success Criterion/Acceptance Test on conflict
+(no change to the section-precedence hierarchy; a carve-out cannot out-rank a deliberate,
+later scope change).
+
 How to apply: `docs/rules-rationale/work-completion.md §Recovery layer spec discipline`.
 
 ## Invocation path required for event/poll mechanisms
