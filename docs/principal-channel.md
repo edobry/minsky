@@ -68,15 +68,28 @@ the chat id's presence is itself proof the bot has been messaged, which is the
 one step Telegram requires a human to perform (there is no API to look up a chat
 id).
 
-To turn the inbound half on:
-
-```bash
-export MINSKY_PRINCIPAL_CHANNEL_ENABLED=true
-```
-
 It does **not** auto-enable off the mere presence of credentials, even though
 they resolve today: those were provisioned for reviewer alerts, and starting a
 local-`claude`-driving surface off them would be a silent capability escalation.
+
+To turn the inbound half on, **how you set the flag depends on how the daemon
+was started** — a shell `export` only reaches a daemon started from that same
+shell:
+
+```bash
+# Daemon started from a terminal:
+MINSKY_PRINCIPAL_CHANNEL_ENABLED=true bun run src/cli.ts cockpit start --port <port>
+
+# Daemon supervised by the cockpit-tray app: the tray spawns it inheriting the
+# macOS GUI session environment (supervisor.rs's spawn_daemon overrides only
+# PATH), which your shell is NOT part of. Set it on the GUI session, then
+# restart the tray so the daemon it spawns picks it up:
+launchctl setenv MINSKY_PRINCIPAL_CHANNEL_ENABLED true
+```
+
+`launchctl setenv` does not survive a reboot. A config-file switch, which would
+work regardless of how the daemon was launched, is tracked in mt#3230 — until
+that lands, the tray path needs the `launchctl` step re-run after a restart.
 
 | Variable                                    | Effect                                                                                                      |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
