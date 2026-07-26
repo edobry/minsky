@@ -47,6 +47,7 @@ import { registerPrincipalCorpusCommands } from "./principal-corpus";
 import { registerForgeCommands } from "./forge";
 import { registerEventsCommands } from "./events";
 import { registerRefsCommands } from "./refs";
+import { registerPrincipalCommands } from "./principal";
 import { registerCalibrationCommands } from "./calibration";
 import { sharedCommandRegistry } from "../command-registry";
 
@@ -178,6 +179,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register refs commands (id-set cross-reference, mt#2819)
   registerRefsCommands(container);
 
+  // Register principal-channel commands (agent -> principal's phone, mt#3228)
+  registerPrincipalCommands();
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -222,4 +226,5 @@ export {
   registerForgeCommands,
   registerEventsCommands,
   registerRefsCommands,
+  registerPrincipalCommands,
 };

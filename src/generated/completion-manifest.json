@@ -6831,7 +6831,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | principal.message_received | principal.poll_advanced)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -6839,6 +6839,8 @@
                 "pr.review_posted",
                 "subagent.failed",
                 "embeddings.provider_degraded",
+                "principal.message_rejected",
+                "principal.message_failed",
                 "task.status_changed",
                 "pr.merged",
                 "subagent.completed",
@@ -6856,7 +6858,9 @@
                 "ask.policy_closed",
                 "authorization.policy_covered",
                 "task.bulk_edit.dry_run",
-                "task.bulk_edit.executed"
+                "task.bulk_edit.executed",
+                "principal.message_received",
+                "principal.poll_advanced"
               ]
             },
             {
@@ -6916,7 +6920,7 @@
             {
               "name": "eventType",
               "required": true,
-              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed)"
+              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, principal.message_received, principal.poll_advanced)"
             }
           ]
         }
@@ -6945,6 +6949,34 @@
               "name": "refs",
               "required": true,
               "description": "Entity refs to resolve (array, or comma-separated string): task ids (mt#123), PR numbers (123 / #123 / PR #123), ask uuids"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "principal",
+      "description": "PRINCIPAL commands",
+      "subcommands": [
+        {
+          "name": "notify",
+          "description": "Send the principal a message on their configured channel (Telegram). For notifications only — anything needing an answer belongs in asks.create.",
+          "options": [
+            {
+              "flags": ["--title"],
+              "description": "Optional leading line rendered above the body (e.g. a task id).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ],
+          "arguments": [
+            {
+              "name": "message",
+              "required": true,
+              "description": "Message body to deliver to the principal. Plain text."
             }
           ]
         }

@@ -34,13 +34,12 @@ export function extractChats(updatesBody: unknown): DiscoveredChat[] {
 
 /**
  * Redact a secret from arbitrary text before it can reach stdout/stderr.
- * Telegram API URLs embed the bot token (`/bot<token>/`), so fetch errors and
- * response echoes can leak it — every printed string passes through this.
+ *
+ * Re-exported from the runtime transport (mt#3228) rather than duplicated: the
+ * setup scripts and the live send/poll path must not be able to drift on what
+ * counts as redacted.
  */
-export function redactSecret(secret: string, text: string): string {
-  if (!secret) return text;
-  return text.split(secret).join("***REDACTED***");
-}
+export { redactSecret } from "@minsky/domain/notify/telegram-transport";
 
 /**
  * Classify a non-ok getUpdates outcome into an operator-actionable message.

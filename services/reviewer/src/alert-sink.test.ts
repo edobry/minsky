@@ -22,7 +22,17 @@ function fakeFetch(
   impl: (
     url: string,
     init?: RequestInit
-  ) => { ok: boolean; status: number; text?: () => Promise<string> } | Promise<never>
+  ) =>
+    | {
+        ok: boolean;
+        status: number;
+        text?: () => Promise<string>;
+        // `json` is only consulted on the success path: the shared Telegram
+        // transport (mt#3228) reads the returned `message_id`, so a 2xx fake
+        // without it is indistinguishable from a malformed Telegram response.
+        json?: () => Promise<unknown>;
+      }
+    | Promise<never>
 ): { fetchFn: FetchFn; calls: Array<{ url: string; init?: RequestInit }> } {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const fetchFn = mock((url: string, init?: RequestInit) => {
@@ -142,7 +152,11 @@ describe("buildAlertSink (mt#2364)", () => {
 
 describe("TelegramAlertSink.notify (mt#2364)", () => {
   test("POSTs to the Bot API sendMessage endpoint with chat id + text", async () => {
-    const { fetchFn, calls } = fakeFetch(() => ({ ok: true, status: 200 }));
+    const { fetchFn, calls } = fakeFetch(() => ({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ ok: true, result: { message_id: 1 } }),
+    }));
     const sink = new TelegramAlertSink("BOTTOKEN", "999", fetchFn);
     await sink.notify("error", "Reviewer down — PR #42", "details here");
 
