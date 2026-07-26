@@ -333,12 +333,18 @@ export async function updateTaskFromParams(
           });
     }
 
-    // Verify the task exists before updating
-    const existingTask = await taskService.getTask(qualifiedTaskId);
-
-    if (!existingTask || !existingTask.id) {
-      throw new ResourceNotFoundError(`Task ${qualifiedTaskId} not found`, "task", qualifiedTaskId);
-    }
+    // No upfront `taskService.getTask` existence check here (mt#3190 R1):
+    // this function previously had one and this file's facade counterpart
+    // (`packages/domain/src/tasks.ts`) did not. Removed rather than kept,
+    // matching tasks.ts's pre-consolidation behavior — the live MCP
+    // `tasks.spec.patch` / `tasks.spec.search_replace` tools
+    // (`src/adapters/mcp/task-edit-tools.ts`, `tests/adapters/mcp/task-edit-tools.test.ts`)
+    // call this via a taskService stub whose `getTask` always returns `null`
+    // (it validates existence separately via `getTaskSpecContentFromParams`,
+    // a different service method) while still expecting the update to
+    // succeed; keeping the check breaks that live path with a spurious
+    // ResourceNotFoundError. `taskService.updateTask` and the `!updatedTask`
+    // check below remain the source of truth for a genuinely missing task.
 
     // Prepare updates object. `spec` MUST be applied here (mt#3190 Success
     // Criterion 4): this function previously only forwarded `title`, silently
@@ -357,13 +363,17 @@ export async function updateTaskFromParams(
       updates.spec = params.spec;
     }
 
-    // Update the task
-    const updatedTask = await taskService.updateTask?.(qualifiedTaskId, updates);
-
-    if (!updatedTask) {
-      throw new Error(`Failed to update task ${qualifiedTaskId}: updateTask returned no result`);
-    }
-    return updatedTask;
+    // Update the task. No "falsy result" guard here (mt#3190 R1, same
+    // reasoning as the removed existence check above): the real
+    // `TaskServiceInterface.updateTask` always resolves `Promise<Task>`
+    // (`packages/domain/src/tasks/multi-backend-service.ts`), so a thrown
+    // guard here is unreachable on any real backend and only breaks
+    // lightweight test doubles (e.g. `tests/adapters/mcp/task-edit-tools.test.ts`'s
+    // mock, which returns `void`) — matching tasks.ts's pre-consolidation
+    // behavior of returning whatever `updateTask` resolves to, unguarded. The
+    // cast documents that assumption rather than widening this function's
+    // public return type to `Task | undefined` for every real caller.
+    return (await taskService.updateTask?.(qualifiedTaskId, updates)) as Task;
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError(
