@@ -3,6 +3,15 @@
  *
  * Interface-agnostic write operations: setStatus, update, create,
  * createFromTitleAndSpec, delete.
+ *
+ * Every function here is the canonical implementation the facade
+ * (`packages/domain/src/tasks.ts`) delegates to (mt#2704 precedent for
+ * setTaskStatusFromParams; mt#3190 consolidated the rest — updateTaskFromParams,
+ * createTaskFromParams, createTaskFromTitleAndSpec, deleteTaskFromParams). Both
+ * the CLI/MCP resolution path (`@minsky/domain/tasks` → `tasks/index.ts` →
+ * `../tasks.ts`, which delegates here) and the `taskCommands.ts` barrel
+ * terminate at these bodies. See `../../tasks.ts`'s header for the full
+ * cross-function delegation map.
  */
 
 import { z } from "zod";
@@ -331,10 +340,21 @@ export async function updateTaskFromParams(
       throw new ResourceNotFoundError(`Task ${qualifiedTaskId} not found`, "task", qualifiedTaskId);
     }
 
-    // Prepare updates object
+    // Prepare updates object. `spec` MUST be applied here (mt#3190 Success
+    // Criterion 4): this function previously only forwarded `title`, silently
+    // dropping `params.spec` — the opposite-direction instance of the
+    // tasks.ts/commands split's "diverging copies" bug class. The live MCP
+    // `tasks.spec.patch` / `tasks.spec.search_replace` tools
+    // (`src/adapters/mcp/task-edit-tools.ts`) call `updateTaskFromParams` via
+    // `@minsky/domain/tasks` with `spec` set on every invocation — now that
+    // the facade delegates here (mt#3190), a spec-drop would have made both
+    // tools silently no-op.
     const updates: Partial<Task> = {};
     if (params.title !== undefined) {
       updates.title = params.title;
+    }
+    if (params.spec !== undefined) {
+      updates.spec = params.spec;
     }
 
     // Update the task

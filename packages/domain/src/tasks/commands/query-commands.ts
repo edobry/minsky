@@ -3,14 +3,19 @@
  *
  * Interface-agnostic read operations: list, get, getStatus, getSpecContent.
  *
- * `listTasksFromParams` here is the canonical implementation (mt#2783): both the
- * CLI/MCP `tasks_list` command (`src/adapters/shared/commands/tasks/crud-commands.ts`,
- * via `@minsky/domain/tasks` → `tasks/index.ts` → `../tasks.ts`, which now delegates
+ * Every function here is the canonical implementation the facade
+ * (`packages/domain/src/tasks.ts`) delegates to: `listTasksFromParams` (mt#2783,
+ * resolving ADR-021 project scope per mt#2416 and forwarding
+ * status/kind/tags/projectScope filters to `taskService.listTasks`),
+ * `getTaskSpecContentFromParams` (mt#3194, forwarding `section` and doing
+ * markdown-heading-range extraction), and `getTaskFromParams` /
+ * `getTaskStatusFromParams` (mt#3190, adding taskId normalization and
+ * session/repo-aware workspace resolution over the facade's former
+ * process.cwd()-only bodies). Both the CLI/MCP resolution path
+ * (`@minsky/domain/tasks` → `tasks/index.ts` → `../tasks.ts`, which delegates
  * here) and the `taskCommands.ts` barrel (e.g. `index-embeddings-command.ts`)
- * terminate at this function body. It resolves ADR-021 project scope (mt#2416,
- * ported from the former `tasks.ts`-only duplicate) and forwards
- * status/kind/tags/projectScope filters to `taskService.listTasks` — see
- * `packages/domain/src/tasks.ts`'s header for the mt#2704 precedent this follows.
+ * terminate at these bodies — see `../../tasks.ts`'s header for the full
+ * cross-function delegation map.
  */
 
 import { z } from "zod";
