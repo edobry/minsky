@@ -1,16 +1,57 @@
 /**
  * Stage layout: collapsed world-forest, DOI-driven expansion, deterministic
- * tidy-tree per realm (mt#3184 — Watchable world Phase 1, spec SC 5).
+ * ORGANIC radial-arc tree per realm (mt#3184 SC 5; organic-layout redesign
+ * mt#3226 SC 5).
  *
  * Realm trees root at FIXED compass bearings around the agent's home
  * (`session-film-config.ts`'s `REALM_BEARINGS_DEG`) and lay out radially
- * OUTWARD using `d3-hierarchy`'s deterministic tidy-tree algorithm — no
- * force simulation (spec SC 5 / directive 3). Each realm's raw containment
- * tree is built from the touched entities' synthetic composite ids
- * (`event-schema.ts`'s `EventTarget.id` doc comment): `repo` targets carry
- * real path structure (split on `/`), every other realm is a flat
- * root->entity tree in v0 — the adapter carries no deeper containment for
- * those realms yet (an honest v0 approximation, not an invented hierarchy).
+ * OUTWARD using `d3-hierarchy`'s deterministic tidy-tree algorithm for
+ * sibling ORDERING/PROPORTION — no force simulation (spec SC 5 / directive
+ * 3). Each realm's raw containment tree is built from the touched entities'
+ * synthetic composite ids (`event-schema.ts`'s `EventTarget.id` doc
+ * comment): `repo` targets carry real path structure (split on `/`), every
+ * other realm is a flat root->entity tree in v0 — the adapter carries no
+ * deeper containment for those realms yet (an honest v0 approximation, not
+ * an invented hierarchy).
+ *
+ * ## Organic child layout (mt#3226 SC 5)
+ *
+ * The PREVIOUS scheme converted d3's normalized sibling position into a
+ * Cartesian PERPENDICULAR offset (`spread = x * siblingSpacing * leafCount`)
+ * from a single point at a fixed radial distance — an offset that grows
+ * UNBOUNDED with child count. At high fanout (the operator's 2026-07-25
+ * screenshot: minsky-substrate 25 children, shell 32) this degenerated into
+ * a rigid straight line running off-viewport — a "comb" for an oblique
+ * bearing (the perpendicular direction is itself diagonal), a flat "fan"
+ * for a cardinal one.
+ *
+ * The fix converts d3's normalized sibling position (`d.x`, already
+ * subtree-proportioned by the tidy-tree algorithm — deeper nodes inherit a
+ * SLICE of their parent's angular allocation, not a re-derived one) into an
+ * ANGLE within a bounded arc centered on the realm's bearing, rather than a
+ * linear Cartesian offset — the standard "radial tree" reinterpretation of
+ * a tidy-tree's Cartesian output (angle = f(x), radius = f(depth)):
+ *
+ *   - **Adaptive-but-capped arc span** (`config.layout.arcSpan{Base,PerLeaf,Max}Deg`):
+ *     grows with `sqrt(leafCount)` (a busy realm gets more room; a sparse
+ *     one doesn't waste angular budget — "kill the dead-space imbalance")
+ *     but is HARD-CAPPED safely under the 45deg gap between adjacent fixed
+ *     realm bearings, so a high-fanout realm's fan never crosses into a
+ *     neighboring realm's sector regardless of child count.
+ *   - **Deterministic per-node jitter** (`seededJitter` above): a small
+ *     angular + radial offset, seeded by the node's own id — organic
+ *     irregularity that is IDENTICAL across re-renders and replays (no
+ *     `Math.random()`).
+ *   - **Collision-aware radial stagger** (`config.layout.siblingStaggerPx`):
+ *     alternates same-depth siblings between two radii by sibling-index
+ *     parity, so a dense fan of children doesn't render as a single flat
+ *     overlapping ring — adjacent siblings differ in RADIUS, not just the
+ *     (potentially tiny, at high fanout) angular gap between them.
+ *
+ * Full iterative collision-solving (a force pass, or per-pair repulsion) is
+ * deliberately NOT implemented here — the arc-span cap + stagger + jitter
+ * combination is the v1.1 treatment; see mt#3226's PR body for the explicit
+ * scope call.
  *
  * Degree-of-interest (Card & Nation 2002, Furnas 1986): interest = a-priori
  * importance (root floor, decaying per depth level) + recency (an
@@ -31,7 +72,39 @@ import { hierarchy, tree as d3tree, type HierarchyNode } from "d3-hierarchy";
 import type { EventRealm } from "@minsky/domain/transcripts/event-schema";
 import { EVENT_REALMS } from "@minsky/domain/transcripts/event-schema";
 import type { EntityFoldState, WorldFoldState } from "./session-film-fold";
-import { REALM_BEARINGS_DEG, type SessionFilmConfig } from "./session-film-config";
+import {
+  REALM_BEARINGS_DEG,
+  REALM_DISPLAY_LABEL,
+  type SessionFilmConfig,
+} from "./session-film-config";
+
+// ── Deterministic per-node jitter (mt#3226 SC 5) ─────────────────────────────
+//
+// FNV-1a string hash -> a stable unit value in [0, 1) for a given seed. Pure
+// function of the seed string: same node id -> same jitter, every render and
+// every replay (spec: "seeded by node id, so replays are stable") — no
+// `Math.random()` anywhere in the layout.
+function hashUnit(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) / 4294967296;
+}
+
+/** Deterministic angular + radial jitter for one node, seeded by its own id. */
+function seededJitter(
+  nodeId: string,
+  config: SessionFilmConfig
+): { angleRad: number; radiusPx: number } {
+  const angleUnit = hashUnit(`${nodeId}|angle`) * 2 - 1; // [-1, 1)
+  const radiusUnit = hashUnit(`${nodeId}|radius`) * 2 - 1;
+  return {
+    angleRad: (angleUnit * config.layout.jitterAngleDeg * Math.PI) / 180,
+    radiusPx: radiusUnit * config.layout.jitterRadiusPx,
+  };
+}
 
 // ── Raw containment tree (pre-d3) ────────────────────────────────────────
 
@@ -156,13 +229,10 @@ export interface StageLayoutOptions {
   rootRadius?: number;
   /** Per-depth-level radial spacing beyond the root, world units. */
   depthSpacing?: number;
-  /** Spacing between sibling nodes, world units. */
-  siblingSpacing?: number;
 }
 
 const DEFAULT_ROOT_RADIUS = 90;
 const DEFAULT_DEPTH_SPACING = 70;
-const DEFAULT_SIBLING_SPACING = 40;
 
 /**
  * Compute the full stage layout: every realm root is ALWAYS present
@@ -179,7 +249,6 @@ export function computeStageLayout(
   const homeY = options.homeY ?? 0;
   const rootRadius = options.rootRadius ?? DEFAULT_ROOT_RADIUS;
   const depthSpacing = options.depthSpacing ?? DEFAULT_DEPTH_SPACING;
-  const siblingSpacing = options.siblingSpacing ?? DEFAULT_SIBLING_SPACING;
 
   // Group touched entities by realm.
   const entityIdsByRealm = new Map<EventRealm, string[]>();
@@ -200,24 +269,30 @@ export function computeStageLayout(
     // bearing degrades to a fixed default angle rather than propagating NaN
     // into every downstream world coordinate (reviewer finding, PR #2269 round 1).
     const bearingDeg = REALM_BEARINGS_DEG[realm] ?? 0;
-    const angleRad = (bearingDeg * Math.PI) / 180;
-    // 0deg = north (up): direction vector points "away from home" along the bearing.
-    const dirX = Math.sin(angleRad);
-    const dirY = -Math.cos(angleRad);
-    const perpX = Math.cos(angleRad);
-    const perpY = Math.sin(angleRad);
+    const bearingRad = (bearingDeg * Math.PI) / 180;
 
     const entityIds = entityIdsByRealm.get(realm) ?? [];
     const rawRoot = buildRealmTree(realm, entityIds);
     const root: HierarchyNode<RawNode> = hierarchy(rawRoot, (d) => d.children);
 
-    // d3.tree() lays out in a unit square: x in [0,1] (sibling spread), each
-    // node carries its own depth. size([1, 1]) keeps x normalized regardless
-    // of leaf count; we scale x ourselves via siblingSpacing below.
+    // d3.tree() lays out in a unit square: x in [0,1] is each node's
+    // NORMALIZED sibling position (subtree-proportioned — a node's x is a
+    // slice of its parent's own allocation), y is depth. size([1, 1]) keeps
+    // x normalized regardless of leaf count; the organic-layout section
+    // above converts x into an ANGLE within the realm's arc, not a Cartesian
+    // offset.
     const layoutTree = d3tree<RawNode>().size([1, 1]);
     const laidOut = layoutTree(root);
     const descendants = laidOut.descendants();
     const leafCount = laidOut.leaves().length || 1;
+
+    // Adaptive-but-capped arc span for this realm's children (see the
+    // module doc's "organic child layout" section).
+    const arcSpanDeg = Math.min(
+      config.layout.arcSpanMaxDeg,
+      config.layout.arcSpanBaseDeg + config.layout.arcSpanPerLeafDeg * Math.sqrt(leafCount)
+    );
+    const arcSpanRad = (arcSpanDeg * Math.PI) / 180;
 
     // Score every node, decide expansion (DOI threshold OR "on the path to
     // an above-threshold node" — computed as a second pass below).
@@ -247,9 +322,37 @@ export function computeStageLayout(
       const expanded = isRoot || expandedSet.has(d);
       if (!expanded) continue; // collapsed nodes render only via their nearest expanded ancestor's child-count badge
 
-      const x = (d.x ?? 0.5) - 0.5; // center around 0
-      const radial = isRoot ? rootRadius : rootRadius + d.depth * depthSpacing;
-      const spread = x * siblingSpacing * leafCount;
+      if (isRoot) {
+        // The realm root sits EXACTLY on its bearing, no jitter/stagger —
+        // it's the fixed compass anchor every child's arc is centered on.
+        allNodes.push({
+          id: d.data.id,
+          realm,
+          depth: 0,
+          label: REALM_DISPLAY_LABEL[realm] ?? realm,
+          entityId: d.data.entityId,
+          childCount: d.children?.length ?? 0,
+          doiScore: score,
+          expanded: true,
+          x: homeX + rootRadius * Math.sin(bearingRad),
+          y: homeY - rootRadius * Math.cos(bearingRad),
+        });
+        continue;
+      }
+
+      // Normalized sibling position [-0.5, 0.5), subtree-proportioned by
+      // d3's tidy-tree — converted to an ANGLE within the realm's arc
+      // (organic layout), not a linear Cartesian offset.
+      const xNorm = (d.x ?? 0.5) - 0.5;
+      const jitter = seededJitter(d.data.id, config);
+      const angleRad = bearingRad + xNorm * arcSpanRad + jitter.angleRad;
+
+      // Collision-aware radial stagger: alternate same-parent siblings
+      // between two radii by index parity (see module doc's "organic child
+      // layout" section) so a dense fan doesn't render as one flat ring.
+      const siblingIndex = d.parent?.children?.indexOf(d) ?? 0;
+      const stagger = (siblingIndex % 2) * config.layout.siblingStaggerPx;
+      const radius = rootRadius + d.depth * depthSpacing + stagger + jitter.radiusPx;
 
       allNodes.push({
         id: d.data.id,
@@ -260,8 +363,8 @@ export function computeStageLayout(
         childCount: d.children?.length ?? 0,
         doiScore: score,
         expanded: true,
-        x: homeX + dirX * radial + perpX * spread,
-        y: homeY + dirY * radial + perpY * spread,
+        x: homeX + radius * Math.sin(angleRad),
+        y: homeY - radius * Math.cos(angleRad),
       });
     }
   }

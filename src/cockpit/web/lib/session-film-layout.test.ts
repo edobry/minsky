@@ -7,6 +7,9 @@ import { foldEvents } from "./session-film-fold";
 import { computeStageLayout } from "./session-film-layout";
 import { DEFAULT_SESSION_FILM_CONFIG, type SessionFilmConfig } from "./session-film-config";
 
+/** Shared realm-literal constant — avoids repeating the "minsky-substrate" string across fixtures. */
+const MINSKY_SUBSTRATE = "minsky-substrate" as const;
+
 function ev(overrides: Partial<SemanticEvent> = {}): SemanticEvent {
   return {
     schemaVersion: "v0",
@@ -79,7 +82,7 @@ describe("computeStageLayout — visible-node budget", () => {
     for (let i = 0; i < 200; i++) {
       events.push(
         ev({
-          target: { realm: "minsky-substrate", id: `minsky:task:mt#${i}` },
+          target: { realm: MINSKY_SUBSTRATE, id: `minsky:task:mt#${i}` },
           tStart: `2026-07-24T00:00:${String(i % 60).padStart(2, "0")}.000Z`,
         })
       );
@@ -125,5 +128,120 @@ describe("computeStageLayout — deterministic radial placement", () => {
     expect(a.nodes.map((n) => ({ id: n.id, x: n.x, y: n.y }))).toEqual(
       b.nodes.map((n) => ({ id: n.id, x: n.x, y: n.y }))
     );
+  });
+});
+
+describe("computeStageLayout — UNKNOWN realm label fix (mt#3226 SC 5)", () => {
+  test("the unknown realm root never renders the internal name 'unknown' verbatim", () => {
+    const events: SemanticEvent[] = [
+      ev({ target: { realm: "unknown", id: "unknown:Skill" }, tStart: "2026-07-24T00:00:00.000Z" }),
+    ];
+    const world = foldEvents(events, 0);
+    const layout = computeStageLayout(
+      world,
+      "2026-07-24T00:00:00.000Z",
+      DEFAULT_SESSION_FILM_CONFIG
+    );
+    const unknownRoot = layout.nodes.find((n) => n.realm === "unknown" && n.depth === 0);
+    expect(unknownRoot?.label).toBe("other");
+    expect(unknownRoot?.label.toUpperCase()).not.toBe("UNKNOWN");
+  });
+});
+
+// ── Organic child layout (mt#3226 SC 5 / AT 4) ───────────────────────────────
+
+/** Cross-product-based collinearity deviation: 0 for perfectly collinear points; grows with curvature. */
+function collinearityDeviation(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  c: { x: number; y: number }
+): number {
+  return Math.abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y));
+}
+
+describe("computeStageLayout — organic radial-arc distribution (mt#3226 SC 5 / AT 4)", () => {
+  function thirtyChildEvents(realm: typeof MINSKY_SUBSTRATE | "shell"): SemanticEvent[] {
+    const events: SemanticEvent[] = [];
+    for (let i = 0; i < 30; i++) {
+      const id = realm === MINSKY_SUBSTRATE ? `minsky:task:mt#${1000 + i}` : `shell:command-${i}`;
+      events.push(
+        ev({
+          target: { realm, id },
+          tStart: `2026-07-24T00:00:${String(i % 60).padStart(2, "0")}.000Z`,
+        })
+      );
+    }
+    return events;
+  }
+
+  test("30 single-depth children fan out along a CURVE, not a straight-line comb", () => {
+    const events = thirtyChildEvents(MINSKY_SUBSTRATE);
+    const world = foldEvents(events, events.length - 1);
+    const config: SessionFilmConfig = {
+      ...DEFAULT_SESSION_FILM_CONFIG,
+      doi: { ...DEFAULT_SESSION_FILM_CONFIG.doi, expandThreshold: -1, visibleNodeBudget: 100 },
+    };
+    const layout = computeStageLayout(world, "2026-07-24T00:00:29.000Z", config);
+    const children = layout.nodes.filter((n) => n.realm === MINSKY_SUBSTRATE && n.depth === 1);
+    expect(children.length).toBe(30);
+
+    // At least one triple of consecutive (by DOI-independent array order —
+    // d3 preserves sibling order) children must show real curvature: a
+    // perfectly straight comb/fan has EVERY triple's cross-product deviation
+    // at (or extremely near) zero.
+    let maxDeviation = 0;
+    for (let i = 0; i + 2 < children.length; i++) {
+      const a = children[i];
+      const b = children[i + 1];
+      const c = children[i + 2];
+      if (!a || !b || !c) continue;
+      maxDeviation = Math.max(maxDeviation, collinearityDeviation(a, b, c));
+    }
+    expect(maxDeviation).toBeGreaterThan(1);
+  });
+
+  test("all 30 children stay within reasonable viewport bounds regardless of fanout (no unbounded spread)", () => {
+    const events = thirtyChildEvents("shell");
+    const world = foldEvents(events, events.length - 1);
+    const config: SessionFilmConfig = {
+      ...DEFAULT_SESSION_FILM_CONFIG,
+      doi: { ...DEFAULT_SESSION_FILM_CONFIG.doi, expandThreshold: -1, visibleNodeBudget: 100 },
+    };
+    const layout = computeStageLayout(world, "2026-07-24T00:00:29.000Z", config);
+    const children = layout.nodes.filter((n) => n.realm === "shell" && n.depth === 1);
+    expect(children.length).toBe(30);
+    // Matches SessionFilmStage.tsx's STAGE_BOARD_WIDTH/HEIGHT (900x700) —
+    // every node must stay comfortably inside half-board bounds.
+    for (const node of children) {
+      expect(Math.abs(node.x)).toBeLessThan(450);
+      expect(Math.abs(node.y)).toBeLessThan(350);
+    }
+  });
+
+  test("the arc distribution is deterministic across two computations (seeded jitter, not Math.random)", () => {
+    const events = thirtyChildEvents(MINSKY_SUBSTRATE);
+    const world = foldEvents(events, events.length - 1);
+    const config: SessionFilmConfig = {
+      ...DEFAULT_SESSION_FILM_CONFIG,
+      doi: { ...DEFAULT_SESSION_FILM_CONFIG.doi, expandThreshold: -1, visibleNodeBudget: 100 },
+    };
+    const a = computeStageLayout(world, "2026-07-24T00:00:29.000Z", config);
+    const b = computeStageLayout(world, "2026-07-24T00:00:29.000Z", config);
+    expect(a.nodes.map((n) => ({ id: n.id, x: n.x, y: n.y }))).toEqual(
+      b.nodes.map((n) => ({ id: n.id, x: n.x, y: n.y }))
+    );
+  });
+
+  test("no two children share the exact same position (stagger + jitter actually vary distinct nodes)", () => {
+    const events = thirtyChildEvents(MINSKY_SUBSTRATE);
+    const world = foldEvents(events, events.length - 1);
+    const config: SessionFilmConfig = {
+      ...DEFAULT_SESSION_FILM_CONFIG,
+      doi: { ...DEFAULT_SESSION_FILM_CONFIG.doi, expandThreshold: -1, visibleNodeBudget: 100 },
+    };
+    const layout = computeStageLayout(world, "2026-07-24T00:00:29.000Z", config);
+    const children = layout.nodes.filter((n) => n.realm === MINSKY_SUBSTRATE && n.depth === 1);
+    const positions = new Set(children.map((n) => `${n.x.toFixed(3)},${n.y.toFixed(3)}`));
+    expect(positions.size).toBe(children.length);
   });
 });
