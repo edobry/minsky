@@ -33,7 +33,8 @@ function block(
   i: number,
   role: "assistant" | "user",
   content: unknown[],
-  rawJsonlType: string
+  rawJsonlType: string,
+  extra: Record<string, unknown> = {}
 ): SessionContextSnapshotBlock {
   return {
     id: `outcome:turn:${i}`,
@@ -42,6 +43,7 @@ function block(
     content: { role, content },
     timestamp: new Date(Date.UTC(2026, 6, 13, 12, 0, i)).toISOString(),
     rawJsonlType,
+    ...extra,
   } as SessionContextSnapshotBlock;
 }
 
@@ -150,5 +152,58 @@ describe("ConversationView — per-turn Outcome chip", () => {
 
     // No interruption prefix and no API-error text — nothing evidenced, so no chip.
     expect(screen.queryByTestId("turn-outcome")).toBeNull();
+  });
+});
+
+describe("ConversationView — compaction and retry markers (mt#3260)", () => {
+  afterEach(cleanup);
+
+  test("a compact-summary turn renders a labeled boundary, not unmarked user prose", () => {
+    renderBlocks([
+      block(0, "user", [{ type: "text", text: "SUMMARY OF THE PRIOR CONTEXT" }], "user", {
+        isCompactSummary: true,
+      }),
+    ]);
+
+    expect(screen.getByTestId("compaction-boundary")).toBeDefined();
+    expect(screen.getByText(/Context compacted here/)).toBeDefined();
+  });
+
+  test("the compaction summary stays reachable — nothing is hidden", () => {
+    renderBlocks([
+      block(0, "user", [{ type: "text", text: "SUMMARY OF THE PRIOR CONTEXT" }], "user", {
+        isCompactSummary: true,
+      }),
+    ]);
+
+    // Rendered inside the disclosure rather than dropped.
+    expect(screen.getByText("SUMMARY OF THE PRIOR CONTEXT")).toBeDefined();
+  });
+
+  test("an ordinary user turn is NOT treated as a compaction boundary", () => {
+    renderBlocks([block(0, "user", [{ type: "text", text: "just a prompt" }], "user")]);
+
+    expect(screen.queryByTestId("compaction-boundary")).toBeNull();
+    expect(screen.getByText("just a prompt")).toBeDefined();
+  });
+
+  test("a synthetic-model assistant turn is marked Retrying…", () => {
+    renderBlocks([
+      block(0, "assistant", [{ type: "text", text: "retried output" }], "assistant", {
+        model: "<synthetic>",
+      }),
+    ]);
+
+    expect(screen.getByTestId("turn-retrying").textContent).toContain("Retrying");
+  });
+
+  test("a real-model assistant turn carries no retry marker", () => {
+    renderBlocks([
+      block(0, "assistant", [{ type: "text", text: "normal output" }], "assistant", {
+        model: "claude-opus-5",
+      }),
+    ]);
+
+    expect(screen.queryByTestId("turn-retrying")).toBeNull();
   });
 });

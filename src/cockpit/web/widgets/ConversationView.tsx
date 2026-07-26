@@ -456,6 +456,10 @@ interface PreparedTurn {
   elements: PreparedElement[];
   isSpawnBoundary: boolean;
   spawnAgentKind?: string;
+  /** This turn IS the context-compaction summary (mt#3260). */
+  isCompactSummary?: boolean;
+  /** Assistant model; `<synthetic>` marks a harness retry turn (mt#3260). */
+  model?: string;
 }
 
 /**
@@ -580,6 +584,8 @@ function pairToolInvocations(
       elements,
       isSpawnBoundary: turn.isSpawnBoundary,
       spawnAgentKind: turn.spawnAgentKind,
+      isCompactSummary: turn.isCompactSummary,
+      model: turn.model,
     };
   });
 }
@@ -666,6 +672,59 @@ const OUTCOME_STYLES: Record<TurnOutcome, string> = {
   Interrupted: "bg-warn-amber/15 text-warn-amber",
   Errored: "bg-destructive/15 text-destructive",
 };
+
+/**
+ * The model value Claude Code records on a harness-generated retry turn rather
+ * than a real model response (mt#3260). Mirrors `SYNTHETIC_MODEL_SENTINEL` in
+ * `packages/domain/src/subagent/transcript-metrics.ts`; declared here because
+ * that module is subagent-metrics code, not a render dependency.
+ */
+const SYNTHETIC_MODEL = "<synthetic>";
+
+/**
+ * A context-compaction boundary (mt#3260).
+ *
+ * Claude Code injects its own summary as a `user` line carrying
+ * `isCompactSummary: true`. Rendering it as ordinary user prose is what makes
+ * it read as "an unmarked giant user turn" — the operator sees a wall of text
+ * they never typed, with no indication their context was just reset. This
+ * replaces the turn body with a labeled boundary; the summary itself stays
+ * reachable behind the disclosure so nothing is hidden.
+ */
+function CompactionBoundary({
+  turn,
+  entityIndex,
+  expandSignal,
+}: {
+  turn: PreparedTurn;
+  entityIndex: EntityIndex;
+  expandSignal: ExpandSignal;
+}) {
+  return (
+    <details
+      className="rounded border border-border/60 bg-muted/20 px-2 py-1"
+      data-testid="compaction-boundary"
+    >
+      <summary className="cursor-pointer text-[11px] uppercase tracking-wide text-muted-foreground">
+        Context compacted here
+        <span className="ml-2 normal-case tabular-nums text-muted-foreground/60">
+          {formatTime(turn.timestamp)}
+        </span>
+      </summary>
+      <div className="mt-2 flex flex-col gap-2">
+        {turn.elements.map((element, i) => (
+          <ElementView
+            key={i}
+            element={element}
+            role={turn.role}
+            entityIndex={entityIndex}
+            expandSignal={expandSignal}
+          />
+        ))}
+      </div>
+    </details>
+  );
+}
 
 function ElementView({
   element,
@@ -766,6 +825,16 @@ function TurnView({
 }) {
   const roleStyle = ROLE_STYLES[turn.role];
   const outcome = turnOutcome(turn);
+  const isRetry = turn.model === SYNTHETIC_MODEL;
+
+  // A compaction summary is not a turn the operator wrote — it replaces the
+  // body entirely with a labeled boundary rather than rendering as prose.
+  if (turn.isCompactSummary) {
+    return (
+      <CompactionBoundary turn={turn} entityIndex={entityIndex} expandSignal={expandSignal} />
+    );
+  }
+
   const rendered = turn.elements
     .map((element, i) => {
       const node = (
@@ -789,6 +858,15 @@ function TurnView({
         {turn.isSpawnBoundary && (
           <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium normal-case text-violet-300">
             → subagent{turn.spawnAgentKind ? ` (${turn.spawnAgentKind})` : ""}
+          </span>
+        )}
+        {isRetry && (
+          <span
+            className="rounded bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium normal-case text-muted-foreground"
+            title="Harness-generated retry turn (model: <synthetic>), not a model response"
+            data-testid="turn-retrying"
+          >
+            Retrying…
           </span>
         )}
         {outcome && (

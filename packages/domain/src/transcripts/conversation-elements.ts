@@ -96,6 +96,16 @@ export interface ConversationTurn {
   isSpawnBoundary: boolean;
   /** Agent kind for the spawn boundary (e.g. `Explore`, `general-purpose`). */
   spawnAgentKind?: string;
+  /**
+   * True when this turn IS Claude Code's context-compaction summary (mt#3260).
+   * Renders as a labeled boundary rather than as an unmarked giant user turn.
+   */
+  isCompactSummary?: boolean;
+  /**
+   * The assistant message's model, when recorded. `"<synthetic>"` marks a
+   * harness-generated retry turn rather than a real model response (mt#3260).
+   */
+  model?: string;
 }
 
 /** A loose view of an Anthropic-format content block. */
@@ -253,6 +263,8 @@ export function snapshotBlockToConversationTurn(
     elements,
     isSpawnBoundary,
     spawnAgentKind,
+    isCompactSummary: block.isCompactSummary,
+    model: block.model,
   };
 }
 

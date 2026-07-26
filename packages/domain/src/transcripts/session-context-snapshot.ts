@@ -142,11 +142,21 @@ export function turnLineToBlock(
   const parentUuid = typeof l.parentUuid === "string" ? l.parentUuid : undefined;
   const kind = rawJsonlType === "assistant" ? assistantContentKind(l.message) : undefined;
 
+  // mt#3260: both are read defensively and emitted only when actually present,
+  // so a line without them produces a byte-identical block to before.
+  // `isCompactSummary` is a TOP-LEVEL boolean on a `user` line; `model` lives
+  // on the assistant line's inner message.
+  const isCompactSummary = l.isCompactSummary === true ? true : undefined;
+  const message = l.message as Record<string, unknown> | undefined;
+  const model = typeof message?.["model"] === "string" ? (message["model"] as string) : undefined;
+
   return {
     id: turnBlockId(agentSessionId, turnIndex),
     type: mapTurnTypeToBlockType(rawJsonlType, kind),
     source: "observed",
     content: l.message ?? l,
+    ...(isCompactSummary ? { isCompactSummary } : {}),
+    ...(model ? { model } : {}),
     parentUuid,
     timestamp: tsStr,
     turnIndex,
