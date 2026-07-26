@@ -11,7 +11,7 @@
  * Run via: bun run test:components
  */
 import { describe, test, expect, afterEach, mock } from "bun:test";
-import { render, cleanup, waitFor, screen } from "@testing-library/react";
+import { render, cleanup, waitFor, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AsksPage, GroupSubjectBadge } from "./AsksPage";
@@ -197,5 +197,84 @@ describe("AsksPage row layout — long option labels stay in-bounds (mt#3246)", 
     // collapse to an ellipsis.
     expect(consequence.className).toContain("basis-64");
     expect(consequence.className).toContain("min-w-0");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Option-letter prefix normalization in the inbox (mt#3253)
+//
+// Collapsed rows render the options as ordered buttons and the expanded row
+// renders an explicit letter. In both, a producer-supplied "[a] " / "B — "
+// marker is redundant — and under the row's `max-w-[22rem]` cap (mt#3246) those
+// characters cost real label text.
+// ---------------------------------------------------------------------------
+
+function askWithPrefixedOptions(): AskItem {
+  return {
+    id: "1f0a5cfe-0000-4000-8000-000000000002",
+    shortId: "ask#3398",
+    kind: "direction.decide",
+    state: "routed",
+    title: "Which deploy-keyed migration mechanism?",
+    question: "Pick the replacement mechanism for boot-time auto-migrate.",
+    requestor: "plan-task agent",
+    parentTaskId: "mt#2505",
+    options: [
+      { label: "[a] GitHub Actions migrate-on-merge", value: "a" },
+      { label: "B — Railway pre-deploy command", value: "b" },
+      { label: "Adopt fully — no marker here", value: "c" },
+    ],
+    createdAt: new Date().toISOString(),
+    windowMissedCount: 0,
+    metadata: {},
+  };
+}
+
+describe("AsksPage option labels — redundant letter markers stripped (mt#3253)", () => {
+  test("an inline action button drops the bracketed marker", async () => {
+    renderAsksPage([askWithPrefixedOptions()]);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "GitHub Actions migrate-on-merge" })).toBeDefined()
+    );
+    expect(
+      screen.queryByRole("button", { name: "[a] GitHub Actions migrate-on-merge" })
+    ).toBeNull();
+  });
+
+  test("an inline action button drops the em-dash marker", async () => {
+    renderAsksPage([askWithPrefixedOptions()]);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Railway pre-deploy command" })).toBeDefined()
+    );
+  });
+
+  test("a label with no marker is left exactly as authored", async () => {
+    renderAsksPage([askWithPrefixedOptions()]);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Adopt fully — no marker here" })).toBeDefined()
+    );
+  });
+
+  test("the button tooltip carries the normalized label, matching what is shown", async () => {
+    renderAsksPage([askWithPrefixedOptions()]);
+    const button = await waitFor(() =>
+      screen.getByRole("button", { name: "GitHub Actions migrate-on-merge" })
+    );
+    expect(button.getAttribute("title")).toBe("GitHub Actions migrate-on-merge");
+  });
+
+  test("the expanded option list renders one letter, not two", async () => {
+    const { container } = renderAsksPage([askWithPrefixedOptions()]);
+    const expand = await waitFor(() => {
+      const el = container.querySelector("button[aria-expanded]");
+      if (!el) throw new Error("row not rendered yet");
+      return el as HTMLElement;
+    });
+    fireEvent.click(expand);
+    const list = container.querySelector("ul");
+    expect(list?.textContent).toContain("A. GitHub Actions migrate-on-merge");
+    expect(list?.textContent).not.toContain("A. [a]");
+    expect(list?.textContent).toContain("B. Railway pre-deploy command");
+    expect(list?.textContent).not.toContain("B. B —");
   });
 });

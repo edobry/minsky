@@ -43,6 +43,7 @@ import {
   type InlineAction,
 } from "../lib/ask-groups";
 import { cn } from "../lib/utils";
+import { stripOptionLetterPrefix } from "@minsky/shared/ask-option-label";
 import {
   fetchAsks,
   resolveAsk,
@@ -165,7 +166,7 @@ function InlineActionBar({
               actions.resolveMutation.mutate({ ask, optionLetter: a.optionLetter ?? "A" })
             }
           >
-            <span className="truncate">{a.label}</span>
+            <span className="truncate">{stripOptionLetterPrefix(a.label)}</span>
           </Button>
         ) : (
           <Button
@@ -185,10 +186,13 @@ function InlineActionBar({
 }
 
 /** Hover text for an option button: the label (which may be truncated on
- *  screen) plus its description when the producer supplied one. */
+ *  screen) plus its description when the producer supplied one. Carries the
+ *  normalized label, matching what the button shows — the tooltip's job is to
+ *  un-truncate the visible text, not to reintroduce a stripped prefix. */
 function optionTitle(ask: AskItem, a: InlineAction): string {
   const description = ask.options?.[(a.optionLetter ?? "A").charCodeAt(0) - 65]?.description;
-  return description ? `${a.label} — ${description}` : a.label;
+  const label = stripOptionLetterPrefix(a.label);
+  return description ? `${label} — ${description}` : label;
 }
 
 // ---------------------------------------------------------------------------
@@ -329,7 +333,9 @@ function AskRow({
                 {ask.options.map((opt, i) => (
                   <li key={`${opt.label}-${i}`} className="text-xs">
                     <span className="font-medium text-foreground">
-                      {String.fromCharCode(65 + i)}. {opt.label}
+                      {/* This surface renders the letter, so a producer's own
+                          "B — " / "[b] " prefix would double it (mt#3253). */}
+                      {String.fromCharCode(65 + i)}. {stripOptionLetterPrefix(opt.label)}
                     </span>
                     {opt.description && <span className="ml-1">— {opt.description}</span>}
                   </li>
