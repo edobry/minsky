@@ -36,8 +36,16 @@ const TELEGRAM_API_BASE = "https://api.telegram.org";
 /** Bytes of a non-2xx response body retained for diagnostics. */
 const MAX_ERROR_BODY = 500;
 
-/** Injectable fetch so tests never touch the network. */
-export type FetchFn = typeof fetch;
+/**
+ * Injectable fetch so tests never touch the network.
+ *
+ * The call signature only, not `typeof fetch`: the global carries runtime-
+ * specific extras (Bun's `preconnect`) that a test double has no reason to
+ * implement, and this module never uses them. `string | URL` rather than
+ * `RequestInfo` because the reviewer workspace's lib does not declare the
+ * latter, and every callsite here passes a string anyway.
+ */
+export type FetchFn = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
 /**
  * Replace every occurrence of `secret` in `text` with a fixed marker.
