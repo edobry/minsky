@@ -18,6 +18,7 @@ import { LinkifiedText } from "../lib/entity-linkifier";
 import { formatRequestor } from "../lib/entity-labels";
 import { Link } from "react-router-dom";
 import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
+import { stripOptionLetterPrefix } from "@minsky/shared/ask-option-label";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server Ask shape (no server imports on frontend)
@@ -499,7 +500,13 @@ export function AskDetail({
                       </span>
                       <div>
                         <span className="text-foreground font-medium">
-                          <LinkifiedText text={opt.label} index={entityIndex} />
+                          {/* The letter is rendered above by this surface, so a
+                              producer-supplied "B — " / "[b] " prefix would
+                              double it (mt#3253). */}
+                          <LinkifiedText
+                            text={stripOptionLetterPrefix(opt.label)}
+                            index={entityIndex}
+                          />
                         </span>
                         {opt.description && (
                           <span className="ml-1 text-muted-foreground text-xs">
@@ -528,7 +535,8 @@ export function AskDetail({
             <div className="flex flex-wrap gap-2 pt-2">
               {Array.from({ length: optionCount }, (_, i) => {
                 const letter = letters[i] ?? "?";
-                const optLabel = ask.options?.[i]?.label ?? (i === 0 ? "Approve" : "Deny");
+                const rawLabel = ask.options?.[i]?.label ?? (i === 0 ? "Approve" : "Deny");
+                const optLabel = stripOptionLetterPrefix(rawLabel);
                 return (
                   <Button
                     key={letter}

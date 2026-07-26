@@ -15,7 +15,7 @@
  * Run via: bun run test:components
  */
 import { describe, test, expect, afterEach, mock } from "bun:test";
-import { render, cleanup, waitFor } from "@testing-library/react";
+import { render, cleanup, waitFor, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AskDetail, type AskItem } from "./AskDetail";
@@ -145,5 +145,69 @@ describe("AskDetail — Shape 2: option label/description (mt#3175)", () => {
     expect(container.textContent).toContain("Approve");
     expect(container.textContent).toContain("No refs here");
     expect(container.querySelector("a")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Option-letter prefix normalization at display (mt#3253)
+//
+// This surface renders the option letter itself ("A)" beside the label, and
+// "A) <label>" on the resolve button), so a producer-supplied "B — " / "[b] "
+// prefix doubles it. 35 of 200 labels in the live corpus carry one, and those
+// rows are already persisted — normalization has to happen at render.
+// ---------------------------------------------------------------------------
+
+describe("AskDetail — option letter prefixes are not doubled (mt#3253)", () => {
+  test("an em-dash-prefixed label renders one letter, not two", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    const ask = baseAsk({
+      options: [{ label: "B — boundary fix only", value: "b" }],
+    });
+    const { container } = renderAsk(ask);
+    expect(container.textContent).toContain("boundary fix only");
+    expect(container.textContent).not.toContain("B — boundary fix only");
+  });
+
+  test("a bracketed label renders without its marker", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    const ask = baseAsk({
+      options: [{ label: "[a] GitHub Actions migrate-on-merge", value: "a" }],
+    });
+    const { container } = renderAsk(ask);
+    expect(container.textContent).toContain("GitHub Actions migrate-on-merge");
+    expect(container.textContent).not.toContain("[a]");
+  });
+
+  test("the resolve BUTTON also renders one letter, not two", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    const ask = baseAsk({
+      options: [
+        { label: "A: enroll now", value: "a" },
+        { label: "B: defer", value: "b" },
+      ],
+    });
+    renderAsk(ask);
+    // The button composes its own "A)" prefix; the label must not add another.
+    expect(screen.getByRole("button", { name: "A) enroll now" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "A) A: enroll now" })).toBeNull();
+  });
+
+  test("a label with no marker is left exactly as authored, em dash included", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    const label = "Adopt fully — vocabulary + one-pager reframe";
+    const ask = baseAsk({ options: [{ label, value: "adopt" }] });
+    const { container } = renderAsk(ask);
+    expect(container.textContent).toContain(label);
+  });
+
+  test("the option description is untouched by label normalization", () => {
+    global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    const ask = baseAsk({
+      options: [{ label: "[a] Adopt", value: "a", description: "B — this is the description" }],
+    });
+    const { container } = renderAsk(ask);
+    // Only the LABEL carries a rendered letter beside it; a description is
+    // prose and must not be rewritten.
+    expect(container.textContent).toContain("B — this is the description");
   });
 });
