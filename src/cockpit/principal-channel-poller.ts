@@ -97,7 +97,8 @@ export interface PollCursor {
 export type InboundEventType =
   | "principal.message_received"
   | "principal.message_rejected"
-  | "principal.message_failed";
+  | "principal.message_failed"
+  | "principal.poll_advanced";
 
 /**
  * Outcome of a record attempt.

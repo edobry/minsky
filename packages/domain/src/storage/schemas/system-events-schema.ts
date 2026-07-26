@@ -90,6 +90,12 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   // append-only row is what makes the inbound path auditable, restart-safe
   // (poll cursor), and replay-safe (idempotency token) at once.
   "principal.message_received",
+  // mt#3228 (PR #2324 R3) — the inbound poller advanced its Telegram offset to
+  // a given update id. Needed because the cursor must clear updates that
+  // produce NO message row (an `edited_message`, a future update type this
+  // version does not parse); deriving the cursor from message rows alone
+  // re-fetches such an update forever and wedges the channel behind it.
+  "principal.poll_advanced",
 ] as const;
 
 /**
@@ -223,6 +229,7 @@ export const eventCategory = {
   "principal.message_rejected": "actionable",
   "principal.message_failed": "actionable",
   "principal.message_received": "informational",
+  "principal.poll_advanced": "informational",
 } satisfies Record<SystemEventType, EventCategory>;
 
 /** Return all event types belonging to a given category (for `WHERE IN` filters). */
@@ -280,6 +287,7 @@ export const systemEventsTable = pgTable(
      * principal.message_received:     { token, updateId, messageId, route, text?, sentAt? }
      * principal.message_rejected:     { token, updateId, messageId, route, rejectionReason, sentAt? }
      * principal.message_failed:       { token: "<base>:failed", updateId, messageId, route, failureDetail, text?, sentAt? }
+     * principal.poll_advanced:        { token: "<base>:advanced", updateId, messageId: 0, route: "poll-advanced" }
      *   (mt#3228 — see PrincipalMessageEventPayload in ../../notify/principal-inbound.ts.
      *    `text` is deliberately absent on the rejected variant: an unauthorized
      *    chat must not be able to write attacker-chosen content into the feed.)

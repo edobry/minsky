@@ -158,6 +158,14 @@ separate cursor table:
 2. the poll cursor across daemon restarts (max recorded `updateId`),
 3. the idempotency record (`payload.token` = `telegram:update:<id>`).
 
+Job 2 needs one extra piece. Telegram also hands over updates this version does
+not parse — an `edited_message`, a future type — and the poller deliberately
+advances past them so one cannot wedge the channel. Those produce no message
+row, so a cursor derived only from message rows would never cover them and
+Telegram would re-serve the same update forever. When the message rows fall
+short, the poller records an explicit `principal.poll_advanced` row carrying the
+position.
+
 Telegram retains undelivered updates for 24h, so a daemon restarting without a
 readable cursor re-receives up to a day of messages. The token dedupe is what
 makes that harmless rather than a replay of a day's instructions.

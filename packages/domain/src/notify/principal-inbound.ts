@@ -139,8 +139,14 @@ export interface PrincipalMessageEventPayload {
   token: string;
   updateId: number;
   messageId: number;
-  /** Which branch the router chose, so the log explains what was done and why. */
-  route: InboundRoute["kind"];
+  /**
+   * Which branch the router chose, so the log explains what was done and why.
+   *
+   * `"poll-advanced"` is not a router branch — it marks a row the CURSOR wrote
+   * to clear an update that produced no message at all (see
+   * `createEventLogCursor`).
+   */
+  route: InboundRoute["kind"] | "poll-advanced";
   /** Present only on a rejection. */
   rejectionReason?: InboundRejectionReason;
   /**

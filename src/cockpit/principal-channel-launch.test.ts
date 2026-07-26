@@ -78,17 +78,56 @@ describe("resolveAllowedUserIds (PR #2324 R1)", () => {
   });
 });
 
-describe("createEventLogCursor", () => {
+describe("createEventLogCursor (PR #2324 R3)", () => {
   test("reads through to the event log", async () => {
-    const cursor = createEventLogCursor(async () => 77);
+    const cursor = createEventLogCursor(
+      async () => 77,
+      async () => {}
+    );
     expect(await cursor.read()).toBe(77);
   });
 
-  test("write is a no-op — the audit row IS the cursor", async () => {
-    // A second store would be a second source of truth able to disagree.
-    const cursor = createEventLogCursor(async () => 77);
+  test("writes an advancement row when the message rows fall short", async () => {
+    // The regression: an update that produces no message row (edited_message,
+    // an unparsed future type) is never covered by a message-derived cursor, so
+    // Telegram re-serves it forever and the channel wedges behind it.
+    const advances: number[] = [];
+    const cursor = createEventLogCursor(
+      async () => 77,
+      async (id) => {
+        advances.push(id);
+      }
+    );
+
     await cursor.write(99);
-    expect(await cursor.read()).toBe(77);
+    expect(advances).toEqual([99]);
+  });
+
+  test("writes nothing when the message rows already cover the position", async () => {
+    // The common case — every update became a message. No redundant row.
+    const advances: number[] = [];
+    const cursor = createEventLogCursor(
+      async () => 99,
+      async (id) => {
+        advances.push(id);
+      }
+    );
+
+    await cursor.write(99);
+    expect(advances).toEqual([]);
+  });
+
+  test("writes an advancement row on a cold log", async () => {
+    const advances: number[] = [];
+    const cursor = createEventLogCursor(
+      async () => undefined,
+      async (id) => {
+        advances.push(id);
+      }
+    );
+
+    await cursor.write(5);
+    expect(advances).toEqual([5]);
   });
 });
 

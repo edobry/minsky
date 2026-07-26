@@ -22,7 +22,10 @@
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { resolvePrincipalChannel } from "@minsky/domain/notify/principal-channel";
-import type { PrincipalMessageEventPayload } from "@minsky/domain/notify/principal-inbound";
+import {
+  inboundEventToken,
+  type PrincipalMessageEventPayload,
+} from "@minsky/domain/notify/principal-inbound";
 import { createCachedSqlDbGetter, getServerAskRepository } from "./db-providers";
 import { createDrivenSessionActuator } from "./principal-channel-actuator";
 import {
@@ -34,7 +37,7 @@ import {
 import type { PermissionMode } from "./driven-session-host";
 
 /**
- * The channel's three event types.
+ * The channel's four event types.
  *
  * Every SQL comparison against them casts the column — `event_type::text IN
  * (...)` — because these arrive as BOUND PARAMETERS, which Postgres types as
@@ -47,6 +50,7 @@ import type { PermissionMode } from "./driven-session-host";
 const RECEIVED_EVENT = "principal.message_received";
 const REJECTED_EVENT = "principal.message_rejected";
 const FAILED_EVENT = "principal.message_failed";
+const ADVANCED_EVENT = "principal.poll_advanced";
 
 export interface PrincipalChannelLaunchConfig {
   enabled: boolean;
@@ -108,18 +112,37 @@ export function loadPrincipalChannelLaunchConfig(
 /**
  * Poll cursor backed by the append-only inbound event log.
  *
- * There is no separate cursor table: the audit row IS the cursor. `write` is a
- * no-op because the row the poller already recorded carries the update id, and
- * a second store would be a second source of truth that can disagree with the
- * first.
+ * There is no separate cursor table — the log holds the position — but `write`
+ * is NOT a no-op, and an earlier version of this that made it one was wrong
+ * (PR #2324 R3).
+ *
+ * The reasoning that failed: "every accepted message already writes a row
+ * carrying its update id, so MAX(updateId) over those rows is the cursor." True
+ * only for updates that BECOME a message. Telegram also hands over updates this
+ * version does not parse — an `edited_message`, a future type — and the poller
+ * deliberately advances past them so one cannot wedge the channel. Those
+ * updates produce no message row, so a message-row-derived cursor never covers
+ * them, Telegram re-serves them next cycle, and the loop repeats forever.
+ *
+ * So a write beyond what the message rows cover records an explicit
+ * `principal.poll_advanced` fact. It is not a second source of truth: it is the
+ * same append-only log, holding the one fact the message rows cannot express.
+ *
+ * `write` re-reads the log first so the row is written ONLY when the message
+ * rows fall short — i.e. only when an update really was skipped. The common
+ * case (every update became a message) costs one cheap SELECT and writes
+ * nothing, rather than doubling the log with a redundant row per cycle.
  */
 export function createEventLogCursor(
-  readHighestUpdateId: () => Promise<number | undefined>
+  readHighestUpdateId: () => Promise<number | undefined>,
+  recordAdvance: (updateId: number) => Promise<void>
 ): PollCursor {
   return {
     read: readHighestUpdateId,
-    write: async () => {
-      // Intentionally empty — see this function's doc comment.
+    async write(updateId: number): Promise<void> {
+      const covered = await readHighestUpdateId();
+      if (covered !== undefined && covered >= updateId) return;
+      await recordAdvance(updateId);
     },
   };
 }
@@ -219,7 +242,17 @@ export async function startPrincipalChannel(opts: {
     chatId,
     auth: { allowedChatId: chatId, allowedUserIds },
     actuator,
-    cursor: createEventLogCursor(opts.readHighestUpdateId),
+    cursor: createEventLogCursor(opts.readHighestUpdateId, async (updateId) => {
+      await opts.recordEvent("principal.poll_advanced", {
+        // A distinct token so the recorder's dedupe does not confuse this with
+        // the message row for the same update.
+        token: `${inboundEventToken(updateId)}:advanced`,
+        updateId,
+        // No message produced this row — it exists because one did NOT.
+        messageId: 0,
+        route: "poll-advanced",
+      });
+    }),
     recordEvent: opts.recordEvent,
   });
 }
@@ -227,8 +260,10 @@ export async function startPrincipalChannel(opts: {
 /**
  * Read the highest Telegram update id this daemon has already recorded.
  *
- * Reads BOTH event types: a rejected message advances the cursor too, or one
- * unauthorized message would be re-fetched on every restart forever.
+ * Reads ALL FOUR event types. A rejected message advances the cursor too, or
+ * one unauthorized message would be re-fetched on every restart forever; and
+ * `principal.poll_advanced` carries the position past updates that produced no
+ * message row at all (PR #2324 R3).
  */
 export function createHighestUpdateIdReader(getDb: DbGetter): () => Promise<number | undefined> {
   return async () => {
@@ -239,7 +274,7 @@ export function createHighestUpdateIdReader(getDb: DbGetter): () => Promise<numb
       const rows = (await db.execute(
         sql`SELECT MAX((payload->>'updateId')::bigint) AS max_id
             FROM system_events
-            WHERE event_type::text IN (${RECEIVED_EVENT}, ${REJECTED_EVENT}, ${FAILED_EVENT})`
+            WHERE event_type::text IN (${RECEIVED_EVENT}, ${REJECTED_EVENT}, ${FAILED_EVENT}, ${ADVANCED_EVENT})`
       )) as Array<{ max_id: string | number | null }>;
       const raw = rows[0]?.max_id;
       if (raw === null || raw === undefined) return undefined;
@@ -277,7 +312,7 @@ export function createInboundEventRecorder(getDb: DbGetter): InboundEventRecorde
     const token = payload.token;
     const existing = (await db.execute(
       sql`SELECT 1 FROM system_events
-          WHERE event_type::text IN (${RECEIVED_EVENT}, ${REJECTED_EVENT}, ${FAILED_EVENT})
+          WHERE event_type::text IN (${RECEIVED_EVENT}, ${REJECTED_EVENT}, ${FAILED_EVENT}, ${ADVANCED_EVENT})
             AND payload->>'token' = ${token}
           LIMIT 1`
     )) as unknown[];

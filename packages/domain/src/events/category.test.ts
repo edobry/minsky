@@ -59,6 +59,7 @@ describe("event category classification", () => {
         "task.bulk_edit.dry_run",
         "task.bulk_edit.executed",
         "principal.message_received",
+        "principal.poll_advanced",
       ].sort()
     );
   });
