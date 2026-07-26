@@ -327,10 +327,15 @@ jobs:
           # "Railway API token with read access to all services".
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          set -uo pipefail
+          # `-e` included deliberately (PR #2343 R1): an `npm install` failure
+          # must abort rather than be misattributed to a later command. The two
+          # commands whose own exit codes carry diagnostic meaning (`link`,
+          # `redeploy`) are therefore wrapped in `if` conditions, which are
+          # exempt from `-e`, so their tailored error messages still print.
+          set -euo pipefail
 
           if [ -z "${RAILWAY_API_TOKEN:-}" ]; then
-            echo "::error::RAILWAY_TOKEN secret not set — reviewer redeploy cannot be triggered."
+            echo "::error::RAILWAY_API_TOKEN not set (it is sourced from the RAILWAY_TOKEN secret) — reviewer redeploy cannot be triggered."
             exit 1
           fi
 
@@ -344,27 +349,30 @@ jobs:
           ENVIRONMENT_ID="b3ea3f5d-8560-40ea-8824-17fe3ca0b32a"
           SERVICE_ID="3913e8a4-81ab-465a-aad8-b76b5e3f66ed"
 
-          # Diagnostic: prints the authenticated ACCOUNT NAME — never the
-          # token. If the secret turns out to be a project token rather than
-          # an account token, this is where that surfaces, making a failure
-          # self-diagnosing instead of another round of guessing (mt#3223).
+          # Diagnostic: prints the authenticated ACCOUNT — never the token. If
+          # the secret turns out to be a project token rather than an account
+          # token, this is where that surfaces, making a failure self-diagnosing
+          # instead of another round of guessing (mt#3223).
+          #
+          # The email is masked because this repository's CI logs are public
+          # (PR #2343 R1 non-blocking finding). A `whoami` failure is
+          # deliberately TOLERATED — it is a diagnostic, not the gate; the
+          # authoritative failure signals are `link` and `redeploy` below.
           echo "Railway auth identity:"
-          railway whoami || echo "::warning::railway whoami failed — the secret may be a PROJECT token, which cannot authenticate account-scoped calls."
+          railway whoami 2>&1 | sed -E 's/([A-Za-z0-9._%+-]+)@/***@/g' \
+            || echo "::warning::railway whoami failed — the secret may be a PROJECT token, which cannot authenticate account-scoped calls."
 
           # `railway redeploy` has no --project/--environment flags, and a CI
           # checkout is never linked, so establish context explicitly.
-          railway link --project "${PROJECT_ID}" --environment "${ENVIRONMENT_ID}" --service "${SERVICE_ID}"
-          link_rc=$?
-          if [ "$link_rc" -ne 0 ]; then
-            echo "::error::railway link failed (exit ${link_rc}) — could not establish project context for minsky-reviewer. If 'whoami' above also failed, the RAILWAY_TOKEN secret is not an account-scoped token for this workspace; mint a project token for the minsky-reviewer project and pass it as RAILWAY_TOKEN instead (mt#3223)."
-            exit "$link_rc"
+          if ! railway link --project "${PROJECT_ID}" --environment "${ENVIRONMENT_ID}" --service "${SERVICE_ID}"; then
+            echo "::error::railway link failed — could not establish project context for minsky-reviewer. If 'whoami' above also failed, the RAILWAY_TOKEN secret is not an account-scoped token for this workspace; mint a project token for the minsky-reviewer project and pass it as RAILWAY_TOKEN instead (mt#3223)."
+            exit 1
           fi
 
-          railway redeploy --from-source --service "${SERVICE_ID}" -y
-          rc=$?
-          if [ "$rc" -eq 0 ]; then
+          if railway redeploy --from-source --service "${SERVICE_ID}" -y; then
             echo "Railway redeploy triggered successfully via the CLI."
           else
+            rc=$?
             echo "::error::railway redeploy failed (exit ${rc}). See the 'whoami' and 'link' output above to distinguish a token-scope problem from a genuine redeploy failure (mt#3223)."
+            exit "$rc"
           fi
-          exit "$rc"
