@@ -80,6 +80,17 @@
  * @see session-film-layout.ts — the STATIC tidy-tree this warm-starts from
  * @see session-film-force-layout.ts — the live simulation + its honest-motion carve-out record
  * @see ../hooks/useSessionFilmForceLayout.ts — the React tick-loop wiring
+ *
+ * ## Camera-follow (mt#3231 SC 5)
+ *
+ * `growingBounds` (computed from the LIVE `layout.nodes`' own positions,
+ * below) is passed to `PanZoomSVG`, which eases the viewBox toward fitting
+ * it — the RFC's A3 "camera-follow" rung, pulled forward alongside the
+ * living layout above since both address the SAME operator finding ("still
+ * feels static"). Reduced motion passes `easeMs: 0` (snap, not tween) —
+ * same convention as every other motion class in this file. A user pan/zoom
+ * overrides and pauses it (`PanZoomSVG`'s existing `userInteractedRef`).
+ *
  * @see session-film-links.ts — entity receipt resolution for node clicks
  * @see session-film-aliveness.ts — glow-brightness math + the full design-decision record
  * @see session-film-beams.ts — beam-kind/direction/styling logic for the beam-on-every-action pass
@@ -306,6 +317,24 @@ export function SessionFilmStage({
     "--float-period": `${config.aliveness.avatarFloatPeriodMs}ms`,
   } as React.CSSProperties;
 
+  // Camera-follow (mt#3231 SC 5): the LIVE touched-set's own bounding box —
+  // "the viewport auto-fits the world's growing bounding box." Includes
+  // home (the agents' shared origin) so a fresh/empty film still frames a
+  // sensible region rather than an empty (0-area) box.
+  const growingBounds = useMemo(() => {
+    let minX = layout.homeX;
+    let maxX = layout.homeX;
+    let minY = layout.homeY;
+    let maxY = layout.homeY;
+    for (const node of layout.nodes) {
+      if (node.x < minX) minX = node.x;
+      if (node.x > maxX) maxX = node.x;
+      if (node.y < minY) minY = node.y;
+      if (node.y > maxY) maxY = node.y;
+    }
+    return { minX, minY, maxX, maxY };
+  }, [layout]);
+
   return (
     <div className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col", className)}>
     <PanZoomSVG
@@ -316,6 +345,11 @@ export function SessionFilmStage({
         enabled: !reducedMotion,
         amplitudePx: config.aliveness.driftAmplitudePx,
         periodMs: config.aliveness.driftPeriodMs,
+      }}
+      growingBounds={{
+        bounds: growingBounds,
+        padding: config.camera.paddingPx,
+        easeMs: reducedMotion ? 0 : config.camera.easeMs,
       }}
       className="flex-1"
     >

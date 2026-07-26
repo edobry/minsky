@@ -203,6 +203,16 @@ export interface SessionFilmConfig {
     /** How often the live simulation ticks + re-renders, ms — NOT an event; the SAME already-real fold-driven nodes settling among themselves (honest-motion carve-out documented in session-film-force-layout.ts). */
     tickIntervalMs: number;
   };
+  /**
+   * Camera-follow / growing-bounding-box auto-fit (mt#3231 SC 5 — the RFC's
+   * A3 "camera-follow" rung). See `PanZoomSVG.tsx`'s `GrowingBoundsOptions`.
+   */
+  camera: {
+    /** World-space padding added around the touched-set's live bounding box before fitting. */
+    paddingPx: number;
+    /** Ease duration toward a new camera fit, ms. Callers pass 0 under `prefers-reduced-motion` (snap instead of tween). */
+    easeMs: number;
+  };
 }
 
 export const DEFAULT_SESSION_FILM_CONFIG: SessionFilmConfig = {
@@ -251,5 +261,9 @@ export const DEFAULT_SESSION_FILM_CONFIG: SessionFilmConfig = {
     linkStrength: 0.25,
     homeStrength: 0.12,
     tickIntervalMs: 60,
+  },
+  camera: {
+    paddingPx: 60,
+    easeMs: 900,
   },
 };
