@@ -33,6 +33,17 @@ import {
 } from "./principal-channel-poller";
 import type { PermissionMode } from "./driven-session-host";
 
+/**
+ * The channel's three event types.
+ *
+ * Every SQL comparison against them casts the column — `event_type::text IN
+ * (...)` — because these arrive as BOUND PARAMETERS, which Postgres types as
+ * `text` and refuses to compare against the `system_event_type` enum
+ * ("operator does not exist: system_event_type = text"). An inline string
+ * literal would coerce, a parameter does not (PR #2324 R2). The cast forgoes
+ * the `event_type` index, which is irrelevant here: both queries are bounded
+ * lookups over one channel's rows, not scans.
+ */
 const RECEIVED_EVENT = "principal.message_received";
 const REJECTED_EVENT = "principal.message_rejected";
 const FAILED_EVENT = "principal.message_failed";
@@ -228,7 +239,7 @@ export function createHighestUpdateIdReader(getDb: DbGetter): () => Promise<numb
       const rows = (await db.execute(
         sql`SELECT MAX((payload->>'updateId')::bigint) AS max_id
             FROM system_events
-            WHERE event_type IN (${RECEIVED_EVENT}, ${REJECTED_EVENT}, ${FAILED_EVENT})`
+            WHERE event_type::text IN (${RECEIVED_EVENT}, ${REJECTED_EVENT}, ${FAILED_EVENT})`
       )) as Array<{ max_id: string | number | null }>;
       const raw = rows[0]?.max_id;
       if (raw === null || raw === undefined) return undefined;
@@ -266,7 +277,7 @@ export function createInboundEventRecorder(getDb: DbGetter): InboundEventRecorde
     const token = payload.token;
     const existing = (await db.execute(
       sql`SELECT 1 FROM system_events
-          WHERE event_type IN (${RECEIVED_EVENT}, ${REJECTED_EVENT}, ${FAILED_EVENT})
+          WHERE event_type::text IN (${RECEIVED_EVENT}, ${REJECTED_EVENT}, ${FAILED_EVENT})
             AND payload->>'token' = ${token}
           LIMIT 1`
     )) as unknown[];
@@ -276,9 +287,16 @@ export function createInboundEventRecorder(getDb: DbGetter): InboundEventRecorde
     // and routing both through the same catch made the poller act on replays.
     if (Array.isArray(existing) && existing.length > 0) return "duplicate";
 
+    // `::system_event_type` for the same bound-parameter reason as the SELECT
+    // above, in the opposite direction: the value must reach the enum column as
+    // the enum, not as text. It also fails LOUDLY if the migration adding the
+    // value has not been applied, which is the behaviour to want — a silently
+    // dropped audit row on an RCE-adjacent surface is far worse than an error.
     await db.execute(
       sql`INSERT INTO system_events (event_type, payload, actor)
-          VALUES (${eventType}, ${JSON.stringify(payload)}::jsonb, 'principal-channel')`
+          VALUES (${eventType}::system_event_type,
+                  ${JSON.stringify(payload)}::jsonb,
+                  'principal-channel')`
     );
     return "recorded";
   };
