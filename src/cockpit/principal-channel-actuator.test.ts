@@ -119,17 +119,43 @@ function makeActuator(
   return { actuator, calls, registry };
 }
 
-/** Yield to the event loop so piped stdout data is parsed into events. */
-const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 25));
+/**
+ * Wait until `predicate` holds, rather than sleeping a guessed interval.
+ *
+ * The suite previously slept a fixed 25ms and hoped the spawn had become ready
+ * and the input written by then (PR #2329 R1 flagged the fragility). Polling a
+ * condition removes the guess: it returns as soon as the state is true, and
+ * fails with a named reason instead of a confusing downstream assertion.
+ */
+async function waitUntil(predicate: () => boolean, what: string, attempts = 2000): Promise<void> {
+  for (let i = 0; i < attempts; i++) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  throw new Error(`timed out waiting for: ${what}`);
+}
+
+/** Wait until the conversation is ready and the pending input has been written. */
+async function waitForWrite(proc: FakeClaudeProcess): Promise<string> {
+  let written = "";
+  await waitUntil(() => {
+    written += readStdin(proc);
+    return written.length > 0;
+  }, "input to be written to the child");
+  return written;
+}
+
+/** Wait until a spawn has been recorded. */
+const waitForSpawn = (calls: SpawnCapture[], n: number): Promise<void> =>
+  waitUntil(() => calls.length >= n, `${n} spawn(s)`);
 
 describe("createDrivenSessionActuator — conversing", () => {
   test("spawns a conversation on the first message and returns the turn's text", async () => {
     const { actuator, calls } = makeActuator();
 
     const reply = actuator.converse(BLOCKED_Q);
-    await flush();
-    expect(calls).toHaveLength(1);
-    expect(readStdin(calls[0]?.proc as FakeClaudeProcess)).toContain(BLOCKED_Q);
+    await waitForSpawn(calls, 1);
+    expect(await waitForWrite(calls[0]?.proc as FakeClaudeProcess)).toContain(BLOCKED_Q);
 
     calls[0]?.proc.finishTurn("nothing is blocked");
     expect(await reply).toBe("nothing is blocked");
@@ -141,12 +167,13 @@ describe("createDrivenSessionActuator — conversing", () => {
     const { actuator, calls } = makeActuator();
 
     const first = actuator.converse("list the tasks");
-    await flush();
+    await waitForSpawn(calls, 1);
+    await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
     calls[0]?.proc.finishTurn("three tasks");
     await first;
 
     const second = actuator.converse("focus on the second one");
-    await flush();
+    await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
     calls[0]?.proc.finishTurn("focusing");
     await second;
 
@@ -158,16 +185,16 @@ describe("createDrivenSessionActuator — conversing", () => {
     const { actuator, calls } = makeActuator();
 
     const first = actuator.converse("hi");
-    await flush();
+    await waitForSpawn(calls, 1);
+    await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
     calls[0]?.proc.finishTurn("hello");
     await first;
 
     calls[0]?.proc.exit(1);
-    await flush();
 
     const second = actuator.converse("still there?");
-    await flush();
-    expect(calls).toHaveLength(2);
+    await waitForSpawn(calls, 2);
+    await waitForWrite(calls[1]?.proc as FakeClaudeProcess);
     calls[1]?.proc.finishTurn("yes");
     expect(await second).toBe("yes");
   });
@@ -175,21 +202,21 @@ describe("createDrivenSessionActuator — conversing", () => {
   test("spawns with the requested permission mode", async () => {
     const { actuator, calls } = makeActuator({ permissionMode: "default" });
     void actuator.converse("hi");
-    await flush();
+    await waitForSpawn(calls, 1);
     expect(calls[0]?.args).not.toContain("--dangerously-skip-permissions");
   });
 
   test("defaults to the same permission mode as every other driven session", async () => {
     const { actuator, calls } = makeActuator();
     void actuator.converse("hi");
-    await flush();
+    await waitForSpawn(calls, 1);
     expect(calls[0]?.args).toContain("--dangerously-skip-permissions");
   });
 
   test("runs in the configured working directory", async () => {
     const { actuator, calls } = makeActuator();
     void actuator.converse("hi");
-    await flush();
+    await waitForSpawn(calls, 1);
     expect(calls[0]?.options.cwd).toBe(CWD);
   });
 
@@ -209,13 +236,14 @@ describe("createDrivenSessionActuator — control verbs", () => {
   test("interrupt drops the conversation so the next message starts fresh", async () => {
     const { actuator, calls } = makeActuator();
     const first = actuator.converse("hi");
-    await flush();
+    await waitForSpawn(calls, 1);
+    await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
     calls[0]?.proc.finishTurn("hello");
     await first;
 
     await actuator.interrupt();
     void actuator.converse("again");
-    await flush();
+    await waitForSpawn(calls, 2);
     expect(calls).toHaveLength(2);
   });
 
@@ -223,7 +251,7 @@ describe("createDrivenSessionActuator — control verbs", () => {
     const { actuator, calls } = makeActuator();
     expect(await actuator.reset()).toContain("Starting fresh");
     void actuator.converse("hi");
-    await flush();
+    await waitForSpawn(calls, 1);
     expect(calls).toHaveLength(1);
   });
 
@@ -282,25 +310,43 @@ describe("createDrivenSessionActuator — readiness (mt#3234)", () => {
     const spawned = calls[0]?.proc as FakeClaudeProcess;
     expect(spawned).toBeDefined();
 
-    // Give the readiness wait time to run without the child ever coming up.
-    await flush();
-    expect(readStdin(spawned)).toBe("");
-
+    // The child never comes up, so the write must never happen — asserted at
+    // the point the wait gives up rather than after a guessed interval.
     await expect(pending).rejects.toThrow(/did not finish starting/);
+    expect(readStdin(spawned)).toBe("");
   });
 
   test("a ready conversation is reused without waiting again", async () => {
     const { actuator, calls } = makeActuator();
 
     const first = actuator.converse("one");
-    await flush();
+    await waitForSpawn(calls, 1);
+    await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
     calls[0]?.proc.finishTurn("a");
     await first;
 
     const second = actuator.converse("two");
-    await flush();
+    await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
     calls[0]?.proc.finishTurn("b");
     expect(await second).toBe("b");
     expect(calls).toHaveLength(1);
+  });
+
+  test("concurrent first messages share ONE conversation (PR #2329 R1)", async () => {
+    // The poller is sequential today, so this cannot race in practice — but the
+    // invariant belongs to the actuator, not to a property of one caller. Two
+    // concurrent starts must not spawn two children or write to an unready one.
+    const { actuator, calls } = makeActuator();
+
+    const a = actuator.converse("one");
+    const b = actuator.converse("two");
+    await waitForSpawn(calls, 1);
+    await waitForWrite(calls[0]?.proc as FakeClaudeProcess);
+
+    expect(calls).toHaveLength(1);
+    calls[0]?.proc.finishTurn("answered");
+    expect(await a).toBe("answered");
+    calls[0]?.proc.finishTurn("answered");
+    expect(await b).toBe("answered");
   });
 });

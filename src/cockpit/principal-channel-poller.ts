@@ -291,11 +291,18 @@ async function handleRoute(
   // Silence reads as breakage on a chat channel, and a conversational turn can
   // take a while. Show the typing indicator before starting — except on
   // interrupt, whose whole point is to be immediate.
+  //
+  // NOT awaited (PR #2329 R1): the indicator is cosmetic, and awaiting it puts
+  // a network call with no timeout in front of the work the principal actually
+  // asked for. A hung Telegram would delay the answer — including the failure
+  // answer — behind a decoration.
   if (route.kind !== "interrupt") {
-    await sendTelegramTypingAction({
+    void sendTelegramTypingAction({
       token: deps.token,
       chatId: deps.chatId,
       ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+    }).catch(() => {
+      // Already swallows its own errors; this guards the unawaited promise.
     });
   }
 

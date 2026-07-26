@@ -109,6 +109,18 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
   const readyTimeoutMs = opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
   const readyPollMs = opts.readyPollMs ?? READY_POLL_MS;
   let standingLocalId: string | null = null;
+  /**
+   * In-flight readiness, shared by concurrent callers (PR #2329 R1).
+   *
+   * Today the only caller is the poller, which handles messages strictly
+   * sequentially — so this cannot race in practice. It is here because the
+   * INVARIANT ("input is never written to an unready child") should hold for
+   * the actuator itself, not depend on a property of one caller that a future
+   * caller would silently break. Without it, a second concurrent `converse`
+   * would find the record live-but-unready and write immediately, which is the
+   * exact bug this task fixes.
+   */
+  let pendingReady: Promise<DrivenSessionRecord> | null = null;
 
   const liveRecord = (): DrivenSessionRecord | null => {
     if (!standingLocalId) return null;
@@ -134,9 +146,53 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
    * it, because nothing distinguished "still starting" from "never will".
    */
   const ensureReadyRecord = async (): Promise<DrivenSessionRecord> => {
-    const existing = liveRecord();
-    if (existing) return existing;
+    // Join an in-flight start rather than racing it or spawning a second child.
+    if (pendingReady) return pendingReady;
 
+    const existing = liveRecord();
+    // Live AND ready — the common path once the conversation is up.
+    if (existing?.harnessSessionId) return existing;
+
+    pendingReady = existing ? waitForExisting(existing) : spawnAndWait();
+    try {
+      return await pendingReady;
+    } finally {
+      pendingReady = null;
+    }
+  };
+
+  /**
+   * A record that exists but has not reported ready yet.
+   *
+   * Reachable only if a prior start was abandoned mid-wait; waiting is still
+   * correct — spawning a second child for the same standing conversation would
+   * leave an orphan holding the first one's context.
+   */
+  const waitForExisting = async (record: DrivenSessionRecord): Promise<DrivenSessionRecord> => {
+    if (await awaitSessionReady(record, readyTimeoutMs, readyPollMs)) return record;
+    abandonUnreadyRecord(record);
+    throw startTimeoutError(readyTimeoutMs);
+  };
+
+  const abandonUnreadyRecord = (record: DrivenSessionRecord): void => {
+    // Stop it and drop the handle so the NEXT message spawns fresh rather than
+    // writing into a session that will never answer.
+    stopDrivenSession(record);
+    standingLocalId = null;
+    log.error("[principal-channel] conversation never finished starting", {
+      localId: record.localId,
+      waitedMs: readyTimeoutMs,
+    });
+  };
+
+  const startTimeoutError = (waitedMs: number): Error =>
+    new Error(
+      `the channel conversation did not finish starting within ${Math.round(
+        waitedMs / 1000
+      )}s — send anything to retry`
+    );
+
+  const spawnAndWait = async (): Promise<DrivenSessionRecord> => {
     const { record } = startDrivenSession({
       cwd: opts.cwd,
       permissionMode: opts.permissionMode ?? "bypassPermissions",
@@ -153,21 +209,9 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
       cwd: opts.cwd,
     });
 
-    const ready = await awaitSessionReady(record, readyTimeoutMs, readyPollMs);
-    if (!ready) {
-      // Stop it and drop the handle so the NEXT message spawns fresh rather
-      // than writing into a session that will never answer.
-      stopDrivenSession(record);
-      standingLocalId = null;
-      log.error("[principal-channel] conversation never finished starting", {
-        localId: record.localId,
-        waitedMs: readyTimeoutMs,
-      });
-      throw new Error(
-        `the channel conversation did not finish starting within ${Math.round(
-          readyTimeoutMs / 1000
-        )}s — send anything to retry`
-      );
+    if (!(await awaitSessionReady(record, readyTimeoutMs, readyPollMs))) {
+      abandonUnreadyRecord(record);
+      throw startTimeoutError(readyTimeoutMs);
     }
 
     log.info("[principal-channel] channel conversation ready", {
