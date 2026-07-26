@@ -1,8 +1,0 @@
-{
-  "detectorId": "unasked-direction-postmortem",
-  "detectorVersion": "v0.1.0",
-  "sessionId": "d12f938d-c86a-46be-b7f2-e4d8b717e1b0",
-  "analyzedAt": "2026-07-26T18:45:30.039Z",
-  "summary": "Unable to analyze session — transcript contains only non-text content markers with no actual decision-bearing text visible to the analyzer.",
-  "findings": []
-}
