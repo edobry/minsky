@@ -107,3 +107,162 @@ describe("scroll-padding bug fix — first/last events attainable as playhead (m
     );
   });
 });
+
+describe("expanded-row awareness (mt#3231 review R1, non-blocking #4 — accordion expansion must not drift the playhead mapping)", () => {
+  const rowHeightPx = 32;
+  const viewportHeightPx = 400;
+  const rowCount = 100;
+
+  test("no expandedRow (default) behaves EXACTLY like the pre-fix uniform math", () => {
+    const withExplicitNull = computeVisibleRowRange(
+      500,
+      viewportHeightPx,
+      rowHeightPx,
+      rowCount,
+      6,
+      null
+    );
+    const withDefault = computeVisibleRowRange(500, viewportHeightPx, rowHeightPx, rowCount, 6);
+    expect(withDefault).toEqual(withExplicitNull);
+  });
+
+  test("an expanded row with extraHeightPx<=0 is treated as no expansion (normalizes to uniform)", () => {
+    const uniform = computeVisibleRowRange(500, viewportHeightPx, rowHeightPx, rowCount);
+    const zeroExtra = computeVisibleRowRange(500, viewportHeightPx, rowHeightPx, rowCount, 6, {
+      rowIndex: 5,
+      extraHeightPx: 0,
+    });
+    expect(zeroExtra).toEqual(uniform);
+  });
+
+  test("totalHeightPx grows by exactly the expanded row's extra height", () => {
+    const uniform = computeVisibleRowRange(0, viewportHeightPx, rowHeightPx, rowCount);
+    const expanded = computeVisibleRowRange(0, viewportHeightPx, rowHeightPx, rowCount, 6, {
+      rowIndex: 5,
+      extraHeightPx: 80,
+    });
+    expect(expanded.totalHeightPx).toBe(uniform.totalHeightPx + 80);
+  });
+
+  test("rows AT OR BEFORE the expanded row are unaffected; scrollTopForRow for a row AFTER it shifts down by the extra height", () => {
+    const expandedRow = { rowIndex: 5, extraHeightPx: 80 };
+    const total = computeVisibleRowRange(
+      0,
+      viewportHeightPx,
+      rowHeightPx,
+      rowCount,
+      6,
+      expandedRow
+    ).totalHeightPx;
+
+    const beforeUniform = scrollTopForRow(3, rowHeightPx, viewportHeightPx, total);
+    const beforeWithExpansion = scrollTopForRow(
+      3,
+      rowHeightPx,
+      viewportHeightPx,
+      total,
+      expandedRow
+    );
+    expect(beforeWithExpansion).toBe(beforeUniform);
+
+    const afterUniform = scrollTopForRow(10, rowHeightPx, viewportHeightPx, total);
+    const afterWithExpansion = scrollTopForRow(
+      10,
+      rowHeightPx,
+      viewportHeightPx,
+      total,
+      expandedRow
+    );
+    expect(afterWithExpansion).toBe(afterUniform + 80);
+  });
+
+  test("rowIndexForScrollTop / scrollTopForRow round-trip correctly for rows AFTER an expanded row (the core playhead-mapping regression)", () => {
+    const expandedRow = { rowIndex: 5, extraHeightPx: 80 };
+    const total = computeVisibleRowRange(
+      0,
+      viewportHeightPx,
+      rowHeightPx,
+      rowCount,
+      6,
+      expandedRow
+    ).totalHeightPx;
+
+    for (const target of [0, 5, 6, 20, 50, 99]) {
+      const scrollTop = scrollTopForRow(target, rowHeightPx, viewportHeightPx, total, expandedRow);
+      const back = rowIndexForScrollTop(
+        scrollTop,
+        rowHeightPx,
+        viewportHeightPx,
+        rowCount,
+        expandedRow
+      );
+      expect(Math.abs(back - target)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test("WITHOUT expanded-row awareness, the same scroll position would misreport the row (demonstrates the drift the fix corrects)", () => {
+    const expandedRow = { rowIndex: 5, extraHeightPx: 80 };
+    const total = computeVisibleRowRange(
+      0,
+      viewportHeightPx,
+      rowHeightPx,
+      rowCount,
+      6,
+      expandedRow
+    ).totalHeightPx;
+
+    // A row well past the expanded one, scrolled to with expansion-aware math.
+    const scrollTop = scrollTopForRow(50, rowHeightPx, viewportHeightPx, total, expandedRow);
+
+    // Reading it back WITHOUT passing expandedRow (the pre-fix call shape)
+    // drifts by roughly the extra height's row-equivalent — demonstrating
+    // this is a real, observable corruption, not a theoretical one.
+    const uncorrected = rowIndexForScrollTop(scrollTop, rowHeightPx, viewportHeightPx, rowCount);
+    const corrected = rowIndexForScrollTop(
+      scrollTop,
+      rowHeightPx,
+      viewportHeightPx,
+      rowCount,
+      expandedRow
+    );
+    expect(corrected).toBe(50);
+    expect(uncorrected).not.toBe(corrected);
+  });
+
+  test("the expanded row's OWN span (including its extra height) maps back to its own index", () => {
+    const expandedRow = { rowIndex: 5, extraHeightPx: 80 };
+    const total = computeVisibleRowRange(
+      0,
+      viewportHeightPx,
+      rowHeightPx,
+      rowCount,
+      6,
+      expandedRow
+    ).totalHeightPx;
+    const scrollTop = scrollTopForRow(5, rowHeightPx, viewportHeightPx, total, expandedRow);
+    expect(
+      rowIndexForScrollTop(scrollTop, rowHeightPx, viewportHeightPx, rowCount, expandedRow)
+    ).toBe(5);
+  });
+
+  test("computeVisibleRowRange mounts the correct window when scrolled to a row past the expansion", () => {
+    const expandedRow = { rowIndex: 5, extraHeightPx: 80 };
+    const scrollTop = scrollTopForRow(
+      50,
+      rowHeightPx,
+      viewportHeightPx,
+      rowCount * rowHeightPx + viewportHeightPx + 80,
+      expandedRow
+    );
+    const range = computeVisibleRowRange(
+      scrollTop,
+      viewportHeightPx,
+      rowHeightPx,
+      rowCount,
+      6,
+      expandedRow
+    );
+    expect(range.start).toBeLessThanOrEqual(50);
+    expect(range.end).toBeGreaterThanOrEqual(50);
+  });
+});

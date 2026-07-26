@@ -53,11 +53,22 @@
  * renders its full per-event detail (target, verb, outcome, timing) directly
  * beneath itself; a batch row's expansion lists every member event. Rows use
  * `minHeight` (not the collapsed-only fixed `height`) so an expanded row
- * grows in normal document flow, pushing later rows down — the ONE row
- * whose true height diverges from `ROW_HEIGHT_PX` at a time introduces a
- * small, bounded drift in `session-film-virtualization.ts`'s uniform-height
- * window math for rows scrolled far below it; a full variable-height
- * virtualizer is out of this round's scope (nearest feasible treatment).
+ * grows in normal document flow, pushing later rows down.
+ *
+ * ### Keeping the virtualizer's window math correct under expansion (mt#3231 review R1)
+ *
+ * The FIRST cut of this feature left the ONE row whose true height diverges
+ * from `ROW_HEIGHT_PX` unaccounted for in `session-film-virtualization.ts`'s
+ * uniform-height math — a small, growing drift in the scroll-as-scrub
+ * playhead mapping for every row scrolled past the expanded one. Rather than
+ * a full general variable-height virtualizer, this component measures the
+ * ONE possibly-expanded row's REAL rendered height via a `ResizeObserver` on
+ * `expandedDetailRef` (batch member-list length and single-event detail both
+ * vary, so a fixed pixel estimate would silently desync from actual CSS) and
+ * feeds it to `computeVisibleRowRange`/`rowIndexForScrollTop` as an
+ * `ExpandedRowExtra` — see that module's doc for the exact math. Bounded to
+ * "at most one row is ever expanded" (this component's own
+ * `expandedRowIndex` invariant), not a general solution.
  *
  * Row root is a `<div role="listitem">` (not a `<button>`): EntityRef renders
  * an anchor internally, and nesting an anchor inside a native `<button>` is
@@ -73,7 +84,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
 import type { BatchRow, ChapterMarker } from "../../lib/session-film-batches";
 import { deriveActorChanges, isWaitRow, precedingGapMs } from "../../lib/session-film-batches";
-import { computeVisibleRowRange, rowIndexForScrollTop } from "../../lib/session-film-virtualization";
+import {
+  computeVisibleRowRange,
+  rowIndexForScrollTop,
+  type ExpandedRowExtra,
+} from "../../lib/session-film-virtualization";
 import { formatDurationShort } from "../../lib/format-duration";
 import { cn } from "../../lib/utils";
 import { actorIconFor, BATCH_ROW_ICON, BATCH_ROW_LABEL, verbIconFor, verbLabelFor } from "../../lib/tool-icon";
@@ -252,6 +267,36 @@ export function SessionFilmRibbon({
   // through the parent page. At most one row expanded at a time.
   const [expandedRowIndex, setExpandedRowIndex] = useState<number | null>(null);
 
+  // Expanded-row height measurement (mt#3231 review R1, non-blocking #4 —
+  // "make the virtualizer aware of the expanded row's variable height").
+  // `expandedDetailRef` is attached ONLY to the currently-expanded row's
+  // detail wrapper (see the render below); a ResizeObserver on it feeds the
+  // REAL rendered height (batch member-list length and single-event detail
+  // both vary) into the windowing math below, rather than guessing a fixed
+  // pixel estimate that would silently desync from actual CSS over time.
+  const expandedDetailRef = useRef<HTMLDivElement | null>(null);
+  const [expandedExtraHeightPx, setExpandedExtraHeightPx] = useState(0);
+  useEffect(() => {
+    if (expandedRowIndex === null) {
+      setExpandedExtraHeightPx(0);
+      return;
+    }
+    const el = expandedDetailRef.current;
+    if (!el) return;
+    const measure = () => setExpandedExtraHeightPx(el.getBoundingClientRect().height);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [expandedRowIndex]);
+  const expandedRowExtra: ExpandedRowExtra | null = useMemo(
+    () =>
+      expandedRowIndex !== null && expandedExtraHeightPx > 0
+        ? { rowIndex: expandedRowIndex, extraHeightPx: expandedExtraHeightPx }
+        : null,
+    [expandedRowIndex, expandedExtraHeightPx]
+  );
+
   // Self-reference elision (mt#3231 SC 1 / AT 1): derived once per events
   // array — see the module doc + session-film-target-ref.ts.
   const subjectAgentId = useMemo(() => deriveFilmSubjectAgentId(events), [events]);
@@ -267,8 +312,8 @@ export function SessionFilmRibbon({
   }, []);
 
   const range = useMemo(
-    () => computeVisibleRowRange(scrollTop, viewportHeightPx, ROW_HEIGHT_PX, batchRows.length),
-    [scrollTop, viewportHeightPx, batchRows.length]
+    () => computeVisibleRowRange(scrollTop, viewportHeightPx, ROW_HEIGHT_PX, batchRows.length, 6, expandedRowExtra),
+    [scrollTop, viewportHeightPx, batchRows.length, expandedRowExtra]
   );
 
   const chapterByRow = useMemo(() => {
@@ -291,9 +336,15 @@ export function SessionFilmRibbon({
     if (!el) return;
     setScrollTop(el.scrollTop);
     onScrollRowChange(
-      rowIndexForScrollTop(el.scrollTop, ROW_HEIGHT_PX, el.clientHeight || 400, batchRows.length)
+      rowIndexForScrollTop(
+        el.scrollTop,
+        ROW_HEIGHT_PX,
+        el.clientHeight || 400,
+        batchRows.length,
+        expandedRowExtra
+      )
     );
-  }, [batchRows.length, onScrollRowChange]);
+  }, [batchRows.length, onScrollRowChange, expandedRowExtra]);
 
   const visibleRows: BatchRow[] = [];
   for (let i = range.start; i <= range.end; i++) {
@@ -434,7 +485,11 @@ export function SessionFilmRibbon({
                     <span className="min-w-0 flex-1 truncate">{rowSummary(events, row)}</span>
                   )}
                 </div>
-                {isExpanded ? <RowDetail events={events} row={row} subjectAgentId={subjectAgentId} /> : null}
+                {isExpanded ? (
+                  <div ref={expandedDetailRef}>
+                    <RowDetail events={events} row={row} subjectAgentId={subjectAgentId} />
+                  </div>
+                ) : null}
               </div>
             );
           })}
