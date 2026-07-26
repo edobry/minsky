@@ -18,6 +18,7 @@ import {
 import { createDrivenSessionActuator, resultText } from "./principal-channel-actuator";
 
 const CWD = "/tmp/channel";
+const BLOCKED_Q = "what is blocked?";
 
 class FakeClaudeProcess extends EventEmitter implements ProcessLike {
   readonly pid: number | undefined = 424242;
@@ -31,6 +32,17 @@ class FakeClaudeProcess extends EventEmitter implements ProcessLike {
 
   emitLine(obj: unknown): void {
     this.stdout.write(`${JSON.stringify(obj)}\n`);
+  }
+
+  /**
+   * Emit the `init` event — the child saying "I am up".
+   *
+   * The host records `harnessSessionId` from this, which is what the actuator
+   * waits for before writing input (mt#3234). A fake that never emits it is a
+   * fake that never becomes ready, which is the failure this suite must cover.
+   */
+  emitInit(sessionId = "fake-harness-session"): void {
+    this.emitLine({ type: "system", subtype: "init", session_id: sessionId });
   }
 
   /** Emit the terminal `result` event that ends one turn. */
@@ -49,11 +61,26 @@ interface SpawnCapture {
   proc: FakeClaudeProcess;
 }
 
-function fakeSpawn(): { spawnFn: SpawnFn; calls: SpawnCapture[] } {
+/**
+ * Build a spawnFn whose children come up by default.
+ *
+ * `neverReady: true` produces a child that spawns and then goes silent —
+ * exactly the live incident (mt#3234), where a conversation sat `running` with
+ * a null harness id for twenty minutes while messages routed into it vanished.
+ */
+function fakeSpawn(opts: { neverReady?: boolean } = {}): {
+  spawnFn: SpawnFn;
+  calls: SpawnCapture[];
+} {
   const calls: SpawnCapture[] = [];
   const spawnFn: SpawnFn = (_command, args, options) => {
     const proc = new FakeClaudeProcess();
     calls.push({ args, options, proc });
+    if (!opts.neverReady) {
+      // Next tick, so the actuator's readiness wait is genuinely exercised
+      // rather than satisfied before it starts.
+      setTimeout(() => proc.emitInit(`harness-${calls.length}`), 1);
+    }
     return proc;
   };
   return { spawnFn, calls };
@@ -68,16 +95,24 @@ function makeActuator(
   overrides: {
     respondToAsk?: (ref: string, text: string) => Promise<string>;
     turnTimeoutMs?: number;
+    readyTimeoutMs?: number;
     permissionMode?: "default" | "bypassPermissions";
+    neverReady?: boolean;
   } = {}
 ) {
-  const { spawnFn, calls } = fakeSpawn();
+  const { spawnFn, calls } = fakeSpawn(
+    overrides.neverReady === undefined ? {} : { neverReady: overrides.neverReady }
+  );
   const registry = new DrivenSessionRegistry();
   const actuator = createDrivenSessionActuator({
     cwd: CWD,
     registry,
     spawnFn,
     respondToAsk: overrides.respondToAsk ?? (async (ref, text) => `answered ${ref}: ${text}`),
+    // Short by default: every test here drives a fake, so a real-world budget
+    // would only buy slow failures.
+    readyTimeoutMs: overrides.readyTimeoutMs ?? 500,
+    readyPollMs: 1,
     ...(overrides.turnTimeoutMs === undefined ? {} : { turnTimeoutMs: overrides.turnTimeoutMs }),
     ...(overrides.permissionMode === undefined ? {} : { permissionMode: overrides.permissionMode }),
   });
@@ -85,16 +120,16 @@ function makeActuator(
 }
 
 /** Yield to the event loop so piped stdout data is parsed into events. */
-const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 5));
+const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 25));
 
 describe("createDrivenSessionActuator — conversing", () => {
   test("spawns a conversation on the first message and returns the turn's text", async () => {
     const { actuator, calls } = makeActuator();
 
-    const reply = actuator.converse("what is blocked?");
+    const reply = actuator.converse(BLOCKED_Q);
     await flush();
     expect(calls).toHaveLength(1);
-    expect(readStdin(calls[0]?.proc as FakeClaudeProcess)).toContain("what is blocked?");
+    expect(readStdin(calls[0]?.proc as FakeClaudeProcess)).toContain(BLOCKED_Q);
 
     calls[0]?.proc.finishTurn("nothing is blocked");
     expect(await reply).toBe("nothing is blocked");
@@ -215,5 +250,57 @@ describe("resultText", () => {
 
   test("falls back to a placeholder for an empty successful turn", () => {
     expect(resultText({ type: "result", subtype: "success", result: "  " })).toContain("no text");
+  });
+});
+
+describe("createDrivenSessionActuator — readiness (mt#3234)", () => {
+  test("a conversation that never starts is reported, not silently swallowed", async () => {
+    // The live incident: the child spawned, never emitted init, and every
+    // message routed into it vanished for twenty minutes.
+    const { actuator } = makeActuator({ neverReady: true, readyTimeoutMs: 100 });
+
+    await expect(actuator.converse(BLOCKED_Q)).rejects.toThrow(/did not finish starting/);
+  });
+
+  test("a failed start is abandoned, so the NEXT message spawns fresh", async () => {
+    // Otherwise the dead session is reused forever and the channel never
+    // recovers on its own.
+    const { actuator, calls } = makeActuator({ neverReady: true, readyTimeoutMs: 100 });
+
+    await expect(actuator.converse("first")).rejects.toThrow();
+    await expect(actuator.converse("second")).rejects.toThrow();
+    expect(calls).toHaveLength(2);
+  });
+
+  test("input is written only AFTER the child reports ready", async () => {
+    // The spawn itself is synchronous; what the readiness gate defers is the
+    // stdin WRITE. Writing before the child is up is what made the live
+    // incident silent — the pipe accepts it and nothing ever reads it.
+    const { actuator, calls } = makeActuator({ neverReady: true, readyTimeoutMs: 200 });
+    const pending = actuator.converse(BLOCKED_Q);
+
+    const spawned = calls[0]?.proc as FakeClaudeProcess;
+    expect(spawned).toBeDefined();
+
+    // Give the readiness wait time to run without the child ever coming up.
+    await flush();
+    expect(readStdin(spawned)).toBe("");
+
+    await expect(pending).rejects.toThrow(/did not finish starting/);
+  });
+
+  test("a ready conversation is reused without waiting again", async () => {
+    const { actuator, calls } = makeActuator();
+
+    const first = actuator.converse("one");
+    await flush();
+    calls[0]?.proc.finishTurn("a");
+    await first;
+
+    const second = actuator.converse("two");
+    await flush();
+    calls[0]?.proc.finishTurn("b");
+    expect(await second).toBe("b");
+    expect(calls).toHaveLength(1);
   });
 });

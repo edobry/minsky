@@ -57,6 +57,26 @@ import type { ChannelActuator } from "./principal-channel-poller";
  */
 const DEFAULT_TURN_TIMEOUT_MS = 5 * 60 * 1000;
 
+/**
+ * How long a freshly spawned conversation gets to become ready (mt#3234).
+ *
+ * Startup in a real project directory is not instant: SessionStart hooks run
+ * first, then the child brings up its MCP servers (in the observed incident:
+ * chrome-devtools, the minsky MCP proxy, a dockerized github server). Two
+ * minutes is generous against that — a healthy spawn is seconds — while
+ * cleanly separating it from the failure mode this bounds, where the child sat
+ * for twenty minutes and never came up at all.
+ */
+const DEFAULT_READY_TIMEOUT_MS = 2 * 60 * 1000;
+
+/**
+ * Poll interval while waiting for a spawn to become ready.
+ *
+ * 50ms: readiness is on the critical path of the principal's FIRST message, so
+ * the granularity is felt directly, and polling a field in memory is free.
+ */
+const READY_POLL_MS = 50;
+
 export interface DrivenSessionActuatorOptions {
   /** Working directory for the channel conversation. */
   cwd: string;
@@ -64,6 +84,10 @@ export interface DrivenSessionActuatorOptions {
   permissionMode?: PermissionMode;
   model?: string;
   turnTimeoutMs?: number;
+  /** How long a spawn gets to become ready before it is abandoned (mt#3234). */
+  readyTimeoutMs?: number;
+  /** Readiness poll granularity. Test seam. */
+  readyPollMs?: number;
   registry?: DrivenSessionRegistry;
   /** Answer an ask by ref. Injected so the actuator does not import the ask domain. */
   respondToAsk: (askRef: string, text: string) => Promise<string>;
@@ -82,6 +106,8 @@ export interface DrivenSessionActuatorOptions {
 export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions): ChannelActuator {
   const registry = opts.registry ?? drivenSessionRegistry;
   const turnTimeoutMs = opts.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
+  const readyTimeoutMs = opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
+  const readyPollMs = opts.readyPollMs ?? READY_POLL_MS;
   let standingLocalId: string | null = null;
 
   const liveRecord = (): DrivenSessionRecord | null => {
@@ -97,7 +123,17 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
     return record;
   };
 
-  const ensureRecord = (): DrivenSessionRecord => {
+  /**
+   * Get the standing conversation, spawning and WAITING FOR READY if needed.
+   *
+   * The wait is the mt#3234 fix. A freshly spawned child accepts a stdin write
+   * long before it can act on one — it is still running SessionStart hooks and
+   * starting its MCP servers — so writing immediately succeeds whether or not
+   * the child will ever come up. Observed live: a conversation sat `running`
+   * with a null harness id for 20 minutes, swallowing every message routed to
+   * it, because nothing distinguished "still starting" from "never will".
+   */
+  const ensureReadyRecord = async (): Promise<DrivenSessionRecord> => {
     const existing = liveRecord();
     if (existing) return existing;
 
@@ -112,16 +148,38 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
       ...(opts.command === undefined ? {} : { command: opts.command }),
     });
     standingLocalId = record.localId;
-    log.info("[principal-channel] started the standing channel conversation", {
+    log.info("[principal-channel] starting the standing channel conversation", {
       localId: record.localId,
       cwd: opts.cwd,
+    });
+
+    const ready = await awaitSessionReady(record, readyTimeoutMs, readyPollMs);
+    if (!ready) {
+      // Stop it and drop the handle so the NEXT message spawns fresh rather
+      // than writing into a session that will never answer.
+      stopDrivenSession(record);
+      standingLocalId = null;
+      log.error("[principal-channel] conversation never finished starting", {
+        localId: record.localId,
+        waitedMs: readyTimeoutMs,
+      });
+      throw new Error(
+        `the channel conversation did not finish starting within ${Math.round(
+          readyTimeoutMs / 1000
+        )}s — send anything to retry`
+      );
+    }
+
+    log.info("[principal-channel] channel conversation ready", {
+      localId: record.localId,
+      harnessSessionId: record.harnessSessionId,
     });
     return record;
   };
 
   return {
     async converse(text: string): Promise<string> {
-      const record = ensureRecord();
+      const record = await ensureReadyRecord();
       // Subscribe BEFORE writing: a fast turn could otherwise emit its result
       // between the write and the subscribe, and the reply would be lost.
       const turn = awaitTurnResult(record, turnTimeoutMs);
@@ -151,6 +209,32 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
       return opts.respondToAsk(askRef, text);
     },
   };
+}
+
+/**
+ * Wait until a spawned conversation can actually act on input.
+ *
+ * Readiness is `harnessSessionId` being populated — the driven-session host
+ * sets it when it observes the child's `init` event, which is the child saying
+ * "I am up". Polled rather than subscribed because the host records the id on
+ * the record itself, and a poll cannot miss an event that fired between the
+ * spawn returning and a subscription being attached.
+ *
+ * Returns false on timeout, and immediately if the child reached a terminal
+ * status first (a spawn that died before init has nothing to wait for).
+ */
+export async function awaitSessionReady(
+  record: DrivenSessionRecord,
+  timeoutMs: number,
+  pollMs: number = READY_POLL_MS
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (record.harnessSessionId) return true;
+    if (isTerminalStatus(record.status)) return false;
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
 }
 
 interface PendingTurn {

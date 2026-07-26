@@ -299,6 +299,7 @@ async function handleRoute(
     });
   }
 
+  const startedAtMs = Date.now();
   let reply: string;
   let succeeded = true;
   try {
@@ -314,7 +315,19 @@ async function handleRoute(
     await recordFailureOutcome(deps, message, route, detail);
   }
 
-  await sendReply(deps, message, reply);
+  const replyMessageId = await sendReply(deps, message, reply);
+
+  // Log the SUCCESS path too (mt#3234). Without this the log only ever showed
+  // failures, so "no errors" got read as "replies delivered" — an inference
+  // that was wrong. `replyMessageId` is the delivery receipt: present means
+  // Telegram accepted the reply, absent means it did not.
+  log.info("[principal-channel] handled an inbound message", {
+    updateId: message.updateId,
+    route: route.kind,
+    succeeded,
+    durationMs: Date.now() - startedAtMs,
+    replyMessageId,
+  });
   return succeeded;
 }
 
@@ -334,11 +347,18 @@ function runActuator(
   }
 }
 
+/**
+ * Deliver the reply, returning Telegram's message id for it.
+ *
+ * The id is the delivery RECEIPT (mt#3234) — the caller logs it so the question
+ * "did a reply actually reach the phone?" is answerable from the log instead of
+ * inferred from the absence of an error. `undefined` means it did not land.
+ */
 async function sendReply(
   deps: PollCycleDeps,
   message: InboundTelegramMessage,
   reply: string
-): Promise<void> {
+): Promise<number | undefined> {
   const text = reply.trim().length > 0 ? reply.trim() : "(no output)";
   const result = await sendTelegramMessage({
     token: deps.token,
@@ -349,7 +369,9 @@ async function sendReply(
   });
   if (!result.ok) {
     log.error("[principal-channel] reply delivery failed", { detail: result.detail });
+    return undefined;
   }
+  return result.messageId;
 }
 
 /**
