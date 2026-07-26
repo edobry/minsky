@@ -18,6 +18,8 @@ import {
   User,
   ShieldAlert,
 } from "lucide-react";
+import type { EventVerb } from "@minsky/domain/transcripts/event-schema";
+import { EVENT_VERBS } from "@minsky/domain/transcripts/event-schema";
 import { actorIconFor, BATCH_ROW_ICON, toolIconFor, verbIconFor } from "./tool-icon";
 import { parseToolName } from "./tool-name";
 
@@ -100,8 +102,17 @@ describe("verbIconFor (mt#3226 SC 2 — session-film glyphic ribbon)", () => {
 });
 
 describe("BATCH_ROW_ICON / actorIconFor (mt#3226 SC 2)", () => {
-  test("BATCH_ROW_ICON is the Layers icon, distinct from any single verb icon", () => {
+  test("BATCH_ROW_ICON is the Layers icon", () => {
     expect(BATCH_ROW_ICON).toBe(Layers);
+  });
+
+  test("BATCH_ROW_ICON is distinct from EVERY verb's icon in the real registry (PR #2323 R1)", () => {
+    // Iterates the actual verb vocabulary (EVENT_VERBS, the schema's own
+    // list) through the REAL verbIconFor mapping — not a hardcoded subset —
+    // so this genuinely fails if a future verb is ever mapped to Layers.
+    for (const verb of EVENT_VERBS as readonly EventVerb[]) {
+      expect(verbIconFor(verb)).not.toBe(BATCH_ROW_ICON);
+    }
   });
 
   test("actorIconFor maps principal/policy/agent to distinct icons", () => {

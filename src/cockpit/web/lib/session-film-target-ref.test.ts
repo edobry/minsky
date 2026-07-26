@@ -76,7 +76,20 @@ describe("targetDisplayLabel", () => {
     expect(targetDisplayLabel({ realm: "shell", id: "shell:git status" })).toBe("git status");
   });
 
-  test("an unrecognized shape falls back to the raw id", () => {
+  test("a recognized agents-realm target strips the 'agents:' prefix", () => {
     expect(targetDisplayLabel({ realm: "agents", id: "agents:implementer" })).toBe("implementer");
+  });
+
+  test("an unrecognized shape falls back to the raw id VERBATIM (no prefix matches: not repo/file:, not web:/notion:/shell:/agents:)", () => {
+    // "unknown:Skill" deliberately matches none of targetDisplayLabel's known
+    // prefixes (realm is "unknown", not "repo"; id doesn't start with
+    // "web:"/"notion:"/"shell:"/"agents:") — the PREVIOUS version of this
+    // test used {realm:"agents", id:"agents:implementer"}, which actually
+    // exercises the RECOGNIZED "agents:" prefix-strip path (asserted above
+    // as its own test), not the fallback (PR #2323 R1: same class of bug as
+    // the BATCH_ROW_ICON test — the name claimed "unrecognized," the fixture
+    // was recognized).
+    const target = { realm: "unknown" as const, id: "unknown:Skill" };
+    expect(targetDisplayLabel(target)).toBe(target.id);
   });
 });
