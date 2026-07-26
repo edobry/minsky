@@ -35,11 +35,20 @@ export type ManagedClient =
  *
  * Claude Code 2.1.x sets `CLAUDECODE=1` (no underscore) plus a family of
  * `CLAUDE_CODE_*`-namespaced vars (`CLAUDE_CODE_ENTRYPOINT`,
- * `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_SUBAGENT_MODEL`,
- * `CLAUDE_CODE_EXECPATH`). It does NOT set bare `CLAUDE_CODE`. Hook contexts
- * additionally set `CLAUDE_PROJECT_DIR`. We accept any of these signals to
- * recognize Claude Code regardless of which surface the MCP server was
- * launched under.
+ * `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_EXECPATH`). It does NOT set bare
+ * `CLAUDE_CODE`. Hook contexts additionally set `CLAUDE_PROJECT_DIR`. We
+ * accept any of these signals to recognize Claude Code regardless of which
+ * surface the MCP server was launched under.
+ *
+ * `CLAUDE_CODE_SUBAGENT_MODEL` is also accepted below, but do NOT count it as
+ * a harness signal (mt#3151): it was listed here as one because this repo's
+ * own `.claude/settings.json` set it, so its presence was self-inflicted —
+ * the check was reading our config, not detecting Claude Code. That pin was
+ * removed, and whether the harness sets the variable on its own is not
+ * established either way; the first session after the removal settles it. The
+ * accepted-signal list keeps it because it costs nothing (any one of the
+ * signals above already identifies the harness) and dropping it is a separate
+ * cleanup, but nothing should rely on it.
  *
  * Detection priority:
  * 1. Any Claude Code env signal → Claude Code

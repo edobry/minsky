@@ -247,15 +247,21 @@ accepted the param" is not evidence the param took effect; a silently-clamped
 value and an honored one produce identical tool results. Where no such signal
 exists, say the claim is UNVERIFIED — do not infer it from acceptance.
 
-_Origin:_ same session as (g). `.claude/settings.json`'s
-`CLAUDE_CODE_SUBAGENT_MODEL` sits ABOVE the per-invocation `model` param in
-Claude Code's documented resolution order, so every dispatch requesting a
-tier was silently resolved to the pinned one, with no error and no
-caller-visible notice; the agent read "the tool accepted `model: fable`" as
-"it is running Fable" and attached extra epistemic weight to those advisors'
-conclusions when representing them to the principal. mt#3151 tracks both the
-project's own pin and the missing caller-visible signal (its SC4); until a
-signal exists, this cue's honest output is "unverified," not an assumption.
+_Origin:_ same session as (g). `.claude/settings.json` pinned
+`CLAUDE_CODE_SUBAGENT_MODEL: "sonnet"`, which overrode the per-invocation
+`model` param, so every dispatch requesting a tier was silently resolved to
+the pinned one with no error and no caller-visible notice; the agent read "the
+tool accepted `model: fable`" as "it is running Fable" and attached extra
+epistemic weight to those advisors' conclusions when representing them to the
+principal. Measured directly on 2026-07-26 (mt#3151): a dispatch requesting
+`opus` ran Sonnet, and so did one requesting `haiku` — an absolute override in
+both directions, not a cost cap. The pin was removed per ask#6205.
+
+The cue OUTLIVES that fix, and its falsifier is now cheap: a subagent's real
+model is in its transcript at `<session-dir>/subagents/agent-<agentId>.jsonl`,
+and the `Agent` tool returns the `agentId`. So for THIS claim there is a signal
+— read it. The general rule stands wherever no such signal exists: say
+UNVERIFIED rather than inferring effect from acceptance.
 
 ### (i) An open item still needing the principal's action
 
