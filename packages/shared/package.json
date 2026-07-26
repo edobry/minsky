@@ -19,6 +19,7 @@
     "./constants": "./src/constants.ts",
     "./array-safety": "./src/array-safety.ts",
     "./cold-start-profile": "./src/cold-start-profile.ts",
-    "./ask-approval": "./src/ask-approval.ts"
+    "./ask-approval": "./src/ask-approval.ts",
+    "./ask-closure": "./src/ask-closure.ts"
   }
 }

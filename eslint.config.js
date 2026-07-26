@@ -32,6 +32,7 @@ import noHandRolledCommandParams from "./eslint-rules/no-hand-rolled-command-par
 import noEntityIdParamDrift from "./eslint-rules/no-entity-id-param-drift.js";
 import noRawColorsInCockpit from "./eslint-rules/no-raw-colors-in-cockpit.js";
 import requireHookDomainBootstrap from "./eslint-rules/require-hook-domain-bootstrap.js";
+import noNodeImportInCockpitWeb from "./eslint-rules/no-node-import-in-cockpit-web.js";
 
 // === RAW COLOR ENFORCEMENT IN COCKPIT (mt#2916) — declared coverage ===
 // The blessed healthy/warning raw-Tailwind-palette exception from
@@ -87,6 +88,28 @@ const COCKPIT_PALETTE_EXEMPT_FILES = [
   "src/cockpit/web/widgets/Changesets.tsx",
 ];
 
+// === NODE-IMPORT GUARD FOR COCKPIT WEB (mt#3239) ===
+// Structural backstop for the "browser-bundled cockpit page imports a Node-only module and
+// crashes with `Can't find variable: process`" regression class (mt#3215 / PR #2315: AskPage.tsx
+// imported @minsky/domain/ask/close-as-resolved, which transitively imports
+// @minsky/shared/logger's top-level `process.env` reads — evaluating ANY export from that module
+// runs the logger's side effects, so the browser bundle crashed on load). See
+// eslint-rules/no-node-import-in-cockpit-web.js for the full rule doc, the stated
+// direct-vs-transitive coverage gap, and the `allowedExact` escape-hatch rationale below.
+const COCKPIT_NODE_IMPORT_GUARD_OPTIONS = {
+  bannedExact: ["@minsky/shared/logger"],
+  bannedPrefixes: ["@minsky/domain"],
+  // Spot-checked at mt#3239 authoring time: each of these already-in-use submodules has zero
+  // Node dependencies at least one import-hop deep. Adding an entry here is a decision, not a
+  // lint tweak — see the rule's own doc comment for the verification bar before adding another.
+  allowedExact: [
+    "@minsky/domain/ask/state-machine",
+    "@minsky/domain/transcripts/event-schema",
+    "@minsky/domain/transcripts/conversation-elements",
+    "@minsky/domain/ai/dispatch-models",
+  ],
+};
+
 // Shared plugin-object reference for TSX/JSX `custom` rules (mt#2916 PR #2045
 // review R1): ESLint flat config errors ("Cannot redefine plugin 'custom'")
 // if two DIFFERENT object instances register the same plugin key for
@@ -98,6 +121,7 @@ const TSX_CUSTOM_PLUGIN = {
   rules: {
     "no-raw-console": noRawConsole,
     "no-raw-colors-in-cockpit": noRawColorsInCockpit,
+    "no-node-import-in-cockpit-web": noNodeImportInCockpitWeb,
   },
 };
 
@@ -226,6 +250,7 @@ export default [
           "no-entity-id-param-drift": noEntityIdParamDrift,
           "no-raw-colors-in-cockpit": noRawColorsInCockpit,
           "require-hook-domain-bootstrap": requireHookDomainBootstrap,
+          "no-node-import-in-cockpit-web": noNodeImportInCockpitWeb,
         },
       },
     },
@@ -980,6 +1005,7 @@ export default [
         "error",
         { statusFiles: COCKPIT_STATUS_FILES, paletteExemptFiles: COCKPIT_PALETTE_EXEMPT_FILES },
       ],
+      "custom/no-node-import-in-cockpit-web": ["error", COCKPIT_NODE_IMPORT_GUARD_OPTIONS],
     },
   },
   // `.tsx` coverage is fully self-contained (PR #2045 review R1): its own
@@ -1011,6 +1037,7 @@ export default [
         "error",
         { statusFiles: COCKPIT_STATUS_FILES, paletteExemptFiles: COCKPIT_PALETTE_EXEMPT_FILES },
       ],
+      "custom/no-node-import-in-cockpit-web": ["error", COCKPIT_NODE_IMPORT_GUARD_OPTIONS],
     },
   },
 ];
