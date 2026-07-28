@@ -201,6 +201,38 @@ export interface EventTarget {
   raw?: unknown;
 }
 
+// ── Source back-reference (mt#3262 SC 1) ────────────────────────────────────────
+
+/**
+ * Back-reference from a `SemanticEvent` to the transcript line (and, for a
+ * tool-call-derived event, the specific tool call within that line) it was
+ * derived from. Optional/additive — existing consumers that never read this
+ * field are unaffected.
+ *
+ * `turnIndex` is the PRIMARY join key: the adapter's own loop index over the
+ * `TranscriptMessage[]` array (`event-adapter.ts`'s `adaptTranscriptToEvents`),
+ * which is index-identical with `assembleSessionContextSnapshot`'s
+ * `SessionContextSnapshotBlock.turnIndex` (`session-context-snapshot.ts`) —
+ * both iterate the SAME `agent_transcripts.transcript` array returned
+ * verbatim by `AgentTranscriptService.getTranscript()`. See
+ * `event-adapter.test.ts`'s AT1 round-trip test for the identity this rests
+ * on.
+ *
+ * `toolUseId` is REQUIRED to disambiguate a tool-call-derived event: one
+ * assistant line can emit many tool-call events sharing one `batchId` and one
+ * `turnIndex` (a parallel tool batch), so `turnIndex` alone cannot say WHICH
+ * call a given event is. Conversational events (`speak`/`think`/`ask`) leave
+ * it `undefined` — they are not tool calls.
+ */
+export interface EventSourceRef {
+  /** 0-indexed position in the transcript array (see doc comment above). */
+  turnIndex: number;
+  /** The originating JSONL line's `uuid`, when present — free, stable across re-ingest. */
+  messageUuid?: string;
+  /** The `tool_use` block's id, set only for tool-call-derived events (see doc comment above). */
+  toolUseId?: string;
+}
+
 // ── The event ─────────────────────────────────────────────────────────────────
 
 /**
@@ -253,4 +285,10 @@ export interface SemanticEvent {
    * `event-adapter.ts`'s `computeAdapterCoverage`.
    */
   unmapped?: boolean;
+  /**
+   * Back-reference to the originating transcript line (mt#3262 SC 1). Set by
+   * `event-adapter.ts` for every event it emits; see {@link EventSourceRef}'s
+   * doc comment for the join-key discipline this rests on.
+   */
+  sourceRef?: EventSourceRef;
 }

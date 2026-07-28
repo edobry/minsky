@@ -14,6 +14,7 @@ import {
   computeAdapterCoverage,
   type AdapterContext,
 } from "./event-adapter";
+import { turnLineToBlock } from "./session-context-snapshot";
 import type { TranscriptMessage } from "../provenance/transcript-service";
 
 const PRINCIPAL_CONTEXT: AdapterContext = {
@@ -31,6 +32,75 @@ function assistantMsg(content: unknown[], timestamp: string, uuid?: string): Tra
 function userMsg(content: unknown, timestamp: string, uuid?: string): TranscriptMessage {
   return { type: "user", role: "user", content, timestamp, uuid };
 }
+
+describe("adaptTranscriptToEvents — mt#3262 AT1: sourceRef.turnIndex round-trips with the snapshot's turnIndex", () => {
+  test("every event's sourceRef.turnIndex indexes the SAME transcript line assembleSessionContextSnapshot resolves via turnLineToBlock", () => {
+    const transcript: TranscriptMessage[] = [
+      userMsg("please read a file", "2026-07-28T10:00:00.000Z", "line-0"),
+      assistantMsg(
+        [
+          { type: "thinking", thinking: "I should read it" },
+          { type: "text", text: "Reading now." },
+          { type: "tool_use", id: "call-a", name: READ_FILE_TOOL, input: { path: "a.ts" } },
+        ],
+        "2026-07-28T10:00:01.000Z",
+        "line-1"
+      ),
+      userMsg(
+        [{ type: "tool_result", tool_use_id: "call-a", content: "contents of a", is_error: false }],
+        "2026-07-28T10:00:02.000Z",
+        "line-2"
+      ),
+    ];
+
+    const events = adaptTranscriptToEvents(transcript, PRINCIPAL_CONTEXT);
+    expect(events.length).toBeGreaterThan(0);
+
+    // Irrelevant to the identity assertion below — turnLineToBlock's block-id
+    // prefix only, not the turnIndex it stamps.
+    const AGENT_SESSION_ID = "agent-1";
+
+    for (const event of events) {
+      const ref = event.sourceRef;
+      expect(ref).toBeDefined();
+      const turnIndex = ref?.turnIndex as number;
+      const sourceLine = transcript[turnIndex];
+      expect(sourceLine).toBeDefined();
+
+      // The SAME conversion `assembleSessionContextSnapshot` applies at the
+      // SAME array index (`turnArray.forEach((entry, idx) =>
+      // turnLineToBlock(agentSessionId, idx, entry))`,
+      // session-context-snapshot.ts), over the SAME array `getTranscript()`
+      // returns verbatim. If this identity does NOT hold, the adapter's loop
+      // index and the snapshot's turnIndex have diverged and the join key
+      // this task's design rests on is broken.
+      const block = turnLineToBlock(AGENT_SESSION_ID, turnIndex, sourceLine);
+      expect(block).not.toBeNull();
+      expect(block?.turnIndex).toBe(turnIndex);
+      expect(block?.rawJsonlType).toBe(sourceLine?.type);
+      expect(block?.timestamp).toBe(sourceLine?.timestamp);
+    }
+
+    // Spot-check the disambiguation turnIndex alone cannot provide: a
+    // tool-call event needs toolUseId (a batch can emit several tool-call
+    // events sharing one turnIndex).
+    const toolEvent = events.find((e) => e.verb === "read");
+    expect(toolEvent?.sourceRef?.turnIndex).toBe(1);
+    expect(toolEvent?.sourceRef?.toolUseId).toBe("call-a");
+    expect(toolEvent?.sourceRef?.messageUuid).toBe("line-1");
+
+    const thinkEvent = events.find((e) => e.verb === "think");
+    expect(thinkEvent?.sourceRef?.turnIndex).toBe(1);
+    expect(thinkEvent?.sourceRef?.toolUseId).toBeUndefined();
+
+    const speakEvent = events.find((e) => e.verb === "speak");
+    expect(speakEvent?.sourceRef?.turnIndex).toBe(1);
+
+    const askEvent = events.find((e) => e.verb === "ask");
+    expect(askEvent?.sourceRef?.turnIndex).toBe(0);
+    expect(askEvent?.sourceRef?.messageUuid).toBe("line-0");
+  });
+});
 
 describe("adaptTranscriptToEvents — AT1: parallel tool batch", () => {
   test("tool_use blocks on one assistant line share batchId and identical tStart, no synthetic order", () => {

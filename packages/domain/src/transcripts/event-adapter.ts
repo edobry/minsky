@@ -63,6 +63,7 @@ import {
   type EventActor,
   type EventOutcome,
   type EventRealm,
+  type EventSourceRef,
   type EventTarget,
   type EventVerb,
   type SemanticEvent,
@@ -73,8 +74,12 @@ import {
 /**
  * Adapter contract version, independent of `EVENT_SCHEMA_VERSION` (the event
  * SHAPE can stay stable while the tool→verb/realm registry below evolves).
+ *
+ * Bumped to v1 for mt#3262 SC 1: every emitted event now carries a
+ * `sourceRef` back-reference to its originating transcript line (and, for
+ * tool-call-derived events, the specific `tool_use` id).
  */
-export const ADAPTER_VERSION = "event-adapter-v0" as const;
+export const ADAPTER_VERSION = "event-adapter-v1" as const;
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
@@ -669,7 +674,8 @@ function emitSimpleEvent(
   verb: Extract<EventVerb, "speak" | "think" | "ask">,
   timestamp: string | undefined,
   actor: EventActor,
-  context: AdapterContext
+  context: AdapterContext,
+  sourceRef: EventSourceRef
 ): SemanticEvent {
   return {
     schemaVersion: EVENT_SCHEMA_VERSION,
@@ -680,6 +686,7 @@ function emitSimpleEvent(
     outcome: "ok",
     weight: weightForVerb(verb),
     adapterVersion: context.adapterVersion ?? ADAPTER_VERSION,
+    sourceRef,
   };
 }
 
@@ -689,13 +696,17 @@ function emitToolCallEvents(
   resultTimestamp: string | undefined,
   batchId: string,
   tStart: string,
-  context: AdapterContext
+  context: AdapterContext,
+  turnIndex: number,
+  messageUuid: string | undefined
 ): SemanticEvent[] {
   const rawName = typeof block.name === "string" ? block.name : "";
   const { mapping, unmapped } = resolveToolMapping(rawName);
   const resultInfo: ToolResultInfo | undefined = resultBlock
     ? { content: resultBlock.content, isError: resultBlock.is_error === true }
     : undefined;
+  const toolUseId = typeof block.id === "string" ? block.id : undefined;
+  const sourceRef: EventSourceRef = { turnIndex, messageUuid, toolUseId };
 
   const denial = resultBlock ? detectGuardDenial(resultBlock) : null;
   const targets = extractTargets(mapping, block.input, resultInfo, context, rawName);
@@ -733,6 +744,7 @@ function emitToolCallEvents(
     batchId,
     adapterVersion: context.adapterVersion ?? ADAPTER_VERSION,
     unmapped,
+    sourceRef,
   }));
 }
 
@@ -752,6 +764,7 @@ export function adaptTranscriptToEvents(
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     if (!msg) continue;
+    const messageUuid = msg.uuid;
 
     if (msg.type === "assistant") {
       const blocks = normalizeContent(resolveInnerContent(msg));
@@ -785,7 +798,8 @@ export function adaptTranscriptToEvents(
                 agentSessionId: context.agentSessionId,
                 displayLabel: context.agentDisplayLabel,
               },
-              context
+              context,
+              { turnIndex: i, messageUuid }
             )
           );
         } else if (block.type === "thinking" || block.type === "redacted_thinking") {
@@ -798,13 +812,23 @@ export function adaptTranscriptToEvents(
                 agentSessionId: context.agentSessionId,
                 displayLabel: context.agentDisplayLabel,
               },
-              context
+              context,
+              { turnIndex: i, messageUuid }
             )
           );
         } else if (block.type === "tool_use" && typeof block.id === "string") {
           const resultBlock = resultById.get(block.id);
           events.push(
-            ...emitToolCallEvents(block, resultBlock, resultTimestamp, batchId, tStart, context)
+            ...emitToolCallEvents(
+              block,
+              resultBlock,
+              resultTimestamp,
+              batchId,
+              tStart,
+              context,
+              i,
+              messageUuid
+            )
           );
         }
       }
@@ -815,7 +839,12 @@ export function adaptTranscriptToEvents(
 
       const text = extractPlainText(blocks);
       if (text && !isSyntheticInterruptText(text)) {
-        events.push(emitSimpleEvent("ask", msg.timestamp, context.userTurnActor, context));
+        events.push(
+          emitSimpleEvent("ask", msg.timestamp, context.userTurnActor, context, {
+            turnIndex: i,
+            messageUuid,
+          })
+        );
       }
     }
   }
