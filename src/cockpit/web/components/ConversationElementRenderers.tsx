@@ -73,27 +73,6 @@ export function ThinkingBlock({
   // text nobody is looking at (PR #1667 R1 non-blocking).
   const [open, setOpen] = useState(false);
 
-  // mt#3276: thinking text is NEVER recorded — Claude Code writes
-  // `{"type":"thinking","thinking":"","signature":"…"}`, keeping the signature
-  // for API replay while the reasoning text is withheld server-side and never
-  // reaches the client (evidence: `event-schema.ts` EVENT_VERBS note). A
-  // disclosure reading "(0 chars — click to expand)" invites the reader to
-  // open an empty box and implies the text was lost locally. Say what is
-  // actually true instead, and don't offer the expand affordance.
-  if (thinking.trim().length === 0) {
-    return (
-      <div
-        className="rounded border border-border/60 bg-muted/20 px-2 py-1 text-xs text-muted-foreground"
-        data-testid="thinking-block-not-recorded"
-      >
-        <span className="italic">thinking</span>
-        <span className="ml-1 text-muted-foreground/60">
-          — this harness does not record thinking text
-        </span>
-      </div>
-    );
-  }
-
   return (
     <details
       className="group rounded border border-border/60 bg-muted/20"
@@ -384,6 +363,21 @@ export function ElementView({
       return <Prose entityIndex={entityIndex}>{element.text}</Prose>;
     }
     case "thinking":
+      // mt#3276: thinking text is NEVER recorded — Claude Code writes
+      // `{"type":"thinking","thinking":"","signature":"…"}`, keeping the
+      // signature for API replay while the reasoning text is withheld
+      // server-side and never reaches the client (evidence: the EVENT_VERBS
+      // note in `packages/domain/src/transcripts/event-schema.ts`). So this
+      // guard drops EVERY thinking element in practice, not an occasional one.
+      //
+      // That is DELIBERATE here and should not be "fixed" by rendering an
+      // explanatory placeholder: the conversation view shows every turn, so a
+      // "thinking not recorded" line would repeat on essentially every
+      // assistant turn — ~29k of them in the local corpus — to say the same
+      // thing each time. The film's ribbon is the opposite case and DOES
+      // explain it (`SessionFilmRibbon.tsx`'s `EventContentView`): there the
+      // operator has expanded one specific THINK row and is owed an answer
+      // about that row.
       return element.thinking.trim().length > 0 ? (
         <ThinkingBlock thinking={element.thinking} entityIndex={entityIndex} />
       ) : null;
