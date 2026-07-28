@@ -5,6 +5,7 @@ import {
   extractAskTexts,
   hasProbeEvidence,
   isProbeSkill,
+  stripQuoteChars,
   buildCalibrationRecord,
   buildReminder,
   run,
@@ -344,6 +345,32 @@ describe("does not fire on trigger phrases quoted in prose (mt#3273)", () => {
     expect(
       detectCapabilityDeferral([assistantText("> Deferred to operator: requires Railway access.")])
     ).toHaveLength(0);
+  });
+
+  // PR #2355 R1: stripQuoteChars must not touch apostrophes. Removing them
+  // rewrites word content (`you'll` -> `youll`) and shifts the \b boundaries
+  // every pattern here depends on — a side effect beyond unwrapping a
+  // decoration, and one that would make matching depend on contraction
+  // spelling. Same line elideDoubleQuotedSpans already draws for prose.
+  test("stripQuoteChars removes double quotes only, preserving apostrophes", () => {
+    expect(stripQuoteChars('the "MCP auth token"')).toBe("the MCP auth token");
+    expect(stripQuoteChars("the “MCP auth token”")).toBe("the MCP auth token");
+    expect(stripQuoteChars("you'll restart it; don't wait — the operator's call")).toBe(
+      "you'll restart it; don't wait — the operator's call"
+    );
+    expect(stripQuoteChars("it’s the agent’s job")).toBe("it’s the agent’s job");
+  });
+
+  test("an apostrophe-bearing label is matched on its real words, not a rewrite", () => {
+    const ask: Record<string, unknown> = {
+      questions: [
+        {
+          question: "The service is down.",
+          options: [{ label: "You restart the reviewer service" }, { label: "Hold the PR" }],
+        },
+      ],
+    };
+    expect(detectAskDeferral(ask, [])).toHaveLength(1);
   });
 
   // The ask surface deliberately does NOT elide — a label does not quote a

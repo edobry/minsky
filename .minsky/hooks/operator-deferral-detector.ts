@@ -290,12 +290,24 @@ export const PRINCIPAL_DECISION_PATTERNS: RegExp[] = [
 ];
 
 /**
- * Remove straight and curly double/single quote characters, leaving the words
- * they wrap intact (mt#3273). Used only on `AskUserQuestion` option labels —
- * NOT on prose, where quoted spans are elided wholesale instead.
+ * Remove DOUBLE quote characters (straight and curly), leaving the words they
+ * wrap intact (mt#3273). Used only on `AskUserQuestion` option labels — NOT on
+ * prose, where quoted spans are elided wholesale instead.
+ *
+ * Apostrophes and single quotes are deliberately excluded (PR #2355 R1). They
+ * occur INSIDE words in ordinary English — `you'll`, `don't`, `operator's` —
+ * so removing them rewrites word content and shifts the `\b` boundaries every
+ * pattern in this module depends on, rather than just unwrapping a decoration.
+ * That is a side effect well beyond the intent, and it would make the matcher's
+ * behavior depend on contraction spelling.
+ *
+ * This mirrors the decision `elideDoubleQuotedSpans` already documents for the
+ * prose surface — "Deliberately NOT covering single quotes: apostrophes ... make
+ * single-quote pairing unreliable" — so both surfaces now draw the
+ * double-vs-single line in the same place, for the same reason.
  */
 export function stripQuoteChars(text: string): string {
-  return text.replace(/["“”'‘’]/g, "");
+  return text.replace(/["“”]/g, "");
 }
 
 /**
