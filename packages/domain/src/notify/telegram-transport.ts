@@ -172,6 +172,15 @@ export interface InboundTelegramMessage {
   date: number | undefined;
   /** Set when the principal used Telegram's reply affordance. */
   replyToMessageId: number | undefined;
+  /**
+   * The quoted message's own text (mt#3243).
+   *
+   * The id alone conveys nothing usable — the agent cannot look a Telegram
+   * message id up. The TEXT is what makes "focus on that one" resolve. Stays
+   * undefined when the reply targets a non-text message (photo, sticker) or
+   * when the principal did not reply at all.
+   */
+  replyToText: string | undefined;
 }
 
 export interface GetUpdatesOptions {
@@ -296,6 +305,7 @@ export function parseInboundUpdates(body: unknown): InboundTelegramMessage[] {
     const from = asRecord(message["from"]);
     const replyTo = asRecord(message["reply_to_message"]);
     const replyToMessageId = replyTo?.["message_id"];
+    const replyToText = replyTo?.["text"];
 
     results.push({
       updateId,
@@ -305,6 +315,7 @@ export function parseInboundUpdates(body: unknown): InboundTelegramMessage[] {
       text,
       date: typeof message["date"] === "number" ? message["date"] : undefined,
       replyToMessageId: typeof replyToMessageId === "number" ? replyToMessageId : undefined,
+      replyToText: typeof replyToText === "string" ? replyToText : undefined,
     });
   }
   return results;

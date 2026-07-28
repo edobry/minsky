@@ -180,8 +180,54 @@ describe("parseInboundUpdates", () => {
         text: "what is blocked?",
         date: 1700000000,
         replyToMessageId: 4,
+        replyToText: undefined,
       },
     ]);
+  });
+
+  // mt#3243: the reply target's id alone tells the agent nothing it can use —
+  // it cannot look a message id up. Carrying the quoted TEXT is what makes
+  // Telegram's reply affordance mean anything on the receiving end.
+  test("extracts the quoted message's text, not just its id", () => {
+    const messages = parseInboundUpdates({
+      ok: true,
+      result: [
+        {
+          update_id: 11,
+          message: {
+            message_id: 6,
+            chat: { id: -42, type: "private" },
+            from: { id: 777 },
+            text: "focus on that one",
+            reply_to_message: { message_id: 4, text: "mt#3243 is the next task" },
+          },
+        },
+      ],
+    });
+
+    expect(messages[0]?.replyToText).toBe("mt#3243 is the next task");
+    expect(messages[0]?.replyToMessageId).toBe(4);
+  });
+
+  test("leaves replyToText undefined when the quoted message carries no text", () => {
+    // A reply to a photo/sticker has a reply_to_message with no `text`.
+    const messages = parseInboundUpdates({
+      ok: true,
+      result: [
+        {
+          update_id: 12,
+          message: {
+            message_id: 7,
+            chat: { id: -42, type: "private" },
+            text: "what is this?",
+            reply_to_message: { message_id: 4, photo: [{ file_id: "abc" }] },
+          },
+        },
+      ],
+    });
+
+    expect(messages[0]?.replyToText).toBeUndefined();
+    expect(messages[0]?.replyToMessageId).toBe(4);
   });
 
   test("skips updates without usable text", () => {
