@@ -312,8 +312,50 @@ describe("buildRuleMdc golden output (fixed points, no legacy-module dependency)
       "  - another_tag\n" +
       "  - tag with spaces\n" +
       "---\n" +
-      "Body content";
+      "Body content\n";
     expect(buildRuleMdc(def)).toBe(golden);
+  });
+});
+
+// ─── trailing newline (mt#1288) ───────────────────────────────────────────────
+// The legacy serializer emitted no terminator, so all 53 compiled
+// `.cursor/rules/*.mdc` files ended mid-line. `buildRuleMdc` now terminates
+// unconditionally. Asserted on the LAST BYTE rather than via a golden string:
+// four of the goldens above happen to carry a content body that already ends in
+// "\n" (CONTENT_TAIL), so they would keep passing whether or not the terminator
+// is applied — the property needs its own test to be tested at all.
+
+describe("buildRuleMdc trailing newline (mt#1288)", () => {
+  it("terminates output when the content body has no trailing newline", () => {
+    const mdc = buildRuleMdc({ ...sampleRule, content: "Body content" });
+    expect(mdc.endsWith("\n")).toBe(true);
+    expect(mdc.endsWith("Body content\n")).toBe(true);
+  });
+
+  it("does not double the terminator when the content body already ends in one", () => {
+    const mdc = buildRuleMdc({ ...sampleRule, content: "Body content\n" });
+    expect(mdc.endsWith("Body content\n")).toBe(true);
+    expect(mdc.endsWith("\n\n")).toBe(false);
+  });
+
+  it("terminates output for an empty content body", () => {
+    const mdc = buildRuleMdc({ ...sampleRule, content: "" });
+    expect(mdc.endsWith("---\n")).toBe(true);
+    expect(mdc.endsWith("\n\n")).toBe(false);
+  });
+
+  it("terminates output regardless of frontmatter shape", () => {
+    const { name: _name, ...withoutName } = sampleRule;
+    const variants: RuleDefinition[] = [
+      { ...sampleRule, content: "x" },
+      { ...(withoutName as RuleDefinition), content: "x" },
+      { ...sampleRule, tags: [], content: "x" },
+      { ...sampleRule, globs: "**/*.ts", content: "x" },
+    ];
+    for (const variant of variants) {
+      expect(buildRuleMdc(variant).endsWith("\n")).toBe(true);
+      expect(buildRuleMdc(variant).endsWith("\n\n")).toBe(false);
+    }
   });
 });
 
