@@ -486,6 +486,29 @@ describe("createDrivenSessionActuator — resume across a restart", () => {
     await expect(actuator.converse("hello")).rejects.toThrow(/another/i);
     expect(calls.length).toBe(0);
   });
+
+  // PR #2352 R1: the reviewer asked whether spawning with null bindings could
+  // silently DETACH a task-bound conversation on a failed resume. It cannot —
+  // the channel is untasked by construction, not incidentally. This test makes
+  // that an enforced invariant rather than a property of the current wiring, so
+  // adding a task binding later has to be a deliberate change with a failing
+  // test in front of it.
+  test("the channel conversation is untasked BY DESIGN, not incidentally", async () => {
+    const { actuator, registry } = makeActuator();
+
+    void actuator.converse("hello");
+    await waitUntil(
+      () => registry.get(PRINCIPAL_CHANNEL_LOCAL_ID) !== undefined,
+      "the standing conversation to be registered"
+    );
+
+    const record = registry.get(PRINCIPAL_CHANNEL_LOCAL_ID);
+    // The principal's standing conversation is not a task's workspace: it is
+    // the counterpart on their phone, and binding it to whichever task happened
+    // to be open would mis-attribute its cost rows and substrate links.
+    expect(record?.taskId).toBeNull();
+    expect(record?.minskySessionId).toBeNull();
+  });
 });
 
 describe("createDrivenSessionActuator — readiness (mt#3234)", () => {

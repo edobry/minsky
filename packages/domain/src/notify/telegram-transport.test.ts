@@ -230,6 +230,53 @@ describe("parseInboundUpdates", () => {
     expect(messages[0]?.replyToMessageId).toBe(4);
   });
 
+  // PR #2352 R1 (BLOCKING): media carries its text in `caption`, not `text`.
+  // The test above originally asserted undefined for a captioned photo, which
+  // encoded the gap as correct behavior — replying to a captioned image is a
+  // common shape and it silently lost the quote.
+  test("falls back to the quoted message's caption when it has no text", () => {
+    const messages = parseInboundUpdates({
+      ok: true,
+      result: [
+        {
+          update_id: 13,
+          message: {
+            message_id: 8,
+            chat: { id: -42, type: "private" },
+            text: "what does this show?",
+            reply_to_message: {
+              message_id: 4,
+              photo: [{ file_id: "abc" }],
+              caption: "the deploy graph after the fix",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(messages[0]?.replyToText).toBe("the deploy graph after the fix");
+    expect(messages[0]?.replyToMessageId).toBe(4);
+  });
+
+  test("prefers text over caption when a quoted message somehow has both", () => {
+    const messages = parseInboundUpdates({
+      ok: true,
+      result: [
+        {
+          update_id: 14,
+          message: {
+            message_id: 9,
+            chat: { id: -42, type: "private" },
+            text: "which?",
+            reply_to_message: { message_id: 4, text: "the text", caption: "the caption" },
+          },
+        },
+      ],
+    });
+
+    expect(messages[0]?.replyToText).toBe("the text");
+  });
+
   test("skips updates without usable text", () => {
     const messages = parseInboundUpdates({
       result: [

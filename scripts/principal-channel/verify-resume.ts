@@ -46,6 +46,15 @@ import { safeTruncate } from "../../src/utils/safe-truncate";
 // observers skip the write — which makes this probe report a resume failure
 // that is really a bootstrap failure. (Same shape as
 // scripts/verify-agents-activity-bound.ts:28-33.)
+//
+// `workingDirectory` is deliberately `process.cwd()` — the REPO root — and NOT
+// the `--cwd` passed to the actuator (PR #2352 R1 raised this). They are
+// different things: `--cwd` is where the `claude` CHILD runs, which for this
+// probe is a throwaway scratch directory; configuration resolution needs the
+// project/user config that lives at the repo and home level. Pointing config
+// loading at the scratch directory would find no config, leave the database
+// unresolvable, and reintroduce exactly the silent no-write failure this
+// bootstrap exists to prevent.
 const { initializeConfiguration, CustomConfigFactory } = await import(
   "@minsky/domain/configuration"
 );
