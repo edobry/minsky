@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DEFERRAL_MENU_PATTERNS,
+  MENU_SHAPE_REQUIRED_PATTERNS,
   detectDeferralPhrases,
+  hasMenuShape,
+  lineAt,
   turnHasAsksCreate,
   elideQuotedContexts,
   buildReminder,
@@ -263,5 +267,106 @@ describe("run() (dispatcher-compatible)", () => {
     } finally {
       delete process.env[OVERRIDE_ENV_VAR];
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3271 — quoted-prose elision + menu-shape gating for the pause/stop family
+//
+// The 2026-07-28T19:45:31Z fire on session `b5295d70` cited "I'll pause here"
+// against a turn that never contained it. Replaying the real transcript showed
+// two compounding defects: the scanned window was the PREVIOUS turn (mt#3280,
+// the shared turn-extraction contract), and that window matched only because
+// the phrase appeared as a double-quoted example in prose about the detector —
+// a class `elideQuotedContexts` does not cover. This file fixes the second.
+// ---------------------------------------------------------------------------
+
+describe("quoted-prose elision (mt#3271)", () => {
+  test("a trigger phrase quoted while discussing the detector does not fire", () => {
+    const text =
+      'The detector fired citing "I\'ll pause here" on a turn that never contained it. ' +
+      'It also matches "Say the word" and "what\'s your call".';
+    expect(detectDeferralPhrases(text)).toEqual([]);
+  });
+
+  test("curly-quoted mentions are elided too", () => {
+    expect(detectDeferralPhrases("The phrase “say the word” is on the list.")).toEqual([]);
+  });
+
+  test("backtick and blockquote elision still works (no regression)", () => {
+    expect(detectDeferralPhrases("The pattern `say the word` is matched.")).toEqual([]);
+    expect(detectDeferralPhrases("> What's your call?")).toEqual([]);
+  });
+
+  test("an UNQUOTED deferral still fires — elision must not swallow real positives", () => {
+    const matches = detectDeferralPhrases("Say the word and I'll take it.");
+    expect(matches.some((m) => m.cls === DEFERRAL_MENU)).toBe(true);
+  });
+});
+
+describe("menu-shape gating for pause/stop (mt#3271)", () => {
+  test("bare pause/stop at turn end does not fire", () => {
+    expect(detectDeferralPhrases("Merged and verified. I'll pause here.")).toEqual([]);
+    expect(detectDeferralPhrases("That closes the queue. I'll stop here.")).toEqual([]);
+  });
+
+  test("recommend/suggest-we-stop is NOT gated — it hands a call over, it is not a report", () => {
+    const matches = detectDeferralPhrases("I recommend we stop here.");
+    expect(matches.some((m) => m.cls === DEFERRAL_MENU)).toBe(true);
+  });
+
+  test("`unless` counts as a menu shape — it offers a choice without asking", () => {
+    const matches = detectDeferralPhrases("I'll stop here unless you want more.");
+    expect(matches.some((m) => m.cls === DEFERRAL_MENU)).toBe(true);
+  });
+
+  test("pause/stop alongside an explicit question DOES fire", () => {
+    const matches = detectDeferralPhrases("I'll pause here — should I take mt#A next?");
+    expect(matches.some((m) => m.cls === DEFERRAL_MENU)).toBe(true);
+  });
+
+  test("pause/stop alongside an offered disjunction DOES fire", () => {
+    const matches = detectDeferralPhrases("I'll stop here or keep going on the backlog.");
+    expect(matches.some((m) => m.cls === DEFERRAL_MENU)).toBe(true);
+  });
+
+  test("a question in a DIFFERENT paragraph does not license a bare pause", () => {
+    const text = "Should I file that separately?\n\nEither way, merged and green. I'll pause here.";
+    const matches = detectDeferralPhrases(text);
+    expect(matches.some((m) => m.matchedPhrase.toLowerCase().includes("pause here"))).toBe(false);
+  });
+
+  test("the real positives from the ask#6136 review still fire", () => {
+    const cases = [
+      "Say the word and I'll start.",
+      "Want me to run it, or would you rather I park mt#3151 and pick up mt#3171 instead?",
+      "Want me to check bot status on mt#3217 or dig into anything else?",
+    ];
+    for (const text of cases) {
+      expect(detectDeferralPhrases(text).length).toBeGreaterThan(0);
+    }
+  });
+
+  // PR #2359 R1: line-scoped, not paragraph-scoped — single-newline prose must
+  // not collapse into one block where any question licenses a bare pause.
+  test("a question on a different LINE does not license a bare pause (single newlines)", () => {
+    const text = "Should I file that separately?\nEither way, merged and green. I'll pause here.";
+    const matches = detectDeferralPhrases(text);
+    expect(matches.some((m) => m.matchedPhrase.toLowerCase().includes("pause here"))).toBe(false);
+  });
+
+  // PR #2359 R1: the gate matches by object identity, so the gated pattern must
+  // be the SAME object the menu list holds — not a copy with equal source.
+  test("the gated pattern is shared by identity with DEFERRAL_MENU_PATTERNS", () => {
+    for (const p of MENU_SHAPE_REQUIRED_PATTERNS) {
+      expect(DEFERRAL_MENU_PATTERNS).toContain(p);
+    }
+  });
+
+  test("hasMenuShape / lineAt behave as documented", () => {
+    expect(hasMenuShape("plain sentence")).toBe(false);
+    expect(hasMenuShape("do X?")).toBe(true);
+    expect(hasMenuShape("take A or B")).toBe(true);
+    expect(lineAt("one\n\ntwo\n\nthree", 6)).toBe("two");
   });
 });
