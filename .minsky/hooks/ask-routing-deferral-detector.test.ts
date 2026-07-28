@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DEFERRAL_MENU_PATTERNS,
+  MENU_SHAPE_REQUIRED_PATTERNS,
   detectDeferralPhrases,
   hasMenuShape,
-  paragraphAt,
+  lineAt,
   turnHasAsksCreate,
   elideQuotedContexts,
   buildReminder,
@@ -345,10 +347,26 @@ describe("menu-shape gating for pause/stop (mt#3271)", () => {
     }
   });
 
-  test("hasMenuShape / paragraphAt behave as documented", () => {
+  // PR #2359 R1: line-scoped, not paragraph-scoped — single-newline prose must
+  // not collapse into one block where any question licenses a bare pause.
+  test("a question on a different LINE does not license a bare pause (single newlines)", () => {
+    const text = "Should I file that separately?\nEither way, merged and green. I'll pause here.";
+    const matches = detectDeferralPhrases(text);
+    expect(matches.some((m) => m.matchedPhrase.toLowerCase().includes("pause here"))).toBe(false);
+  });
+
+  // PR #2359 R1: the gate matches by object identity, so the gated pattern must
+  // be the SAME object the menu list holds — not a copy with equal source.
+  test("the gated pattern is shared by identity with DEFERRAL_MENU_PATTERNS", () => {
+    for (const p of MENU_SHAPE_REQUIRED_PATTERNS) {
+      expect(DEFERRAL_MENU_PATTERNS).toContain(p);
+    }
+  });
+
+  test("hasMenuShape / lineAt behave as documented", () => {
     expect(hasMenuShape("plain sentence")).toBe(false);
     expect(hasMenuShape("do X?")).toBe(true);
     expect(hasMenuShape("take A or B")).toBe(true);
-    expect(paragraphAt("one\n\ntwo\n\nthree", 6)).toBe("two");
+    expect(lineAt("one\n\ntwo\n\nthree", 6)).toBe("two");
   });
 });

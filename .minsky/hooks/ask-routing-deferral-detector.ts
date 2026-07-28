@@ -105,11 +105,20 @@ export const PRINCIPAL_RESERVED_PATTERNS: RegExp[] = [
 // fix is /classify-before-deferring FIRST, not unconditionally an ask.
 // ---------------------------------------------------------------------------
 
+/**
+ * Declared ONCE and referenced from both `DEFERRAL_MENU_PATTERNS` and
+ * {@link MENU_SHAPE_REQUIRED_PATTERNS}, so the gate matches by object IDENTITY
+ * (PR #2359 R1). An earlier cut duplicated the literal in both arrays and
+ * compared `RegExp.source` strings — editing one copy and not the other would
+ * have silently detached the gate with nothing failing.
+ */
+const PAUSE_STOP_SELF_REPORT = /\b(I[''’]?ll|I\s+can)\s+(stop|pause)\s+here\b/i;
+
 export const DEFERRAL_MENU_PATTERNS: RegExp[] = [
   /\bwhat[''’]?s\s+your\s+call\b/i,
   /\byour\s+call\?/i,
   /\bsay\s+the\s+word\b/i,
-  /\b(I[''’]?ll|I\s+can)\s+(stop|pause)\s+here\b/i,
+  PAUSE_STOP_SELF_REPORT,
   /\b(recommend|suggest)\s+(we\s+)?stop\s+here\b/i,
   /\b(want\s+me\s+to|should\s+I)\b[^.?]*\bor\b[^.?]*\?/i,
   /\bnothing\s+is\s+dropped\s+if\s+we\s+do\s+nothing\b/i,
@@ -131,9 +140,7 @@ const CLASS_PATTERNS: Array<{ cls: DeferralClass; patterns: RegExp[] }> = [
  * that ratio is computed over calibration records whose matched text may be
  * attributed to the wrong turn (mt#3280), so it is not a sound basis for a tune.
  */
-export const MENU_SHAPE_REQUIRED_PATTERNS: readonly RegExp[] = [
-  /\b(I[''’]?ll|I\s+can)\s+(stop|pause)\s+here\b/i,
-];
+export const MENU_SHAPE_REQUIRED_PATTERNS: readonly RegExp[] = [PAUSE_STOP_SELF_REPORT];
 
 /**
  * `recommend/suggest we stop here` is deliberately NOT gated. It is a
@@ -146,8 +153,8 @@ export const MENU_SHAPE_REQUIRED_PATTERNS: readonly RegExp[] = [
 
 /**
  * A menu shape: an explicit question, or any construction offering the reader
- * an alternative. Scoped to ONE paragraph so a question elsewhere in a long
- * report cannot license a pause phrase that stands alone.
+ * an alternative. Scoped to ONE LINE so a question elsewhere in a long report
+ * cannot license a pause phrase that stands alone.
  *
  * `unless` / `if you'd rather` are included because they offer a choice without
  * a question mark or a disjunction — `"I'll stop here unless you want more"`
@@ -162,11 +169,22 @@ export function hasMenuShape(paragraph: string): boolean {
   );
 }
 
-/** The paragraph (blank-line-delimited block) containing character `index`. */
-export function paragraphAt(text: string, index: number): string {
-  const start = text.lastIndexOf("\n\n", index);
-  const end = text.indexOf("\n\n", index);
-  return text.slice(start === -1 ? 0 : start + 2, end === -1 ? text.length : end);
+/**
+ * The LINE containing character `index`.
+ *
+ * Deliberately line-scoped rather than paragraph-scoped (PR #2359 R1). An
+ * earlier cut split on blank lines, which silently assumed prose uses
+ * double-newline delimiters — in single-newline text the whole report collapses
+ * to one block, so any question anywhere in it would license a bare pause
+ * phrase. That failure points the WRONG way for a suppression gate: a wider
+ * scope finds a menu shape more often, suppresses less, and fires more — which
+ * is the false-positive direction this gate exists to reduce. A line is the
+ * unit that actually corresponds to "said in the same breath".
+ */
+export function lineAt(text: string, index: number): string {
+  const start = text.lastIndexOf("\n", index);
+  const end = text.indexOf("\n", index);
+  return text.slice(start + 1, end === -1 ? text.length : end);
 }
 
 // ---------------------------------------------------------------------------
@@ -208,8 +226,8 @@ export function detectDeferralPhrases(text: string): DeferralMatch[] {
       const m = pattern.exec(scanned);
       if (!m) continue;
       if (
-        MENU_SHAPE_REQUIRED_PATTERNS.some((p) => p.source === pattern.source) &&
-        !hasMenuShape(paragraphAt(scanned, m.index ?? 0))
+        MENU_SHAPE_REQUIRED_PATTERNS.includes(pattern) &&
+        !hasMenuShape(lineAt(scanned, m.index ?? 0))
       ) {
         continue;
       }
