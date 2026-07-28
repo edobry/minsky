@@ -77,6 +77,12 @@ const COCKPIT_PALETTE_EXEMPT_FILES = [
   // categorical message-type distinction, not a status indicator. Same
   // token-budget rationale as JsonView.tsx above.
   "src/cockpit/web/widgets/ConversationView.tsx",
+  // mt#3262 SC 2: the ToolInvocation / InjectedContentBlock renderers
+  // (carrying the SAME sky/violet categorical chips as ConversationView.tsx
+  // above) were extracted out of ConversationView.tsx into this shared
+  // module so the session-film ribbon can reuse them without forking. Same
+  // exemption rationale, same code, new file.
+  "src/cockpit/web/components/ConversationElementRenderers.tsx",
   // Command-palette entity-type badges (memory=emerald, conversation=sky) —
   // categorical entity-type coloring, not health status. Unifying with the
   // signal-cyan convention Agents.tsx's KIND_BADGE_CONFIG already uses for
