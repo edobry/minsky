@@ -77,8 +77,15 @@ const MAX_REPLY_CHARS = 3500;
  * conversation-keyed identity lands) drops in.
  */
 export interface ChannelActuator {
-  /** Hand text to the standing channel conversation; resolve with its reply. */
-  converse(text: string): Promise<string>;
+  /**
+   * Hand text to the standing channel conversation; resolve with its reply.
+   *
+   * `replyToText` is the quoted message when the principal used Telegram's
+   * reply affordance (mt#3243). Optional because most messages are not
+   * replies — and because the reply target is context for the turn, not a
+   * routing decision, so the poller stays out of how it is presented.
+   */
+  converse(text: string, replyToText?: string): Promise<string>;
   /** Interrupt the current turn. Must not queue behind it. */
   interrupt(): Promise<string>;
   /** Abandon the current conversation; the next message starts fresh. */
@@ -350,7 +357,7 @@ function runActuator(
     case "reset":
       return actuator.reset();
     case "channel-agent":
-      return actuator.converse(route.text);
+      return actuator.converse(route.text, route.replyToText);
   }
 }
 

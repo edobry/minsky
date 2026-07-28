@@ -300,6 +300,55 @@ describe("resultText", () => {
   });
 });
 
+// mt#3243 — Telegram's reply affordance has to survive into the turn.
+describe("createDrivenSessionActuator — reply context", () => {
+  /** Reads the first spawn's process without a non-null assertion. */
+  const firstProc = (calls: SpawnCapture[]): FakeClaudeProcess => {
+    const capture = calls[0];
+    if (!capture) throw new Error("expected at least one spawn");
+    return capture.proc;
+  };
+
+  const FOLLOW_UP = "focus on that one";
+  const QUOTED = "mt#3243 is the next task";
+
+  test("puts the quoted text in front of the agent, alongside the new message", async () => {
+    const { actuator, calls } = makeActuator();
+
+    void actuator.converse(FOLLOW_UP, QUOTED);
+    const written = await waitForWrite(firstProc(calls), FOLLOW_UP);
+
+    // Both halves must reach the child: the quote is what "that one" resolves
+    // against, and the new message is the actual instruction.
+    expect(written).toContain(QUOTED);
+    expect(written).toContain(FOLLOW_UP);
+  });
+
+  test("works on a FRESH conversation — it does not depend on the agent remembering", async () => {
+    // Success Criterion 4: a reply carries its own context, so a conversation
+    // that has never seen the quoted message can still resolve it.
+    const { actuator, calls } = makeActuator();
+
+    void actuator.converse("what did you mean?", "the guard goes at the resolver");
+    const written = await waitForWrite(firstProc(calls), "what did you mean?");
+
+    expect(written).toContain("the guard goes at the resolver");
+    expect(calls.length).toBe(1); // first turn of a brand-new conversation
+  });
+
+  test("sends the message unchanged when there is no reply target", async () => {
+    const { actuator, calls } = makeActuator();
+
+    void actuator.converse("plain message");
+    const written = await waitForWrite(firstProc(calls), "plain message");
+
+    const payload = JSON.parse(written.trim()) as {
+      message: { content: { type: string; text: string }[] };
+    };
+    expect(payload.message.content[0]?.text).toBe("plain message");
+  });
+});
+
 describe("createDrivenSessionActuator — readiness (mt#3234)", () => {
   test("a conversation that never starts is reported, not silently swallowed", async () => {
     // The live incident: the child spawned, never emitted init, and every

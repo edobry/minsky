@@ -95,6 +95,29 @@ const DEFAULT_READY_TIMEOUT_MS = 2 * 60 * 1000;
  */
 const READY_POLL_MS = 50;
 
+/**
+ * Fold a replied-to message into the turn the agent actually sees (mt#3243).
+ *
+ * Telegram's reply affordance is out-of-band: the protocol carries it as a
+ * separate field, so an agent reading only the message body cannot tell
+ * "focus on that one" from a non sequitur. Quoting the target inline is what
+ * makes the reference resolve — and it resolves on a FRESH conversation too,
+ * which matters because the channel's conversation does not always survive
+ * (a daemon restart replaces it).
+ *
+ * Blockquote form because the child is a `claude` process reading markdown:
+ * `>` marks the quoted span unambiguously without inventing a delimiter the
+ * model has to be taught.
+ */
+export function composeTurnInput(text: string, replyToText?: string): string {
+  if (replyToText === undefined || replyToText.trim().length === 0) return text;
+  const quoted = replyToText
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  return `In reply to:\n${quoted}\n\n${text}`;
+}
+
 export interface DrivenSessionActuatorOptions {
   /** Working directory for the channel conversation. */
   cwd: string;
@@ -226,12 +249,12 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
   };
 
   return {
-    async converse(text: string): Promise<string> {
+    async converse(text: string, replyToText?: string): Promise<string> {
       const record = ensureRecord();
       // Subscribe BEFORE writing: a fast turn could otherwise emit its result
       // between the write and the subscribe, and the reply would be lost.
       const turn = awaitTurnResult(record, turnTimeoutMs);
-      if (!sendDrivenSessionInput(record, text)) {
+      if (!sendDrivenSessionInput(record, composeTurnInput(text, replyToText))) {
         turn.cancel();
         throw new Error("the channel conversation is not accepting input");
       }
