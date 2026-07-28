@@ -24,9 +24,17 @@
  * The default here is `bypassPermissions`, matching every other driven session
  * the cockpit spawns — because in headless `-p` mode a permission prompt has
  * nowhere to go, so `default` mode leaves the session unable to run the tools
- * that make it useful. Deployments wanting the tighter posture set
- * `permissionMode: "default"` and accept that the channel can answer questions
- * but not act. This is a deliberate, configurable choice, not an oversight.
+ * that make it useful.
+ *
+ * This was AFFIRMED by the principal on 2026-07-26 (ask#6164), which asked
+ * whether to keep it or drop to `default`; the answer was keep. So it is a
+ * confirmed decision, not a default that happened to survive — worth knowing
+ * before anyone "fixes" it as an oversight. The allowlist (chat id AND sender
+ * id) is the control that actually bounds the exposure; the permission mode
+ * only decides whether the channel can act once past it.
+ *
+ * Deployments wanting the tighter posture set `permissionMode: "default"` and
+ * accept that the channel can answer questions but not act.
  *
  * ## Concurrency contract: one caller at a time
  *
