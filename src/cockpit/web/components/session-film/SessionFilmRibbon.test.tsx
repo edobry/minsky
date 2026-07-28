@@ -417,3 +417,180 @@ describe("SessionFilmRibbon — unknown-target fallback never leaks 'unknown:' (
     expect(label.className).toContain("text-muted-foreground");
   });
 });
+
+// mt#3262: expanded rows show the REAL content of the event, fetched lazily
+// via the film-owned content endpoint and rendered with ConversationView's
+// own shared renderers, plus a deep-link.
+describe("SessionFilmRibbon — expanded row real content (mt#3262 SC 2 / SC 3 / AT 2 / AT 3 / AT 4)", () => {
+  function mockContentFetch(
+    outcome:
+      | { ok: true; blocks: unknown[]; ingestedAt: string | null }
+      | { ok: false; status: number; code: string }
+  ) {
+    global.fetch = mock(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/cockpit/session-film/content")) {
+        if (outcome.ok) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ blocks: outcome.blocks, ingestedAt: outcome.ingestedAt }),
+          } as unknown as Response;
+        }
+        const body = { error: { code: outcome.code, message: "refused" } };
+        return {
+          ok: false,
+          status: outcome.status,
+          text: async () => JSON.stringify(body),
+          json: async () => body,
+        } as unknown as Response;
+      }
+      // Entity-label / any other fetch degrades harmlessly (mirrors stubEntityLabelFetch).
+      return { ok: false, json: async () => ({ state: "degraded", reason: "not mocked" }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+  }
+
+  // Self-targeting so `deriveFilmSubjectAgentId` resolves "a1" — the
+  // conversation id the content fetch/deep-link key off, per the module
+  // doc's "no new prop threading needed" note.
+  function selfEvent(overrides: Partial<SemanticEvent> = {}): SemanticEvent {
+    return ev({ target: { realm: "agents", id: "agents:a1" }, ...overrides });
+  }
+
+  test("expanding a SPEAK row fetches content lazily and renders the real message text via the shared ElementView", async () => {
+    const speakEvent = selfEvent({
+      verb: "speak",
+      weight: 1,
+      sourceRef: { turnIndex: 1, messageUuid: "line-1" },
+    });
+    const blocks = [
+      {
+        id: "a1:turn:1",
+        type: "assistant-text",
+        source: "observed",
+        content: { role: "assistant", content: [{ type: "text", text: "Reading the file now." }] },
+        timestamp: "2026-07-24T00:00:00.000Z",
+        turnIndex: 1,
+        rawJsonlType: "assistant",
+      },
+    ];
+    renderRibbon([speakEvent]);
+    mockContentFetch({ ok: true, blocks, ingestedAt: "2026-07-20T00:00:00.000Z" });
+    fireEvent.click(screen.getByTestId("session-film-row-0"));
+    await screen.findByTestId("session-film-row-content-body");
+    expect(screen.getByTestId("session-film-row-content-body").textContent).toContain(
+      "Reading the file now."
+    );
+  });
+
+  test("expanding an ASK row renders the real prompt text", async () => {
+    const askEvent = selfEvent({
+      verb: "ask",
+      actor: { kind: "principal" },
+      sourceRef: { turnIndex: 0 },
+    });
+    // A companion agent-kind event is needed so `filmConversationId`
+    // (derived from an agent actor's agentSessionId — see the module doc
+    // comment) resolves; a film consisting of ONLY a principal ask with no
+    // agent event at all is a degenerate case outside this test's target
+    // (it would correctly degrade to "no content", per AT 4, since there's
+    // no id to fetch against).
+    const companionEvent = selfEvent({
+      verb: "speak",
+      tStart: "2026-07-24T00:00:01.000Z",
+      sourceRef: { turnIndex: 2 },
+    });
+    const blocks = [
+      {
+        id: "a1:turn:0",
+        type: "user-prompt",
+        source: "observed",
+        content: { role: "user", content: "please fix the bug" },
+        timestamp: "2026-07-24T00:00:00.000Z",
+        turnIndex: 0,
+        rawJsonlType: "user",
+      },
+    ];
+    renderRibbon([askEvent, companionEvent]);
+    mockContentFetch({ ok: true, blocks, ingestedAt: "2026-07-20T00:00:00.000Z" });
+    fireEvent.click(screen.getByTestId("session-film-row-0"));
+    await screen.findByTestId("session-film-row-content-body");
+    expect(screen.getByTestId("session-film-row-content-body").textContent).toContain(
+      "please fix the bug"
+    );
+  });
+
+  test("expanding a tool-call (WRITE) row renders the call's params+result via ToolInvocation", async () => {
+    const writeEvent = ev({
+      verb: "write",
+      target: { realm: "repo", id: "file:workspace:a.ts" },
+      sourceRef: { turnIndex: 1, toolUseId: "call-a" },
+    });
+    const blocks = [
+      {
+        id: "a1:turn:1",
+        type: "assistant-text",
+        source: "observed",
+        content: {
+          role: "assistant",
+          content: [
+            { type: "tool_use", id: "call-a", name: "session_write_file", input: { path: "a.ts" } },
+          ],
+        },
+        timestamp: "2026-07-24T00:00:00.000Z",
+        turnIndex: 1,
+        rawJsonlType: "assistant",
+      },
+      {
+        id: "a1:turn:2",
+        type: "user-prompt",
+        source: "observed",
+        content: {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "call-a", content: "written ok", is_error: false },
+          ],
+        },
+        timestamp: "2026-07-24T00:00:01.000Z",
+        turnIndex: 2,
+        rawJsonlType: "user",
+      },
+    ];
+    renderRibbon([writeEvent]);
+    mockContentFetch({ ok: true, blocks, ingestedAt: "2026-07-20T00:00:00.000Z" });
+    fireEvent.click(screen.getByTestId("session-film-row-0"));
+    const body = await screen.findByTestId("session-film-row-content-body");
+    // ToolInvocation renders the call name + args digest + outcome as its
+    // collapsed summary line — the real params/result, not a placeholder.
+    expect(body.textContent).toContain("session_write_file");
+    expect(body.textContent).toContain("a.ts");
+    expect(body.textContent).toContain("ok");
+  });
+
+  test("expanded row content includes an 'open in conversation view' deep-link to /conversation/:id", async () => {
+    const speakEvent = selfEvent({ verb: "speak", sourceRef: { turnIndex: 1 } });
+    renderRibbon([speakEvent]);
+    mockContentFetch({ ok: true, blocks: [], ingestedAt: "2026-07-20T00:00:00.000Z" });
+    fireEvent.click(screen.getByTestId("session-film-row-0"));
+    const link = await screen.findByText("open in conversation view →");
+    expect(link.closest("a")?.getAttribute("href")).toBe("/conversation/a1");
+  });
+
+  test("a 422 scrub-gate refusal from the content endpoint renders 'Content unavailable', never a crash (AT4/AT5)", async () => {
+    const speakEvent = selfEvent({ verb: "speak", sourceRef: { turnIndex: 1 } });
+    renderRibbon([speakEvent]);
+    mockContentFetch({ ok: false, status: 422, code: "unscrubbed" });
+    fireEvent.click(screen.getByTestId("session-film-row-0"));
+    const errorEl = await screen.findByTestId("session-film-row-content-error");
+    expect(errorEl.textContent).toBe("Content unavailable.");
+  });
+
+  test("an event with no sourceRef renders 'No content captured for this event' (AT4 graceful degrade)", async () => {
+    const eventNoRef = selfEvent({ verb: "speak" });
+    renderRibbon([eventNoRef]);
+    mockContentFetch({ ok: true, blocks: [], ingestedAt: "2026-07-20T00:00:00.000Z" });
+    fireEvent.click(screen.getByTestId("session-film-row-0"));
+    const emptyEl = await screen.findByTestId("session-film-row-content-empty");
+    expect(emptyEl.textContent).toContain("No content captured");
+  });
+});

@@ -1,15 +1,20 @@
 /**
  * ThinkingBlock Markdown-rendering test (mt#2556).
  *
- * Thinking blocks now render the model's reasoning as Markdown via the shared
+ * Thinking blocks render the model's reasoning as Markdown via the shared
  * <Prose> (mt#2550), preserving the collapsed-by-default lazy render. This test
  * verifies the expanded body renders Markdown structure (not raw markers), and
  * that the body is NOT rendered while collapsed.
+ *
+ * Relocated (mt#3262 SC 2): `ThinkingBlock` moved from
+ * `../widgets/ConversationView.tsx` to this module (`ConversationElementRenderers.tsx`)
+ * so the session-film ribbon can share it. Test content unchanged — only the
+ * import path and file location moved alongside the component.
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { render, cleanup, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { ThinkingBlock } from "./ConversationView";
+import { ThinkingBlock } from "./ConversationElementRenderers";
 import { buildEntityIndex } from "../lib/entity-linkifier";
 
 afterEach(cleanup);

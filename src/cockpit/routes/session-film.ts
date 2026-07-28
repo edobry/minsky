@@ -25,6 +25,7 @@ import { and, desc, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
+import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
 import { looksLikeConversationId, withBoundedTimeout } from "../conversation-id-space";
 import { getContextInspectorDb } from "../db-providers";
 
@@ -80,6 +81,20 @@ export interface SessionFilmEventsResult {
   ingestedAt: string | null;
 }
 
+/**
+ * The film-owned content result (mt#3262 SC 5): the transcript's turn lines,
+ * converted to `SessionContextSnapshotBlock[]` via the SAME `turnLineToBlock`
+ * conversion `assembleSessionContextSnapshot` applies — one whole-transcript
+ * fetch per conversation (not per-row), gated by the SAME `assertScrubGate`
+ * call the events endpoint below applies. The client indexes this array by
+ * `turnIndex` to resolve an event's `sourceRef` to its real content.
+ */
+export interface SessionFilmContentResult {
+  blocks: SessionContextSnapshotBlock[];
+  /** The stored `agent_transcripts.ingested_at` value — same field the events result carries. */
+  ingestedAt: string | null;
+}
+
 export interface SessionFilmPickerRow {
   agentSessionId: string;
   label: string;
@@ -105,6 +120,12 @@ export interface SessionFilmRouteOptions {
    * sets this — the real implementation is {@link defaultListSessions}.
    */
   overrideListSessions?: () => Promise<SessionFilmPickerRow[]>;
+  /**
+   * Test seam: override the content fetch entirely (bypasses DB + snapshot
+   * conversion). Returns `null` for "no such conversation". Production code
+   * never sets this — the real implementation is {@link defaultFetchContent}.
+   */
+  overrideFetchContent?: (conversationId: string) => Promise<SessionFilmContentResult | null>;
 }
 
 const MAX_PICKER_SESSIONS = 50;
@@ -194,6 +215,54 @@ async function defaultFetchEvents(conversationId: string): Promise<SessionFilmEv
   };
 }
 
+/**
+ * Film-owned content fetch (mt#3262 SC 2/SC 5): the SAME `getTranscript()`
+ * seam `defaultFetchEvents` above uses, converted to
+ * `SessionContextSnapshotBlock[]` via `turnLineToBlock` — the SAME per-index
+ * conversion `assembleSessionContextSnapshot` applies over the SAME array
+ * (session-context-snapshot.ts). One whole-transcript fetch, not a per-row
+ * round-trip; the caller indexes the returned `blocks` by `turnIndex`.
+ *
+ * Deliberately does NOT route through `/api/cockpit/context-inspector/snapshot`
+ * (`context-inspector.ts`) — that route applies no scrub gate, so piggybacking
+ * it would let film content bypass the credential-scrub cutoff the events
+ * endpoint below already enforces. See the module doc comment.
+ */
+async function defaultFetchContent(
+  conversationId: string
+): Promise<SessionFilmContentResult | null> {
+  const db = await getContextInspectorDb();
+  if (!db) return null;
+
+  const { AgentTranscriptService } = await import("@minsky/domain/provenance/transcript-service");
+  const { agentTranscriptsTable } = await import(
+    "@minsky/domain/storage/schemas/agent-transcripts-schema"
+  );
+  const { turnLineToBlock } = await import("@minsky/domain/transcripts/session-context-snapshot");
+
+  const service = new AgentTranscriptService(db);
+  const transcript = await service.getTranscript(conversationId as never);
+  if (!transcript) return null;
+
+  const rows = await db
+    .select({ ingestedAt: agentTranscriptsTable.ingestedAt })
+    .from(agentTranscriptsTable)
+    .where(eq(agentTranscriptsTable.agentSessionId, conversationId as never))
+    .limit(1);
+  const row = rows[0];
+
+  const blocks: SessionContextSnapshotBlock[] = [];
+  transcript.forEach((entry, idx) => {
+    const block = turnLineToBlock(conversationId, idx, entry);
+    if (block !== null) blocks.push(block);
+  });
+
+  return {
+    blocks,
+    ingestedAt: row?.ingestedAt ? new Date(row.ingestedAt).toISOString() : null,
+  };
+}
+
 async function defaultListSessions(): Promise<SessionFilmPickerRow[]> {
   const db = await getContextInspectorDb();
   if (!db) return [];
@@ -242,6 +311,7 @@ export function mountSessionFilmRoutes(
 ): void {
   const fetchEvents = opts.overrideFetchEvents ?? defaultFetchEvents;
   const listSessions = opts.overrideListSessions ?? defaultListSessions;
+  const fetchContent = opts.overrideFetchContent ?? defaultFetchContent;
 
   /**
    * GET /api/cockpit/session-film/sessions — picker source: filmable
@@ -321,6 +391,77 @@ export function mountSessionFilmRoutes(
         500,
         "internal",
         "An internal error occurred while assembling the session film."
+      );
+    }
+  });
+
+  /**
+   * GET /api/cockpit/session-film/content?conversationId=<id>&verifiedRescrubbed=<bool>
+   *
+   * mt#3262 SC 2/SC 5 — the film-owned content endpoint an expanded ribbon
+   * row fetches on first expand: the transcript's turn lines, converted to
+   * `SessionContextSnapshotBlock[]`, so the client can resolve an event's
+   * `sourceRef.turnIndex` to real content and render it via the shared
+   * `ElementView` renderers. Applies the EXACT SAME `assertScrubGate` call
+   * as `/events` above — a session ingested before the credential-scrub
+   * cutover is refused (422 `unscrubbed`) unless `verifiedRescrubbed=true`
+   * is passed. Deliberately NOT `/api/cockpit/context-inspector/snapshot`
+   * (ungated — see the module doc comment).
+   */
+  app.get("/api/cockpit/session-film/content", async (req, res) => {
+    const conversationId = req.query["conversationId"];
+    if (typeof conversationId !== "string" || conversationId.length === 0) {
+      sessionFilmError(res, 400, "missing_field", "`conversationId` is required.");
+      return;
+    }
+    if (!looksLikeConversationId(conversationId)) {
+      sessionFilmError(
+        res,
+        404,
+        "invalid_id",
+        `"${conversationId}" is not a valid conversation id.`
+      );
+      return;
+    }
+
+    const verifiedRescrubbed = req.query["verifiedRescrubbed"] === "true";
+
+    try {
+      const result = await withBoundedTimeout(
+        fetchContent(conversationId),
+        EVENTS_ASSEMBLY_TIMEOUT_MS
+      );
+      if (result === null) {
+        sessionFilmError(
+          res,
+          404,
+          "session_not_found",
+          "No transcript found for the requested session."
+        );
+        return;
+      }
+
+      const { assertScrubGate, UnscrubbedSessionError } = await import(
+        "@minsky/domain/transcripts/gource-exporter"
+      );
+      try {
+        assertScrubGate(result.ingestedAt, verifiedRescrubbed);
+      } catch (err) {
+        if (err instanceof UnscrubbedSessionError) {
+          sessionFilmError(res, 422, "unscrubbed", err.message);
+          return;
+        }
+        throw err;
+      }
+
+      res.json({ blocks: result.blocks, ingestedAt: result.ingestedAt });
+    } catch (err) {
+      logInternal("GET /api/cockpit/session-film/content", err);
+      sessionFilmError(
+        res,
+        500,
+        "internal",
+        "An internal error occurred while assembling the session film content."
       );
     }
   });
