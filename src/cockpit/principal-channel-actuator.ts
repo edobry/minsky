@@ -166,6 +166,16 @@ export interface DrivenSessionActuatorOptions {
    * real writer; a test supplies a spy rather than reaching a database.
    */
   onStateChange?: (record: DrivenSessionRecord) => void;
+  /**
+   * Which durable row this conversation occupies. Defaults to
+   * {@link PRINCIPAL_CHANNEL_LOCAL_ID}.
+   *
+   * Overridable so a live probe does not collide with the running channel's
+   * own row — they would otherwise share one id, and the probe's conversation
+   * would become the one the real channel resumes. A second channel bound to a
+   * different chat would need its own id for the same reason.
+   */
+  localId?: string;
 }
 
 /**
@@ -181,6 +191,7 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
   const readyTimeoutMs = opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
   const readyPollMs = opts.readyPollMs ?? READY_POLL_MS;
   const orchestrateResume = opts.orchestrateResume ?? orchestrateDrivenSessionResume;
+  const channelLocalId = opts.localId ?? PRINCIPAL_CHANNEL_LOCAL_ID;
   let standingLocalId: string | null = null;
 
   const liveRecord = (): DrivenSessionRecord | null => {
@@ -218,7 +229,7 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
     // The conversation is the durable entity; this process is not. After a
     // daemon restart the in-memory handle is gone but the transcript is not,
     // so try to reattach before starting over with no memory.
-    const resumed = await orchestrateResume(PRINCIPAL_CHANNEL_LOCAL_ID, { registry });
+    const resumed = await orchestrateResume(channelLocalId, { registry });
     if (resumed.outcome === "resumed") {
       standingLocalId = resumed.record.localId;
       log.info("[principal-channel] resumed the standing channel conversation", {
@@ -248,7 +259,7 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
       ...(opts.model === undefined ? {} : { model: opts.model }),
       taskId: null,
       minskySessionId: null,
-      localId: PRINCIPAL_CHANNEL_LOCAL_ID,
+      localId: channelLocalId,
       // Without these the conversation is never written down at all, so a
       // restart has nothing to resume FROM — the defect this task fixes.
       onStateChange: opts.onStateChange ?? createDrivenSessionPersistObserver(),
