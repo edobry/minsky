@@ -685,6 +685,18 @@ export interface StartDrivenSessionOptions {
   env?: NodeJS.ProcessEnv;
   /** Override the registry (test seam — hermetic instance per test). */
   registry?: DrivenSessionRegistry;
+  /**
+   * Use THIS id instead of generating one (mt#3243).
+   *
+   * `localId` is the persisted row's primary key and the registry's handle, so
+   * a caller that must find the same conversation again after its own memory is
+   * gone — the principal channel, across a daemon restart — supplies a stable
+   * one. The store upserts on this key, so the conversation occupies exactly
+   * one row for its whole life rather than a new row per spawn.
+   *
+   * Callers with nothing to re-find omit it and get a fresh UUID.
+   */
+  localId?: string;
 }
 
 export interface StartDrivenSessionResult {
@@ -727,7 +739,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
   const proc = spawnFn(command, argv, { cwd: opts.cwd, env: opts.env });
 
   const record: DrivenSessionRecord = {
-    localId: randomUUID(),
+    localId: opts.localId ?? randomUUID(),
     cwd: opts.cwd,
     permissionMode,
     argv,

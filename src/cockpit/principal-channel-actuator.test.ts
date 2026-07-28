@@ -11,11 +11,17 @@ import { EventEmitter } from "events";
 import { PassThrough } from "stream";
 import {
   DrivenSessionRegistry,
+  type DrivenSessionRecord,
   type ProcessLike,
   type SpawnFn,
   type SpawnOptions,
 } from "./driven-session-host";
-import { createDrivenSessionActuator, resultText } from "./principal-channel-actuator";
+import {
+  createDrivenSessionActuator,
+  resultText,
+  PRINCIPAL_CHANNEL_LOCAL_ID,
+  type DrivenSessionActuatorOptions,
+} from "./principal-channel-actuator";
 
 const CWD = "/tmp/channel";
 const BLOCKED_Q = "what is blocked?";
@@ -112,6 +118,8 @@ function makeActuator(
     readyTimeoutMs?: number;
     permissionMode?: "default" | "bypassPermissions";
     neverReady?: boolean;
+    onStateChange?: (record: DrivenSessionRecord) => void;
+    orchestrateResume?: DrivenSessionActuatorOptions["orchestrateResume"];
   } = {}
 ) {
   const { spawnFn, calls } = fakeSpawn(
@@ -129,8 +137,51 @@ function makeActuator(
     readyPollMs: 1,
     ...(overrides.turnTimeoutMs === undefined ? {} : { turnTimeoutMs: overrides.turnTimeoutMs }),
     ...(overrides.permissionMode === undefined ? {} : { permissionMode: overrides.permissionMode }),
+    ...(overrides.onStateChange === undefined ? {} : { onStateChange: overrides.onStateChange }),
+    // Default to "nothing persisted" so the existing tests keep exercising the
+    // fresh-spawn path without reaching a real database (mt#3254's guard would
+    // refuse that anyway).
+    orchestrateResume: overrides.orchestrateResume ?? (async () => ({ outcome: "not-found" })),
   });
   return { actuator, calls, registry };
+}
+
+/** Reads a capture's process, failing loudly rather than with a non-null assertion. */
+function mustProc(calls: SpawnCapture[], index = 0): FakeClaudeProcess {
+  const capture = calls[index];
+  if (!capture) throw new Error(`expected a spawn at index ${index}`);
+  return capture.proc;
+}
+
+/**
+ * A record standing in for one a resume-respawn would return — already linked
+ * to a harness session, so the actuator treats it as live and does not wait
+ * for `init`.
+ */
+function buildResumedRecord(): DrivenSessionRecord {
+  const proc = new FakeClaudeProcess();
+  return {
+    localId: PRINCIPAL_CHANNEL_LOCAL_ID,
+    cwd: CWD,
+    permissionMode: "bypassPermissions",
+    argv: [],
+    startedAt: new Date().toISOString(),
+    taskId: null,
+    minskySessionId: null,
+    status: "running",
+    unrecoverableReason: null,
+    harnessSessionId: "harness-resumed",
+    pid: 4242,
+    exitCode: null,
+    exitSignal: null,
+    crashError: null,
+    stopRequested: false,
+    actuatorGeneration: 1,
+    proc,
+    eventLog: [],
+    costHistory: [],
+    subscribers: new Set(),
+  } as unknown as DrivenSessionRecord;
 }
 
 /**
@@ -316,6 +367,7 @@ describe("createDrivenSessionActuator — reply context", () => {
     const { actuator, calls } = makeActuator();
 
     void actuator.converse(FOLLOW_UP, QUOTED);
+    await waitForSpawn(calls, 1);
     const written = await waitForWrite(firstProc(calls), FOLLOW_UP);
 
     // Both halves must reach the child: the quote is what "that one" resolves
@@ -330,6 +382,7 @@ describe("createDrivenSessionActuator — reply context", () => {
     const { actuator, calls } = makeActuator();
 
     void actuator.converse("what did you mean?", "the guard goes at the resolver");
+    await waitForSpawn(calls, 1);
     const written = await waitForWrite(firstProc(calls), "what did you mean?");
 
     expect(written).toContain("the guard goes at the resolver");
@@ -340,12 +393,98 @@ describe("createDrivenSessionActuator — reply context", () => {
     const { actuator, calls } = makeActuator();
 
     void actuator.converse("plain message");
+    await waitForSpawn(calls, 1);
     const written = await waitForWrite(firstProc(calls), "plain message");
 
     const payload = JSON.parse(written.trim()) as {
       message: { content: { type: string; text: string }[] };
     };
     expect(payload.message.content[0]?.text).toBe("plain message");
+  });
+});
+
+// mt#3243 — the conversation is the durable entity; the child process is not.
+describe("createDrivenSessionActuator — resume across a restart", () => {
+  test("wires the persistence observers, so the conversation is recorded at all", async () => {
+    // Before this, the actuator passed NO observers — driven_sessions had zero
+    // rows for the channel, so there was never anything to resume FROM.
+    const stateChanges: string[] = [];
+    const { actuator, calls } = makeActuator({
+      onStateChange: (record) => stateChanges.push(record.status),
+    });
+
+    void actuator.converse("hello");
+    await waitForSpawn(calls, 1);
+    await waitForWrite(mustProc(calls), "hello");
+
+    expect(stateChanges.length).toBeGreaterThan(0);
+  });
+
+  test("spawns with the fixed channel localId, so one row is upserted for the whole life", async () => {
+    const { actuator, registry } = makeActuator();
+
+    void actuator.converse("hello");
+    await waitUntil(
+      () => registry.get(PRINCIPAL_CHANNEL_LOCAL_ID) !== undefined,
+      "the standing conversation to be registered under the fixed id"
+    );
+
+    expect(registry.get(PRINCIPAL_CHANNEL_LOCAL_ID)).toBeDefined();
+  });
+
+  test("RESUMES a persisted conversation instead of spawning a blank one", async () => {
+    const resumed = buildResumedRecord();
+    const { actuator, calls } = makeActuator({
+      orchestrateResume: async () => ({ outcome: "resumed", record: resumed }),
+    });
+
+    void actuator.converse("what were we discussing?");
+    await waitUntil(
+      () => (resumed.proc as unknown as FakeClaudeProcess).written.length > 0,
+      "input written to the RESUMED child"
+    );
+
+    // The whole point: no fresh spawn happened.
+    expect(calls.length).toBe(0);
+  });
+
+  test("falls back to a fresh spawn when there is nothing to resume", async () => {
+    const { actuator, calls } = makeActuator({
+      orchestrateResume: async () => ({ outcome: "not-found" }),
+    });
+
+    void actuator.converse("hello");
+    await waitForSpawn(calls, 1);
+    await waitForWrite(mustProc(calls), "hello");
+
+    expect(calls.length).toBe(1);
+  });
+
+  test("an unrecoverable persisted row also falls back rather than failing the message", async () => {
+    const { actuator, calls } = makeActuator({
+      orchestrateResume: async () => ({
+        outcome: "unrecoverable",
+        reason: "spawn-died-before-init",
+      }),
+    });
+
+    void actuator.converse("hello");
+    await waitForSpawn(calls, 1);
+    await waitForWrite(mustProc(calls), "hello");
+
+    expect(calls.length).toBe(1);
+  });
+
+  test("a LOCKED resume does not spawn a second actuator for the same conversation", async () => {
+    // The cross-process advisory lock exists because two `claude --resume` on
+    // one conversation silently fork its transcript DAG. Spawning a fresh
+    // child here would sidestep the lock and produce exactly that.
+    const { actuator, calls } = makeActuator({
+      orchestrateResume: async () => ({ outcome: "locked" }),
+    });
+
+    await expect(actuator.converse("hello")).rejects.toThrow(/another/i);
+    expect(calls.length).toBe(0);
   });
 });
 
