@@ -49,7 +49,7 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
-import { elideQuotedContexts } from "./elision";
+import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -124,6 +124,54 @@ const CLASS_PATTERNS: Array<{ cls: DeferralClass; patterns: RegExp[] }> = [
   { cls: "deferral-menu", patterns: DEFERRAL_MENU_PATTERNS },
 ];
 
+/**
+ * Pause/stop phrases that fire ONLY alongside a menu shape in the same
+ * paragraph (mt#3271). `"I'll pause here"` at the end of a turn is a completion
+ * signal — the agent reporting it has finished a unit of work — not a deferral
+ * of a live decision. Bare, it is the detector's most common false positive.
+ *
+ * Justified by what the phrases MEAN, deliberately not by the observed FP ratio:
+ * that ratio is computed over calibration records whose matched text may be
+ * attributed to the wrong turn (mt#3280), so it is not a sound basis for a tune.
+ */
+export const MENU_SHAPE_REQUIRED_PATTERNS: readonly RegExp[] = [
+  /\b(I[''’]?ll|I\s+can)\s+(stop|pause)\s+here\b/i,
+];
+
+/**
+ * `recommend/suggest we stop here` is deliberately NOT gated. It is a
+ * recommendation handed to the principal — the "do nothing recommendation"
+ * this sub-class was built to catch — not a report that work finished. Only the
+ * self-report shapes (`I'll pause here`) are completion signals. The
+ * disposition named those two phrasings specifically; gating anything wider was
+ * an over-reach, caught by this file's own pre-existing cases.
+ */
+
+/**
+ * A menu shape: an explicit question, or any construction offering the reader
+ * an alternative. Scoped to ONE paragraph so a question elsewhere in a long
+ * report cannot license a pause phrase that stands alone.
+ *
+ * `unless` / `if you'd rather` are included because they offer a choice without
+ * a question mark or a disjunction — `"I'll stop here unless you want more"`
+ * hands the continue/stop decision over just as squarely as asking would.
+ */
+export function hasMenuShape(paragraph: string): boolean {
+  return (
+    /\?/.test(paragraph) ||
+    /\b\w+\s+or\s+\w+/i.test(paragraph) ||
+    /\bunless\b/i.test(paragraph) ||
+    /\bif\s+you(['’]d|\s+would)?\s+(rather|prefer|want)\b/i.test(paragraph)
+  );
+}
+
+/** The paragraph (blank-line-delimited block) containing character `index`. */
+export function paragraphAt(text: string, index: number): string {
+  const start = text.lastIndexOf("\n\n", index);
+  const end = text.indexOf("\n\n", index);
+  return text.slice(start === -1 ? 0 : start + 2, end === -1 ? text.length : end);
+}
+
 // ---------------------------------------------------------------------------
 // Quoted/code-context suppression
 // ---------------------------------------------------------------------------
@@ -140,18 +188,36 @@ export { elideQuotedContexts };
 
 /**
  * Scan assistant text for deferral phrases. Returns at most one match per
- * sub-class (first hit). Quoted/code contexts are elided first.
+ * sub-class (first hit).
+ *
+ * BOTH elision helpers are applied (mt#3271). `elideQuotedContexts` covers
+ * fenced blocks, inline backticks, and blockquotes; `elideDoubleQuotedSpans`
+ * covers double-quoted prose, which the first deliberately does not touch.
+ * Without the second, the detector fires on discussion OF ITSELF — every
+ * calibration review, retrospective, PR body, and task spec quotes these
+ * phrases by construction. That is not hypothetical: the 2026-07-28T19:45:31Z
+ * fire on session `b5295d70` matched `"I'll pause here"` occurring ONLY as a
+ * quoted example in prose about this detector. Same fix mt#3273 shipped for
+ * the operator-deferral sibling.
+ *
+ * Patterns in {@link MENU_SHAPE_REQUIRED_PATTERNS} additionally require a menu
+ * shape in the same paragraph — see that constant for why.
  */
 export function detectDeferralPhrases(text: string): DeferralMatch[] {
-  const scanned = elideQuotedContexts(text);
+  const scanned = elideDoubleQuotedSpans(elideQuotedContexts(text));
   const matches: DeferralMatch[] = [];
   for (const { cls, patterns } of CLASS_PATTERNS) {
     for (const pattern of patterns) {
       const m = pattern.exec(scanned);
-      if (m) {
-        matches.push({ cls, matchedPhrase: m[0].trim() });
-        break;
+      if (!m) continue;
+      if (
+        MENU_SHAPE_REQUIRED_PATTERNS.some((p) => p.source === pattern.source) &&
+        !hasMenuShape(paragraphAt(scanned, m.index ?? 0))
+      ) {
+        continue;
       }
+      matches.push({ cls, matchedPhrase: m[0].trim() });
+      break;
     }
   }
   return matches;
