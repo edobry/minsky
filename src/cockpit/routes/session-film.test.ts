@@ -12,6 +12,7 @@ import {
   type SessionFilmPickerRow,
 } from "./session-film";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
+import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
 import { looksLikeConversationId } from "../conversation-id-space";
 
 const servers: Server[] = [];
@@ -210,6 +211,92 @@ describe("GET /api/cockpit/session-film/events", () => {
     });
     const res = await fetch(
       `${url}/api/cockpit/session-film/events?conversationId=${VALID_ID}&verifiedRescrubbed=true`
+    );
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("GET /api/cockpit/session-film/content (mt#3262 SC 5 / AT 5)", () => {
+  function fakeBlock(turnIndex: number): SessionContextSnapshotBlock {
+    return {
+      id: `${VALID_ID}:turn:${turnIndex}`,
+      type: "assistant-text",
+      source: "observed",
+      content: { role: "assistant", content: "hi" },
+      timestamp: "2026-07-24T00:00:00.000Z",
+      turnIndex,
+      rawJsonlType: "assistant",
+    };
+  }
+
+  test("400s when conversationId is missing", async () => {
+    const { url } = await makeHarness();
+    const res = await fetch(`${url}/api/cockpit/session-film/content`);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("missing_field");
+  });
+
+  test("404s (invalid_id) when conversationId isn't UUID-shaped", async () => {
+    const { url } = await makeHarness();
+    const res = await fetch(`${url}/api/cockpit/session-film/content?conversationId=not-a-uuid`);
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("invalid_id");
+  });
+
+  test("404s (session_not_found) when the fetcher has no transcript", async () => {
+    const { url } = await makeHarness({
+      overrideFetchContent: async () => null,
+    });
+    const res = await fetch(`${url}/api/cockpit/session-film/content?conversationId=${VALID_ID}`);
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("session_not_found");
+  });
+
+  test("returns the blocks + ingestedAt for a scrubbed (post-cutoff) session", async () => {
+    const blocks = [fakeBlock(0), fakeBlock(1)];
+    const { url } = await makeHarness({
+      overrideFetchContent: async () => ({
+        blocks,
+        ingestedAt: "2026-07-20T00:00:00.000Z", // after the 2026-07-18 cutoff
+      }),
+    });
+    const res = await fetch(`${url}/api/cockpit/session-film/content?conversationId=${VALID_ID}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { blocks: unknown[]; ingestedAt: string | null };
+    expect(body.blocks).toEqual(blocks);
+    expect(body.ingestedAt).toBe("2026-07-20T00:00:00.000Z");
+  });
+
+  // AT5 — the non-negotiable requirement: a session ingested BEFORE the
+  // credential-scrub cutoff is refused by THIS endpoint with the same
+  // 422/`unscrubbed` shape the events endpoint returns, exactly mirroring
+  // the /events scrub-gate tests above — same gate, same code path
+  // (assertScrubGate), different endpoint.
+  test("422s (unscrubbed) for a pre-cutoff session with no verifiedRescrubbed assertion", async () => {
+    const { url } = await makeHarness({
+      overrideFetchContent: async () => ({
+        blocks: [fakeBlock(0)],
+        ingestedAt: "2026-01-01T00:00:00.000Z", // before the 2026-07-18 cutoff
+      }),
+    });
+    const res = await fetch(`${url}/api/cockpit/session-film/content?conversationId=${VALID_ID}`);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("unscrubbed");
+  });
+
+  test("200s for a pre-cutoff session when verifiedRescrubbed=true is asserted", async () => {
+    const { url } = await makeHarness({
+      overrideFetchContent: async () => ({
+        blocks: [fakeBlock(0)],
+        ingestedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    });
+    const res = await fetch(
+      `${url}/api/cockpit/session-film/content?conversationId=${VALID_ID}&verifiedRescrubbed=true`
     );
     expect(res.status).toBe(200);
   });
