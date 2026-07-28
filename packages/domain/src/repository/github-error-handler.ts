@@ -188,6 +188,76 @@ export function formatErrorDetailLine(info: OctokitErrorInfo): string {
 
 // ── Context passed to the error handler so messages are specific ────────
 
+/**
+ * What a GitHub-backed failure actually WAS, carried as data on the thrown
+ * error (mt#3249).
+ *
+ * Before this existed, `handleOctokitError` computed the classification, threw
+ * it away into prose, and the adapter layer reconstructed it by regex-matching
+ * that prose (`merge-error-classification.ts` recovers the status with
+ * `/\(HTTP (5\d\d)\)/` and matches the exact headline string). That round-trip
+ * — class → string → class — made operator-facing WORDING a parsed API:
+ * mt#2890 had to put the status into the message purely so the classifier
+ * could read it back, and every later change to this file (mt#3171, mt#3221)
+ * had to prove it did not disturb the headline.
+ *
+ * Consumers should prefer this field and fall back to string matching only for
+ * errors that do not carry it (non-Octokit origins, or anything not yet
+ * migrated).
+ *
+ * `respondedByServer` mirrors {@link OctokitErrorInfo.hasResponse}: it is the
+ * difference between "GitHub returned this status" and "the request never got
+ * a response" (mt#3221), which the status alone cannot express since Octokit
+ * synthesizes `500` for transport failures.
+ */
+export type OctokitFailureKind =
+  | "auth"
+  | "rate-limit"
+  | "permission"
+  | "not-found"
+  | "degraded"
+  | "network"
+  | "merge-blocked"
+  | "self-approval"
+  | "unclassified";
+
+export interface OctokitFailureClass {
+  kind: OctokitFailureKind;
+  /** HTTP status when one is known. */
+  status?: number;
+  /** True when GitHub actually sent a response (see {@link OctokitErrorInfo.hasResponse}). */
+  respondedByServer: boolean;
+}
+
+/**
+ * A `MinskyError` that additionally carries {@link OctokitFailureClass}.
+ *
+ * Extends `MinskyError` rather than replacing it so every existing
+ * `instanceof MinskyError` check — including `github-pr-operations.ts`'s
+ * rethrow guard and this module's own tests — keeps passing unchanged.
+ */
+export class GitHubApiError extends MinskyError {
+  constructor(
+    message: string,
+    public readonly classification: OctokitFailureClass,
+    cause?: unknown
+  ) {
+    super(message, cause);
+  }
+}
+
+/** Build the classification for a throw site from the already-parsed info. */
+function classOf(
+  kind: OctokitFailureKind,
+  info: Pick<OctokitErrorInfo, "status" | "hasResponse">
+): OctokitFailureClass {
+  return {
+    kind,
+    ...(info.status !== undefined ? { status: info.status } : {}),
+    respondedByServer: info.hasResponse,
+  };
+}
+
 export interface ErrorContext {
   /** Human-readable operation name, e.g. "create pull request" */
   operation: string;
@@ -226,7 +296,7 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     info.messageLower.includes("bad credentials") ||
     info.messageLower.includes("unauthorized")
   ) {
-    throw new MinskyError(
+    throw new GitHubApiError(
       `GitHub Authentication Failed\n\n` +
         `Your GitHub token is invalid or expired.\n\n` +
         `To fix this:\n` +
@@ -234,7 +304,8 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `https://github.com/settings/tokens\n` +
         `  2. Set it as GITHUB_TOKEN or GH_TOKEN environment variable\n` +
         `  3. Ensure the token has 'repo' and 'pull_requests' permissions\n\n` +
-        `Repository: ${ctx.owner}/${ctx.repo}`
+        `Repository: ${ctx.owner}/${ctx.repo}`,
+      classOf("auth", info)
     );
   }
 
@@ -252,12 +323,13 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     // of a bare "wait a few minutes" with no concrete time.
     const snapshot = getLastGithubRateLimitSnapshot();
     const resetSuffix = snapshot ? ` (resets ${snapshot.reset})` : "";
-    throw new MinskyError(
+    throw new GitHubApiError(
       `GitHub Rate Limit Exceeded${resetSuffix}\n\n` +
         `You've hit GitHub's API rate limit.\n\n` +
         `To fix this:\n` +
         `  - Wait a few minutes before trying again\n` +
-        `  - Use a GitHub token for higher rate limits`
+        `  - Use a GitHub token for higher rate limits`,
+      classOf("rate-limit", info)
     );
   }
 
@@ -268,14 +340,15 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
       info.messageLower.includes("forbidden")) &&
     !info.messageLower.includes("422")
   ) {
-    throw new MinskyError(
+    throw new GitHubApiError(
       `GitHub Permission Denied\n\n` +
         `You don't have permission to ${ctx.operation} in ` +
         `${ctx.owner}/${ctx.repo}.\n\n` +
         `To fix this:\n` +
         `  - Ensure you have write access to the repository\n` +
         `  - Verify your GitHub token has sufficient permissions\n\n` +
-        `Repository: https://github.com/${ctx.owner}/${ctx.repo}`
+        `Repository: https://github.com/${ctx.owner}/${ctx.repo}`,
+      classOf("permission", info)
     );
   }
 
@@ -289,12 +362,13 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
       ? `Pull request #${ctx.prNumber} was not found in ${ctx.owner}/${ctx.repo}.`
       : `The repository ${ctx.owner}/${ctx.repo} was not found.`;
     const prSuffix = ctx.prNumber ? `/pull/${ctx.prNumber}` : "";
-    throw new MinskyError(
+    throw new GitHubApiError(
       `GitHub Not Found\n\n${subject}\n\n` +
         `To fix this:\n` +
         `  - Verify the repository/PR exists and is accessible\n` +
         `  - Check if the repository is private and you have access\n\n` +
-        `https://github.com/${ctx.owner}/${ctx.repo}${prSuffix}`
+        `https://github.com/${ctx.owner}/${ctx.repo}${prSuffix}`,
+      classOf("not-found", info)
     );
   }
 
@@ -329,14 +403,15 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     info.status !== undefined && info.status >= 500 && info.status < 600 && !info.hasResponse;
 
   if (isServer5xx) {
-    throw new MinskyError(
+    throw new GitHubApiError(
       `GitHub API degraded/unavailable (HTTP ${info.status})\n\n` +
         `GitHub's API returned a server error for this request. A 5xx is a server-side ` +
         `failure; it does not, by itself, establish whether your request, credentials, or ` +
         `repository state were involved.\n\n` +
         `To fix this:\n` +
         `  - Check GitHub status: https://www.githubstatus.com/\n` +
-        `  - Retry the operation in a few minutes\n\n${formatErrorDetailLine(info)}`
+        `  - Retry the operation in a few minutes\n\n${formatErrorDetailLine(info)}`,
+      classOf("degraded", info)
     );
   }
 
@@ -355,13 +430,14 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     info.messageLower.includes("timeout") ||
     info.messageLower.includes("enotfound")
   ) {
-    throw new MinskyError(
+    throw new GitHubApiError(
       `Network Connection Error\n\n` +
         `Unable to connect to GitHub API.\n\n` +
         `To fix this:\n` +
         `  - Check your internet connection\n` +
         `  - Verify GitHub is accessible (https://githubstatus.com)\n` +
-        `  - Try again in a few moments\n\n${formatErrorDetailLine(info)}`
+        `  - Try again in a few moments\n\n${formatErrorDetailLine(info)}`,
+      classOf("network", info)
     );
   }
 
@@ -373,17 +449,21 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     const prLink = ctx.prNumber
       ? `PR: https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}\n\n`
       : "";
-    throw new MinskyError(
+    throw new GitHubApiError(
       `Cannot Approve Your Own Pull Request\n\n` +
         `GitHub prevents authors from approving their own PR.\n\n` +
         `${prLink}Next steps:\n` +
         `  - Request a review from a maintainer\n` +
-        `  - Have another collaborator approve the PR`
+        `  - Have another collaborator approve the PR`,
+      classOf("self-approval", info)
     );
   }
 
   // ── Fallback ────────────────────────────────────────────────────
-  throw new MinskyError(`Failed to ${ctx.operation}: ${getErrorMessage(error)}`);
+  throw new GitHubApiError(
+    `Failed to ${ctx.operation}: ${getErrorMessage(error)}`,
+    classOf("unclassified", info)
+  );
 }
 
 /**
@@ -469,11 +549,12 @@ export function handleMerge405or422(
       `  - Required status checks not passing\n` +
       `  - PR is not in an open state`;
 
-  throw new MinskyError(
+  throw new GitHubApiError(
     `Pull Request Cannot Be Merged\n\n` +
       `Pull request #${ctx.prNumber} cannot be merged automatically.\n\n` +
       `${body}\n\n` +
       `Visit the PR to resolve: ` +
-      `https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}`
+      `https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}`,
+    classOf("merge-blocked", info)
   );
 }
