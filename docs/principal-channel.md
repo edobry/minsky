@@ -142,10 +142,22 @@ channel is only as safe as the Telegram account that drives it.**
   recorded afterwards as `principal.message_failed` — so the log says both what
   the channel was asked to do and whether it worked. Stored message text is
   bounded (`MAX_STORED_TEXT`), since these rows are never deleted.
-- **Permission mode.** Defaults to `bypassPermissions`, matching every other
-  driven session the cockpit spawns: in headless `-p` mode a permission prompt
-  has nowhere to go, so `default` leaves the session able to answer questions
-  but not act. Deployments wanting the tighter posture set it explicitly.
+- **Permission mode.** `bypassPermissions` — **affirmed by the principal on
+  2026-07-26 (ask#6164), not inherited.** It matches every other driven session
+  the cockpit spawns, and the alternative is largely inert: in headless `-p`
+  mode a permission prompt has nowhere to go, so `default` leaves the session
+  able to answer questions but not act.
+
+  The exposure accepted with that choice, stated plainly so anyone re-opening
+  the question starts from what was actually weighed: **whoever controls the
+  allowlisted Telegram account can run arbitrary commands on the host**, because
+  an accepted message becomes a user turn in a local `claude` process with tools
+  enabled. The allowlist pins both chat id and sender id, so the blast radius is
+  exactly that account — which is why the allowlist, not the permission mode, is
+  the control that matters here.
+
+  To tighten anyway: `minsky config set principalChannel.permissionMode default`,
+  then restart the daemon. Expect a channel that answers but cannot act.
 
 `principal.message_rejected` is classified **actionable** (an unauthorized party
 attempting to drive your swarm is something you must see);
