@@ -72,6 +72,28 @@ export function ThinkingBlock({
   // thinking blocks otherwise pay full serialization/reconciliation cost for
   // text nobody is looking at (PR #1667 R1 non-blocking).
   const [open, setOpen] = useState(false);
+
+  // mt#3276: thinking text is NEVER recorded — Claude Code writes
+  // `{"type":"thinking","thinking":"","signature":"…"}`, keeping the signature
+  // for API replay while the reasoning text is withheld server-side and never
+  // reaches the client (evidence: `event-schema.ts` EVENT_VERBS note). A
+  // disclosure reading "(0 chars — click to expand)" invites the reader to
+  // open an empty box and implies the text was lost locally. Say what is
+  // actually true instead, and don't offer the expand affordance.
+  if (thinking.trim().length === 0) {
+    return (
+      <div
+        className="rounded border border-border/60 bg-muted/20 px-2 py-1 text-xs text-muted-foreground"
+        data-testid="thinking-block-not-recorded"
+      >
+        <span className="italic">thinking</span>
+        <span className="ml-1 text-muted-foreground/60">
+          — this harness does not record thinking text
+        </span>
+      </div>
+    );
+  }
+
   return (
     <details
       className="group rounded border border-border/60 bg-muted/20"
