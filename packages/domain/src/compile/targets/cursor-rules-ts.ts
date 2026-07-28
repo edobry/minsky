@@ -65,14 +65,24 @@ function ruleOutputPath(workspacePath: string, ruleName: string): string {
 /**
  * Build `<name>.mdc` content from a validated RuleDefinition.
  *
- * **Byte-parity contract (mt#2995):** this reproduces the legacy
- * `serializeRuleToMdc` output exactly so the 54 flat-rule `.cursor/rules/`
- * outputs do not change when the writer switches over — same `jsYaml.dump`
- * options, same frontmatter key order (name → description → globs → alwaysApply
- * → tags), the generated-file banner (mt#1798) as line 2, and the content body
- * appended directly after the closing `---\n`. `globs` and `tags` are emitted
- * as-is (not normalized) to match the legacy serializer. The
- * `cursor-rules-ts.parity` test asserts equality against `serializeRuleToMdc`.
+ * **Byte-parity contract (mt#2995), with one deliberate exception (mt#1288):**
+ * this reproduces the legacy `serializeRuleToMdc` output so the flat-rule
+ * `.cursor/rules/` outputs did not change when the writer switched over — same
+ * `jsYaml.dump` options, same frontmatter key order (name → description → globs
+ * → alwaysApply → tags), the generated-file banner (mt#1798) as line 2, and the
+ * content body appended directly after the closing `---\n`. `globs` and `tags`
+ * are emitted as-is (not normalized) to match the legacy serializer.
+ *
+ * **The exception: output is newline-terminated (mt#1288).** The legacy
+ * serializer emitted no trailing newline, so every one of the 53 compiled
+ * `.cursor/rules/*.mdc` files ended mid-line — showing up as
+ * `\ No newline at end of file` in every diff that touched them. Byte-parity
+ * existed to make the mt#2995 writer SWAP a zero-output-change migration; that
+ * migration is complete, so the defect it was preserving is now fixed rather
+ * than inherited. A generated artifact is terminated unconditionally, which is
+ * why this does NOT mirror the source's own newline state: 26 of the 53
+ * `.minsky/rules/*.mdc` sources have no trailing newline themselves, and
+ * mirroring would leave those outputs still ragged.
  */
 export function buildRuleMdc(rule: RuleDefinition): string {
   const frontmatter: Record<string, unknown> = {};
@@ -90,7 +100,12 @@ export function buildRuleMdc(rule: RuleDefinition): string {
     forceQuotes: false,
   });
 
-  return `---\n${GENERATED_BANNER}\n${yamlStr}---\n${rule.content}`;
+  const mdc = `---\n${GENERATED_BANNER}\n${yamlStr}---\n${rule.content}`;
+
+  // Exactly one terminator: `rule.content` arrives trimmed from the shared
+  // reader today, but appending unconditionally would double it the moment that
+  // changes.
+  return mdc.endsWith("\n") ? mdc : `${mdc}\n`;
 }
 
 /**
