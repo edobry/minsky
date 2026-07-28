@@ -174,6 +174,20 @@ describe("startDrivenSession — spawns with the documented flags", () => {
     startDrivenSession({ cwd: "/tmp/x", command: "/fake/bin/claude", spawnFn });
     expect(first(calls).command).toBe("/fake/bin/claude");
   });
+
+  // mt#3243: the principal channel needs ONE durable row it can find again
+  // after a restart. A caller-chosen localId gives it a stable upsert key
+  // without a schema change or a lookup heuristic.
+  test("uses a caller-supplied localId instead of generating one", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({
+      cwd: SCRATCH_CWD,
+      localId: "principal-channel-standing",
+      spawnFn,
+    });
+
+    expect(record.localId).toBe("principal-channel-standing");
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -172,6 +172,18 @@ export interface InboundTelegramMessage {
   date: number | undefined;
   /** Set when the principal used Telegram's reply affordance. */
   replyToMessageId: number | undefined;
+  /**
+   * The quoted message's own text (mt#3243).
+   *
+   * The id alone conveys nothing usable — the agent cannot look a Telegram
+   * message id up. The TEXT is what makes "focus on that one" resolve. Falls
+   * back to the quoted message's `caption`, because media (photos, videos,
+   * documents) carries its text there rather than in `text` — replying to a
+   * captioned image is a common shape, and reading only `text` dropped the
+   * quote silently (PR #2352 R1). Undefined when the reply targets a message
+   * with neither, or when the principal did not reply at all.
+   */
+  replyToText: string | undefined;
 }
 
 export interface GetUpdatesOptions {
@@ -296,6 +308,9 @@ export function parseInboundUpdates(body: unknown): InboundTelegramMessage[] {
     const from = asRecord(message["from"]);
     const replyTo = asRecord(message["reply_to_message"]);
     const replyToMessageId = replyTo?.["message_id"];
+    // `text` first: a message has one or the other, but prefer the primary
+    // field if a future update type ever carries both.
+    const replyToTextRaw = replyTo?.["text"] ?? replyTo?.["caption"];
 
     results.push({
       updateId,
@@ -305,6 +320,7 @@ export function parseInboundUpdates(body: unknown): InboundTelegramMessage[] {
       text,
       date: typeof message["date"] === "number" ? message["date"] : undefined,
       replyToMessageId: typeof replyToMessageId === "number" ? replyToMessageId : undefined,
+      replyToText: typeof replyToTextRaw === "string" ? replyToTextRaw : undefined,
     });
   }
   return results;

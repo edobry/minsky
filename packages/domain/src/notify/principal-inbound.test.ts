@@ -27,6 +27,7 @@ function message(overrides: Partial<InboundTelegramMessage> = {}): InboundTelegr
     text: "what is blocked?",
     date: 1700000000,
     replyToMessageId: undefined,
+    replyToText: undefined,
     ...overrides,
   };
 }
@@ -133,6 +134,20 @@ describe("routeInboundMessage — default", () => {
   test("carries the reply target through for threading", () => {
     const route = routeInboundMessage(message({ replyToMessageId: 13 }), AUTH);
     expect(route).toMatchObject({ kind: "channel-agent", replyToMessageId: 13 });
+  });
+
+  // mt#3243: the router already carried the reply's id; the quoted TEXT is
+  // what the actuator can actually put in front of the agent.
+  test("carries the quoted message's text on the channel-agent route", () => {
+    const route = routeInboundMessage(
+      message({ replyToMessageId: 13, replyToText: "mt#3243 is the next task" }),
+      AUTH
+    );
+    expect(route).toMatchObject({
+      kind: "channel-agent",
+      replyToMessageId: 13,
+      replyToText: "mt#3243 is the next task",
+    });
   });
 
   test("whitespace-only text is rejected", () => {

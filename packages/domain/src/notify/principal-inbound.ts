@@ -68,7 +68,17 @@ export type InboundRoute =
   /** Abandon the current channel conversation and start a fresh one. */
   | { kind: "reset" }
   /** The default: hand the text to the standing channel conversation. */
-  | { kind: "channel-agent"; text: string; replyToMessageId: number | undefined };
+  | {
+      kind: "channel-agent";
+      text: string;
+      replyToMessageId: number | undefined;
+      /**
+       * The quoted message's text, when the principal replied to one (mt#3243).
+       * The actuator puts this in front of the agent so a reply resolves
+       * without depending on the conversation remembering the earlier turn.
+       */
+      replyToText: string | undefined;
+    };
 
 /** `/answer <ask-ref> <text>` — the ref is a uuid, a short id, or a prefix. */
 const ANSWER_COMMAND_RE = /^\/answer\s+(\S+)\s+([\s\S]+)$/i;
@@ -117,6 +127,7 @@ export function routeInboundMessage(
     kind: "channel-agent",
     text,
     replyToMessageId: message.replyToMessageId,
+    replyToText: message.replyToText,
   };
 }
 
