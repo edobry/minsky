@@ -72,6 +72,7 @@ export function ThinkingBlock({
   // thinking blocks otherwise pay full serialization/reconciliation cost for
   // text nobody is looking at (PR #1667 R1 non-blocking).
   const [open, setOpen] = useState(false);
+
   return (
     <details
       className="group rounded border border-border/60 bg-muted/20"
@@ -362,6 +363,21 @@ export function ElementView({
       return <Prose entityIndex={entityIndex}>{element.text}</Prose>;
     }
     case "thinking":
+      // mt#3276: thinking text is NEVER recorded — Claude Code writes
+      // `{"type":"thinking","thinking":"","signature":"…"}`, keeping the
+      // signature for API replay while the reasoning text is withheld
+      // server-side and never reaches the client (evidence: the EVENT_VERBS
+      // note in `packages/domain/src/transcripts/event-schema.ts`). So this
+      // guard drops EVERY thinking element in practice, not an occasional one.
+      //
+      // That is DELIBERATE here and should not be "fixed" by rendering an
+      // explanatory placeholder: the conversation view shows every turn, so a
+      // "thinking not recorded" line would repeat on essentially every
+      // assistant turn — ~29k of them in the local corpus — to say the same
+      // thing each time. The film's ribbon is the opposite case and DOES
+      // explain it (`SessionFilmRibbon.tsx`'s `EventContentView`): there the
+      // operator has expanded one specific THINK row and is owed an answer
+      // about that row.
       return element.thinking.trim().length > 0 ? (
         <ThinkingBlock thinking={element.thinking} entityIndex={entityIndex} />
       ) : null;

@@ -520,6 +520,42 @@ describe("SessionFilmRibbon — expanded row real content (mt#3262 SC 2 / SC 3 /
     );
   });
 
+  // mt#3276: a thinking block ALWAYS arrives with empty text (the signature is
+  // kept for API replay; the reasoning text is withheld server-side and never
+  // reaches the client). The row must say so, rather than showing the generic
+  // "No content captured" copy — which would blame a Minsky capture gap for a
+  // harness limitation — or an empty ElementView box.
+  test("expanding a THINK row whose thinking text is empty says the harness does not record it", async () => {
+    const thinkEvent = selfEvent({
+      verb: "think",
+      weight: 0,
+      sourceRef: { turnIndex: 3, messageUuid: "line-3" },
+    });
+    const blocks = [
+      {
+        id: "a1:turn:3",
+        type: "assistant-thinking",
+        source: "observed",
+        content: {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "", signature: "abc123" }],
+        },
+        timestamp: "2026-07-24T00:00:00.000Z",
+        turnIndex: 3,
+        rawJsonlType: "assistant",
+      },
+    ];
+    renderRibbon([thinkEvent]);
+    mockContentFetch({ ok: true, blocks, ingestedAt: "2026-07-20T00:00:00.000Z" });
+    fireEvent.click(screen.getByTestId("session-film-row-0"));
+
+    const el = await screen.findByTestId("session-film-row-content-thinking-not-recorded");
+    expect(el.textContent).toContain("does not record thinking text");
+    // Neither of the two misleading states is used for this case.
+    expect(screen.queryByTestId("session-film-row-content-empty")).toBeNull();
+    expect(screen.queryByTestId("session-film-row-content-body")).toBeNull();
+  });
+
   test("expanding a tool-call (WRITE) row renders the call's params+result via ToolInvocation", async () => {
     const writeEvent = ev({
       verb: "write",

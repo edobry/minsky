@@ -51,6 +51,32 @@ export type EventSchemaVersion = typeof EVENT_SCHEMA_VERSION;
  * `ask`/`respond`) are first-class in the semantic stream but excluded from
  * the Gource export (RFC revision 3, Amendment 3 — no stable file-system-like
  * path to visualize).
+ *
+ * ## `think` events can never carry text (mt#3276 — read this before building
+ * any thinking-surfacing feature)
+ *
+ * A `think` event's source block is ALWAYS empty. Claude Code records
+ * `{"type":"thinking","thinking":"","signature":"<~400-1300 chars>"}` — the
+ * signature is retained so the block can be replayed to the API for
+ * continuity; the reasoning text is not present.
+ *
+ * This is NOT a Minsky ingest or storage gap, and no change here, in
+ * `event-adapter.ts`, in the transcript ingest pipeline, or in a Claude Code
+ * hook can recover it — the text never reaches the client at all. Evidence
+ * (mt#3276, 2026-07-28, Claude Code 2.1.220): all 23 local project corpora
+ * measured `29280 EMPTY / 0 NONEMPTY`; a fresh conversation reproduces it; the
+ * `alwaysThinkingEnabled` setting makes thinking RUN but not be retained; and
+ * running a forced-thinking probe under `--output-format stream-json` — the
+ * client-visible stream, upstream of any transcript write — shows the block
+ * arriving as `keys: ["signature","thinking","type"]` with `thinking` empty and
+ * no reasoning prose anywhere in the payload. The text is withheld
+ * server-side.
+ *
+ * Consumers should therefore render the absence HONESTLY ("this harness does
+ * not record thinking text") rather than as a load failure or a generic
+ * "no content captured" — see `SessionFilmRibbon.tsx`'s `EventContentView`.
+ * Re-run mt#3276's probe rather than assuming this still holds if a future
+ * model or API tier begins returning visible thinking.
  */
 export const EVENT_VERBS = [
   "read",

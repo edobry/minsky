@@ -263,14 +263,27 @@ interface ContentFetchState {
  * call's params+result — resolved via `resolveEventContent` and rendered
  * with the SAME per-block renderer ConversationView uses (`ElementView`),
  * plus an "open in conversation view →" deep-link (mt#3262 SC 2 / SC 3).
- * Always renders SOMETHING (loading / unavailable / no-content / the real
- * content) — never a bare loading state left hanging (mem#561).
+ * Always renders SOMETHING (loading / unavailable / not-recorded / no-content
+ * / the real content) — never a bare loading state left hanging (mem#561).
+ *
+ * The `think` verb gets its own honest empty-state (mt#3276): a thinking block
+ * ALWAYS arrives with empty text (the signature is kept for API replay; the
+ * reasoning text is withheld server-side and never reaches the client — see
+ * `event-schema.ts`'s EVENT_VERBS note for the evidence). Rendering that
+ * through `ElementView` would produce a blank box, and the generic "No content
+ * captured" copy would misattribute a harness limitation to a Minsky capture
+ * gap. Both read as "something went wrong"; neither is true.
  */
 function EventContentView({ event, content }: { event: SemanticEvent; content: ContentFetchState }) {
   const resolved = useMemo(
     () => resolveEventContent(content.blocks, event),
     [content.blocks, event]
   );
+
+  // mt#3276: a resolved thinking element with no text is the STRUCTURAL case,
+  // not a failure — distinguish it before falling through to ElementView.
+  const isUnrecordedThinking =
+    resolved?.kind === "thinking" && resolved.thinking.trim().length === 0;
 
   return (
     <div
@@ -287,6 +300,13 @@ function EventContentView({ event, content }: { event: SemanticEvent; content: C
       ) : content.isError ? (
         <div className="text-[11px] italic text-muted-foreground/60" data-testid="session-film-row-content-error">
           Content unavailable.
+        </div>
+      ) : isUnrecordedThinking ? (
+        <div
+          className="text-[11px] italic text-muted-foreground/60"
+          data-testid="session-film-row-content-thinking-not-recorded"
+        >
+          This harness does not record thinking text — only that thinking happened.
         </div>
       ) : resolved ? (
         <div className="text-[11px] text-foreground" data-testid="session-film-row-content-body">
