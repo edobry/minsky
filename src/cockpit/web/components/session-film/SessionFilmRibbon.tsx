@@ -97,13 +97,35 @@
  * still labeled (`aria-label="Session event ribbon"`), just no longer
  * announced as a literal "list" landmark.
  *
+ * ## Expanded-row real content (mt#3262 SC 2 / SC 3)
+ *
+ * The accordion detail below used to show only structural fields (target/
+ * verb/outcome/duration) — never the REAL content of the event (what the
+ * agent was thinking, said, wrote, asked, or a tool call's params+result).
+ * `EventContentView` fetches that content, lazily, on first expand, via the
+ * film-owned scrub-gated content endpoint (`fetchSessionFilmContent`,
+ * `GET /api/cockpit/session-film/content` — deliberately NOT the ungated
+ * context-inspector snapshot route, spec SC 5), resolves the specific
+ * sub-element via `resolveEventContent` (keyed by the event's `sourceRef`),
+ * and renders it with the SAME per-block renderers ConversationView uses
+ * (`ElementView`, extracted to `../ConversationElementRenderers` — mt#3262
+ * SC 2), plus an "open in conversation view →" deep-link via `EntityRef`.
+ * The conversation id it fetches against is `deriveFilmSubjectAgentId`'s
+ * existing self-reference derivation below — the SAME id the events
+ * endpoint was queried with (every `speak`/`think` self-targets it) — so no
+ * new prop threading through the page is needed.
+ *
  * @see session-film-batches.ts — BatchRow / ChapterMarker / gap+wait/actor-change helpers
  * @see session-film-virtualization.ts — the windowing math this component wires up
  * @see session-film-target-ref.ts — EntityRef routing, display-label fallback, self-reference derivation
  * @see tool-icon.ts — the shared verb/actor icon + label registry
+ * @see ../lib/session-film-client.ts — fetchSessionFilmContent / resolveEventContent
+ * @see ../ConversationElementRenderers.tsx — the shared ElementView this reuses
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { SemanticEvent } from "@minsky/domain/transcripts/event-schema";
+import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
 import type { BatchRow, ChapterMarker } from "../../lib/session-film-batches";
 import { deriveActorChanges, isWaitRow, precedingGapMs } from "../../lib/session-film-batches";
 import {
@@ -124,6 +146,14 @@ import {
   targetDisplayLabel,
 } from "../../lib/session-film-target-ref";
 import { EntityRef } from "../EntityRef";
+import { ElementView } from "../ConversationElementRenderers";
+import type { EntityIndex } from "../../lib/entity-linkifier";
+import { useEntityIndex } from "../../lib/use-entity-index";
+import {
+  fetchSessionFilmContent,
+  resolveEventContent,
+  sessionFilmContentQueryKey,
+} from "../../lib/session-film-client";
 
 /** Fixed collapsed-row height, px — see the module doc's uniform-height rationale. */
 export const ROW_HEIGHT_PX = 32;
@@ -143,6 +173,18 @@ export interface SessionFilmRibbonProps {
   /** Fired as the user scrolls — the scroll-as-scrub coupling's row-change signal. */
   onScrollRowChange: (rowIndex: number) => void;
   className?: string;
+  /**
+   * Asserts the film subject's session was verified re-scrubbed, for the
+   * content endpoint's scrub gate (mt#3262 SC 5) — mirrors the `events`
+   * fetch's own `verifiedRescrubbed` query param, which the HOST page owns
+   * (`SessionFilmPage.tsx`'s own re-scrub-confirmation UI) and does not yet
+   * thread down to this component. Defaults to `false`: a pre-cutoff
+   * session's expanded-row content will 422 (rendered as "Content
+   * unavailable", never a crash — spec AT 4) even when the host already
+   * asserted the override for the events fetch. Threading it through is a
+   * follow-up, not required for this task's acceptance criteria.
+   */
+  verifiedRescrubbed?: boolean;
 }
 
 function outcomeSuffix(outcome: SemanticEvent["outcome"]): string {
@@ -200,42 +242,114 @@ function EventTargetLabel({
   );
 }
 
-/** One member event's row inside an expanded batch's detail (mt#3231 SC 3 / AT 3). */
-function EventDetailRow({
-  event,
-  index,
-  subjectAgentId,
-}: {
-  event: SemanticEvent;
-  index: number;
-  subjectAgentId: string | null;
-}) {
-  const ActorIcon = actorIconFor(event.actor.kind);
+/**
+ * Content-fetch state, threaded from `SessionFilmRibbon`'s single content
+ * query down to every expanded row (mt#3262 SC 2). `blocks` is `undefined`
+ * while loading OR when there's nothing to fetch against (no film subject);
+ * `isError` covers a scrub-gate refusal or any other fetch failure — both
+ * degrade to a "Content unavailable" message, never a crash (spec AT 4).
+ */
+interface ContentFetchState {
+  blocks: SessionContextSnapshotBlock[] | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  entityIndex: EntityIndex;
+  /** The film subject's conversation id — target of the deep-link, `null` when undeterminable. */
+  conversationId: string | null;
+}
+
+/**
+ * Real event content — thinking/message/written-content/ask text, or a tool
+ * call's params+result — resolved via `resolveEventContent` and rendered
+ * with the SAME per-block renderer ConversationView uses (`ElementView`),
+ * plus an "open in conversation view →" deep-link (mt#3262 SC 2 / SC 3).
+ * Always renders SOMETHING (loading / unavailable / no-content / the real
+ * content) — never a bare loading state left hanging (mem#561).
+ */
+function EventContentView({ event, content }: { event: SemanticEvent; content: ContentFetchState }) {
+  const resolved = useMemo(
+    () => resolveEventContent(content.blocks, event),
+    [content.blocks, event]
+  );
+
   return (
     <div
-      key={index}
-      data-testid={`session-film-row-detail-event-${index}`}
-      className="flex items-center gap-1.5 py-0.5 pl-6 text-[11px] text-muted-foreground"
+      className="mt-1 flex flex-col gap-1 border-t border-border/30 pt-1"
+      data-testid="session-film-row-content"
     >
-      <ActorIcon className="size-3 shrink-0" aria-hidden="true" />
-      <span className="shrink-0 font-semibold text-foreground">{verbLabelFor(event.verb)}</span>
-      <span className="min-w-0 flex-1 truncate">
-        <EventTargetLabel event={event} subjectAgentId={subjectAgentId} />
-      </span>
-      <span className="shrink-0">{event.outcome ?? "in-flight"}</span>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+        Content
+      </div>
+      {content.isLoading ? (
+        <div className="text-[11px] italic text-muted-foreground/60" data-testid="session-film-row-content-loading">
+          Loading content…
+        </div>
+      ) : content.isError ? (
+        <div className="text-[11px] italic text-muted-foreground/60" data-testid="session-film-row-content-error">
+          Content unavailable.
+        </div>
+      ) : resolved ? (
+        <div className="text-[11px] text-foreground" data-testid="session-film-row-content-body">
+          <ElementView
+            element={resolved}
+            role={event.verb === "ask" ? "user" : "assistant"}
+            entityIndex={content.entityIndex}
+            expandSignal={undefined}
+          />
+        </div>
+      ) : (
+        <div className="text-[11px] italic text-muted-foreground/60" data-testid="session-film-row-content-empty">
+          No content captured for this event.
+        </div>
+      )}
+      {content.conversationId ? (
+        <EntityRef type="conversation" id={content.conversationId} className="text-[11px]">
+          open in conversation view →
+        </EntityRef>
+      ) : null}
     </div>
   );
 }
 
-/** Inline accordion detail for one row — a single event's full detail, or a batch's member-event list (mt#3231 SC 3 / AT 3). */
+/** One member event's row inside an expanded batch's detail (mt#3231 SC 3 / AT 3; content mt#3262 SC 2). */
+function EventDetailRow({
+  event,
+  index,
+  subjectAgentId,
+  content,
+}: {
+  event: SemanticEvent;
+  index: number;
+  subjectAgentId: string | null;
+  content: ContentFetchState;
+}) {
+  const ActorIcon = actorIconFor(event.actor.kind);
+  return (
+    <div key={index} data-testid={`session-film-row-detail-event-${index}`} className="py-0.5 pl-6">
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <ActorIcon className="size-3 shrink-0" aria-hidden="true" />
+        <span className="shrink-0 font-semibold text-foreground">{verbLabelFor(event.verb)}</span>
+        <span className="min-w-0 flex-1 truncate">
+          <EventTargetLabel event={event} subjectAgentId={subjectAgentId} />
+        </span>
+        <span className="shrink-0">{event.outcome ?? "in-flight"}</span>
+      </div>
+      <EventContentView event={event} content={content} />
+    </div>
+  );
+}
+
+/** Inline accordion detail for one row — a single event's full detail, or a batch's member-event list (mt#3231 SC 3 / AT 3; content mt#3262 SC 2). */
 function RowDetail({
   events,
   row,
   subjectAgentId,
+  content,
 }: {
   events: readonly SemanticEvent[];
   row: BatchRow;
   subjectAgentId: string | null;
+  content: ContentFetchState;
 }) {
   if (row.isParallelBatch) {
     return (
@@ -246,7 +360,13 @@ function RowDetail({
         {row.eventIndices.map((idx) => {
           const event = events[idx];
           return event ? (
-            <EventDetailRow key={idx} event={event} index={idx} subjectAgentId={subjectAgentId} />
+            <EventDetailRow
+              key={idx}
+              event={event}
+              index={idx}
+              subjectAgentId={subjectAgentId}
+              content={content}
+            />
           ) : null;
         })}
       </div>
@@ -278,6 +398,7 @@ function RowDetail({
       <div>
         <span className="font-semibold text-foreground">Duration:</span> {duration}
       </div>
+      <EventContentView event={event} content={content} />
     </div>
   );
 }
@@ -291,6 +412,7 @@ export function SessionFilmRibbon({
   onSelectRow,
   onScrollRowChange,
   className,
+  verifiedRescrubbed = false,
 }: SessionFilmRibbonProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -332,8 +454,57 @@ export function SessionFilmRibbon({
   );
 
   // Self-reference elision (mt#3231 SC 1 / AT 1): derived once per events
-  // array — see the module doc + session-film-target-ref.ts.
+  // array — see the module doc + session-film-target-ref.ts. NOTE this
+  // returns the NAMESPACED target id (`agents:<agentSessionId>`), not the
+  // bare conversation id — see `filmConversationId` below for that.
   const subjectAgentId = useMemo(() => deriveFilmSubjectAgentId(events), [events]);
+
+  // The film subject's BARE conversation id (mt#3262) — the content
+  // endpoint's fetch key and the deep-link target. Derived directly from any
+  // agent-actor event's `agentSessionId` (every agent-kind event in one film
+  // shares the SAME id — it's `context.agentSessionId` the events endpoint
+  // called `adaptTranscriptToEvents` with), NOT from `subjectAgentId` above,
+  // which is namespaced (`agents:<id>`) for the target-equality check
+  // `isSelfReferenceTarget` needs and is a different id-space than the
+  // `/conversation/:id` route or the content endpoint's `conversationId`
+  // query param expect.
+  const filmConversationId = useMemo(() => {
+    for (const event of events) {
+      if (event.actor.kind === "agent" && event.actor.agentSessionId) {
+        return event.actor.agentSessionId;
+      }
+    }
+    return null;
+  }, [events]);
+
+  // Lazy, whole-transcript content fetch on first expand (mt#3262 SC 2 / SC
+  // 5): ONE gated fetch per conversation, not a per-row round-trip — `enabled`
+  // gates on both "a row is expanded" and "we know which conversation to
+  // fetch." `staleTime: Infinity` is deliberate: an ingested transcript's
+  // content never changes underneath a still-open film.
+  const entityIndex = useEntityIndex();
+  const contentQuery = useQuery({
+    queryKey: sessionFilmContentQueryKey(filmConversationId ?? "", verifiedRescrubbed),
+    queryFn: () => fetchSessionFilmContent(filmConversationId as string, verifiedRescrubbed),
+    enabled: expandedRowIndex !== null && filmConversationId !== null,
+    staleTime: Infinity,
+  });
+  const contentState: ContentFetchState = useMemo(
+    () => ({
+      blocks: contentQuery.data?.blocks,
+      isLoading: contentQuery.isLoading,
+      isError: contentQuery.isError,
+      entityIndex,
+      conversationId: filmConversationId,
+    }),
+    [
+      contentQuery.data,
+      contentQuery.isLoading,
+      contentQuery.isError,
+      entityIndex,
+      filmConversationId,
+    ]
+  );
 
   useEffect(() => {
     const el = containerRef.current;
@@ -564,7 +735,12 @@ export function SessionFilmRibbon({
                 </div>
                 {isExpanded ? (
                   <div ref={expandedDetailRef}>
-                    <RowDetail events={events} row={row} subjectAgentId={subjectAgentId} />
+                    <RowDetail
+                      events={events}
+                      row={row}
+                      subjectAgentId={subjectAgentId}
+                      content={contentState}
+                    />
                   </div>
                 ) : null}
               </div>
