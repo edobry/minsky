@@ -7,6 +7,63 @@
  *       Catches the mt#1991 build-failure class.
  *   (b) GET <service>/health returns 200 — alerts on non-200 / timeout.
  *       Catches the mt#2345 runtime-crash-after-green-build class.
+ *   (c) Deployed image digest lags the newest registry digest (mt#3251) —
+ *       alerts when the running deployment's image (per Railway's own
+ *       `meta.imageDigest`) does not match the newest manifest digest for
+ *       the configured `ghcr.io` tag. Catches the "HEALTHY but FROZEN"
+ *       class: a service that is up and answering 200 on an OLD image
+ *       because its deploy pipeline silently stopped shipping new ones
+ *       (the mt#3251 incident — reviewer deploys failed for ~2 days while
+ *       /health stayed green throughout). Only applies to image-source
+ *       deploys (a service whose deploy.config.ts sets
+ *       `railway.source.image`); repo-source deploys have no registry tag
+ *       to compare against — see "Does NOT cover" below.
+ *
+ * ### Covers (check (c), mt#3251)
+ *
+ *   - A service's deploy pipeline silently failing to ship new images to
+ *     production while the service itself stays healthy (the mt#3251
+ *     class), regardless of WHY the pipeline stalled — CI failure, a
+ *     stale/wrong credential, a forgotten manual step, a webhook miss.
+ *     The check compares what's LIVE against what's NEWEST in the
+ *     registry directly, rather than trusting the pipeline's own
+ *     self-reported status.
+ *   - Any current or future image-source-deployed service, automatically —
+ *     service discovery already walks every services/<svc>/deploy.config.ts
+ *     at runtime (see discoverServices below), so a new image-source
+ *     service is covered with no code change here.
+ *
+ * ### Does NOT cover (check (c), mt#3251)
+ *
+ *   - Repo-source (build-from-Railway) deployed services — cockpit
+ *     (RAILPACK) and site (NIXPACKS) as of this writing. There is no
+ *     registry image tag to compare against for these; freshness for
+ *     that deploy shape is not verified by this check. No current owner —
+ *     file a follow-up task if a "repo-source service frozen" incident
+ *     motivates one.
+ *   - minsky-ops — skipped like all other checks (empty serviceId).
+ *   - Whether the NEWEST registry image was built from the CORRECT source
+ *     commit. This check only verifies "did the newest pushed image reach
+ *     Railway," not "was the right code built into that image."
+ *   - A brief false-positive window right after a new image is pushed but
+ *     before the redeploy step has had time to run (the digests
+ *     legitimately differ for a few minutes). A single 10-minute-cadence
+ *     check can catch this transiently; a SUSTAINED lag across multiple
+ *     runs is the real signal, matching this monitor's existing
+ *     de-dup/update-not-duplicate behavior for other alert classes.
+ *   - An operator deliberately rolling back to an older image. This
+ *     check has no way to distinguish an intentional rollback from an
+ *     unintentional freeze — both alert. Consistent with this monitor's
+ *     existing philosophy elsewhere (a dismissable false alarm beats a
+ *     missed freeze).
+ *   - Private GHCR packages. The registry lookup uses the ANONYMOUS
+ *     token flow (verified live during mt#3251 against both
+ *     ghcr.io/edobry/minsky and ghcr.io/edobry/minsky-reviewer, which are
+ *     public). If package visibility is later changed to private, the
+ *     registry fetch will fail and this check degrades to a logged
+ *     warning (see fetchGhcrManifestDigest's caller in checkService) —
+ *     it does NOT alert on that failure, since a lookup failure is not
+ *     evidence of a digest lag.
  *
  * Primary alert:   Open / update a GitHub P0 issue per service+failure-class.
  *                  De-duped so a sustained outage updates ONE issue, not N.
@@ -28,6 +85,8 @@
  *
  *   Source of truth for healthUrl: services/<svc>/deploy.config.ts (healthUrl
  *   field on the DeploymentConfig). See packages/shared/src/deployment/config.ts.
+ *   Source of truth for the digest-lag check's registry tag: the same file's
+ *   `railway.source.image` field, when present.
  *
  * USAGE (in GitHub Actions):
  *   RAILWAY_TOKEN=... GITHUB_TOKEN=... GITHUB_REPO=edobry/minsky bun scripts/post-deploy-health-monitor.ts
@@ -37,7 +96,9 @@
  *
  * ENV VARS:
  *   RAILWAY_TOKEN          — Railway API token (read access). Skip Railway
- *                            checks when absent (graceful degradation).
+ *                            checks when absent (graceful degradation). Also
+ *                            gates the digest-lag check (c), which needs the
+ *                            deployed digest from the same Railway call.
  *   GITHUB_TOKEN           — GitHub PAT or Actions token with issues:write.
  *   GITHUB_REPO            — "owner/repo" (e.g. "edobry/minsky").
  *   MINSKY_MCP_AUTH_TOKEN  — Bearer token for hosted MCP (secondary path).
@@ -46,7 +107,8 @@
  *
  * SECRETS:
  *   RAILWAY_TOKEN, MINSKY_MCP_AUTH_TOKEN, GITHUB_TOKEN are consumed from env.
- *   None are logged or embedded in outputs.
+ *   None are logged or embedded in outputs. The GHCR registry lookup for
+ *   check (c) needs no secret — it uses GHCR's anonymous registry-token flow.
  *
  * Architecture: external to all monitored services; runs on GitHub Actions.
  * See .github/workflows/post-deploy-health-monitor.yml for the host.
@@ -76,6 +138,13 @@ interface ServiceDef {
   serviceId: string;
   /** HTTP URL for the health endpoint. Null = no HTTP health check. */
   healthUrl: string | null;
+  /**
+   * mt#3251 — configured GHCR image ref for image-source deploys (e.g.
+   * "ghcr.io/edobry/minsky-reviewer:latest"), read from deploy.config.ts's
+   * `railway.source.image`. Null for repo-source deploys (cockpit, site) —
+   * the digest-lag check has no registry tag to compare against for those.
+   */
+  image: string | null;
 }
 
 /**
@@ -128,7 +197,19 @@ async function discoverServices(repoRoot: string): Promise<ServiceDef[]> {
     const healthUrl =
       "healthUrl" in cfg ? ((cfg as { healthUrl?: string | null }).healthUrl ?? null) : null;
 
-    discovered.push({ name, serviceId, healthUrl });
+    // mt#3251 — extract the configured image ref (image-source deploys only).
+    // `railway.source.image` is a string on image-source configs (reviewer,
+    // minsky-mcp); repo-source configs (`source.repo` + `build`) have no
+    // `image` field, so this resolves to null for them.
+    const source = railway["source"];
+    const image =
+      source &&
+      typeof source === "object" &&
+      typeof (source as Record<string, unknown>)["image"] === "string"
+        ? ((source as Record<string, unknown>)["image"] as string)
+        : null;
+
+    discovered.push({ name, serviceId, healthUrl, image });
   }
 
   return discovered;
@@ -150,7 +231,19 @@ interface RailwayDeploymentNode {
   status: string;
   createdAt: string;
   staticUrl?: string | null;
-  meta?: { commitHash?: string; commitMessage?: string } | null;
+  meta?: {
+    commitHash?: string;
+    commitMessage?: string;
+    /**
+     * mt#3251 — present on image-source deploys (verified live against the
+     * minsky-reviewer-webhook service: this field's value matched GHCR's
+     * `docker-content-digest` for the same tag exactly). The resolved
+     * digest of the image Railway actually pulled for this deployment.
+     */
+    imageDigest?: string;
+    /** mt#3251 — the image ref Railway resolved, e.g. "ghcr.io/edobry/minsky-reviewer:latest". */
+    image?: string;
+  } | null;
 }
 
 interface RailwayDeploymentsResponse {
@@ -212,6 +305,98 @@ async function fetchLatestDeployment(
 
     const edges = body.data?.service?.deployments?.edges ?? [];
     return edges[0]?.node ?? null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GHCR registry digest lookup (mt#3251, check (c) — "healthy but frozen")
+// ---------------------------------------------------------------------------
+//
+// Fetches the newest manifest digest for a ghcr.io image tag using the
+// anonymous Docker Registry v2 token flow — no secret required. Verified
+// live during mt#3251 against both ghcr.io/edobry/minsky and
+// ghcr.io/edobry/minsky-reviewer (both public packages): the returned
+// docker-content-digest matched Railway's own `meta.imageDigest` for the
+// currently-deployed image exactly, confirming both the mechanism and the
+// field names used here are correct, not merely plausible.
+
+const GHCR_REGISTRY_HOST = "ghcr.io";
+const GHCR_TIMEOUT_MS = 10_000;
+const MANIFEST_ACCEPT_HEADER = [
+  "application/vnd.docker.distribution.manifest.v2+json",
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.docker.distribution.manifest.list.v2+json",
+  "application/vnd.oci.image.index.v1+json",
+].join(", ");
+
+interface ParsedGhcrImageRef {
+  repository: string;
+  tag: string;
+}
+
+/**
+ * Parse an image ref of the form "ghcr.io/<owner>/<name>:<tag>". Returns
+ * null for anything not hosted on ghcr.io — this monitor only knows how to
+ * look up GHCR digests; a future non-GHCR image-source config would need
+ * its own lookup, not a silent mis-parse of this one.
+ */
+function parseGhcrImageRef(image: string): ParsedGhcrImageRef | null {
+  const prefix = `${GHCR_REGISTRY_HOST}/`;
+  if (!image.startsWith(prefix)) return null;
+  const rest = image.slice(prefix.length);
+  const colonIndex = rest.lastIndexOf(":");
+  if (colonIndex <= 0 || colonIndex === rest.length - 1) return null;
+  const repository = rest.slice(0, colonIndex);
+  const tag = rest.slice(colonIndex + 1);
+  if (!repository || !tag) return null;
+  return { repository, tag };
+}
+
+/**
+ * Fetch the manifest digest for a GHCR image tag via the anonymous
+ * registry-token flow. Throws on any failure (network, non-200, missing
+ * header) — the caller treats a thrown error as "cannot determine,"
+ * NOT as "digest matches" (see checkService: a lookup failure logs a
+ * warning and skips the alert, it never asserts "OK" by default).
+ */
+async function fetchGhcrManifestDigest(ref: ParsedGhcrImageRef): Promise<string> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), GHCR_TIMEOUT_MS);
+
+  try {
+    const tokenRes = await fetch(
+      `https://${GHCR_REGISTRY_HOST}/token?service=${GHCR_REGISTRY_HOST}&scope=repository:${ref.repository}:pull`,
+      { signal: controller.signal }
+    );
+    if (!tokenRes.ok) {
+      throw new Error(`GHCR token request HTTP ${tokenRes.status}`);
+    }
+    const tokenBody = (await tokenRes.json()) as { token?: string };
+    if (!tokenBody.token) {
+      throw new Error("GHCR token response missing 'token' field");
+    }
+
+    const manifestRes = await fetch(
+      `https://${GHCR_REGISTRY_HOST}/v2/${ref.repository}/manifests/${ref.tag}`,
+      {
+        method: "HEAD",
+        headers: {
+          Authorization: `Bearer ${tokenBody.token}`,
+          Accept: MANIFEST_ACCEPT_HEADER,
+        },
+        signal: controller.signal,
+      }
+    );
+    if (!manifestRes.ok) {
+      throw new Error(`GHCR manifest HEAD HTTP ${manifestRes.status}`);
+    }
+    const digest = manifestRes.headers.get("docker-content-digest");
+    if (!digest) {
+      throw new Error("GHCR manifest response missing docker-content-digest header");
+    }
+    return digest;
   } finally {
     clearTimeout(timeoutId);
   }
@@ -351,9 +536,16 @@ async function githubRequest<T>(
  * Issue title for a given service+failure-class combo.
  * Used as the de-duplication key: search for an open issue with this exact title.
  */
-function issueTitle(serviceName: string, failureClass: "deploy-failed" | "health-down"): string {
+function issueTitle(
+  serviceName: string,
+  failureClass: "deploy-failed" | "health-down" | "digest-lag"
+): string {
   const classLabel =
-    failureClass === "deploy-failed" ? "Deploy FAILED/CRASHED" : "Health check DOWN";
+    failureClass === "deploy-failed"
+      ? "Deploy FAILED/CRASHED"
+      : failureClass === "health-down"
+        ? "Health check DOWN"
+        : "Deployed image digest lags registry";
   return `[P0] ${serviceName}: ${classLabel}`;
 }
 
@@ -457,7 +649,7 @@ async function alertViaGitHubIssue(
   repo: string,
   token: string,
   serviceName: string,
-  failureClass: "deploy-failed" | "health-down",
+  failureClass: "deploy-failed" | "health-down" | "digest-lag",
   details: string,
   dryRun: boolean
 ): Promise<string> {
@@ -607,6 +799,14 @@ interface CheckResult {
   healthOk: boolean;
   healthAlert: boolean;
   healthError: string | null;
+  /** mt#3251 — true when the deployed image digest lags the registry's newest. */
+  digestLagAlert: boolean;
+  /** mt#3251 — digest Railway reports for the currently-deployed image. */
+  deployedDigest: string | null;
+  /** mt#3251 — newest manifest digest for the configured tag in the registry. */
+  registryDigest: string | null;
+  /** mt#3251 — set when the check could not run/complete; never implies "OK". */
+  digestLagError: string | null;
   skipped: boolean;
   skipReason: string | null;
 }
@@ -624,6 +824,10 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
       healthOk: true,
       healthAlert: false,
       healthError: null,
+      digestLagAlert: false,
+      deployedDigest: null,
+      registryDigest: null,
+      digestLagError: null,
       skipped: true,
       skipReason: "serviceId not provisioned",
     };
@@ -634,10 +838,13 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
   let deployId: string | null = null;
   let deployCreatedAt: string | null = null;
   let deployAlert = false;
+  // Kept outside the try block so check (c) below can reuse the already-
+  // fetched deployment's `meta.imageDigest` instead of a second Railway call.
+  let deployment: RailwayDeploymentNode | null = null;
 
   if (railwayToken) {
     try {
-      const deployment = await fetchLatestDeployment(svc.serviceId, railwayToken);
+      deployment = await fetchLatestDeployment(svc.serviceId, railwayToken);
       if (deployment) {
         deployStatus = deployment.status;
         deployId = deployment.id;
@@ -673,6 +880,49 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
     healthAlert = !probe.ok;
   }
 
+  // --- (c) Digest-lag check (mt#3251) ---
+  // Only applies to image-source deploys (svc.image set from deploy.config.ts's
+  // railway.source.image). See the module doc-comment's "Does NOT cover" list
+  // for what this deliberately does not check.
+  let digestLagAlert = false;
+  let deployedDigest: string | null = null;
+  let registryDigest: string | null = null;
+  let digestLagError: string | null = null;
+
+  if (svc.image) {
+    if (!deployment) {
+      // No Railway data to compare against — either RAILWAY_TOKEN is absent
+      // or check (a) already failed and logged its own warning above. Either
+      // way this is "cannot determine," not "OK": no alert is raised, but the
+      // gap is visible in the console log via digestLagError.
+      digestLagError = railwayToken
+        ? "No Railway deployment data available — cannot compare digests"
+        : "SKIPPED (no RAILWAY_TOKEN)";
+    } else {
+      const parsedRef = parseGhcrImageRef(svc.image);
+      deployedDigest = deployment.meta?.imageDigest ?? null;
+
+      if (!parsedRef) {
+        digestLagError = `Configured image "${svc.image}" is not a recognized ghcr.io ref — skipping digest-lag check`;
+      } else if (!deployedDigest) {
+        digestLagError =
+          "Railway deployment meta has no imageDigest to compare against (older deployments predate this field)";
+      } else {
+        try {
+          registryDigest = await fetchGhcrManifestDigest(parsedRef);
+          if (registryDigest !== deployedDigest) {
+            digestLagAlert = true;
+          }
+        } catch (err) {
+          console.warn(`[${svc.name}] GHCR digest lookup failed: ${err}`);
+          // Non-fatal, same discipline as (a): a lookup failure is not
+          // evidence of a lag, so it must never alert.
+          digestLagError = err instanceof Error ? err.message : String(err);
+        }
+      }
+    }
+  }
+
   return {
     service: svc.name,
     deployStatus,
@@ -683,6 +933,10 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
     healthOk,
     healthAlert,
     healthError,
+    digestLagAlert,
+    deployedDigest,
+    registryDigest,
+    digestLagError,
     skipped: false,
     skipReason: null,
   };
@@ -717,6 +971,24 @@ function formatHealthDownDetails(svc: ServiceDef, result: CheckResult): string {
   ]
     .filter((l) => l !== null)
     .join("\n");
+}
+
+function formatDigestLagDetails(svc: ServiceDef, result: CheckResult): string {
+  return [
+    `- **Service:** \`${svc.name}\``,
+    `- **Configured image:** \`${svc.image ?? "unknown"}\``,
+    `- **Deployed digest:** \`${result.deployedDigest ?? "unknown"}\``,
+    `- **Newest registry digest:** \`${result.registryDigest ?? "unknown"}\``,
+    `- **Deploy status (for context):** \`${result.deployStatus ?? "unknown"}\``,
+    "",
+    "**What this means:** the service is running an OLDER image than the newest one pushed " +
+      "to the registry. The service may be perfectly HEALTHY — this alert catches the case " +
+      "where the deploy pipeline silently stopped shipping new images while the running " +
+      "instance stays up (mt#3251).",
+    "",
+    "**Action:** check the service's deploy workflow run history for recent failures, fix the " +
+      "underlying cause, then manually trigger a redeploy.",
+  ].join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -788,8 +1060,21 @@ async function main(): Promise<void> {
         `  Health:        HTTP ${result.healthStatus ?? "timeout"} — ${result.healthOk ? "OK" : "FAIL"}`
       );
     }
+    if (svc.image) {
+      const digestStatus = result.digestLagAlert
+        ? "LAG"
+        : result.digestLagError
+          ? `SKIP (${result.digestLagError})`
+          : "OK";
+      console.log(
+        `  Digest:        deployed=${result.deployedDigest ?? "?"} registry=${result.registryDigest ?? "?"} — ${digestStatus}`
+      );
+    }
 
-    const alerts: Array<{ class: "deploy-failed" | "health-down"; details: string }> = [];
+    const alerts: Array<{
+      class: "deploy-failed" | "health-down" | "digest-lag";
+      details: string;
+    }> = [];
 
     if (result.deployAlert) {
       alerts.push({
@@ -802,6 +1087,13 @@ async function main(): Promise<void> {
       alerts.push({
         class: "health-down",
         details: formatHealthDownDetails(svc, result),
+      });
+    }
+
+    if (result.digestLagAlert) {
+      alerts.push({
+        class: "digest-lag",
+        details: formatDigestLagDetails(svc, result),
       });
     }
 
