@@ -7,6 +7,82 @@
  *       Catches the mt#1991 build-failure class.
  *   (b) GET <service>/health returns 200 — alerts on non-200 / timeout.
  *       Catches the mt#2345 runtime-crash-after-green-build class.
+ *   (c) Deployed image digest lags the newest registry digest (mt#3251) —
+ *       alerts when the running deployment's image (per Railway's own
+ *       `meta.imageDigest`) does not match the newest manifest digest for
+ *       the configured `ghcr.io` tag. Catches the "HEALTHY but FROZEN"
+ *       class: a service that is up and answering 200 on an OLD image
+ *       because its deploy pipeline silently stopped shipping new ones
+ *       (the mt#3251 incident — reviewer deploys failed for ~2 days while
+ *       /health stayed green throughout). Only applies to image-source
+ *       deploys (a service whose deploy.config.ts sets
+ *       `railway.source.image`); repo-source deploys have no registry tag
+ *       to compare against — see "Does NOT cover" below.
+ *
+ * ### Covers (check (c), mt#3251)
+ *
+ *   - A service's deploy pipeline silently failing to ship new images to
+ *     production while the service itself stays healthy (the mt#3251
+ *     class), regardless of WHY the pipeline stalled — CI failure, a
+ *     stale/wrong credential, a forgotten manual step, a webhook miss.
+ *     The check compares what's LIVE against what's NEWEST in the
+ *     registry directly, rather than trusting the pipeline's own
+ *     self-reported status.
+ *   - Any current or future image-source-deployed service, automatically —
+ *     service discovery already walks every services/<svc>/deploy.config.ts
+ *     at runtime (see discoverServices below), so a new image-source
+ *     service is covered with no code change here.
+ *   - Multi-arch (index/manifest-list) registry tags (mt#3251 R1 hardening).
+ *     Railway's `meta.imageDigest` is always the PLATFORM-SPECIFIC digest it
+ *     pulled, which does not equal a multi-arch index's own digest — the
+ *     comparison logic (fetchGhcrManifest / checkService) detects the index
+ *     shape and matches against the index digest OR any per-platform child
+ *     digest, not just the index digest alone. Both images this monitor
+ *     currently watches are single-platform (verified live 2026-07-28), so
+ *     this is defensive coverage for a shape that would otherwise
+ *     false-positive forever, not an active bug fix.
+ *   - The transient in-flight-deploy window (mt#3251 R2 hardening). A
+ *     healthy build+push+redeploy cycle leaves the registry ahead of the
+ *     deployed digest for a few minutes; at a 10-minute check cadence, every
+ *     normal deploy has a real chance of landing inside one check. This
+ *     check does NOT alert on a single observation — resolveDigestLagSustained
+ *     requires the SAME (deployedDigest, registryDigest) pair to be observed
+ *     on two CONSECUTIVE runs (tracked via a non-P0 "pending" GitHub issue,
+ *     since the monitor itself is stateless between runs) before escalating.
+ *     A real freeze (this task's own incident: ~2 days) survives that
+ *     trivially; a routine deploy (~2-5 minutes) does not.
+ *
+ * ### Does NOT cover (check (c), mt#3251)
+ *
+ *   - Repo-source (build-from-Railway) deployed services — cockpit
+ *     (RAILPACK) and site (NIXPACKS) as of this writing. There is no
+ *     registry image tag to compare against for these; freshness for
+ *     that deploy shape is not verified by this check. No current owner —
+ *     file a follow-up task if a "repo-source service frozen" incident
+ *     motivates one.
+ *   - minsky-ops — skipped like all other checks (empty serviceId).
+ *   - Whether the NEWEST registry image was built from the CORRECT source
+ *     commit. This check only verifies "did the newest pushed image reach
+ *     Railway," not "was the right code built into that image."
+ *   - A multi-arch index whose `manifests` array cannot be parsed into any
+ *     per-platform digest (mt#3251 R1). Rather than guess and risk a
+ *     permanent false positive, this degrades to a logged, non-alerting
+ *     "cannot compare" skip — the same fail-open discipline as any other
+ *     lookup failure in this check.
+ *   - An operator deliberately rolling back to an older image. This
+ *     check has no way to distinguish an intentional rollback from an
+ *     unintentional freeze — both alert (after the sustained-check above
+ *     confirms it across two runs). Consistent with this monitor's
+ *     existing philosophy elsewhere (a dismissable false alarm beats a
+ *     missed freeze).
+ *   - Private GHCR packages. The registry lookup uses the ANONYMOUS
+ *     token flow (verified live during mt#3251 against both
+ *     ghcr.io/edobry/minsky and ghcr.io/edobry/minsky-reviewer, which are
+ *     public). If package visibility is later changed to private, the
+ *     registry fetch will fail and this check degrades to a logged
+ *     warning (see fetchGhcrManifest's caller in checkService) —
+ *     it does NOT alert on that failure, since a lookup failure is not
+ *     evidence of a digest lag.
  *
  * Primary alert:   Open / update a GitHub P0 issue per service+failure-class.
  *                  De-duped so a sustained outage updates ONE issue, not N.
@@ -28,6 +104,8 @@
  *
  *   Source of truth for healthUrl: services/<svc>/deploy.config.ts (healthUrl
  *   field on the DeploymentConfig). See packages/shared/src/deployment/config.ts.
+ *   Source of truth for the digest-lag check's registry tag: the same file's
+ *   `railway.source.image` field, when present.
  *
  * USAGE (in GitHub Actions):
  *   RAILWAY_TOKEN=... GITHUB_TOKEN=... GITHUB_REPO=edobry/minsky bun scripts/post-deploy-health-monitor.ts
@@ -37,7 +115,9 @@
  *
  * ENV VARS:
  *   RAILWAY_TOKEN          — Railway API token (read access). Skip Railway
- *                            checks when absent (graceful degradation).
+ *                            checks when absent (graceful degradation). Also
+ *                            gates the digest-lag check (c), which needs the
+ *                            deployed digest from the same Railway call.
  *   GITHUB_TOKEN           — GitHub PAT or Actions token with issues:write.
  *   GITHUB_REPO            — "owner/repo" (e.g. "edobry/minsky").
  *   MINSKY_MCP_AUTH_TOKEN  — Bearer token for hosted MCP (secondary path).
@@ -46,7 +126,8 @@
  *
  * SECRETS:
  *   RAILWAY_TOKEN, MINSKY_MCP_AUTH_TOKEN, GITHUB_TOKEN are consumed from env.
- *   None are logged or embedded in outputs.
+ *   None are logged or embedded in outputs. The GHCR registry lookup for
+ *   check (c) needs no secret — it uses GHCR's anonymous registry-token flow.
  *
  * Architecture: external to all monitored services; runs on GitHub Actions.
  * See .github/workflows/post-deploy-health-monitor.yml for the host.
@@ -76,6 +157,13 @@ interface ServiceDef {
   serviceId: string;
   /** HTTP URL for the health endpoint. Null = no HTTP health check. */
   healthUrl: string | null;
+  /**
+   * mt#3251 — configured GHCR image ref for image-source deploys (e.g.
+   * "ghcr.io/edobry/minsky-reviewer:latest"), read from deploy.config.ts's
+   * `railway.source.image`. Null for repo-source deploys (cockpit, site) —
+   * the digest-lag check has no registry tag to compare against for those.
+   */
+  image: string | null;
 }
 
 /**
@@ -128,7 +216,19 @@ async function discoverServices(repoRoot: string): Promise<ServiceDef[]> {
     const healthUrl =
       "healthUrl" in cfg ? ((cfg as { healthUrl?: string | null }).healthUrl ?? null) : null;
 
-    discovered.push({ name, serviceId, healthUrl });
+    // mt#3251 — extract the configured image ref (image-source deploys only).
+    // `railway.source.image` is a string on image-source configs (reviewer,
+    // minsky-mcp); repo-source configs (`source.repo` + `build`) have no
+    // `image` field, so this resolves to null for them.
+    const source = railway["source"];
+    const image =
+      source &&
+      typeof source === "object" &&
+      typeof (source as Record<string, unknown>)["image"] === "string"
+        ? ((source as Record<string, unknown>)["image"] as string)
+        : null;
+
+    discovered.push({ name, serviceId, healthUrl, image });
   }
 
   return discovered;
@@ -150,7 +250,19 @@ interface RailwayDeploymentNode {
   status: string;
   createdAt: string;
   staticUrl?: string | null;
-  meta?: { commitHash?: string; commitMessage?: string } | null;
+  meta?: {
+    commitHash?: string;
+    commitMessage?: string;
+    /**
+     * mt#3251 — present on image-source deploys (verified live against the
+     * minsky-reviewer-webhook service: this field's value matched GHCR's
+     * `docker-content-digest` for the same tag exactly). The resolved
+     * digest of the image Railway actually pulled for this deployment.
+     */
+    imageDigest?: string;
+    /** mt#3251 — the image ref Railway resolved, e.g. "ghcr.io/edobry/minsky-reviewer:latest". */
+    image?: string;
+  } | null;
 }
 
 interface RailwayDeploymentsResponse {
@@ -212,6 +324,178 @@ async function fetchLatestDeployment(
 
     const edges = body.data?.service?.deployments?.edges ?? [];
     return edges[0]?.node ?? null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GHCR registry digest lookup (mt#3251, check (c) — "healthy but frozen")
+// ---------------------------------------------------------------------------
+//
+// Fetches the newest manifest for a ghcr.io image tag using the anonymous
+// Docker Registry v2 token flow — no secret required. Verified live during
+// mt#3251 against both ghcr.io/edobry/minsky and ghcr.io/edobry/minsky-reviewer
+// (both public packages): the returned docker-content-digest matched
+// Railway's own `meta.imageDigest` for the currently-deployed image exactly,
+// confirming both the mechanism and the field names used here are correct,
+// not merely plausible.
+//
+// MULTI-ARCH HARDENING (mt#3251 R1 reviewer finding). A tag can resolve to
+// either a single-platform image manifest OR a multi-arch index/manifest-list
+// (a small JSON document whose `manifests` array lists one child manifest
+// digest per platform). Railway's `meta.imageDigest` is always the
+// PLATFORM-SPECIFIC digest it actually pulled — for a multi-arch tag, that
+// digest does NOT equal the index's own digest, so comparing against the
+// index digest alone would false-positive forever. Verified live (2026-07-28)
+// that both images this monitor currently watches
+// (ghcr.io/edobry/minsky-reviewer:latest, ghcr.io/edobry/minsky:latest) are
+// SINGLE-PLATFORM manifests today (mediaType
+// application/vnd.docker.distribution.manifest.v2+json, no `manifests`
+// array) — so this is defensive hardening for a shape that does not
+// reproduce in this repo currently, not a fix for an active defect. Fetching
+// the manifest BODY (GET, not HEAD) is what makes the index case detectable
+// at all — a HEAD-only digest, as this function did before R1, cannot see
+// the `mediaType`/`manifests` fields needed to tell the two shapes apart.
+
+const GHCR_REGISTRY_HOST = "ghcr.io";
+const GHCR_TIMEOUT_MS = 10_000;
+const MANIFEST_ACCEPT_HEADER = [
+  "application/vnd.docker.distribution.manifest.v2+json",
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.docker.distribution.manifest.list.v2+json",
+  "application/vnd.oci.image.index.v1+json",
+].join(", ");
+
+/** Media types that mark a manifest response as a multi-arch index/manifest-list. */
+const GHCR_INDEX_MEDIA_TYPES = new Set([
+  "application/vnd.oci.image.index.v1+json",
+  "application/vnd.docker.distribution.manifest.list.v2+json",
+]);
+
+interface ParsedGhcrImageRef {
+  repository: string;
+  tag: string;
+}
+
+/**
+ * Parse an image ref of the form "ghcr.io/<owner>/<name>:<tag>". Returns
+ * null for anything not hosted on ghcr.io — this monitor only knows how to
+ * look up GHCR digests; a future non-GHCR image-source config would need
+ * its own lookup, not a silent mis-parse of this one.
+ */
+function parseGhcrImageRef(image: string): ParsedGhcrImageRef | null {
+  const prefix = `${GHCR_REGISTRY_HOST}/`;
+  if (!image.startsWith(prefix)) return null;
+  const rest = image.slice(prefix.length);
+  const colonIndex = rest.lastIndexOf(":");
+  if (colonIndex <= 0 || colonIndex === rest.length - 1) return null;
+  const repository = rest.slice(0, colonIndex);
+  const tag = rest.slice(colonIndex + 1);
+  if (!repository || !tag) return null;
+  return { repository, tag };
+}
+
+/** Result of fetching a GHCR manifest, with enough shape info to compare correctly. */
+interface GhcrManifestResult {
+  /** The digest of the top-level fetched document (an index digest for a multi-arch tag). */
+  digest: string;
+  /** True when the fetched document is a multi-arch index/manifest-list. */
+  isIndex: boolean;
+  /**
+   * Per-platform child digests, populated only when isIndex is true and the
+   * body's `manifests` array parsed cleanly. A deployed digest matching ANY
+   * of these (or the index digest itself) counts as "up to date".
+   */
+  childDigests: string[];
+}
+
+/**
+ * Fetch a GHCR image tag's manifest via the anonymous registry-token flow,
+ * returning enough shape information to compare correctly against a
+ * platform-specific deployed digest (see GhcrManifestResult). Throws on any
+ * failure (network, non-200, missing header, unparseable body) — the caller
+ * treats a thrown error as "cannot determine," NOT as "digest matches" (see
+ * checkService: a lookup failure logs a warning and skips the alert, it
+ * never asserts "OK" by default).
+ */
+async function fetchGhcrManifest(ref: ParsedGhcrImageRef): Promise<GhcrManifestResult> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), GHCR_TIMEOUT_MS);
+
+  try {
+    const tokenRes = await fetch(
+      `https://${GHCR_REGISTRY_HOST}/token?service=${GHCR_REGISTRY_HOST}&scope=repository:${ref.repository}:pull`,
+      { signal: controller.signal }
+    );
+    if (!tokenRes.ok) {
+      throw new Error(`GHCR token request HTTP ${tokenRes.status}`);
+    }
+    const tokenBody = (await tokenRes.json()) as { token?: string };
+    if (!tokenBody.token) {
+      throw new Error("GHCR token response missing 'token' field");
+    }
+
+    // GET, not HEAD: the body is required to detect a multi-arch index (its
+    // `mediaType` / `manifests` fields are invisible to a headers-only HEAD
+    // request).
+    const manifestRes = await fetch(
+      `https://${GHCR_REGISTRY_HOST}/v2/${ref.repository}/manifests/${ref.tag}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${tokenBody.token}`,
+          Accept: MANIFEST_ACCEPT_HEADER,
+        },
+        signal: controller.signal,
+      }
+    );
+    if (!manifestRes.ok) {
+      throw new Error(`GHCR manifest GET HTTP ${manifestRes.status}`);
+    }
+    const digest = manifestRes.headers.get("docker-content-digest");
+    if (!digest) {
+      throw new Error("GHCR manifest response missing docker-content-digest header");
+    }
+
+    const bodyText = await manifestRes.text();
+    let body: unknown;
+    try {
+      body = JSON.parse(bodyText);
+    } catch (err) {
+      throw new Error(
+        `GHCR manifest response body is not valid JSON: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    const mediaType =
+      body &&
+      typeof body === "object" &&
+      typeof (body as Record<string, unknown>)["mediaType"] === "string"
+        ? ((body as Record<string, unknown>)["mediaType"] as string)
+        : null;
+    const manifestsField =
+      body &&
+      typeof body === "object" &&
+      Array.isArray((body as Record<string, unknown>)["manifests"])
+        ? ((body as Record<string, unknown>)["manifests"] as unknown[])
+        : [];
+
+    const isIndex =
+      (mediaType !== null && GHCR_INDEX_MEDIA_TYPES.has(mediaType)) || manifestsField.length > 0;
+    const childDigests = isIndex
+      ? manifestsField
+          .map((m) =>
+            m &&
+            typeof m === "object" &&
+            typeof (m as Record<string, unknown>)["digest"] === "string"
+              ? ((m as Record<string, unknown>)["digest"] as string)
+              : null
+          )
+          .filter((d): d is string => d !== null)
+      : [];
+
+    return { digest, isIndex, childDigests };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -351,9 +635,16 @@ async function githubRequest<T>(
  * Issue title for a given service+failure-class combo.
  * Used as the de-duplication key: search for an open issue with this exact title.
  */
-function issueTitle(serviceName: string, failureClass: "deploy-failed" | "health-down"): string {
+function issueTitle(
+  serviceName: string,
+  failureClass: "deploy-failed" | "health-down" | "digest-lag"
+): string {
   const classLabel =
-    failureClass === "deploy-failed" ? "Deploy FAILED/CRASHED" : "Health check DOWN";
+    failureClass === "deploy-failed"
+      ? "Deploy FAILED/CRASHED"
+      : failureClass === "health-down"
+        ? "Health check DOWN"
+        : "Deployed image digest lags registry";
   return `[P0] ${serviceName}: ${classLabel}`;
 }
 
@@ -424,7 +715,7 @@ async function findOpenIssue(
 }
 
 async function ensureLabelsExist(repo: string, token: string): Promise<void> {
-  for (const label of [P0_LABEL, MONITOR_LABEL]) {
+  for (const label of [P0_LABEL, MONITOR_LABEL, DIGEST_LAG_PENDING_LABEL]) {
     try {
       await githubRequest("GET", `/repos/${repo}/labels/${encodeURIComponent(label)}`, token);
     } catch {
@@ -432,11 +723,18 @@ async function ensureLabelsExist(repo: string, token: string): Promise<void> {
       try {
         await githubRequest("POST", `/repos/${repo}/labels`, token, {
           name: label,
-          color: label === P0_LABEL ? "B60205" : "0075CA",
+          color:
+            label === P0_LABEL
+              ? "B60205"
+              : label === DIGEST_LAG_PENDING_LABEL
+                ? "FBCA04"
+                : "0075CA",
           description:
             label === P0_LABEL
               ? "P0 outage: service is down or deploy failed"
-              : "Auto-opened by post-deploy-health-monitor (mt#1302)",
+              : label === DIGEST_LAG_PENDING_LABEL
+                ? "Pending digest-lag observation (mt#3251) — not yet a confirmed sustained lag"
+                : "Auto-opened by post-deploy-health-monitor (mt#1302)",
         });
       } catch (err) {
         // Non-fatal: issue can still be opened without labels.
@@ -457,7 +755,7 @@ async function alertViaGitHubIssue(
   repo: string,
   token: string,
   serviceName: string,
-  failureClass: "deploy-failed" | "health-down",
+  failureClass: "deploy-failed" | "health-down" | "digest-lag",
   details: string,
   dryRun: boolean
 ): Promise<string> {
@@ -510,6 +808,206 @@ async function alertViaGitHubIssue(
   const issueUrl = `https://github.com/${repo}/issues/${newIssue.number}`;
   console.log(`[github] Opened new issue #${newIssue.number}: ${issueUrl}`);
   return issueUrl;
+}
+
+// ---------------------------------------------------------------------------
+// Digest-lag sustained-check (mt#3251 R2) — cross-run pending tracker
+// ---------------------------------------------------------------------------
+//
+// The digest-lag check (c) can legitimately fire transiently: a healthy
+// build+push+redeploy cycle leaves `registryDigest != deployedDigest` for a
+// few minutes while the redeploy is still in flight. At a 10-minute check
+// cadence, EVERY normal deploy has a real chance of landing inside that
+// window — alerting on a single observation would page on routine, healthy
+// operation, exactly the alert-fatigue class the R1 review flagged for the
+// multi-arch case and R2 flagged for this one.
+//
+// This monitor is stateless between runs (a fresh process each schedule
+// tick), so "sustained" is tracked via a lightweight, NON-P0 GitHub issue —
+// reusing the same substrate the P0 alerts already use as a persistence
+// layer, rather than standing up new infrastructure. On the FIRST
+// observation of a given (deployedDigest, registryDigest) pair for a
+// service, this records the pair on a "pending" tracker issue and does NOT
+// alert. Only when the SAME pair is observed again on a LATER run does it
+// escalate to a real `[P0]` alert — i.e. the lag must persist across at
+// least two consecutive 10-minute checks (roughly 10-20 minutes). A real
+// freeze survives that trivially (this task's own incident lasted ~2 days;
+// the post-unstick re-drift persisted 30+ minutes in R1's live evidence); a
+// normal deploy cycle (~2-5 minutes) does not.
+
+/** Label for the cross-run pending-observation tracker issues. Distinct from P0_LABEL. */
+const DIGEST_LAG_PENDING_LABEL = "digest-lag-pending";
+
+function pendingTrackerTitle(serviceName: string): string {
+  return `[pending] ${serviceName}: digest-lag observation (not yet escalated)`;
+}
+
+/** Machine-parseable marker line embedded in a pending tracker issue's body. */
+function formatPendingPairMarker(deployedDigest: string, registryDigest: string): string {
+  return `PENDING_DIGEST_PAIR: ${deployedDigest}|${registryDigest}`;
+}
+
+const PENDING_PAIR_RE = /PENDING_DIGEST_PAIR:\s*(\S+)\|(\S+)/;
+
+function parsePendingPairMarker(
+  body: string | null
+): { deployed: string; registry: string } | null {
+  if (!body) return null;
+  const match = PENDING_PAIR_RE.exec(body);
+  if (!match) return null;
+  const [, deployed, registry] = match;
+  if (!deployed || !registry) return null;
+  return { deployed, registry };
+}
+
+/**
+ * Decide whether a detected digest-lag should escalate to a real P0 alert
+ * this run, using a cross-run pending-tracker issue as the persistence
+ * layer. Returns `escalate: true` only on the SECOND consecutive
+ * observation of the exact same (deployedDigest, registryDigest) pair.
+ *
+ * Fails CLOSED on any GitHub API error along the way (logs a warning, never
+ * escalates) — the same "prefer inconclusive over false alarm" discipline
+ * this check applies to the multi-arch-index case (mt#3251 R1).
+ */
+async function resolveDigestLagSustained(
+  repo: string,
+  token: string,
+  serviceName: string,
+  deployedDigest: string,
+  registryDigest: string,
+  dryRun: boolean
+): Promise<{ escalate: boolean; note: string }> {
+  if (dryRun) {
+    // Dry-run has no cross-run persistence within a single invocation, so
+    // treating every dry-run detection as a first observation (never
+    // escalating) is the only correct behavior — it cannot know whether a
+    // PRIOR real run already observed the same pair.
+    console.log(
+      `[dry-run] Would check/update the digest-lag pending tracker for ${serviceName} (dry-run never escalates — no real cross-run state).`
+    );
+    return { escalate: false, note: "dry-run: first-observation-only, no persisted state" };
+  }
+
+  const title = pendingTrackerTitle(serviceName);
+
+  let existing: GitHubIssue | null = null;
+  try {
+    existing = await findOpenIssue(repo, title, token);
+  } catch (err) {
+    console.warn(`[${serviceName}] digest-lag pending-tracker lookup failed: ${err}`);
+    return { escalate: false, note: "pending-tracker lookup failed — treating as inconclusive" };
+  }
+
+  const timestamp = new Date().toISOString();
+  const marker = formatPendingPairMarker(deployedDigest, registryDigest);
+  const body = [
+    "## Digest-lag pending observation (mt#3251)",
+    "",
+    `Tracking a POSSIBLE digest lag for \`${serviceName}\` — NOT YET escalated. A`,
+    "second consecutive observation of the SAME deployed/registry digest pair",
+    "will open a `[P0]` alert instead. This issue closes automatically once the",
+    "state resolves (digest catches up) or escalates.",
+    "",
+    `**First observed at:** ${timestamp}`,
+    "",
+    marker,
+    "",
+    "---",
+    "*Auto-managed by [post-deploy-health-monitor](.github/workflows/post-deploy-health-monitor.yml) (mt#3251). Do not edit the PENDING_DIGEST_PAIR line by hand.*",
+  ].join("\n");
+
+  if (!existing) {
+    try {
+      await ensureLabelsExist(repo, token);
+      const created = await githubRequest<GitHubIssue>("POST", `/repos/${repo}/issues`, token, {
+        title,
+        body,
+        labels: [DIGEST_LAG_PENDING_LABEL, MONITOR_LABEL],
+      });
+      console.log(
+        `[github] Opened pending digest-lag tracker #${created.number} for ${serviceName} (first observation, not alerting).`
+      );
+    } catch (err) {
+      console.warn(`[${serviceName}] could not create digest-lag pending tracker: ${err}`);
+    }
+    return { escalate: false, note: "first observation — pending tracker created, no alert" };
+  }
+
+  const recorded = parsePendingPairMarker(existing.body);
+  const samePair =
+    recorded !== null &&
+    recorded.deployed === deployedDigest &&
+    recorded.registry === registryDigest;
+
+  if (samePair) {
+    // Second consecutive observation of the SAME lag — escalate. Close the
+    // pending tracker; the real [P0] issue (opened by the caller right
+    // after this returns) is now the persistent record.
+    try {
+      await githubRequest("PATCH", `/repos/${repo}/issues/${existing.number}`, token, {
+        state: "closed",
+      });
+    } catch (err) {
+      // Non-fatal: escalation proceeds either way — a lingering pending
+      // issue is a cosmetic cleanup gap, not a correctness problem.
+      console.warn(`[${serviceName}] could not close pending tracker #${existing.number}: ${err}`);
+    }
+    return {
+      escalate: true,
+      note: `sustained across 2+ runs — escalating (was pending issue #${existing.number})`,
+    };
+  }
+
+  // Pending tracker exists but records a DIFFERENT pair — the state moved
+  // (another push landed mid-window, or a prior lag resolved and a new one
+  // began). Treat as a fresh first observation: refresh the tracker, do not
+  // escalate yet.
+  try {
+    await githubRequest("PATCH", `/repos/${repo}/issues/${existing.number}`, token, { body });
+  } catch (err) {
+    console.warn(`[${serviceName}] could not refresh pending tracker #${existing.number}: ${err}`);
+  }
+  return {
+    escalate: false,
+    note: "pending pair changed since last observation — reset to first observation",
+  };
+}
+
+/**
+ * Close a lingering digest-lag pending tracker when the check no longer
+ * observes a lag (it resolved before reaching two consecutive
+ * observations — the correct, no-false-alarm outcome). Best-effort: a
+ * failure here is a cosmetic cleanup gap only.
+ */
+async function closeDigestLagPendingTracker(
+  repo: string,
+  token: string,
+  serviceName: string,
+  dryRun: boolean
+): Promise<void> {
+  if (dryRun) return;
+  const title = pendingTrackerTitle(serviceName);
+  let existing: GitHubIssue | null = null;
+  try {
+    existing = await findOpenIssue(repo, title, token);
+  } catch (err) {
+    console.warn(`[${serviceName}] pending-tracker lookup (for cleanup) failed: ${err}`);
+    return;
+  }
+  if (!existing) return;
+  try {
+    await githubRequest("PATCH", `/repos/${repo}/issues/${existing.number}`, token, {
+      state: "closed",
+    });
+    console.log(
+      `[github] Closed resolved digest-lag pending tracker #${existing.number} for ${serviceName}.`
+    );
+  } catch (err) {
+    console.warn(
+      `[${serviceName}] could not close resolved pending tracker #${existing.number}: ${err}`
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -607,6 +1105,14 @@ interface CheckResult {
   healthOk: boolean;
   healthAlert: boolean;
   healthError: string | null;
+  /** mt#3251 — true when the deployed image digest lags the registry's newest. */
+  digestLagAlert: boolean;
+  /** mt#3251 — digest Railway reports for the currently-deployed image. */
+  deployedDigest: string | null;
+  /** mt#3251 — newest manifest digest for the configured tag in the registry. */
+  registryDigest: string | null;
+  /** mt#3251 — set when the check could not run/complete; never implies "OK". */
+  digestLagError: string | null;
   skipped: boolean;
   skipReason: string | null;
 }
@@ -624,6 +1130,10 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
       healthOk: true,
       healthAlert: false,
       healthError: null,
+      digestLagAlert: false,
+      deployedDigest: null,
+      registryDigest: null,
+      digestLagError: null,
       skipped: true,
       skipReason: "serviceId not provisioned",
     };
@@ -634,10 +1144,13 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
   let deployId: string | null = null;
   let deployCreatedAt: string | null = null;
   let deployAlert = false;
+  // Kept outside the try block so check (c) below can reuse the already-
+  // fetched deployment's `meta.imageDigest` instead of a second Railway call.
+  let deployment: RailwayDeploymentNode | null = null;
 
   if (railwayToken) {
     try {
-      const deployment = await fetchLatestDeployment(svc.serviceId, railwayToken);
+      deployment = await fetchLatestDeployment(svc.serviceId, railwayToken);
       if (deployment) {
         deployStatus = deployment.status;
         deployId = deployment.id;
@@ -673,6 +1186,73 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
     healthAlert = !probe.ok;
   }
 
+  // --- (c) Digest-lag check (mt#3251) ---
+  // Only applies to image-source deploys (svc.image set from deploy.config.ts's
+  // railway.source.image). See the module doc-comment's "Does NOT cover" list
+  // for what this deliberately does not check.
+  let digestLagAlert = false;
+  let deployedDigest: string | null = null;
+  let registryDigest: string | null = null;
+  let digestLagError: string | null = null;
+
+  if (svc.image) {
+    if (!deployment) {
+      // No Railway data to compare against — either RAILWAY_TOKEN is absent
+      // or check (a) already failed and logged its own warning above. Either
+      // way this is "cannot determine," not "OK": no alert is raised, but the
+      // gap is visible in the console log via digestLagError.
+      digestLagError = railwayToken
+        ? "No Railway deployment data available — cannot compare digests"
+        : "SKIPPED (no RAILWAY_TOKEN)";
+    } else {
+      const parsedRef = parseGhcrImageRef(svc.image);
+      deployedDigest = deployment.meta?.imageDigest ?? null;
+
+      if (!parsedRef) {
+        digestLagError = `Configured image "${svc.image}" is not a recognized ghcr.io ref — skipping digest-lag check`;
+      } else if (!deployedDigest) {
+        digestLagError =
+          "Railway deployment meta has no imageDigest to compare against (older deployments predate this field)";
+      } else {
+        try {
+          const manifest = await fetchGhcrManifest(parsedRef);
+          registryDigest = manifest.digest;
+
+          if (!manifest.isIndex) {
+            // Single-platform manifest (the shape both currently-watched
+            // images actually have, verified live 2026-07-28): direct
+            // comparison.
+            digestLagAlert = registryDigest !== deployedDigest;
+          } else if (manifest.childDigests.length === 0) {
+            // mt#3251 R1 hardening: detected a multi-arch index/manifest-list
+            // but could not extract any per-platform child digest to compare
+            // against (unexpected/unparseable `manifests` entries). Railway's
+            // digest is platform-specific and will almost never equal the
+            // index's own digest, so comparing against `registryDigest`
+            // alone here would false-positive on every check. Prefer a
+            // missed detection over a permanent false alarm on an alerting
+            // path — skip with a logged reason instead of guessing.
+            digestLagError =
+              "Registry tag resolved to a multi-arch index with no extractable per-platform digests — cannot compare, skipping";
+          } else {
+            // Multi-arch index WITH extractable child digests: the deployed
+            // digest is expected to match one of the PLATFORM manifests, not
+            // the index itself, but accept either — a match against the
+            // index digest is also legitimate if Railway ever resolves and
+            // stores the index digest directly.
+            const candidates = new Set([manifest.digest, ...manifest.childDigests]);
+            digestLagAlert = !candidates.has(deployedDigest);
+          }
+        } catch (err) {
+          console.warn(`[${svc.name}] GHCR digest lookup failed: ${err}`);
+          // Non-fatal, same discipline as (a): a lookup failure is not
+          // evidence of a lag, so it must never alert.
+          digestLagError = err instanceof Error ? err.message : String(err);
+        }
+      }
+    }
+  }
+
   return {
     service: svc.name,
     deployStatus,
@@ -683,6 +1263,10 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
     healthOk,
     healthAlert,
     healthError,
+    digestLagAlert,
+    deployedDigest,
+    registryDigest,
+    digestLagError,
     skipped: false,
     skipReason: null,
   };
@@ -717,6 +1301,24 @@ function formatHealthDownDetails(svc: ServiceDef, result: CheckResult): string {
   ]
     .filter((l) => l !== null)
     .join("\n");
+}
+
+function formatDigestLagDetails(svc: ServiceDef, result: CheckResult): string {
+  return [
+    `- **Service:** \`${svc.name}\``,
+    `- **Configured image:** \`${svc.image ?? "unknown"}\``,
+    `- **Deployed digest:** \`${result.deployedDigest ?? "unknown"}\``,
+    `- **Newest registry digest:** \`${result.registryDigest ?? "unknown"}\``,
+    `- **Deploy status (for context):** \`${result.deployStatus ?? "unknown"}\``,
+    "",
+    "**What this means:** the service is running an OLDER image than the newest one pushed " +
+      "to the registry. The service may be perfectly HEALTHY — this alert catches the case " +
+      "where the deploy pipeline silently stopped shipping new images while the running " +
+      "instance stays up (mt#3251).",
+    "",
+    "**Action:** check the service's deploy workflow run history for recent failures, fix the " +
+      "underlying cause, then manually trigger a redeploy.",
+  ].join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -788,8 +1390,21 @@ async function main(): Promise<void> {
         `  Health:        HTTP ${result.healthStatus ?? "timeout"} — ${result.healthOk ? "OK" : "FAIL"}`
       );
     }
+    if (svc.image) {
+      const digestStatus = result.digestLagAlert
+        ? "LAG"
+        : result.digestLagError
+          ? `SKIP (${result.digestLagError})`
+          : "OK";
+      console.log(
+        `  Digest:        deployed=${result.deployedDigest ?? "?"} registry=${result.registryDigest ?? "?"} — ${digestStatus}`
+      );
+    }
 
-    const alerts: Array<{ class: "deploy-failed" | "health-down"; details: string }> = [];
+    const alerts: Array<{
+      class: "deploy-failed" | "health-down" | "digest-lag";
+      details: string;
+    }> = [];
 
     if (result.deployAlert) {
       alerts.push({
@@ -803,6 +1418,34 @@ async function main(): Promise<void> {
         class: "health-down",
         details: formatHealthDownDetails(svc, result),
       });
+    }
+
+    if (result.digestLagAlert && result.deployedDigest && result.registryDigest) {
+      // mt#3251 R2: never escalate on a single observation — a healthy
+      // build+push+redeploy cycle transiently lags for a few minutes, and
+      // this check runs every 10 minutes. Route through the cross-run
+      // pending-tracker before deciding to alert.
+      const sustained = await resolveDigestLagSustained(
+        githubRepo,
+        githubToken,
+        svc.name,
+        result.deployedDigest,
+        result.registryDigest,
+        dryRun
+      );
+      console.log(`  Digest-lag sustained-check: ${sustained.note}`);
+      if (sustained.escalate) {
+        alerts.push({
+          class: "digest-lag",
+          details: formatDigestLagDetails(svc, result),
+        });
+      }
+    } else if (svc.image && !result.digestLagError) {
+      // Digest check ran cleanly and found no lag this run — if a pending
+      // tracker exists from an earlier observation, the transient lag
+      // resolved before reaching two consecutive detections. Clean it up
+      // rather than leaving a stale "possible lag" issue open forever.
+      await closeDigestLagPendingTracker(githubRepo, githubToken, svc.name, dryRun);
     }
 
     if (alerts.length === 0) {

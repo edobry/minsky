@@ -10,7 +10,13 @@ Stateless Node service. Railway is the documented default because webhooks are f
 2. **Smoke** — boot the freshly-built image against a throwaway, job-scoped Postgres and probe `/health`. Discarded at job end; never touches prod.
 3. **Migrate** — run `services/reviewer/scripts/migrate.ts` (a standalone CI entrypoint around `applyMigrations()`) against production, connected as the DDL-capable `postgres` role sourced from the `MINSKY_PERSISTENCE_POSTGRES_URL` GitHub Actions secret. **This step is fatal**: a failing migration aborts the job before the image is pushed, so the previously-deployed reviewer keeps serving against the unchanged schema.
 4. **Push** — tag and push `ghcr.io/edobry/minsky-reviewer:latest` (+ a `:sha-<short>` tag) to GHCR.
-5. **Trigger Railway redeploy** — an explicit `serviceInstanceRedeploy` call, kept **non-fatal** (mirrors `deploy-minsky-mcp.yml`): Railway's image-source auto-redeploy-on-new-image-push is the actual trigger (same mechanism `minsky-mcp` already relies on, mt#2342) — the explicit call is belt-and-suspenders, not the deploy mechanism itself.
+5. **Trigger Railway redeploy** — an explicit `railway redeploy --from-source` call via the
+   official Railway CLI. **This step is FATAL** (mt#3180, revised from an earlier non-fatal
+   draft): Railway's image-source auto-redeploy-on-new-image-push does NOT fire for this
+   service (verified across four consecutive pushes that never advanced the live deployment),
+   so this explicit call is the ACTUAL deploy trigger, not a backstop — a false-green report
+   here is worse than an honest failure. See "Operator follow-up: RAILWAY_REVIEWER_TOKEN"
+   below for the credential this step currently needs to actually succeed.
 
 **Migrations run in CI as `postgres`, not (only) at boot, going forward.** The reviewer's boot path still calls `applyMigrations()` unconditionally before the HTTP server starts (`server.ts`, `if (import.meta.main)`) — that is deliberately UNCHANGED by mt#3117; dual application is safe because `drizzle.__drizzle_migrations_reviewer` is an idempotent, high-water-mark ledger. Removing the boot-time call, and flipping the reviewer's runtime Postgres credential to the DML-only `minsky_app` role, is mt#3030's job — sequenced strictly after this workflow has survived a real migration-bearing deploy. Until mt#3030 lands, the reviewer's runtime credential is still the same one used before this task; the DDL-capable `postgres` credential used by the CI migrate step lives ONLY in the `MINSKY_PERSISTENCE_POSTGRES_URL` repo secret, never in the reviewer's Railway environment.
 
@@ -24,6 +30,33 @@ Two live Railway mutations are **NOT** performed by the mt#3117 PR (config-as-co
 2. **Reconcile via `pulumi up`** — once the live Source flip above is done, run `pulumi up` against `infra/index.ts` so the declared state (`sourceImage`, no `configPath`) matches. Note the existing live-state caveat (mt#1815/mt#2777, unresolved as of this task): the reviewer service's `configPath` has independently been observed drifted to null in production, so verify the live service state before and after this reconciliation rather than assuming the pre-mt#3117 declared state was actually applied.
 
 Until step 1 above happens, Railway's native repo-source auto-trigger may still be live on the dashboard side even though `services/reviewer/railway.json` no longer exists in the repo — the config-as-code change alone does not retroactively unregister a trigger that was set up via the dashboard/API historically (see "Configure the deployment trigger" below for how it was originally created). Confirm the trigger is actually gone (`service.repoTriggers` via GraphQL, or the dashboard's Source settings) as part of the Source flip.
+
+### Operator follow-up: RAILWAY_REVIEWER_TOKEN (mt#3251)
+
+`deploy-reviewer.yml`'s "Trigger Railway redeploy" step (item 5 above) has been failing since
+2026-07-25T21:57Z: the `RAILWAY_TOKEN` repo secret it fell back on is a Railway PROJECT token
+scoped to a DIFFERENT project (it is shared with `deploy-minsky-mcp.yml` and
+`post-deploy-health-monitor.yml`, which legitimately depend on its current broader scope — it
+must NOT be re-scoped). As of mt#3251, the redeploy step prefers a new, not-yet-created secret,
+`RAILWAY_REVIEWER_TOKEN`, and falls back to the existing generic `RAILWAY_TOKEN` (so the deploy
+keeps failing exactly as it does today until this secret exists — no worse, no better).
+
+**Operator action to actually fix the deploy pipeline:**
+
+1. Railway dashboard → project `minsky-reviewer` (`41e5ee9c-49e6-44ff-9bfe-7f03d0e94d4b`) →
+   Settings → Tokens → create a PROJECT token scoped to the `production` environment
+   (`b3ea3f5d-8560-40ea-8824-17fe3ca0b32a`).
+2. GitHub → this repo → Settings → Secrets and variables → Actions → New repository secret →
+   name it `RAILWAY_REVIEWER_TOKEN`, paste the token value.
+
+No code change is needed after step 2 — the workflow already prefers this secret over the
+generic fallback. The next push touching the reviewer's build closure will use it.
+
+Probed 2026-07-28 (per `user-preferences.mdc §Probe before deferring`): minting a Railway
+project token has no CLI/API path (`railway --help` exposes only `login`/`logout`; the raw
+GraphQL API rejects the locally-authenticated CLI's own browser-session token for this
+operation, per mem#667) — it is a dashboard-only action, hence the operator step above rather
+than an automated one.
 
 ## Prerequisites (one-time, user action)
 
