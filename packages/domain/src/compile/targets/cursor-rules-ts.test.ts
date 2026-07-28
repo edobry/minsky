@@ -354,6 +354,7 @@ describe("buildRuleMdc trailing newline (mt#1288)", () => {
     ];
     for (const variant of variants) {
       expect(buildRuleMdc(variant).endsWith("\n")).toBe(true);
+      expect(buildRuleMdc(variant).endsWith("\n\n")).toBe(false);
     }
   });
 });

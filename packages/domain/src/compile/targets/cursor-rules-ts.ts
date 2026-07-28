@@ -11,9 +11,11 @@
  * Phase 3 of the compile-pipeline convergence (mt#2293 / ADR-016): this target
  * replaces the legacy `cursor-rules` writer (`packages/domain/src/rules/compile/
  * targets/cursor-rules.ts`), which is unregistered as of this change. To keep the
- * 54 flat-rule outputs byte-identical across the switchover, `buildRuleMdc`
- * reproduces the legacy `serializeRuleToMdc` serialization exactly (same
- * `jsYaml.dump` options, same key order, same banner-as-line-2, same tail).
+ * 53 flat-rule outputs byte-identical across the switchover, `buildRuleMdc`
+ * reproduced the legacy `serializeRuleToMdc` serialization exactly (same
+ * `jsYaml.dump` options, same key order, same banner-as-line-2, same tail) —
+ * with one deliberate exception since mt#1288: the output is newline-terminated
+ * where the legacy serializer left it unterminated. See `buildRuleMdc`.
  */
 
 import { join } from "path";
@@ -102,9 +104,11 @@ export function buildRuleMdc(rule: RuleDefinition): string {
 
   const mdc = `---\n${GENERATED_BANNER}\n${yamlStr}---\n${rule.content}`;
 
-  // Exactly one terminator: `rule.content` arrives trimmed from the shared
-  // reader today, but appending unconditionally would double it the moment that
-  // changes.
+  // Terminate without doubling. `rule.content` arrives trimmed from the shared
+  // reader, so in practice this always appends; the guard keeps it correct if
+  // that reader ever stops trimming. Deliberately NOT collapsing a multi-newline
+  // tail down to one: that would silently rewrite a body's own trailing blank
+  // lines, which is a different concern from terminating the file.
   return mdc.endsWith("\n") ? mdc : `${mdc}\n`;
 }
 
