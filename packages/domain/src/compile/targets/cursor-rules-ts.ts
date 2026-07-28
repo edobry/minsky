@@ -11,9 +11,11 @@
  * Phase 3 of the compile-pipeline convergence (mt#2293 / ADR-016): this target
  * replaces the legacy `cursor-rules` writer (`packages/domain/src/rules/compile/
  * targets/cursor-rules.ts`), which is unregistered as of this change. To keep the
- * 54 flat-rule outputs byte-identical across the switchover, `buildRuleMdc`
- * reproduces the legacy `serializeRuleToMdc` serialization exactly (same
- * `jsYaml.dump` options, same key order, same banner-as-line-2, same tail).
+ * 53 flat-rule outputs byte-identical across the switchover, `buildRuleMdc`
+ * reproduced the legacy `serializeRuleToMdc` serialization exactly (same
+ * `jsYaml.dump` options, same key order, same banner-as-line-2, same tail) —
+ * with one deliberate exception since mt#1288: the output is newline-terminated
+ * where the legacy serializer left it unterminated. See `buildRuleMdc`.
  */
 
 import { join } from "path";
@@ -65,14 +67,24 @@ function ruleOutputPath(workspacePath: string, ruleName: string): string {
 /**
  * Build `<name>.mdc` content from a validated RuleDefinition.
  *
- * **Byte-parity contract (mt#2995):** this reproduces the legacy
- * `serializeRuleToMdc` output exactly so the 54 flat-rule `.cursor/rules/`
- * outputs do not change when the writer switches over — same `jsYaml.dump`
- * options, same frontmatter key order (name → description → globs → alwaysApply
- * → tags), the generated-file banner (mt#1798) as line 2, and the content body
- * appended directly after the closing `---\n`. `globs` and `tags` are emitted
- * as-is (not normalized) to match the legacy serializer. The
- * `cursor-rules-ts.parity` test asserts equality against `serializeRuleToMdc`.
+ * **Byte-parity contract (mt#2995), with one deliberate exception (mt#1288):**
+ * this reproduces the legacy `serializeRuleToMdc` output so the flat-rule
+ * `.cursor/rules/` outputs did not change when the writer switched over — same
+ * `jsYaml.dump` options, same frontmatter key order (name → description → globs
+ * → alwaysApply → tags), the generated-file banner (mt#1798) as line 2, and the
+ * content body appended directly after the closing `---\n`. `globs` and `tags`
+ * are emitted as-is (not normalized) to match the legacy serializer.
+ *
+ * **The exception: output is newline-terminated (mt#1288).** The legacy
+ * serializer emitted no trailing newline, so every one of the 53 compiled
+ * `.cursor/rules/*.mdc` files ended mid-line — showing up as
+ * `\ No newline at end of file` in every diff that touched them. Byte-parity
+ * existed to make the mt#2995 writer SWAP a zero-output-change migration; that
+ * migration is complete, so the defect it was preserving is now fixed rather
+ * than inherited. A generated artifact is terminated unconditionally, which is
+ * why this does NOT mirror the source's own newline state: 26 of the 53
+ * `.minsky/rules/*.mdc` sources have no trailing newline themselves, and
+ * mirroring would leave those outputs still ragged.
  */
 export function buildRuleMdc(rule: RuleDefinition): string {
   const frontmatter: Record<string, unknown> = {};
@@ -90,7 +102,14 @@ export function buildRuleMdc(rule: RuleDefinition): string {
     forceQuotes: false,
   });
 
-  return `---\n${GENERATED_BANNER}\n${yamlStr}---\n${rule.content}`;
+  const mdc = `---\n${GENERATED_BANNER}\n${yamlStr}---\n${rule.content}`;
+
+  // Terminate without doubling. `rule.content` arrives trimmed from the shared
+  // reader, so in practice this always appends; the guard keeps it correct if
+  // that reader ever stops trimming. Deliberately NOT collapsing a multi-newline
+  // tail down to one: that would silently rewrite a body's own trailing blank
+  // lines, which is a different concern from terminating the file.
+  return mdc.endsWith("\n") ? mdc : `${mdc}\n`;
 }
 
 /**
