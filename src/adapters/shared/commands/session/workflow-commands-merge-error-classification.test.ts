@@ -29,7 +29,7 @@ import {
 } from "./workflow-commands";
 import { SessionConflictError } from "@minsky/domain/errors/index";
 import { handleOctokitError } from "@minsky/domain/repository/github-error-handler";
-import { GitHubApiError } from "@minsky/domain/repository/github-error-handler";
+import { GitHubApiError } from "@minsky/domain/repository/index";
 import { classifyOctokitOriginReadError } from "./merge-error-classification";
 
 describe("classifyMergeError", () => {
@@ -329,6 +329,36 @@ describe("mt#3249 — structured classification is preferred over message text",
   test("a degraded classification with no status omits it rather than emitting undefined", () => {
     const err = new GitHubApiError("x", { kind: "degraded", respondedByServer: true });
     expect(classifyMergeError(err)).toEqual({ kind: "degraded" });
+  });
+
+  test("a non-number status is omitted, never stringified (PR #2351 R1)", () => {
+    // `OctokitErrorInfo.status` is typed `number | undefined` but derives from
+    // `anyErr?.status ?? anyErr?.response?.status` over an `unknown` error, so an
+    // error shape carrying explicit nulls produces `null` at runtime. Guarding on
+    // `!== undefined` would let it through and emit the literal string "null".
+    const err = new GitHubApiError("x", {
+      kind: "degraded",
+      status: null as unknown as number,
+      respondedByServer: true,
+    });
+
+    expect(classifyMergeError(err)).toEqual({ kind: "degraded" });
+    expect(classifyOctokitOriginReadError(err)).toEqual({ kind: "degraded" });
+  });
+
+  test("adapters read `kind` and `status` and ignore `respondedByServer` (PR #2351 R1)", () => {
+    // `respondedByServer` exists for the DOMAIN's routing decision (mt#3221:
+    // did GitHub actually respond?). By the time a classification exists that
+    // question is already settled, so flipping it must not move either
+    // classifier — documenting which fields are part of this contract.
+    const base = { kind: "degraded", status: 502 } as const;
+
+    expect(
+      classifyMergeError(new GitHubApiError("x", { ...base, respondedByServer: true }))
+    ).toEqual(classifyMergeError(new GitHubApiError("x", { ...base, respondedByServer: false })));
+    expect(
+      classifyOctokitOriginReadError(new GitHubApiError("x", { ...base, respondedByServer: false }))
+    ).toEqual({ kind: "degraded", status: "502" });
   });
 
   test("back-compat: an error carrying NO classification still uses the string path", () => {

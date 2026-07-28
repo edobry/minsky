@@ -19,7 +19,7 @@
  * modification.
  */
 import { SessionConflictError } from "@minsky/domain/errors/index";
-import { GitHubApiError } from "@minsky/domain/repository/github-error-handler";
+import { GitHubApiError } from "@minsky/domain/repository/index";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 /**
@@ -113,7 +113,7 @@ export function classifyMergeError(err: unknown): MergeErrorClass {
       case "degraded":
         return {
           kind: "degraded",
-          ...(domain.status !== undefined ? { status: String(domain.status) } : {}),
+          ...(typeof domain.status === "number" ? { status: String(domain.status) } : {}),
         };
       default:
         return { kind: "other" };
@@ -206,7 +206,7 @@ export function classifyOctokitOriginReadError(err: unknown): ReadErrorClass {
     if (domain.kind === "degraded") {
       return {
         kind: "degraded",
-        ...(domain.status !== undefined ? { status: String(domain.status) } : {}),
+        ...(typeof domain.status === "number" ? { status: String(domain.status) } : {}),
       };
     }
     return { kind: "other" };

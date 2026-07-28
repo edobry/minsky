@@ -251,9 +251,14 @@ function classOf(
   kind: OctokitFailureKind,
   info: Pick<OctokitErrorInfo, "status" | "hasResponse">
 ): OctokitFailureClass {
+  // `typeof === "number"`, not `!== undefined` (PR #2351 R1): `status` is typed
+  // `number | undefined` but derives from `anyErr?.status ?? anyErr?.response?.status`
+  // over an `unknown` error, so a shape carrying explicit nulls yields `null` at
+  // runtime. `!== undefined` would let that through and a consumer stringifying
+  // it would emit the literal "null" as a status.
   return {
     kind,
-    ...(info.status !== undefined ? { status: info.status } : {}),
+    ...(typeof info.status === "number" ? { status: info.status } : {}),
     respondedByServer: info.hasResponse,
   };
 }
