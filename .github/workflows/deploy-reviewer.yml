@@ -415,7 +415,7 @@ jobs:
           # (PR #2343 R1 non-blocking finding).
           echo "Railway auth identity:"
           railway whoami 2>&1 | sed -E 's/([A-Za-z0-9._%+-]+)@/***@/g' \
-            || echo "::warning::railway whoami failed — see the RAILWAY_TOKEN scope notes above."
+            || echo "note: railway whoami did not report an authenticated identity (non-fatal diagnostic) — see the RAILWAY_TOKEN scope notes above if the redeploy call below also fails."
 
           if railway redeploy --from-source --service "${SERVICE_ID}" -y; then
             echo "Railway redeploy triggered successfully via the CLI."

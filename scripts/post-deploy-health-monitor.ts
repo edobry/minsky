@@ -32,6 +32,15 @@
  *     service discovery already walks every services/<svc>/deploy.config.ts
  *     at runtime (see discoverServices below), so a new image-source
  *     service is covered with no code change here.
+ *   - Multi-arch (index/manifest-list) registry tags (mt#3251 R1 hardening).
+ *     Railway's `meta.imageDigest` is always the PLATFORM-SPECIFIC digest it
+ *     pulled, which does not equal a multi-arch index's own digest — the
+ *     comparison logic (fetchGhcrManifest / checkService) detects the index
+ *     shape and matches against the index digest OR any per-platform child
+ *     digest, not just the index digest alone. Both images this monitor
+ *     currently watches are single-platform (verified live 2026-07-28), so
+ *     this is defensive coverage for a shape that would otherwise
+ *     false-positive forever, not an active bug fix.
  *
  * ### Does NOT cover (check (c), mt#3251)
  *
@@ -45,6 +54,11 @@
  *   - Whether the NEWEST registry image was built from the CORRECT source
  *     commit. This check only verifies "did the newest pushed image reach
  *     Railway," not "was the right code built into that image."
+ *   - A multi-arch index whose `manifests` array cannot be parsed into any
+ *     per-platform digest (mt#3251 R1). Rather than guess and risk a
+ *     permanent false positive, this degrades to a logged, non-alerting
+ *     "cannot compare" skip — the same fail-open discipline as any other
+ *     lookup failure in this check.
  *   - A brief false-positive window right after a new image is pushed but
  *     before the redeploy step has had time to run (the digests
  *     legitimately differ for a few minutes). A single 10-minute-cadence
@@ -61,7 +75,7 @@
  *     ghcr.io/edobry/minsky and ghcr.io/edobry/minsky-reviewer, which are
  *     public). If package visibility is later changed to private, the
  *     registry fetch will fail and this check degrades to a logged
- *     warning (see fetchGhcrManifestDigest's caller in checkService) —
+ *     warning (see fetchGhcrManifest's caller in checkService) —
  *     it does NOT alert on that failure, since a lookup failure is not
  *     evidence of a digest lag.
  *
@@ -314,13 +328,30 @@ async function fetchLatestDeployment(
 // GHCR registry digest lookup (mt#3251, check (c) — "healthy but frozen")
 // ---------------------------------------------------------------------------
 //
-// Fetches the newest manifest digest for a ghcr.io image tag using the
-// anonymous Docker Registry v2 token flow — no secret required. Verified
-// live during mt#3251 against both ghcr.io/edobry/minsky and
-// ghcr.io/edobry/minsky-reviewer (both public packages): the returned
-// docker-content-digest matched Railway's own `meta.imageDigest` for the
-// currently-deployed image exactly, confirming both the mechanism and the
-// field names used here are correct, not merely plausible.
+// Fetches the newest manifest for a ghcr.io image tag using the anonymous
+// Docker Registry v2 token flow — no secret required. Verified live during
+// mt#3251 against both ghcr.io/edobry/minsky and ghcr.io/edobry/minsky-reviewer
+// (both public packages): the returned docker-content-digest matched
+// Railway's own `meta.imageDigest` for the currently-deployed image exactly,
+// confirming both the mechanism and the field names used here are correct,
+// not merely plausible.
+//
+// MULTI-ARCH HARDENING (mt#3251 R1 reviewer finding). A tag can resolve to
+// either a single-platform image manifest OR a multi-arch index/manifest-list
+// (a small JSON document whose `manifests` array lists one child manifest
+// digest per platform). Railway's `meta.imageDigest` is always the
+// PLATFORM-SPECIFIC digest it actually pulled — for a multi-arch tag, that
+// digest does NOT equal the index's own digest, so comparing against the
+// index digest alone would false-positive forever. Verified live (2026-07-28)
+// that both images this monitor currently watches
+// (ghcr.io/edobry/minsky-reviewer:latest, ghcr.io/edobry/minsky:latest) are
+// SINGLE-PLATFORM manifests today (mediaType
+// application/vnd.docker.distribution.manifest.v2+json, no `manifests`
+// array) — so this is defensive hardening for a shape that does not
+// reproduce in this repo currently, not a fix for an active defect. Fetching
+// the manifest BODY (GET, not HEAD) is what makes the index case detectable
+// at all — a HEAD-only digest, as this function did before R1, cannot see
+// the `mediaType`/`manifests` fields needed to tell the two shapes apart.
 
 const GHCR_REGISTRY_HOST = "ghcr.io";
 const GHCR_TIMEOUT_MS = 10_000;
@@ -330,6 +361,12 @@ const MANIFEST_ACCEPT_HEADER = [
   "application/vnd.docker.distribution.manifest.list.v2+json",
   "application/vnd.oci.image.index.v1+json",
 ].join(", ");
+
+/** Media types that mark a manifest response as a multi-arch index/manifest-list. */
+const GHCR_INDEX_MEDIA_TYPES = new Set([
+  "application/vnd.oci.image.index.v1+json",
+  "application/vnd.docker.distribution.manifest.list.v2+json",
+]);
 
 interface ParsedGhcrImageRef {
   repository: string;
@@ -354,14 +391,30 @@ function parseGhcrImageRef(image: string): ParsedGhcrImageRef | null {
   return { repository, tag };
 }
 
+/** Result of fetching a GHCR manifest, with enough shape info to compare correctly. */
+interface GhcrManifestResult {
+  /** The digest of the top-level fetched document (an index digest for a multi-arch tag). */
+  digest: string;
+  /** True when the fetched document is a multi-arch index/manifest-list. */
+  isIndex: boolean;
+  /**
+   * Per-platform child digests, populated only when isIndex is true and the
+   * body's `manifests` array parsed cleanly. A deployed digest matching ANY
+   * of these (or the index digest itself) counts as "up to date".
+   */
+  childDigests: string[];
+}
+
 /**
- * Fetch the manifest digest for a GHCR image tag via the anonymous
- * registry-token flow. Throws on any failure (network, non-200, missing
- * header) — the caller treats a thrown error as "cannot determine,"
- * NOT as "digest matches" (see checkService: a lookup failure logs a
- * warning and skips the alert, it never asserts "OK" by default).
+ * Fetch a GHCR image tag's manifest via the anonymous registry-token flow,
+ * returning enough shape information to compare correctly against a
+ * platform-specific deployed digest (see GhcrManifestResult). Throws on any
+ * failure (network, non-200, missing header, unparseable body) — the caller
+ * treats a thrown error as "cannot determine," NOT as "digest matches" (see
+ * checkService: a lookup failure logs a warning and skips the alert, it
+ * never asserts "OK" by default).
  */
-async function fetchGhcrManifestDigest(ref: ParsedGhcrImageRef): Promise<string> {
+async function fetchGhcrManifest(ref: ParsedGhcrImageRef): Promise<GhcrManifestResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), GHCR_TIMEOUT_MS);
 
@@ -378,10 +431,13 @@ async function fetchGhcrManifestDigest(ref: ParsedGhcrImageRef): Promise<string>
       throw new Error("GHCR token response missing 'token' field");
     }
 
+    // GET, not HEAD: the body is required to detect a multi-arch index (its
+    // `mediaType` / `manifests` fields are invisible to a headers-only HEAD
+    // request).
     const manifestRes = await fetch(
       `https://${GHCR_REGISTRY_HOST}/v2/${ref.repository}/manifests/${ref.tag}`,
       {
-        method: "HEAD",
+        method: "GET",
         headers: {
           Authorization: `Bearer ${tokenBody.token}`,
           Accept: MANIFEST_ACCEPT_HEADER,
@@ -390,13 +446,51 @@ async function fetchGhcrManifestDigest(ref: ParsedGhcrImageRef): Promise<string>
       }
     );
     if (!manifestRes.ok) {
-      throw new Error(`GHCR manifest HEAD HTTP ${manifestRes.status}`);
+      throw new Error(`GHCR manifest GET HTTP ${manifestRes.status}`);
     }
     const digest = manifestRes.headers.get("docker-content-digest");
     if (!digest) {
       throw new Error("GHCR manifest response missing docker-content-digest header");
     }
-    return digest;
+
+    const bodyText = await manifestRes.text();
+    let body: unknown;
+    try {
+      body = JSON.parse(bodyText);
+    } catch (err) {
+      throw new Error(
+        `GHCR manifest response body is not valid JSON: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    const mediaType =
+      body &&
+      typeof body === "object" &&
+      typeof (body as Record<string, unknown>)["mediaType"] === "string"
+        ? ((body as Record<string, unknown>)["mediaType"] as string)
+        : null;
+    const manifestsField =
+      body &&
+      typeof body === "object" &&
+      Array.isArray((body as Record<string, unknown>)["manifests"])
+        ? ((body as Record<string, unknown>)["manifests"] as unknown[])
+        : [];
+
+    const isIndex =
+      (mediaType !== null && GHCR_INDEX_MEDIA_TYPES.has(mediaType)) || manifestsField.length > 0;
+    const childDigests = isIndex
+      ? manifestsField
+          .map((m) =>
+            m &&
+            typeof m === "object" &&
+            typeof (m as Record<string, unknown>)["digest"] === "string"
+              ? ((m as Record<string, unknown>)["digest"] as string)
+              : null
+          )
+          .filter((d): d is string => d !== null)
+      : [];
+
+    return { digest, isIndex, childDigests };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -909,9 +1003,33 @@ async function checkService(svc: ServiceDef, railwayToken: string | null): Promi
           "Railway deployment meta has no imageDigest to compare against (older deployments predate this field)";
       } else {
         try {
-          registryDigest = await fetchGhcrManifestDigest(parsedRef);
-          if (registryDigest !== deployedDigest) {
-            digestLagAlert = true;
+          const manifest = await fetchGhcrManifest(parsedRef);
+          registryDigest = manifest.digest;
+
+          if (!manifest.isIndex) {
+            // Single-platform manifest (the shape both currently-watched
+            // images actually have, verified live 2026-07-28): direct
+            // comparison.
+            digestLagAlert = registryDigest !== deployedDigest;
+          } else if (manifest.childDigests.length === 0) {
+            // mt#3251 R1 hardening: detected a multi-arch index/manifest-list
+            // but could not extract any per-platform child digest to compare
+            // against (unexpected/unparseable `manifests` entries). Railway's
+            // digest is platform-specific and will almost never equal the
+            // index's own digest, so comparing against `registryDigest`
+            // alone here would false-positive on every check. Prefer a
+            // missed detection over a permanent false alarm on an alerting
+            // path — skip with a logged reason instead of guessing.
+            digestLagError =
+              "Registry tag resolved to a multi-arch index with no extractable per-platform digests — cannot compare, skipping";
+          } else {
+            // Multi-arch index WITH extractable child digests: the deployed
+            // digest is expected to match one of the PLATFORM manifests, not
+            // the index itself, but accept either — a match against the
+            // index digest is also legitimate if Railway ever resolves and
+            // stores the index digest directly.
+            const candidates = new Set([manifest.digest, ...manifest.childDigests]);
+            digestLagAlert = !candidates.has(deployedDigest);
           }
         } catch (err) {
           console.warn(`[${svc.name}] GHCR digest lookup failed: ${err}`);

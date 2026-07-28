@@ -360,6 +360,11 @@ function runDeduplicationPhase(services: DiscoveredService[]): void {
 // failure, so this never calls fail() on a mismatch by itself).
 
 const GHCR_REGISTRY_HOST = "ghcr.io";
+/** Media types that mark a manifest response as a multi-arch index/manifest-list (mt#3251 R1). */
+const GHCR_INDEX_MEDIA_TYPES = new Set([
+  "application/vnd.oci.image.index.v1+json",
+  "application/vnd.docker.distribution.manifest.list.v2+json",
+]);
 
 interface ParsedGhcrImageRef {
   repository: string;
@@ -378,7 +383,21 @@ function parseGhcrImageRef(image: string): ParsedGhcrImageRef | null {
   return { repository, tag };
 }
 
-async function fetchGhcrManifestDigest(ref: ParsedGhcrImageRef): Promise<string> {
+/** Mirrors the production monitor's GhcrManifestResult (mt#3251 R1). */
+interface GhcrManifestResult {
+  digest: string;
+  isIndex: boolean;
+  childDigests: string[];
+}
+
+/**
+ * Mirrors scripts/post-deploy-health-monitor.ts's fetchGhcrManifest exactly
+ * (mt#3251 R1: reviewer's non-blocking request to keep the smoke script's
+ * digest logic aligned with production's hardening). GET, not HEAD — the
+ * body is required to detect a multi-arch index/manifest-list shape, which
+ * a headers-only HEAD request cannot see.
+ */
+async function fetchGhcrManifest(ref: ParsedGhcrImageRef): Promise<GhcrManifestResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
 
@@ -398,7 +417,7 @@ async function fetchGhcrManifestDigest(ref: ParsedGhcrImageRef): Promise<string>
     const manifestRes = await fetch(
       `https://${GHCR_REGISTRY_HOST}/v2/${ref.repository}/manifests/${ref.tag}`,
       {
-        method: "HEAD",
+        method: "GET",
         headers: {
           Authorization: `Bearer ${tokenBody.token}`,
           Accept: [
@@ -412,13 +431,51 @@ async function fetchGhcrManifestDigest(ref: ParsedGhcrImageRef): Promise<string>
       }
     );
     if (!manifestRes.ok) {
-      throw new Error(`GHCR manifest HEAD HTTP ${manifestRes.status}`);
+      throw new Error(`GHCR manifest GET HTTP ${manifestRes.status}`);
     }
     const digest = manifestRes.headers.get("docker-content-digest");
     if (!digest) {
       throw new Error("GHCR manifest response missing docker-content-digest header");
     }
-    return digest;
+
+    const bodyText = await manifestRes.text();
+    let body: unknown;
+    try {
+      body = JSON.parse(bodyText);
+    } catch (err) {
+      throw new Error(
+        `GHCR manifest response body is not valid JSON: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    const mediaType =
+      body &&
+      typeof body === "object" &&
+      typeof (body as Record<string, unknown>)["mediaType"] === "string"
+        ? ((body as Record<string, unknown>)["mediaType"] as string)
+        : null;
+    const manifestsField =
+      body &&
+      typeof body === "object" &&
+      Array.isArray((body as Record<string, unknown>)["manifests"])
+        ? ((body as Record<string, unknown>)["manifests"] as unknown[])
+        : [];
+
+    const isIndex =
+      (mediaType !== null && GHCR_INDEX_MEDIA_TYPES.has(mediaType)) || manifestsField.length > 0;
+    const childDigests = isIndex
+      ? manifestsField
+          .map((m) =>
+            m &&
+            typeof m === "object" &&
+            typeof (m as Record<string, unknown>)["digest"] === "string"
+              ? ((m as Record<string, unknown>)["digest"] as string)
+              : null
+          )
+          .filter((d): d is string => d !== null)
+      : [];
+
+    return { digest, isIndex, childDigests };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -484,14 +541,17 @@ async function runDigestLagPhase(services: DiscoveredService[]): Promise<void> {
       continue;
     }
 
-    let registryDigest: string;
+    let manifest: GhcrManifestResult;
     try {
-      registryDigest = await fetchGhcrManifestDigest(parsedRef);
+      manifest = await fetchGhcrManifest(parsedRef);
     } catch (err) {
       fail(`digest-lag:${target.name}`, `GHCR manifest lookup failed: ${err}`);
       continue;
     }
-    pass(`digest-lag-reachable:${target.name}`, `Registry digest: ${registryDigest}`);
+    pass(
+      `digest-lag-reachable:${target.name}`,
+      `Registry digest: ${manifest.digest}${manifest.isIndex ? ` (multi-arch index, ${manifest.childDigests.length} child digests)` : ""}`
+    );
 
     if (!railwayToken) {
       continue;
@@ -506,17 +566,31 @@ async function runDigestLagPhase(services: DiscoveredService[]): Promise<void> {
       continue;
     }
     if (verbose) {
-      console.log(`    [${target.name}] deployed=${deployedDigest} registry=${registryDigest}`);
+      console.log(
+        `    [${target.name}] deployed=${deployedDigest} registry=${manifest.digest} isIndex=${manifest.isIndex}`
+      );
     }
-    // Informational only: a real lag here is a legitimate production
-    // finding, not a smoke-test defect, so this reports via pass() either
-    // way — the mechanism (both digests fetched successfully) is what's
-    // under test, not the current freshness state.
+
+    // mt#3251 R1: mirror the production monitor's candidate-set comparison —
+    // a multi-arch index matches if the deployed digest equals the index
+    // digest OR any per-platform child digest. Informational only either
+    // way: a real lag at smoke-test time is a legitimate production
+    // finding, not a smoke defect.
+    if (manifest.isIndex && manifest.childDigests.length === 0) {
+      skip(
+        `digest-lag-compare:${target.name}`,
+        "Registry tag resolved to a multi-arch index with no extractable per-platform digests — cannot compare"
+      );
+      continue;
+    }
+    const candidates = manifest.isIndex
+      ? new Set([manifest.digest, ...manifest.childDigests])
+      : new Set([manifest.digest]);
     pass(
       `digest-lag-compare:${target.name}`,
-      deployedDigest === registryDigest
+      candidates.has(deployedDigest)
         ? "Deployed digest matches registry (up to date)"
-        : `Deployed digest LAGS registry (deployed=${deployedDigest}, registry=${registryDigest})`
+        : `Deployed digest LAGS registry (deployed=${deployedDigest}, registry candidates=${[...candidates].join(", ")})`
     );
   }
 }
