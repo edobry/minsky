@@ -19,6 +19,7 @@
  * modification.
  */
 import { SessionConflictError } from "@minsky/domain/errors/index";
+import { GitHubApiError } from "@minsky/domain/repository/index";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 /**
@@ -60,6 +61,25 @@ export function mergeErrorMessage(err: unknown): string {
 }
 
 /**
+ * Read the classification the DOMAIN layer already computed, when the error
+ * carries one (mt#3249).
+ *
+ * `handleOctokitError` knows exactly what a failure was at the moment it
+ * throws. Historically it discarded that and encoded the answer in prose,
+ * which both classifiers below then reconstructed by matching the prose — a
+ * class → string → class round-trip that made operator-facing wording a parsed
+ * API. `GitHubApiError` carries the answer directly, so when it is present
+ * there is nothing to reconstruct.
+ *
+ * Returns null for anything not carrying a classification — errors from other
+ * origins, and any call path not yet migrated — so the string matching below
+ * remains the fallback rather than being replaced.
+ */
+function domainClassification(err: unknown): GitHubApiError["classification"] | null {
+  return err instanceof GitHubApiError ? err.classification : null;
+}
+
+/**
  * Classify a GitHub-backed command failure into conflict / rate-limit /
  * degraded(5xx) / other. Narrowed replacement for the prior
  * `isMergeConflictError`, whose bare "mergeable" / "conflict" substring
@@ -80,6 +100,25 @@ export function mergeErrorMessage(err: unknown): string {
  */
 export function classifyMergeError(err: unknown): MergeErrorClass {
   if (err instanceof SessionConflictError) return { kind: "conflict" };
+
+  // Structured first (mt#3249): when the domain layer told us what this was,
+  // believe it rather than re-deriving the same answer from its own prose.
+  const domain = domainClassification(err);
+  if (domain) {
+    switch (domain.kind) {
+      case "merge-blocked":
+        return { kind: "conflict" };
+      case "rate-limit":
+        return { kind: "rate-limit" };
+      case "degraded":
+        return {
+          kind: "degraded",
+          ...(typeof domain.status === "number" ? { status: String(domain.status) } : {}),
+        };
+      default:
+        return { kind: "other" };
+    }
+  }
 
   const rawMessage = mergeErrorMessage(err);
   const msgLower = rawMessage.toLowerCase();
@@ -158,6 +197,21 @@ export type ReadErrorClass =
  * Exported for direct unit testing.
  */
 export function classifyOctokitOriginReadError(err: unknown): ReadErrorClass {
+  // Structured first (mt#3249) — same reasoning as classifyMergeError. This
+  // path additionally stops depending on the headline being matched
+  // byte-for-byte, which is what made rewording it a breaking change.
+  const domain = domainClassification(err);
+  if (domain) {
+    if (domain.kind === "rate-limit") return { kind: "rate-limit" };
+    if (domain.kind === "degraded") {
+      return {
+        kind: "degraded",
+        ...(typeof domain.status === "number" ? { status: String(domain.status) } : {}),
+      };
+    }
+    return { kind: "other" };
+  }
+
   const message = mergeErrorMessage(err);
   if (message.startsWith(OCTOKIT_RATE_LIMIT_HEADLINE)) {
     return { kind: "rate-limit" };

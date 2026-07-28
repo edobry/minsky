@@ -21,6 +21,12 @@ export type { RepositoryStatus };
 // Re-export check types so consumers don't need to import from github-pr-checks directly
 export type { ChecksResult, CheckRunResult } from "./github-pr-checks";
 
+// Re-export the structured GitHub-failure surface (mt#3249) for the same
+// reason: adapters classify on `GitHubApiError.classification`, and should not
+// have to reach into github-error-handler.ts to do it.
+export { GitHubApiError } from "./github-error-handler";
+export type { OctokitFailureClass, OctokitFailureKind } from "./github-error-handler";
+
 // Re-export workflow-run types
 export type {
   WorkflowRun,

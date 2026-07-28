@@ -64,7 +64,28 @@ import {
   type PermissionMode,
   type SpawnFn,
 } from "./driven-session-host";
+import {
+  createDrivenInitLinkObserver,
+  createDrivenResultObserver,
+  createDrivenSessionPersistObserver,
+  orchestrateDrivenSessionResume,
+} from "./driven-session-launch";
 import type { ChannelActuator } from "./principal-channel-poller";
+
+/**
+ * The channel's standing conversation always occupies THIS row (mt#3243).
+ *
+ * `driven_sessions` is keyed on `localId` and the store upserts on it, so a
+ * fixed id gives the channel exactly one row for its whole life — and, more
+ * importantly, gives the actuator a way to find that row again after a daemon
+ * restart has wiped its in-memory handle. Without a stable key there is nothing
+ * to look up: the alternatives all cost a migration (a new event type, a new
+ * column) or a fragile cwd-matching heuristic. See the task's Design decision.
+ *
+ * Not a UUID, deliberately: this is a well-known constant, and reading it in a
+ * row or a log should say what it is.
+ */
+export const PRINCIPAL_CHANNEL_LOCAL_ID = "principal-channel-standing";
 
 /**
  * How long to wait for a turn to finish before answering the principal anyway.
@@ -95,6 +116,29 @@ const DEFAULT_READY_TIMEOUT_MS = 2 * 60 * 1000;
  */
 const READY_POLL_MS = 50;
 
+/**
+ * Fold a replied-to message into the turn the agent actually sees (mt#3243).
+ *
+ * Telegram's reply affordance is out-of-band: the protocol carries it as a
+ * separate field, so an agent reading only the message body cannot tell
+ * "focus on that one" from a non sequitur. Quoting the target inline is what
+ * makes the reference resolve — and it resolves on a FRESH conversation too,
+ * which matters because the channel's conversation does not always survive
+ * (a daemon restart replaces it).
+ *
+ * Blockquote form because the child is a `claude` process reading markdown:
+ * `>` marks the quoted span unambiguously without inventing a delimiter the
+ * model has to be taught.
+ */
+export function composeTurnInput(text: string, replyToText?: string): string {
+  if (replyToText === undefined || replyToText.trim().length === 0) return text;
+  const quoted = replyToText
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  return `In reply to:\n${quoted}\n\n${text}`;
+}
+
 export interface DrivenSessionActuatorOptions {
   /** Working directory for the channel conversation. */
   cwd: string;
@@ -112,6 +156,26 @@ export interface DrivenSessionActuatorOptions {
   /** Test seam — mirrors the driven-session routes' own injection points. */
   spawnFn?: SpawnFn;
   command?: string;
+  /**
+   * Test seam for the restart-recovery lookup — mirrors
+   * `driven-session-ws.ts`'s own `orchestrateResume` injection point.
+   */
+  orchestrateResume?: typeof orchestrateDrivenSessionResume;
+  /**
+   * Test seam for the persistence observer. Production omits it and gets the
+   * real writer; a test supplies a spy rather than reaching a database.
+   */
+  onStateChange?: (record: DrivenSessionRecord) => void;
+  /**
+   * Which durable row this conversation occupies. Defaults to
+   * {@link PRINCIPAL_CHANNEL_LOCAL_ID}.
+   *
+   * Overridable so a live probe does not collide with the running channel's
+   * own row — they would otherwise share one id, and the probe's conversation
+   * would become the one the real channel resumes. A second channel bound to a
+   * different chat would need its own id for the same reason.
+   */
+  localId?: string;
 }
 
 /**
@@ -126,6 +190,8 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
   const turnTimeoutMs = opts.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
   const readyTimeoutMs = opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
   const readyPollMs = opts.readyPollMs ?? READY_POLL_MS;
+  const orchestrateResume = opts.orchestrateResume ?? orchestrateDrivenSessionResume;
+  const channelLocalId = opts.localId ?? PRINCIPAL_CHANNEL_LOCAL_ID;
   let standingLocalId: string | null = null;
 
   const liveRecord = (): DrivenSessionRecord | null => {
@@ -142,7 +208,8 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
   };
 
   /**
-   * Get the standing conversation, spawning one if needed. Does NOT wait.
+   * Get the standing conversation — resuming the persisted one when there is
+   * one, spawning otherwise. Does NOT wait for readiness.
    *
    * mt#3234 waited for `init` here, before writing input. That is a deadlock:
    * `claude -p --input-format stream-json` does not emit `init` until it has
@@ -155,9 +222,36 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
    * mt#3234's actual purpose: a child that never comes up is detected and
    * abandoned rather than silently swallowing messages forever.
    */
-  const ensureRecord = (): DrivenSessionRecord => {
+  const ensureRecord = async (): Promise<DrivenSessionRecord> => {
     const existing = liveRecord();
     if (existing) return existing;
+
+    // The conversation is the durable entity; this process is not. After a
+    // daemon restart the in-memory handle is gone but the transcript is not,
+    // so try to reattach before starting over with no memory.
+    const resumed = await orchestrateResume(channelLocalId, { registry });
+    if (resumed.outcome === "resumed") {
+      standingLocalId = resumed.record.localId;
+      log.info("[principal-channel] resumed the standing channel conversation", {
+        localId: resumed.record.localId,
+        harnessSessionId: resumed.record.harnessSessionId,
+        actuatorGeneration: resumed.record.actuatorGeneration,
+      });
+      return resumed.record;
+    }
+    if (resumed.outcome === "locked") {
+      // Another process holds the resume lock for this conversation. Spawning
+      // anyway would put two `claude --resume` on one transcript, which forks
+      // its DAG silently — the exact hazard the lock exists to prevent.
+      throw new Error(
+        "another process is currently resuming this conversation — send the message again in a moment"
+      );
+    }
+    if (resumed.outcome === "unrecoverable") {
+      log.warn("[principal-channel] persisted conversation is unrecoverable; starting fresh", {
+        reason: resumed.reason,
+      });
+    }
 
     const { record } = startDrivenSession({
       cwd: opts.cwd,
@@ -165,6 +259,12 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
       ...(opts.model === undefined ? {} : { model: opts.model }),
       taskId: null,
       minskySessionId: null,
+      localId: channelLocalId,
+      // Without these the conversation is never written down at all, so a
+      // restart has nothing to resume FROM — the defect this task fixes.
+      onStateChange: opts.onStateChange ?? createDrivenSessionPersistObserver(),
+      onHarnessSessionLinked: createDrivenInitLinkObserver(),
+      onResultSummary: createDrivenResultObserver(),
       registry,
       ...(opts.spawnFn === undefined ? {} : { spawnFn: opts.spawnFn }),
       ...(opts.command === undefined ? {} : { command: opts.command }),
@@ -175,6 +275,32 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
       cwd: opts.cwd,
     });
     return record;
+  };
+
+  /**
+   * In-flight guard around {@link ensureRecord}.
+   *
+   * `ensureRecord` became async when resume landed, and that opened a race the
+   * synchronous version could not have: two callers arriving before the first
+   * spawn completes BOTH see no live record and BOTH create one — two `claude`
+   * processes for a conversation whose entire premise is that there is one.
+   * (Caught by the pre-existing "concurrent callers share one conversation"
+   * test, which went from 1 spawn to 2.)
+   *
+   * Sharing the promise keeps the module docblock's contract intact: concurrent
+   * callers are not SUPPORTED — they resolve on the same turn's result — but
+   * they must not multiply conversations.
+   */
+  let ensureInFlight: Promise<DrivenSessionRecord> | null = null;
+
+  const ensureRecordOnce = (): Promise<DrivenSessionRecord> => {
+    const existing = liveRecord();
+    if (existing) return Promise.resolve(existing);
+    if (ensureInFlight) return ensureInFlight;
+    ensureInFlight = ensureRecord().finally(() => {
+      ensureInFlight = null;
+    });
+    return ensureInFlight;
   };
 
   const abandonUnreadyRecord = (
@@ -226,12 +352,12 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
   };
 
   return {
-    async converse(text: string): Promise<string> {
-      const record = ensureRecord();
+    async converse(text: string, replyToText?: string): Promise<string> {
+      const record = await ensureRecordOnce();
       // Subscribe BEFORE writing: a fast turn could otherwise emit its result
       // between the write and the subscribe, and the reply would be lost.
       const turn = awaitTurnResult(record, turnTimeoutMs);
-      if (!sendDrivenSessionInput(record, text)) {
+      if (!sendDrivenSessionInput(record, composeTurnInput(text, replyToText))) {
         turn.cancel();
         throw new Error("the channel conversation is not accepting input");
       }
