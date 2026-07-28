@@ -23,6 +23,7 @@ import type { DispatchContext } from "./registry";
 const FIXTURE_PATH = "/tmp/fixture.jsonl";
 const DEFERRAL_PROSE = "Deferred to operator: requires Railway access.";
 const ASK_OPTION_LABEL = "ask-option-label";
+const CAPABILITY_PROSE = "capability-deferral-prose";
 const R5_LABEL = "You recover the reviewer service";
 
 // ---------------------------------------------------------------------------
@@ -80,7 +81,7 @@ describe("capability-deferral prose fires without probe evidence", () => {
     test(`fires: "${phrase.slice(0, 48)}..."`, () => {
       const matches = detectCapabilityDeferral([assistantText(phrase)]);
       expect(matches).toHaveLength(1);
-      expect(matches[0]?.surface).toBe("capability-deferral-prose");
+      expect(matches[0]?.surface).toBe(CAPABILITY_PROSE);
     });
   }
 });
@@ -292,6 +293,75 @@ describe("AskUserQuestion option-label surface", () => {
 });
 
 // ---------------------------------------------------------------------------
+// mt#3273 — self-referential quoting must not fire.
+//
+// The detector's FIRST live calibration record (2026-07-28T17:03:56Z) was a
+// false positive: a turn DESCRIBING this detector quoted "requires Railway
+// access" as an example, and the prose surface matched the quoted example.
+// `elideQuotedContexts` covers backticks/fences/blockquotes but deliberately
+// not double-quoted prose; `elideDoubleQuotedSpans` covers exactly that class
+// and existed already. Both are now applied.
+// ---------------------------------------------------------------------------
+
+describe("does not fire on trigger phrases quoted in prose (mt#3273)", () => {
+  // Verbatim reconstruction of the text behind the first live record. The
+  // logged matchedPhrase was:
+  //   'ty-deferral prose ("requires Railway access") when the turn shows no
+  //    probe; Surface B catches the same'
+  const FIRST_LIVE_FIRE_TEXT =
+    'Surface A catches capability-deferral prose ("requires Railway access") when the turn ' +
+    "shows no probe; Surface B catches the same deferral hiding in AskUserQuestion option labels.";
+
+  test("the exact turn behind the first live fire no longer fires", () => {
+    expect(detectCapabilityDeferral([assistantText(FIRST_LIVE_FIRE_TEXT)])).toHaveLength(0);
+  });
+
+  test.each([
+    ['He said the deploy "requires Railway access" in the postmortem.'],
+    ['The detector matches "deferred to operator" and similar phrasings.'],
+    ["A curly-quoted “operator follow-up” mention is also elided."],
+  ])("quoted mention does not fire: %s", (text) => {
+    expect(detectCapabilityDeferral([assistantText(text)])).toHaveLength(0);
+  });
+
+  test("an UNQUOTED deferral still fires — elision must not swallow real positives", () => {
+    const matches = detectCapabilityDeferral([assistantText(DEFERRAL_PROSE)]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe(CAPABILITY_PROSE);
+  });
+
+  test("a quoted mention alongside a real unquoted deferral still fires", () => {
+    const text =
+      'The rule names "requires Railway access" as the example. ' +
+      "Separately: I don't have access to the hosted service.";
+    expect(detectCapabilityDeferral([assistantText(text)])).toHaveLength(1);
+  });
+
+  test("backtick and blockquote elision still works (no regression)", () => {
+    expect(
+      detectCapabilityDeferral([assistantText("The pattern `deferred to operator` is matched.")])
+    ).toHaveLength(0);
+    expect(
+      detectCapabilityDeferral([assistantText("> Deferred to operator: requires Railway access.")])
+    ).toHaveLength(0);
+  });
+
+  // The ask surface deliberately does NOT elide — a label does not quote a
+  // deferral, it IS one, so quotes there name the thing being handed over.
+  test("ask-option-label surface still fires when the label contains quotes", () => {
+    const quotedLabelAsk: Record<string, unknown> = {
+      questions: [
+        {
+          question: "Retrigger needs credentials.",
+          options: [{ label: 'Provide me the "MCP auth token"' }, { label: "Hold the PR" }],
+        },
+      ],
+    };
+    expect(detectAskDeferral(quotedLabelAsk, [])).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Scope boundary — mt#2303 owns the activation-instruction family.
 //
 // Pins the reconciliation recorded in mt#2459's spec: these phrasings must
@@ -346,7 +416,7 @@ describe("calibration-first posture", () => {
 
   test("the reminder names the probe sequence and the override var", () => {
     const reminder = buildReminder([
-      { surface: "capability-deferral-prose", matchedPhrase: "requires Railway access" },
+      { surface: CAPABILITY_PROSE, matchedPhrase: "requires Railway access" },
     ]);
     expect(reminder).toContain("whoami");
     expect(reminder).toContain(OVERRIDE_ENV_VAR);

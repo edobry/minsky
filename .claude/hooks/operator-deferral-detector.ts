@@ -59,7 +59,7 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
-import { elideQuotedContexts } from "./elision";
+import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
 // Surrogate-pair-safe truncation — the matched text is arbitrary assistant
 // prose / operator-authored option labels, so a raw `.slice(0, N)` can split
 // an emoji. Same cross-tree import the standalone parallel-work guard uses.
@@ -228,13 +228,25 @@ export function hasProbeEvidence(turnLines: TranscriptLine[]): boolean {
  * most one match (first hit) — the calibration record needs an exemplar, not
  * an exhaustive list. Quoted/code contexts are elided first so a rule quoting
  * its own trigger phrases (this file's own doc comment included) never fires.
+ *
+ * BOTH elision helpers are applied (mt#3273). `elideQuotedContexts` covers
+ * fenced blocks, inline backticks, and blockquotes; `elideDoubleQuotedSpans`
+ * covers straight/curly double-quoted prose, which the first one deliberately
+ * does not touch. The self-referential case is this family's highest-frequency
+ * false positive — every calibration review, retrospective, and PR body quotes
+ * trigger phrases by construction — and it is exactly what this detector's
+ * FIRST live fire was: `"requires Railway access"` quoted inside a report
+ * describing the detector. That class had already been diagnosed and solved for
+ * the sibling detectors (see `elideDoubleQuotedSpans`'s own doc comment, written
+ * after 5 identical FPs in the 2026-07-08 review window); this detector shipped
+ * calling only the narrower helper and re-introduced it.
  */
 export function detectCapabilityDeferral(turnLines: TranscriptLine[]): DeferralMatch[] {
   const text = extractAssistantText(turnLines);
   if (!text) return [];
   if (hasProbeEvidence(turnLines)) return [];
 
-  const scanned = elideQuotedContexts(text);
+  const scanned = elideDoubleQuotedSpans(elideQuotedContexts(text));
   for (const pattern of CAPABILITY_DEFERRAL_PATTERNS) {
     const m = pattern.exec(scanned);
     if (m) {
@@ -281,6 +293,15 @@ export const PRINCIPAL_DECISION_PATTERNS: RegExp[] = [
 ];
 
 /**
+ * Remove straight and curly double/single quote characters, leaving the words
+ * they wrap intact (mt#3273). Used only on `AskUserQuestion` option labels —
+ * NOT on prose, where quoted spans are elided wholesale instead.
+ */
+export function stripQuoteChars(text: string): string {
+  return text.replace(/["“”'‘’]/g, "");
+}
+
+/**
  * Flatten an `AskUserQuestion` tool_input into the strings worth scanning:
  * every question's text/header plus every option's label and description.
  * Shape-tolerant — a malformed or partial input contributes nothing rather
@@ -321,6 +342,20 @@ export function extractAskTexts(toolInput: Record<string, unknown> | undefined):
  * Detect an ask that offers the principal a fixable infra/credential action
  * with no capability probe in the current turn. Suppressed when the question
  * reads as a genuine principal-reserved decision.
+ *
+ * Quote handling here is the OPPOSITE of the prose surface's (mt#3273 audit).
+ * Prose ELIDES quoted spans, because prose can quote a trigger phrase while
+ * merely discussing it. An option label cannot: it is the agent's own
+ * structured proposal to the principal — it does not quote a deferral, it IS
+ * one — so quotes inside a label decorate the thing being handed over. Eliding
+ * them would delete signal.
+ *
+ * Worse, leaving them in place also deleted signal: the quote CHARACTER broke
+ * matching outright. `Provide me the "MCP auth token"` did not fire, because
+ * ASK_PRINCIPAL_ACTION_PATTERNS' filler group is `[\w-]+` and `"MCP` opens with
+ * a non-word character — a silent false NEGATIVE on a verbatim R5-shaped label.
+ * Found by the audit test this task's SC#4 required. So quote characters are
+ * STRIPPED from option text before matching, leaving the words intact.
  */
 export function detectAskDeferral(
   toolInput: Record<string, unknown> | undefined,
@@ -334,8 +369,12 @@ export function detectAskDeferral(
   if (hasProbeEvidence(turnLines)) return [];
 
   for (const text of optionTexts) {
+    // Match against the quote-STRIPPED form (see the doc comment above), but
+    // report the ORIGINAL label — the calibration record should show what the
+    // agent actually wrote, not a normalized rewrite of it.
+    const matchable = stripQuoteChars(text);
     for (const pattern of ASK_PRINCIPAL_ACTION_PATTERNS) {
-      const m = pattern.exec(text);
+      const m = pattern.exec(matchable);
       if (m) {
         return [
           {
