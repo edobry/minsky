@@ -20,6 +20,7 @@ import {
 } from "../../cockpit/sweepers";
 import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
 import { refreshSchemaReadinessFromDb } from "../../cockpit/schema-readiness";
+import { startStdioLogRotationSweeper } from "../../cockpit/stdio-log-rotation";
 import {
   markDbDegraded,
   startDbRetryBackoff,
@@ -169,6 +170,16 @@ export function createStartCommand(): Command {
       // ENABLE_AGENT_LOGS. See src/cockpit/daemon-file-log.ts's docblock for
       // why this was previously a silent gap.
       installDaemonFileLogging();
+
+      // Stdio-redirect log rotation (mt#3298): bounds the supervisor-written
+      // cockpit-{stdout,stderr}.log capture files via copy-then-truncate —
+      // the one launch-path-agnostic place a size policy can live, since the
+      // files' fds are owned by whichever supervisor started this process.
+      // Started immediately after logging install (PR #2387 R1) so the boot
+      // tick bounds an oversized file left by a previous run before the
+      // subsystems below begin writing to stdout/stderr. Filesystem-only;
+      // deliberately not gated on schema readiness.
+      const stopStdioLogRotationSweeper = startStdioLogRotationSweeper();
 
       const port = parseInt(options.port, 10);
       if (isNaN(port) || port < 1 || port > 65535) {
@@ -421,7 +432,7 @@ export function createStartCommand(): Command {
       const stopConversationPresenceSweeper = startConversationPresenceSweeper();
       // Sweep meta-watchdog (mt#2894): a "sweep of sweeps" on its OWN
       // self-rescheduling setTimeout chain (deliberately not setInterval —
-      // see sweepers.ts's docblock) that force-restarts any of the eight
+      // see sweepers.ts's docblock) that force-restarts any of the
       // sweeps above whose interval has stopped attempting ticks entirely.
       // Covers the class per-tick isolation structurally cannot: a dropped
       // or wedged setInterval handle, not a hung/throwing tick.
@@ -441,6 +452,7 @@ export function createStartCommand(): Command {
         stopDeploySmokeSweeper();
         stopFollowUpSweeper();
         stopConversationPresenceSweeper();
+        stopStdioLogRotationSweeper();
         stopSweepMetaWatchdog();
         // Aborts the in-flight long poll rather than letting shutdown wait it
         // out; null when the channel is disabled or still starting.

@@ -447,6 +447,32 @@ timestamp File transport at `~/.local/state/minsky/logs/cockpit-daemon.log`,
 independent of which of the three daemon-launch paths (tray, launchd, or a
 bare manual start) is in use.
 
+**Stdio-redirect log rotation (mt#3298).** The raw stdio capture files the
+supervisors write — `~/.local/state/minsky/logs/cockpit-{stdout,stderr}.log`,
+redirected by the tray supervisor's `open_log()` and the launchd plist's
+`StandardOutPath`/`StandardErrorPath` — previously had NO rotation and
+accumulated 6.2 GB. `src/cockpit/stdio-log-rotation.ts` bounds them with an
+in-daemon sweep (`startStdioLogRotationSweeper`, started immediately after
+`installDaemonFileLogging()` in the `cockpit start` handler; liveness visible
+as `stdio-log rotation` on `/api/sweeps`): **50 MB cap per stream, 2 rotated
+files retained per stream (`.1` newest), 60 s check cadence plus a boot
+tick** — worst case ~300 MB on disk across both streams. Rotation is
+copy-tail-then-truncate (logrotate's `copytruncate` pattern): the daemon
+cannot reopen the supervisor-owned inherited fds 1/2, so rename-based
+rotation (newsyslog-style) would leave those fds writing to the renamed
+inode forever. Both supervisors open the files O_APPEND, so truncating the
+live file in place cleanly resets the write position; only the last 50 MB is
+copied into `.1`, so a single boot tick bounds even a multi-GB file left by
+a previous run. The documented copytruncate race (raw stdio written between
+copy and truncate is lost) is accepted — `cockpit-daemon.log` above is the
+primary operational record.
+
+One-time reclaim record (mt#3298 SC4): on 2026-07-29, operator-authorized
+via ask#6348 ("Truncate both"), both files were truncated in place while the
+daemon ran — `cockpit-stdout.log` 4,579,567,871 B and `cockpit-stderr.log`
+1,976,335,179 B → 0 B; the logs directory went 6.2 GB → 91 MB (6,261 MB
+reclaimed) with no daemon downtime (`/api/health` verified after).
+
 ## Slow-clock topology sweeper (mt#2602)
 
 The cockpit daemon runs the **slow-clock topology sweeper**
