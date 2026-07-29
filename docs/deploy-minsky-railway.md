@@ -244,8 +244,13 @@ trigger-fired builds — the trigger itself has to be removed separately.
 
 ### Pulumi's generated Railway SDK cannot see or manage the trigger, or `dockerfilePath`
 
-The generated Railway SDK Pulumi uses (`infra/sdks/railway/`) exposes no resource for the
-deployment-trigger object at all. Its full resource set is: `customDomain`, `environment`,
+The generated Railway SDK Pulumi uses exposes no resource for the
+deployment-trigger object at all. (That SDK lives at `infra/sdks/railway/` **on a working
+machine only** — `infra/.gitignore` ignores `/sdks/`, so the path is NOT present at HEAD and a
+fresh checkout will not have it. Regenerate it with `pulumi install`, which builds the SDK from
+the `packages: railway:` declaration in `infra/Pulumi.yaml`. Gitignoring the generated SDK and
+regenerating on demand is Pulumi's own documented Local Packages guidance — see mt#2449.)
+Its full resource set is: `customDomain`, `environment`,
 `project`, `provider`, `service`, `serviceDomain`, `sharedVariable`, `tcpProxy`, `variable`,
 `variableCollection` — there is no `deploymentTrigger` resource. The `Service` resource's field
 set is: `configPath`, `cronSchedule`, `name`, `projectId`, `regions`, `rootDirectory`,
