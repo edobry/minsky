@@ -975,25 +975,42 @@ export default [
       "custom/no-entity-id-param-drift": "error",
     },
   },
-  // === HOOK DOMAIN-BOOTSTRAP ENFORCEMENT (mt#3046) ===
-  // A hook process is its own entry point: it inherits neither the tsyringe
-  // reflect polyfill nor the domain configuration system, so any hook reaching
-  // the persistence layer must import `ensureHookDomainBootstrap` first.
+  // === ENTRY-POINT DOMAIN-BOOTSTRAP ENFORCEMENT (mt#3046; widened mt#3178) ===
+  // A hook or script process is its own entry point: it inherits neither the
+  // tsyringe reflect polyfill nor the domain configuration system, so any such
+  // file reaching the persistence layer must bootstrap the domain layer first.
   // Without it the domain import throws or the provider resolves to null —
-  // and in both known instances the failure was SWALLOWED, leaving the hook
-  // silently dead (mt#3019: 0 of 62 rows carried any hook-written column for
-  // two weeks; mt#3046 found a second instance the same way).
+  // and the failure is typically SWALLOWED, leaving the entry point silently
+  // dead (mt#3019: 0 of 62 rows carried any hook-written column for two weeks;
+  // mt#3046 found a second instance the same way; mt#3178 found two more under
+  // `scripts/`, one of which masked the polyfill error behind its own
+  // "SKIP: Postgres not available" message).
   //
-  // COVERAGE IS DECLARED HERE: `.minsky/hooks/**` is the enforced glob — the
-  // SOURCE tree, not the generated `.claude/hooks/**` copies (fixing a
-  // generated file is not a fix). Test files are excluded: a test is not an
-  // entry point and legitimately names these symbols in assertions. The rule
-  // additionally exempts `domain-bootstrap.ts` itself, which cannot import
-  // itself. This block needs no separate plugin registration —
-  // `require-hook-domain-bootstrap` is already in the main `**/*.ts` block's
-  // `custom` plugin object above.
+  // SATISFACTION IS PER-TREE — the rule enforces the invariant, not one idiom:
+  //   - `.minsky/hooks/**` must import `ensureHookDomainBootstrap`, which does
+  //     polyfill AND config init. The bare polyfill is NOT enough here: a hook
+  //     with only the polyfill still resolves a null provider (the mt#3019
+  //     failure).
+  //   - `scripts/**` may instead use a STATIC `import "reflect-metadata"`, the
+  //     conventional scripts idiom (paired with `initializeConfiguration` /
+  //     `setupConfiguration`). Static only — a dynamic polyfill import need not
+  //     precede the domain imports it must precede.
+  //
+  // COVERAGE IS DECLARED IN TWO PLACES THAT MUST STAY IN SYNC: the `files` glob
+  // below, AND `ENTRY_POINT_ROOTS_POSIX` in the rule itself. A root added to
+  // only one is silently unenforced — mt#3178 widened this glob alone and lint
+  // reported 0 violations across 144 files because the rule's own path guard
+  // rejected every `scripts/**` path.
+  //
+  // Covered trees are the SOURCE trees, not the generated `.claude/hooks/**`
+  // copies (fixing a generated file is not a fix). Test files are excluded: a
+  // test is not an entry point and legitimately names these symbols in
+  // assertions. The rule additionally exempts `domain-bootstrap.ts` itself,
+  // which cannot import itself. This block needs no separate plugin
+  // registration — `require-hook-domain-bootstrap` is already in the main
+  // `**/*.ts` block's `custom` plugin object above.
   {
-    files: [".minsky/hooks/**/*.ts"],
+    files: [".minsky/hooks/**/*.ts", "scripts/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {
       "custom/require-hook-domain-bootstrap": "error",
