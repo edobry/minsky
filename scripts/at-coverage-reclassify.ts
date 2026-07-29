@@ -191,6 +191,20 @@ function printReport(results: TaskReclassification[]): void {
   }
 }
 
+/**
+ * Stated in every machine-readable output (not just this file's doc comment), per
+ * PR #2386 R1 review: a consumer reading only the JSON — not this script's source — has
+ * no other way to learn that "retained"/"countChanged" reflect the CURRENT spec, not the
+ * spec as it read at fire time.
+ */
+const CURRENT_SPEC_CAVEAT =
+  "Reclassification re-fetches each task's CURRENT spec content, not a historical " +
+  "snapshot from fire time. A task whose spec was edited (rescoped, corrected, closed " +
+  "out) after its fire(s) will be reclassified against today's content — 'retained' and " +
+  "'countChanged' can therefore reflect spec drift unrelated to the extractor fix itself, " +
+  "not only the fix's effect. See mt#3023 / mt#3223 in the mt#3059 spec's Re-measurement " +
+  "section for confirmed instances of this caveat firing.";
+
 function main() {
   const jsonMode = process.argv.includes("--json");
   const repoRoot = findRepoRoot(process.cwd());
@@ -199,7 +213,7 @@ function main() {
 
   if (records.length === 0) {
     if (jsonMode) {
-      console.log(JSON.stringify({ totalFires: 0, results: [] }));
+      console.log(JSON.stringify({ caveat: CURRENT_SPEC_CAVEAT, totalFires: 0, results: [] }));
     } else {
       console.log(`No calibration records found at ${logPath}.`);
     }
@@ -209,8 +223,11 @@ function main() {
   const results = reclassify(records, repoRoot);
 
   if (jsonMode) {
-    console.log(JSON.stringify({ totalFires: records.length, results }, null, 2));
+    console.log(
+      JSON.stringify({ caveat: CURRENT_SPEC_CAVEAT, totalFires: records.length, results }, null, 2)
+    );
   } else {
+    console.log(`Caveat: ${CURRENT_SPEC_CAVEAT}\n`);
     printReport(results);
   }
 

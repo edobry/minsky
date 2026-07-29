@@ -1236,6 +1236,26 @@ describe("extractAcceptanceTestsSection / parseAcceptanceTests — mt#3059 FP-1/
     expect(result.executableAts).toHaveLength(3);
     expect(result.unaddressedAts).toHaveLength(0);
   });
+
+  // PR #2386 R1 BLOCKING fix: the section-boundary regex previously required a literal
+  // preceding "\n" before the next heading, which cannot match when that heading is the
+  // very FIRST line of the section body (zero AT content, no blank line separating the
+  // opening heading from the sibling subsection). That off-by-one let the extraction
+  // fall through to whatever heading appeared NEXT in the document, over-capturing
+  // everything in between.
+  it("FP-1 edge case: bounds correctly when the next heading immediately follows with zero AT content", () => {
+    const spec = `## Acceptance Tests\n### Covers\n- Something this recovery layer covers.\n\n## Context\nUnrelated.\n`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(0);
+  });
+
+  // Same edge case, but on the SUPERSEDING-heading path (FP-2), to confirm the shared
+  // extractSectionBody boundary fix covers both callers identically.
+  it("FP-2 edge case: bounds correctly when the next heading immediately follows the superseding heading with zero AT content", () => {
+    const spec = `### Remaining acceptance tests\n## Summary\nUnrelated context immediately after, no blank line.\n\n## Acceptance Tests\n\n1. Original AT, should be ignored (superseded).\n`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(0);
+  });
 });
 
 describe("isFindingsShapedAcceptanceTest", () => {

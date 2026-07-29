@@ -415,10 +415,21 @@ const CANONICAL_AT_HEADING_RE = /##\s*Acceptance Tests\s*\n/i;
  * because no `##` heading intervened before them. Stopping at the very next heading of
  * ANY level closes that gap without needing special-case knowledge of "Covers" /
  * "Does NOT cover" specifically.
+ *
+ * PR #2386 R1 BLOCKING fix: the boundary regex previously required a LITERAL preceding
+ * `\n` (`/\n {0,3}#{1,6}.../`), which cannot match when the next heading is the very
+ * FIRST line of `rest` — `bodyStartIdx` already sits right after the opening heading's
+ * own trailing newline was consumed, so a heading with zero AT items before it (no blank
+ * line separating them) has no `\n` left in front of it to match against. That
+ * off-by-one silently fell through to the NEXT occurrence of a heading further in the
+ * document (or end-of-string), over-capturing everything in between — the exact
+ * over-capture class this fix exists to close. Anchoring on `^` in multiline mode
+ * matches both "right after a newline" AND "the very start of the string" in one
+ * pattern, so an immediately-adjacent heading is caught correctly.
  */
 function extractSectionBody(specContent: string, bodyStartIdx: number): string {
   const rest = specContent.slice(bodyStartIdx);
-  const boundary = rest.match(/\n {0,3}#{1,6}[ \t]+\S|\n---[ \t]*(?:\n|$)/);
+  const boundary = rest.match(/^ {0,3}#{1,6}[ \t]+\S.*$|^---[ \t]*$/m);
   return boundary && boundary.index !== undefined ? rest.slice(0, boundary.index) : rest;
 }
 
