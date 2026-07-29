@@ -5356,6 +5356,10 @@
                 {
                   "flags": ["--force-immediate"],
                   "description": "When true, bypass the window check and route immediately. Use only for critical-path unblocking."
+                },
+                {
+                  "flags": ["--acknowledge-form-warnings"],
+                  "description": "When true, bypass the form-lint hard-reject (mt#3326) for this create call. A deliberate, per-call override for a genuinely long/complex ask — never a default. Recorded on the form-lint calibration log so override frequency stays reviewable via /calibration-review. Without it, a create whose question/options fail any form-lint check (internal-tool-id, over-word-budget, portal-no-link, long-option-label, letter-prefixed-option-label) is rejected with the violations listed."
                 }
               ],
               "arguments": [
