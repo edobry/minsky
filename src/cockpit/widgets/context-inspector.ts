@@ -367,6 +367,9 @@ export function createContextInspectorWidget(
             startedAt: agentTranscriptsTable.startedAt,
             endedAt: agentTranscriptsTable.endedAt,
             cwd: agentTranscriptsTable.cwd,
+            // mt#3321 — generated title, read from the row already being
+            // selected here rather than via a second enrichment query.
+            title: agentTranscriptsTable.title,
           })
           .from(agentTranscriptsTable)
           .orderBy(desc(agentTranscriptsTable.startedAt))
@@ -377,13 +380,17 @@ export function createContextInspectorWidget(
 
         const sessions: ContextInspectorSessionRow[] = rows.map((r) => {
           const e = enrichment.get(r.agentSessionId) ?? EMPTY_ENRICHMENT;
+          // `r.title` participates in the guard as well as the inputs (mt#3321):
+          // a conversation whose ONLY label source is its generated title must
+          // still reach `computeConversationLabel`, not drop to the fallback.
           const label =
-            e.linkedTaskTitle || e.firstUserText || e.subagentDescriptor
+            e.linkedTaskTitle || r.title || e.firstUserText || e.subagentDescriptor
               ? computeConversationLabel({
                   agentSessionId: r.agentSessionId,
                   cwd: r.cwd,
                   startedAt: r.startedAt,
                   linkedTaskTitle: e.linkedTaskTitle,
+                  generatedTitle: r.title,
                   firstUserText: e.firstUserText,
                   subagentDescriptor: e.subagentDescriptor,
                 })

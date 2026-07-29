@@ -69,7 +69,9 @@ export interface TranscriptListRow {
 
   /** Tier 1 input: display-form task id (e.g. "mt#123") bound via minsky_session_links, if resolved. */
   linkedTaskId: string | null;
-  /** Tier 2 input: earliest-first raw user-turn text candidates (not yet snippet-cleaned). */
+  /** Tier 2 input (mt#3321): generated conversation title, if one exists. */
+  generatedTitle: string | null;
+  /** Tier 3 input: earliest-first raw user-turn text candidates (not yet snippet-cleaned). */
   firstUserTurnCandidates: string[];
   /** Tier 3 input: agent_spawns.agent_kind for the child edge, if only the spawn edge resolved. */
   subagentSpawnAgentKind: string | null;
@@ -129,6 +131,8 @@ export class TranscriptListService {
           endedAt: agentTranscriptsTable.endedAt,
           cwd: agentTranscriptsTable.cwd,
           summary: agentTranscriptsTable.summary,
+          // mt#3321 — a BASE field (it lives on this row), not enrichment.
+          generatedTitle: agentTranscriptsTable.title,
           relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
           relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
           lastIngestedJsonlTimestamp: agentTranscriptsTable.lastIngestedJsonlTimestamp,
@@ -357,6 +361,7 @@ type TranscriptListBaseFields =
   | "endedAt"
   | "cwd"
   | "summary"
+  | "generatedTitle"
   | "relatedTaskIds"
   | "relatedPrNumbers"
   | "lastIngestedJsonlTimestamp";

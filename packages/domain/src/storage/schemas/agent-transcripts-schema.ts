@@ -40,6 +40,19 @@ export const agentTranscriptsTable = pgTable(
     summary: text("summary"),
     summaryEmbedding: vector("summary_embedding", { dimensions: 1536 }),
 
+    /**
+     * Short generated conversation title (mt#3321) — a display LABEL, distinct
+     * from `summary` above.
+     *
+     * Kept as its own column rather than reusing `summary`: `summary` is a 3-6
+     * sentence paragraph whose whole purpose is to feed `summary_embedding`
+     * for semantic search (`transcript-similarity-service.ts`), so overloading
+     * it with a ~60-char title would break that consumer. Nullable — a
+     * conversation with no title yet falls through to the older label tiers in
+     * `conversation-label.ts`.
+     */
+    title: text("title"),
+
     // Regex-extracted references from transcript content
     relatedTaskIds: text("related_task_ids")
       .array()
