@@ -34,9 +34,10 @@
 // to a blocking decision is a follow-up once false-positive rate is measured against
 // real merges. Override: `MINSKY_SKIP_AT_COVERAGE=1` skips the check entirely.
 // Graduation (flip WARN -> deny once the calibration FP rate is measured) is tracked
-// as mt#3059 — this task ships Phase 1 (log-only) only.
+// as mt#3339 (mt#3059 fixed FP-1/FP-2; mt#3316 fixed FP-3 and discovered FP-4, still
+// open) — this task ships Phase 1 (log-only) only.
 // @see mt#3033 — this addition; mt#2542 (root incident); mt#2263 (calibration ladder)
-// @see mt#3059 — graduation follow-up (WARN -> deny)
+// @see mt#3059 / mt#3316 / mt#3339 — graduation lineage (WARN -> deny)
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
