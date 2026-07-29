@@ -489,4 +489,39 @@ describe("startSessionImpl - --recover routes through the guarded delete (mt#310
     await expect(startSessionImpl(params, deps)).rejects.toThrow(/presence store unavailable/);
     expect(await sessionDB.getSession(ABANDONED_SESSION_ID)).not.toBeNull();
   });
+
+  it("production shape (R1): with persistence WIRED and no claims on record, the gate abstains (no-claim) and legacy recovery proceeds without an override", async () => {
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [buildAbandonedCreatedSession()],
+    });
+    const base = createDepsWithRemote({ branchOnRemote: true });
+    const { resolveActor: _omitted, ...withoutActor } = base as StartSessionDependencies & {
+      commands: string[];
+    };
+    // A drizzle-shaped fake whose claims query returns ZERO rows — the
+    // dominant legacy population (claim mechanism began 2026-07-16). Wired
+    // through the SAME provider carrier the production session.start command
+    // resolves its db from (basic-commands.ts, mt#2416).
+    const emptyClaimsDb = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            orderBy: async () => [],
+          }),
+        }),
+      }),
+    };
+    const deps = {
+      ...withoutActor,
+      sessionDB,
+      persistenceProvider: { getDatabaseConnection: async () => emptyClaimsDb },
+    } as unknown as StartSessionDependencies;
+    const params = { task: "md#999", recover: true } as unknown as SessionStartParameters;
+
+    const result = await startSessionImpl(params, deps);
+
+    // ask#6273 branch 3: no claim on record → abstain → the recovery proceeds.
+    expect(result.sessionId).not.toBe(ABANDONED_SESSION_ID);
+    expect(await sessionDB.getSession(ABANDONED_SESSION_ID)).toBeNull();
+  });
 });

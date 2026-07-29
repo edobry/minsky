@@ -56,10 +56,24 @@ export interface StartSessionDependencies {
    */
   db?: ScopeResolverDb;
   /**
+   * mt#3106 (PR #2376 R1): optional persistence provider — the same carrier
+   * the delete/cleanup command factories thread (mt#2487 pattern). The
+   * recover-path gate consumes it via `presenceRepositoryFromProvider` when
+   * present, falling back to `db`. The production `session.start` command
+   * already resolves `db` from this provider (basic-commands.ts, mt#2416
+   * project-scope stamping), so the production path has presence access
+   * whenever persistence is up.
+   */
+  persistenceProvider?: { getDatabaseConnection?: () => Promise<unknown> };
+  /**
    * mt#3106: test seam for the recover-path guarded delete's live-actor gate
    * (mt#3103/mt#3105, ask#6273 semantics). Defaults to the real
-   * `resolveSessionActor` reading presence claims via `db` when present;
-   * with neither, the gate fail-closes (store-unavailable → refuse).
+   * `resolveSessionActor` reading presence claims via `persistenceProvider`
+   * or `db`. With NEITHER, the gate fail-closes (store-unavailable → refuse) —
+   * DELIBERATE: a context with no persistence access at all cannot read the
+   * session store either, so an un-gated destructive delete there is exactly
+   * the blind-delete shape this family closes; the refusal message names the
+   * explicit override path.
    */
   resolveActor?: (sessionId: string) => Promise<SessionActorResult>;
   /** Optional filesystem adapter for testing to avoid real fs operations */
@@ -404,22 +418,30 @@ Navigate to your main workspace and try again:
       // its own createGitService()).
       const { deleteSessionImpl } = await import("./session-lifecycle-operations");
       const db = deps.db;
+      const provider = deps.persistenceProvider;
       const resolveActor =
         deps.resolveActor ??
-        (db
-          ? async (id: string) => {
-              const { resolveSessionActor } = await import("./session-actor");
-              const { buildPresenceClaimRepository } = await import("../presence/index");
-              return resolveSessionActor(id, {
-                getRepository: async () => buildPresenceClaimRepository(db),
-              });
-            }
-          : undefined);
+        (async (id: string) => {
+          const { resolveSessionActor, presenceRepositoryFromProvider } = await import(
+            "./session-actor"
+          );
+          return resolveSessionActor(id, {
+            getRepository: async () => {
+              const viaProvider = await presenceRepositoryFromProvider(provider);
+              if (viaProvider) return viaProvider;
+              if (db) {
+                const { buildPresenceClaimRepository } = await import("../presence/index");
+                return buildPresenceClaimRepository(db);
+              }
+              return null;
+            },
+          });
+        });
       const deletion = await deleteSessionImpl(
         { sessionId: taskSession.sessionId },
         {
           sessionDB: deps.sessionDB,
-          ...(resolveActor ? { resolveActor } : {}),
+          resolveActor,
         }
       );
       if (!deletion.deleted) {
