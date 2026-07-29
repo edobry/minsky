@@ -38,6 +38,15 @@
  *            service (minsky-mcp, from deploy.config.ts) without a transport error.
  *   Phase 3: GitHub issue de-dup logic (unit-level, no network) — verify that
  *            issueTitle() returns stable, unique strings per service+class combo.
+ *   Phase 4: GHCR digest-lag mechanism (mt#3251) — live registry lookups.
+ *   Phase 5: Digest-lag sustained-check elapsed-time logic (mt#3284,
+ *            unit-level, no network) — mirrors the production monitor's
+ *            pending-tracker marker format/parse functions and the
+ *            isDigestLagSustainedByElapsedTime decision function exactly,
+ *            verifying: (a) marker round-trips, (b) two observations <1min
+ *            apart do NOT count as sustained, (c) two observations >8min
+ *            apart DO count as sustained, and (d) the configured minimum
+ *            interval stays under the workflow's 10-minute cron cadence.
  */
 
 import { readdirSync } from "fs";
@@ -596,6 +605,155 @@ async function runDigestLagPhase(services: DiscoveredService[]): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 5: digest-lag sustained-check elapsed-time logic (mt#3284)
+// ---------------------------------------------------------------------------
+//
+// Unit-level, no network — mirrors
+// scripts/post-deploy-health-monitor.ts's pending-tracker marker
+// format/parse functions and its isDigestLagSustainedByElapsedTime decision
+// function exactly (same rationale as Phase 3's issueTitle mirror: keep the
+// smoke test aligned with production logic without importing internals from
+// a script that isn't a package module). Exercises the two false-positive-
+// preventing properties this task (mt#3284) added: a rapid re-observation
+// must NOT be treated as sustained, and a genuinely-elapsed observation
+// MUST be treated as sustained.
+
+/** Mirrors production's DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS (mt#3284). */
+const DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS = 8 * 60 * 1000; // 8 minutes
+
+/** Mirrors production's formatPendingPairMarker / parsePendingPairMarker. */
+function formatPendingPairMarker(deployedDigest: string, registryDigest: string): string {
+  return `PENDING_DIGEST_PAIR: ${deployedDigest}|${registryDigest}`;
+}
+const PENDING_PAIR_RE = /PENDING_DIGEST_PAIR:\s*(\S+)\|(\S+)/;
+function parsePendingPairMarker(
+  body: string | null
+): { deployed: string; registry: string } | null {
+  if (!body) return null;
+  const match = PENDING_PAIR_RE.exec(body);
+  if (!match) return null;
+  const [, deployed, registry] = match;
+  if (!deployed || !registry) return null;
+  return { deployed, registry };
+}
+
+/** Mirrors production's formatPendingFirstObservedMarker / parsePendingFirstObservedMarker. */
+function formatPendingFirstObservedMarker(firstObservedAtIso: string): string {
+  return `PENDING_DIGEST_FIRST_OBSERVED_AT: ${firstObservedAtIso}`;
+}
+const PENDING_FIRST_OBSERVED_RE = /PENDING_DIGEST_FIRST_OBSERVED_AT:\s*(\S+)/;
+function parsePendingFirstObservedMarker(body: string | null): string | null {
+  if (!body) return null;
+  const match = PENDING_FIRST_OBSERVED_RE.exec(body);
+  if (!match) return null;
+  const [, isoString] = match;
+  if (!isoString || Number.isNaN(Date.parse(isoString))) return null;
+  return isoString;
+}
+
+/** Mirrors production's isDigestLagSustainedByElapsedTime pure decision function. */
+function isDigestLagSustainedByElapsedTime(nowMs: number, firstObservedAtIso: string): boolean {
+  const elapsedMs = nowMs - Date.parse(firstObservedAtIso);
+  return elapsedMs >= DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS;
+}
+
+function runDigestLagSustainedPhase(): void {
+  console.log("\nPhase 5: digest-lag sustained-check elapsed-time logic (mt#3284)");
+  console.log("-".repeat(50));
+
+  // (a) Marker round-trips.
+  const pairMarker = formatPendingPairMarker("sha256:aaa", "sha256:bbb");
+  const parsedPair = parsePendingPairMarker(`some preamble\n${pairMarker}\ntrailer`);
+  if (parsedPair?.deployed === "sha256:aaa" && parsedPair.registry === "sha256:bbb") {
+    pass("marker-roundtrip:pair", `"${pairMarker}" parses back to the original pair`);
+  } else {
+    fail("marker-roundtrip:pair", `Round-trip failed: got ${JSON.stringify(parsedPair)}`);
+  }
+
+  const firstObservedIso = "2026-07-28T12:00:00.000Z";
+  const firstObservedMarker = formatPendingFirstObservedMarker(firstObservedIso);
+  const parsedFirstObserved = parsePendingFirstObservedMarker(
+    `some preamble\n${firstObservedMarker}\ntrailer`
+  );
+  if (parsedFirstObserved === firstObservedIso) {
+    pass("marker-roundtrip:first-observed", `"${firstObservedMarker}" parses back correctly`);
+  } else {
+    fail(
+      "marker-roundtrip:first-observed",
+      `Round-trip failed: expected "${firstObservedIso}", got "${parsedFirstObserved}"`
+    );
+  }
+
+  if (parsePendingFirstObservedMarker("PENDING_DIGEST_FIRST_OBSERVED_AT: not-a-date") === null) {
+    pass("marker-roundtrip:first-observed-invalid", "Unparseable date correctly returns null");
+  } else {
+    fail("marker-roundtrip:first-observed-invalid", "Unparseable date should have returned null");
+  }
+
+  // (b) AT1: two observations of the same pair <1 minute apart must NOT be
+  // treated as sustained (the mt#3284 false-positive class — issue #2363).
+  const nowMs = Date.parse(firstObservedIso);
+  const twentySecondsLaterMs = nowMs + 20 * 1000;
+  if (!isDigestLagSustainedByElapsedTime(twentySecondsLaterMs, firstObservedIso)) {
+    pass(
+      "sustained-check:rapid-reinvocation-not-sustained",
+      "20s after first observation correctly does NOT count as sustained"
+    );
+  } else {
+    fail(
+      "sustained-check:rapid-reinvocation-not-sustained",
+      "20s after first observation incorrectly counted as sustained — would reproduce issue #2363"
+    );
+  }
+
+  // (c) AT2: two observations of the same pair >8 minutes apart must escalate.
+  const nineMinutesLaterMs = nowMs + 9 * 60 * 1000;
+  if (isDigestLagSustainedByElapsedTime(nineMinutesLaterMs, firstObservedIso)) {
+    pass(
+      "sustained-check:genuine-lag-sustained",
+      "9 minutes after first observation correctly counts as sustained"
+    );
+  } else {
+    fail(
+      "sustained-check:genuine-lag-sustained",
+      "9 minutes after first observation incorrectly did NOT count as sustained"
+    );
+  }
+
+  // Boundary check: exactly at the threshold counts; one ms under does not.
+  const exactlyAtThresholdMs = nowMs + DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS;
+  const oneMsUnderThresholdMs = exactlyAtThresholdMs - 1;
+  if (
+    isDigestLagSustainedByElapsedTime(exactlyAtThresholdMs, firstObservedIso) &&
+    !isDigestLagSustainedByElapsedTime(oneMsUnderThresholdMs, firstObservedIso)
+  ) {
+    pass("sustained-check:threshold-boundary", "Threshold boundary (>=) behaves as documented");
+  } else {
+    fail("sustained-check:threshold-boundary", "Threshold boundary behavior is incorrect");
+  }
+
+  // (d) The configured minimum interval must stay strictly under the
+  // workflow's 10-minute cron cadence — this is the whole point of setting
+  // it "just under" (a normal scheduled pair must still qualify on the very
+  // next tick with no added delay).
+  const CRON_CADENCE_MS = 10 * 60 * 1000;
+  if (
+    DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS > 0 &&
+    DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS < CRON_CADENCE_MS
+  ) {
+    pass(
+      "sustained-check:threshold-under-cron-cadence",
+      `${DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS / 60_000}min threshold is under the 10min cron cadence`
+    );
+  } else {
+    fail(
+      "sustained-check:threshold-under-cron-cadence",
+      `${DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS / 60_000}min threshold is NOT safely under the 10min cron cadence`
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -619,6 +777,7 @@ async function main(): Promise<void> {
   await runRailwayPhase(services);
   runDeduplicationPhase(services);
   await runDigestLagPhase(services);
+  runDigestLagSustainedPhase();
 
   // Summary.
   const passing = results.filter((r) => r.status === "pass").length;
