@@ -347,6 +347,72 @@ pub(crate) fn report_build_result(
     }
 }
 
+/// Should a completed build refresh the open cockpit window? (mt#3320)
+///
+/// Only on SUCCESS. A failed rebuild leaves the prior (good) bundle on disk —
+/// reloading then would either re-serve that same bundle for no reason or, if
+/// the build wrote partial output, drop the operator into a broken UI. The
+/// operator keeps looking at the last thing that worked, and the failure is
+/// already surfaced via the status label + OS toast (mt#2306).
+///
+/// Split out as a pure function so the policy is unit-testable without a Tauri
+/// `AppHandle` — the reload call itself needs a live app and is covered by the
+/// task's manual acceptance tests instead.
+pub(crate) fn should_reload_after_build(result: &Result<(), String>) -> bool {
+    result.is_ok()
+}
+
+/// Refresh the open cockpit window so a rebuilt bundle actually reaches the
+/// operator (mt#3320).
+///
+/// Before this, `watcher_web` rebuilt `dist` and stopped: the daemon served the
+/// new bundle to any NEW client, but an already-open window kept running the
+/// JS/CSS it loaded at document-load time — indefinitely, with no signal. A
+/// long-lived window could sit days behind `main` while every other surface
+/// showed current code.
+///
+/// Uses Tauri's native `WebviewWindow::reload()` rather than
+/// `eval("window.location.reload()")`, which is what `deeplink.rs`'s
+/// `refresh_or_heal_window` does. Two reasons to diverge from that older path:
+/// the SPA is an untrusted external-URL webview with NO IPC bridge (ADR-023),
+/// so not injecting JS into it is the better posture; and `refresh_or_heal_window`
+/// only reaches for eval because it must ALSO probe a possibly-dead document
+/// before deciding to heal, which is not this call site's problem — here the
+/// daemon is up (we just rebuilt for it) and a plain page refresh is all that's
+/// wanted.
+///
+/// No-ops when no cockpit window exists (the common case for a tray running
+/// without an open window); the next window created loads the fresh bundle
+/// anyway.
+///
+/// THREAD SAFETY — safe to call from the supervisor thread; do NOT wrap this in
+/// `run_on_main_thread` (PR #2414 R1 raised exactly that). Unlike the muda menu
+/// calls in `update_build_status`, which genuinely require the main thread,
+/// `WebviewWindow::reload()` self-marshals: it goes through
+/// `WebviewDispatcher::reload` -> `send_user_message`, which branches on
+/// `current_thread().id() == context.main_thread_id` and either handles the
+/// message inline (already on main) or posts it to the event-loop proxy
+/// (`tauri-runtime-wry-2.11.2/src/lib.rs:235`). Wrapping it would add a
+/// main-thread hop for no benefit, and `run_on_main_thread` is itself the
+/// shape that deadlocks when misused from the event loop (see
+/// `deeplink.rs`'s `WebviewWindowBuilder::build()` note).
+pub(crate) fn reload_cockpit_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(crate::menu::COCKPIT_WINDOW_LABEL) else {
+        return;
+    };
+    if let Err(e) = window.reload() {
+        // Non-fatal: the rebuilt bundle IS on disk and live for any new client,
+        // so the only loss is that THIS window keeps the older UI until it is
+        // reloaded by hand (Cmd+R, or the tray's View -> Reload).
+        eprintln!(
+            "[cockpit-tray] failed to reload cockpit window after rebuild: {e} \
+             — the new bundle is served but this window still shows the old one; \
+             use Cmd+R or the tray's View > Reload. Tray log: \
+             ~/.local/state/minsky/logs/cockpit-stderr.log"
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -486,5 +552,19 @@ mod tests {
             build_label_for(&Err("E".to_string()), t, false),
             "Build FAILED (E) - nothing to serve"
         );
+    }
+
+    #[test]
+    fn should_reload_after_build_only_on_success() {
+        assert!(should_reload_after_build(&Ok(())));
+    }
+
+    #[test]
+    fn should_reload_after_build_refuses_on_failure() {
+        // A failed rebuild leaves the PRIOR bundle on disk. Reloading would at
+        // best be pointless and at worst drop the operator into partial output;
+        // the failure is already surfaced by the status label + OS toast.
+        assert!(!should_reload_after_build(&Err("boom".to_string())));
+        assert!(!should_reload_after_build(&Err(String::new())));
     }
 }
