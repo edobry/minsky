@@ -102,13 +102,15 @@ function renderConversationPage(conversationId: string) {
  * satisfy ConversationFetcher's `isSnapshot` guard. Any auxiliary fetch (task
  * ids, widget data used for entity-linkification) gets a 404, which those
  * callers already degrade to an empty result for (see use-entity-index.ts),
- * UNLESS `sessionsRow` is provided (mt#2770 header-label tests), in which
- * case `/api/widget/context-inspector/data` resolves with that one row.
+ * UNLESS `overviewLabel` is provided (mt#3343 header-label tests), in which
+ * case `/api/conversation/<id>/overview` resolves with that label.
+ *
+ * NOTE (mt#3343): `/api/widget/context-inspector/data` deliberately ALWAYS
+ * 404s here now. The header label no longer comes from that top-50 picker
+ * window — a conversation outside it used to have no name at all — so leaving
+ * it unmocked is what proves the page reads its OWN record.
  */
-function mockFetches(
-  conversationId: string,
-  opts: { sessionsRow?: { agentSessionId: string; label: string } } = {}
-) {
+function mockFetches(conversationId: string, opts: { overviewLabel?: string } = {}) {
   globalThis.fetch = mock((url: string) => {
     const pathname = typeof url === "string" ? new URL(url, "http://localhost").pathname : "";
     if (pathname === "/api/cockpit/context-inspector/snapshot") {
@@ -119,23 +121,26 @@ function mockFetches(
         )
       );
     }
-    if (pathname === "/api/widget/context-inspector/data" && opts.sessionsRow) {
+    if (
+      pathname === `/api/conversation/${encodeURIComponent(conversationId)}/overview` &&
+      opts.overviewLabel !== undefined
+    ) {
       return Promise.resolve(
         new Response(
           JSON.stringify({
-            state: "ok",
-            payload: {
-              sessions: [
-                {
-                  agentSessionId: opts.sessionsRow.agentSessionId,
-                  harness: "claude_code",
-                  startedAt: null,
-                  endedAt: null,
-                  cwd: null,
-                  label: opts.sessionsRow.label,
-                },
-              ],
+            agentSessionId: conversationId,
+            label: opts.overviewLabel,
+            conversationMeta: {
+              cwd: null,
+              harness: "claude_code",
+              startedAt: null,
+              endedAt: null,
+              turnCount: 0,
+              relatedTaskIds: [],
+              relatedPrNumbers: [],
+              lastActivityAt: null,
             },
+            workspace: null,
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
@@ -219,12 +224,14 @@ describe("ConversationPage — conversation-keyed live tail (mt#2749)", () => {
   });
 });
 
-describe("ConversationPage — derived label header (mt#2770)", () => {
-  test("shows the derived label from the context-inspector widget payload", async () => {
-    const conversationId = "mt2770-header-label-test";
-    mockFetches(conversationId, {
-      sessionsRow: { agentSessionId: conversationId, label: "Conversation labeling: task-binding" },
-    });
+describe("ConversationPage — header label from the conversation's own record (mt#2770, mt#3343)", () => {
+  test("shows the label from the overview payload even when the picker window doesn't contain it", async () => {
+    const conversationId = "mt3343-header-label-test";
+    // No context-inspector payload is served at all — the page must still name
+    // itself. This is the regression the task exists to prevent: before
+    // mt#3343 the heading fell through to the raw id whenever the conversation
+    // was absent from the top-50 window.
+    mockFetches(conversationId, { overviewLabel: "Conversation labeling: task-binding" });
 
     const { findByRole } = renderConversationPage(conversationId);
 
@@ -232,13 +239,42 @@ describe("ConversationPage — derived label header (mt#2770)", () => {
     expect(heading.textContent).toBe("Conversation labeling: task-binding");
   });
 
-  test("falls back to the bare id when the conversation isn't in the widget payload", async () => {
-    const conversationId = "mt2770-header-label-not-found";
-    mockFetches(conversationId); // no sessionsRow — /api/widget/... 404s
+  test("renders the id exactly once when no label resolves", async () => {
+    const conversationId = "mt3343-header-label-not-found";
+    mockFetches(conversationId); // no overviewLabel — /api/conversation/.../overview 404s
 
-    const { findByRole } = renderConversationPage(conversationId);
+    const { findByRole, container } = renderConversationPage(conversationId);
 
     const heading = await findByRole("heading", { level: 1 });
     expect(heading.textContent).toBe(conversationId);
+
+    // The mono sub-line exists to show the raw id ALONGSIDE a human name. When
+    // the heading already IS the raw id, repeating it underneath is the
+    // duplicate-uuid defect (mt#3343 SC4).
+    const occurrences = Array.from(container.querySelectorAll("*")).filter(
+      (el) => el.children.length === 0 && el.textContent === conversationId
+    );
+    expect(occurrences.length).toBe(1);
+  });
+
+  test("shares RunDetail's cache entry — one overview request, not two (SC3/AT4)", async () => {
+    const conversationId = "mt3343-overview-dedupe";
+    mockFetches(conversationId, { overviewLabel: "Shared cache entry" });
+
+    const { findByRole } = renderConversationPage(conversationId);
+    await findByRole("heading", { level: 1 });
+
+    // Both this page (for the header label) and the RunDetail body it mounts
+    // request the overview under the SAME ["conversation-overview", id] key.
+    // TanStack Query dedupes identical keys under one QueryClient, so the
+    // label must cost ZERO additional network requests — the whole reason the
+    // label rides this payload rather than a second endpoint.
+    const overviewPath = `/api/conversation/${encodeURIComponent(conversationId)}/overview`;
+    const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const overviewCalls = calls.filter((args) => {
+      const url = typeof args[0] === "string" ? args[0] : "";
+      return new URL(url, "http://localhost").pathname === overviewPath;
+    });
+    expect(overviewCalls.length).toBe(1);
   });
 });

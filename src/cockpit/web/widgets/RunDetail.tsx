@@ -101,6 +101,17 @@ export interface WorkspaceDetailPayload extends WorkspaceOverviewFields {
 
 export interface ConversationOverviewPayload {
   agentSessionId: string;
+  /**
+   * Server-computed display label (mt#3343) — the same `computeConversationLabel`
+   * precedence the run list uses (bound task title -> generated title ->
+   * first-user-prompt snippet -> subagent descriptor -> timestamp·cwd·id).
+   *
+   * Computed server-side, not in the browser: `custom/no-node-import-in-cockpit-web`
+   * bans value imports from `@minsky/domain` in this bundle, and tiers 1/3 need
+   * DB joins the browser cannot make. Always a non-empty string — the precedence
+   * function's tier-4 fallback covers the "nothing resolved" case.
+   */
+  label: string;
   conversationMeta: {
     cwd: string | null;
     harness: string;
@@ -144,7 +155,7 @@ export async function fetchWorkspaceDetail(sessionId: WorkspaceId): Promise<Work
   return res.json() as Promise<WorkspaceDetailPayload>;
 }
 
-async function fetchConversationOverview(
+export async function fetchConversationOverview(
   agentSessionId: ConversationId
 ): Promise<ConversationOverviewPayload> {
   const encoded = encodeURIComponent(agentSessionId);

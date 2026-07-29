@@ -44,6 +44,43 @@ import { looksLikeConversationId, withBoundedTimeout } from "../conversation-id-
 const OVERVIEW_QUERY_TIMEOUT_MS = 15_000;
 
 /**
+ * Shared task-title cache for the overview route's label computation (mt#3343).
+ *
+ * Lazily constructed so a cockpit boot with no SQL-capable persistence provider
+ * never pays for it, and module-level so repeated overview polls reuse one
+ * cache rather than re-hitting the task backend per request — the same posture
+ * `widgets/context-inspector.ts` takes for the picker's labels. A null task
+ * service degrades tier-1/tier-3 task-title resolution to "not found" rather
+ * than throwing; `fetchEnrichment` already treats that as a tier miss.
+ */
+let overviewTitleCache: import("../task-title-cache").TaskTitleCache | null = null;
+async function getOverviewTitleCache(): Promise<
+  import("../task-title-cache").TaskTitleCache | null
+> {
+  if (overviewTitleCache) return overviewTitleCache;
+  try {
+    const { TaskTitleCache } = await import("../task-title-cache");
+    const { getServerTaskService } = await import("../db-providers");
+    overviewTitleCache = new TaskTitleCache(async () => {
+      const taskService = await getServerTaskService();
+      return (
+        taskService ?? {
+          async getTask() {
+            return null;
+          },
+          async getTasks() {
+            return [];
+          },
+        }
+      );
+    });
+    return overviewTitleCache;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Options accepted by {@link mountConversationRoutes}. Every field here is a
  * test-only injection seam (mirrors the `no-real-fs-in-tests` DI convention
  * already used by `live-tail-poller.test.ts`) — production never sets any of
@@ -307,6 +344,9 @@ export function mountConversationRoutes(
             relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
             relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
             lastIngestedJsonlTimestamp: agentTranscriptsTable.lastIngestedJsonlTimestamp,
+            // mt#3321 generated title — tier 2 of the label precedence, read
+            // off the row already being selected here (no extra query).
+            title: agentTranscriptsTable.title,
           })
           .from(agentTranscriptsTable)
           .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
@@ -376,8 +416,62 @@ export function mountConversationRoutes(
 
       const [turnCount, workspace] = await Promise.all([turnCountPromise, workspacePromise]);
 
+      // mt#3343 — the page must be able to name ITSELF. Before this,
+      // `/conversation/:id` derived its heading by searching the
+      // context-inspector widget's top-50 picker window for its own id and fell
+      // back to the raw uuid on a miss, which rendered the id as BOTH the
+      // heading and the mono sub-line beneath it. The label is computed here,
+      // server-side, because `custom/no-node-import-in-cockpit-web` bans value
+      // imports from `@minsky/domain` in the browser bundle AND tiers 1/3 need
+      // DB joins the browser cannot make.
+      //
+      // Tier 1 prefers the workspace overview's own resolved task title: this
+      // route already built it, so reusing it costs nothing and stays correct
+      // even if the `minsky_session_links` lookup inside `fetchEnrichment`
+      // resolves a different (weaker) link.
+      const label = await (async () => {
+        try {
+          const { fetchEnrichment, EMPTY_ENRICHMENT } = await import(
+            "../conversation-label-enrichment"
+          );
+          const { computeConversationLabel } = await import(
+            "@minsky/domain/transcripts/conversation-label"
+          );
+          const enrichmentMap = await fetchEnrichment(
+            db,
+            [agentSessionId],
+            await getOverviewTitleCache()
+          );
+          const enrichment = enrichmentMap.get(agentSessionId) ?? EMPTY_ENRICHMENT;
+          return computeConversationLabel({
+            agentSessionId,
+            cwd: transcript.cwd,
+            startedAt: transcript.startedAt instanceof Date ? transcript.startedAt : null,
+            linkedTaskTitle: workspace?.session.taskTitle ?? enrichment.linkedTaskTitle,
+            generatedTitle: transcript.title,
+            firstUserText: enrichment.firstUserText,
+            subagentDescriptor: enrichment.subagentDescriptor,
+          });
+        } catch (labelErr) {
+          // A label is chrome, not data — never fail the overview over it. The
+          // tier-4 fallback (timestamp·cwd·id-prefix) is still strictly more
+          // identifying than the bare uuid this task exists to remove.
+          const msg = labelErr instanceof Error ? labelErr.message : String(labelErr);
+          log.debug(`[conversation] label computation degraded: ${msg}`);
+          const { deriveFallbackLabel } = await import(
+            "@minsky/domain/transcripts/conversation-label"
+          );
+          return deriveFallbackLabel(
+            agentSessionId,
+            transcript.cwd,
+            transcript.startedAt instanceof Date ? transcript.startedAt : null
+          );
+        }
+      })();
+
       res.json({
         agentSessionId,
+        label,
         conversationMeta: {
           cwd: transcript.cwd,
           harness: transcript.harness,
