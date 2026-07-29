@@ -22,8 +22,9 @@ tags:
     types from `InferParams<typeof <map>>`, never hand-rolled `*Params`.
   - `custom/no-entity-id-param-drift` (mt#2780) — command params maps must declare the family's
     canonical entity-id name, not the alias alone.
-  - `custom/require-hook-domain-bootstrap` (mt#3046) — `.minsky/hooks/**` files reaching
-    persistence must import `ensureHookDomainBootstrap`.
+  - `custom/require-hook-domain-bootstrap` (mt#3046; widened mt#3178) — `.minsky/hooks/**` and
+    `scripts/**` files reaching persistence must bootstrap first: hooks import
+    `ensureHookDomainBootstrap`; scripts may instead use a static `import "reflect-metadata"`.
   - `custom/no-direct-service-construction` (mt#911; DI-fallback-shape check added mt#2642) —
     bans `<identifier> ?? create<PascalCase>(...)` / `<identifier>?.<prop> ?? new
     <PascalCase>(...)` (ADR-026) across `src/` and `packages/domain/src/`, plus the original
