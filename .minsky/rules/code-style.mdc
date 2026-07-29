@@ -27,3 +27,10 @@ tags:
     bans `<identifier> ?? create<PascalCase>(...)` / `<identifier>?.<prop> ?? new
     <PascalCase>(...)` (ADR-026) across `src/` and `packages/domain/src/`, plus the original
     named-list check in the adapter layer.
+  - `custom/no-silent-catch` (mt#3299) — every `catch` block must rethrow, log, or carry an
+    `// intentional-swallow: <reason>` comment. Registered `off` (not yet active): this repo's
+    zero-tolerance ESLint warning gate (mt#1097, no override) makes `warn` unshippable with 1462
+    pre-existing violations across 560 files; bulk cleanup + flip to `error` tracked at mt#3312.
+  - `custom/require-subprocess-network-timeout` (mt#3299) — `execSync`/`spawnSync`/`fetch` calls
+    need a `timeout`/`signal` option. Registered `off` for the same reason (542 pre-existing
+    violations across 137 files; bulk cleanup + flip to `error` tracked at mt#3313).

@@ -33,6 +33,8 @@ import noEntityIdParamDrift from "./eslint-rules/no-entity-id-param-drift.js";
 import noRawColorsInCockpit from "./eslint-rules/no-raw-colors-in-cockpit.js";
 import requireHookDomainBootstrap from "./eslint-rules/require-hook-domain-bootstrap.js";
 import noNodeImportInCockpitWeb from "./eslint-rules/no-node-import-in-cockpit-web.js";
+import noSilentCatch from "./eslint-rules/no-silent-catch.js";
+import requireSubprocessNetworkTimeout from "./eslint-rules/require-subprocess-network-timeout.js";
 
 // === RAW COLOR ENFORCEMENT IN COCKPIT (mt#2916) — declared coverage ===
 // The blessed healthy/warning raw-Tailwind-palette exception from
@@ -265,6 +267,8 @@ export default [
           "no-raw-colors-in-cockpit": noRawColorsInCockpit,
           "require-hook-domain-bootstrap": requireHookDomainBootstrap,
           "no-node-import-in-cockpit-web": noNodeImportInCockpitWeb,
+          "no-silent-catch": noSilentCatch,
+          "require-subprocess-network-timeout": requireSubprocessNetworkTimeout,
         },
       },
     },
@@ -491,6 +495,30 @@ export default [
       // Closes the ADD side of the same class as mt#1610/mt#1624 (RETIRE side
       // covered by mt#1626 /plan-task gate criterion h).
       "custom/no-unregistered-minsky-env-var": "error",
+
+      // mt#3299 — every catch block must rethrow, log, or carry an
+      // `// intentional-swallow: <reason>` comment (silent-failure class,
+      // mt#3295 corpus). Test files excluded by default (allowInTests).
+      // Registered "off": this repo's own pre-commit ESLint step enforces a
+      // HARD zero-tolerance warning gate (MAX_LINT_WARNINGS = 0, mt#1097, no
+      // override — see runESLintValidation in src/hooks/pre-commit.ts), so
+      // "warn" is not a viable ship state here — it would block every future
+      // commit repo-wide, not just ones touching violating files. A
+      // full-repo run at authoring time found 1462 violations across 560
+      // files, and a scoped check of just .minsky/hooks + .claude/hooks
+      // (the corpus's stated top-concentration area) still found 151 of
+      // those files — no directory-level slice is clean enough to flip to
+      // "error" today. Bulk cleanup + flip to "error" tracked at mt#3312.
+      "custom/no-silent-catch": "off",
+
+      // mt#3299 — flag execSync/spawnSync/fetch call sites lacking a
+      // timeout/AbortSignal argument (mechanizable slice of the
+      // unguarded-edge-case class, mt#3295 corpus). Sibling of
+      // no-unsafe-git-exec (git-specific); this rule is generic. Registered
+      // "off" for the same zero-tolerance-warning-gate reason as
+      // no-silent-catch above: a full-repo run found 542 violations across
+      // 137 files. Bulk cleanup + flip to "error" tracked at mt#3313.
+      "custom/require-subprocess-network-timeout": "off",
 
       // === SINGLETON ARCHITECTURE ===
       "custom/no-singleton-reach-in": [
