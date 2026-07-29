@@ -1182,6 +1182,63 @@ describe("buildCriticConstitution — verify-before-block (mt#2655 SC1)", () => 
 });
 
 // ---------------------------------------------------------------------------
+// Pattern sweep on structural-defect findings (mt#1527)
+//
+// Originating incident: PR #930 (mt#1470) went through 3 review rounds, each
+// finding the same logical defect class (a hand-maintained AskState
+// enumeration / closed-state set) at a different site within the same
+// module — R1 found one closed-state set, R2 found a dual-definition in
+// state-machine.ts, R3 found yet another local enumeration in the same file.
+// The bot had the touched file's full content on R1 but only flagged what
+// was in the new diff. This principle directs the reviewer to sweep the
+// touched file/module for OTHER instances of the SAME structural-defect
+// pattern and surface them all in one round instead of zooming in deeper
+// across multiple rounds.
+// ---------------------------------------------------------------------------
+describe("buildCriticConstitution — pattern sweep on structural-defect findings (mt#1527)", () => {
+  const PATTERN_SWEEP_PHRASE = "Pattern sweep on structural-defect findings";
+
+  test("Principle 14 (pattern sweep) appears in the tools variant", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain(PATTERN_SWEEP_PHRASE);
+    expect(prompt).toContain("SoT (source-of-truth) duplication");
+    expect(prompt).toContain("surface ALL of them in THIS SAME round");
+  });
+
+  test("Principle 14 also appears in the no-tools variant (applies regardless of tool access)", () => {
+    const prompt = buildCriticConstitution(false);
+    expect(prompt).toContain(PATTERN_SWEEP_PHRASE);
+  });
+
+  test("Principle 14 names at least three concrete structural-defect example patterns", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain("Record<UnionType, ...>");
+    expect(prompt).toContain("closed/terminal-state set re-derived inline");
+    expect(prompt).toContain("constant list of allowed values copied instead of imported");
+  });
+
+  test("Principle 14 appears in the Principles section, after Principle 13", () => {
+    const prompt = buildCriticConstitution(true);
+    const principlesStart = prompt.indexOf("## Principles");
+    const failureModesStart = prompt.indexOf(FAILURE_MODES_HEADING);
+    expect(principlesStart).toBeGreaterThan(-1);
+    expect(failureModesStart).toBeGreaterThan(-1);
+    const principlesSection = prompt.slice(principlesStart, failureModesStart);
+    const principle13Index = principlesSection.indexOf("Verify before you block");
+    const principle14Index = principlesSection.indexOf(PATTERN_SWEEP_PHRASE);
+    expect(principle13Index).toBeGreaterThan(-1);
+    expect(principle14Index).toBeGreaterThan(principle13Index);
+  });
+
+  test("pattern-sweep guidance appears across all scope calibrations (normal, trivial-or-docs, test-only)", () => {
+    for (const scope of ["normal", "trivial-or-docs", "test-only"] as const) {
+      const prompt = buildCriticConstitution(true, scope);
+      expect(prompt).toContain(PATTERN_SWEEP_PHRASE);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Migration / move PR baseline awareness (mt#2655 SC2)
 //
 // Originating incident: the mt#2304 migration PR (#1812) moved content
