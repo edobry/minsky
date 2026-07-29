@@ -36,8 +36,11 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { execWithPath, findRepoRoot } from "../.minsky/hooks/types";
+import { fetchPrMetaByNumber } from "../.minsky/hooks/pr-context";
 import {
   AT_COVERAGE_CALIBRATION_LOG,
+  checkAcceptanceTestCoverage,
+  deriveRepoFromGit,
   fetchTaskSpecForAtCoverage,
   isExecutableAcceptanceTest,
   parseAcceptanceTests,
@@ -191,6 +194,149 @@ function printReport(results: TaskReclassification[]): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// mt#3316 --full mode: also re-runs the EVIDENCE side (extractExecutionEvidenceText /
+// checkAcceptanceTestCoverage against the PR's actual body), not just AT extraction.
+//
+// The extraction-only reclassify() above cannot detect an evidence-scanning false
+// positive like FP-3 (mt#3174 / PR #2264) because the calibration log never retained the
+// original PR body. This mode closes that gap by fetching each flagged PR's body directly
+// from GitHub via `gh pr view` (mirrors the hook's own `fetchPrMetaByNumber`) — unlike a
+// task spec, a merged PR's body is effectively immutable, so "current" body IS "body at
+// fire time" for this purpose (no analogue to the CURRENT_SPEC_CAVEAT below applies here).
+// ---------------------------------------------------------------------------
+
+interface FullPrReclassification {
+  task: string;
+  prNumber: number;
+  fireCount: number;
+  specFetchOk: boolean;
+  prBodyFetchOk: boolean;
+  /** Union of every AT ever flagged unaddressed for this (task, PR) pair, across fires. */
+  originallyFlagged: FlaggedAt[];
+  /** Flagged ATs no longer unaddressed under the FULLY fixed pipeline (extraction + evidence-scan). */
+  resolvedByFix: FlaggedAt[];
+  /** Flagged ATs STILL unaddressed under the fully fixed pipeline — a real fire, or an FP with a different root cause. */
+  stillUnaddressed: FlaggedAt[];
+}
+
+function reclassifyFull(
+  records: CalibrationRecord[],
+  repoRoot: string,
+  repo: string | null
+): FullPrReclassification[] {
+  const byTaskPr = new Map<string, CalibrationRecord[]>();
+  for (const r of records) {
+    const key = `${r.task}::${r.prNumber}`;
+    const list = byTaskPr.get(key) ?? [];
+    list.push(r);
+    byTaskPr.set(key, list);
+  }
+
+  const specCache = new Map<string, ReturnType<typeof fetchTaskSpecForAtCoverage>>();
+  const results: FullPrReclassification[] = [];
+
+  for (const taskRecords of byTaskPr.values()) {
+    const first = taskRecords[0];
+    if (!first) continue;
+    const { task, prNumber } = first;
+
+    const everFlagged = new Map<string, FlaggedAt>();
+    for (const r of taskRecords) {
+      for (const at of r.unaddressedAts) everFlagged.set(at.text, at);
+    }
+    const originallyFlagged = [...everFlagged.values()];
+
+    let specFetch = specCache.get(task);
+    if (!specFetch) {
+      specFetch = fetchTaskSpecForAtCoverage(task, repoRoot, execWithPath);
+      specCache.set(task, specFetch);
+    }
+
+    if (!repo || !specFetch.ok || typeof specFetch.content !== "string") {
+      results.push({
+        task,
+        prNumber,
+        fireCount: taskRecords.length,
+        specFetchOk: specFetch.ok,
+        prBodyFetchOk: false,
+        originallyFlagged,
+        resolvedByFix: [],
+        stillUnaddressed: originallyFlagged,
+      });
+      continue;
+    }
+
+    const prMeta = fetchPrMetaByNumber(repo, prNumber, { cwd: repoRoot });
+    if (!prMeta) {
+      results.push({
+        task,
+        prNumber,
+        fireCount: taskRecords.length,
+        specFetchOk: true,
+        prBodyFetchOk: false,
+        originallyFlagged,
+        resolvedByFix: [],
+        stillUnaddressed: originallyFlagged,
+      });
+      continue;
+    }
+
+    const coverage = checkAcceptanceTestCoverage(specFetch.content, specFetch.kind, prMeta.body);
+    const stillUnaddressedTexts = new Set(coverage.unaddressedAts.map((at) => at.text));
+
+    const resolvedByFix: FlaggedAt[] = [];
+    const stillUnaddressed: FlaggedAt[] = [];
+    for (const at of originallyFlagged) {
+      if (stillUnaddressedTexts.has(at.text)) stillUnaddressed.push(at);
+      else resolvedByFix.push(at);
+    }
+
+    results.push({
+      task,
+      prNumber,
+      fireCount: taskRecords.length,
+      specFetchOk: true,
+      prBodyFetchOk: true,
+      originallyFlagged,
+      resolvedByFix,
+      stillUnaddressed,
+    });
+  }
+
+  return results.sort(
+    (a, b) => a.task.localeCompare(b.task, undefined, { numeric: true }) || a.prNumber - b.prNumber
+  );
+}
+
+function printFullReport(results: FullPrReclassification[]): void {
+  const withStillUnaddressed = results.filter((r) => r.stillUnaddressed.length > 0);
+  const fetchFailed = results.filter((r) => !r.prBodyFetchOk);
+
+  console.log(
+    `\n--full re-measurement (mt#3316): re-runs the EVIDENCE side against each PR's real body`
+  );
+  console.log(`Distinct (task, PR) pairs: ${results.length}`);
+  console.log(
+    `Pairs with >=1 AT STILL unaddressed under the fully-fixed pipeline: ${withStillUnaddressed.length}`
+  );
+  console.log(
+    `Pairs whose PR body could not be fetched (skipped, treated conservatively as still-unaddressed): ${fetchFailed.length}`
+  );
+  console.log("");
+
+  for (const r of results) {
+    if (r.stillUnaddressed.length === 0) continue;
+    const tag = r.prBodyFetchOk ? "" : " [PR BODY FETCH FAILED]";
+    console.log(
+      `  ${r.task} (PR #${r.prNumber})${tag} — ${r.stillUnaddressed.length} still unaddressed`
+    );
+    for (const at of r.stillUnaddressed) {
+      console.log(`      [still-unaddressed] AT${at.number}: ${at.text.slice(0, 120)}`);
+    }
+  }
+}
+
 /**
  * Stated in every machine-readable output (not just this file's doc comment), per
  * PR #2386 R1 review: a consumer reading only the JSON — not this script's source — has
@@ -207,6 +353,7 @@ const CURRENT_SPEC_CAVEAT =
 
 function main() {
   const jsonMode = process.argv.includes("--json");
+  const fullMode = process.argv.includes("--full");
   const repoRoot = findRepoRoot(process.cwd());
   const logPath = `${repoRoot}/${AT_COVERAGE_CALIBRATION_LOG}`;
   const records = loadRecords(logPath);
@@ -221,14 +368,22 @@ function main() {
   }
 
   const results = reclassify(records, repoRoot);
+  const fullResults = fullMode
+    ? reclassifyFull(records, repoRoot, deriveRepoFromGit(repoRoot))
+    : null;
 
   if (jsonMode) {
     console.log(
-      JSON.stringify({ caveat: CURRENT_SPEC_CAVEAT, totalFires: records.length, results }, null, 2)
+      JSON.stringify(
+        { caveat: CURRENT_SPEC_CAVEAT, totalFires: records.length, results, fullResults },
+        null,
+        2
+      )
     );
   } else {
     console.log(`Caveat: ${CURRENT_SPEC_CAVEAT}\n`);
     printReport(results);
+    if (fullResults) printFullReport(fullResults);
   }
 
   process.exit(0);
