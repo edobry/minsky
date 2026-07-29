@@ -8,9 +8,16 @@
  * file covers is the seam itself: that `createAskWithFormLint` passes `options`
  * into the lint at all (it did not before mt#3253 — the two option checks could
  * never fire in production no matter how the rules behaved), and that a firing
- * option check leaves Ask creation completely untouched, exactly like the three
- * v1 checks (mt#2798's warn-only posture; flipping any of them to blocking is
- * mt#2944's call, not this task's).
+ * option check leaves Ask creation completely untouched at THIS layer, exactly
+ * like the three v1 checks (mt#2798's warn-only posture for
+ * `createAskWithFormLint` itself).
+ *
+ * `createAskWithFormLint` stays unconditionally non-blocking even after
+ * mt#3326 — the hard-reject that task adds lives one layer up, in
+ * `asks.create`'s command `validate` hook (`validateFormLintNotViolated`),
+ * which runs and can throw BEFORE `createAskWithFormLint` is ever called.
+ * See `asks.test.ts`'s `validateFormLintNotViolated` describe block for the
+ * blocking-boundary tests.
  */
 import { describe, expect, test } from "bun:test";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";

@@ -725,6 +725,17 @@ export const asksCreateParams = {
   // It is reaper-owned state (mt#1490): the reaper increments it each time a scheduled
   // window opens and the Ask is still pending. Callers must not set it directly via
   // asks.create — createAsk always initialises it to 0 for new Asks.
+  acknowledgeFormWarnings: {
+    schema: z.boolean().optional(),
+    description:
+      "When true, bypass the form-lint hard-reject (mt#3326) for this create call. A " +
+      "deliberate, per-call override for a genuinely long/complex ask — never a default. " +
+      "Recorded on the form-lint calibration log so override frequency stays reviewable via " +
+      "/calibration-review. Without it, a create whose question/options fail any form-lint " +
+      "check (internal-tool-id, over-word-budget, portal-no-link, long-option-label, " +
+      "letter-prefixed-option-label) is rejected with the violations listed.",
+    required: false,
+  },
 };
 
 /**
@@ -818,6 +829,86 @@ export function validateAuthorizationApproveOptions(params: {
       `A descriptive label is not enough — asks_create defaults "value" to "label" when ` +
       `omitted, and only an exact approve-shaped value verifies. Add one explicitly, ` +
       `e.g. {label: "...", value: "approve"} — the label can stay descriptive.`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// asks.create — form-lint hard-reject (mt#3326)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reject an `asks.create` call whose question/options fail any form-lint
+ * check (`@minsky/domain/ask/form-lint`'s `computeFormLintMatches`), unless
+ * the caller explicitly acknowledges the violations via
+ * `acknowledgeFormWarnings: true` (mt#3326).
+ *
+ * Design decision (recorded in the mt#3326 spec's "Design Decision" section
+ * before this function was written): hard-reject with the violations
+ * listed, mirroring the mt#2778 unknown-param MCP-boundary precedent,
+ * rather than forcing a same-turn `asks.edit`. Evidence:
+ * `.minsky/ask-form-lint-calibration.jsonl` shows the SAME over-word-budget
+ * fire ignored on 5 different Asks within ~20h (2026-07-28 through
+ * 2026-07-29) — detection was solved (`formWarnings` fires correctly) and
+ * its output was routinely ignored fleet-wide because it was advisory-only.
+ *
+ * ALL five form-lint checks are blocking here, not only the two the retro
+ * cites as recurring evidence (`over-word-budget`, `long-option-label`) —
+ * the calibration log shows every check has fired at least once in
+ * production; leaving the other three (`internal-tool-id`, `portal-no-link`,
+ * `letter-prefixed-option-label`) advisory-only would silently reproduce the
+ * same containment gap for those defect classes.
+ *
+ * `acknowledgeFormWarnings: true` is the sanctioned override for a
+ * genuinely long/complex ask (e.g. a multi-log calibration-review
+ * disposition ask) — an explicit, auditable per-call escape hatch, never a
+ * silent bypass, mirroring `forceImmediate`'s posture on the service-window
+ * fields above. The `asks.create` execute handler records `acknowledged:
+ * true` on the calibration-log entry when it is used, so override frequency
+ * stays reviewable via `/calibration-review`.
+ *
+ * Scope: `asks.create` only. `asks.edit` does not compute form-lint at all
+ * (before or after this change) — extending enforcement to edits that
+ * introduce a new violation is out of scope for this task (see the spec's
+ * Design Decision section).
+ *
+ * The underlying `computeFormLintMatches` stays pure and advisory-in-itself
+ * (unchanged by this task) — this function is what makes its output
+ * consequential, at the command-boundary layer, matching
+ * `validateAuthorizationApproveOptions`'s separation of concerns.
+ *
+ * Exported for direct testing without requiring the full command factory
+ * setup, matching `validateAuthorizationApproveOptions`'s pattern above.
+ *
+ * @throws {ValidationError} when form-lint matches exist and
+ *   `acknowledgeFormWarnings` is not `true`
+ */
+export function validateFormLintNotViolated(params: {
+  kind?: AskKind;
+  question?: string;
+  options?: Array<{ label: string }>;
+  acknowledgeFormWarnings?: boolean;
+}): void {
+  if (params.acknowledgeFormWarnings) return;
+  // Absence of kind/question is a required-field concern the parameter
+  // schema already enforces — nothing for this check to add.
+  if (!params.kind || !params.question) return;
+
+  const matches = computeFormLintMatches({
+    kind: params.kind,
+    question: params.question,
+    options: params.options,
+  });
+  if (matches.length === 0) return;
+
+  const violations = matches.map((m) => `  - ${m.check}: ${m.message}`).join("\n");
+  const plural = matches.length > 1 ? "s" : "";
+  throw new ValidationError(
+    `asks.create: ${matches.length} form-lint violation${plural} — fix the ask and retry:\n` +
+      `${violations}\n\n` +
+      `Form-lint checks are consequential at the asks_create boundary (mt#3326): the create ` +
+      `is rejected rather than silently accepted with an ignorable warning. If this ask is ` +
+      `genuinely long/complex and the violation is warranted, pass acknowledgeFormWarnings: ` +
+      `true to create it anyway — this is recorded for calibration review, not a silent bypass.`
   );
 }
 
@@ -1597,6 +1688,10 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // authoring time, not at merge/guard-override time after the operator
         // has already approved.
         validateAuthorizationApproveOptions(params);
+        // mt#3326: reject a create whose question/options fail any form-lint
+        // check, unless the caller explicitly acknowledges them. Runs last —
+        // fixing form/wording is usually the last thing an author checks.
+        validateFormLintNotViolated(params);
       },
       execute: async (params, ctx: CommandExecutionContext): Promise<AsksCreateResult> => {
         const repo = await buildAskRepository(container);
@@ -1697,17 +1792,21 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           }
         }
 
-        // Advisory (warn-only) form-lint (mt#2798) — humility.mdc §Escalation
-        // packaging's "Form" sub-checklist, structurally checked via
-        // createAskWithFormLint above. NEVER blocks or alters Ask creation;
-        // matches only feed formWarnings on the result and a calibration
-        // JSONL for future /calibration-review.
+        // Form-lint (mt#2798; consequential at this boundary since mt#3326)
+        // — humility.mdc §Escalation packaging's "Form" sub-checklist,
+        // structurally checked via createAskWithFormLint above. By the time
+        // execute() runs, non-empty formLintMatches only happens when
+        // acknowledgeFormWarnings was true — the validate hook above already
+        // rejected the create otherwise. Record that override on the
+        // calibration JSONL so /calibration-review can see override
+        // frequency, not just fire counts.
         if (formLintMatches.length > 0) {
           appendAskFormLintCalibrationRecord(ctx?.workspacePath ?? process.cwd(), {
             timestamp: new Date().toISOString(),
             askId: result.id,
             kind: result.kind,
             matches: formLintMatches.map((m) => ({ class: m.check, phrase: m.message })),
+            acknowledged: Boolean(params.acknowledgeFormWarnings),
           });
         }
 
