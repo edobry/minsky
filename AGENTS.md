@@ -979,6 +979,13 @@ Full detail: `docs/rules-rationale/cockpit-deeplinks.md`.
     bans `<identifier> ?? create<PascalCase>(...)` / `<identifier>?.<prop> ?? new
     <PascalCase>(...)` (ADR-026) across `src/` and `packages/domain/src/`, plus the original
     named-list check in the adapter layer.
+  - `custom/no-silent-catch` (mt#3299) — every `catch` block must rethrow, log, or carry an
+    `// intentional-swallow: <reason>` comment. Registered `off` (not yet active): this repo's
+    zero-tolerance ESLint warning gate (mt#1097, no override) makes `warn` unshippable with 1462
+    pre-existing violations across 560 files; bulk cleanup + flip to `error` tracked at mt#3312.
+  - `custom/require-subprocess-network-timeout` (mt#3299) — `execSync`/`spawnSync`/`fetch` calls
+    need a `timeout`/`signal` option. Registered `off` for the same reason (542 pre-existing
+    violations across 137 files; bulk cleanup + flip to `error` tracked at mt#3313).
 
 # Principal Communication Contract
 
@@ -1216,7 +1223,7 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Execution-evidence** — new tests/scripts w/o evid. `[unverified-tests]`; `MINSKY_SKIP_AT_COVERAGE`.
 - **Deploy-verification** — deploy-surface w/o commit; tray usability-claim. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`/`_USABILITY_CLAIM_CHECK`.
 - **Growth-justification** — CLAUDE.md growth w/o justif. `MINSKY_SKIP_SIZE_JUSTIFICATION`.
-- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests. `MINSKY_SKIP_*`.
+- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content. `MINSKY_SKIP_*`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
 - **Bind/advance spec-read** — status/session op w/o spec-read. `MINSKY_SKIP_SPEC_READ_CHECK`.
 - **Subagent merge capability** — subagent merge w/o grant. `MINSKY_SKIP_MERGE_GRANT_CHECK`.
