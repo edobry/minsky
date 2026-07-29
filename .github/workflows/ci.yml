@@ -204,3 +204,48 @@ jobs:
 
       - name: Build
         run: bun build src/cli.ts --outdir dist --target bun
+
+  # Forced-TZ leg (mt#3299, gate 5 of the mt#3295 corpus-derived gate wave).
+  # Runs the main unit suite + hooks suite under a non-UTC, non-US timezone to
+  # catch tests whose assertions implicitly assume UTC or the author's local
+  # offset (e.g. hardcoded Date-formatting expectations). Pacific/Kiritimati
+  # (UTC+14) is deliberately the most extreme available offset — a maximal
+  # offset surfaces TZ-dependent assertions most reliably. Originating example:
+  # inject-current-time.test.ts (.claude/hooks) was TZ-dependent and only
+  # passed in the author's local zone. Separate job (not folded into `build`)
+  # so a TZ-only failure is visually distinct from a real regression, and so
+  # this leg's cost is additive/parallel rather than serializing onto the
+  # critical path.
+  test-forced-tz:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Pacific/Kiritimati
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      - name: Cache Bun install (shared root + services/reviewer)
+        uses: actions/cache@v4
+        with:
+          path: $HOME/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock', 'services/reviewer/bun.lock') }}
+          restore-keys: |
+            bun-install-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --no-progress
+
+      # ripgrep is a runtime dependency of session.grep_search (mt#3163); see
+      # the identical step in the `build` job above for rationale.
+      - name: Install ripgrep (required by session.grep_search)
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Test (forced TZ=Pacific/Kiritimati)
+        run: bun run test
+
+      - name: Test hooks (forced TZ=Pacific/Kiritimati)
+        run: bun run test:hooks

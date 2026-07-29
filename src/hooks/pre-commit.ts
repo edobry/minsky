@@ -43,6 +43,10 @@ import {
   isMigrationCollisionOverrideTruthy,
   MIGRATION_COLLISION_CHECK_OVERRIDE_ENV,
 } from "./migration-collision-detector";
+import {
+  runMigrationGuardCheck as runMigrationGuardCheckImpl,
+  MIGRATION_GUARD_CHECK_OVERRIDE_ENV,
+} from "./migration-guard-detector";
 import { runRelatedTestsCheck } from "./related-tests-check";
 import {
   recordPreCommitFireLogEntry,
@@ -385,6 +389,21 @@ export class PreCommitHook {
       );
       if (!migrationCollisionResult.success) {
         return migrationCollisionResult;
+      }
+
+      // Step 3e-c: Migration guard check (mt#3299). Block staged .sql
+      // migration files containing an unguarded `DROP INDEX` (missing
+      // `IF EXISTS`) or unguarded `CREATE UNIQUE INDEX` (missing
+      // `IF NOT EXISTS`) — both hard-fail a partial-apply retry of the same
+      // migration. Originating incident: migration 0068 shipped `DROP INDEX`
+      // without `IF EXISTS` (PR #2142), fixed by 065fc729f.
+      const migrationGuardResult = await this.instrumented(
+        "migration-guard-check",
+        () => this.runMigrationGuardCheck(),
+        MIGRATION_GUARD_CHECK_OVERRIDE_ENV
+      );
+      if (!migrationGuardResult.success) {
+        return migrationGuardResult;
       }
 
       // Step 3e: Deploy-domain ownership check (mt#2208, live successor to
@@ -1458,6 +1477,16 @@ export class PreCommitHook {
       message: "Migration collision check failed",
       exitCode: 1,
     };
+  }
+
+  /**
+   * Block staged .sql migrations with an unguarded `DROP INDEX`/`CREATE
+   * UNIQUE INDEX` (mt#3299). Thin delegator — the I/O, detection, and
+   * reporting all live in `src/hooks/migration-guard-detector.ts` (kept out
+   * of this file to stay under its own max-lines budget).
+   */
+  private async runMigrationGuardCheck(): Promise<HookResult> {
+    return runMigrationGuardCheckImpl(this.projectRoot);
   }
 
   /**
