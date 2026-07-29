@@ -5,35 +5,29 @@
 import { describe, test, expect } from "bun:test";
 import { matchesCronNow, shouldWindowFireNow, nextCronFire } from "./cron";
 
+/**
+ * Build a Date whose LOCAL wall clock reads exactly y-m-d h:m, in any timezone —
+ * which is precisely what the plain local-time constructor does. The previous
+ * per-describe copies constructed via Date.UTC and shifted hour/minute back to
+ * local, which corrected the clock but not the DAY: under a large offset
+ * (TZ=Pacific/Kiritimati, UTC+14, the test-forced-tz CI job) the local date
+ * landed one day late, turning the constructed "Sunday" into a Monday (mt#3319).
+ */
+function makeLocalDate(
+  year: number,
+  month: number, // 1-indexed
+  day: number,
+  hour: number,
+  minute: number
+): Date {
+  return new Date(year, month - 1, day, hour, minute, 0);
+}
+
 // ---------------------------------------------------------------------------
 // matchesCronNow
 // ---------------------------------------------------------------------------
 
 describe("matchesCronNow", () => {
-  // Adjust to local time by using a fixed UTC representation.
-  // To avoid timezone issues we test with UTC-anchored Date objects.
-  // matchesCronNow uses local time (getMinutes/getHours/getDay).
-  // We construct dates so they match regardless of tz by using explicit UTC.
-  // For testing purposes we use dates where UTC = local (by constructing via UTC).
-
-  function makeLocalDate(
-    year: number,
-    month: number, // 1-indexed
-    day: number,
-    hour: number,
-    minute: number
-  ): Date {
-    // Use Date.UTC to construct, then offset back by timezone diff so
-    // getHours() / getMinutes() return the expected values locally.
-    const utcMs = Date.UTC(year, month - 1, day, hour, minute, 0);
-    const d = new Date(utcMs);
-    // Shift so local time reads as hour:minute
-    const localHour = d.getHours();
-    const localMinute = d.getMinutes();
-    const deltaMs = (hour - localHour) * 60_000 * 60 + (minute - localMinute) * 60_000;
-    return new Date(utcMs + deltaMs);
-  }
-
   test("matches exact minute and hour on wildcard day/month/dow", () => {
     const now = makeLocalDate(2024, 4, 15, 16, 0);
     expect(matchesCronNow("0 16 * * *", now)).toBe(true);
@@ -79,21 +73,6 @@ describe("matchesCronNow", () => {
 // ---------------------------------------------------------------------------
 
 describe("shouldWindowFireNow", () => {
-  function makeLocalDate(
-    year: number,
-    month: number,
-    day: number,
-    hour: number,
-    minute: number
-  ): Date {
-    const utcMs = Date.UTC(year, month - 1, day, hour, minute, 0);
-    const d = new Date(utcMs);
-    const localHour = d.getHours();
-    const localMinute = d.getMinutes();
-    const deltaMs = (hour - localHour) * 60_000 * 60 + (minute - localMinute) * 60_000;
-    return new Date(utcMs + deltaMs);
-  }
-
   test("manual schedule never fires on cron tick", () => {
     const now = makeLocalDate(2024, 4, 15, 16, 0);
     expect(shouldWindowFireNow({ type: "manual" }, now)).toBe(false);
@@ -128,21 +107,6 @@ describe("shouldWindowFireNow", () => {
 // ---------------------------------------------------------------------------
 
 describe("nextCronFire", () => {
-  function makeLocalDate(
-    year: number,
-    month: number,
-    day: number,
-    hour: number,
-    minute: number
-  ): Date {
-    const utcMs = Date.UTC(year, month - 1, day, hour, minute, 0);
-    const d = new Date(utcMs);
-    const localHour = d.getHours();
-    const localMinute = d.getMinutes();
-    const deltaMs = (hour - localHour) * 60_000 * 60 + (minute - localMinute) * 60_000;
-    return new Date(utcMs + deltaMs);
-  }
-
   test("finds the next fire time for a daily-at-16:00 cron", () => {
     const after = makeLocalDate(2024, 4, 15, 15, 30);
     const next = nextCronFire("0 16 * * *", after);
