@@ -338,10 +338,10 @@ function pairToolInvocations(
 
 // ── Command-invocation merging (mt#3322) ────────────────────────────────────
 //
-// The harness emits ONE slash command as up to three consecutive user turns:
-// a model-directed caveat (`isMeta: true`), the command wrapper, and the
-// captured stdout. Rendered turn-by-turn that is three USER bubbles of raw
-// harness plumbing above the operator's actual message.
+// The harness emits ONE slash command as up to three user turns: the command
+// wrapper, the captured stdout, and a model-directed caveat (`isMeta: true`).
+// Rendered turn-by-turn that is three USER bubbles of raw harness plumbing
+// above the operator's actual message.
 //
 // This pass is the command analogue of `pairToolInvocations` above: it folds
 // the output and caveat INTO the command element, then leaves the drained
@@ -350,12 +350,38 @@ function pairToolInvocations(
 // the wrapper markup and the caveat both remain reachable behind the command
 // element's disclosure toggle.
 //
+// **The parts FOLLOW their command, and the scan stops at the first turn that
+// is not one of them.** Turns render in TIMESTAMP order, not JSONL file order
+// — in conversation 77c6ca4f the caveat is the first line in the file but
+// carries the latest timestamp (.486 vs the command's and stdout's .481), so
+// the rendered group is command -> stdout -> caveat. Two hard boundaries keep
+// the association unambiguous when several commands run in quick succession
+// (PR #2403 R1): the scan stops at the NEXT command wrapper, which owns
+// everything after it, and at any turn that is not an absorbable part, since
+// the group is contiguous. Without those, a `/model` followed closely by
+// `/error-handling` could silently cross-wire one command's output onto the
+// other and drain the wrong turn.
+//
 // Scoped to the rendered window like its sibling: a command whose output turn
 // fell outside the window simply renders without output, and an orphaned
 // output turn keeps its standalone collapsed treatment rather than vanishing.
 
-/** How far ahead of a command turn to look for its output/caveat turns. */
+/**
+ * How far past a command turn to look for its parts. An invocation
+ * contributes at most two (stdout + caveat); the extra slot is slack for an
+ * unexpected additional part, and the boundary checks below — not this
+ * number — are what prevent mis-association.
+ */
 const COMMAND_PART_LOOKAHEAD = 3;
+
+/** The injected-span kinds a command turn may absorb, in no particular order. */
+const ABSORBABLE_PART_KINDS = ["local-command-output", "local-command-caveat"] as const;
+
+/** Index of the `command` injected element in a user turn, or -1. */
+function commandElementIndex(turn: PreparedTurn): number {
+  if (turn.role !== "user") return -1;
+  return turn.elements.findIndex((el) => el.kind === "injected" && el.span.kind === "command");
+}
 
 function soleInjectedSpan(turn: PreparedTurn, kind: InjectedContentKind): InjectedSpan | null {
   if (turn.role !== "user" || turn.elements.length !== 1) return null;
@@ -371,51 +397,44 @@ function mergeCommandInvocations(turns: PreparedTurn[]): PreparedTurn[] {
 
   for (let i = 0; i < working.length; i++) {
     const turn = working[i];
-    if (!turn || turn.role !== "user") continue;
+    if (!turn) continue;
 
-    const commandIndex = turn.elements.findIndex(
-      (el) => el.kind === "injected" && el.span.kind === "command"
-    );
+    const commandIndex = commandElementIndex(turn);
     if (commandIndex === -1) continue;
     const commandElement = turn.elements[commandIndex];
     if (!commandElement || commandElement.kind !== "injected") continue;
 
-    let output: InjectedSpan | undefined;
-    let caveat: InjectedSpan | undefined;
+    const absorbed = new Map<InjectedContentKind, InjectedSpan>();
 
-    // Scan a window on BOTH sides of the command. The three parts do not
-    // arrive in a fixed order here: turns are ordered by timestamp, and the
-    // caveat's timestamp can be LATER than the command's even though it comes
-    // first in the JSONL file (observed in conversation 77c6ca4f: caveat
-    // .486, command .481). A forward-only or backward-only scan drops one of
-    // the parts and it renders as its own stray bubble.
-    //
-    // Absorbing is restricted to SINGLE-element turns: a turn carrying
-    // anything else keeps its own rendering rather than being silently
-    // drained.
-    const from = Math.max(0, i - COMMAND_PART_LOOKAHEAD);
-    const to = Math.min(working.length - 1, i + COMMAND_PART_LOOKAHEAD);
-    for (let j = from; j <= to; j++) {
-      if (j === i) continue;
+    // Forward-only, with two hard stops (see the section comment above):
+    // the next command wrapper, and any turn that is not an absorbable part.
+    // Absorbing is further restricted to SINGLE-element turns — a turn
+    // carrying anything else keeps its own rendering rather than being
+    // silently drained.
+    for (let j = i + 1; j <= i + COMMAND_PART_LOOKAHEAD && j < working.length; j++) {
       const candidate = working[j];
-      if (!candidate) continue;
+      if (!candidate) break;
+      // The next command owns everything from here on.
+      if (commandElementIndex(candidate) !== -1) break;
 
-      if (!output) {
-        const outputSpan = soleInjectedSpan(candidate, "local-command-output");
-        if (outputSpan) {
-          output = outputSpan;
-          candidate.elements = [];
-          continue;
-        }
-      }
-      if (!caveat) {
-        const caveatSpan = soleInjectedSpan(candidate, "local-command-caveat");
-        if (caveatSpan) {
-          caveat = caveatSpan;
-          candidate.elements = [];
-        }
+      const part = ABSORBABLE_PART_KINDS.map(
+        (kind) => [kind, soleInjectedSpan(candidate, kind)] as const
+      ).find(([, span]) => span !== null);
+      // Not a part at all (operator prose, an assistant turn, a tool result):
+      // the contiguous invocation group has ended.
+      if (!part) break;
+
+      const [kind, span] = part;
+      // A second part of a kind already absorbed is not ours — leave it to
+      // render standalone rather than overwriting the nearer one.
+      if (span && !absorbed.has(kind)) {
+        absorbed.set(kind, span);
+        candidate.elements = [];
       }
     }
+
+    const output = absorbed.get("local-command-output");
+    const caveat = absorbed.get("local-command-caveat");
 
     turn.elements[commandIndex] = {
       kind: "command-invocation",

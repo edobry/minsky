@@ -143,10 +143,24 @@ interface PrefixMatch {
   span: InjectedSpan;
 }
 
+// Turn-start matchers, compiled ONCE at module load rather than per call
+// (PR #2403 R1, non-blocking): `splitInjectedContent` runs over every user
+// turn on every render, and the wrapper scan loops over all four tags per
+// block consumed. These are safe to share because none carries the `g` flag —
+// only global-flagged regexes hold mutable `lastIndex` state between calls
+// (which is why `systemReminderRegex()` above is still built per call).
+const WRAPPER_BLOCK_MATCHERS: ReadonlyArray<{ tag: string; re: RegExp }> = COMMAND_WRAPPER_TAGS.map(
+  (tag) => ({ tag, re: new RegExp(`^${tagBlockSource(tag, true)}`, "i") })
+);
+
+const LOCAL_COMMAND_MATCHERS: ReadonlyArray<{ tag: string; re: RegExp }> = LOCAL_COMMAND_TAGS.map(
+  (tag) => ({ tag, re: new RegExp(`^\\s*${tagBlockSource(tag, true)}`, "i") })
+);
+
 /** One wrapper block matched at the head of `text`, whichever tag it is. */
 function matchOneWrapperBlock(text: string): { tag: string; body: string; length: number } | null {
-  for (const tag of COMMAND_WRAPPER_TAGS) {
-    const match = new RegExp(`^${tagBlockSource(tag, true)}`, "i").exec(text);
+  for (const { tag, re } of WRAPPER_BLOCK_MATCHERS) {
+    const match = re.exec(text);
     if (match) return { tag, body: (match[1] ?? "").trim(), length: match[0].length };
   }
   return null;
@@ -183,8 +197,8 @@ function consumeWrapperRun(text: string): WrapperRun | null {
 
 /** A `<local-command-stdout>` / `<local-command-caveat>` block at turn start. */
 function matchLocalCommandBlock(text: string): PrefixMatch | null {
-  for (const tag of LOCAL_COMMAND_TAGS) {
-    const match = new RegExp(`^\\s*${tagBlockSource(tag, true)}`, "i").exec(text);
+  for (const { tag, re } of LOCAL_COMMAND_MATCHERS) {
+    const match = re.exec(text);
     if (!match) continue;
     const presentation = LOCAL_COMMAND_PRESENTATION[tag];
     if (!presentation) continue;

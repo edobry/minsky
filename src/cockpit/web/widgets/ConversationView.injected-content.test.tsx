@@ -268,31 +268,42 @@ function userStringBlock(
   };
 }
 
+/** The wrapper group the harness emits for a slash command, command-name first. */
+function commandWrapper(name: string): string {
+  return (
+    `<command-name>${name}</command-name>\n` +
+    `            <command-message>${name.replace(/^\//, "")}</command-message>\n` +
+    "            <command-args></command-args>"
+  );
+}
+
+function commandStdout(text: string): string {
+  return `<local-command-stdout>${text}</local-command-stdout>`;
+}
+
 /**
  * The three turns the harness emits for one `/model` invocation.
  *
  * **Ordering matters here and is NOT the JSONL file order.** In the
  * originating transcript the caveat is the FIRST line in the file but carries
- * a LATER timestamp (.486) than the command (.481) — so once turns are
- * ordered by timestamp, the command comes first and the caveat second. This
- * fixture reproduces the timestamp order. An earlier version used naive file
- * order, which let a backward-only merge scan pass this test while the caveat
- * still rendered as a stray bubble in the real cockpit.
+ * the LATEST timestamp (.486, against .481 for both the command and the
+ * stdout) — so once turns are ordered by timestamp the rendered group is
+ * command -> stdout -> caveat. This fixture reproduces that order. An earlier
+ * version used naive file order, which let a backward-only merge scan pass
+ * this test while the caveat still rendered as a stray bubble in the real
+ * cockpit.
  */
-function modelCommandBlocks(): SessionContextSnapshotBlock[] {
+function modelCommandBlocks(startIndex = 0): SessionContextSnapshotBlock[] {
   return [
+    userStringBlock(startIndex, commandWrapper("/model")),
     userStringBlock(
-      0,
-      "<command-name>/model</command-name>\n" +
-        "            <command-message>model</command-message>\n" +
-        "            <command-args></command-args>"
+      startIndex + 1,
+      commandStdout("Set model to \u001b[1mFable 5\u001b[22m for this session only")
     ),
-    userStringBlock(1, `<local-command-caveat>${MODEL_CAVEAT_TEXT}</local-command-caveat>`, {
-      isMeta: true,
-    }),
     userStringBlock(
-      2,
-      "<local-command-stdout>Set model to \u001b[1mFable 5\u001b[22m for this session only</local-command-stdout>"
+      startIndex + 2,
+      `<local-command-caveat>${MODEL_CAVEAT_TEXT}</local-command-caveat>`,
+      { isMeta: true }
     ),
   ];
 }
@@ -340,5 +351,69 @@ describe("ConversationView — slash-command invocation rendering (mt#3322)", ()
     expect(screen.getAllByText("user")).toHaveLength(2);
 
     expect(screen.getByText(prose)).toBeDefined();
+  });
+
+  // PR #2403 R1 (BLOCKING): the first implementation scanned a symmetric
+  // +/-3-turn window and absorbed the first part of each kind it found, with
+  // nothing tying a part to a specific command. Two commands in quick
+  // succession could therefore cross-wire — one command's stdout attaching to
+  // the other, and the wrong turn silently drained out of the render.
+  test("two commands in quick succession keep their own output — no cross-wiring", () => {
+    renderCV(
+      snapshotWithBlocks([
+        userStringBlock(0, commandWrapper("/model")),
+        userStringBlock(1, commandStdout("Set model to Fable 5 for this session only")),
+        userStringBlock(2, commandWrapper("/cost")),
+        userStringBlock(3, commandStdout("Total cost: $1.23")),
+      ])
+    );
+
+    // Both commands render, each with its OWN result, and nothing is dropped.
+    expect(screen.getByText("/model")).toBeDefined();
+    expect(screen.getByText("/cost")).toBeDefined();
+    expect(screen.getByText("Set model to Fable 5 for this session only")).toBeDefined();
+    expect(screen.getByText("Total cost: $1.23")).toBeDefined();
+    expect(screen.getAllByText("user")).toHaveLength(2);
+  });
+
+  test("a command with no output of its own does not steal a later command's output", () => {
+    renderCV(
+      snapshotWithBlocks([
+        userStringBlock(0, commandWrapper("/clear")),
+        userStringBlock(1, commandWrapper("/cost")),
+        userStringBlock(2, commandStdout("Total cost: $1.23")),
+      ])
+    );
+
+    // `/clear` must stop at the `/cost` wrapper rather than reaching past it.
+    // Asserted on render ORDER: nothing between the two command prompts may
+    // carry the output, and the output must appear after `/cost`.
+    const text = document.body.textContent ?? "";
+    const clearAt = text.indexOf("/clear");
+    const costAt = text.indexOf("/cost");
+    const outputAt = text.indexOf("Total cost: $1.23");
+
+    expect(clearAt).toBeGreaterThanOrEqual(0);
+    expect(costAt).toBeGreaterThan(clearAt);
+    // The output belongs to `/cost`, so it renders after it — not between the
+    // two commands, which is where a stolen output would land.
+    expect(outputAt).toBeGreaterThan(costAt);
+    expect(screen.getAllByText("user")).toHaveLength(2);
+  });
+
+  test("a turn that is not a command part ends the group (operator prose is never absorbed)", () => {
+    const prose = "wait, actually hold on";
+    renderCV(
+      snapshotWithBlocks([
+        userStringBlock(0, commandWrapper("/model")),
+        userStringBlock(1, prose),
+        userStringBlock(2, commandStdout("Set model to Fable 5 for this session only")),
+      ])
+    );
+
+    // The prose turn renders in full, and the stdout beyond it is NOT pulled
+    // across it into the command element.
+    expect(screen.getByText(prose)).toBeDefined();
+    expect(screen.getAllByText("user")).toHaveLength(3);
   });
 });

@@ -16,7 +16,7 @@
  * @see mt#3262 — this extraction
  * @see mt#2374 / mt#2790 / mt#2791 — original implementation history
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { cn } from "../lib/utils";
 import type { ConversationElement, ConversationRole } from "@minsky/domain/transcripts/conversation-elements";
 import type { EntityIndex } from "../lib/entity-linkifier";
@@ -373,6 +373,9 @@ export function CommandInvocation({
     if (expandSignal) setOpen(expandSignal.open);
   }, [expandEpoch]);
 
+  // Ties the toggle to the region it controls so a screen reader announces
+  // what expanded (PR #2403 R1, non-blocking).
+  const detailsId = useId();
   const { command, output, caveat } = element;
 
   return (
@@ -391,6 +394,7 @@ export function CommandInvocation({
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
+          aria-controls={detailsId}
           aria-label={open ? "Hide raw command markup" : "Show raw command markup"}
           className="ml-auto shrink-0 text-xs text-muted-foreground/60"
         >
@@ -398,7 +402,7 @@ export function CommandInvocation({
         </button>
       </div>
       {open && (
-        <div className="space-y-1 border-t border-border/40 px-2 py-1">
+        <div id={detailsId} className="space-y-1 border-t border-border/40 px-2 py-1">
           <Prose entityIndex={entityIndex} className="text-muted-foreground/90">
             {command.content}
           </Prose>
