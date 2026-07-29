@@ -31,6 +31,15 @@ The build flags are deliberately identical across all three `bun build` sites (`
 4. **Auth token**: `openssl rand -hex 32` — this becomes `MINSKY_MCP_AUTH_TOKEN`. Distribute only to trusted service consumers.
 5. **Supabase Postgres URL**: the same connection string Minsky uses locally. Copy from `~/.config/minsky/config.yaml` (the `persistence.postgres.connectionString` field) or your local env.
 
+> **Getting a Railway dashboard URL: use `railway open --print`, not a hand-composed URL
+> (mt#3142).** `railway open --print` prints the dashboard URL for the linked project/service
+> without opening a browser — use it whenever a doc, ask, or runbook needs to send an operator to
+> the Railway console. A hand-composed `https://railway.com/project/<id>` **returns 404**: the
+> working URL requires an `?environmentId=<id>` query parameter that a bare project-id URL omits.
+> This bit an operator-facing ask during the 2026-07-23/24 reviewer incident (mt#3142) — the link
+> was constructed by hand instead of obtained from the CLI, and the ask shipped with a dead link,
+> costing a principal round-trip during an active outage.
+
 ## First deploy
 
 ```bash
@@ -202,6 +211,77 @@ GraphQL mutation (see `services/reviewer/DEPLOY.md` for a full worked example ag
 ```
 
 **Critical ordering gotcha (from `feedback_railway_config.md`):** if `source.rootDirectory` needs to be set, set it via JSON patch BEFORE creating the deployment trigger. Trigger creation fires an immediate build using whatever rootDirectory is currently on the service; missing config → build from the wrong directory → service crashes. For Minsky at repo root, `rootDirectory` defaults to `/` and no config is needed.
+
+## Standing deployment triggers vs `sourceImage` (mt#3142)
+
+A Railway service can hold `source.image` (an explicit image-source deploy) **and** a standing
+native GitHub deployment trigger **at the same time** — the two are independent objects on the
+service, and the trigger deploys on every push to its configured branch **independently of the
+declared source**. Declaring `source.image` (in Pulumi or the dashboard) does not disconnect,
+disable, or supersede a trigger that was registered earlier — it only changes what an _explicit_
+deploy resolves to. If the trigger is still registered, a push to the branch fires its own build,
+and if no dockerfile path is pinned for that build, Railway falls back to auto-detecting a
+Dockerfile from the repo — which is not necessarily the one the target service is supposed to run.
+
+This was the mechanism behind the 2026-07-23/24 reviewer wrong-image incident (mt#3142): the
+reviewer service (`minsky-reviewer-webhook`) had `source.image` pointing at
+`ghcr.io/edobry/minsky-reviewer:latest`, but a standing GitHub deployment trigger predating the
+image-source migration was still registered on the service. Pushes to `main` kept firing that
+trigger, which built the repo-root `Dockerfile` (the Minsky MCP server image, not the reviewer's)
+and deployed it onto the reviewer's host — so the reviewer intermittently served the wrong
+application even though its declared source was correct. `GET /health` returned 200 throughout,
+because the wrong application also serves a generic healthy response; only a reviewer-specific
+signal (e.g. `POST /retrigger` reachability, or the health body's `service` field, see the
+"Continuous monitoring" section above) could tell the two states apart.
+
+### Setting `sourceRepo: null` does not delete the trigger
+
+Setting `source.sourceRepo: null` on the Pulumi `Service` resource does **not** cascade-delete the
+standing trigger object. The trigger has its own lifecycle, independent of the `Service`
+resource's `sourceRepo`/`sourceImage` fields, and survives a Pulumi apply that clears them.
+Disconnecting the repo source through `infra/index.ts` is necessary but not sufficient to stop
+trigger-fired builds — the trigger itself has to be removed separately.
+
+### Pulumi's generated Railway SDK cannot see or manage the trigger, or `dockerfilePath`
+
+The generated Railway SDK Pulumi uses (`infra/sdks/railway/`) exposes no resource for the
+deployment-trigger object at all. Its full resource set is: `customDomain`, `environment`,
+`project`, `provider`, `service`, `serviceDomain`, `sharedVariable`, `tcpProxy`, `variable`,
+`variableCollection` — there is no `deploymentTrigger` resource. The `Service` resource's field
+set is: `configPath`, `cronSchedule`, `name`, `projectId`, `regions`, `rootDirectory`,
+`sourceImage`, `sourceImageRegistryUsername`, `sourceImageRegistryPassword`, `sourceRepo`,
+`sourceRepoBranch`, `volume` — there is no `dockerfilePath` field either.
+
+**Consequence:** because the provider has no `dockerfilePath` field, a Pulumi-managed `Service`
+update silently **drops** a dockerfile path that was set out-of-band (e.g. via `railway.json` or
+the dashboard) — Pulumi has no field to preserve, so it doesn't know one existed. This is the same
+failure class as mt#2352 ("Railway config-as-code does NOT field-merge `dockerfilePath`"), reached
+by a different path: mt#2352 hit it through `railway.json`, this incident hit it through Pulumi.
+
+Because Pulumi cannot represent or manage the trigger object, removing a standing trigger is
+out-of-band of `infra/index.ts`. Railway documents disconnecting the GitHub source from the
+**dashboard** (Settings → Source) as the supported way to make a service a pure image runner:
+
+- <https://docs.railway.com/deployments/github-autodeploys>
+- <https://docs.railway.com/services>
+
+### Belt-and-suspenders: `RAILWAY_DOCKERFILE_PATH`
+
+The live reviewer service also has the service variable
+`RAILWAY_DOCKERFILE_PATH=services/reviewer/Dockerfile` set. Railway documents this env var as a
+build-time override that pins the Dockerfile path for a build even when it falls back to
+auto-detection — so if a standing trigger ever fires again, the resulting build should resolve to
+the reviewer's own Dockerfile instead of the repo root. This is **vendor-documented and set, but
+has never actually been exercised by a real trigger-fired repo build** — treat it as
+strong-evidence, not live-verified, unless and until a trigger-fired build is observed picking it
+up.
+
+As of 2026-07-28 the reviewer deploy pipeline is confirmed working end-to-end through its intended
+path: `.github/workflows/deploy-reviewer.yml` deploys the reviewer on merge using a per-project
+`RAILWAY_REVIEWER_TOKEN` (mt#3251), and the deployed image digest matches
+`ghcr.io/edobry/minsky-reviewer:latest` with `/health` returning the reviewer's own identity. The
+`RAILWAY_DOCKERFILE_PATH` variable above remains a defense-in-depth measure against a
+trigger-fired build, not evidence that one has occurred.
 
 ## Database migrations on deploy (mt#2505)
 
