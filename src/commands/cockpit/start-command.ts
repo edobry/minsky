@@ -20,6 +20,7 @@ import {
 } from "../../cockpit/sweepers";
 import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
 import { refreshSchemaReadinessFromDb } from "../../cockpit/schema-readiness";
+import { startStdioLogRotationSweeper } from "../../cockpit/stdio-log-rotation";
 import {
   markDbDegraded,
   startDbRetryBackoff,
@@ -419,9 +420,15 @@ export function createStartCommand(): Command {
       // BEFORE the meta-watchdog below so the watchdog covers it like every
       // other sweep.
       const stopConversationPresenceSweeper = startConversationPresenceSweeper();
+      // Stdio-redirect log rotation (mt#3298): bounds the supervisor-written
+      // cockpit-{stdout,stderr}.log capture files via copy-then-truncate —
+      // the one launch-path-agnostic place a size policy can live, since the
+      // files' fds are owned by whichever supervisor started this process.
+      // Filesystem-only; deliberately not gated on schema readiness.
+      const stopStdioLogRotationSweeper = startStdioLogRotationSweeper();
       // Sweep meta-watchdog (mt#2894): a "sweep of sweeps" on its OWN
       // self-rescheduling setTimeout chain (deliberately not setInterval —
-      // see sweepers.ts's docblock) that force-restarts any of the eight
+      // see sweepers.ts's docblock) that force-restarts any of the
       // sweeps above whose interval has stopped attempting ticks entirely.
       // Covers the class per-tick isolation structurally cannot: a dropped
       // or wedged setInterval handle, not a hung/throwing tick.
@@ -441,6 +448,7 @@ export function createStartCommand(): Command {
         stopDeploySmokeSweeper();
         stopFollowUpSweeper();
         stopConversationPresenceSweeper();
+        stopStdioLogRotationSweeper();
         stopSweepMetaWatchdog();
         // Aborts the in-flight long poll rather than letting shutdown wait it
         // out; null when the channel is disabled or still starting.
