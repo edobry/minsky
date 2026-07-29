@@ -36,6 +36,17 @@ export interface TranscriptSweepSummary {
    */
   sessionsErrored: number;
   /**
+   * Sessions SKIPPED on the LAST sweep because they are quarantined (mt#3278) —
+   * they failed to ingest repeatedly and are no longer being attempted, so
+   * their conversations have silently stopped being captured.
+   *
+   * A gauge, not a running total: unlike `sessionsErrored`, quarantine is a
+   * standing condition rather than an event, so summing it across sweeps would
+   * make one stuck session look like an ever-worsening problem. This reads
+   * "how many sessions are given up on right now."
+   */
+  sessionsQuarantined: number;
+  /**
    * Number of embedding backfill runs completed successfully.
    * Incremented once per sweep tick where embeddings ran without throwing.
    */
@@ -55,6 +66,7 @@ export class TranscriptSweepTracker {
   private sweepsRun = 0;
   private sessionsIngested = 0;
   private sessionsErrored = 0;
+  private sessionsQuarantined = 0;
   private embedRuns = 0;
   private lastSweepAtMs: number | null = null;
   private lastErrorAtMs: number | null = null;
@@ -78,11 +90,20 @@ export class TranscriptSweepTracker {
    *
    * @param sessionsProcessed - From ingestAll().sessionsProcessed
    * @param sessionsErrored   - From ingestAll().sessionsErrored (surfaced, not dropped)
+   * @param sessionsQuarantined - From ingestAll().sessionsQuarantined (mt#3278).
+   *   Optional so the existing two-arg call shape keeps working; omitted means
+   *   "this sweep reported none", which resets the gauge as it should.
    */
-  recordSweepCompleted(sessionsProcessed: number, sessionsErrored: number): void {
+  recordSweepCompleted(
+    sessionsProcessed: number,
+    sessionsErrored: number,
+    sessionsQuarantined = 0
+  ): void {
     this.sweepsRun++;
     this.sessionsIngested += sessionsProcessed < 0 ? 0 : sessionsProcessed;
     this.sessionsErrored += sessionsErrored < 0 ? 0 : sessionsErrored;
+    // Gauge, not an accumulator — see the field's doc comment.
+    this.sessionsQuarantined = sessionsQuarantined < 0 ? 0 : sessionsQuarantined;
     this.lastSweepAtMs = Date.now();
     if (sessionsErrored > 0) {
       this.lastErrorAtMs = Date.now();
@@ -112,6 +133,7 @@ export class TranscriptSweepTracker {
       sweepsRun: this.sweepsRun,
       sessionsIngested: this.sessionsIngested,
       sessionsErrored: this.sessionsErrored,
+      sessionsQuarantined: this.sessionsQuarantined,
       embedRuns: this.embedRuns,
       lastSweepAt: this.lastSweepAtMs === null ? null : new Date(this.lastSweepAtMs).toISOString(),
       lastErrorAt: this.lastErrorAtMs === null ? null : new Date(this.lastErrorAtMs).toISOString(),
