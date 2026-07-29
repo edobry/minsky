@@ -590,7 +590,50 @@ export function isExecutableAcceptanceTest(text: string, taskKind?: string): boo
  * marker is present — this is a plain text-extraction helper, deliberately independent
  * of `hasExecutionEvidence` (which stays byte-for-byte unchanged per mt#3033 constraint
  * 2) so neither function's behavior can regress the other's test suite.
+ *
+ * **mt#3316 FP-3 fix (originating incident: mt#3174 / PR #2264).** The scan ALSO covers
+ * any PR-body section whose heading names "acceptance test(s)" — e.g. `### Acceptance
+ * tests (mt#3174 spec, by number)` — in addition to the literal `Execution evidence:`
+ * block. Before this fix, an AT-by-number reference living in a SIBLING section (a
+ * heading immediately following the Execution evidence content) was invisible to the
+ * scan, which stops at the next heading of any level: `checkAcceptanceTestCoverage`
+ * would then report a genuinely-addressed AT as unaddressed — recorded as FP-3 in
+ * mt#3059's `## Observed false positives` running log. `communication-contract.mdc
+ * §Three authoring requirements` (mt#3200) now tells authors to keep AT references
+ * INSIDE the Execution evidence block going forward; this widening is the scanner-side
+ * complement, covering evidence written before that convention existed (like PR #2264
+ * itself) and PR bodies that reasonably split a dedicated AT-by-number section out for
+ * readability. Deliberately narrow — matches only on heading TEXT containing "acceptance
+ * test(s)", not arbitrary PR-body prose, to keep the false-negative surface small (per
+ * `checkAcceptanceTestCoverage`'s existing false-positive-averse design).
  */
+const ACCEPTANCE_TESTS_HEADING_LINE_PATTERN = /^ {0,3}#{1,6}\s+.*\bacceptance tests?\b/i;
+
+/**
+ * Collects the content of every section in `lines` whose heading line matches
+ * `isHeadingLine`, from just after the heading up to (not including) the next Markdown
+ * heading of any level, or end-of-string. Extracted so `extractExecutionEvidenceText`'s
+ * two scan passes (Execution evidence + mt#3316's acceptance-tests widening) share one
+ * boundary implementation.
+ */
+function collectHeadingSections(
+  lines: string[],
+  isHeadingLine: (line: string) => boolean
+): string[] {
+  const collected: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined || !isHeadingLine(line)) continue;
+    for (let j = i + 1; j < lines.length; j++) {
+      const nextLine = lines[j];
+      if (nextLine === undefined) break;
+      if (/^ {0,3}#{1,6}\s/.test(nextLine)) break;
+      collected.push(nextLine);
+    }
+  }
+  return collected;
+}
+
 export function extractExecutionEvidenceText(prBody: string): string {
   const strippedBody = prBody.replace(/<!--[\s\S]*?-->/g, "");
   const headingPattern =
@@ -617,6 +660,12 @@ export function extractExecutionEvidenceText(prBody: string): string {
       collected.push(nextLine);
     }
   }
+
+  // mt#3316 FP-3: widen the scan to also cover any "acceptance test(s)" heading's
+  // section, in addition to the literal Execution evidence block collected above.
+  collected.push(
+    ...collectHeadingSections(lines, (line) => ACCEPTANCE_TESTS_HEADING_LINE_PATTERN.test(line))
+  );
 
   return collected.join("\n");
 }

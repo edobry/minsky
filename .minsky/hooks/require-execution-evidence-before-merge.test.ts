@@ -1074,6 +1074,68 @@ Minsky MCP server, not the reviewer webhook service.
 Found 2026-07-23 while driving a PR to convergence.
 `;
 
+/**
+ * mt#3059 FP-3 fixture (mt#3316 fix) — trimmed from the REAL mt#3174 spec (PR #2264). AT2's
+ * text is quoted verbatim from mt#3059's `## Observed false positives` FP-3 entry.
+ */
+const SPEC_MT3174_AT = `## Summary
+Cockpit entity-reference layer: label channel, hover primitive, EntityRef.
+
+## Acceptance Tests
+
+1. Stub the label channel to fail; render \`<Prose>\` with a known \`mt#NNNN\`: renders, links, bare id, no badge shell/spinner/layout shift.
+2. Render a surface with K>1 references and count label requests: one, not K.
+3. \`entity-linkifier.test.ts\` unmodified: passes (62/62).
+4. Single-line string through the inline-only path: linkified, no block wrapper.
+5. \`<EntityRef>\` per entity type (task shows title+status; five payload-backed types show label; unknown id degrades to plain linked id).
+6. Hover disabled: title still readable inline.
+`;
+
+/**
+ * mt#3059 FP-3 fixture (mt#3316 fix) — trimmed from the REAL PR #2264 body (see
+ * mcp__minsky__changeset_get id "2264" for the untrimmed original). The literal
+ * `## Execution evidence:` block ends at the `### Acceptance tests (mt#3174 spec, by
+ * number)` heading; AT2's reference lives entirely in that SIBLING section, outside the
+ * pre-fix `extractExecutionEvidenceText` scan boundary (which stopped at the next heading
+ * of any level). Pre-fix, the AT-coverage check reported AT2 as unaddressed against real,
+ * already-satisfied evidence — the false positive recorded as FP-3 in mt#3059's running FP
+ * log (fired live 2026-07-24 against this exact PR).
+ */
+const PR_BODY_MT3174_FP3 = `## Summary
+Entity-reference layer.
+
+## Execution evidence:
+
+Server-side (no DOM):
+\`\`\`
+bun test --preload ./tests/setup.ts --timeout=15000 src/cockpit/task-title-cache.test.ts
+
+14 pass
+0 fail
+\`\`\`
+
+### Acceptance tests (mt#3174 spec, by number)
+
+1. Stub the label channel to fail; render \`<Prose>\` with a known \`mt#NNNN\`:
+   renders, links, bare id, no badge shell/spinner/layout shift —
+   \`Prose.test.tsx\` "acceptance test: label channel stubbed to fail...".
+2. K>1 references → one label request, not K —
+   \`use-entity-index.test.tsx\` "K simultaneously-mounted... issue ONE
+   /api/tasks/meta request, not K".
+3. \`entity-linkifier.test.ts\` unmodified: passes (62/62, included above).
+4. Single-line string through the inline-only path: linkified, no block
+   wrapper — \`entity-linkifier.mt3174.test.tsx\` "Inline-only linkify path".
+5. \`<EntityRef>\` per entity type (task shows title+status; five
+   payload-backed types show label; unknown id degrades to plain linked id)
+   — \`EntityRef.test.tsx\` "per-type label resolution".
+6. Hover disabled: title still readable inline — \`EntityRef.test.tsx\`
+   "hover is supplementary, not load-bearing".
+
+## Out of scope (per mt#3174/mt#3165)
+
+Adoption at any render surface (mt#3175).
+`;
+
 describe("extractAcceptanceTestsSection", () => {
   it("extracts content between the heading and the next heading", () => {
     const section = extractAcceptanceTestsSection(SPEC_MT2542_3_AT);
@@ -1320,6 +1382,22 @@ describe("checkAcceptanceTestCoverage — mt#3059 FP-1/FP-2 real-spec fixtures",
     expect(result.executableAts).toHaveLength(3);
     expect(result.unaddressedAts).toHaveLength(0);
   });
+
+  it("FP-3 (mt#3316 fix): AT2's reference in a sibling 'Acceptance tests (by number)' section is no longer missed (real mt#3174 / PR #2264 fixture)", () => {
+    // Pre-fix, extractExecutionEvidenceText stopped at the "### Acceptance tests (mt#3174
+    // spec, by number)" heading (the next heading after the Execution evidence block), so
+    // AT2's reference — living entirely in that sibling section — was invisible to the
+    // coverage check. It fired live against this exact PR (2026-07-24), recorded as FP-3
+    // in mt#3059's running FP log. With the mt#3316 widening, the sibling section's content
+    // is scanned too, and AT2 is found via its shared "references" keyword.
+    const result = checkAcceptanceTestCoverage(
+      SPEC_MT3174_AT,
+      "implementation",
+      PR_BODY_MT3174_FP3
+    );
+    expect(result.executableAts).toHaveLength(6);
+    expect(result.unaddressedAts).toHaveLength(0);
+  });
 });
 
 describe("extractAcceptanceTestsSection / parseAcceptanceTests — boundary edge case: heading immediately follows, zero AT content", () => {
@@ -1402,6 +1480,12 @@ describe("extractExecutionEvidenceText", () => {
 
   it("ignores a negated 'No Execution evidence:' marker", () => {
     expect(extractExecutionEvidenceText("No Execution evidence: nothing was run.")).toBe("");
+  });
+
+  it("mt#3316 FP-3 fix: also includes content from a sibling 'Acceptance tests (by number)' heading, not just the literal Execution evidence block", () => {
+    const text = extractExecutionEvidenceText(PR_BODY_MT3174_FP3);
+    expect(text).toContain("14 pass");
+    expect(text).toContain("K>1 references");
   });
 });
 
