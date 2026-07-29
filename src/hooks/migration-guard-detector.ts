@@ -74,11 +74,20 @@ const CREATE_UNIQUE_INDEX_GUARDED_RE =
   /\bCREATE\s+UNIQUE\s+INDEX\s+(?:CONCURRENTLY\s+)?IF\s+NOT\s+EXISTS\b/i;
 
 /**
- * Filter `git diff --cached --name-status --diff-filter=AM` output lines
+ * Filter `git diff --cached --name-status --diff-filter=ACMR` output lines
  * down to staged .sql files directly inside one of `migrationDirs` (not a
  * subdirectory like `meta/`). Pure function so the pre-commit wrapper method
  * stays a thin I/O shell (mt#3299 review: keeps pre-commit.ts's own line
  * budget from absorbing filter logic that belongs with its sibling detector).
+ *
+ * Handles both plain status lines (`M\t<path>`, `A\t<path>`, 2 tab-separated
+ * fields) and rename/copy lines (`R100\t<old>\t<new>`, 3 fields) by taking
+ * the LAST field as the path — for a rename that is the file's NEW path,
+ * which is what's actually staged and will be re-read/re-scanned on a
+ * partial-apply retry. `ACMR` (not the original `AM`) is required for
+ * renames to be included at all: a renamed-with-edited migration otherwise
+ * never appears in an `AM`-filtered diff and silently escapes this check
+ * (mt#3299 PR #2392 R1 BLOCKING #4).
  */
 export function filterStagedMigrationSqlFiles(
   statusLines: readonly string[],
@@ -86,7 +95,8 @@ export function filterStagedMigrationSqlFiles(
 ): string[] {
   const files: string[] = [];
   for (const line of statusLines) {
-    const filePath = line.split("\t")[1];
+    const parts = line.split("\t");
+    const filePath = parts[parts.length - 1];
     if (!filePath || !filePath.endsWith(".sql")) continue;
     const inMigrationDir = migrationDirs.some((dir) => {
       const prefix = `${dir}/`;
@@ -171,7 +181,7 @@ export async function runMigrationGuardCheck(
   try {
     const result = await execGitWithTimeout(
       "diff",
-      "diff --cached --name-status --diff-filter=AM",
+      "diff --cached --name-status --diff-filter=ACMR",
       { workdir: projectRoot, timeout: 5000 }
     );
     const statusLines = result.stdout.toString().trim().split("\n").filter(Boolean);

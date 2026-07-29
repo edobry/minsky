@@ -14,9 +14,20 @@
  *   1. A `throw` statement anywhere in the catch block (rethrow, possibly
  *      wrapped/annotated).
  *   2. A call to a logger/console method (`log.error`, `logger.warn`,
- *      `console.error`, etc. — any `<ident>.<level>(...)` where the level is
- *      one of error/warn/info/debug/log/fatal/trace and the receiver
- *      identifier is/ends with log/logger/console).
+ *      `console.error`, `this.logger.warn`, `req.log.error`,
+ *      `getLogger().error`, `myLogger.warn`, `appLog.error`, etc.) — any
+ *      `<receiver>.<level>(...)` where the level is one of
+ *      error/warn/info/debug/log/fatal/trace and the receiver's name
+ *      (the last property name in a member chain, a bare identifier, a
+ *      computed string-literal key, or the callee name of a factory call
+ *      like `getLogger()`) CONTAINS "log" or "console" as a substring,
+ *      case-insensitively. Substring (not exact-name) matching is
+ *      deliberate: a false NEGATIVE here (failing to recognize a real
+ *      logging call under a locally-named variable like `myLogger`/`appLog`)
+ *      causes a false POSITIVE at the rule level (a real log call wrongly
+ *      flagged as "silent") — the failure mode reviewer feedback (PR #2392
+ *      R1 BLOCKING #2) identified — so this favors recognizing too much
+ *      over too little.
  *   3. A comment anywhere INSIDE the catch block's source range containing
  *      `intentional-swallow:`.
  *
@@ -29,8 +40,56 @@
  */
 
 const LOG_METHOD_RE = /^(error|warn|info|debug|log|fatal|trace)$/;
-const LOG_RECEIVER_RE = /(^|[._])(log|logger|console)$/i;
+// Substring match (not anchored to the whole name) — see the fileoverview
+// doc comment above for why: a locally-aliased logger variable (`myLogger`,
+// `appLog`, `reqLogger`) must still be recognized as a real logging call.
+const LOG_RECEIVER_RE = /log|console/i;
 const INTENTIONAL_SWALLOW_RE = /intentional-swallow:/;
+
+/**
+ * Extract a "name" to test against `LOG_RECEIVER_RE` from the receiver
+ * expression of a `<receiver>.<method>(...)` call — the `callee.object` of
+ * the CallExpression's MemberExpression callee. Handles:
+ *   - a bare identifier (`logger`, `myLogger`, `console`)
+ *   - a member-expression chain of any depth, taking the LAST property name
+ *     (`this.logger`, `this.services.logger`, `req.log`)
+ *   - a computed member expression with a static string-literal key
+ *     (`obj["logger"]`)
+ *   - a factory-call receiver (`getLogger()`, `createLogger()`) — uses the
+ *     called function's own name
+ *   - a `ChainExpression`-wrapped form of any of the above (optional
+ *     chaining, e.g. `logger?.error(e)`)
+ * Returns `null` for `ThisExpression` alone (`this.error()` is not a logger
+ * call) and for any other shape this can't resolve to a name.
+ */
+function extractReceiverName(node) {
+  if (!node) return null;
+  switch (node.type) {
+    case "Identifier":
+      return node.name;
+    case "MemberExpression":
+      if (!node.computed && node.property.type === "Identifier") {
+        return node.property.name;
+      }
+      if (
+        node.computed &&
+        node.property.type === "Literal" &&
+        typeof node.property.value === "string"
+      ) {
+        return node.property.value;
+      }
+      // Computed with a non-literal key, or a non-identifier property —
+      // fall back to the object side (rare shapes; best-effort).
+      return extractReceiverName(node.object);
+    case "CallExpression":
+      // e.g. getLogger().error(e) — check the called function's own name.
+      return extractReceiverName(node.callee);
+    case "ChainExpression":
+      return extractReceiverName(node.expression);
+    default:
+      return null;
+  }
+}
 
 /** Recursively check whether any node in the subtree is a ThrowStatement. */
 function containsThrow(node) {
@@ -53,19 +112,27 @@ function containsThrow(node) {
 /** Recursively check whether any node in the subtree is a qualifying logger call. */
 function containsLoggerCall(node) {
   if (!node || typeof node !== "object") return false;
-  if (node.type === "CallExpression" && node.callee && node.callee.type === "MemberExpression") {
-    const callee = node.callee;
-    const methodName = callee.property && !callee.computed ? callee.property.name : null;
+  // Unwrap a ChainExpression-wrapped call (optional chaining, e.g.
+  // `logger?.error(e)`) to the CallExpression it wraps before the shape
+  // check below, so the callee-inspection logic doesn't need its own
+  // ChainExpression branch.
+  const candidate = node.type === "ChainExpression" && node.expression ? node.expression : node;
+  if (
+    candidate.type === "CallExpression" &&
+    candidate.callee &&
+    candidate.callee.type === "MemberExpression"
+  ) {
+    const callee = candidate.callee;
+    const methodName =
+      callee.property && !callee.computed && callee.property.type === "Identifier"
+        ? callee.property.name
+        : callee.computed &&
+            callee.property.type === "Literal" &&
+            typeof callee.property.value === "string"
+          ? callee.property.value
+          : null;
     if (methodName && LOG_METHOD_RE.test(methodName)) {
-      const receiver = callee.object;
-      let receiverName = null;
-      if (receiver.type === "Identifier") {
-        receiverName = receiver.name;
-      } else if (receiver.type === "MemberExpression" && !receiver.computed) {
-        receiverName = receiver.property.name;
-      } else if (receiver.type === "ThisExpression") {
-        receiverName = null;
-      }
+      const receiverName = extractReceiverName(callee.object);
       if (receiverName && LOG_RECEIVER_RE.test(receiverName)) return true;
     }
   }

@@ -49,6 +49,37 @@ tester.run("no-silent-catch", rule, {
       code: 'try { doThing(); } catch (e) { this.logger.warn("failed", e); }',
       filename: srcFile("utils", "b.ts"),
     },
+    // mt#3299 PR #2392 R1 BLOCKING #2: a locally-aliased logger variable
+    // (not literally named "log"/"logger"/"console") must still satisfy
+    // the rule — substring matching, not exact-name matching.
+    {
+      code: 'try { doThing(); } catch (e) { myLogger.error("failed", e); }',
+      filename: srcFile("utils", "b.ts"),
+    },
+    {
+      code: 'try { doThing(); } catch (e) { appLog.warn("failed", e); }',
+      filename: srcFile("utils", "b.ts"),
+    },
+    // A request-scoped logger attached under a short property name.
+    {
+      code: 'try { doThing(); } catch (e) { req.log.error("failed", e); }',
+      filename: srcFile("utils", "b.ts"),
+    },
+    // A factory-call receiver (getLogger()/createLogger()).
+    {
+      code: 'try { doThing(); } catch (e) { getLogger().error("failed", e); }',
+      filename: srcFile("utils", "b.ts"),
+    },
+    // A computed member expression with a static string-literal key.
+    {
+      code: 'try { doThing(); } catch (e) { obj["logger"].error("failed", e); }',
+      filename: srcFile("utils", "b.ts"),
+    },
+    // Optional chaining (ChainExpression) on the logger call itself.
+    {
+      code: 'try { doThing(); } catch (e) { logger?.error("failed", e); }',
+      filename: srcFile("utils", "b.ts"),
+    },
     // intentional-swallow comment inside the block satisfies the rule.
     {
       code: "try { doThing(); } catch (e) { /* intentional-swallow: best-effort cleanup */ }",

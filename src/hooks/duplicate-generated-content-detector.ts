@@ -76,35 +76,56 @@ function normalizeBlockLines(bodyLines: readonly string[]): string[] {
 const MIN_BLOCK_LINES = 4;
 
 /**
- * Split markdown content into top-level heading blocks (any `#`-`######`
- * heading starts a new block; content before the first heading is ignored)
- * and flag any two blocks whose normalized body is byte-identical.
+ * Split markdown content into heading blocks (any `#`-`######` heading
+ * starts a new block; content before the first heading is ignored) and flag
+ * any two blocks AT THE SAME HEADING LEVEL whose normalized body is
+ * byte-identical.
+ *
+ * Comparison is scoped to same-level pairs only (mt#3299 PR #2392 R1
+ * non-blocking: "heading-level noise") — without that, a short H1
+ * introduction paragraph and an unrelated H3 subsection that happen to share
+ * a few identical boilerplate lines could spuriously compare as
+ * "duplicated," even though they sit at completely different structural
+ * depths and aren't the same repeated section. Different generated targets
+ * use different conventions for what their real "sections" are (CLAUDE.md's
+ * sections are `#` headings; a compiled skill's are `##` under one `#`
+ * title), so rather than picking one fixed "top" level, every level is
+ * tracked independently and only same-level collisions are reported.
  */
 export function detectMarkdownDuplicateBlocks(
   filePath: string,
   content: string
 ): DuplicateContentViolation[] {
   const lines = content.split("\n");
-  const blocks: Array<{ heading: string; body: string[] }> = [];
-  let current: { heading: string; body: string[] } | null = null;
+  const blocks: Array<{ level: number; heading: string; body: string[] }> = [];
+  let current: { level: number; heading: string; body: string[] } | null = null;
 
   for (const line of lines) {
-    const headingMatch = /^#{1,6}\s+(.+)$/.exec(line);
+    const headingMatch = /^(#{1,6})\s+(.+)$/.exec(line);
     if (headingMatch) {
       if (current) blocks.push(current);
-      current = { heading: (headingMatch[1] ?? "").trim(), body: [] };
+      current = {
+        level: (headingMatch[1] ?? "#").length,
+        heading: (headingMatch[2] ?? "").trim(),
+        body: [],
+      };
     } else if (current) {
       current.body.push(line);
     }
   }
   if (current) blocks.push(current);
 
-  const seen = new Map<string, string>(); // hash -> heading of first occurrence
+  const seenByLevel = new Map<number, Map<string, string>>(); // level -> (hash -> first heading)
   const violations: DuplicateContentViolation[] = [];
   for (const block of blocks) {
     const normalizedLines = normalizeBlockLines(block.body);
     if (normalizedLines.length < MIN_BLOCK_LINES) continue;
     const hash = fnv1aHash(normalizedLines.join("\n"));
+    let seen = seenByLevel.get(block.level);
+    if (!seen) {
+      seen = new Map<string, string>();
+      seenByLevel.set(block.level, seen);
+    }
     const firstHeading = seen.get(hash);
     if (firstHeading !== undefined) {
       violations.push({
@@ -172,15 +193,43 @@ export function detectDuplicateGeneratedContent(
 }
 
 /**
- * Filter `git diff --cached --name-status --diff-filter=ACMR` output lines
- * down to staged files matching one of the watched generated targets.
+ * Parse `git diff --cached --name-status -z` NUL-delimited output into
+ * status records: `[status, path]` for a plain add/modify/delete, or
+ * `[status, oldPath, newPath]` for a rename/copy (status starts with
+ * `R`/`C`). NUL-delimited (`-z`) parsing — rather than the default
+ * newline-plus-tab format this detector used previously — avoids git's
+ * path-quoting for filenames containing special characters (backslashes,
+ * quotes, non-ASCII bytes); a plain `\t`/`\n` split silently mis-parses a
+ * quoted path (mt#3299 PR #2392 R1 non-blocking).
  */
-export function filterStagedWatchedFiles(statusLines: readonly string[]): string[] {
+export function parseNameStatusZ(output: string): string[][] {
+  const tokens = output.split("\0").filter((t) => t.length > 0);
+  const records: string[][] = [];
+  let i = 0;
+  while (i < tokens.length) {
+    const status = tokens[i];
+    if (status === undefined) break;
+    if (/^[RC]/.test(status)) {
+      records.push([status, tokens[i + 1] ?? "", tokens[i + 2] ?? ""]);
+      i += 3;
+    } else {
+      records.push([status, tokens[i + 1] ?? ""]);
+      i += 2;
+    }
+  }
+  return records;
+}
+
+/**
+ * Filter parsed `git diff --cached --name-status -z` records down to staged
+ * files matching one of the watched generated targets.
+ */
+export function filterStagedWatchedFiles(records: readonly (readonly string[])[]): string[] {
   const files: string[] = [];
-  for (const line of statusLines) {
-    // Renames (`R<score>\t<old>\t<new>`) — check the NEW path (last field).
-    const parts = line.split("\t");
-    const filePath = parts[parts.length - 1];
+  for (const record of records) {
+    // Renames/copies are 3-token records `[status, oldPath, newPath]` — the
+    // NEW path (last element) is what's actually staged.
+    const filePath = record[record.length - 1];
     if (!filePath) continue;
     const isWatchedExact = WATCHED_GENERATED_FILES.includes(filePath);
     const isWatchedSkill = filePath.startsWith(WATCHED_SKILLS_DIR_PREFIX);
@@ -222,11 +271,11 @@ export async function runDuplicateGeneratedContentCheck(
   try {
     const result = await execGitWithTimeout(
       "diff",
-      "diff --cached --name-status --diff-filter=ACMR",
+      "diff --cached --name-status -z --diff-filter=ACMR",
       { workdir: projectRoot, timeout: 5000 }
     );
-    const statusLines = result.stdout.toString().trim().split("\n").filter(Boolean);
-    const stagedTargets = filterStagedWatchedFiles(statusLines);
+    const records = parseNameStatusZ(result.stdout.toString());
+    const stagedTargets = filterStagedWatchedFiles(records);
     if (stagedTargets.length === 0) {
       return {
         success: true,

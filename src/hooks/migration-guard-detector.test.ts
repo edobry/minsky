@@ -1,11 +1,13 @@
 import { describe, test, expect } from "bun:test";
 import {
   detectMigrationGuardViolations,
+  filterStagedMigrationSqlFiles,
   isMigrationGuardOverrideTruthy,
   MIGRATION_GUARD_CHECK_OVERRIDE_ENV,
 } from "./migration-guard-detector";
 
 const FILE = "packages/domain/src/storage/migrations/pg/0099_test_migration.sql";
+const PG_DIR = "packages/domain/src/storage/migrations/pg";
 
 describe("detectMigrationGuardViolations", () => {
   test("flags an unguarded DROP INDEX", () => {
@@ -64,6 +66,37 @@ describe("detectMigrationGuardViolations", () => {
     expect(violations).toHaveLength(2);
     expect(violations[0]?.line).toBe(1);
     expect(violations[1]?.line).toBe(2);
+  });
+});
+
+describe("filterStagedMigrationSqlFiles", () => {
+  test("includes a plain Added migration", () => {
+    const lines = [`A\t${PG_DIR}/0100_new_migration.sql`];
+    expect(filterStagedMigrationSqlFiles(lines, [PG_DIR])).toEqual([
+      `${PG_DIR}/0100_new_migration.sql`,
+    ]);
+  });
+
+  test("includes a Modified migration (mt#3299 PR #2392 R1 BLOCKING #4)", () => {
+    const lines = [`M\t${PG_DIR}/0100_new_migration.sql`];
+    expect(filterStagedMigrationSqlFiles(lines, [PG_DIR])).toEqual([
+      `${PG_DIR}/0100_new_migration.sql`,
+    ]);
+  });
+
+  test("includes a Renamed-with-edit migration, using the NEW path", () => {
+    const lines = [`R087\t${PG_DIR}/0100_old_name.sql\t${PG_DIR}/0100_new_name.sql`];
+    expect(filterStagedMigrationSqlFiles(lines, [PG_DIR])).toEqual([`${PG_DIR}/0100_new_name.sql`]);
+  });
+
+  test("includes a Copied migration, using the destination path", () => {
+    const lines = [`C075\t${PG_DIR}/0100_source.sql\t${PG_DIR}/0101_copy.sql`];
+    expect(filterStagedMigrationSqlFiles(lines, [PG_DIR])).toEqual([`${PG_DIR}/0101_copy.sql`]);
+  });
+
+  test("ignores non-.sql files and files outside the migration dir", () => {
+    const lines = [`M\t${PG_DIR}/meta/_journal.json`, "M\tsrc/domain/foo.ts"];
+    expect(filterStagedMigrationSqlFiles(lines, [PG_DIR])).toEqual([]);
   });
 });
 

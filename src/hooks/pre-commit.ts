@@ -43,8 +43,14 @@ import {
   isMigrationCollisionOverrideTruthy,
   MIGRATION_COLLISION_CHECK_OVERRIDE_ENV,
 } from "./migration-collision-detector";
-import { runMigrationGuardCheck as runMigrationGuardCheckImpl } from "./migration-guard-detector";
-import { runDuplicateGeneratedContentCheck as runDuplicateGeneratedContentCheckImpl } from "./duplicate-generated-content-detector";
+import {
+  runMigrationGuardCheck as runMigrationGuardCheckImpl,
+  MIGRATION_GUARD_CHECK_OVERRIDE_ENV,
+} from "./migration-guard-detector";
+import {
+  runDuplicateGeneratedContentCheck as runDuplicateGeneratedContentCheckImpl,
+  DUPLICATE_GENERATED_CONTENT_CHECK_OVERRIDE_ENV,
+} from "./duplicate-generated-content-detector";
 import { runRelatedTestsCheck } from "./related-tests-check";
 import {
   recordPreCommitFireLogEntry,
@@ -356,9 +362,7 @@ export class PreCommitHook {
         () => this.runMigrationJournalCheck(),
         MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV
       );
-      if (!migrationJournalResult.success) {
-        return migrationJournalResult;
-      }
+      if (!migrationJournalResult.success) return migrationJournalResult;
 
       // Step 3e-a: Immutable-migration check (mt#2268). Block staged
       // MODIFICATIONS (not additions) to .sql files under the migration
@@ -370,9 +374,7 @@ export class PreCommitHook {
         () => this.runImmutableMigrationCheck(),
         IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV
       );
-      if (!immutableMigrationResult.success) {
-        return immutableMigrationResult;
-      }
+      if (!immutableMigrationResult.success) return immutableMigrationResult;
 
       // Step 3e-b: Migration collision + journal-`when` immutability check
       // (mt#2948). Compare the staged journal against origin/main: block a
@@ -389,22 +391,28 @@ export class PreCommitHook {
         return migrationCollisionResult;
       }
 
-      // Step 3e-c/3g (mt#3299): migration guard (unguarded DROP INDEX /
-      // CREATE UNIQUE INDEX; migration 0068 / PR #2142 / 065fc729f) +
-      // duplicate-generated-content (a repeated top-level block in staged
-      // AGENTS.md/CLAUDE.md/compiled skills/completion-manifest.json).
-      // Deliberately ONE fire-log guard name for this pair (both are new,
-      // low-frequency mt#3299 structural checks) — each check's own
-      // `overridden` self-report and failure `message` still disambiguate
-      // which one fired; only the aggregate guard-health bucket is shared.
-      const structuralGateResult = await this.instrumented(
-        "migration-guard-and-duplicate-content-check",
-        async () => {
-          const r = await runMigrationGuardCheckImpl(this.projectRoot);
-          return r.success ? runDuplicateGeneratedContentCheckImpl(this.projectRoot) : r;
-        }
+      // Step 3e-c (mt#3299): migration guard — unguarded DROP INDEX / CREATE
+      // UNIQUE INDEX (migration 0068 / PR #2142 / 065fc729f). Own
+      // overrideEnvVar (mt#3299 PR #2392 R1 BLOCKING #5 — a prior combined-
+      // step draft dropped fire-log override-attribution for both checks
+      // by omitting this 3rd arg entirely; each check now gets its own
+      // instrumented() call, same as every sibling pre-commit step).
+      const migrationGuardResult = await this.instrumented(
+        "migration-guard-check",
+        () => runMigrationGuardCheckImpl(this.projectRoot),
+        MIGRATION_GUARD_CHECK_OVERRIDE_ENV
       );
-      if (!structuralGateResult.success) return structuralGateResult;
+      if (!migrationGuardResult.success) return migrationGuardResult;
+
+      // Step 3g (mt#3299): duplicate-generated-content — a repeated
+      // top-level block in staged AGENTS.md/CLAUDE.md/compiled
+      // skills/completion-manifest.json.
+      const dupContentResult = await this.instrumented(
+        "duplicate-generated-content-check",
+        () => runDuplicateGeneratedContentCheckImpl(this.projectRoot),
+        DUPLICATE_GENERATED_CONTENT_CHECK_OVERRIDE_ENV
+      );
+      if (!dupContentResult.success) return dupContentResult;
 
       // Step 3e: Deploy-domain ownership check (mt#2208, live successor to
       // mt#2193). Verify every domain ASSERTED as a deployment target in
