@@ -399,6 +399,20 @@ const SUPERSEDING_ACCEPTANCE_TESTS_RE =
   /(?:^|\n)#{2,3}\s+(?:Remaining|Updated|Revised|Current)\s+acceptance tests\s*\n([\s\S]*?)(?=\n#{2,3}\s|\n---|$)/i;
 
 /**
+ * Global-flagged twin of {@link SUPERSEDING_ACCEPTANCE_TESTS_RE}, used with
+ * `matchAll` so the LAST superseding section wins when a spec has been rescoped
+ * more than once. Kept as a separate constant rather than adding `g` to the
+ * original: a `g`-flagged regex carries mutable `lastIndex` state across calls,
+ * so sharing one instance between `match` and `matchAll` call sites would make
+ * results depend on call order. `matchAll` itself clones the regex internally,
+ * so this constant is safe to reuse.
+ */
+const SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL = new RegExp(
+  SUPERSEDING_ACCEPTANCE_TESTS_RE.source,
+  "gi"
+);
+
+/**
  * Matches the ORIGINAL `## Acceptance Tests` heading and its body.
  *
  * Boundary rule (mt#3306 Defect 1): the section ends at the next heading of the SAME OR
@@ -433,8 +447,17 @@ const ACCEPTANCE_TESTS_RE = /##\s*Acceptance Tests\s*\n([\s\S]*?)(?=\n#{2,3}\s|\
  * Returns `null` when neither a superseding nor an original section exists.
  */
 export function extractAcceptanceTestsSection(specContent: string): string | null {
-  const superseding = specContent.match(SUPERSEDING_ACCEPTANCE_TESTS_RE);
-  if (superseding) return superseding[1] ?? "";
+  // Take the LAST superseding section, not the first. A spec can be rescoped more
+  // than once (each rescope appends a new `### Remaining acceptance tests` while
+  // leaving prior ones in place as audit trail), and "later supersedes earlier" is
+  // the whole premise of preferring a superseding section at all — so selecting the
+  // FIRST match would reintroduce the very defect this function exists to fix, just
+  // one level up (PR #2385 R1 BLOCKING).
+  let lastSuperseding: RegExpMatchArray | null = null;
+  for (const m of specContent.matchAll(SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL)) {
+    lastSuperseding = m;
+  }
+  if (lastSuperseding) return lastSuperseding[1] ?? "";
 
   const original = specContent.match(ACCEPTANCE_TESTS_RE);
   return original ? (original[1] ?? "") : null;
