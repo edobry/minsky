@@ -83,7 +83,10 @@ export class SingleFileTranscriptSource implements TranscriptSource {
   }
 
   /** Reads the single configured file; the `agentSessionId` argument is ignored. */
-  async *readSession(_agentSessionId: AgentSessionId): AsyncIterable<RawTurnLine> {
+  async *readSession(
+    _agentSessionId: AgentSessionId,
+    _jsonlPath?: string
+  ): AsyncIterable<RawTurnLine> {
     const raw = await this.readRaw();
     if (raw === null) return;
     for (const line of raw.split("\n")) {
