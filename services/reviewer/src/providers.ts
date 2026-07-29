@@ -987,6 +987,13 @@ export async function callOpenAIWithClient(
           // to NON-BLOCKING at emission (stateless / per-finding) so the
           // incoherent BLOCKING never reaches composition. See
           // resolution-note-guard.ts for the full rationale.
+          //
+          // mt#3300: a resolution note that names no recognized argument, or
+          // names a deferral with no tracking task id, is REJECTED rather than
+          // reclassified — the finding stays BLOCKING and its `details` is
+          // marked `[untracked-deferral]` so the gap is visible in the
+          // persisted finding body, forcing a genuine fix, a named spec
+          // amendment, or a task-id-tracked deferral before it can converge.
           if (parsed.name === "submit_finding") {
             const evaluation = evaluateSubmitFindingCall({ args: parsed.args });
             if (evaluation.decision === "reclassify") {
@@ -996,9 +1003,21 @@ export async function callOpenAIWithClient(
                 round,
                 file: parsed.args.file,
                 line: parsed.args.line,
+                argumentKind: evaluation.argumentKind,
                 reason: evaluation.reason,
               });
               parsed.args.severity = evaluation.newSeverity;
+            } else if (evaluation.decision === "reject") {
+              log.info("reviewer.submit_finding_resolution_note_rejected", {
+                event: "reviewer.submit_finding_resolution_note_rejected",
+                provider: "openai",
+                round,
+                file: parsed.args.file,
+                line: parsed.args.line,
+                argumentKind: evaluation.argumentKind,
+                reason: evaluation.reason,
+              });
+              parsed.args.details = `[untracked-deferral] ${parsed.args.details}`;
             }
           }
 
