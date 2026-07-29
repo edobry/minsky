@@ -383,25 +383,38 @@ function mergeCommandInvocations(turns: PreparedTurn[]): PreparedTurn[] {
     let output: InjectedSpan | undefined;
     let caveat: InjectedSpan | undefined;
 
-    // The caveat precedes the command in file order; the output follows it.
-    // Both are single-element turns, which is what makes absorbing them safe:
-    // a turn carrying anything else keeps its own rendering.
-    for (let j = Math.max(0, i - COMMAND_PART_LOOKAHEAD); j < i; j++) {
+    // Scan a window on BOTH sides of the command. The three parts do not
+    // arrive in a fixed order here: turns are ordered by timestamp, and the
+    // caveat's timestamp can be LATER than the command's even though it comes
+    // first in the JSONL file (observed in conversation 77c6ca4f: caveat
+    // .486, command .481). A forward-only or backward-only scan drops one of
+    // the parts and it renders as its own stray bubble.
+    //
+    // Absorbing is restricted to SINGLE-element turns: a turn carrying
+    // anything else keeps its own rendering rather than being silently
+    // drained.
+    const from = Math.max(0, i - COMMAND_PART_LOOKAHEAD);
+    const to = Math.min(working.length - 1, i + COMMAND_PART_LOOKAHEAD);
+    for (let j = from; j <= to; j++) {
+      if (j === i) continue;
       const candidate = working[j];
       if (!candidate) continue;
-      const span = soleInjectedSpan(candidate, "local-command-caveat");
-      if (!span) continue;
-      caveat = span;
-      candidate.elements = [];
-    }
-    for (let j = i + 1; j <= i + COMMAND_PART_LOOKAHEAD && j < working.length; j++) {
-      const candidate = working[j];
-      if (!candidate) continue;
-      const span = soleInjectedSpan(candidate, "local-command-output");
-      if (!span) continue;
-      output = span;
-      candidate.elements = [];
-      break;
+
+      if (!output) {
+        const outputSpan = soleInjectedSpan(candidate, "local-command-output");
+        if (outputSpan) {
+          output = outputSpan;
+          candidate.elements = [];
+          continue;
+        }
+      }
+      if (!caveat) {
+        const caveatSpan = soleInjectedSpan(candidate, "local-command-caveat");
+        if (caveatSpan) {
+          caveat = caveatSpan;
+          candidate.elements = [];
+        }
+      }
     }
 
     turn.elements[commandIndex] = {

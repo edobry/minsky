@@ -268,18 +268,28 @@ function userStringBlock(
   };
 }
 
-/** The three consecutive turns the harness emits for one `/model` invocation. */
+/**
+ * The three turns the harness emits for one `/model` invocation.
+ *
+ * **Ordering matters here and is NOT the JSONL file order.** In the
+ * originating transcript the caveat is the FIRST line in the file but carries
+ * a LATER timestamp (.486) than the command (.481) — so once turns are
+ * ordered by timestamp, the command comes first and the caveat second. This
+ * fixture reproduces the timestamp order. An earlier version used naive file
+ * order, which let a backward-only merge scan pass this test while the caveat
+ * still rendered as a stray bubble in the real cockpit.
+ */
 function modelCommandBlocks(): SessionContextSnapshotBlock[] {
   return [
-    userStringBlock(0, `<local-command-caveat>${MODEL_CAVEAT_TEXT}</local-command-caveat>`, {
-      isMeta: true,
-    }),
     userStringBlock(
-      1,
+      0,
       "<command-name>/model</command-name>\n" +
         "            <command-message>model</command-message>\n" +
         "            <command-args></command-args>"
     ),
+    userStringBlock(1, `<local-command-caveat>${MODEL_CAVEAT_TEXT}</local-command-caveat>`, {
+      isMeta: true,
+    }),
     userStringBlock(
       2,
       "<local-command-stdout>Set model to \u001b[1mFable 5\u001b[22m for this session only</local-command-stdout>"
