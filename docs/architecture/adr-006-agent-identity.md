@@ -47,6 +47,8 @@ Eight positions exist, reducible to four authority modes (see the companion posi
 
 The critical fact: every MCP-specific identity proposal we could depend on is stuck. SEP-1289 has no sponsor, `CLAUDE_SESSION_ID` hasn't shipped, `agent_context` injection hasn't shipped. Waiting blocks mt#1000 and mt#441.
 
+**Status update (2026-07-29, mt#3285):** the stuck proposals died — [#32514](https://github.com/anthropics/claude-code/issues/32514) closed by stale-bot 2026-05-11 (locked 2026-06-30); SEP-1289 closed 2026-04-07; the MCP 2026-07-28 spec revision moves the transport stateless and delegates identity to OAuth/OIDC, so no ambient session identity is coming from the protocol. What DID ship, quietly, is Claude Code setting the conversation UUID as the `CLAUDE_CODE_SESSION_ID` env var on spawned MCP server processes — the signal Phase 2 now consumes (see §Layer 3 amendment).
+
 ## Decision
 
 Three capture layers, resolved by authority. The higher-authority layer wins when more than one fires.
@@ -57,6 +59,22 @@ A Minsky-shipped Claude Code PreToolUse hook reads `session_id` from the hook's 
 
 **Threats handled:** confusion (different tabs get different `session_id`), silence (hook always fires for Claude Code calls).
 **Threats not handled:** forgery (the hook runs in trusted Claude Code, but nothing verifies the injected value against the conversation it claims to name).
+
+**Amendment (2026-07-29, mt#3285):** Phase 2 shipped with the injection point moved from a
+PreToolUse hook to the Minsky stdio proxy (`src/mcp/stdio-proxy/conversation-identity.ts`). The
+documented hook output contract (`updatedInput`) replaces a tool's ARGUMENTS only — there is no
+hook path to protocol-level `_meta` — while the proxy sits on the raw JSON-RPC stream and
+already parses every inbound line. The conversation id comes from `CLAUDE_CODE_SESSION_ID`,
+which Claude Code sets in the environment of every MCP server process it spawns (verified live
+2026-07-29 across five concurrent conversations): the upstream signal this ADR tracked as
+"`CLAUDE_SESSION_ID` hasn't shipped" DID ship, as a spawn-time env var under a slightly
+different name, and Phase 2 consumes it with a reader addition exactly as the format promised.
+An already-declared `_meta["io.minsky/agent_id"]` is preserved, not overwritten (forward-compat
+with mt#2292 subagent-grain declarations). Threat profile unchanged (confusion and silence
+handled; forgery not). Known limitation: the env value is fixed at proxy spawn, so an
+in-process conversation switch (`/clear`, in-process resume) attributes calls to the pre-switch
+conversation until the next reconnect respawns the proxy; upgrade path if that bites is a
+SessionStart hook writing a `<claude-pid> → sessionId` mapping the proxy re-reads per request.
 
 ### Layer 2 — Declared
 
@@ -176,8 +194,8 @@ GitHub Copilot's coding agent, Linear's agent, and any future GitHub-App-based a
 Tracked in mt#1078 (Layer 1 + Layer 2 readers, format parser, MCP server integration, `_meta` convention docs). Phases after Layer 2 are gated on external events:
 
 - Phase 1 (mt#1078) — Layer 1 (ascribed) and Layer 2 (declared `_meta` reader). `agentId` resolver, kind normalization table, hash construction, `_meta["io.minsky/agent_id"]` convention documented for callers.
-- Phase 2 — Layer 3 Claude Code PreToolUse hook (separate follow-up task once hook-compilation approach is settled).
-- Phase 3 (gated on upstream) — switch Layer 3 to read `agent_context` when/if [anthropics/claude-code#32514](https://github.com/anthropics/claude-code/issues/32514) lands.
+- Phase 2 (mt#3285 — shipped July 2026) — conversation-scoped identity for Claude Code callers: the stdio proxy resolves `CLAUDE_CODE_SESSION_ID` into `com.anthropic.claude-code:conv:<uuid>` and stamps `_meta["io.minsky/agent_id"]` on every inbound `tools/call`; the inner server's existing Layer-2 reader resolves it with no server-side changes. The PreToolUse-hook mechanism originally planned here cannot reach `_meta` per the documented hook contract — see the §Layer 3 amendment.
+- Phase 3 (was: gated on upstream — DEAD as of 2026-07-29: [anthropics/claude-code#32514](https://github.com/anthropics/claude-code/issues/32514) closed by stale-bot 2026-05-11, locked 2026-06-30; no `agent_context` is coming) — retained for the record; if an upstream per-call identity field ever ships, it slots in as a reader addition per the format's forward-compat design.
 - Phase 4 (mt#1634 — shipped May 2026) — Layer 0 OAuth 2.1 Bearer verification for the hosted Minsky MCP HTTP transport. `OAuthIdentityProvider` capability-based abstraction (mt#1662) backed by `InProcessOAuthProvider` (mt#1663, wraps `oidc-provider` + Postgres adapter), with discovery + DCR endpoints (mt#1664), PKCE + RFC 8707 authorize/token flow (mt#1665), and `/mcp` token-validation middleware + agentId propagation (mt#1666). Coexists with the existing static-bearer-token path for local stdio.
 - Phase 5 (gated on per-harness readiness) — equivalent Layer 3 hooks for Codex, Cursor, Windsurf, Zed as their hook APIs mature.
 

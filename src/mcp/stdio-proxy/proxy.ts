@@ -42,6 +42,11 @@ import {
   isReadyProbeResponse,
   type JsonRpcMessage,
 } from "./tools";
+import {
+  resolveConversationAgentId,
+  injectAgentIdMeta,
+  redactAgentId,
+} from "./conversation-identity";
 
 /** Default command for the inner MCP server. */
 const DEFAULT_CHILD_COMMAND = "minsky";
@@ -96,6 +101,12 @@ export interface ProxyOptions {
   childCommand?: string;
   /** Arguments for the inner MCP server command. Default: ["mcp", "start"] */
   childArgs?: string[];
+  /**
+   * Conversation-scoped agentId override (mt#3285). When omitted (undefined),
+   * the proxy resolves it from `CLAUDE_CODE_SESSION_ID`; pass an explicit
+   * string or null to bypass env resolution (tests, embedding callers).
+   */
+  conversationAgentId?: string | null;
 }
 
 /**
@@ -229,6 +240,17 @@ export class MinskyStdioProxy {
   private outboundTransform: Transform | null = null;
 
   /**
+   * Conversation-scoped agentId (mt#3285, ADR-006 Phase 2) resolved once from
+   * `CLAUDE_CODE_SESSION_ID` at construction — the env is fixed for the
+   * proxy's lifetime, so there is nothing to re-read per request. Null when
+   * the env var is absent or not a UUID (hookless environments, non-Claude-
+   * Code parents); the inbound transform then forwards all traffic untouched
+   * and the inner server falls through to Layer-1 ascription exactly as
+   * before.
+   */
+  private readonly conversationAgentId: string | null;
+
+  /**
    * Bounded tail of the current child's stderr output (mt#2830). Reset on
    * each new spawn (`spawnChild()`); appended to as stderr chunks arrive;
    * truncated to `STDERR_TAIL_MAX_CHARS`. Read by `onChildClose` to attach
@@ -274,6 +296,10 @@ export class MinskyStdioProxy {
   constructor(options: ProxyOptions = {}) {
     this.childCommand = options.childCommand ?? DEFAULT_CHILD_COMMAND;
     this.childArgs = options.childArgs ?? DEFAULT_CHILD_ARGS;
+    this.conversationAgentId =
+      options.conversationAgentId !== undefined
+        ? options.conversationAgentId
+        : resolveConversationAgentId();
   }
 
   /**
@@ -293,6 +319,19 @@ export class MinskyStdioProxy {
    * tests await `start()` without hanging.
    */
   async start(): Promise<void> {
+    if (this.conversationAgentId) {
+      // Redacted on purpose: the conversation UUID is an attribution key;
+      // logging it verbatim would link transcripts to infra log sinks
+      // (PR #2390 R1 blocking finding 1).
+      log.debug("[proxy] Conversation identity injection active", {
+        agentId: redactAgentId(this.conversationAgentId),
+      });
+    } else {
+      log.debug(
+        "[proxy] Conversation identity injection inactive (no CLAUDE_CODE_SESSION_ID); " +
+          "inner server will resolve Layer-1 ascribed identity"
+      );
+    }
     this.setupSignalHandlers();
     await this.spawnChild();
   }
@@ -697,6 +736,18 @@ export class MinskyStdioProxy {
               log.error("[proxy] Restart handler failed", { error: err.message });
             });
             continue;
+          }
+          // mt#3285: stamp the conversation-scoped agentId into tools/call
+          // requests so the inner server's Layer-2 reader resolves it.
+          // Injection returns null for everything it doesn't apply to
+          // (non-tools/call frames, already-declared identity), in which
+          // case the raw line passes through byte-identical below.
+          if (proxy.conversationAgentId) {
+            const injected = injectAgentIdMeta(msg, proxy.conversationAgentId);
+            if (injected) {
+              t.push(`${JSON.stringify(injected)}\n`);
+              continue;
+            }
           }
         } catch {
           // Not valid JSON — pass through as-is (defensive).

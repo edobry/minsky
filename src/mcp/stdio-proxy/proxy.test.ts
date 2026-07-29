@@ -17,6 +17,7 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Writable } from "stream";
+import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
 import { MinskyStdioProxy } from "./proxy";
 import {
   PROXY_READY_PROBE_ID_PREFIX,
@@ -426,5 +427,118 @@ describe("unknown-cause instrumentation (mt#2830)", () => {
     // mt#2830 R1 fix (finding 5): flush the scheduled respawn timer here too
     // — see the note in the previous test.
     await new Promise<void>((resolve) => setTimeout(resolve, 250));
+  });
+});
+
+describe("inbound transform — conversation-identity injection (mt#3285)", () => {
+  const CONV_AGENT_ID = "com.anthropic.claude-code:conv:6c6fdc74-d1b5-424f-a854-6f875b977dd2";
+
+  function makeInboundTransform(agentId: string | null): NodeJS.ReadWriteStream {
+    // Explicit null/string via the ProxyOptions seam bypasses env resolution,
+    // keeping the test hermetic regardless of the environment it runs in.
+    const proxy = new MinskyStdioProxy({
+      childCommand: "bun",
+      childArgs: ["--version"],
+      conversationAgentId: agentId,
+    });
+    return (
+      proxy as unknown as { createInboundTransform: () => NodeJS.ReadWriteStream }
+    ).createInboundTransform();
+  }
+
+  function readTransformOutput(t: NodeJS.ReadableStream): Promise<string> {
+    return new Promise((resolve) => {
+      const chunks: string[] = [];
+      t.on("data", (chunk: Buffer | string) => chunks.push(String(chunk)));
+      t.on("end", () => resolve(chunks.join("")));
+    });
+  }
+
+  test("stamps _meta agent_id into tools/call requests when identity is active", async () => {
+    const transform = makeInboundTransform(CONV_AGENT_ID);
+    const request = {
+      jsonrpc: "2.0",
+      id: 11,
+      method: "tools/call",
+      params: { name: "tasks_get", arguments: { taskId: "mt#3285" } },
+    };
+
+    (transform as NodeJS.WritableStream).write(`${JSON.stringify(request)}\n`);
+    (transform as NodeJS.WritableStream).end();
+    const output = await readTransformOutput(transform);
+
+    const forwarded = JSON.parse(output.trim()) as {
+      params: { _meta: Record<string, unknown>; name: string; arguments: unknown };
+    };
+    expect(forwarded.params._meta[AGENT_ID_META_KEY]).toBe(CONV_AGENT_ID);
+    expect(forwarded.params.name).toBe("tasks_get");
+    expect(forwarded.params.arguments).toEqual({ taskId: "mt#3285" });
+  });
+
+  test("forwards non-tools/call frames byte-identical (initialize, notifications)", async () => {
+    const transform = makeInboundTransform(CONV_AGENT_ID);
+    const initLine = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    const notifLine = JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" });
+
+    (transform as NodeJS.WritableStream).write(`${initLine}\n${notifLine}\n`);
+    (transform as NodeJS.WritableStream).end();
+    const output = await readTransformOutput(transform);
+
+    expect(output).toBe(`${initLine}\n${notifLine}\n`);
+  });
+
+  test("forwards tools/call byte-identical when identity is inactive (hookless env, spec AT3)", async () => {
+    const transform = makeInboundTransform(null);
+    const line = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 12,
+      method: "tools/call",
+      params: { name: "tasks_get", arguments: {} },
+    });
+
+    (transform as NodeJS.WritableStream).write(`${line}\n`);
+    (transform as NodeJS.WritableStream).end();
+    const output = await readTransformOutput(transform);
+
+    expect(output).toBe(`${line}\n`);
+    expect(output).not.toContain(AGENT_ID_META_KEY);
+  });
+
+  test("still intercepts __proxy_restart_server locally (never forwarded, never stamped)", async () => {
+    const transform = makeInboundTransform(CONV_AGENT_ID);
+    // handleProxyRestart will run against a proxy with no child; it kills
+    // nothing and respawns `bun --version`. We only assert the frame is not
+    // forwarded downstream — the restart flow itself is covered elsewhere.
+    const restartLine = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 13,
+      method: "tools/call",
+      params: { name: "__proxy_restart_server", arguments: {} },
+    });
+
+    (transform as NodeJS.WritableStream).write(`${restartLine}\n`);
+    (transform as NodeJS.WritableStream).end();
+    const output = await readTransformOutput(transform);
+
+    expect(output).toBe("");
+  });
+
+  test("preserves an already-declared agent_id instead of overwriting (mt#2292 forward-compat)", async () => {
+    const transform = makeInboundTransform(CONV_AGENT_ID);
+    const declared = "minsky.native-subagent:run:mt#99@com.anthropic.claude-code:conv:abc";
+    const line = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 14,
+      method: "tools/call",
+      params: { name: "t", arguments: {}, _meta: { [AGENT_ID_META_KEY]: declared } },
+    });
+
+    (transform as NodeJS.WritableStream).write(`${line}\n`);
+    (transform as NodeJS.WritableStream).end();
+    const output = await readTransformOutput(transform);
+
+    expect(output).toBe(`${line}\n`);
+    expect(output).toContain(declared);
+    expect(output).not.toContain(CONV_AGENT_ID);
   });
 });
