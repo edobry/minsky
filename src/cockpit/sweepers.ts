@@ -1413,8 +1413,25 @@ export function startConversationTitleSweeper(options?: ConversationTitleSweepOp
     tick: async () => {
       try {
         const deps = options?.deps ?? (await buildRealTitleSweepDeps());
-        if (!deps) return;
-        await deps.runTitling();
+        if (!deps) {
+          // Not an error — a non-SQL provider simply has nothing to title. Logged
+          // so a permanently-idle sweeper is distinguishable from a working one
+          // with no backlog (PR #2408 R1).
+          log.debug("cockpit: conversation title sweep skipped (no SQL persistence)");
+          return;
+        }
+        const result = await deps.runTitling();
+        // Per-run counters at the sweeper level, not only inside the pipeline:
+        // `errored > 0` is the signal that titling is failing while the sweeper
+        // itself looks healthy.
+        if (result.candidates > 0 || result.errored > 0) {
+          log.info("cockpit: conversation title sweep complete", {
+            candidates: result.candidates,
+            titled: result.titled,
+            skipped: result.skipped,
+            errored: result.errored,
+          });
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: conversation title sweep failed", { message });

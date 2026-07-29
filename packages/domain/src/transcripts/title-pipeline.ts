@@ -29,7 +29,7 @@
  * @see src/cockpit/sweepers.ts — `startConversationTitleSweeper`, the invocation path
  */
 
-import { and, isNull, isNotNull, sql } from "drizzle-orm";
+import { and, isNull, isNotNull, sql, type SQLWrapper } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
@@ -76,6 +76,39 @@ export class TitlePipeline {
     this.generator = new TitleGenerator(cognitionProvider);
   }
 
+  /**
+   * WHERE conditions selecting titling candidates.
+   *
+   * Built as an explicit array rather than passing a conditional `undefined`
+   * into `and(...)` (PR #2408 R1). Drizzle does drop `undefined` arguments —
+   * verified against 0.44.2: `and(cond, undefined)` yields a valid
+   * single-condition expression and `and(undefined)` yields `undefined` — but
+   * relying on that makes the force branch's SQL depend on an implicit library
+   * behavior a reader has to know to check. The array form states the intent
+   * directly and is testable via {@link candidateConditionCount}.
+   */
+  private candidateConditions(): SQLWrapper[] {
+    const conditions: SQLWrapper[] = [
+      // A transcript with no content can never yield a title; excluding it in
+      // SQL keeps those rows from consuming the batch budget on every tick.
+      isNotNull(agentTranscriptsTable.transcript),
+    ];
+    // force re-titles rows that already have a title, so the untitled filter
+    // is simply omitted rather than negated.
+    if (!this.options.force) conditions.push(isNull(agentTranscriptsTable.title));
+    return conditions;
+  }
+
+  /**
+   * Number of WHERE conditions the current options produce — 2 normally
+   * (has-transcript AND untitled), 1 under `force` (has-transcript only).
+   * Exposed for tests so the force branch's query shape is asserted against
+   * the real builder rather than inferred from a fake DB.
+   */
+  candidateConditionCount(): number {
+    return this.candidateConditions().length;
+  }
+
   async run(): Promise<TitlePipelineRunResult> {
     const result: TitlePipelineRunResult = { candidates: 0, titled: 0, skipped: 0, errored: 0 };
     const batchSize = this.options.batchSize ?? DEFAULT_TITLE_BATCH_SIZE;
@@ -88,15 +121,7 @@ export class TitlePipeline {
           transcript: agentTranscriptsTable.transcript,
         })
         .from(agentTranscriptsTable)
-        .where(
-          and(
-            // A transcript with no content can never yield a title; excluding
-            // it in SQL keeps those rows from consuming the batch budget on
-            // every single tick, forever.
-            isNotNull(agentTranscriptsTable.transcript),
-            this.options.force ? undefined : isNull(agentTranscriptsTable.title)
-          )
-        )
+        .where(and(...this.candidateConditions()))
         // Newest first: the conversation an operator is most likely looking at
         // right now is the one that most needs a readable title.
         .orderBy(sql`${agentTranscriptsTable.startedAt} DESC NULLS LAST`)

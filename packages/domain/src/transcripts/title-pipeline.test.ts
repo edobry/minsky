@@ -180,6 +180,50 @@ describe("TitlePipeline", () => {
     expect(applied).toEqual(["Fresh title"]);
   });
 
+  // PR #2408 R1: the force branch previously relied on drizzle dropping a
+  // conditional `undefined` inside `and(...)`. The fake DB above ignores the
+  // WHERE entirely, so no test actually exercised that. These assert the query
+  // SHAPE against the real condition builder instead.
+  describe("candidate query shape (real drizzle conditions)", () => {
+    test("normal mode filters on both has-transcript AND untitled", () => {
+      const { db } = makeDb([]);
+      expect(
+        makePipeline(
+          db,
+          makeProvider(() => "x")
+        ).candidateConditionCount()
+      ).toBe(2);
+    });
+
+    test("force mode drops the untitled filter — one condition, never an undefined hole", () => {
+      const { db } = makeDb([]);
+      expect(
+        makePipeline(
+          db,
+          makeProvider(() => "x"),
+          { force: true }
+        ).candidateConditionCount()
+      ).toBe(1);
+    });
+
+    test("the built WHERE is a usable SQL expression in BOTH modes", () => {
+      const { db } = makeDb([]);
+      for (const force of [false, true]) {
+        const conditions = makePipeline(
+          db,
+          makeProvider(() => "x"),
+          {
+            force,
+          }
+        ).candidateConditionCount();
+        // Non-zero condition count is what keeps `and(...)` from collapsing to
+        // `undefined` (which would drop the WHERE clause entirely and select
+        // every row in the table).
+        expect(conditions).toBeGreaterThan(0);
+      }
+    });
+  });
+
   test("respects the batch bound — the API-spend control", async () => {
     const seed: SeedRow[] = Array.from({ length: 10 }, (_, i) => ({
       agentSessionId: `s${i}`,

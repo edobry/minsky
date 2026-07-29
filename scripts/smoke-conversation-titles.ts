@@ -14,6 +14,7 @@
  *   bun scripts/smoke-conversation-titles.ts --execute        # bounded real run (writes titles)
  *   bun scripts/smoke-conversation-titles.ts --limit 3        # candidate bound (default 1)
  *   bun scripts/smoke-conversation-titles.ts --session <uuid> # target one conversation
+ *   bun scripts/smoke-conversation-titles.ts --execute --force # re-title already-titled rows
  *
  * Exit 0 = pass (or a clean SKIP when the environment can't run it);
  * non-zero = failure. Emits a JSON result block on stdout.
@@ -23,6 +24,12 @@ import "reflect-metadata";
 
 const args = process.argv.slice(2);
 const EXECUTE = args.includes("--execute");
+/**
+ * Re-title rows that already have a title. Exposed so the smoke can exercise
+ * the force WHERE against a REAL database (PR #2408 R1) — that branch builds a
+ * different condition set and the unit fakes cannot prove its SQL executes.
+ */
+const FORCE = args.includes("--force");
 const LIMIT = readNumberFlag("--limit") ?? 1;
 const SESSION = readStringFlag("--session");
 
@@ -84,7 +91,10 @@ async function main(): Promise<void> {
   if (EXECUTE) {
     // ── Real branch: runs the pipeline, which WRITES agent_transcripts.title.
     const { TitlePipeline } = await import("@minsky/domain/transcripts/title-pipeline");
-    const result = await new TitlePipeline(db, cognition, { batchSize: LIMIT }).run();
+    const result = await new TitlePipeline(db, cognition, {
+      batchSize: LIMIT,
+      force: FORCE,
+    }).run();
 
     // Read the titles back — verify the OUTCOME, not just that run() returned.
     const { agentTranscriptsTable } = await import(

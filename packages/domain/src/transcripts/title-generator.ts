@@ -49,6 +49,24 @@ export const TITLE_MODEL_HINT: ModelHint = {
 };
 
 /**
+ * A dated model id will eventually be retired by the provider, at which point
+ * completions 404 (PR #2408 R1). Two things bound that risk:
+ *
+ *  - The id is overridable per-instance — `new TitleGenerator(provider, hint)` —
+ *    so a caller can swap it without a code change here.
+ *  - Failure is non-destructive and self-healing: `TitlePipeline` counts the
+ *    error, logs it with the session id, and leaves the row NULL, so a retired
+ *    model degrades to "conversations keep their older label tier" and the
+ *    logs say why. It does not corrupt data or block ingest.
+ *
+ * When it does need changing, this constant is the single place. Deliberately
+ * NOT auto-resolved from the model registry: that registry is the exact
+ * surface that is currently broken (mt#3337 — Anthropic reports 0 models while
+ * completions work), so depending on it would make titling fail for a reason
+ * unrelated to titling.
+ */
+
+/**
  * Hard cap on a rendered title. Matches the width the cockpit's tab and list
  * rows can show without truncating; the prompt also asks for brevity, and this
  * is the backstop for when the model ignores it.
@@ -134,7 +152,11 @@ export function normalizeTitle(raw: string): string | null {
 // ── TitleGenerator ─────────────────────────────────────────────────────────────
 
 export class TitleGenerator {
-  constructor(private readonly cognitionProvider: CognitionProvider) {}
+  constructor(
+    private readonly cognitionProvider: CognitionProvider,
+    /** Override the pinned cheap model — see {@link TITLE_MODEL_HINT}. */
+    private readonly modelHint: ModelHint = TITLE_MODEL_HINT
+  ) {}
 
   /**
    * Generate a short title from the transcript's opening turns.
@@ -154,7 +176,7 @@ export class TitleGenerator {
       systemPrompt: SYSTEM_PROMPT,
       userPrompt: buildUserPrompt(turns),
       schema: titleSchema,
-      model: TITLE_MODEL_HINT,
+      model: this.modelHint,
     });
 
     if (result.kind === "completed") {
