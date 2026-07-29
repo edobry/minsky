@@ -58,7 +58,7 @@ describe("rotateStdioLogIfOversized", () => {
     expect(rotateStdioLogIfOversized(live, limits())).toBe(true);
 
     expect(fs.statSync(live).size).toBe(0);
-    expect(fs.readFileSync(`${live}.1`, "utf-8")).toBe(content);
+    expect(fs.readFileSync(`${live}.1`, "utf-8")).toBe(content.slice(-CAP));
   });
 
   test("retention shift: .1 moves to .2 and the oldest rotation is dropped", () => {
@@ -69,16 +69,51 @@ describe("rotateStdioLogIfOversized", () => {
 
     expect(rotateStdioLogIfOversized(live, limits())).toBe(true);
 
-    expect(fs.readFileSync(`${live}.1`, "utf-8")).toBe(content);
+    expect(fs.readFileSync(`${live}.1`, "utf-8")).toBe(content.slice(-CAP));
     expect(fs.readFileSync(`${live}.2`, "utf-8")).toBe("gen1");
     expect(fs.existsSync(`${live}.3`)).toBe(false);
   });
 
-  test("rotationsRetained: 0 truncates without keeping a copy", () => {
+  test("rotationsRetained: 0 truncates without keeping a copy and removes stale rotations", () => {
+    fs.writeFileSync(`${live}.1`, "stale1");
+    fs.writeFileSync(`${live}.2`, "stale2");
     fs.writeFileSync(live, "c".repeat(CAP + 1));
     expect(rotateStdioLogIfOversized(live, limits(0))).toBe(true);
     expect(fs.statSync(live).size).toBe(0);
     expect(fs.existsSync(`${live}.1`)).toBe(false);
+    expect(fs.existsSync(`${live}.2`)).toBe(false);
+  });
+
+  test("rotationsRetained: 1 keeps only .1 and drops a stale .2", () => {
+    fs.writeFileSync(`${live}.1`, "gen1");
+    fs.writeFileSync(`${live}.2`, "gen0");
+    const content = "f".repeat(CAP + 1);
+    fs.writeFileSync(live, content);
+
+    expect(rotateStdioLogIfOversized(live, limits(1))).toBe(true);
+
+    expect(fs.readFileSync(`${live}.1`, "utf-8")).toBe(content.slice(-CAP));
+    expect(fs.existsSync(`${live}.2`)).toBe(false);
+  });
+
+  // The boot-tick case a previous run can leave behind: a live file many
+  // multiples of the cap. A full-file copy would just move the unbounded
+  // bytes into .1 and retain them forever (PR #2387 R1 BLOCKING #2) — one
+  // rotation must bound the whole directory.
+  test("gigantic pre-existing file: one rotation bounds it, .1 holds only the last CAP bytes", () => {
+    const content = `${"g".repeat(10 * CAP + 37)}TAIL-MARKER`;
+    fs.writeFileSync(live, content);
+
+    expect(rotateStdioLogIfOversized(live, limits())).toBe(true);
+
+    expect(fs.statSync(live).size).toBe(0);
+    expect(fs.statSync(`${live}.1`).size).toBe(CAP);
+    expect(fs.readFileSync(`${live}.1`, "utf-8")).toBe(content.slice(-CAP));
+
+    const total = [live, `${live}.1`, `${live}.2`]
+      .filter((p) => fs.existsSync(p))
+      .reduce((sum, p) => sum + fs.statSync(p).size, 0);
+    expect(total).toBeLessThanOrEqual(CAP * 3);
   });
 
   // AT1: with the policy in force, writing past the cap leaves total
@@ -111,7 +146,7 @@ describe("rotateStdioLogIfOversized", () => {
       fs.writeSync(fd, before);
 
       expect(rotateStdioLogIfOversized(live, limits())).toBe(true);
-      expect(fs.readFileSync(`${live}.1`, "utf-8")).toBe(before);
+      expect(fs.readFileSync(`${live}.1`, "utf-8")).toBe(before.slice(-CAP));
 
       fs.writeSync(fd, "after-rotation");
       expect(fs.readFileSync(live, "utf-8")).toBe("after-rotation");

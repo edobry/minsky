@@ -67,10 +67,17 @@ export interface StdioLogRotationLimits {
 
 /**
  * Rotate one stdio log in place if it exceeds the cap: shift retained
- * rotations (`.1` -> `.2`, oldest replaced), copy the live file's content to
- * `.1`, then truncate the live file to zero. The live file is never renamed,
+ * rotations (`.1` -> `.2`, replacing the older file), drop any rotation
+ * beyond the retention count, copy the live file's LAST `maxBytes` to `.1`,
+ * then truncate the live file to zero. The live file is never renamed,
  * unlinked, or reopened — the supervisor-held fds keep pointing at it (see
  * module docblock for why).
+ *
+ * Only the tail is copied so a single rotation bounds the directory even
+ * when the live file is far past the cap — the "oversized file left by a
+ * previous run" boot case. A full copy would just move the unbounded bytes
+ * into `.1` and retain them there forever, since no later tick re-examines
+ * rotated files (PR #2387 R1 BLOCKING #2).
  *
  * Throws on copy/truncate failure (the caller's tick wraps per-file); an
  * absent file returns false rather than throwing, since a manually-started
@@ -99,12 +106,45 @@ export function rotateStdioLogIfOversized(
       fs.renameSync(src, `${filePath}.${i}`);
     }
   }
+  // Rotations beyond the retention count are stale — a lowered retention
+  // setting, or the retained<=1 cases where the shift loop above never runs.
+  for (let i = retained + 1; fs.existsSync(`${filePath}.${i}`); i++) {
+    fs.rmSync(`${filePath}.${i}`);
+  }
 
   if (retained >= 1) {
-    fs.copyFileSync(filePath, `${filePath}.1`);
+    copyTail(filePath, `${filePath}.1`, size, Math.min(size, maxBytes));
   }
   fs.truncateSync(filePath, 0);
   return true;
+}
+
+/**
+ * Copy the last `tailBytes` of `src` (whose size was just stat'd as
+ * `srcSize`) into `dest`, replacing it. Reads at explicit offsets so the
+ * live writer's O_APPEND appends never move this reader's position.
+ */
+function copyTail(src: string, dest: string, srcSize: number, tailBytes: number): void {
+  const srcFd = fs.openSync(src, "r");
+  try {
+    const destFd = fs.openSync(dest, "w");
+    try {
+      // Uint8Array rather than Buffer.alloc: the project's TS Buffer stub
+      // (src/types/node.d.ts) only exposes Buffer.from.
+      const chunk = new Uint8Array(1024 * 1024);
+      let offset = srcSize - tailBytes;
+      while (offset < srcSize) {
+        const n = fs.readSync(srcFd, chunk, 0, Math.min(chunk.length, srcSize - offset), offset);
+        if (n <= 0) break;
+        fs.writeSync(destFd, chunk, 0, n);
+        offset += n;
+      }
+    } finally {
+      fs.closeSync(destFd);
+    }
+  } finally {
+    fs.closeSync(srcFd);
+  }
 }
 
 /**

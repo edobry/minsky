@@ -171,6 +171,16 @@ export function createStartCommand(): Command {
       // why this was previously a silent gap.
       installDaemonFileLogging();
 
+      // Stdio-redirect log rotation (mt#3298): bounds the supervisor-written
+      // cockpit-{stdout,stderr}.log capture files via copy-then-truncate —
+      // the one launch-path-agnostic place a size policy can live, since the
+      // files' fds are owned by whichever supervisor started this process.
+      // Started immediately after logging install (PR #2387 R1) so the boot
+      // tick bounds an oversized file left by a previous run before the
+      // subsystems below begin writing to stdout/stderr. Filesystem-only;
+      // deliberately not gated on schema readiness.
+      const stopStdioLogRotationSweeper = startStdioLogRotationSweeper();
+
       const port = parseInt(options.port, 10);
       if (isNaN(port) || port < 1 || port > 65535) {
         console.error(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
@@ -420,12 +430,6 @@ export function createStartCommand(): Command {
       // BEFORE the meta-watchdog below so the watchdog covers it like every
       // other sweep.
       const stopConversationPresenceSweeper = startConversationPresenceSweeper();
-      // Stdio-redirect log rotation (mt#3298): bounds the supervisor-written
-      // cockpit-{stdout,stderr}.log capture files via copy-then-truncate —
-      // the one launch-path-agnostic place a size policy can live, since the
-      // files' fds are owned by whichever supervisor started this process.
-      // Filesystem-only; deliberately not gated on schema readiness.
-      const stopStdioLogRotationSweeper = startStdioLogRotationSweeper();
       // Sweep meta-watchdog (mt#2894): a "sweep of sweeps" on its OWN
       // self-rescheduling setTimeout chain (deliberately not setInterval —
       // see sweepers.ts's docblock) that force-restarts any of the
