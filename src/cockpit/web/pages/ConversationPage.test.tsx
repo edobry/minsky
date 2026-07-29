@@ -256,4 +256,25 @@ describe("ConversationPage — header label from the conversation's own record (
     );
     expect(occurrences.length).toBe(1);
   });
+
+  test("shares RunDetail's cache entry — one overview request, not two (SC3/AT4)", async () => {
+    const conversationId = "mt3343-overview-dedupe";
+    mockFetches(conversationId, { overviewLabel: "Shared cache entry" });
+
+    const { findByRole } = renderConversationPage(conversationId);
+    await findByRole("heading", { level: 1 });
+
+    // Both this page (for the header label) and the RunDetail body it mounts
+    // request the overview under the SAME ["conversation-overview", id] key.
+    // TanStack Query dedupes identical keys under one QueryClient, so the
+    // label must cost ZERO additional network requests — the whole reason the
+    // label rides this payload rather than a second endpoint.
+    const overviewPath = `/api/conversation/${encodeURIComponent(conversationId)}/overview`;
+    const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const overviewCalls = calls.filter((args) => {
+      const url = typeof args[0] === "string" ? args[0] : "";
+      return new URL(url, "http://localhost").pathname === overviewPath;
+    });
+    expect(overviewCalls.length).toBe(1);
+  });
 });
