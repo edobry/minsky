@@ -387,6 +387,20 @@ export interface LoadPersistedDrivenSessionsDeps {
 /**
  * Persist a boot-determined `unrecoverable` verdict (mt#3269).
  *
+ * Writes back ONLY `status` and `unrecoverableReason`; every other column is
+ * carried through from the row as read. The store upserts with
+ * `onConflictDoUpdate({ set: values })`, so any field omitted or defaulted here
+ * would OVERWRITE the stored one — this function is recording a verdict, not
+ * rewriting the record (PR #2383 R1: an earlier draft passed `model: null` and
+ * silently destroyed it).
+ *
+ * That includes `pid`/`pidCmdline`. An earlier draft cleared them on the theory
+ * that a stale pid could mislead orphan cleanup; that rationale was wrong.
+ * `orchestrateDrivenSessionResume` returns early on both `!harnessSessionId`
+ * and `status === "unrecoverable"` BEFORE it takes the lock or touches the pid,
+ * so an unrecoverable row never reaches orphan cleanup at all. Nulling them
+ * would have destroyed a real record of what ran, for a hazard that cannot occur.
+ *
  * Best-effort by design, matching the rest of boot reconciliation: a
  * persistence hiccup must leave the daemon booting with what it did read, not
  * abort startup. The cost of a miss is one more re-read next boot — the exact
@@ -395,7 +409,8 @@ export interface LoadPersistedDrivenSessionsDeps {
  */
 async function persistUnrecoverableVerdict(
   db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
-  record: DrivenSessionRecord,
+  row: import("@minsky/domain/storage/schemas/driven-sessions-schema").DrivenSessionRow,
+  reason: string,
   deps: LoadPersistedDrivenSessionsDeps
 ): Promise<void> {
   try {
@@ -404,31 +419,30 @@ async function persistUnrecoverableVerdict(
       (await import("@minsky/domain/transcripts/driven-session-registry-store"))
         .upsertDrivenSessionRecord;
     await upsert(db, {
-      localId: record.localId,
-      harnessSessionId: record.harnessSessionId,
-      cwd: record.cwd,
-      permissionMode: record.permissionMode,
-      taskId: record.taskId,
-      minskySessionId: record.minskySessionId,
+      localId: row.localId,
+      harnessSessionId: row.harnessSessionId,
+      cwd: row.cwd,
+      permissionMode: row.permissionMode,
+      taskId: row.taskId,
+      minskySessionId: row.minskySessionId,
+      // The two fields this write exists to change.
       status: "unrecoverable",
-      unrecoverableReason: record.unrecoverableReason,
-      // The prior lifetime's pid is meaningless now and must not be carried
-      // forward: orphan cleanup would otherwise have a stale identity pair to
-      // act on for a session that is, by this very verdict, never resuming.
-      pid: null,
-      pidCmdline: null,
-      model: null,
-      actuatorGeneration: record.actuatorGeneration,
-      startedAt: record.startedAt,
+      unrecoverableReason: reason,
+      // Preserved verbatim — see the docblock.
+      pid: row.pid,
+      pidCmdline: row.pidCmdline,
+      model: row.model,
+      actuatorGeneration: row.actuatorGeneration,
+      startedAt: row.startedAt.toISOString(),
     });
     log.info(
-      `[driven-session] boot reconciliation: persisted unrecoverable verdict for ${record.localId} ` +
+      `[driven-session] boot reconciliation: persisted unrecoverable verdict for ${row.localId} ` +
         `(it will no longer be re-read at boot)`
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn(
-      `[driven-session] could not persist the unrecoverable verdict for ${record.localId}: ${message}`
+      `[driven-session] could not persist the unrecoverable verdict for ${row.localId}: ${message}`
     );
   }
 }
@@ -495,7 +509,12 @@ export async function loadPersistedDrivenSessions(
       // (spec §Scope). Guessing a timeout here would silently reap
       // conversations the principal may still want.
       if (!resumable) {
-        await persistUnrecoverableVerdict(db, record, deps);
+        await persistUnrecoverableVerdict(
+          db,
+          row,
+          record.unrecoverableReason ?? "spawn-died-before-init",
+          deps
+        );
       }
     }
 

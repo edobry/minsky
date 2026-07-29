@@ -25,7 +25,14 @@
  *
  * Usage (from the repo root):
  *
- *   bun scripts/verify-boot-verdict-persist.ts
+ *   bun scripts/verify-boot-verdict-persist.ts --i-understand-this-writes
+ *
+ * The flag is required because this probe WRITES to whatever database the
+ * environment resolves — which for this repo is production. It seeds and then
+ * removes its own row, but step 2 runs the real reconciliation, so it also
+ * persists verdicts for any other permanently-unrecoverable rows present. That
+ * is the fix operating as designed, and it is still a real state change that
+ * should never happen by accident (PR #2383 R1).
  *
  * Exit codes: 0 = the verdict was persisted, 1 = failure (reason printed).
  */
@@ -50,6 +57,16 @@ const PROBE_ID = `mt3269-verdict-probe-${Date.now()}`;
 
 function fail(reason: string): never {
   console.error(`FAIL: ${reason}`);
+  process.exit(1);
+}
+
+if (!process.argv.includes("--i-understand-this-writes")) {
+  console.error(
+    "REFUSED: this probe writes to the configured database (production, in this repo).\n" +
+      "It seeds and removes its own row, but it also runs the real boot reconciliation,\n" +
+      "which persists verdicts for any other permanently-unrecoverable rows.\n" +
+      "Re-run with --i-understand-this-writes if that is what you intend."
+  );
   process.exit(1);
 }
 

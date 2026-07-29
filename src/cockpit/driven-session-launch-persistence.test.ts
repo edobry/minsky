@@ -223,6 +223,42 @@ describe("loadPersistedDrivenSessions", () => {
     expect(persisted[0]?.reason).toContain("spawn-died-before-init");
   });
 
+  // PR #2383 R1 (BLOCKING): the store upserts with `onConflictDoUpdate({ set: values })`,
+  // so any field this write defaults instead of carrying through OVERWRITES the
+  // stored one. The first draft passed `model: null` and silently destroyed it.
+  test("preserves every other persisted field — it records a verdict, not a rewrite", async () => {
+    const registry = new DrivenSessionRegistry();
+    const row = {
+      ...BASE_ROW,
+      harnessSessionId: null,
+      model: "fable",
+      pid: 4242,
+      pidCmdline: "claude -p --input-format stream-json",
+      actuatorGeneration: 3,
+    };
+    const writes: Record<string, unknown>[] = [];
+
+    await loadPersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [row],
+      registry,
+      persistTerminalVerdict: async (_db, input) => {
+        writes.push(input as unknown as Record<string, unknown>);
+        return "written";
+      },
+    });
+
+    const written = writes[0];
+    if (!written) throw new Error("expected exactly one verdict write");
+    expect(written["model"]).toBe("fable");
+    expect(written["pid"]).toBe(4242);
+    expect(written["pidCmdline"]).toBe("claude -p --input-format stream-json");
+    expect(written["actuatorGeneration"]).toBe(3);
+    expect(written["cwd"]).toBe(row.cwd);
+    // ...while the two fields the write exists to change did change.
+    expect(written["status"]).toBe("unrecoverable");
+  });
+
   test("does NOT persist a verdict for a resumable row — it stays available to resume", async () => {
     // The deliberate carve-out (spec §Scope): deciding when a RESUMABLE row is
     // too stale to keep offering is a policy question this task does not answer.
