@@ -204,20 +204,23 @@ async function main(): Promise<void> {
   );
   if (!scriptsHit) {
     fail(
-      "mt#3183: default run did not flag the injected scripts/ error under tsconfig.scripts.json"
+      `mt#3183: default run did not flag the injected scripts/ error under tsconfig.scripts.json. Errors seen: ${JSON.stringify(withStandaloneErrs.errors)}`
     );
   }
   if (!hooksHit) {
     fail(
-      "mt#3183: default run did not flag the injected .claude/hooks/ error under tsconfig.hooks.json"
+      `mt#3183: default run did not flag the injected .claude/hooks/ error under tsconfig.hooks.json. Errors seen: ${JSON.stringify(withStandaloneErrs.errors)}`
     );
   }
 
   // Negative control: the ROOT project must NOT see either probe — proving the hits above came
   // from the standalone pass and not from the root check widening.
   const rootOnlyStandalone = await run(".");
-  if (rootOnlyStandalone.errors.some((e) => e.file.includes("__mt3183_probe"))) {
-    fail("mt#3183: explicit root-only run unexpectedly flagged a standalone-project probe");
+  const rootLeaks = rootOnlyStandalone.errors.filter((e) => e.file.includes("__mt3183_probe"));
+  if (rootLeaks.length > 0) {
+    fail(
+      `mt#3183: explicit root-only run unexpectedly flagged a standalone-project probe: ${JSON.stringify(rootLeaks)}`
+    );
   }
 
   cleanup();

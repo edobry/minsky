@@ -215,19 +215,27 @@ describe("discoverStandaloneTypecheckProjects", () => {
     expect(await discoverStandaloneTypecheckProjects(ROOT, fs)).toEqual([]);
   });
 
-  test("accepts --project and quoted paths", async () => {
+  test("accepts --project, the equals forms, and quoted paths", async () => {
     const fs = memFs({
       [`${ROOT}/package.json`]: scriptsPkg({
         "typecheck:a": 'tsgo --noEmit --project "tsconfig.a.json"',
         "typecheck:b": "tsgo --noEmit -p 'tsconfig.b.json'",
+        // Equals form — npm/bun scripts use it interchangeably with the space form. A project
+        // declared this way used to be dropped silently (PR #2372 R1 BLOCKING).
+        "typecheck:c": "tsgo --noEmit --project=tsconfig.c.json",
+        "typecheck:d": 'tsgo --noEmit -p="tsconfig.d.json"',
       }),
       [`${ROOT}/tsconfig.a.json`]: TSCONFIG,
       [`${ROOT}/tsconfig.b.json`]: TSCONFIG,
+      [`${ROOT}/tsconfig.c.json`]: TSCONFIG,
+      [`${ROOT}/tsconfig.d.json`]: TSCONFIG,
     });
 
     expect(await discoverStandaloneTypecheckProjects(ROOT, fs)).toEqual([
       "tsconfig.a.json",
       "tsconfig.b.json",
+      "tsconfig.c.json",
+      "tsconfig.d.json",
     ]);
   });
 

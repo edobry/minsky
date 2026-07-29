@@ -106,7 +106,15 @@ interface TypecheckResult {
   errorCount: number;
   errors: TypecheckError[];
   status: "pass" | "fail";
-  /** Workspaces that were typechecked (labels), e.g. ["." , "services/reviewer"]. */
+  /**
+   * Every project that was typechecked. Entries are either a workspace LABEL (`.`,
+   * `services/reviewer`, `src/cockpit/web`) or, for a standalone root-level project, its
+   * tsconfig PATH (`tsconfig.hooks.json` — mt#3183). The two forms are deliberately mixed
+   * because the underlying things differ: a workspace is a directory with its own
+   * `tsconfig.json`, a standalone project IS a tsconfig file. Each entry is what a reader
+   * would pass to reproduce that specific check, and each error's `workspace` field carries
+   * the matching value, so the two are always joinable.
+   */
   workspaces: string[];
   /** The base directory that was actually validated — prevents silent main-repo checks. */
   validatedWorkspace: string;
@@ -383,8 +391,11 @@ export async function discoverStandaloneTypecheckProjects(
   for (const [name, body] of Object.entries(scripts)) {
     if (!name.startsWith("typecheck:")) continue;
     if (typeof body !== "string") continue;
-    // `-p <path>` or `--project <path>`; the value may be quoted.
-    const match = /(?:^|\s)(?:-p|--project)\s+(?:"([^"]+)"|'([^']+)'|(\S+))/.exec(body);
+    // `-p <path>`, `--project <path>`, and their equals forms (`-p=<path>`,
+    // `--project=<path>`) — npm/bun scripts use both spellings, and a project declared with
+    // the equals form would otherwise be silently dropped, recreating this task's own bug in
+    // a new shape. The value may be quoted with either quote style.
+    const match = /(?:^|\s)(?:-p|--project)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|([^\s"']+))/.exec(body);
     const projectPath = match?.[1] ?? match?.[2] ?? match?.[3];
     if (!projectPath) continue;
     if (found.includes(projectPath)) continue;
