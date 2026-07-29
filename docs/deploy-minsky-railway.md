@@ -288,6 +288,40 @@ path: `.github/workflows/deploy-reviewer.yml` deploys the reviewer on merge usin
 `RAILWAY_DOCKERFILE_PATH` variable above remains a defense-in-depth measure against a
 trigger-fired build, not evidence that one has occurred.
 
+### Sequencing rule: apply the new state and verify it live before removing the old pin
+
+The incident above generalizes into a rule for the next source migration on any service: **apply
+the new source state and verify it live BEFORE removing the old pin.** A config that PINS build
+behavior — a `dockerfilePath`, a `railway.json`, a version constraint, a branch filter — must not
+be deleted until the state it is being migrated TO is live and confirmed. With the pin gone and
+the new state not yet applied, the window's behavior is the platform DEFAULT — which for a Railway
+repo-source build is the repo-ROOT Dockerfile, i.e. an entirely different application.
+
+Correct order: **apply the new state → verify it live → then remove the old pin.**
+
+"Verify it live" means reading the platform's own record of the service, not inferring from the
+declaration you just applied. Applying config and observing the intended runtime state are two
+different facts. Concretely, for a Railway source migration:
+
+```bash
+railway status --json | jq '.environments.edges[0].node.serviceInstances.edges[]
+  | select(.node.serviceName=="<service>")
+  | {source: .node.source, commit: .node.latestDeployment.meta.commitHash}'
+```
+
+- `source` must show the NEW shape (e.g. `{repo: null, image: "ghcr.io/..."}`), not the old one.
+- `commitHash: null` on the latest deployment means it came from an IMAGE; a non-null
+  `commitHash` means a REPO build still produced it — the fastest way to tell what actually
+  shipped.
+
+Then confirm the running service is the one you expect via its `/health` body, not merely a 200
+(mt#3148) — a generic 200 is served by the wrong application too.
+
+mt#3117 deleted `services/reviewer/railway.json` in the same PR that declared the reviewer service
+image-source, while the live service was still repo-source; the next unrelated merge to `main`
+fired the standing repo trigger described above, Railway fell back to the repo-root Dockerfile,
+and the Minsky MCP Server was deployed onto the reviewer host. See mem#747 for the full analysis.
+
 ## Database migrations on deploy (mt#2505)
 
 Prod schema migrations are applied by a **single, deploy-keyed step** in
