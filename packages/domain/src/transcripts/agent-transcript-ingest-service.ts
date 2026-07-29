@@ -98,6 +98,77 @@ const INGEST_ERROR_TEXT_LIMIT = 2000;
 const UNKNOWN_HARNESS = "unknown";
 
 /**
+ * The mt#3342 fill-if-null SET entries for the ingest upsert's
+ * `onConflictDoUpdate`.
+ *
+ * EXPORTED so the integration test can exercise THIS fragment rather than a
+ * hand-copied duplicate of it. That distinction is the whole point: a test that
+ * re-types the SQL asserts only that the test's own SQL works, and would stay
+ * green while the production statement regressed. The reviewer's finding on
+ * PR #2412 was exactly this — the SQL change was unguarded by CI.
+ *
+ * `harness` needs NULLIF rather than a bare COALESCE: the column is NOT NULL,
+ * so `recordIngestFailure`'s placeholder row cannot use NULL as its "no value
+ * yet" marker and writes the string `'unknown'` instead. COALESCE would see a
+ * non-null value and preserve the placeholder forever.
+ *
+ * Fill-if-null, NOT overwrite-always: an incremental ingest's
+ * `extractStartedAt` only sees lines since the high-water-mark, so its
+ * `startedAt` is LATER than the true session start and must never win over a
+ * stored value.
+ */
+export function fillIfNullMetadataSet() {
+  return {
+    harness: sql`COALESCE(NULLIF(${agentTranscriptsTable.harness}, ${UNKNOWN_HARNESS}), EXCLUDED.harness)`,
+    startedAt: sql`COALESCE(${agentTranscriptsTable.startedAt}, EXCLUDED.started_at)`,
+    cwd: sql`COALESCE(${agentTranscriptsTable.cwd}, EXCLUDED.cwd)`,
+    projectDir: sql`COALESCE(${agentTranscriptsTable.projectDir}, EXCLUDED.project_dir)`,
+  };
+}
+
+/**
+ * Pull the actual Postgres failure fields off a driver error (mt#3342).
+ *
+ * Drizzle wraps a failed statement in an Error whose `message` is
+ * `"Failed query: <the entire SQL> params: <every bound value>"` — for this
+ * upsert that is the whole transcript batch, tens of KB, and it does NOT
+ * include the reason Postgres rejected it. `getLoggableErrorSummary` walks the
+ * cause chain, but the chain terminates at Drizzle's own message, so the
+ * SQLSTATE never reached the log OR `ingest_last_error`. 57 corrupted rows
+ * existed with no recoverable explanation of what the original write error was.
+ *
+ * postgres.js attaches the PG error fields directly to the thrown object;
+ * depending on the wrapping they may sit on the error or on its `cause`. Both
+ * are checked. Returns `undefined` when nothing PG-shaped is found, so callers
+ * can omit the field entirely rather than logging a bag of nulls.
+ */
+export function describeDriverError(
+  err: unknown
+):
+  | { code?: string; detail?: string; constraint?: string; table?: string; routine?: string }
+  | undefined {
+  const candidates: unknown[] = [err];
+  if (err !== null && typeof err === "object" && "cause" in err) {
+    candidates.push((err as { cause: unknown }).cause);
+  }
+  for (const candidate of candidates) {
+    if (candidate === null || typeof candidate !== "object") continue;
+    const c = candidate as Record<string, unknown>;
+    const pick = (key: string): string | undefined =>
+      typeof c[key] === "string" && (c[key] as string).length > 0 ? (c[key] as string) : undefined;
+    const code = pick("code");
+    const detail = pick("detail");
+    const constraint = pick("constraint");
+    const table = pick("table");
+    const routine = pick("routine");
+    if (code || detail || constraint || table || routine) {
+      return { code, detail, constraint, table, routine };
+    }
+  }
+  return undefined;
+}
+
+/**
  * Narrow seam for the per-session spawn-extraction call `ingestSession` makes
  * inline (mt#3109). Deliberately narrower than `AgentSpawnsPipeline` itself —
  * a test double only needs to implement this one method, without modeling the
@@ -482,8 +553,19 @@ export class AgentTranscriptIngestService {
       }
     }
 
-    // Fields restricted to insert-only (harness, cwd, project_dir, started_at)
-    // are not overwritten on conflict.
+    // mt#3342: `harness`, `cwd`, `project_dir`, and `started_at` used to be
+    // INSERT-ONLY here — absent from the SET clause below, so whatever the
+    // FIRST write for a conversation id put there was permanent. That made a
+    // failure stub unrepairable: `recordIngestFailure` creates a placeholder
+    // row with `harness: 'unknown'` and no `started_at`, so any conversation
+    // whose first-ever write was a failure carried those placeholders forever,
+    // even after every later ingest succeeded — and mt#3278's self-healing
+    // reset cleared the failure columns, leaving no trace of why. 57 rows were
+    // in that state when this was found, and the count was still growing.
+    //
+    // They are FILL-IF-NULL now, not overwrite-always: an incremental ingest's
+    // `extractStartedAt` sees only the NEW lines, so its `startedAt` is LATER
+    // than the true session start and must never win over a stored value.
     try {
       await this.db
         .insert(agentTranscriptsTable)
@@ -507,6 +589,11 @@ export class AgentTranscriptIngestService {
         .onConflictDoUpdate({
           target: agentTranscriptsTable.agentSessionId,
           set: {
+            // mt#3342 fill-if-null group — see fillIfNullMetadataSet's docblock
+            // for why `harness` needs NULLIF and why this is fill-if-null
+            // rather than overwrite-always. Shared with the integration test so
+            // CI guards this exact fragment.
+            ...fillIfNullMetadataSet(),
             transcript: sql`COALESCE(${agentTranscriptsTable.transcript}, '[]'::jsonb) || (
               SELECT COALESCE(jsonb_agg(new_elem ORDER BY ord), '[]'::jsonb)
               FROM jsonb_array_elements(EXCLUDED.transcript) WITH ORDINALITY AS t(new_elem, ord)
@@ -556,8 +643,14 @@ export class AgentTranscriptIngestService {
         });
     } catch (err) {
       const upsertError = err instanceof Error ? err : new Error(String(err));
+      // mt#3342: log the DRIVER's reason (SQLSTATE / detail / constraint), not
+      // only Drizzle's "Failed query: <sql> params: <whole transcript>" blob.
+      // The blob is tens of KB and says nothing about why Postgres refused the
+      // write; without the fields below the failure is not diagnosable after
+      // the fact, which is how this bug's root cause stayed unknown.
       log.error(`Transcript upsert FAILED for session ${agentSessionId}`, {
         error: getLoggableErrorSummary(err),
+        driver: describeDriverError(err),
       });
       await this.recordIngestFailure(agentSessionId, upsertError);
       return { ingested: 0, error: upsertError };

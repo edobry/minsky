@@ -48,7 +48,7 @@
  * @see mt#2770 — conversation labeling (this file's enrichment logic)
  */
 
-import { desc } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
@@ -151,7 +151,24 @@ export function createContextInspectorWidget(
             title: agentTranscriptsTable.title,
           })
           .from(agentTranscriptsTable)
-          .orderBy(desc(agentTranscriptsTable.startedAt))
+          // mt#3342: order on a NON-NULL key. Postgres sorts NULLs FIRST under
+          // `DESC`, so ordering on `started_at` alone let rows with a NULL
+          // start time monopolize the window: 57 such rows existed against a
+          // 50-row LIMIT, which meant this picker returned ZERO conversations
+          // with a real start time and its ordering was meaningless. The
+          // conversation-detail page's own label lookup read this window, so
+          // every conversation fell back to rendering its raw uuid (mt#3343).
+          //
+          // COALESCE rather than `NULLS LAST`: a row with no start time is
+          // still a real conversation, and `ingested_at` places it at roughly
+          // the right recency instead of exiling it to the end of the list.
+          // mt#3342's repair pass should drive the NULL count to zero — this
+          // ordering is the defense that keeps one bad row from doing it again.
+          .orderBy(
+            desc(
+              sql`COALESCE(${agentTranscriptsTable.startedAt}, ${agentTranscriptsTable.ingestedAt})`
+            )
+          )
           .limit(MAX_SESSIONS);
 
         const ids = rows.map((r) => r.agentSessionId);
