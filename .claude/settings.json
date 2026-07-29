@@ -358,8 +358,8 @@
         ]
       },
       {
-        "_comment": "mt#3257 subagent model verification — observer, never blocks. Compares tool_input.model (requested alias) against tool_response.resolvedModel (both measured in the Agent PostToolUse payload, sync AND async-launch modes — mt#3257 probes) and warns via additionalContext on mismatch, so a dropped tier override can't silently produce false provenance again (the mt#3151 pin incident). Degraded payloads log to .minsky/subagent-model-mismatch.jsonl instead of warning. Override: MINSKY_SKIP_SUBAGENT_MODEL_CHECK.",
-        "matcher": "Agent",
+        "_comment": "mt#3257 subagent model verification — observer, never blocks. Compares tool_input.model (requested alias) against tool_response.resolvedModel (both measured in the Agent PostToolUse payload, sync AND async-launch modes — mt#3257 probes) and warns via additionalContext on mismatch, so a dropped tier override can't silently produce false provenance again (the mt#3151 pin incident). Degraded payloads log to .minsky/subagent-model-mismatch.jsonl instead of warning. Matcher covers Task, the same tool's older name, to stay aligned with the hook's TARGET_TOOL_NAMES (PR #2388 R1). Timeout 10: the hook spawns one bun process and does at most one local file append — no subprocess, no network, no DB — so 10s is generous headroom over sibling 5s reminders purely for cold-start jitter. Override: MINSKY_SKIP_SUBAGENT_MODEL_CHECK.",
+        "matcher": "Agent|Task",
         "hooks": [
           {
             "type": "command",

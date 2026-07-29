@@ -116,9 +116,11 @@ export function extractResponse(input: ToolHookInput): Record<string, unknown> |
 
 /**
  * True when the resolved model id satisfies the requested tier. A known alias matches its
- * `claude-<alias>` id-prefix family; an unrecognized request is treated as a (possibly full)
- * model id and compared directly, so `model: "claude-opus-5"` verifies against itself instead
- * of being unmatchable.
+ * `claude-<alias>` id-prefix family; an unrecognized request is treated as EITHER a (possibly
+ * full) model id compared directly, OR a future alias following the same `claude-<alias>` id
+ * convention the four known aliases follow — so a new vendor alias this table hasn't learned
+ * yet (e.g. `"frontier"` resolving to `claude-frontier-1`) verifies instead of false-warning
+ * (PR #2388 R1 BLOCKING #1).
  */
 export function requestedMatchesResolved(requested: string, resolved: string): boolean {
   const alias = requested.trim().toLowerCase();
@@ -126,7 +128,12 @@ export function requestedMatchesResolved(requested: string, resolved: string): b
   if (prefix) {
     return resolved === prefix || resolved.startsWith(`${prefix}-`);
   }
-  return resolved === alias || resolved.startsWith(`${alias}-`);
+  return (
+    resolved === alias ||
+    resolved.startsWith(`${alias}-`) ||
+    resolved === `claude-${alias}` ||
+    resolved.startsWith(`claude-${alias}-`)
+  );
 }
 
 export type ModelCheckDecision =

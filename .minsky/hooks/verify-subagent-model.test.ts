@@ -238,6 +238,13 @@ describe("requestedMatchesResolved — alias mapping", () => {
     expect(requestedMatchesResolved("claude-opus-5", "claude-sonnet-5")).toBe(false);
   });
 
+  test("an unknown future alias following the claude-<alias> convention verifies (PR #2388 R1)", () => {
+    expect(requestedMatchesResolved("frontier", "claude-frontier-1")).toBe(true);
+    expect(requestedMatchesResolved("frontier", "claude-frontier")).toBe(true);
+    expect(requestedMatchesResolved("frontier", "claude-sonnet-5")).toBe(false);
+    expect(requestedMatchesResolved("frontier", "claude-frontierish-1")).toBe(false);
+  });
+
   test("prefix match requires a tier boundary, not a bare substring", () => {
     expect(requestedMatchesResolved("opus", "claude-opusish-1")).toBe(false);
   });
