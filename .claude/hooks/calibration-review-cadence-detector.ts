@@ -359,10 +359,15 @@ function askDeeplink(askId: string, shortId?: string): string {
  * being consulted — so a closed, answered ask was reported as pending for days, and the
  * principal tried to action an ask that could no longer be opened. Each branch below now says
  * only what the lookup actually established.
+ *
+ * `lookups` is REQUIRED, deliberately. It briefly had a default of `new Map()`, and the CLI
+ * entrypoint was then left un-updated — every line it rendered read "ask store unreachable (no
+ * lookup performed)" (PR #2374 R1). A default turns "this call site forgot to resolve state"
+ * into a wrong message at runtime; requiring the argument turns it into a compile error.
  */
 export function formatPendingAskLines(
   pending: ReviewDueLog[],
-  lookups: Map<string, AskLookup> = new Map()
+  lookups: Map<string, AskLookup>
 ): string {
   const lookupFor = (d: ReviewDueLog): AskLookup =>
     lookups.get(d.openAskId as string) ?? { kind: "unavailable", reason: "no lookup performed" };
@@ -601,7 +606,15 @@ export async function main(): Promise<void> {
 
     const parts: string[] = [];
     if (normalToWarn.length > 0) parts.push(formatCadenceWarning(normalToWarn));
-    if (pendingToShow.length > 0) parts.push(formatPendingAskLines(pendingToShow));
+    if (pendingToShow.length > 0) {
+      // Same lookup as the dispatcher path in `run()` — both entrypoints render the same
+      // surface, so both must resolve state. Leaving this one unresolved made every CLI-path
+      // line read "ask store unreachable (no lookup performed)" (PR #2374 R1 BLOCKING).
+      const askStates = await resolveAskStates([
+        ...new Set(pendingToShow.map((d) => d.openAskId as string)),
+      ]);
+      parts.push(formatPendingAskLines(pendingToShow, askStates));
+    }
 
     const output: HookOutput = {
       hookSpecificOutput: {
