@@ -155,7 +155,31 @@ export interface UnmergedMigrationCheckResult {
    * migration. Distinguishing this from per-file absence is the mt#2277 review fix.
    */
   skippedReason?: string;
+  /**
+   * Repo-relative paths the guard looked for on `origin/main`, per unmerged tag
+   * (mt#3296). Surfaced so a block names what was actually checked: the previous
+   * message asserted a migration was "NOT present on origin/main" without
+   * saying at which path, which is what made a false positive take a hand-run
+   * `git cat-file` to diagnose.
+   */
+  checkedPaths?: Record<string, string[]>;
 }
+
+/**
+ * Where migration SQL lives in the repository (mt#3296).
+ *
+ * The runtime `migrationsFolder` is NOT necessarily this: the MCP server runs
+ * from the bundled build and resolves it to `dist/storage/migrations/pg`, which
+ * is build output and gitignored. Checking that path against `origin/main` can
+ * never succeed, so the guard blocked every merged migration applied through
+ * MCP and pointed the operator at a break-glass override — training the override
+ * into a habit on the ordinary correct path, which is worse than not having the
+ * guard.
+ *
+ * A migration is identified by its filename, so the file is looked up at the
+ * canonical source location as well as wherever it was resolved from.
+ */
+const CANONICAL_MIGRATIONS_SOURCE_DIR = "packages/domain/src/storage/migrations/pg";
 
 /**
  * For each pending migration file (journal entries beyond `appliedCount`),
@@ -226,6 +250,19 @@ export async function checkUnmergedMigrations(
   }
 
   const unmergedTags: string[] = [];
+  const checkedPaths: Record<string, string[]> = {};
+
+  /** True when `<repoRelPath>` exists in the `origin/main` tree. */
+  const existsOnOriginMain = async (repoRelPath: string): Promise<boolean> => {
+    try {
+      // `git cat-file -e origin/main:<path>` exits 0 if the object exists,
+      // non-zero if it doesn't (file not on origin/main)
+      await execFileAsync("git", ["cat-file", "-e", `origin/main:${repoRelPath}`], { cwd });
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   for (const entry of pendingEntries) {
     const sqlFileName = `${entry.tag}.sql`;
@@ -240,20 +277,38 @@ export async function checkUnmergedMigrations(
     // no `..` segments, no leading `-`, and no `:` — safe to interpolate.
     const repoRelPath = relative(repoRoot, absSqlPath).split(sep).join("/");
 
-    try {
-      // `git cat-file -e origin/main:<path>` exits 0 if the object exists,
-      // non-zero if it doesn't (file not on origin/main)
-      await execFileAsync("git", ["cat-file", "-e", `origin/main:${repoRelPath}`], { cwd });
-      // exit 0 → file is present on origin/main → not blocked
-    } catch {
-      // non-zero exit → file is NOT on origin/main
+    // Look for the migration where it was resolved from AND at its canonical
+    // source location (mt#3296). Both, not just the latter, because a migration
+    // applied from the source tree must still be checked at the path it was
+    // actually read from — narrowing to the canonical path alone would stop
+    // verifying the file in front of us.
+    //
+    // Checking both cannot weaken the guard: a genuinely unmerged migration is
+    // absent from origin/main at EVERY path, so it still blocks. What it fixes
+    // is the case where the file is merged but was resolved from a build-output
+    // copy that is gitignored by design.
+    const canonicalRelPath = `${CANONICAL_MIGRATIONS_SOURCE_DIR}/${sqlFileName}`;
+    const candidates =
+      repoRelPath === canonicalRelPath ? [repoRelPath] : [repoRelPath, canonicalRelPath];
+
+    let present = false;
+    for (const candidate of candidates) {
+      if (await existsOnOriginMain(candidate)) {
+        present = true;
+        break;
+      }
+    }
+
+    if (!present) {
       unmergedTags.push(entry.tag);
+      checkedPaths[entry.tag] = candidates;
     }
   }
 
   return {
     blocked: unmergedTags.length > 0,
     unmergedTags,
+    ...(Object.keys(checkedPaths).length > 0 ? { checkedPaths } : {}),
   };
 }
 
@@ -849,7 +904,17 @@ export async function runPostgresSchemaMigrations(
           );
         }
         if (check.blocked) {
-          const tagList = check.unmergedTags.map((t) => `  - ${t}.sql`).join("\n");
+          // mt#3296: name the paths actually searched. The previous message
+          // asserted absence without saying where it looked, so diagnosing a
+          // false positive meant hand-running `git cat-file` to discover the
+          // guard had checked a gitignored build-output path.
+          const tagList = check.unmergedTags
+            .map((t) => {
+              const paths = check.checkedPaths?.[t] ?? [];
+              const where = paths.map((p) => `\n      looked at: ${p}`).join("");
+              return `  - ${t}.sql${where}`;
+            })
+            .join("\n");
           throw new Error(
             `\n🚫 Unmerged-migration guard blocked apply to shared production DB (${masked})\n\n` +
               `The following pending migration(s) are NOT present on origin/main:\n` +
