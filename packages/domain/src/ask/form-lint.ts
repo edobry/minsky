@@ -12,16 +12,30 @@
  * v1 is deliberately mechanical-only. Three checks, no fuzzier heuristics
  * (unnamed-referent detection, etc.) — those are explicitly out of scope
  * until calibration data justifies adding them. See the task spec's
- * Deliverable 2 and Scope sections.
+ * Deliverable 2 and Scope sections. Two more checks (option-label length
+ * and redundant letter-prefix) were added in mt#3253.
  *
  * Pure, side-effect-free: no filesystem or network I/O. The calibration-log
  * write lives in the command-adapter layer
  * (`src/adapters/shared/commands/ask-form-lint-calibration.ts`) so this
  * module stays trivially unit-testable.
  *
+ * **Advisory-in-itself, consequential at the caller (mt#3326).** This
+ * module only computes matches — it never blocks and has no opinion on
+ * severity. Whether a caller treats a match as informational or fatal is
+ * the caller's decision. As of mt#3326, `asks.create`'s command-layer
+ * `validate` hook (`validateFormLintNotViolated` in
+ * `src/adapters/shared/commands/asks.ts`) hard-rejects a create whose
+ * question/options produce any non-empty match set here, unless the caller
+ * passes `acknowledgeFormWarnings: true`. `createAskWithFormLint` (the
+ * lower-level wrapper this module feeds) remains unconditionally
+ * non-blocking — the rejection happens one layer up, before
+ * `createAskWithFormLint` is even called.
+ *
  * @see mt#2798 — this task
  * @see mt#2471 — the sibling routing detector (DONE, does not cover form)
  * @see memory `3e3f29d8` — escalation-packaging family (R1–R5)
+ * @see mt#3326 — makes these matches consequential at the asks_create boundary
  */
 
 import {
@@ -143,7 +157,11 @@ export function countWords(text: string): number {
  * identical warnings. The message carries the offending count so the producer
  * knows the scope of the edit.
  *
- * Advisory only — callers must never block Ask creation on these matches.
+ * This function itself never blocks — it only computes matches. As of
+ * mt#3326, `asks.create`'s command layer DOES block on a non-empty result
+ * (see the module-level doc comment above); a caller building its own
+ * surface on top of this function is free to keep matches advisory,
+ * consistent with the pre-mt#3326 contract.
  */
 export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
   const { kind, question, options } = input;
