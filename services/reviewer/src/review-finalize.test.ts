@@ -31,8 +31,47 @@ const REVIEW: SubmittedReview = {
 const REVIEWER_LOGIN = "minsky-reviewer[bot]";
 const EMPTY_OUTPUT_REASON = "empty output from model";
 
+/**
+ * Shared alias for the checkRunToolCalls field type — referencing this via an
+ * identifier (instead of repeating `FinalizeReviewSuccessInput["checkRunToolCalls"]`'s
+ * indexed-access string literal at every synthetic-tool-calls call site) avoids
+ * custom/no-magic-string-duplication warnings on the repeated literal.
+ */
+type CheckRunToolCalls = FinalizeReviewSuccessInput["checkRunToolCalls"];
+
+/**
+ * A db double that actually implements insert/update (unlike the `{}` stub
+ * used by the rest of this harness) so the mt#3295 findings-persistence
+ * assertions below can observe what recordFindings /
+ * resolveOutstandingFindingsOnApproval actually write, rather than only
+ * confirming the swallow-on-error path (which `{}` exercises implicitly).
+ */
+function makeFindingsTrackingDb() {
+  const insertedRows: Record<string, unknown>[] = [];
+  const updateSets: Record<string, unknown>[] = [];
+  const db = {
+    insert: mock(() => ({
+      values: mock((rows: Record<string, unknown>[]) => {
+        insertedRows.push(...rows);
+        return { onConflictDoNothing: mock(() => Promise.resolve()) };
+      }),
+    })),
+    update: mock(() => ({
+      set: mock((values: Record<string, unknown>) => {
+        updateSets.push(values);
+        return { where: mock(() => Promise.resolve()) };
+      }),
+    })),
+  } as unknown as ReviewerDb;
+  return { db, insertedRows, updateSets };
+}
+
 /** Build a fresh harness: a ReviewRunContext plus capture arrays for each injected sink. */
-function makeHarness(opts?: { db?: boolean }) {
+function makeHarness(opts?: {
+  db?: boolean;
+  trackingDb?: ReviewerDb;
+  outputToolsActive?: boolean;
+}) {
   const checkRunCalls: PublishCheckRunOptions[] = [];
   const timingCalls: ReviewTimingInput[] = [];
   const metricsCalls: ConvergenceMetricInput[] = [];
@@ -56,8 +95,10 @@ function makeHarness(opts?: { db?: boolean }) {
   // octokit.graphql); a graphql spy lets the guard tests assert invocation.
   const graphql = mock(async () => ({}));
 
+  const resolvedDb = opts?.db === false ? undefined : (opts?.trackingDb ?? ({} as ReviewerDb));
+
   const deps: RunReviewDeps = {
-    db: opts?.db === false ? undefined : ({} as ReviewerDb),
+    db: resolvedDb,
     checkRunPublisher,
     timingRecorder,
     metricsRecorder,
@@ -74,12 +115,12 @@ function makeHarness(opts?: { db?: boolean }) {
     output: { text: "", provider: "openai", model: "gpt-5", toolCalls: [] },
     attempt: "first-attempt-success",
     retryAttempted: false,
-    taskSpecFetch: { status: "found", taskId: "mt#1234" },
     priorReviewIngestion: { iterationCount: 1, staleCount: 0, priorBlockingCounts: [2, 1] },
     totalWallClockMs: 100,
-    outputToolsActive: true,
+    outputToolsActive: opts?.outputToolsActive ?? true,
     reviewerLogin: REVIEWER_LOGIN,
     emitReviewPosted,
+    taskSpecFetch: { status: "found", taskId: "mt#1234" },
   };
 
   return {
@@ -220,7 +261,7 @@ describe("finalizeReviewSuccess (mt#2731)", () => {
     const h = makeHarness();
     const toolCalls = [
       { name: "submit_finding", args: { severity: "BLOCKING" } },
-    ] as unknown as FinalizeReviewSuccessInput["checkRunToolCalls"];
+    ] as unknown as CheckRunToolCalls;
     const result = await finalizeReviewSuccess(
       h.ctx,
       successInput({
@@ -234,6 +275,116 @@ describe("finalizeReviewSuccess (mt#2731)", () => {
     expect(h.checkRunCalls[0]?.toolCalls).toBe(toolCalls);
     expect(h.checkRunCalls[0]?.convergenceState).toEqual({ roundNumber: 2, blockingCount: 0 });
     expect(result.reason).toBe("Posted COMMENT review [output-tools]");
+  });
+
+  describe("mt#3295 findings persistence", () => {
+    test("persists this round's findings from checkRunToolCalls on the output-tools path", async () => {
+      const { db, insertedRows } = makeFindingsTrackingDb();
+      const h = makeHarness({ trackingDb: db, outputToolsActive: true });
+      const toolCalls = [
+        {
+          name: "submit_finding",
+          args: {
+            severity: "BLOCKING",
+            file: "src/foo.ts",
+            line: 10,
+            summary: "One-sentence summary",
+            details: "Full explanation",
+          },
+        },
+      ] as unknown as CheckRunToolCalls;
+
+      await finalizeReviewSuccess(h.ctx, successInput({ checkRunToolCalls: toolCalls }));
+
+      expect(insertedRows).toHaveLength(1);
+      expect(insertedRows[0]).toMatchObject({
+        prOwner: "edobry",
+        prRepo: "minsky",
+        prNumber: 1234,
+        headSha: "abc123",
+        round: 2, // iterationIndex = priorReviewIngestion.iterationCount + 1
+        severity: "BLOCKING",
+        file: "src/foo.ts",
+        line: 10,
+        title: "One-sentence summary",
+        body: "Full explanation",
+        disposition: null,
+      });
+    });
+
+    test("marks a finding bypassed when its locator is in bypassedFindingLocators", async () => {
+      const { db, insertedRows } = makeFindingsTrackingDb();
+      const h = makeHarness({ trackingDb: db, outputToolsActive: true });
+      const toolCalls = [
+        {
+          name: "submit_finding",
+          args: {
+            severity: "NON-BLOCKING", // already downgraded upstream
+            file: "src/foo.ts",
+            line: 10,
+            summary: "s",
+            details: "d",
+          },
+        },
+      ] as unknown as CheckRunToolCalls;
+      const bypassedFindingLocators = new Set(["src/foo.ts::10::"]);
+
+      await finalizeReviewSuccess(
+        h.ctx,
+        successInput({ checkRunToolCalls: toolCalls, bypassedFindingLocators })
+      );
+
+      expect(insertedRows[0]?.["disposition"]).toBe("bypassed");
+    });
+
+    test("falls back to parsing acknowledgedBody when outputToolsActive is false", async () => {
+      const { db, insertedRows } = makeFindingsTrackingDb();
+      const h = makeHarness({ trackingDb: db, outputToolsActive: false });
+
+      await finalizeReviewSuccess(
+        h.ctx,
+        successInput({
+          checkRunToolCalls: [],
+          acknowledgedBody: "**[BLOCKING]** src/bar.ts:20 - Something is wrong.",
+        })
+      );
+
+      expect(insertedRows).toHaveLength(1);
+      expect(insertedRows[0]).toMatchObject({
+        severity: "BLOCKING",
+        file: "src/bar.ts",
+        line: 20,
+        body: "Something is wrong.",
+      });
+    });
+
+    test("resolves outstanding findings to disposition=unknown on APPROVE", async () => {
+      const { db, updateSets } = makeFindingsTrackingDb();
+      const h = makeHarness({ trackingDb: db });
+
+      await finalizeReviewSuccess(h.ctx, successInput({ event: "APPROVE", blockingCount: 0 }));
+
+      expect(updateSets).toHaveLength(1);
+      expect(updateSets[0]?.["disposition"]).toBe("unknown");
+      expect(updateSets[0]?.["dispositionSetAt"]).toBeInstanceOf(Date);
+    });
+
+    test("does NOT resolve outstanding findings on REQUEST_CHANGES", async () => {
+      const { db, updateSets } = makeFindingsTrackingDb();
+      const h = makeHarness({ trackingDb: db });
+
+      await finalizeReviewSuccess(h.ctx, successInput({ event: "REQUEST_CHANGES" }));
+
+      expect(updateSets).toHaveLength(0);
+    });
+
+    test("skips findings persistence entirely when no db is configured", async () => {
+      const h = makeHarness({ db: false });
+      // Should not throw even though there's no tracking db to observe.
+      await expect(
+        finalizeReviewSuccess(h.ctx, successInput({ event: "APPROVE" }))
+      ).resolves.toBeDefined();
+    });
   });
 
   describe("thread-resolve human-thread guard", () => {

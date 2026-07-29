@@ -36,6 +36,7 @@ export default {
     "./src/db/schemas/inflight-reviews-schema.ts",
     "./src/db/schemas/review-timing-schema.ts",
     "./src/db/schemas/submission-failures-schema.ts",
+    "./src/db/schemas/findings-schema.ts",
   ],
   out: "./migrations/pg",
   dialect: "postgresql",

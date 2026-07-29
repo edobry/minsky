@@ -64,6 +64,20 @@
       "when": 1783717381132,
       "tag": "0008_sticky_microchip",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785318417345,
+      "tag": "0009_first_jamie_braddock",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785322429975,
+      "tag": "0010_minor_sally_floyd",
+      "breakpoints": true
     }
   ]
 }

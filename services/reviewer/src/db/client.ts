@@ -11,12 +11,14 @@ import * as convergenceMetricsSchema from "./schemas/convergence-metrics-schema"
 import * as webhookEventsSchema from "./schemas/webhook-events-schema";
 import * as inflightReviewsSchema from "./schemas/inflight-reviews-schema";
 import * as reviewTimingSchema from "./schemas/review-timing-schema";
+import * as findingsSchema from "./schemas/findings-schema";
 
 const schema = {
   ...convergenceMetricsSchema,
   ...webhookEventsSchema,
   ...inflightReviewsSchema,
   ...reviewTimingSchema,
+  ...findingsSchema,
 };
 
 /**
