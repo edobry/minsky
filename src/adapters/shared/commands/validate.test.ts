@@ -11,6 +11,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   discoverTypecheckWorkspaces,
+  discoverStandaloneTypecheckProjects,
   resolveValidateWorkspace,
   buildSessionDirResolver,
   lintParams,
@@ -166,6 +167,99 @@ describe("discoverTypecheckWorkspaces", () => {
     });
 
     expect(await discoverTypecheckWorkspaces(ROOT, fs)).toEqual(["services/good"]);
+  });
+});
+
+describe("discoverStandaloneTypecheckProjects", () => {
+  /** Root package.json carrying only a `scripts` map — the declaration this discovery reads. */
+  function scriptsPkg(scripts: Record<string, string>): string {
+    return JSON.stringify({ name: "root", scripts });
+  }
+
+  const HOOKS_PROJECT = "tsconfig.hooks.json";
+  const SCRIPTS_PROJECT = "tsconfig.scripts.json";
+  const HOOKS_SCRIPT = `tsgo --noEmit -p ${HOOKS_PROJECT}`;
+
+  test("finds the tsconfig each typecheck:* script names via -p", async () => {
+    const fs = memFs({
+      [`${ROOT}/package.json`]: scriptsPkg({
+        typecheck: "bun run typecheck:root && bun run typecheck:hooks",
+        "typecheck:root": "tsgo --noEmit",
+        "typecheck:hooks": HOOKS_SCRIPT,
+        "typecheck:scripts": `tsgo --noEmit -p ${SCRIPTS_PROJECT}`,
+      }),
+      [`${ROOT}/${HOOKS_PROJECT}`]: TSCONFIG,
+      [`${ROOT}/${SCRIPTS_PROJECT}`]: TSCONFIG,
+    });
+
+    expect(await discoverStandaloneTypecheckProjects(ROOT, fs)).toEqual([
+      HOOKS_PROJECT,
+      SCRIPTS_PROJECT,
+    ]);
+  });
+
+  test("skips typecheck:root — it has no -p, and the root project is checked directly", async () => {
+    const fs = memFs({
+      [`${ROOT}/package.json`]: scriptsPkg({ "typecheck:root": "tsgo --noEmit" }),
+    });
+
+    expect(await discoverStandaloneTypecheckProjects(ROOT, fs)).toEqual([]);
+  });
+
+  test("ignores non-typecheck scripts that happen to pass -p", async () => {
+    const fs = memFs({
+      [`${ROOT}/package.json`]: scriptsPkg({ build: "some-tool -p build.config.json" }),
+      [`${ROOT}/build.config.json`]: TSCONFIG,
+    });
+
+    expect(await discoverStandaloneTypecheckProjects(ROOT, fs)).toEqual([]);
+  });
+
+  test("accepts --project and quoted paths", async () => {
+    const fs = memFs({
+      [`${ROOT}/package.json`]: scriptsPkg({
+        "typecheck:a": 'tsgo --noEmit --project "tsconfig.a.json"',
+        "typecheck:b": "tsgo --noEmit -p 'tsconfig.b.json'",
+      }),
+      [`${ROOT}/tsconfig.a.json`]: TSCONFIG,
+      [`${ROOT}/tsconfig.b.json`]: TSCONFIG,
+    });
+
+    expect(await discoverStandaloneTypecheckProjects(ROOT, fs)).toEqual([
+      "tsconfig.a.json",
+      "tsconfig.b.json",
+    ]);
+  });
+
+  test("skips a declared project whose tsconfig does not exist", async () => {
+    const fs = memFs({
+      [`${ROOT}/package.json`]: scriptsPkg({
+        "typecheck:gone": "tsgo --noEmit -p tsconfig.gone.json",
+        "typecheck:hooks": HOOKS_SCRIPT,
+      }),
+      [`${ROOT}/${HOOKS_PROJECT}`]: TSCONFIG,
+    });
+
+    expect(await discoverStandaloneTypecheckProjects(ROOT, fs)).toEqual([HOOKS_PROJECT]);
+  });
+
+  test("deduplicates a project two scripts both name", async () => {
+    const fs = memFs({
+      [`${ROOT}/package.json`]: scriptsPkg({
+        "typecheck:hooks": HOOKS_SCRIPT,
+        "typecheck:hooks-watch": `${HOOKS_SCRIPT} --watch`,
+      }),
+      [`${ROOT}/${HOOKS_PROJECT}`]: TSCONFIG,
+    });
+
+    expect(await discoverStandaloneTypecheckProjects(ROOT, fs)).toEqual([HOOKS_PROJECT]);
+  });
+
+  test("fails open to [] when the root package.json is missing or unparseable", async () => {
+    expect(await discoverStandaloneTypecheckProjects(ROOT, memFs({}))).toEqual([]);
+    expect(
+      await discoverStandaloneTypecheckProjects(ROOT, memFs({ [`${ROOT}/package.json`]: "{{{" }))
+    ).toEqual([]);
   });
 });
 
