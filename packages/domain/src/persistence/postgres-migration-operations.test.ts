@@ -18,6 +18,7 @@ import { readFileSync } from "fs";
 import {
   isProdPostgresConnection,
   checkUnmergedMigrations,
+  formatUnmergedMigrationBlockMessage,
   computeMigrationHash,
   resolvePendingMigrations,
   formatPendingMigrationsListing,
@@ -343,6 +344,42 @@ describe("checkUnmergedMigrations", () => {
     } finally {
       spyExecFile.mockRestore();
     }
+  });
+
+  // PR #2378 R1: assert what the OPERATOR sees, not just what the check
+  // returns. The searched paths only matter if they reach the failure message.
+  test("the block message names every path that was searched", () => {
+    const message = formatUnmergedMigrationBlockMessage(
+      {
+        blocked: true,
+        unmergedTags: ["0077_unmerged"],
+        checkedPaths: {
+          "0077_unmerged": [`${DIST_DIR}/0077_unmerged.sql`, `${SOURCE_DIR}/0077_unmerged.sql`],
+        },
+      },
+      "postgresql://***:***@example.com:5432/db"
+    );
+
+    expect(message).toContain("0077_unmerged.sql");
+    expect(message).toContain(`looked at: ${DIST_DIR}/0077_unmerged.sql`);
+    expect(message).toContain(`looked at: ${SOURCE_DIR}/0077_unmerged.sql`);
+    // The override is still offered, but only after the operator can see where
+    // the guard looked — otherwise reaching for it is the path of least effort.
+    expect(message).toContain(UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV);
+    // Credentials must stay masked in the failure text.
+    expect(message).not.toContain("password");
+  });
+
+  test("the block message degrades gracefully when no paths were recorded", () => {
+    // `checkedPaths` is optional on the result type; an older or partial result
+    // must still produce a usable message rather than throwing or printing
+    // "undefined" at the operator.
+    const message = formatUnmergedMigrationBlockMessage(
+      { blocked: true, unmergedTags: ["0077_unmerged"] },
+      "masked"
+    );
+    expect(message).toContain("  - 0077_unmerged.sql");
+    expect(message).not.toContain("undefined");
   });
 
   test("returns blocked when a pending entry is NOT on origin/main", async () => {
