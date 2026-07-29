@@ -496,26 +496,34 @@ export function RunDetail({ id, keySpace, onConversationNotFound }: RunDetailPro
 
       {tab === "conversation" && (
         <div className="flex flex-col gap-2">
-          {keySpace === "workspace" && conversationCandidates.length > 1 && (
-            <label className="text-xs text-muted-foreground flex items-center gap-2">
-              Conversation
-              <Select
-                value={activeConversationId ?? undefined}
-                onValueChange={(v) => setSelectedConversationId(v || null)}
-              >
-                <SelectTrigger className="text-sm" aria-label="Conversation">
-                  <SelectValue placeholder="Select a conversation" />
-                </SelectTrigger>
-                <SelectContent>
-                  {conversationCandidates.map((c) => (
-                    <SelectItem key={c.agentSessionId} value={c.agentSessionId}>
-                      {c.agentSessionId}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </label>
-          )}
+          {keySpace === "workspace" &&
+            conversationCandidates.length > 1 &&
+            activeConversationId && (
+              <label className="text-xs text-muted-foreground flex items-center gap-2">
+                Conversation
+                {/* `value` must be a definite string: Radix treats a nullish
+                    `value` as UNCONTROLLED, which would let this Select's own
+                    internal state drift from `selectedConversationId`. The
+                    guard above already implies a candidate exists; narrowing
+                    on `activeConversationId` makes that explicit to the type
+                    system instead of papering over it with `?? undefined`. */}
+                <Select
+                  value={activeConversationId}
+                  onValueChange={(v) => setSelectedConversationId(v || null)}
+                >
+                  <SelectTrigger className="text-sm" aria-label="Conversation">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {conversationCandidates.map((c) => (
+                      <SelectItem key={c.agentSessionId} value={c.agentSessionId}>
+                        {c.agentSessionId}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </label>
+            )}
           {keySpace === "workspace" && workspaceQuery.isPending ? (
             <LoadingState message="Loading conversation…" />
           ) : activeConversationId ? (

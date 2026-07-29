@@ -21,7 +21,11 @@
  * Trigger sizing note: call sites previously relied on `h-7`/`py-1` +
  * `text-xs` on the native element. `SelectTrigger` defaults to `h-8 text-xs`
  * to sit level with `<Button size="sm">` (`h-7`..`h-8` in cockpit usage);
- * pass `className="h-7"` where a tighter row demands it.
+ * pass `className="h-7"` where a tighter row demands it. The focus ring and
+ * corner radius match `ui/button.tsx` / `ui/tabs.tsx` (`focus-visible:ring-2`,
+ * `rounded-md`) so a trigger sitting beside a Button focuses and reads
+ * identically — the native selects this replaced used a `focus:ring-1`, which
+ * was their own convention, not the primitives'.
  */
 import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
@@ -42,7 +46,7 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-8 w-fit items-center justify-between gap-1.5 whitespace-nowrap rounded-md border border-border bg-muted px-2 text-xs text-foreground transition-colors hover:bg-muted/70 focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-muted-foreground [&>span]:truncate",
+      "flex h-8 w-fit items-center justify-between gap-1.5 whitespace-nowrap rounded-md border border-border bg-muted px-2 text-xs text-foreground transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-muted-foreground [&>span]:truncate",
       className
     )}
     {...props}

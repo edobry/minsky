@@ -15,7 +15,7 @@
  * consolidation; previously a byte-identical raw-hex copy of TaskGraph.tsx's
  * `statusStyle()` — see mt#1146 review feedback).
  */
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useId } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -181,6 +181,11 @@ function WorkstreamsControlBar({
   onPageSize,
   onClearFilters,
 }: ControlBarProps) {
+  // aria-labelledby targets; useId so a second control bar on the same page
+  // cannot collide on a literal "per-page" id.
+  const statusLabelId = useId();
+  const pageSizeLabelId = useId();
+
   return (
     <div className="flex flex-wrap items-center gap-2 py-2 mb-3 border-b border-border">
       {/* Sort controls */}
@@ -225,12 +230,21 @@ function WorkstreamsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Status filter */}
-      <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Status:</span>
+      <span
+        id={statusLabelId}
+        className="text-xs text-muted-foreground uppercase tracking-wide mr-1"
+      >
+        Status:
+      </span>
       <Select
         value={filters.status}
         onValueChange={(v) => onFilterStatus(v as WorkstreamFilters["status"])}
       >
-        <SelectTrigger className="h-6 bg-background" aria-label="Filter by status">
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={statusLabelId}
+          title="Filter by status"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -256,9 +270,15 @@ function WorkstreamsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Page size */}
-      <span className="text-xs text-muted-foreground">Per page:</span>
+      <span id={pageSizeLabelId} className="text-xs text-muted-foreground">
+        Per page:
+      </span>
       <Select value={String(pageSize)} onValueChange={(v) => onPageSize(Number(v))}>
-        <SelectTrigger className="h-6 bg-background" aria-label="Items per page">
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={pageSizeLabelId}
+          title="Items per page"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

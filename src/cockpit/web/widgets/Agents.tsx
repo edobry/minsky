@@ -12,7 +12,7 @@
  * live-tail pulse indicator (reusing `useActiveConversationSessions`, the
  * same mechanism the retired `/conversations` page used).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import {
@@ -361,6 +361,12 @@ function AgentsControlBar({
   includeInactive,
   onIncludeInactive,
 }: ControlBarProps) {
+  // aria-labelledby targets; useId so "Per page:" cannot collide with the
+  // identically-labelled control bars in TaskList / Workstreams.
+  const livenessLabelId = useId();
+  const kindLabelId = useId();
+  const pageSizeLabelId = useId();
+
   return (
     <div className="flex flex-wrap items-center gap-2 py-2 mb-2 border-b border-border">
       {/* Sort controls */}
@@ -405,12 +411,21 @@ function AgentsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Liveness filter */}
-      <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">Liveness:</span>
+      <span
+        id={livenessLabelId}
+        className="text-eyebrow font-mono uppercase text-muted-foreground mr-1"
+      >
+        Liveness:
+      </span>
       <Select
         value={filters.liveness}
         onValueChange={(v) => onFilterLiveness(v as AgentFilters["liveness"])}
       >
-        <SelectTrigger className="h-6 bg-background" aria-label="Filter by liveness">
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={livenessLabelId}
+          title="Filter by liveness"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -457,12 +472,21 @@ function AgentsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Kind filter (mt#2767) */}
-      <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">Kind:</span>
+      <span
+        id={kindLabelId}
+        className="text-eyebrow font-mono uppercase text-muted-foreground mr-1"
+      >
+        Kind:
+      </span>
       <Select
         value={filters.kind}
         onValueChange={(v) => onFilterKind(v as AgentFilters["kind"])}
       >
-        <SelectTrigger className="h-6 bg-background" aria-label="Filter by kind">
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={kindLabelId}
+          title="Filter by kind"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -477,9 +501,15 @@ function AgentsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Page size */}
-      <span className="text-xs text-muted-foreground">Per page:</span>
+      <span id={pageSizeLabelId} className="text-xs text-muted-foreground">
+        Per page:
+      </span>
       <Select value={String(pageSize)} onValueChange={(v) => onPageSize(Number(v))}>
-        <SelectTrigger className="h-6 bg-background" aria-label="Items per page">
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={pageSizeLabelId}
+          title="Items per page"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

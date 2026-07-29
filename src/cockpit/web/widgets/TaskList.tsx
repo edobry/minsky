@@ -25,7 +25,7 @@
  *    register). Table-cell/badge text migrates text-xs -> text-small,
  *    row-title text-sm -> text-body — same pixel sizes, named tokens.
  */
-import { useCallback } from "react";
+import { useCallback, useId } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
@@ -234,6 +234,11 @@ function TaskListControlBar({
   onClearFilters,
 }: ControlBarProps) {
   const selectedStatuses = parseStatusFilter(filters.status);
+  // aria-labelledby targets. useId, not literal ids: "Per page:" labels exist
+  // in several control bars (Agents, Workstreams), so a fixed id would collide
+  // if two ever render on one page.
+  const kindLabelId = useId();
+  const pageSizeLabelId = useId();
 
   return (
     <div className="flex flex-col gap-2 py-2 mb-2 border-b border-border">
@@ -271,11 +276,18 @@ function TaskListControlBar({
         {/* Kind filter */}
         {kinds.length > 1 && (
           <>
-            <span className="text-eyebrow font-mono uppercase text-muted-foreground ml-1">
+            <span
+              id={kindLabelId}
+              className="text-eyebrow font-mono uppercase text-muted-foreground ml-1"
+            >
               Kind:
             </span>
             <Select value={filters.kind} onValueChange={onFilterKind}>
-              <SelectTrigger className="h-6 bg-background" aria-label="Filter by kind">
+              <SelectTrigger
+                className="h-6 bg-background"
+                aria-labelledby={kindLabelId}
+                title="Filter by kind"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -292,9 +304,18 @@ function TaskListControlBar({
 
         <span className="text-border mx-1">|</span>
 
-        <span className="text-eyebrow font-mono uppercase text-muted-foreground">Per page:</span>
+        <span
+          id={pageSizeLabelId}
+          className="text-eyebrow font-mono uppercase text-muted-foreground"
+        >
+          Per page:
+        </span>
         <Select value={String(pageSize)} onValueChange={(v) => onPageSize(Number(v))}>
-          <SelectTrigger className="h-6 bg-background" aria-label="Items per page">
+          <SelectTrigger
+            className="h-6 bg-background"
+            aria-labelledby={pageSizeLabelId}
+            title="Items per page"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
