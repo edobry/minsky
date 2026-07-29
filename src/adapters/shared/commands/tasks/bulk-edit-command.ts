@@ -26,6 +26,11 @@ import type {
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { isKnownKind, WORKFLOWS } from "@minsky/domain/tasks/workflows";
 import {
+  checkKindChangeStatusCompatibility,
+  describeKindChangeStatusConflict,
+  DEFAULT_KIND,
+} from "@minsky/domain/tasks/workflows";
+import {
   computeChangeSet,
   computeBlockedKindChanges,
   computeDryRunToken,
@@ -305,6 +310,12 @@ export class TasksBulkEditCommand extends BaseTaskCommand<typeof tasksBulkEditPa
 
     // Drift check across the full approved set BEFORE any write.
     const drifted: string[] = [];
+    // mt#3137 (PR #2389 R1): status is NOT part of a change record, so a status
+    // change between dry-run and execute is invisible to the drift check — the
+    // record still names the same kind transition and reads as "pending". A
+    // record that was safe at dry-run can therefore have become stranding by
+    // execute time. Re-checked here against CURRENT state, before any write.
+    const stranding: string[] = [];
     const pending: BulkChangeRecord[] = [];
     let applied = 0;
     for (const record of approved) {
@@ -317,17 +328,36 @@ export class TasksBulkEditCommand extends BaseTaskCommand<typeof tasksBulkEditPa
       if (verdict === "drift") {
         const found =
           record.field === "kind"
-            ? canonicalValue(current.kind ?? "implementation")
+            ? canonicalValue(current.kind ?? DEFAULT_KIND)
             : canonicalValue(current.tags ?? []);
         drifted.push(
           `${record.taskId} ${record.field}: expected ${canonicalValue(record.before)} ` +
             `(or already-applied ${canonicalValue(record.after)}), found ${found}`
         );
       } else if (verdict === "pending") {
+        if (record.field === "kind") {
+          const conflict = checkKindChangeStatusCompatibility(
+            current.status,
+            current.kind,
+            record.after as string
+          );
+          if (conflict) {
+            stranding.push(`${record.taskId}: ${describeKindChangeStatusConflict(conflict)}`);
+            continue;
+          }
+        }
         pending.push(record);
       } else {
         applied += 1;
       }
+    }
+
+    if (stranding.length > 0) {
+      throw new ValidationError(
+        `Execute aborted — ${stranding.length} record(s) would strand their task ` +
+          `(status changed since the dry-run; no changes applied):\n  ${stranding.join("\n  ")}\n` +
+          "Set a legal status on each, then re-run the dry-run to mint a fresh token."
+      );
     }
 
     if (drifted.length > 0) {

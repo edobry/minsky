@@ -15,7 +15,11 @@
  */
 
 import { createHash } from "crypto";
-import { checkKindChangeStatusCompatibility, type KindChangeStatusConflict } from "./workflows";
+import {
+  checkKindChangeStatusCompatibility,
+  DEFAULT_KIND,
+  type KindChangeStatusConflict,
+} from "./workflows";
 
 /** Edit operations bulk mode supports (v1): kind reclassification + tag add/remove. */
 export interface BulkEditOps {
@@ -55,8 +59,9 @@ export type DriftVerdict = "pending" | "applied" | "drift";
 /**
  * Tasks with no stored kind are treated as the system default so that a bulk
  * `kind: "implementation"` op is a no-op for them rather than a phantom change.
+ * `DEFAULT_KIND` is imported from `workflows.ts` — the single authority — rather
+ * than re-declared here (PR #2389 R1).
  */
-const DEFAULT_KIND = "implementation";
 
 /**
  * Canonical string form of a record value, for hashing and drift comparison.

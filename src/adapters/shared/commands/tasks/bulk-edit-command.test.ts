@@ -268,3 +268,75 @@ describe("tasks.bulk-edit execute", () => {
     expect(calls.setKind).toHaveLength(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Kind-change status stranding (mt#3137)
+// ---------------------------------------------------------------------------
+
+describe("tasks.bulk-edit — kind-change status stranding (mt#3137)", () => {
+  /** umbrella's states exclude READY, so implementation/READY → umbrella strands. */
+  const readyTask = (id: string): Task =>
+    ({ id, title: `Task ${id}`, status: "READY", kind: "implementation", tags: [] }) as Task;
+
+  test("dry-run blocks a stranding record and still converts a compatible sibling", async () => {
+    const { command } = setup([readyTask("mt#1"), makeTask("mt#2")]);
+
+    const result = await run(command, { ids: ["mt#1", "mt#2"], kind: "umbrella" });
+
+    expect(result.count).toBe(1);
+    expect(result.changeSet.map((r: { taskId: string }) => r.taskId)).toEqual(["mt#2"]);
+    expect(result.blocked).toHaveLength(1);
+    expect(result.blocked[0].taskId).toBe("mt#1");
+  });
+
+  test("an all-blocked dry-run does NOT claim the tasks are already in the desired state", async () => {
+    const { command } = setup([readyTask("mt#1")]);
+
+    const result = await run(command, { ids: ["mt#1"], kind: "umbrella" });
+
+    expect(result.count).toBe(0);
+    expect(result.blocked).toHaveLength(1);
+    expect(result.message).toContain("blocked");
+    expect(result.message).not.toContain("already in the desired state");
+  });
+
+  // PR #2389 R1 — the reviewer's blocking finding. Status is NOT part of a
+  // change record, so a status change between dry-run and execute is invisible
+  // to the drift check: the record still reads implementation→umbrella and the
+  // current kind still matches `before`, so it would be applied. The
+  // execute-time re-check must catch it BEFORE any write.
+  test("execute refuses when a record became stranding AFTER the dry-run", async () => {
+    const safe = makeTask("mt#1"); // status TODO — safe for umbrella at dry-run
+    const { command, calls } = setup([safe]);
+
+    const dry = await run(command, { ids: ["mt#1"], kind: "umbrella" });
+    expect(dry.count).toBe(1);
+    expect(dry.blocked).toHaveLength(0);
+
+    // Another actor moves it to a status umbrella does not recognize.
+    safe.status = "READY";
+
+    await expect(
+      run(command, { ids: ["mt#1"], kind: "umbrella", execute: true, token: dry.token })
+    ).rejects.toThrow(/would strand/i);
+
+    // And crucially: nothing was written.
+    expect(calls.setKind).toEqual([]);
+  });
+
+  test("execute still applies when the status remains compatible", async () => {
+    const safe = makeTask("mt#1");
+    const { command, calls } = setup([safe]);
+
+    const dry = await run(command, { ids: ["mt#1"], kind: "umbrella" });
+    const result = await run(command, {
+      ids: ["mt#1"],
+      kind: "umbrella",
+      execute: true,
+      token: dry.token,
+    });
+
+    expect(result.success).toBe(true);
+    expect(calls.setKind).toEqual([["mt#1", "umbrella"]]);
+  });
+});
