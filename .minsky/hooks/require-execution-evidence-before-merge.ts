@@ -377,10 +377,61 @@ export interface AcceptanceTestItem {
 }
 
 /**
- * Extracts the raw body of a spec's `## Acceptance Tests` section (everything between
- * the heading and the next `##` heading, a `---` divider, or end-of-string).
+ * Regex source (shared between a first-match and an all-matches scan) for a SUPERSEDING
+ * acceptance-tests heading — mt#3059 FP-2. A heading at level 2 or 3 reading "Remaining
+ * acceptance tests" / "Updated acceptance tests" / "Revised acceptance tests" / "Current
+ * acceptance tests" replaces the plain `## Acceptance Tests` section as the authoritative
+ * AT list when both are present in the same spec.
  *
- * Historical note: this regex originally mirrored one in
+ * This is the shape long-lived, rescoped tasks use in this repo (mt#3142, mt#3030,
+ * mt#3251): APPEND the new disposition while preserving the original section as an audit
+ * trail, rather than editing it in place (per `work-completion.mdc`'s preference for
+ * recording corrections over silent edits) — so both sections coexist and the extractor
+ * must know which one governs. Matching is intentionally NOT position-dependent: mt#3142's
+ * actual instance places the superseding heading BEFORE the original `## Acceptance Tests`
+ * section (as a "current scope — read this first" rescoping summary at the top of the
+ * spec), so raw document order cannot be used to detect supersession. When more than one
+ * such heading exists (a task rescoped more than once), the LAST match found is used.
+ */
+const SUPERSEDING_AT_HEADING_SOURCE =
+  "^#{2,3}[ \\t]+(?:Remaining|Updated|Revised|Current)\\s+acceptance tests[^\\n]*\\n";
+
+/** The plain, canonical `## Acceptance Tests` heading (unchanged pattern from before). */
+const CANONICAL_AT_HEADING_RE = /##\s*Acceptance Tests\s*\n/i;
+
+/**
+ * Extracts the section body starting at `bodyStartIdx` (already past the heading's own
+ * line) up to the next markdown heading of ANY level (1-6 `#` characters), a `---`
+ * divider, or end-of-string.
+ *
+ * mt#3059 FP-1 fix: the previous boundary (stop only at the next `##` heading) is
+ * insufficient — a spec can nest a LOWER-level (`###`+) subsection directly after
+ * `## Acceptance Tests`, before the next `##` heading. The `work-completion.mdc`
+ * recovery-layer discipline's `### Covers` / `### Does NOT cover` pair is exactly this
+ * shape (mt#3117): those bullets were swept in as if they were acceptance-test items,
+ * because no `##` heading intervened before them. Stopping at the very next heading of
+ * ANY level closes that gap without needing special-case knowledge of "Covers" /
+ * "Does NOT cover" specifically.
+ */
+function extractSectionBody(specContent: string, bodyStartIdx: number): string {
+  const rest = specContent.slice(bodyStartIdx);
+  const boundary = rest.match(/\n {0,3}#{1,6}[ \t]+\S|\n---[ \t]*(?:\n|$)/);
+  return boundary && boundary.index !== undefined ? rest.slice(0, boundary.index) : rest;
+}
+
+/**
+ * Extracts the raw body of a spec's authoritative acceptance-tests section.
+ *
+ * Precedence (mt#3059 FP-2): if the spec contains a SUPERSEDING heading (see
+ * `SUPERSEDING_AT_HEADING_SOURCE` above), that section is authoritative and the plain
+ * `## Acceptance Tests` section (if also present) is ignored entirely. Otherwise falls
+ * back to the plain `## Acceptance Tests` heading, as before.
+ *
+ * Section boundary (mt#3059 FP-1): the body runs from just after the heading line to the
+ * next markdown heading of ANY level, a `---` divider, or end-of-string — see
+ * `extractSectionBody` above.
+ *
+ * Historical note: the original (pre-mt#3059) regex here mirrored one in
  * `require-acceptance-tests-before-done.ts`, an unregistered, never-live DONE-transition
  * hook deleted as dead code in mt#975. This hook is now the sole reader of this spec
  * convention.
@@ -388,8 +439,17 @@ export interface AcceptanceTestItem {
  * Returns `null` when no such section exists.
  */
 export function extractAcceptanceTestsSection(specContent: string): string | null {
-  const match = specContent.match(/##\s*Acceptance Tests\s*\n([\s\S]*?)(?=\n##\s|\n---|$)/i);
-  return match ? (match[1] ?? "") : null;
+  const supersedingMatches = [
+    ...specContent.matchAll(new RegExp(SUPERSEDING_AT_HEADING_SOURCE, "gim")),
+  ];
+  const supersedingMatch = supersedingMatches[supersedingMatches.length - 1];
+  if (supersedingMatch && supersedingMatch.index !== undefined) {
+    return extractSectionBody(specContent, supersedingMatch.index + supersedingMatch[0].length);
+  }
+
+  const canonicalMatch = specContent.match(CANONICAL_AT_HEADING_RE);
+  if (!canonicalMatch || canonicalMatch.index === undefined) return null;
+  return extractSectionBody(specContent, canonicalMatch.index + canonicalMatch[0].length);
 }
 
 /**

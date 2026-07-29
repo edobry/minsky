@@ -1110,6 +1110,134 @@ describe("parseAcceptanceTests", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// mt#3059: FP-1 (sibling ### subsections swept in) / FP-2 (supersession) regressions
+// ---------------------------------------------------------------------------
+
+/**
+ * mt#3117-shaped fixture (mt#3059 FP-1 regression): a proper 4-item numbered Acceptance
+ * Tests list immediately followed by a `### Covers` / `### Does NOT cover` recovery-layer
+ * pair (the `work-completion.mdc` required subsection pattern) before the next `##`
+ * heading. Pre-fix, the extractor swept the `### Does NOT cover` bullets in as if they
+ * were acceptance tests — mt#3117 / PR #2234's actual fire reported "2 of 10 executable
+ * acceptance test(s)... not addressed", naming two `### Does NOT cover` bullets, against a
+ * spec with exactly 4 real ATs.
+ */
+const SPEC_MT3117_SHAPE = `## Summary
+Reviewer CI-gated release-phase deploy.
+
+## Acceptance Tests
+
+1. **Sole-path test.** A push to \`main\` touching only \`services/reviewer/**\` results in exactly one deploy.
+2. **Migrate-gates-traffic test.** With a deliberately failing reviewer migration, the workflow fails at the migrate step.
+3. **Real migration-bearing deploy.** A commit adding a real migration deploys through the workflow.
+4. **Credential-boundary test.** The reviewer's Railway service environment contains no DDL-capable Postgres credential.
+
+### Covers
+
+- Reviewer migration never applied before dependent reviewer code takes traffic.
+- Boot-time migrate failures taking the service down during a DB outage.
+- Unsynchronized branch-wide reviewer redeploys on unrelated pushes.
+
+### Does NOT cover
+
+- Main-domain migration ordering vs reviewer migration when a single change spans BOTH trees.
+- Schema drift introduced out-of-band (manual SQL against prod) — \`verifyExpectedTables\` catches missing expected tables only.
+- Pre-merge detection of Dockerfile/runtime contract breaks — mt#1557.
+
+## Context
+
+Some unrelated context.
+`;
+
+/**
+ * mt#3142-shaped fixture (mt#3059 FP-2 regression): a spec rescoped mid-life. The
+ * ORIGINAL \`## Acceptance Tests\` section (5 items) is preserved further down as an audit
+ * trail, but a \`### Remaining acceptance tests\` section — added later, positioned EARLIER
+ * in the document as a "read this first" rescoping summary — lists the 3 items that are
+ * actually authoritative for this PR. Pre-fix, the extractor read the original 5-item
+ * section and ignored the superseding 3-item one — mt#3142 / PR #2365's actual fire
+ * reported "3 of 5 executable acceptance test(s)... not addressed", naming three items
+ * that were, per the spec's own disposition, already DONE.
+ */
+const SPEC_MT3142_SHAPE = `## Current scope (rescoped) — READ THIS FIRST
+
+The production outage this task was filed for is RESOLVED.
+
+### Remaining success criteria (supersede the original SC list above)
+
+- [ ] Doc records the standing-trigger interaction.
+
+### Remaining acceptance tests
+
+- \`grep -c 'deploymentTrigger' docs/deploy-minsky-railway.md\` returns non-zero, and the surrounding
+  text states the trigger survives \`sourceRepo: null\`.
+- \`grep -c 'railway open --print' docs/deploy-minsky-railway.md\` returns non-zero.
+- A reader following only that doc can answer "why did a service with \`sourceImage\` set still deploy
+  from the repo?" without consulting this task's incident narrative.
+
+## Summary
+
+The Railway service was serving the wrong app.
+
+## Acceptance Tests
+
+- \`deployment_logs(service: "reviewer", type: "deploy")\` on the current deployment shows the reviewer's startup banner.
+- \`curl -X POST .../retrigger\` with no auth header returns 401 (route reached), not 404.
+- \`reviewer_retrigger(pr: <open PR>)\` returns \`ok: true\`.
+- An open PR receives a bot review within the normal window, observed live.
+- Deliberately mis-pointing the service entrypoint causes the new deploy check to FAIL.
+
+## Context
+
+Some unrelated context.
+`;
+
+describe("extractAcceptanceTestsSection / parseAcceptanceTests — mt#3059 FP-1/FP-2 regressions", () => {
+  it("FP-1: extracts exactly 4 ATs and excludes the sibling ### Covers/Does NOT cover bullets (mt#3117 shape)", () => {
+    const items = parseAcceptanceTests(SPEC_MT3117_SHAPE);
+    expect(items).toHaveLength(4);
+    expect(items[3]?.number).toBe(4);
+    for (const at of items) {
+      expect(at.text).not.toContain("Schema drift");
+      expect(at.text).not.toContain("Pre-merge detection of Dockerfile");
+      expect(at.text).not.toContain("Main-domain migration ordering");
+    }
+  });
+
+  it("FP-1: checkAcceptanceTestCoverage never flags the Does-NOT-cover bullets as unaddressed executable ATs", () => {
+    const evidenceReferencingAllFour = `## Execution evidence:\nAT1 verified. AT2 verified. AT3 verified. AT4 verified.\n`;
+    const result = checkAcceptanceTestCoverage(
+      SPEC_MT3117_SHAPE,
+      "implementation",
+      evidenceReferencingAllFour
+    );
+    expect(result.executableAts).toHaveLength(4);
+    expect(result.unaddressedAts).toHaveLength(0);
+  });
+
+  it("FP-2: extracts exactly 3 ATs from the superseding 'Remaining acceptance tests' section (mt#3142 shape)", () => {
+    const items = parseAcceptanceTests(SPEC_MT3142_SHAPE);
+    expect(items).toHaveLength(3);
+    expect(items.some((at) => at.text.includes("railway open --print"))).toBe(true);
+    for (const at of items) {
+      expect(at.text).not.toContain("reviewer_retrigger");
+      expect(at.text).not.toContain("deployment_logs");
+    }
+  });
+
+  it("FP-2: checkAcceptanceTestCoverage evaluates only the 3 superseding ATs, not the original 5", () => {
+    const evidenceReferencingAllThree = `## Execution evidence:\nAT1 verified via grep. AT2 verified via grep. AT3 verified by reading the doc.\n`;
+    const result = checkAcceptanceTestCoverage(
+      SPEC_MT3142_SHAPE,
+      "implementation",
+      evidenceReferencingAllThree
+    );
+    expect(result.executableAts).toHaveLength(3);
+    expect(result.unaddressedAts).toHaveLength(0);
+  });
+});
+
 describe("isFindingsShapedAcceptanceTest", () => {
   it("matches 'audit produces' phrasing", () => {
     expect(isFindingsShapedAcceptanceTest("Audit produces a list of affected records.")).toBe(true);
