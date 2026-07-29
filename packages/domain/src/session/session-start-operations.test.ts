@@ -10,6 +10,15 @@ import { FakeTaskService } from "../tasks/fake-task-service";
 import { FakeWorkspaceUtils } from "../workspace/fake-workspace-utils";
 import { first } from "@minsky/shared/array-safety";
 
+// mt#3106: the --recover path now routes through the guarded delete, whose
+// live-actor gate would fail-closed in these provider-less fixtures. Existing
+// tests stub it not-live so they exercise their own concern; the mt#3106
+// describe block below overrides it per-case.
+const notLiveActor = async () => ({
+  verdict: "not-live" as const,
+  reason: "test: nobody live",
+});
+
 function createDeps(repoUrl: string): StartSessionDependencies & {
   addSessionSpy: ReturnType<typeof mock>;
 } {
@@ -53,6 +62,7 @@ function createDeps(repoUrl: string): StartSessionDependencies & {
     taskService,
     workspaceUtils,
     getRepositoryBackend,
+    resolveActor: notLiveActor,
     addSessionSpy,
   } as unknown as StartSessionDependencies & { addSessionSpy: ReturnType<typeof mock> };
 }
@@ -425,5 +435,58 @@ describe("startSessionImpl - --recover honors or refuses on every path (mt#3166)
     await startSessionImpl(params, deps);
 
     expect(deps.commands.some((c) => c.includes("ls-remote"))).toBe(false);
+  });
+});
+
+// mt#3106: the recover-path delete is GUARDED — it inherits mt#3105's
+// live-actor gate (ask#6273 four-branch semantics) and mt#3021's git-state
+// guard by routing through deleteSessionImpl instead of the raw
+// sessionDB.deleteSession. deriveSessionLiveness (which classified the record
+// stale) is a pre-filter only, never the authorizer.
+describe("startSessionImpl - --recover routes through the guarded delete (mt#3106)", () => {
+  const liveActor = async () => ({
+    verdict: "live" as const,
+    reason: "actor live-actor-3 (pid 555, alive) refreshed recently at 2026-07-29T04:00:00.000Z",
+    actorId: "live-actor-3",
+    lastRefreshedAt: "2026-07-29T04:00:00.000Z",
+  });
+
+  it("AT1: refuses recovery when the stale-by-lastActivityAt session has a LIVE actor; the record survives and the raw delete is never reached", async () => {
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [buildAbandonedCreatedSession()],
+    });
+    const deleteSpy = mock(sessionDB.deleteSession.bind(sessionDB));
+    sessionDB.deleteSession = deleteSpy;
+    const deps: StartSessionDependencies & { commands: string[] } = Object.assign(
+      createDepsWithRemote({ branchOnRemote: true }),
+      { sessionDB, resolveActor: liveActor }
+    );
+    const params = { task: "md#999", recover: true } as unknown as SessionStartParameters;
+
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/Cannot recover session/);
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/live-actor-3/);
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/--override-reason/);
+
+    // The abandoned-looking record was NOT deleted — neither via the guarded
+    // route (it refused) nor via the removed raw call (AT3).
+    expect(deleteSpy).not.toHaveBeenCalled();
+    expect(await sessionDB.getSession(ABANDONED_SESSION_ID)).not.toBeNull();
+  });
+
+  it("fail-closed default: with no resolveActor seam and no db, recovery of a non-terminal record refuses (store-unavailable)", async () => {
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [buildAbandonedCreatedSession()],
+    });
+    const base = createDepsWithRemote({ branchOnRemote: true });
+    // Remove the fixture-level stub so the REAL primitive path runs with no
+    // presence access at all.
+    const { resolveActor: _omitted, ...withoutActor } = base as StartSessionDependencies & {
+      commands: string[];
+    };
+    const deps = { ...withoutActor, sessionDB } as unknown as StartSessionDependencies;
+    const params = { task: "md#999", recover: true } as unknown as SessionStartParameters;
+
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/presence store unavailable/);
+    expect(await sessionDB.getSession(ABANDONED_SESSION_ID)).not.toBeNull();
   });
 });
