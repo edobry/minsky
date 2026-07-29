@@ -24,6 +24,7 @@ import { SessionStatus } from "./types";
 import type { ScopeResolverDb } from "../project/scope-resolver";
 import { sessionStartBlockedReason } from "./session-startability";
 import type { SessionLaunchIntent } from "./session-startability";
+import type { SessionActorResult } from "./session-actor";
 
 /**
  * Domain-level extension of the zod-derived start params (mt#2986): launch
@@ -54,6 +55,27 @@ export interface StartSessionDependencies {
    * current behavior for hosted/cockpit no-single-repo scenarios.
    */
   db?: ScopeResolverDb;
+  /**
+   * mt#3106 (PR #2376 R1): optional persistence provider — the same carrier
+   * the delete/cleanup command factories thread (mt#2487 pattern). The
+   * recover-path gate consumes it via `presenceRepositoryFromProvider` when
+   * present, falling back to `db`. The production `session.start` command
+   * already resolves `db` from this provider (basic-commands.ts, mt#2416
+   * project-scope stamping), so the production path has presence access
+   * whenever persistence is up.
+   */
+  persistenceProvider?: { getDatabaseConnection?: () => Promise<unknown> };
+  /**
+   * mt#3106: test seam for the recover-path guarded delete's live-actor gate
+   * (mt#3103/mt#3105, ask#6273 semantics). Defaults to the real
+   * `resolveSessionActor` reading presence claims via `persistenceProvider`
+   * or `db`. With NEITHER, the gate fail-closes (store-unavailable → refuse) —
+   * DELIBERATE: a context with no persistence access at all cannot read the
+   * session store either, so an un-gated destructive delete there is exactly
+   * the blind-delete shape this family closes; the refusal message names the
+   * explicit override path.
+   */
+  resolveActor?: (sessionId: string) => Promise<SessionActorResult>;
   /** Optional filesystem adapter for testing to avoid real fs operations */
   fs?: {
     exists: (path: string) => boolean | Promise<boolean>;
@@ -378,7 +400,60 @@ Navigate to your main workspace and try again:
     // Stale/orphaned with --recover: delete the old session and proceed
     if ((liveness === "stale" || liveness === "orphaned") && params.recover) {
       log.cli(`Recovering abandoned session "${taskSession.sessionId}" (liveness: ${liveness})...`);
-      await deps.sessionDB.deleteSession(taskSession.sessionId);
+
+      // mt#3106: route through the GUARDED delete — mt#3021's git-state guard
+      // + mt#3105's live-actor gate (ask#6273 four-branch semantics) — instead
+      // of the raw `sessionDB.deleteSession`, which removed the DB record while
+      // leaving the workspace directory as a silent filesystem orphan and was
+      // gated only by the sparse-checkpoint `deriveSessionLiveness` read above
+      // (now a cheap pre-filter, never the authorizer: a session actively
+      // worked without commits reads `stale` here yet holds fresh presence
+      // claims, and the gate refuses for it).
+      //
+      // `gitService` is DELIBERATELY not passed: deleteSessionImpl's
+      // remote-branch deletion runs only when it is present, and recovery
+      // case (a) (`recoverFromRemoteBranch`) is about to base the new session
+      // ON that remote branch — the delete must not destroy the recovery
+      // source. The git-state guard inside is unaffected (it falls back to
+      // its own createGitService()).
+      const { deleteSessionImpl } = await import("./session-lifecycle-operations");
+      const db = deps.db;
+      const provider = deps.persistenceProvider;
+      const resolveActor =
+        deps.resolveActor ??
+        (async (id: string) => {
+          const { resolveSessionActor, presenceRepositoryFromProvider } = await import(
+            "./session-actor"
+          );
+          return resolveSessionActor(id, {
+            getRepository: async () => {
+              const viaProvider = await presenceRepositoryFromProvider(provider);
+              if (viaProvider) return viaProvider;
+              if (db) {
+                const { buildPresenceClaimRepository } = await import("../presence/index");
+                return buildPresenceClaimRepository(db);
+              }
+              return null;
+            },
+          });
+        });
+      const deletion = await deleteSessionImpl(
+        { sessionId: taskSession.sessionId },
+        {
+          sessionDB: deps.sessionDB,
+          resolveActor,
+        }
+      );
+      if (!deletion.deleted) {
+        throw new MinskyError(
+          `Cannot recover session "${taskSession.sessionId}" for ${formatTaskIdForDisplay(taskId)}: ` +
+            `${deletion.error ?? "the guarded delete refused"}\n\n` +
+            `If you are CERTAIN nobody is working in it, delete it explicitly with a recorded reason:\n` +
+            `  minsky session delete --sessionId ${taskSession.sessionId} --override-reason "<why this is safe>"\n` +
+            `then re-run:\n` +
+            `  minsky session start --task ${formatTaskIdForDisplay(taskId)} --recover`
+        );
+      }
       // Fall through to create new session
     } else {
       // Build a more informative error message based on liveness
