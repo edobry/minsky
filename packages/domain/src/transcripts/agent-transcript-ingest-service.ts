@@ -202,7 +202,10 @@ export class AgentTranscriptIngestService {
     const allRedactions: RedactionHit[] = [];
 
     try {
-      for await (const line of this.source.readSession(agentSessionId)) {
+      // mt#3288: pass the path this session was discovered at. Without it a
+      // discovery-backed source re-scans every transcript in the corpus to
+      // resolve the id, which made `ingestAll` quadratic.
+      for await (const line of this.source.readSession(agentSessionId, jsonlPath)) {
         lineIndex++;
 
         const tsStr = this.source.getJsonlTimestamp(line);
