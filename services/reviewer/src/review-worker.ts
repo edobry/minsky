@@ -117,6 +117,7 @@ import {
   ingestCommitMessagesSinceLastReview,
   type CommitMessageFetcherFn,
 } from "./commit-ingestion";
+import type { ChangedFilesFetcherFn } from "./resolution-classifier";
 
 export {
   buildEmptyOutputSkipNotice,
@@ -280,6 +281,16 @@ export interface RunReviewDeps {
    * When absent, defaults to the real `publishCheckRun` from check-run-publisher.ts.
    */
   checkRunPublisher?: (options: PublishCheckRunOptions) => Promise<unknown>;
+
+  /**
+   * Test seam for the changed-files-since-a-finding's-round fetch (mt#3300
+   * SC#1). When provided, replaces the real `fetchChangedFilesSince` call
+   * `review-finalize.ts` otherwise builds from `github-client.ts`, bound to
+   * the current PR's `(octokit, owner, repo)`. Injected in tests to assert
+   * `classifyOutstandingFindings` is called with the right (baseSha, headSha)
+   * pairs without triggering real GitHub API calls.
+   */
+  changedFilesFetcher?: ChangedFilesFetcherFn;
 }
 
 export async function runReview(

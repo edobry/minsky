@@ -371,11 +371,19 @@ export async function recordFindings(
  * rounds of a PR once it converges (the current round's event is APPROVE)
  * — the second cheap disposition signal (mt#3295 SC#2). Marks them
  * `disposition: "unknown"` rather than guessing HOW they were resolved
- * (fixed / dismissed / resolved-without-code-change): that deeper
- * classification needs diff-mining and is mt#3300's job. This just ensures
- * every finding on a converged PR carries a non-NULL disposition (per the
- * mt#3295 spec's AT#2), honestly labeled as "resolved, mechanism unknown"
- * rather than a specific (and possibly wrong) claim.
+ * (fixed / dismissed / resolved-without-code-change).
+ *
+ * SUPERSEDED at the live call site by mt#3300's `resolution-classifier.ts`
+ * (`classifyOutstandingFindings`), which targets this exact row set and
+ * classifies it via diff-mining instead of stamping a blanket `unknown`.
+ * `review-finalize.ts`'s APPROVE branch calls that function now, not this
+ * one. This function is kept (not deleted) for callers with no diff-fetch
+ * capability — e.g. a future backfill script re-deriving dispositions from
+ * `reviewer_webhook_events` with no live GitHub access.
+ *
+ * This just ensures every finding on a converged PR carries a non-NULL
+ * disposition (per the mt#3295 spec's AT#2), honestly labeled as "resolved,
+ * mechanism unknown" rather than a specific (and possibly wrong) claim.
  *
  * Scoping (mt#3295 PR #2391 R1):
  *   - `round < params.round` — strictly excludes the APPROVING round's own

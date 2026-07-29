@@ -501,6 +501,62 @@ export async function fetchCommitMessagesSince(
   return commits;
 }
 
+/** One changed file between two commits, as needed by the resolution classifier (mt#3300). */
+export interface ChangedFileEntry {
+  filename: string;
+}
+
+/**
+ * Fetch the list of files changed between two commits via GitHub's compare
+ * API (mt#3300 SC#1).
+ *
+ * Used to determine whether a prior BLOCKING finding's cited file was
+ * touched by any commit since the finding's review round — the diff-mining
+ * signal `resolution-classifier.ts`'s `classifyOutstandingFindings` uses to
+ * distinguish `fixed-by-code-change` from `resolved-without-code-change`.
+ * File-level only (matches the mt#3300 spec's literal "touched the finding's
+ * cited file" — no line-range precision).
+ *
+ * Returns `[]` immediately when `baseSha === headSha` (nothing to compare).
+ * Returns `undefined` on any API failure (e.g. the base/head pair is
+ * unreachable after a force-push rewrote history) — callers must treat this
+ * as "cannot determine," never as "no files changed."
+ */
+export async function fetchChangedFilesSince(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  baseSha: string,
+  headSha: string,
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
+): Promise<ReadonlyArray<ChangedFileEntry> | undefined> {
+  if (baseSha === headSha) return [];
+
+  try {
+    const resp = await withTimeout("github.repos.compareCommits", timeoutMs, (signal) =>
+      octokit.rest.repos.compareCommits({
+        owner,
+        repo,
+        base: baseSha,
+        head: headSha,
+        request: { signal },
+      })
+    );
+    return (resp.data.files ?? []).map((f) => ({ filename: f.filename }));
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("reviewer.compare_commits_failed", {
+      event: "reviewer.compare_commits_failed",
+      owner,
+      repo,
+      baseSha,
+      headSha,
+      error: message,
+    });
+    return undefined;
+  }
+}
+
 /**
  * Normalize a user-supplied path for the GitHub Contents API.
  *

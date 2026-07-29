@@ -26,6 +26,7 @@ import {
   createAppIdentityOctokit,
   fetchPriorReviews,
   fetchCommitMessagesSince,
+  fetchChangedFilesSince,
   fetchListFiles,
   MAX_FILES_FETCHED,
   fetchReviewThreads,
@@ -1004,5 +1005,58 @@ describe("fetchCommitMessagesSince", () => {
     );
 
     expect(results).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchChangedFilesSince (mt#3300 SC#1)
+// ---------------------------------------------------------------------------
+
+function buildFakeCompareOctokit(files: Array<{ filename: string }>): Octokit {
+  const compareCommitsMock = mock(async () => ({ data: { files } }));
+  return {
+    rest: {
+      repos: {
+        compareCommits: compareCommitsMock,
+      },
+    },
+  } as unknown as Octokit;
+}
+
+describe("fetchChangedFilesSince", () => {
+  test("returns [] immediately when baseSha === headSha, without calling the API", async () => {
+    const compareCommitsMock = mock(async () => ({ data: { files: [] } }));
+    const octokit = {
+      rest: { repos: { compareCommits: compareCommitsMock } },
+    } as unknown as Octokit;
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha1");
+
+    expect(result).toEqual([]);
+    expect(compareCommitsMock).not.toHaveBeenCalled();
+  });
+
+  test("returns the changed file list from compareCommits", async () => {
+    const octokit = buildFakeCompareOctokit([{ filename: "src/a.ts" }, { filename: "src/b.ts" }]);
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toEqual([{ filename: "src/a.ts" }, { filename: "src/b.ts" }]);
+  });
+
+  test("returns undefined and does not throw when compareCommits fails", async () => {
+    const octokit = {
+      rest: {
+        repos: {
+          compareCommits: mock(async () => {
+            throw new Error("404 Not Found");
+          }),
+        },
+      },
+    } as unknown as Octokit;
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toBeUndefined();
   });
 });

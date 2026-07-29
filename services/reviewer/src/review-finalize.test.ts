@@ -23,6 +23,7 @@ import type { ReviewTimingInput } from "./review-timing";
 import type { PublishCheckRunOptions } from "./check-run-publisher";
 import type { ReviewPostedEvent } from "./review-events";
 import type { ReviewThread, SubmittedReview } from "./github-client";
+import type { ChangedFilesFetcherFn } from "./resolution-classifier";
 
 const REVIEW: SubmittedReview = {
   id: 42,
@@ -40,15 +41,23 @@ const EMPTY_OUTPUT_REASON = "empty output from model";
 type CheckRunToolCalls = FinalizeReviewSuccessInput["checkRunToolCalls"];
 
 /**
- * A db double that actually implements insert/update (unlike the `{}` stub
- * used by the rest of this harness) so the mt#3295 findings-persistence
- * assertions below can observe what recordFindings /
- * resolveOutstandingFindingsOnApproval actually write, rather than only
- * confirming the swallow-on-error path (which `{}` exercises implicitly).
+ * A db double that actually implements insert/update/select (unlike the `{}`
+ * stub used by the rest of this harness) so the mt#3295/mt#3300
+ * findings-persistence assertions below can observe what recordFindings /
+ * classifyOutstandingFindings actually write, rather than only confirming
+ * the swallow-on-error path (which `{}` exercises implicitly).
+ *
+ * `outstandingRows` seeds the rows `classifyOutstandingFindings`'s `select`
+ * query returns — the still-open prior BLOCKING findings a test wants
+ * classified. Defaults to `[]` (no prior findings — the pre-mt#3300
+ * no-op case).
  */
-function makeFindingsTrackingDb() {
+function makeFindingsTrackingDb(opts?: {
+  outstandingRows?: Array<{ id: string; file: string; headSha: string }>;
+}) {
   const insertedRows: Record<string, unknown>[] = [];
   const updateSets: Record<string, unknown>[] = [];
+  const outstandingRows = opts?.outstandingRows ?? [];
   const db = {
     insert: mock(() => ({
       values: mock((rows: Record<string, unknown>[]) => {
@@ -62,6 +71,11 @@ function makeFindingsTrackingDb() {
         return { where: mock(() => Promise.resolve()) };
       }),
     })),
+    select: mock(() => ({
+      from: mock(() => ({
+        where: mock(() => Promise.resolve(outstandingRows)),
+      })),
+    })),
   } as unknown as ReviewerDb;
   return { db, insertedRows, updateSets };
 }
@@ -71,6 +85,7 @@ function makeHarness(opts?: {
   db?: boolean;
   trackingDb?: ReviewerDb;
   outputToolsActive?: boolean;
+  changedFilesFetcher?: ChangedFilesFetcherFn;
 }) {
   const checkRunCalls: PublishCheckRunOptions[] = [];
   const timingCalls: ReviewTimingInput[] = [];
@@ -102,6 +117,7 @@ function makeHarness(opts?: {
     checkRunPublisher,
     timingRecorder,
     metricsRecorder,
+    ...(opts?.changedFilesFetcher ? { changedFilesFetcher: opts.changedFilesFetcher } : {}),
   };
 
   const ctx: ReviewRunContext = {
@@ -358,15 +374,41 @@ describe("finalizeReviewSuccess (mt#2731)", () => {
       });
     });
 
-    test("resolves outstanding findings to disposition=unknown on APPROVE", async () => {
-      const { db, updateSets } = makeFindingsTrackingDb();
+    test("mt#3300: falls back to disposition=unknown on APPROVE when the diff fetch fails", async () => {
+      const { db, updateSets } = makeFindingsTrackingDb({
+        outstandingRows: [{ id: "f1", file: "src/foo.ts", headSha: "priorsha1" }],
+      });
       const h = makeHarness({ trackingDb: db });
+      // No changedFilesFetcher injected: the default production fetcher runs
+      // against the harness's bare `{graphql}` octokit double, which has no
+      // `.rest.repos.compareCommits` — the fetch fails, and the classifier
+      // falls back to the safe "unknown" default (never a guess).
 
       await finalizeReviewSuccess(h.ctx, successInput({ event: "APPROVE", blockingCount: 0 }));
 
       expect(updateSets).toHaveLength(1);
       expect(updateSets[0]?.["disposition"]).toBe("unknown");
       expect(updateSets[0]?.["dispositionSetAt"]).toBeInstanceOf(Date);
+    });
+
+    test("mt#3300: classifies fixed-by-code-change vs resolved-without-code-change on APPROVE", async () => {
+      const { db, updateSets } = makeFindingsTrackingDb({
+        outstandingRows: [
+          { id: "f-touched", file: "src/touched.ts", headSha: "priorsha1" },
+          { id: "f-untouched", file: "src/untouched.ts", headSha: "priorsha1" },
+        ],
+      });
+      const changedFilesFetcher: ChangedFilesFetcherFn = mock(async () => [
+        { filename: "src/touched.ts" },
+      ]);
+      const h = makeHarness({ trackingDb: db, changedFilesFetcher });
+
+      await finalizeReviewSuccess(h.ctx, successInput({ event: "APPROVE", blockingCount: 0 }));
+
+      const dispositions = updateSets.map((s) => s["disposition"]);
+      expect(dispositions).toContain("fixed-by-code-change");
+      expect(dispositions).toContain("resolved-without-code-change");
+      expect(changedFilesFetcher).toHaveBeenCalledWith("priorsha1", "abc123");
     });
 
     test("does NOT resolve outstanding findings on REQUEST_CHANGES", async () => {
