@@ -975,7 +975,7 @@ export default [
       "custom/no-entity-id-param-drift": "error",
     },
   },
-  // === HOOK DOMAIN-BOOTSTRAP ENFORCEMENT (mt#3046) ===
+  // === HOOK DOMAIN-BOOTSTRAP ENFORCEMENT (mt#3046; widened mt#3178) ===
   // A hook process is its own entry point: it inherits neither the tsyringe
   // reflect polyfill nor the domain configuration system, so any hook reaching
   // the persistence layer must import `ensureHookDomainBootstrap` first.
@@ -984,16 +984,26 @@ export default [
   // silently dead (mt#3019: 0 of 62 rows carried any hook-written column for
   // two weeks; mt#3046 found a second instance the same way).
   //
-  // COVERAGE IS DECLARED HERE: `.minsky/hooks/**` is the enforced glob — the
-  // SOURCE tree, not the generated `.claude/hooks/**` copies (fixing a
-  // generated file is not a fix). Test files are excluded: a test is not an
-  // entry point and legitimately names these symbols in assertions. The rule
-  // additionally exempts `domain-bootstrap.ts` itself, which cannot import
-  // itself. This block needs no separate plugin registration —
+  // `scripts/**` is the SAME entry-point class and was added by mt#3178 after
+  // the third occurrence landed in the one tree this rule did not watch
+  // (mt#3176: `scripts/verify-conversation-run-state.ts` died on the reflect
+  // polyfill before reaching a single DB assertion). A script only differs from
+  // a hook in that it usually prints its crash to a terminal someone is
+  // watching — put a `try/catch` around the domain import, which is a normal
+  // thing to write, and it becomes exactly as silent as the hook cases.
+  //
+  // COVERAGE IS DECLARED HERE: `.minsky/hooks/**` and `scripts/**` are the
+  // enforced globs — for hooks the SOURCE tree, not the generated
+  // `.claude/hooks/**` copies (fixing a generated file is not a fix). Test
+  // files are excluded: a test is not an entry point and legitimately names
+  // these symbols in assertions. The rule additionally exempts
+  // `domain-bootstrap.ts` itself, which cannot import itself; `scripts/**` has
+  // no equivalent self-referential file, so it needs no extra exemption. This
+  // block needs no separate plugin registration —
   // `require-hook-domain-bootstrap` is already in the main `**/*.ts` block's
   // `custom` plugin object above.
   {
-    files: [".minsky/hooks/**/*.ts"],
+    files: [".minsky/hooks/**/*.ts", "scripts/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {
       "custom/require-hook-domain-bootstrap": "error",

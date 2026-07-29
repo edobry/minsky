@@ -21,6 +21,15 @@
  * @see mt#2022 — substrate extension; this script
  */
 
+// tsyringe reflect polyfill. MUST be static and first — the domain imports
+// below reach tsyringe-decorated code, and without this the first decorator
+// throws "tsyringe requires a reflect polyfill". The failure was MASKED here:
+// the error surfaced only after this script's own "SKIP: failed to initialize
+// DB connection — Postgres not available in this environment" message, so a
+// reader would conclude the environment lacked a DB rather than that the
+// script was broken outright (mt#3178; same class as mt#3019 / mt#3176).
+import "reflect-metadata";
+
 import { eq } from "drizzle-orm";
 
 import { ClaudeCodeTranscriptSource } from "@minsky/domain/transcripts/claude-code-transcript-source";
