@@ -86,6 +86,14 @@ function makeHarness(opts?: {
   trackingDb?: ReviewerDb;
   outputToolsActive?: boolean;
   changedFilesFetcher?: ChangedFilesFetcherFn;
+  /**
+   * mt#3300 PR #2394 R1 BLOCKING #2: a real-shaped `octokit.rest.repos.compareCommits`
+   * spy, for the end-to-end wiring test that exercises the DEFAULT
+   * `changedFilesFetcher` closure (built in review-finalize.ts from
+   * `fetchChangedFilesSince`) instead of an injected seam — a seam-only test
+   * would never catch an argument-binding bug in that closure.
+   */
+  compareCommits?: ReturnType<typeof mock>;
 }) {
   const checkRunCalls: PublishCheckRunOptions[] = [];
   const timingCalls: ReviewTimingInput[] = [];
@@ -106,9 +114,15 @@ function makeHarness(opts?: {
     emitCalls.push(ev);
   });
 
-  // octokit is only touched by the thread-resolve loop (via resolveThread ->
-  // octokit.graphql); a graphql spy lets the guard tests assert invocation.
+  // octokit is touched by the thread-resolve loop (via resolveThread ->
+  // octokit.graphql) and, when no changedFilesFetcher seam is injected, by
+  // the default classifier fetcher (via octokit.rest.repos.compareCommits).
   const graphql = mock(async () => ({}));
+  const compareCommits =
+    opts?.compareCommits ??
+    mock(async () => {
+      throw new Error("no rest.repos.compareCommits stub configured for this test");
+    });
 
   const resolvedDb = opts?.db === false ? undefined : (opts?.trackingDb ?? ({} as ReviewerDb));
 
@@ -122,7 +136,10 @@ function makeHarness(opts?: {
 
   const ctx: ReviewRunContext = {
     deps,
-    octokit: { graphql } as unknown as ReviewRunContext["octokit"],
+    octokit: {
+      graphql,
+      rest: { repos: { compareCommits } },
+    } as unknown as ReviewRunContext["octokit"],
     owner: "edobry",
     repo: "minsky",
     pr: { number: 1234, headSha: "abc123", branchName: "task/mt-1234" },
@@ -142,6 +159,7 @@ function makeHarness(opts?: {
   return {
     ctx,
     graphql,
+    compareCommits,
     checkRunCalls,
     timingCalls,
     metricsCalls,
@@ -409,6 +427,33 @@ describe("finalizeReviewSuccess (mt#2731)", () => {
       expect(dispositions).toContain("fixed-by-code-change");
       expect(dispositions).toContain("resolved-without-code-change");
       expect(changedFilesFetcher).toHaveBeenCalledWith("priorsha1", "abc123");
+    });
+
+    test("mt#3300 R1 BLOCKING #2 — the default changedFilesFetcher binds baseSha/headSha/owner/repo correctly end-to-end", async () => {
+      // Deliberately NOT injecting `changedFilesFetcher` into deps — this
+      // exercises the REAL default closure `review-finalize.ts` builds from
+      // `fetchChangedFilesSince`, not an injected seam. A seam-only test (the
+      // two tests above) cannot catch an argument-binding bug in that closure.
+      const { db, updateSets } = makeFindingsTrackingDb({
+        outstandingRows: [{ id: "f1", file: "src/touched.ts", headSha: "priorsha1" }],
+      });
+      const compareCommits = mock(async (_params?: Record<string, unknown>) => ({
+        data: { files: [{ filename: "src/touched.ts" }] },
+      }));
+      const h = makeHarness({ trackingDb: db, compareCommits });
+
+      await finalizeReviewSuccess(h.ctx, successInput({ event: "APPROVE", blockingCount: 0 }));
+
+      expect(compareCommits).toHaveBeenCalledTimes(1);
+      const call = compareCommits.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(call).toMatchObject({
+        owner: "edobry",
+        repo: "minsky",
+        base: "priorsha1", // the finding's OWN round headSha (older commit)
+        head: "abc123", // ctx.pr.headSha — the APPROVING round's headSha (newer commit)
+      });
+      expect(updateSets).toHaveLength(1);
+      expect(updateSets[0]?.["disposition"]).toBe("fixed-by-code-change");
     });
 
     test("does NOT resolve outstanding findings on REQUEST_CHANGES", async () => {

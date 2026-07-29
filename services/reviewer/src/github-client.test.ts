@@ -1059,4 +1059,28 @@ describe("fetchChangedFilesSince", () => {
 
     expect(result).toBeUndefined();
   });
+
+  test("mt#3300 R1 non-blocking: returns undefined (ambiguous) when the response hits the 300-file cap", async () => {
+    // GitHub's compare-commits endpoint caps `files` at 300 with no explicit
+    // truncation flag. A response that hits the cap MAY have more files
+    // beyond it — proceeding as if the list were complete could miss the
+    // finding's cited file and manufacture a false "untouched" verdict, so
+    // this must fail toward ambiguous (undefined), never toward asserting
+    // the file list is exhaustive.
+    const files = Array.from({ length: 300 }, (_, i) => ({ filename: `src/file${i}.ts` }));
+    const octokit = buildFakeCompareOctokit(files);
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("returns the full list when file count is just under the cap", async () => {
+    const files = Array.from({ length: 299 }, (_, i) => ({ filename: `src/file${i}.ts` }));
+    const octokit = buildFakeCompareOctokit(files);
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toHaveLength(299);
+  });
 });

@@ -3,6 +3,8 @@ import {
   classifyResolutionArgument,
   evaluateSubmitFindingCall,
   isResolutionNoteText,
+  markUntrackedDeferral,
+  UNTRACKED_DEFERRAL_MARKER,
 } from "./resolution-note-guard";
 import { composeReviewBody } from "./compose-review";
 import type { ReviewToolCall, SubmitFindingArgs } from "./output-tools";
@@ -242,6 +244,25 @@ describe("evaluateSubmitFindingCall — argument-naming requirement (mt#3300 SC#
     if (result.decision === "reclassify") {
       expect(result.argumentKind).toBe("pre-existence");
     }
+  });
+});
+
+describe("markUntrackedDeferral (mt#3300 R1 non-blocking — idempotent prepend)", () => {
+  test("prepends the marker to unmarked text", () => {
+    expect(markUntrackedDeferral("deferred to a follow-up")).toBe(
+      `${UNTRACKED_DEFERRAL_MARKER} deferred to a follow-up`
+    );
+  });
+
+  test("does not duplicate the marker when it is already present", () => {
+    const already = `${UNTRACKED_DEFERRAL_MARKER} deferred to a follow-up`;
+    expect(markUntrackedDeferral(already)).toBe(already);
+  });
+
+  test("is stable across repeated application (idempotent)", () => {
+    const once = markUntrackedDeferral("deferred to a follow-up");
+    const twice = markUntrackedDeferral(once);
+    expect(twice).toBe(once);
   });
 });
 

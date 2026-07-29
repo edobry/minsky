@@ -98,6 +98,25 @@ describe("classifyOutstandingFindings", () => {
     expect(updateSets).toHaveLength(0);
   });
 
+  test("R1 BLOCKING #1 — same-SHA edge case classifies unknown, not resolved-without-code-change", async () => {
+    // The finding's own round headSha equals the APPROVING round's headSha —
+    // zero commits separate them, so there is no diff window to examine at
+    // all. Asserting resolved-without-code-change here would be an
+    // unsupported "argued out" claim with no evidence behind it.
+    const rows: FindingRow[] = [
+      { id: "f-same-sha", file: "src/foo.ts", headSha: PARAMS.approvingHeadSha },
+    ];
+    const { db, updateSets } = makeDb(rows);
+    const fetcher: ChangedFilesFetcherFn = mock(async () => [{ filename: "some-other-file.ts" }]);
+
+    await classifyOutstandingFindings(db, PARAMS, fetcher);
+
+    // No diff fetch at all — there is nothing to compare.
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(updateSets).toHaveLength(1);
+    expect(updateSets[0]?.disposition).toBe(UNKNOWN);
+  });
+
   test("AT1 replay — PR #2235's 'not wired into CI' finding classifies resolved-without-code-change", async () => {
     // Fixture modeled on the mt#3295 corpus sample's PR #2235 incident: a
     // BLOCKING finding citing a CI workflow file that was never touched

@@ -507,6 +507,21 @@ export interface ChangedFileEntry {
 }
 
 /**
+ * GitHub's "Compare two commits" endpoint caps the `files` array at 300
+ * entries per response and does not paginate further (documented API
+ * behavior; there is no explicit truncation flag in the response schema).
+ * mt#3300 R1 non-blocking: a response that hits this cap MAY be truncated —
+ * silently treating it as complete could miss the finding's cited file (it
+ * could be file #301+) and manufacture a false `resolved-without-code-change`
+ * verdict. `fetchChangedFilesSince` treats a hit-the-cap response as
+ * ambiguous (returns `undefined`, the same "cannot determine" signal as an
+ * API failure) rather than ever letting a possibly-incomplete file list
+ * assert "untouched" — the classifier must fail toward ambiguity, never
+ * toward an "argued out" accusation.
+ */
+const GITHUB_COMPARE_FILES_CAP = 300;
+
+/**
  * Fetch the list of files changed between two commits via GitHub's compare
  * API (mt#3300 SC#1).
  *
@@ -519,8 +534,9 @@ export interface ChangedFileEntry {
  *
  * Returns `[]` immediately when `baseSha === headSha` (nothing to compare).
  * Returns `undefined` on any API failure (e.g. the base/head pair is
- * unreachable after a force-push rewrote history) — callers must treat this
- * as "cannot determine," never as "no files changed."
+ * unreachable after a force-push rewrote history) or a possibly-truncated
+ * response (see `GITHUB_COMPARE_FILES_CAP`) — callers must treat this as
+ * "cannot determine," never as "no files changed."
  */
 export async function fetchChangedFilesSince(
   octokit: Octokit,
@@ -542,7 +558,19 @@ export async function fetchChangedFilesSince(
         request: { signal },
       })
     );
-    return (resp.data.files ?? []).map((f) => ({ filename: f.filename }));
+    const files = resp.data.files ?? [];
+    if (files.length >= GITHUB_COMPARE_FILES_CAP) {
+      log.warn("reviewer.compare_commits_possibly_truncated", {
+        event: "reviewer.compare_commits_possibly_truncated",
+        owner,
+        repo,
+        baseSha,
+        headSha,
+        fileCount: files.length,
+      });
+      return undefined;
+    }
+    return files.map((f) => ({ filename: f.filename }));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn("reviewer.compare_commits_failed", {

@@ -23,7 +23,7 @@ import {
   evaluateConcludeReviewCall,
   DEFAULT_MAX_CONCLUDE_REVIEW_REJECTIONS,
 } from "./conclude-review-guard";
-import { evaluateSubmitFindingCall } from "./resolution-note-guard";
+import { evaluateSubmitFindingCall, markUntrackedDeferral } from "./resolution-note-guard";
 
 /**
  * Default model timeout used when callOpenAIWithClient is called without an
@@ -1017,7 +1017,11 @@ export async function callOpenAIWithClient(
                 argumentKind: evaluation.argumentKind,
                 reason: evaluation.reason,
               });
-              parsed.args.details = `[untracked-deferral] ${parsed.args.details}`;
+              // mt#3300 R1 non-blocking: idempotent prepend — a re-raised
+              // finding can carry its own prior (already-marked) text
+              // forward across rounds; markUntrackedDeferral avoids
+              // accumulating duplicate markers on retries.
+              parsed.args.details = markUntrackedDeferral(parsed.args.details);
             }
           }
 

@@ -123,6 +123,22 @@ export type ResolutionArgumentKind =
   | "untracked-deferral"
   | "none";
 
+/**
+ * mt#3300 R1 non-blocking: locale/phrasing limits. All four pattern constants
+ * below (`CODE_FIX_CLAIM_PATTERN`, `SPEC_AMENDMENT_PATTERN`,
+ * `PRE_EXISTENCE_PATTERN`, `DEFERRAL_PATTERN`) are English-only, fixed-phrase
+ * regexes — they recognize the specific wordings the reviewer model has
+ * historically produced (mirroring `RESOLUTION_NOTE_PATTERN` above), not an
+ * exhaustive semantic classifier. A genuinely valid argument phrased in
+ * unanticipated English wording, or in any non-English text, classifies as
+ * `"none"` and is REJECTED (kept BLOCKING) rather than accepted — this is the
+ * safe failure direction (a false negative here costs an extra round of
+ * iteration; a false positive would let an unaudited resolution through). If
+ * this recall gap proves load-bearing in practice, broadening the patterns —
+ * or moving to a model-based classification pass — is future work, not done
+ * here.
+ */
+
 /** Matches a task-id reference in any of this repo's project-code forms. */
 const TASK_ID_PATTERN = /\b(?:mt|md|gh)#\d+\b/i;
 
@@ -262,4 +278,25 @@ export function evaluateSubmitFindingCall(
       `BLOCKING finding whose text is a completed-resolution note (${argumentKind}); reclassified ` +
       "BLOCKING to NON-BLOCKING (emission-layer coherence repair, mt#2863/mt#3300)",
   };
+}
+
+/**
+ * Marker prefix `providers.ts` prepends to a rejected finding's `details`
+ * (mt#3300) so the untracked-deferral gap stays visible in the persisted
+ * finding body.
+ */
+export const UNTRACKED_DEFERRAL_MARKER = "[untracked-deferral]";
+
+/**
+ * Idempotently prepend `UNTRACKED_DEFERRAL_MARKER` to `details`.
+ *
+ * A finding can be re-submitted across review rounds carrying its own prior
+ * text forward (the model often echoes its earlier wording verbatim on a
+ * re-raise) — prepending unconditionally on every `reject` decision would
+ * accumulate duplicate markers ("[untracked-deferral] [untracked-deferral]
+ * ..."). Exported for unit testing.
+ */
+export function markUntrackedDeferral(details: string): string {
+  if (details.startsWith(UNTRACKED_DEFERRAL_MARKER)) return details;
+  return `${UNTRACKED_DEFERRAL_MARKER} ${details}`;
 }

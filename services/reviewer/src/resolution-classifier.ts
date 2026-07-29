@@ -138,6 +138,19 @@ export async function classifyOutstandingFindings(
     };
 
     for (const [headSha, findings] of byHeadSha) {
+      // mt#3300 PR #2394 R1 BLOCKING #1: if the finding's own round headSha
+      // equals the APPROVING round's headSha, there is NO commit window to
+      // examine at all (zero commits separate them) — most plausibly a
+      // stale/duplicate headSha or a same-round classification pass, not
+      // proof the file went untouched. Asserting `resolved-without-code-change`
+      // here would be an unsupported "argued out" accusation with zero
+      // evidence behind it; classify as the safe `unknown` default instead
+      // WITHOUT calling the fetcher (there is nothing to compare).
+      if (headSha === params.approvingHeadSha) {
+        addIds("unknown", findings);
+        continue;
+      }
+
       let changedFiles: ReadonlyArray<ChangedFileEntry> | undefined;
       try {
         changedFiles = await fetchChangedFiles(headSha, params.approvingHeadSha);
