@@ -330,11 +330,14 @@ export async function applyPostMergeStateSync(
   // (e) Session workspace cleanup
   if (cleanupSession) {
     try {
+      // mt#3104: the former `force: true` here was the blanket-bypass
+      // incident shape — the param is removed. This path needs no override:
+      // effect (b) above already set the session MERGED, so cleanup passes
+      // through the terminal-state bypass without consulting the guards.
       const cleanupResult = await cleanupSessionImpl(
         {
           sessionId,
           taskId: sessionRecord.taskId,
-          force: true,
         },
         { sessionDB }
       );

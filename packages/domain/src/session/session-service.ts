@@ -331,9 +331,8 @@ export class SessionService {
   async cleanup(params: {
     sessionId: string;
     taskId?: string;
-    force?: boolean;
     dryRun?: boolean;
-    /** mt#3021 SC2: git-state guard override — see cleanupSessionImpl. */
+    /** mt#3021 SC2 + mt#3104: git-state guard + liveness gate override — see cleanupSessionImpl. */
     overrideReason?: string;
   }): Promise<{
     sessionDeleted: boolean;
