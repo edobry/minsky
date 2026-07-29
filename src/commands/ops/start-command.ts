@@ -627,8 +627,18 @@ export async function adoptionSweeperTick(
     );
   }
 
-  log.info("adoption_sweeper.run_completed", {
-    event: "adoption_sweeper.run_completed",
+  // Distinct event when degraded (mt#3328 review R2): the sweep did finish
+  // processing every task this tick, but a check-unavailable outcome means
+  // the tick is about to throw (see below) so the ops loop registry records
+  // an error, not a clean tick. Logging this as plain "run_completed" would
+  // read as a clean run to anything grepping/dashboarding the logs, right
+  // before that same tick surfaces as a loop error.
+  const runCompletedEvent =
+    callsiteCheckUnavailableCount > 0
+      ? "adoption_sweeper.run_completed_degraded"
+      : "adoption_sweeper.run_completed";
+  log.info(runCompletedEvent, {
+    event: runCompletedEvent,
     startedAt,
     tasksChecked: recentTasks.length,
     tasksWithSignals,
