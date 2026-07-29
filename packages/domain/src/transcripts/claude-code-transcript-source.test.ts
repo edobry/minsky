@@ -5,7 +5,7 @@
  * @see mt#1350 — TranscriptSource interface + ClaudeCodeTranscriptSource adapter
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -274,6 +274,35 @@ describe("ClaudeCodeTranscriptSource — nested subagent transcripts (mt#3294)",
     const sub = sessions.find((s) => s.agentSessionId === SUB_SESSION_ID);
     expect(sub).toBeDefined();
     expect(sub?.isSubagent).toBe(true);
+  });
+
+  // PR #2377 R1. A symlink under subagents/ can point anywhere, including at a
+  // cycle or an unrelated tree. Nothing in scanSubagentTree checks for symlinks
+  // explicitly — it relies on readdir's lstat semantics, where a symlink is
+  // reported as isSymbolicLink() and not isDirectory(). This test locks that
+  // platform behavior, because the safety of the walk depends on it and it is
+  // not visible at the call site.
+  test("does not descend into a symlinked directory", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "minsky-cc-source-symlink-"));
+    try {
+      const subagents = join(dir, PROJECT_DIR_NAME, "parent-session", SUBAGENTS_DIR_NAME);
+      await mkdir(subagents, { recursive: true });
+
+      // A real directory elsewhere, holding a transcript, linked into the tree.
+      const outside = join(dir, "outside");
+      await mkdir(outside, { recursive: true });
+      await writeFile(join(outside, "agent-via-symlink.jsonl"), `${USER_LINE}\n`);
+      await symlink(outside, join(subagents, "linked"));
+
+      const src = new ClaudeCodeTranscriptSource({
+        claudeProjectsDir: dir,
+        projectDirGlob: PROJECT_DIR_GLOB,
+      });
+      const sessions = await collect(src.discoverSessions());
+      expect(sessions.find((s) => s.agentSessionId === "agent-via-symlink")).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test("does not descend past the depth cap", async () => {

@@ -214,12 +214,24 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
    *
    * Everything found here is a subagent transcript by construction (it is under
    * `subagents/`), so `isSubagent` is true at every depth.
+   *
+   * Reads each directory ONCE and partitions the entries, rather than calling
+   * `scanDir` (which reads) and then reading again to recurse — the directory
+   * count here multiplies across every session on every sweep (PR #2377 R1).
+   *
+   * Symlinked directories are not descended, and no explicit check is needed
+   * for that: `readdir` with `withFileTypes` reports a symlink via
+   * `isSymbolicLink()` and NOT `isDirectory()` (lstat semantics), so the filter
+   * below already excludes them. An added `|| entry.isSymbolicLink()` was tried
+   * and removed as dead code — the symlink test below passes with and without
+   * it, which is the evidence. The test is kept as a lock on that platform
+   * behavior, since the safety of this walk depends on it (PR #2377 R1).
    */
   private async *scanSubagentTree(dir: string, depth = 0): AsyncIterable<DiscoveredSession> {
-    yield* this.scanDir(dir, true);
+    const entries = await safeReaddir(dir);
+    yield* this.yieldTranscripts(dir, entries, true);
     if (depth >= MAX_SUBAGENT_TREE_DEPTH) return;
 
-    const entries = await safeReaddir(dir);
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       yield* this.scanSubagentTree(join(dir, entry.name), depth + 1);
@@ -227,7 +239,15 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
   }
 
   private async *scanDir(dir: string, isSubagent: boolean): AsyncIterable<DiscoveredSession> {
-    const entries = await safeReaddir(dir);
+    yield* this.yieldTranscripts(dir, await safeReaddir(dir), isSubagent);
+  }
+
+  /** Yield a `DiscoveredSession` for each `.jsonl` file among already-read entries. */
+  private async *yieldTranscripts(
+    dir: string,
+    entries: Dirent[],
+    isSubagent: boolean
+  ): AsyncIterable<DiscoveredSession> {
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(JSONL_EXT)) continue;
       const jsonlPath = join(dir, entry.name);
