@@ -386,6 +386,18 @@ function isTextContentBlock(block: unknown): block is { type: "text"; text: stri
   );
 }
 
+/** Parse `text` as JSON and assign to `tool_result` when it yields an object; fail-open. */
+function assignParsedJsonResult(payload: Record<string, unknown>, text: string): void {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      payload["tool_result"] = parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Non-JSON text result (plain prose output) — leave untouched.
+  }
+}
+
 /**
  * Normalize the measured PostToolUse payload shape onto the `tool_result` key this repo's
  * hooks read (mt#3308). Production sends `tool_response`, never `tool_result`:
@@ -395,19 +407,29 @@ function isTextContentBlock(block: unknown): block is { type: "text"; text: stri
  *   - MCP tools (`mcp__*`): `tool_response` is the MCP content envelope
  *     `[{type:"text", text:"<json>"}]` with the tool's JSON result STRINGIFIED in the first
  *     text block — unwrapped and parsed.
+ *   - A raw JSON-string `tool_response` (not observed in captures, but cheap to accept) is
+ *     parsed the same way (PR #2402 R1).
  *
  * Before this normalization, every PostToolUse reader gating on `tool_result` contents was
  * silently dead or degraded against production payloads (mt#3182's stamp hook wrote 0 rows in
  * 235 sessions; the drive-pr-to-convergence reminder never fired). Fail-open by design: an
- * absent/unparseable `tool_response` leaves the payload untouched, and an already-usable
- * `tool_result` (e.g. a hand-built test payload) is never overwritten.
+ * absent/unparseable `tool_response` leaves the payload untouched, an already-usable
+ * `tool_result` (e.g. a hand-built test payload) is never overwritten, and non-PostToolUse
+ * payloads are never mutated at all (PR #2402 R1).
  */
 export function normalizeToolResult(payload: Record<string, unknown>): void {
+  if (payload["hook_event_name"] !== "PostToolUse") return;
+
   const existing = payload["tool_result"];
   if (existing && typeof existing === "object" && !Array.isArray(existing)) return;
 
   const response = payload["tool_response"];
   if (!response) return;
+
+  if (typeof response === "string") {
+    assignParsedJsonResult(payload, response);
+    return;
+  }
 
   if (typeof response === "object" && !Array.isArray(response)) {
     payload["tool_result"] = response;
@@ -417,14 +439,7 @@ export function normalizeToolResult(payload: Record<string, unknown>): void {
   if (Array.isArray(response)) {
     const textBlock = response.find(isTextContentBlock);
     if (!textBlock) return;
-    try {
-      const parsed: unknown = JSON.parse(textBlock.text);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        payload["tool_result"] = parsed as Record<string, unknown>;
-      }
-    } catch {
-      // Non-JSON text result (plain prose output) — leave untouched.
-    }
+    assignParsedJsonResult(payload, textBlock.text);
   }
 }
 

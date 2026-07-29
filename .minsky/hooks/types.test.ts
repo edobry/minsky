@@ -18,6 +18,8 @@ import {
   HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC,
   normalizeToolResult,
 } from "./types";
+import { decideReminder } from "./drive-pr-to-convergence";
+import { isDoneTransition } from "./bridge-memory-retirement";
 
 describe("emitHookFiredOnDeny (mt#2537)", () => {
   afterEach(() => {
@@ -437,5 +439,69 @@ describe("normalizeToolResult", () => {
     payload["tool_response"] = [{ type: "text", text: "[1, 2, 3]" }];
     normalizeToolResult(payload);
     expect(payload["tool_result"]).toBeUndefined();
+  });
+
+  test("a non-PostToolUse payload is never mutated (PR #2402 R1)", () => {
+    const payload = realMcpPayload();
+    payload["hook_event_name"] = "PreToolUse";
+    const before = JSON.stringify(payload);
+    normalizeToolResult(payload);
+    expect(JSON.stringify(payload)).toBe(before);
+  });
+
+  test("a raw JSON-string tool_response is parsed (PR #2402 R1)", () => {
+    const payload = realMcpPayload();
+    payload["tool_response"] = '{"success": true, "marker": "string-shaped"}';
+    normalizeToolResult(payload);
+    expect((payload["tool_result"] as Record<string, unknown>)["marker"]).toBe("string-shaped");
+  });
+});
+
+/**
+ * End-to-end acceptance (mt#3308 AT1): a production-shaped payload drives a previously-DEAD
+ * hook's decision path to its intended behavior. Pre-fix, both hooks below returned their
+ * silent/false branch on every production payload — the envelope key never matched.
+ */
+describe("normalizeToolResult heals previously-dead hooks end-to-end (mt#3308 AT1)", () => {
+  test("drive-pr-to-convergence emits its reminder from a production-shaped pr_create payload", () => {
+    const payload: Record<string, unknown> = {
+      session_id: "e2e",
+      cwd: "/tmp",
+      hook_event_name: "PostToolUse",
+      tool_name: "mcp__minsky__session_pr_create",
+      tool_input: { title: "x", type: "fix" },
+      // The captured MCP envelope pattern carrying a REAL session_pr_create result shape
+      // (PR #2400's actual return, trimmed).
+      tool_response: [
+        {
+          type: "text",
+          text: '{"success": true, "url": "https://github.com/edobry/minsky/pull/2400", "statusTransition": {"from": "IN-PROGRESS", "to": "IN-REVIEW", "succeeded": true}}',
+        },
+      ],
+    };
+
+    // Pre-fix condition: without normalization the reminder never fires.
+    expect(decideReminder(payload as never)).toBeNull();
+
+    normalizeToolResult(payload);
+    const reminder = decideReminder(payload as never);
+    expect(reminder).not.toBeNull();
+    expect(reminder).toContain("Drive it to convergence");
+  });
+
+  test("bridge-memory-retirement detects a DONE transition from a production-shaped merge payload", () => {
+    const payload: Record<string, unknown> = {
+      session_id: "e2e",
+      cwd: "/tmp",
+      hook_event_name: "PostToolUse",
+      tool_name: "mcp__minsky__session_pr_merge",
+      tool_input: { task: "mt#0000" },
+      tool_response: [{ type: "text", text: '{"success": true}' }],
+    };
+
+    expect(isDoneTransition(payload as never)).toBe(false);
+
+    normalizeToolResult(payload);
+    expect(isDoneTransition(payload as never)).toBe(true);
   });
 });
