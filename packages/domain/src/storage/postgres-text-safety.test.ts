@@ -77,6 +77,23 @@ describe("sanitizeForPostgresDeep", () => {
     expect(Object.keys(value)).toEqual([`bad${FFFD}key`]);
   });
 
+  // PR #2373 R1: sanitizing keys can map two distinct keys onto one. Silently
+  // overwriting is the exact failure shape this module exists to remove, so the
+  // collision is counted and the first value is kept.
+  test("reports a key collision instead of silently dropping a value", () => {
+    const input = { [`a${NUL}`]: "first", [`a${FFFD}`]: "second" };
+    const { value, replaced, keyCollisions } = sanitizeForPostgresDeep(input);
+
+    expect(replaced).toBe(1);
+    expect(keyCollisions).toBe(1);
+    expect(Object.keys(value)).toEqual([`a${FFFD}`]);
+    expect(value[`a${FFFD}`]).toBe("first");
+  });
+
+  test("reports zero collisions on ordinary content", () => {
+    expect(sanitizeForPostgresDeep({ a: `x${NUL}`, b: "y" }).keyCollisions).toBe(0);
+  });
+
   test("counts every replaced codepoint across the whole structure", () => {
     const input = { a: `${NUL}${NUL}`, b: [`${NUL}`, "clean"], c: { d: `x${NUL}` } };
     expect(sanitizeForPostgresDeep(input).replaced).toBe(4);

@@ -52,6 +52,13 @@
  */
 const NUL = String.fromCharCode(0);
 
+/**
+ * The codepoint Postgres cannot store, exported so callers can locate it in
+ * their own content (e.g. to point an author at the offending line) without
+ * each one re-deriving it and risking a literal NUL in their source.
+ */
+export const POSTGRES_UNSAFE_SOURCE_CHAR = NUL;
+
 /** U+FFFD REPLACEMENT CHARACTER — the standard marker for an unrepresentable character. */
 export const POSTGRES_UNSAFE_REPLACEMENT = String.fromCharCode(0xfffd);
 
@@ -78,6 +85,17 @@ export interface DeepSanitizeResult<T> {
   value: T;
   /** How many individual codepoints were replaced across the whole structure. */
   replaced: number;
+  /**
+   * Object keys that collided after sanitization, dropping a value.
+   *
+   * Sanitizing keys can map two distinct keys onto one — `{"a<NUL>": 1,
+   * "a<FFFD>": 2}` both become `a<FFFD>` — and the later entry would silently
+   * overwrite the earlier. Vanishingly unlikely in transcript data, but silent
+   * overwrite is the exact failure shape this module exists to remove, so it is
+   * counted and reported rather than absorbed. The FIRST value wins, so the
+   * dropped entry is the later one. (PR #2373 R1.)
+   */
+  keyCollisions: number;
 }
 
 /**
@@ -92,6 +110,7 @@ export interface DeepSanitizeResult<T> {
  */
 export function sanitizeForPostgresDeep<T>(value: T): DeepSanitizeResult<T> {
   let replaced = 0;
+  let keyCollisions = 0;
 
   const walk = (node: unknown): unknown => {
     if (typeof node === "string") {
@@ -122,6 +141,12 @@ export function sanitizeForPostgresDeep<T>(value: T): DeepSanitizeResult<T> {
         const walkedKey = walk(key) as string;
         const walkedValue = walk(element);
         if (walkedKey !== key || walkedValue !== element) changed = true;
+        // First write wins. Overwriting silently would lose a value with no
+        // signal anywhere — see `keyCollisions` on the result type.
+        if (Object.prototype.hasOwnProperty.call(next, walkedKey)) {
+          keyCollisions++;
+          continue;
+        }
         next[walkedKey] = walkedValue;
       }
       return changed ? next : node;
@@ -130,5 +155,5 @@ export function sanitizeForPostgresDeep<T>(value: T): DeepSanitizeResult<T> {
     return node;
   };
 
-  return { value: walk(value) as T, replaced };
+  return { value: walk(value) as T, replaced, keyCollisions };
 }

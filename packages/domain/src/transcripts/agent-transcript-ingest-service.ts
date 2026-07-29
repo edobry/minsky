@@ -50,6 +50,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transcript-attachments-schema";
 import { log } from "@minsky/shared/logger";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { getLoggableErrorSummary } from "../errors/index";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
@@ -249,9 +250,10 @@ export class AgentTranscriptIngestService {
     // call, aggregated across the whole stream and logged once below (the
     // counted signal — see credential-scrub-log.ts).
     const allRedactions: RedactionHit[] = [];
-    // mt#3278: count of Postgres-unrepresentable codepoints replaced across
+    // mt#3278: counts of Postgres-unrepresentable codepoints replaced across
     // this batch, logged once below rather than per line.
     let unsafeCodepointsReplaced = 0;
+    let sanitizeKeyCollisions = 0;
 
     try {
       // mt#3288: pass the path this session was discovered at. Without it a
@@ -278,8 +280,13 @@ export class AgentTranscriptIngestService {
           // mt#3278: and make it storable. Postgres cannot hold U+0000 in a
           // text-derived column, so a line carrying one fails the upsert
           // identically on every retry — permanently freezing the transcript.
-          const { value: safeLine, replaced } = sanitizeForPostgresDeep(scrubbedLine);
+          const {
+            value: safeLine,
+            replaced,
+            keyCollisions,
+          } = sanitizeForPostgresDeep(scrubbedLine);
           unsafeCodepointsReplaced += replaced;
+          sanitizeKeyCollisions += keyCollisions;
           newLines.push(safeLine);
         } else if (lineType === "attachment" || lineType === "system") {
           // mt#2763: scrub BEFORE buildAttachmentRow captures `content: line`
@@ -287,8 +294,13 @@ export class AgentTranscriptIngestService {
           // write path (agent_transcript_attachments.content).
           const { value: scrubbedLine, redactions } = scrubValueDeep(line);
           if (redactions.length > 0) allRedactions.push(...redactions);
-          const { value: safeLine, replaced } = sanitizeForPostgresDeep(scrubbedLine);
+          const {
+            value: safeLine,
+            replaced,
+            keyCollisions,
+          } = sanitizeForPostgresDeep(scrubbedLine);
           unsafeCodepointsReplaced += replaced;
+          sanitizeKeyCollisions += keyCollisions;
           const row = buildAttachmentRow(agentSessionId, lineIndex, safeLine, tsDate);
           if (row !== null) newAttachmentRows.push(row);
         }
@@ -329,6 +341,16 @@ export class AgentTranscriptIngestService {
       log.info(
         `Replaced ${unsafeCodepointsReplaced} Postgres-unrepresentable codepoint(s) for session ${agentSessionId}`,
         { agentSessionId, replaced: unsafeCodepointsReplaced }
+      );
+    }
+
+    // A key collision means a value was dropped, not merely rewritten — a
+    // strictly worse outcome than the substitution above, so it gets its own
+    // line at `warn`. Expected to be permanently zero (PR #2373 R1).
+    if (sanitizeKeyCollisions > 0) {
+      log.warn(
+        `Sanitization collapsed ${sanitizeKeyCollisions} duplicate object key(s) for session ${agentSessionId}, dropping the later value`,
+        { agentSessionId, keyCollisions: sanitizeKeyCollisions }
       );
     }
 
@@ -515,12 +537,20 @@ export class AgentTranscriptIngestService {
             // mt#3089: never regress an already-resolved model with a later
             // batch that didn't happen to include the model-bearing turn.
             model: sql`COALESCE(${agentTranscriptsTable.model}, EXCLUDED.model)`,
-            // mt#3278: a successful upsert clears the failure record. This is
-            // what makes quarantine self-healing — once the cause is fixed, the
-            // first pass that gets through un-quarantines the session with no
-            // manual step.
+            // mt#3278: a successful upsert clears the failure record ENTIRELY.
+            // This is what makes quarantine self-healing — once the cause is
+            // fixed, the first pass that gets through un-quarantines the session
+            // with no manual step.
+            //
+            // All four columns reset together, deliberately: leaving
+            // `ingestLastFailedAt` set while the count is 0 and the error is
+            // NULL produces a row that reads as "currently failing" to anyone
+            // scanning for recent failures, which is exactly the misleading
+            // signal this task exists to remove. The failure history lives in
+            // the logs; these columns describe CURRENT state (PR #2373 R1).
             ingestFailureCount: sql`0`,
             ingestLastError: sql`NULL`,
+            ingestLastFailedAt: sql`NULL`,
             ingestQuarantinedAt: sql`NULL`,
           },
         });
@@ -679,9 +709,14 @@ export class AgentTranscriptIngestService {
   private async recordIngestFailure(agentSessionId: string, cause: Error): Promise<void> {
     try {
       const summary = getLoggableErrorSummary(cause);
-      const message = sanitizeForPostgres(
-        typeof summary === "string" ? summary : String(cause.message)
-      ).slice(0, INGEST_ERROR_TEXT_LIMIT);
+      // safeTruncate, not `.slice`: a plain slice can cut a UTF-16 surrogate
+      // pair in half, and a lone surrogate is invalid UTF-8 — which Postgres
+      // rejects. Truncating the error text unsafely could therefore fail the
+      // very insert whose job is to record that something failed.
+      const message = safeTruncate(
+        sanitizeForPostgres(typeof summary === "string" ? summary : String(cause.message)),
+        INGEST_ERROR_TEXT_LIMIT
+      );
 
       await this.db
         .insert(agentTranscriptsTable)

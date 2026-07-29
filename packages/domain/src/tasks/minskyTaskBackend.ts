@@ -21,7 +21,10 @@ import type {
 } from "./types";
 import { isAllProjects } from "../project/scope";
 import { log } from "@minsky/shared/logger";
-import { sanitizeForPostgres } from "../storage/postgres-text-safety";
+import {
+  POSTGRES_UNSAFE_SOURCE_CHAR,
+  sanitizeForPostgresDeep,
+} from "../storage/postgres-text-safety";
 
 /**
  * Make spec content storable in `task_specs.content` (mt#3278).
@@ -39,11 +42,23 @@ import { sanitizeForPostgres } from "../storage/postgres-text-safety";
  * they wrote could not be stored verbatim.
  */
 function specSafeForStorage(taskId: string, spec: string): string {
-  const safe = sanitizeForPostgres(spec);
-  if (safe !== spec) {
+  const { value: safe, replaced } = sanitizeForPostgresDeep(spec);
+  if (replaced > 0) {
+    // Report the count and where the first substitution landed. A bare "we
+    // changed something" warning gives the author nothing to act on; the line
+    // number and a short excerpt point them straight at the passage that could
+    // not be stored verbatim (PR #2373 R1).
+    // Counting newlines rather than slicing a prefix: slicing an arbitrary
+    // string index can split a UTF-16 surrogate pair
+    // (`custom/no-unsafe-string-truncation`), and a line number needs no
+    // substring anyway.
+    let line = 1;
+    for (let i = spec.indexOf(POSTGRES_UNSAFE_SOURCE_CHAR); i > 0; i--) {
+      if (spec[i - 1] === "\n") line++;
+    }
     log.warn(
-      `Task ${taskId}: replaced Postgres-unrepresentable codepoint(s) in spec content before storing`,
-      { taskId }
+      `Task ${taskId}: replaced ${replaced} Postgres-unrepresentable codepoint(s) in spec content before storing (first at line ${line})`,
+      { taskId, replaced, line }
     );
   }
   return safe;
