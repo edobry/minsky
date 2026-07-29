@@ -23,7 +23,7 @@ import {
   evaluateConcludeReviewCall,
   DEFAULT_MAX_CONCLUDE_REVIEW_REJECTIONS,
 } from "./conclude-review-guard";
-import { evaluateSubmitFindingCall } from "./resolution-note-guard";
+import { evaluateSubmitFindingCall, markUntrackedDeferral } from "./resolution-note-guard";
 
 /**
  * Default model timeout used when callOpenAIWithClient is called without an
@@ -987,6 +987,13 @@ export async function callOpenAIWithClient(
           // to NON-BLOCKING at emission (stateless / per-finding) so the
           // incoherent BLOCKING never reaches composition. See
           // resolution-note-guard.ts for the full rationale.
+          //
+          // mt#3300: a resolution note that names no recognized argument, or
+          // names a deferral with no tracking task id, is REJECTED rather than
+          // reclassified — the finding stays BLOCKING and its `details` is
+          // marked `[untracked-deferral]` so the gap is visible in the
+          // persisted finding body, forcing a genuine fix, a named spec
+          // amendment, or a task-id-tracked deferral before it can converge.
           if (parsed.name === "submit_finding") {
             const evaluation = evaluateSubmitFindingCall({ args: parsed.args });
             if (evaluation.decision === "reclassify") {
@@ -996,9 +1003,25 @@ export async function callOpenAIWithClient(
                 round,
                 file: parsed.args.file,
                 line: parsed.args.line,
+                argumentKind: evaluation.argumentKind,
                 reason: evaluation.reason,
               });
               parsed.args.severity = evaluation.newSeverity;
+            } else if (evaluation.decision === "reject") {
+              log.info("reviewer.submit_finding_resolution_note_rejected", {
+                event: "reviewer.submit_finding_resolution_note_rejected",
+                provider: "openai",
+                round,
+                file: parsed.args.file,
+                line: parsed.args.line,
+                argumentKind: evaluation.argumentKind,
+                reason: evaluation.reason,
+              });
+              // mt#3300 R1 non-blocking: idempotent prepend — a re-raised
+              // finding can carry its own prior (already-marked) text
+              // forward across rounds; markUntrackedDeferral avoids
+              // accumulating duplicate markers on retries.
+              parsed.args.details = markUntrackedDeferral(parsed.args.details);
             }
           }
 

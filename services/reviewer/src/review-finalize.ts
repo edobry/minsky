@@ -36,8 +36,9 @@ import {
   buildFindingRecordsFromBody,
   buildFindingRecordsFromToolCalls,
   recordFindings,
-  resolveOutstandingFindingsOnApproval,
 } from "./findings";
+import { classifyOutstandingFindings, type ChangedFilesFetcherFn } from "./resolution-classifier";
+import { fetchChangedFilesSince } from "./github-client";
 import { log } from "./logger";
 import type { ReviewPostedEvent, ReviewSubmitEvent } from "./review-events";
 import type { ReviewOutput } from "./providers";
@@ -356,12 +357,28 @@ export async function finalizeReviewSuccess(
     await recordFindings(deps.db, findingRecords);
 
     if (event === "APPROVE") {
-      await resolveOutstandingFindingsOnApproval(deps.db, {
-        prOwner: owner,
-        prRepo: repo,
-        prNumber: pr.number,
-        round: iterationIndex,
-      });
+      // mt#3300 SC#1: classify each still-open prior BLOCKING finding as
+      // fixed-by-code-change / resolved-without-code-change by checking
+      // whether any commit since its round touched its cited file —
+      // replacing the coarse `unknown` default `resolveOutstandingFindingsOnApproval`
+      // (mt#3295) deliberately left room for. That function is NOT removed
+      // (kept for callers without diff-fetch capability); production APPROVE
+      // handling now goes through this finer-grained classifier instead.
+      const changedFilesFetcher: ChangedFilesFetcherFn =
+        deps.changedFilesFetcher ??
+        ((baseSha: string, sinceHeadSha: string) =>
+          fetchChangedFilesSince(octokit, owner, repo, baseSha, sinceHeadSha));
+      await classifyOutstandingFindings(
+        deps.db,
+        {
+          prOwner: owner,
+          prRepo: repo,
+          prNumber: pr.number,
+          approvingRound: iterationIndex,
+          approvingHeadSha: pr.headSha,
+        },
+        changedFilesFetcher
+      );
     }
   }
 

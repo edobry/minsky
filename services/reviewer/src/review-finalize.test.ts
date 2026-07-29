@@ -23,6 +23,7 @@ import type { ReviewTimingInput } from "./review-timing";
 import type { PublishCheckRunOptions } from "./check-run-publisher";
 import type { ReviewPostedEvent } from "./review-events";
 import type { ReviewThread, SubmittedReview } from "./github-client";
+import type { ChangedFilesFetcherFn } from "./resolution-classifier";
 
 const REVIEW: SubmittedReview = {
   id: 42,
@@ -40,15 +41,23 @@ const EMPTY_OUTPUT_REASON = "empty output from model";
 type CheckRunToolCalls = FinalizeReviewSuccessInput["checkRunToolCalls"];
 
 /**
- * A db double that actually implements insert/update (unlike the `{}` stub
- * used by the rest of this harness) so the mt#3295 findings-persistence
- * assertions below can observe what recordFindings /
- * resolveOutstandingFindingsOnApproval actually write, rather than only
- * confirming the swallow-on-error path (which `{}` exercises implicitly).
+ * A db double that actually implements insert/update/select (unlike the `{}`
+ * stub used by the rest of this harness) so the mt#3295/mt#3300
+ * findings-persistence assertions below can observe what recordFindings /
+ * classifyOutstandingFindings actually write, rather than only confirming
+ * the swallow-on-error path (which `{}` exercises implicitly).
+ *
+ * `outstandingRows` seeds the rows `classifyOutstandingFindings`'s `select`
+ * query returns — the still-open prior BLOCKING findings a test wants
+ * classified. Defaults to `[]` (no prior findings — the pre-mt#3300
+ * no-op case).
  */
-function makeFindingsTrackingDb() {
+function makeFindingsTrackingDb(opts?: {
+  outstandingRows?: Array<{ id: string; file: string; headSha: string }>;
+}) {
   const insertedRows: Record<string, unknown>[] = [];
   const updateSets: Record<string, unknown>[] = [];
+  const outstandingRows = opts?.outstandingRows ?? [];
   const db = {
     insert: mock(() => ({
       values: mock((rows: Record<string, unknown>[]) => {
@@ -62,6 +71,11 @@ function makeFindingsTrackingDb() {
         return { where: mock(() => Promise.resolve()) };
       }),
     })),
+    select: mock(() => ({
+      from: mock(() => ({
+        where: mock(() => Promise.resolve(outstandingRows)),
+      })),
+    })),
   } as unknown as ReviewerDb;
   return { db, insertedRows, updateSets };
 }
@@ -71,6 +85,15 @@ function makeHarness(opts?: {
   db?: boolean;
   trackingDb?: ReviewerDb;
   outputToolsActive?: boolean;
+  changedFilesFetcher?: ChangedFilesFetcherFn;
+  /**
+   * mt#3300 PR #2394 R1 BLOCKING #2: a real-shaped `octokit.rest.repos.compareCommits`
+   * spy, for the end-to-end wiring test that exercises the DEFAULT
+   * `changedFilesFetcher` closure (built in review-finalize.ts from
+   * `fetchChangedFilesSince`) instead of an injected seam — a seam-only test
+   * would never catch an argument-binding bug in that closure.
+   */
+  compareCommits?: ReturnType<typeof mock>;
 }) {
   const checkRunCalls: PublishCheckRunOptions[] = [];
   const timingCalls: ReviewTimingInput[] = [];
@@ -91,9 +114,15 @@ function makeHarness(opts?: {
     emitCalls.push(ev);
   });
 
-  // octokit is only touched by the thread-resolve loop (via resolveThread ->
-  // octokit.graphql); a graphql spy lets the guard tests assert invocation.
+  // octokit is touched by the thread-resolve loop (via resolveThread ->
+  // octokit.graphql) and, when no changedFilesFetcher seam is injected, by
+  // the default classifier fetcher (via octokit.rest.repos.compareCommits).
   const graphql = mock(async () => ({}));
+  const compareCommits =
+    opts?.compareCommits ??
+    mock(async () => {
+      throw new Error("no rest.repos.compareCommits stub configured for this test");
+    });
 
   const resolvedDb = opts?.db === false ? undefined : (opts?.trackingDb ?? ({} as ReviewerDb));
 
@@ -102,11 +131,15 @@ function makeHarness(opts?: {
     checkRunPublisher,
     timingRecorder,
     metricsRecorder,
+    ...(opts?.changedFilesFetcher ? { changedFilesFetcher: opts.changedFilesFetcher } : {}),
   };
 
   const ctx: ReviewRunContext = {
     deps,
-    octokit: { graphql } as unknown as ReviewRunContext["octokit"],
+    octokit: {
+      graphql,
+      rest: { repos: { compareCommits } },
+    } as unknown as ReviewRunContext["octokit"],
     owner: "edobry",
     repo: "minsky",
     pr: { number: 1234, headSha: "abc123", branchName: "task/mt-1234" },
@@ -126,6 +159,7 @@ function makeHarness(opts?: {
   return {
     ctx,
     graphql,
+    compareCommits,
     checkRunCalls,
     timingCalls,
     metricsCalls,
@@ -358,15 +392,68 @@ describe("finalizeReviewSuccess (mt#2731)", () => {
       });
     });
 
-    test("resolves outstanding findings to disposition=unknown on APPROVE", async () => {
-      const { db, updateSets } = makeFindingsTrackingDb();
+    test("mt#3300: falls back to disposition=unknown on APPROVE when the diff fetch fails", async () => {
+      const { db, updateSets } = makeFindingsTrackingDb({
+        outstandingRows: [{ id: "f1", file: "src/foo.ts", headSha: "priorsha1" }],
+      });
       const h = makeHarness({ trackingDb: db });
+      // No changedFilesFetcher injected: the default production fetcher runs
+      // against the harness's bare `{graphql}` octokit double, which has no
+      // `.rest.repos.compareCommits` — the fetch fails, and the classifier
+      // falls back to the safe "unknown" default (never a guess).
 
       await finalizeReviewSuccess(h.ctx, successInput({ event: "APPROVE", blockingCount: 0 }));
 
       expect(updateSets).toHaveLength(1);
       expect(updateSets[0]?.["disposition"]).toBe("unknown");
       expect(updateSets[0]?.["dispositionSetAt"]).toBeInstanceOf(Date);
+    });
+
+    test("mt#3300: classifies fixed-by-code-change vs resolved-without-code-change on APPROVE", async () => {
+      const { db, updateSets } = makeFindingsTrackingDb({
+        outstandingRows: [
+          { id: "f-touched", file: "src/touched.ts", headSha: "priorsha1" },
+          { id: "f-untouched", file: "src/untouched.ts", headSha: "priorsha1" },
+        ],
+      });
+      const changedFilesFetcher: ChangedFilesFetcherFn = mock(async () => [
+        { filename: "src/touched.ts" },
+      ]);
+      const h = makeHarness({ trackingDb: db, changedFilesFetcher });
+
+      await finalizeReviewSuccess(h.ctx, successInput({ event: "APPROVE", blockingCount: 0 }));
+
+      const dispositions = updateSets.map((s) => s["disposition"]);
+      expect(dispositions).toContain("fixed-by-code-change");
+      expect(dispositions).toContain("resolved-without-code-change");
+      expect(changedFilesFetcher).toHaveBeenCalledWith("priorsha1", "abc123");
+    });
+
+    test("mt#3300 R1 BLOCKING #2 — the default changedFilesFetcher binds baseSha/headSha/owner/repo correctly end-to-end", async () => {
+      // Deliberately NOT injecting `changedFilesFetcher` into deps — this
+      // exercises the REAL default closure `review-finalize.ts` builds from
+      // `fetchChangedFilesSince`, not an injected seam. A seam-only test (the
+      // two tests above) cannot catch an argument-binding bug in that closure.
+      const { db, updateSets } = makeFindingsTrackingDb({
+        outstandingRows: [{ id: "f1", file: "src/touched.ts", headSha: "priorsha1" }],
+      });
+      const compareCommits = mock(async (_params?: Record<string, unknown>) => ({
+        data: { files: [{ filename: "src/touched.ts" }] },
+      }));
+      const h = makeHarness({ trackingDb: db, compareCommits });
+
+      await finalizeReviewSuccess(h.ctx, successInput({ event: "APPROVE", blockingCount: 0 }));
+
+      expect(compareCommits).toHaveBeenCalledTimes(1);
+      const call = compareCommits.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(call).toMatchObject({
+        owner: "edobry",
+        repo: "minsky",
+        base: "priorsha1", // the finding's OWN round headSha (older commit)
+        head: "abc123", // ctx.pr.headSha — the APPROVING round's headSha (newer commit)
+      });
+      expect(updateSets).toHaveLength(1);
+      expect(updateSets[0]?.["disposition"]).toBe("fixed-by-code-change");
     });
 
     test("does NOT resolve outstanding findings on REQUEST_CHANGES", async () => {

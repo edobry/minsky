@@ -35,11 +35,8 @@ export const VALID_FINDING_SEVERITIES: ReadonlySet<string> = new Set<FindingSeve
 ]);
 
 /**
- * Accepted `disposition` values (mt#3295 SC#2).
- *
- * Populated on the convergence path — NOT a full argued-out-of-BLOCKING
- * classifier (that's mt#3300's job; this task only wires the cheap signals
- * already computed by the existing recovery/convergence-detector passes):
+ * Accepted `disposition` values (mt#3295 SC#2; deeper classification wired
+ * by mt#3300):
  *
  *   - "bypassed"                     — a structural recovery pass (severity-
  *                                       monotonicity, composition-convergence,
@@ -52,24 +49,31 @@ export const VALID_FINDING_SEVERITIES: ReadonlySet<string> = new Set<FindingSeve
  *   - "unknown"                      — the finding was open (BLOCKING) in a
  *                                       prior round and is no longer present
  *                                       once the PR reaches an APPROVE verdict,
- *                                       but the cheap population here cannot
- *                                       further classify HOW it was resolved
- *                                       (fixed by code, dismissed as a false
- *                                       positive, or resolved without a code
- *                                       change). Set at approval time as a
- *                                       safe, non-overclaiming default.
- *   - "fixed-by-code-change"         — reserved for the deeper classifier
- *                                       (mt#3300) that cross-checks the
- *                                       finding's file:line window against the
- *                                       diff since it was raised.
- *   - "dismissed-as-FP"              — reserved for mt#3300 (requires
- *                                       correlating reviewer/implementer
- *                                       argumentation, not just diff presence).
- *   - "resolved-without-code-change" — reserved for mt#3300 (the finding
- *                                       disappeared but its file was not
- *                                       touched — the "argued out of
- *                                       BLOCKING" case named in the mt#3295
- *                                       spec's Measured corpus results §2).
+ *                                       but the disposition could not be
+ *                                       determined (a diff-fetch failure, or
+ *                                       a caller with no diff-fetch
+ *                                       capability at all — see
+ *                                       `findings.ts`'s
+ *                                       `resolveOutstandingFindingsOnApproval`).
+ *                                       Safe, non-overclaiming fallback.
+ *   - "fixed-by-code-change"         — mt#3300's `resolution-classifier.ts`
+ *                                       (`classifyOutstandingFindings`) found
+ *                                       a commit between the finding's round
+ *                                       and the APPROVE round that touched
+ *                                       the finding's cited file.
+ *   - "dismissed-as-FP"              — reserved; requires correlating
+ *                                       reviewer/implementer argumentation
+ *                                       beyond diff presence. Not yet wired
+ *                                       (out of mt#3300's scope — see its
+ *                                       spec's Scope section).
+ *   - "resolved-without-code-change" — mt#3300's `classifyOutstandingFindings`
+ *                                       found NO commit between the finding's
+ *                                       round and the APPROVE round that
+ *                                       touched the finding's cited file —
+ *                                       the "argued out of BLOCKING" case
+ *                                       named in the mt#3295 spec's Measured
+ *                                       corpus results §2 (e.g. PR #2235's
+ *                                       "not wired into CI" finding).
  *
  * NULL means "not yet evaluated" (the finding is still open in the current
  * round, or the PR has not yet converged).

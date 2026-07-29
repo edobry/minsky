@@ -26,6 +26,7 @@ import {
   createAppIdentityOctokit,
   fetchPriorReviews,
   fetchCommitMessagesSince,
+  fetchChangedFilesSince,
   fetchListFiles,
   MAX_FILES_FETCHED,
   fetchReviewThreads,
@@ -1004,5 +1005,82 @@ describe("fetchCommitMessagesSince", () => {
     );
 
     expect(results).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchChangedFilesSince (mt#3300 SC#1)
+// ---------------------------------------------------------------------------
+
+function buildFakeCompareOctokit(files: Array<{ filename: string }>): Octokit {
+  const compareCommitsMock = mock(async () => ({ data: { files } }));
+  return {
+    rest: {
+      repos: {
+        compareCommits: compareCommitsMock,
+      },
+    },
+  } as unknown as Octokit;
+}
+
+describe("fetchChangedFilesSince", () => {
+  test("returns [] immediately when baseSha === headSha, without calling the API", async () => {
+    const compareCommitsMock = mock(async () => ({ data: { files: [] } }));
+    const octokit = {
+      rest: { repos: { compareCommits: compareCommitsMock } },
+    } as unknown as Octokit;
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha1");
+
+    expect(result).toEqual([]);
+    expect(compareCommitsMock).not.toHaveBeenCalled();
+  });
+
+  test("returns the changed file list from compareCommits", async () => {
+    const octokit = buildFakeCompareOctokit([{ filename: "src/a.ts" }, { filename: "src/b.ts" }]);
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toEqual([{ filename: "src/a.ts" }, { filename: "src/b.ts" }]);
+  });
+
+  test("returns undefined and does not throw when compareCommits fails", async () => {
+    const octokit = {
+      rest: {
+        repos: {
+          compareCommits: mock(async () => {
+            throw new Error("404 Not Found");
+          }),
+        },
+      },
+    } as unknown as Octokit;
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("mt#3300 R1 non-blocking: returns undefined (ambiguous) when the response hits the 300-file cap", async () => {
+    // GitHub's compare-commits endpoint caps `files` at 300 with no explicit
+    // truncation flag. A response that hits the cap MAY have more files
+    // beyond it — proceeding as if the list were complete could miss the
+    // finding's cited file and manufacture a false "untouched" verdict, so
+    // this must fail toward ambiguous (undefined), never toward asserting
+    // the file list is exhaustive.
+    const files = Array.from({ length: 300 }, (_, i) => ({ filename: `src/file${i}.ts` }));
+    const octokit = buildFakeCompareOctokit(files);
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("returns the full list when file count is just under the cap", async () => {
+    const files = Array.from({ length: 299 }, (_, i) => ({ filename: `src/file${i}.ts` }));
+    const octokit = buildFakeCompareOctokit(files);
+
+    const result = await fetchChangedFilesSince(octokit, "owner", "repo", "sha1", "sha2");
+
+    expect(result).toHaveLength(299);
   });
 });
