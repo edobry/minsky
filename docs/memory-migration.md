@@ -66,7 +66,7 @@ memory:
 Then recompile rules so the memory-usage directive is emitted in CLAUDE.md:
 
 ```bash
-bun run minsky rules compile
+bun run minsky compile
 ```
 
 Verify the directive appears in `CLAUDE.md`:
@@ -91,7 +91,7 @@ system-reminder block from `MEMORY.md`.
 If the agent instead reads from MEMORY.md preamble (visible as a system-reminder block), check:
 
 1. The config flag is set to `"on_demand"`
-2. `bun run minsky rules compile` was run after the flag change
+2. `bun run minsky compile` was run after the flag change
 3. The session workspace `CLAUDE.md` was refreshed
 
 ### Step 6: Remove source memory files (user action)
@@ -132,7 +132,7 @@ After completing all steps, verify the end-to-end system:
 To revert to legacy preamble loading:
 
 1. Set `memory.loadingMode: legacy` in config
-2. Run `bun run minsky rules compile`
+2. Run `bun run minsky compile`
 3. Restore the memory files if they were removed (from `memory.bak/`)
 
 The `"legacy"` mode suppresses the `memory-usage` directive in compiled CLAUDE.md, allowing
