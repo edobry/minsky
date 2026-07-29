@@ -253,28 +253,6 @@ function makeFakeContainer(taskService: Record<string, unknown>): AppContainerIn
 /** Repo root, resolved from this test file's location (src/commands/ops/). */
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 
-/** Env var name gating dry-run vs. execute (mt#3328) — shared to avoid duplication. */
-const EXECUTE_ENV_VAR = "ADOPTION_SWEEPER_EXECUTE";
-
-/** Temporarily set (or delete) an env var for the duration of an async callback. */
-async function withEnvAsync(key: string, value: string | undefined, fn: () => Promise<void>) {
-  const original = process.env[key];
-  if (value === undefined) {
-    delete process.env[key];
-  } else {
-    process.env[key] = value;
-  }
-  try {
-    await fn();
-  } finally {
-    if (original === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = original;
-    }
-  }
-}
-
 describe("adoptionSweeperTick", () => {
   test("grep failure (simulated missing repo) hard-skips: distinct log event, no task creation, tick rejects", async () => {
     const createTaskSpy = mock(() => ({ id: "mt#unused", title: "unused", status: "TODO" }));
@@ -322,102 +300,101 @@ describe("adoptionSweeperTick", () => {
   });
 
   test("zero-match grep on a real repo preserves the existing unadopted (file-a-task) path", async () => {
-    await withEnvAsync(EXECUTE_ENV_VAR, "true", async () => {
-      // A per-run-unique name: the literal name itself must NOT appear
-      // anywhere in the repo's committed/on-disk source (including this
-      // very test file), or the real git grep below would find a false
-      // match. Assigning Date.now() to a variable first (rather than
-      // interpolating it directly in the template literal) means only the
-      // variable REFERENCE appears in this file's source text, not the
-      // runtime-expanded digits.
-      const runSuffix = Date.now();
-      const signalName = `mt3328TestOnlyZeroMatchCanarySymbol_${runSuffix}`;
-      const specText = ["## Summary", "", `export function ${signalName}() {}`, ""].join("\n");
+    // A per-run-unique name: the literal name itself must NOT appear
+    // anywhere in the repo's committed/on-disk source (including this very
+    // test file), or the real git grep below would find a false match.
+    // Assigning Date.now() to a variable first (rather than interpolating it
+    // directly in the template literal) means only the variable REFERENCE
+    // appears in this file's source text, not the runtime-expanded digits.
+    const runSuffix = Date.now();
+    const signalName = `mt3328TestOnlyZeroMatchCanarySymbol_${runSuffix}`;
+    const specText = ["## Summary", "", `export function ${signalName}() {}`, ""].join("\n");
 
-      const createTaskSpy = mock((title: string, _spec: string, _options?: unknown) => ({
-        id: "mt#99999",
-        title,
-        status: "TODO",
-      }));
+    const createTaskSpy = mock((title: string, _spec: string, _options?: unknown) => ({
+      id: "mt#99999",
+      title,
+      status: "TODO",
+    }));
 
-      const taskService = {
-        getWorkspacePath: () => REPO_ROOT,
-        listTasks: mock(
-          (opts?: { status?: string }) =>
-            opts && opts.status === "DONE"
-              ? [{ id: "mt#12345", title: "Fake done task", status: "DONE" }]
-              : [] // No existing adoption follow-up task.
-        ),
-        getTaskSpecContent: mock(() => ({ content: specText })),
-        createTaskFromTitleAndSpec: createTaskSpy,
-      };
-      const container = makeFakeContainer(taskService);
+    const taskService = {
+      getWorkspacePath: () => REPO_ROOT,
+      listTasks: mock(
+        (opts?: { status?: string }) =>
+          opts && opts.status === "DONE"
+            ? [{ id: "mt#12345", title: "Fake done task", status: "DONE" }]
+            : [] // No existing adoption follow-up task.
+      ),
+      getTaskSpecContent: mock(() => ({ content: specText })),
+      createTaskFromTitleAndSpec: createTaskSpy,
+    };
+    const container = makeFakeContainer(taskService);
 
-      const errorSpy = spyOn(log, "error");
-      errorSpy.mockClear();
+    const errorSpy = spyOn(log, "error");
+    errorSpy.mockClear();
 
-      try {
-        // No execAsyncFn override: exercises the REAL git grep against the
-        // real repo. The positive control (self-referential canary) succeeds
-        // because its own function is committed to start-command.ts; the
-        // invented signal name is guaranteed absent from the tree, exercising
-        // the genuine zero-match path (not the unavailable path).
-        await adoptionSweeperTick(container);
+    try {
+      // No execAsyncFn override: exercises the REAL git grep against the
+      // real repo. The positive control (self-referential canary) succeeds
+      // because its own function is committed to start-command.ts; the
+      // invented signal name is guaranteed absent from the tree, exercising
+      // the genuine zero-match path (not the unavailable path).
+      // executeOverride: true selects the execute (not dry-run) branch
+      // directly, without touching process.env (mt#3328 review R1).
+      await adoptionSweeperTick(container, { executeOverride: true });
 
-        const unavailableCalls = errorSpy.mock.calls.filter(
-          (call) => call[0] === "adoption_sweeper.callsite_check_unavailable"
-        );
-        expect(unavailableCalls.length).toBe(0);
+      const unavailableCalls = errorSpy.mock.calls.filter(
+        (call) => call[0] === "adoption_sweeper.callsite_check_unavailable"
+      );
+      expect(unavailableCalls.length).toBe(0);
 
-        expect(createTaskSpy.mock.calls.length).toBe(1);
-        expect(createTaskSpy.mock.calls[0]?.[0]).toBe(`mt#12345 adoption: ${signalName}`);
-      } finally {
-        errorSpy.mockRestore();
-      }
-    });
+      expect(createTaskSpy.mock.calls.length).toBe(1);
+      expect(createTaskSpy.mock.calls[0]?.[0]).toBe(`mt#12345 adoption: ${signalName}`);
+    } finally {
+      errorSpy.mockRestore();
+    }
   }, 30_000);
 
   test("dry-run mode (default) logs a proposed filing without creating a task", async () => {
-    await withEnvAsync(EXECUTE_ENV_VAR, undefined, async () => {
-      // See the sibling test above for why Date.now() is assigned to a
-      // variable first rather than interpolated directly.
-      const runSuffix = Date.now();
-      const signalName = `mt3328TestOnlyDryRunCanarySymbol_${runSuffix}`;
-      const specText = ["## Summary", "", `export function ${signalName}() {}`, ""].join("\n");
+    // See the sibling test above for why Date.now() is assigned to a
+    // variable first rather than interpolated directly.
+    const runSuffix = Date.now();
+    const signalName = `mt3328TestOnlyDryRunCanarySymbol_${runSuffix}`;
+    const specText = ["## Summary", "", `export function ${signalName}() {}`, ""].join("\n");
 
-      const createTaskSpy = mock(() => ({ id: "mt#unused", title: "unused", status: "TODO" }));
-      const taskService = {
-        getWorkspacePath: () => REPO_ROOT,
-        listTasks: mock((opts?: { status?: string }) =>
-          opts && opts.status === "DONE"
-            ? [{ id: "mt#54321", title: "Fake done task 2", status: "DONE" }]
-            : []
-        ),
-        getTaskSpecContent: mock(() => ({ content: specText })),
-        createTaskFromTitleAndSpec: createTaskSpy,
-      };
-      const container = makeFakeContainer(taskService);
+    const createTaskSpy = mock(() => ({ id: "mt#unused", title: "unused", status: "TODO" }));
+    const taskService = {
+      getWorkspacePath: () => REPO_ROOT,
+      listTasks: mock((opts?: { status?: string }) =>
+        opts && opts.status === "DONE"
+          ? [{ id: "mt#54321", title: "Fake done task 2", status: "DONE" }]
+          : []
+      ),
+      getTaskSpecContent: mock(() => ({ content: specText })),
+      createTaskFromTitleAndSpec: createTaskSpy,
+    };
+    const container = makeFakeContainer(taskService);
 
-      const infoSpy = spyOn(log, "info");
-      infoSpy.mockClear();
+    const infoSpy = spyOn(log, "info");
+    infoSpy.mockClear();
 
-      try {
-        await adoptionSweeperTick(container);
+    try {
+      // No executeOverride: exercises the real default (dry-run) directly,
+      // without touching process.env (mt#3328 review R1).
+      await adoptionSweeperTick(container);
 
-        // Dry-run never calls createTaskFromTitleAndSpec.
-        expect(createTaskSpy.mock.calls.length).toBe(0);
+      // Dry-run never calls createTaskFromTitleAndSpec.
+      expect(createTaskSpy.mock.calls.length).toBe(0);
 
-        const proposedCalls = infoSpy.mock.calls.filter(
-          (call) => call[0] === "adoption_sweeper.dry_run_proposed_filing"
-        );
-        expect(proposedCalls.length).toBe(1);
-        expect(proposedCalls[0]?.[1]).toMatchObject({
-          parentTaskId: "mt#54321",
-          signalName,
-        });
-      } finally {
-        infoSpy.mockRestore();
-      }
-    });
+      const proposedCalls = infoSpy.mock.calls.filter(
+        (call) => call[0] === "adoption_sweeper.dry_run_proposed_filing"
+      );
+      expect(proposedCalls.length).toBe(1);
+      expect(proposedCalls[0]?.[1]).toMatchObject({
+        parentTaskId: "mt#54321",
+        signalName,
+      });
+    } finally {
+      infoSpy.mockRestore();
+    }
   }, 30_000);
 });

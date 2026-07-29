@@ -210,8 +210,9 @@ export type CallsiteCheckResult =
 export type ExecAsyncFn = (command: string) => Promise<{ stdout: string; stderr: string }>;
 
 /**
- * Run `git grep -l -e <pattern> -- 'src/**\/*.ts'` against `workspaceRoot` and
- * classify the outcome into exactly one of three buckets.
+ * Run `git grep -l` for `pattern` against every `.ts` file under `src/`,
+ * recursively, at `workspaceRoot`, and classify the outcome into exactly
+ * one of three buckets.
  *
  * This is the mt#3328 fix for the adoption sweeper's "container blindness"
  * bug: the previous implementation appended `2>/dev/null || true` to the
@@ -232,6 +233,14 @@ export type ExecAsyncFn = (command: string) => Promise<{ stdout: string; stderr:
  *               etc). `execAsyncFn` rejects with an error carrying `.code`
  *               for these.
  *
+ * The resolved (non-throwing) path is expected to always carry `count > 0`
+ * per real git's exit-code contract above, but is defensively re-checked
+ * rather than trusted blindly: an `execAsyncFn` that resolves with empty
+ * stdout instead of rejecting on "no match" (any implementation that
+ * doesn't mirror `child_process.exec`'s reject-on-nonzero-exit semantics,
+ * including test doubles) is treated as `"zero"`, never as a false
+ * `"found"` with `count: 0` (mt#3328 review R1).
+ *
  * @param execAsyncFn - Injectable exec function so tests can simulate
  *   failure (missing repo, git absent) without touching the real
  *   filesystem/git.
@@ -250,6 +259,13 @@ export async function checkCallsites(
       `git -C ${safeShellQuoteFn(workspaceRoot)} grep -l -e ${safeShellQuoteFn(pattern)} -- 'src/**/*.ts'`
     );
     const lines = stdout.trim().split("\n").filter(Boolean);
+    if (lines.length === 0) {
+      // Defensive: real `git grep -l` never resolves (exit 0) with empty
+      // output, but don't rely on that invariant holding for every possible
+      // execAsyncFn — an empty resolved result is a genuine zero-match, not
+      // a "found" with count 0.
+      return { status: "zero" };
+    }
     return { status: "found", count: lines.length };
   } catch (err) {
     const execErr = err as { code?: number; stderr?: string; message?: string };
@@ -275,9 +291,10 @@ export async function checkCallsites(
  *
  * Deliberately self-referential: this exact identifier is called immediately
  * below (`adoptionSweeperPositiveControlCanary()`), so `git grep` for this
- * literal name is GUARANTEED to find >= 1 match in `src/**\/*.ts` as long as
- * this file exists — independent of any other codebase content. If the
- * canary check ever returns anything other than `{ status: "found", count > 0 }`,
+ * literal name is GUARANTEED to find >= 1 match under `src/` (recursively,
+ * `.ts` files) as long as this file exists — independent of any other
+ * codebase content. If the canary check ever returns anything other than
+ * `{ status: "found", count > 0 }`,
  * the callsite-check mechanism itself (not any particular adoption signal)
  * is broken — e.g. the container has no `.git` directory (mt#3328).
  */
@@ -357,7 +374,7 @@ async function runPositiveControlCheck(
  */
 export async function adoptionSweeperTick(
   container: AppContainerInterface,
-  deps?: { execAsyncFn?: ExecAsyncFn }
+  deps?: { execAsyncFn?: ExecAsyncFn; executeOverride?: boolean }
 ): Promise<void> {
   const lookbackDays = parsePositiveIntEnv("ADOPTION_SWEEPER_LOOKBACK_DAYS", 14);
   const taskService = container.get("taskService");
@@ -370,8 +387,16 @@ export async function adoptionSweeperTick(
   const execAsyncFn = deps?.execAsyncFn ?? realExecAsync;
 
   // Dry-run gate (mt#3328): default to dry-run until explicitly set to execute.
-  const executeRaw = process.env["ADOPTION_SWEEPER_EXECUTE"] ?? "false";
-  const dryRun = !(executeRaw === "true" || executeRaw === "1");
+  // `deps.executeOverride` lets tests select execute-vs-dry-run directly
+  // instead of mutating the process-global `ADOPTION_SWEEPER_EXECUTE` env
+  // var (mt#3328 review R1 — avoids any risk of cross-test env interference).
+  const dryRun =
+    deps?.executeOverride !== undefined
+      ? !deps.executeOverride
+      : !(
+          process.env["ADOPTION_SWEEPER_EXECUTE"] === "true" ||
+          process.env["ADOPTION_SWEEPER_EXECUTE"] === "1"
+        );
 
   const startedAt = new Date().toISOString();
   log.info("adoption_sweeper.run_started", {
@@ -407,15 +432,19 @@ export async function adoptionSweeperTick(
         "own canary signal. Hard-skipping this entire run to avoid mass bogus " +
         "task filing (mt#3328).",
     });
-    log.info("adoption_sweeper.run_completed", {
-      event: "adoption_sweeper.run_completed",
+    // Distinct from "run_completed" (mt#3328 review R1): this run did NOT
+    // complete — it aborted before touching any task — and the tick is
+    // about to throw. Logging it as "completed" would misleadingly read as
+    // a clean, finished run to anything grepping/dashboarding the logs.
+    log.info("adoption_sweeper.run_aborted", {
+      event: "adoption_sweeper.run_aborted",
+      reason: "positive_control_failed",
       startedAt,
       tasksChecked: 0,
       tasksWithSignals: 0,
       totalGapsFiled: 0,
       totalGapsProposed: 0,
       dryRun,
-      errorCount: 0,
       callsiteCheckUnavailableCount,
     });
     throw new Error(
