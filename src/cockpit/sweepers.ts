@@ -994,12 +994,14 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
         if (opts?.schemaReadiness !== false) {
           await refreshSchemaReadinessFromDb();
           if (isSchemaBehind()) {
-            const { pending } = getSchemaReadiness();
-            log.warn(
-              `cockpit: transcript sweep SKIPPED — database schema is behind this build ` +
-                `(${pending.length} migration(s) pending). Run 'minsky persistence migrate --execute'.`,
-              { pending }
-            );
+            // At debug, not warn: `refreshSchemaReadinessFromDb` already logged
+            // the transition into behind at warn, and repeating the reason on
+            // every tick would make a check whose purpose is bounding log volume
+            // into a recurring writer (PR #2379 R1). The standing condition is
+            // on /api/health.
+            log.debug("cockpit: transcript sweep skipped — schema behind", {
+              pending: getSchemaReadiness().pending,
+            });
             return;
           }
         }

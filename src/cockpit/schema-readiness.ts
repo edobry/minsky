@@ -118,11 +118,19 @@ export async function refreshSchemaReadiness(deps: SchemaReadinessDeps): Promise
     };
 
     if (pending.length > 0) {
-      log.warn(
-        `cockpit: database schema is BEHIND this build — ${pending.length} migration(s) not applied. ` +
-          `Schema-dependent sweeps are paused. Run 'minsky persistence migrate --execute'.`,
-        { pending }
-      );
+      // Log the TRANSITION into behind, not every check (PR #2379 R1). This
+      // runs on every sweep tick, and a check that exists to bound log volume
+      // must not itself become the thing writing a line every 30 minutes
+      // forever. The condition stays continuously visible on /api/health, which
+      // is the surface built for standing state; the log is for the event.
+      if (!wasBehind) {
+        log.warn(
+          `cockpit: database schema is BEHIND this build — ${pending.length} migration(s) not applied. ` +
+            `Schema-dependent sweeps are paused until this is resolved. ` +
+            `Run 'minsky persistence migrate --execute'.`,
+          { pending }
+        );
+      }
     } else if (wasBehind) {
       // Only on the transition, so the common case stays quiet.
       log.cli("cockpit: database schema is now current — schema-dependent sweeps resumed.");
@@ -145,22 +153,28 @@ export async function refreshSchemaReadiness(deps: SchemaReadinessDeps): Promise
 
 /**
  * Production wiring: compare the migration journal this build ships against the
- * count recorded in `drizzle.__drizzle_migrations`.
+ * hashes recorded in `drizzle.__drizzle_migrations`.
  *
- * Count-based rather than hash-based on purpose. The question here is only
- * "does the running code expect columns the DB lacks", which a shortfall in the
- * applied count answers; the richer per-migration hash comparison
- * (`resolvePendingMigrations`) exists for the migrate command, which needs to
- * know WHICH files to run and to detect edited-after-apply drift. Borrowing it
- * would couple a health check to the migrate path's file reads and its
- * immutable-migration semantics for no gain at this question.
+ * Uses `resolvePendingMigrations`, the same per-migration hash SET DIFFERENCE
+ * the migrate command uses, rather than comparing counts. A count comparison
+ * has the mirror of the bug this module exists to fix (PR #2379 R1): it assumes
+ * the ledger is a prefix of the journal, so a migration missing from the MIDDLE
+ * of an otherwise-full ledger reads as "current" — a silent false-negative in a
+ * check whose whole purpose is to stop silent schema mismatches. mt#2936 fixed
+ * exactly that class in the migrate path; borrowing its resolver rather than
+ * re-deriving a weaker comparison here is the point.
+ *
+ * Also reports the OPPOSITE divergence: applied hashes this build's journal does
+ * not contain, which means the database is AHEAD of the running code (stale
+ * deploy, or a rollback of the code but not the schema). That does not pause
+ * sweeps — the columns the code wants do exist — but it is a schema mismatch an
+ * operator should see rather than have silently reported as healthy.
  */
 export async function refreshSchemaReadinessFromDb(): Promise<SchemaReadiness> {
   return refreshSchemaReadiness({
     readPendingMigrations: async () => {
-      const { resolvePgMigrationsFolder } = await import(
-        "@minsky/domain/persistence/postgres-migration-operations"
-      );
+      const { resolvePgMigrationsFolder, resolvePendingMigrations, computeMigrationHash } =
+        await import("@minsky/domain/persistence/postgres-migration-operations");
       const { getSharedPersistenceService } = await import("./shared-persistence");
       const { sql: drizzleSql } = await import("drizzle-orm");
 
@@ -187,16 +201,41 @@ export async function refreshSchemaReadinessFromDb(): Promise<SchemaReadiness> {
       const folder = resolvePgMigrationsFolder();
       const journal = JSON.parse(
         String(readFileSync(join(folder, "meta", "_journal.json"), "utf-8"))
-      ) as { entries: { tag: string }[] };
+      ) as { entries: Parameters<typeof resolvePendingMigrations>[0] };
 
-      const result = (await db.execute(
-        drizzleSql`SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations"`
-      )) as Array<{ count: string }>;
-      const appliedCount = Number.parseInt(result?.[0]?.count ?? "0", 10);
+      const rows = (await db.execute(
+        drizzleSql`SELECT hash FROM "drizzle"."__drizzle_migrations"`
+      )) as Array<{ hash: string | null }>;
+      const appliedHashes = new Set(rows.map((r) => r.hash).filter((h): h is string => Boolean(h)));
 
-      // Journal entries beyond what the ledger records are the ones this build
-      // has and the DB does not.
-      return journal.entries.slice(appliedCount).map((e) => e.tag);
+      // Journal entries whose file hash is absent from the ledger — the
+      // migrations this build ships that the database has not applied.
+      const pending = resolvePendingMigrations(journal.entries, folder, appliedHashes);
+
+      // The other direction: ledger hashes this build's journal does not
+      // contain. Reported, not blocking — the running code's columns exist, but
+      // a DB ahead of the code is still a mismatch worth seeing.
+      const journalHashes = new Set(
+        journal.entries.map((entry) => {
+          try {
+            return computeMigrationHash(
+              String(readFileSync(join(folder, `${entry.tag}.sql`), "utf-8"))
+            );
+          } catch {
+            return "";
+          }
+        })
+      );
+      const aheadCount = [...appliedHashes].filter((h) => !journalHashes.has(h)).length;
+      if (aheadCount > 0) {
+        log.warn(
+          `cockpit: database has ${aheadCount} applied migration(s) this build does not ship — ` +
+            `the DB is AHEAD of the running code (stale deploy?). Not pausing sweeps.`,
+          { aheadCount }
+        );
+      }
+
+      return pending.map((entry) => entry.tag);
     },
   });
 }

@@ -7,7 +7,9 @@
  * closes — a test that only checked the process was alive would reproduce the
  * bug rather than catch it.
  */
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, spyOn } from "bun:test";
+
+import { log } from "@minsky/shared/logger";
 
 import {
   getSchemaReadiness,
@@ -99,6 +101,36 @@ describe("schema readiness", () => {
     });
     expect(isSchemaBehind()).toBe(false);
     expect(getSchemaReadiness().current).toBeNull();
+  });
+
+  // PR #2379 R1: the gate runs on every sweep tick. A check whose stated
+  // purpose is bounding log volume must not itself write a line every 30
+  // minutes for as long as the condition lasts, so it logs the TRANSITION only.
+  test("warns on entering the behind state, then stays quiet while it persists", async () => {
+    const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
+    try {
+      const behind = { readPendingMigrations: async () => ["0076_pending"] };
+
+      await refreshSchemaReadiness(behind);
+      const afterFirst = warnSpy.mock.calls.length;
+      expect(afterFirst).toBe(1);
+
+      // Three more ticks with the condition unchanged.
+      await refreshSchemaReadiness(behind);
+      await refreshSchemaReadiness(behind);
+      await refreshSchemaReadiness(behind);
+      expect(warnSpy.mock.calls.length).toBe(afterFirst);
+
+      // Still reported as behind throughout — quiet is not the same as clear.
+      expect(isSchemaBehind()).toBe(true);
+
+      // Recovering and regressing warns again: this is a new event.
+      await refreshSchemaReadiness({ readPendingMigrations: async () => [] });
+      await refreshSchemaReadiness(behind);
+      expect(warnSpy.mock.calls.length).toBe(afterFirst + 1);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   test("the snapshot is a copy — callers cannot mutate the gate", async () => {
