@@ -63,8 +63,16 @@ export interface TranscriptSource {
   readonly harness: string;
   /** Enumerate transcript files known to this source. */
   discoverSessions(): AsyncIterable<DiscoveredSession>;
-  /** Stream retention-filtered raw turn lines for one session. */
-  readSession(agentSessionId: AgentSessionId): AsyncIterable<RawTurnLine>;
+  /**
+   * Stream retention-filtered raw turn lines for one session.
+   *
+   * `jsonlPath` is the session's already-known file path — pass it whenever the
+   * caller holds a `DiscoveredSession`. Without it a discovery-backed source has
+   * to resolve the id by scanning, which is O(all transcripts) per call and made
+   * `ingestAll` quadratic in corpus size (mt#3288). Omit it only for a genuine
+   * id-only lookup where no path is available.
+   */
+  readSession(agentSessionId: AgentSessionId, jsonlPath?: string): AsyncIterable<RawTurnLine>;
   /** Extract the ISO timestamp from a raw line; undefined if missing/invalid. */
   getJsonlTimestamp(line: RawTurnLine): TimestampISO | undefined;
 }

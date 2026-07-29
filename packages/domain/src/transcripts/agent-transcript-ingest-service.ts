@@ -50,6 +50,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transcript-attachments-schema";
 import { log } from "@minsky/shared/logger";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { getLoggableErrorSummary } from "../errors/index";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
@@ -58,11 +59,43 @@ import { writeCwdMatchLink } from "./session-link-writer";
 import { AgentSpawnsPipeline } from "./agent-spawns-pipeline";
 import type { SpawnsPipelineRunResult } from "./agent-spawns-pipeline";
 import { scrubValueDeep, type RedactionHit } from "./credential-scrubber";
+import { sanitizeForPostgres, sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
+import type { ConversationId } from "../ids";
 import { recordCredentialScrub, realCredentialScrubLogDeps } from "./credential-scrub-log";
 import { resolveProjectIdentity } from "../project/identity";
 import { resolveProjectScope } from "../project/scope-resolver";
 import { isAllProjects } from "../project/scope";
 import { SYNTHETIC_MODEL_SENTINEL } from "../subagent/transcript-metrics";
+
+/**
+ * Consecutive failed ingest attempts before a session is quarantined (mt#3278).
+ *
+ * Grounded in the sweep's own cadence rather than a round number: the backstop
+ * runs every 30 minutes, so three consecutive failures is roughly 1.5 hours —
+ * long enough that a transient DB blip or a brief outage resolves on its own
+ * without burning the budget, short enough that a genuinely permanent failure
+ * stops re-serializing multi-megabyte payloads well inside a day. A single
+ * success resets the counter, so the threshold only ever measures an
+ * uninterrupted run of failures.
+ */
+export const INGEST_QUARANTINE_THRESHOLD = 3;
+
+/**
+ * Cap on the stored `ingest_last_error` text. The whole point of the column is
+ * a human-readable diagnosis; a Postgres error carrying a megabyte-scale
+ * parameter dump (the mt#2903 log-bloat shape) is not more diagnostic for being
+ * complete, and storing it would reproduce the bloat in the database.
+ */
+const INGEST_ERROR_TEXT_LIMIT = 2000;
+
+/**
+ * `harness` is NOT NULL, but a placeholder row created purely to record a
+ * failure may have no harness known yet — the failure can precede any
+ * successful read of the session. This sentinel is only ever written on that
+ * insert path; the real value lands on the first successful upsert, which sets
+ * `harness` on insert.
+ */
+const UNKNOWN_HARNESS = "unknown";
 
 /**
  * Narrow seam for the per-session spawn-extraction call `ingestSession` makes
@@ -146,16 +179,33 @@ export class AgentTranscriptIngestService {
     const sessionEnded = opts?.sessionEnded ?? false;
     const { agentSessionId, harness, jsonlPath, mtime } = session;
 
-    // ── 1. Read the current high-water-mark ──────────────────────────────────
+    // ── 1. Read the current high-water-mark (and quarantine state) ───────────
     let highWaterMark: Date | null = null;
     try {
       const rows = await this.db
         .select({
           lastIngestedJsonlTimestamp: agentTranscriptsTable.lastIngestedJsonlTimestamp,
+          ingestQuarantinedAt: agentTranscriptsTable.ingestQuarantinedAt,
         })
         .from(agentTranscriptsTable)
         .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
         .limit(1);
+
+      // mt#3278: a quarantined session has failed to ingest
+      // INGEST_QUARANTINE_THRESHOLD times running. Retrying it costs a
+      // multi-megabyte serialize plus a doomed DB round-trip on every sweep,
+      // forever, and produces no new information — the same content fails the
+      // same way. Skip it, and report it as quarantined rather than errored so
+      // the sweep can distinguish "keeps failing, still trying" from "given up
+      // on, needs a human". A successful ingest clears the flag, so fixing the
+      // underlying cause (e.g. shipping a sanitizer) un-quarantines on the
+      // first pass that gets through.
+      if (rows[0]?.ingestQuarantinedAt) {
+        log.debug(`Skipping quarantined session ${agentSessionId}`, {
+          quarantinedAt: rows[0].ingestQuarantinedAt.toISOString(),
+        });
+        return { ingested: 0, quarantined: true };
+      }
 
       highWaterMark = rows[0]?.lastIngestedJsonlTimestamp ?? null;
     } catch (err) {
@@ -200,9 +250,16 @@ export class AgentTranscriptIngestService {
     // call, aggregated across the whole stream and logged once below (the
     // counted signal — see credential-scrub-log.ts).
     const allRedactions: RedactionHit[] = [];
+    // mt#3278: counts of Postgres-unrepresentable codepoints replaced across
+    // this batch, logged once below rather than per line.
+    let unsafeCodepointsReplaced = 0;
+    let sanitizeKeyCollisions = 0;
 
     try {
-      for await (const line of this.source.readSession(agentSessionId)) {
+      // mt#3288: pass the path this session was discovered at. Without it a
+      // discovery-backed source re-scans every transcript in the corpus to
+      // resolve the id, which made `ingestAll` quadratic.
+      for await (const line of this.source.readSession(agentSessionId, jsonlPath)) {
         lineIndex++;
 
         const tsStr = this.source.getJsonlTimestamp(line);
@@ -220,14 +277,31 @@ export class AgentTranscriptIngestService {
           // durable-copy write path (agent_transcripts.transcript JSONB).
           const { value: scrubbedLine, redactions } = scrubValueDeep(line);
           if (redactions.length > 0) allRedactions.push(...redactions);
-          newLines.push(scrubbedLine);
+          // mt#3278: and make it storable. Postgres cannot hold U+0000 in a
+          // text-derived column, so a line carrying one fails the upsert
+          // identically on every retry — permanently freezing the transcript.
+          const {
+            value: safeLine,
+            replaced,
+            keyCollisions,
+          } = sanitizeForPostgresDeep(scrubbedLine);
+          unsafeCodepointsReplaced += replaced;
+          sanitizeKeyCollisions += keyCollisions;
+          newLines.push(safeLine);
         } else if (lineType === "attachment" || lineType === "system") {
           // mt#2763: scrub BEFORE buildAttachmentRow captures `content: line`
           // verbatim (attachment-row-builder.ts) — the other durable-copy
           // write path (agent_transcript_attachments.content).
           const { value: scrubbedLine, redactions } = scrubValueDeep(line);
           if (redactions.length > 0) allRedactions.push(...redactions);
-          const row = buildAttachmentRow(agentSessionId, lineIndex, scrubbedLine, tsDate);
+          const {
+            value: safeLine,
+            replaced,
+            keyCollisions,
+          } = sanitizeForPostgresDeep(scrubbedLine);
+          unsafeCodepointsReplaced += replaced;
+          sanitizeKeyCollisions += keyCollisions;
+          const row = buildAttachmentRow(agentSessionId, lineIndex, safeLine, tsDate);
           if (row !== null) newAttachmentRows.push(row);
         }
 
@@ -257,6 +331,27 @@ export class AgentTranscriptIngestService {
     // logging; see credential-scrub-log.ts's own error-swallowing posture.
     if (allRedactions.length > 0) {
       recordCredentialScrub(agentSessionId, allRedactions, realCredentialScrubLogDeps);
+    }
+
+    // mt#3278: the sanitization is lossy, so say so once per batch rather than
+    // silently. Rare in practice (7 of 982 local conversations carried one), and
+    // when it does fire it is the difference between this transcript ingesting
+    // and it being frozen forever.
+    if (unsafeCodepointsReplaced > 0) {
+      log.info(
+        `Replaced ${unsafeCodepointsReplaced} Postgres-unrepresentable codepoint(s) for session ${agentSessionId}`,
+        { agentSessionId, replaced: unsafeCodepointsReplaced }
+      );
+    }
+
+    // A key collision means a value was dropped, not merely rewritten — a
+    // strictly worse outcome than the substitution above, so it gets its own
+    // line at `warn`. Expected to be permanently zero (PR #2373 R1).
+    if (sanitizeKeyCollisions > 0) {
+      log.warn(
+        `Sanitization collapsed ${sanitizeKeyCollisions} duplicate object key(s) for session ${agentSessionId}, dropping the later value`,
+        { agentSessionId, keyCollisions: sanitizeKeyCollisions }
+      );
     }
 
     if (newLines.length === 0 && newAttachmentRows.length === 0) {
@@ -355,6 +450,38 @@ export class AgentTranscriptIngestService {
       }
     }
 
+    // ── 3b. Insert attachment rows BEFORE the transcript upsert (mt#3278) ────
+    // Ordering is load-bearing, not cosmetic. The high-water mark advances as
+    // part of the transcript upsert below; anything written AFTER it that fails
+    // is past the watermark and will never be retried, so its rows are lost
+    // permanently — and unlike a failed transcript upsert, which visibly
+    // freezes the row, an attachment loss leaves no symptom to notice later.
+    // Running the attachment insert first means a failure here aborts before
+    // the watermark moves, and the next sweep re-collects and retries both.
+    //
+    // Re-running is safe: the PK is `(agent_session_id, line_index)`, line_index
+    // is stable across re-reads of an append-only JSONL, and the insert is
+    // ON CONFLICT DO NOTHING — so rows written by an attempt whose transcript
+    // upsert then failed are simply no-ops on the retry.
+    let attachmentsWritten = 0;
+    if (newAttachmentRows.length > 0) {
+      try {
+        await this.db
+          .insert(agentTranscriptAttachmentsTable)
+          .values(newAttachmentRows)
+          .onConflictDoNothing();
+        attachmentsWritten = newAttachmentRows.length;
+      } catch (err) {
+        const attachmentError = err instanceof Error ? err : new Error(String(err));
+        log.error(
+          `Attachment insert FAILED for session ${agentSessionId} (${newAttachmentRows.length} rows) — aborting ingest before the high-water mark advances`,
+          { error: getLoggableErrorSummary(err) }
+        );
+        await this.recordIngestFailure(agentSessionId, attachmentError);
+        return { ingested: 0, error: attachmentError };
+      }
+    }
+
     // Fields restricted to insert-only (harness, cwd, project_dir, started_at)
     // are not overwritten on conflict.
     try {
@@ -410,13 +537,30 @@ export class AgentTranscriptIngestService {
             // mt#3089: never regress an already-resolved model with a later
             // batch that didn't happen to include the model-bearing turn.
             model: sql`COALESCE(${agentTranscriptsTable.model}, EXCLUDED.model)`,
+            // mt#3278: a successful upsert clears the failure record ENTIRELY.
+            // This is what makes quarantine self-healing — once the cause is
+            // fixed, the first pass that gets through un-quarantines the session
+            // with no manual step.
+            //
+            // All four columns reset together, deliberately: leaving
+            // `ingestLastFailedAt` set while the count is 0 and the error is
+            // NULL produces a row that reads as "currently failing" to anyone
+            // scanning for recent failures, which is exactly the misleading
+            // signal this task exists to remove. The failure history lives in
+            // the logs; these columns describe CURRENT state (PR #2373 R1).
+            ingestFailureCount: sql`0`,
+            ingestLastError: sql`NULL`,
+            ingestLastFailedAt: sql`NULL`,
+            ingestQuarantinedAt: sql`NULL`,
           },
         });
     } catch (err) {
-      log.error(`Failed to upsert transcript for session ${agentSessionId}`, {
+      const upsertError = err instanceof Error ? err : new Error(String(err));
+      log.error(`Transcript upsert FAILED for session ${agentSessionId}`, {
         error: getLoggableErrorSummary(err),
       });
-      return { ingested: 0, error: err instanceof Error ? err : new Error(String(err)) };
+      await this.recordIngestFailure(agentSessionId, upsertError);
+      return { ingested: 0, error: upsertError };
     }
 
     // ── 4b. Materialize per-turn rows for FTS (ADR-019, mt#2381) ──────────────
@@ -521,30 +665,8 @@ export class AgentTranscriptIngestService {
       });
     }
 
-    // ── 5. Insert new attachment rows (mt#2022) ──────────────────────────────
-    // Write to the sibling table for non-turn JSONL lines (attachment/system).
-    // PK is `(agent_session_id, line_index)`; `line_index` is stable on an
-    // append-only JSONL so ON CONFLICT DO NOTHING is the idempotency mechanism
-    // for re-runs (backfill, repeated ingests, HWM regressions).
-    let attachmentsWritten = 0;
-    let attachmentError: Error | undefined;
-    if (newAttachmentRows.length > 0) {
-      try {
-        await this.db
-          .insert(agentTranscriptAttachmentsTable)
-          .values(newAttachmentRows)
-          .onConflictDoNothing();
-        attachmentsWritten = newAttachmentRows.length;
-      } catch (err) {
-        attachmentError = err instanceof Error ? err : new Error(String(err));
-        log.warn(
-          `Failed to insert ${newAttachmentRows.length} attachment rows for session ${agentSessionId}`,
-          { error: getLoggableErrorSummary(err) }
-        );
-        // Don't fail the whole ingest — turn-row upsert already succeeded.
-        // Surface the error so the sweep can count degraded ingests.
-      }
-    }
+    // (Attachment rows were written at step 3b, deliberately BEFORE the
+    // transcript upsert advanced the high-water mark — see the comment there.)
 
     log.debug(
       `Ingested ${newLines.length} turn lines + ${attachmentsWritten} attachment rows for session ${agentSessionId}`,
@@ -554,17 +676,76 @@ export class AgentTranscriptIngestService {
       }
     );
 
-    // Surface any turn-extract OR attachment-insert failure on success — the
-    // caller may want to know turn rows weren't materialized (FTS lag) or
-    // that attachments were skipped. (mt#2789: HWM-read failure can no longer
-    // reach this point — it aborts above — so it's not part of this union
-    // anymore.) The `ingested` count counts turn lines only, matching the
-    // pre-mt#2022 semantics; attachments live in their own table and don't
-    // roll into this number.
+    // Surface a turn-extract failure on success — the caller may want to know
+    // turn rows weren't materialized (FTS lag). (mt#2789: HWM-read failure can
+    // no longer reach this point — it aborts above. mt#3278: neither can an
+    // attachment failure, which now aborts at step 3b instead of being
+    // swallowed here after the watermark moved.) The `ingested` count counts
+    // turn lines only, matching the pre-mt#2022 semantics; attachments live in
+    // their own table and don't roll into this number.
     return {
       ingested: newLines.length,
-      error: turnExtractError ?? attachmentError,
+      error: turnExtractError,
     };
+  }
+
+  /**
+   * Record a failed ingest attempt against the session's row, quarantining it
+   * once {@link INGEST_QUARANTINE_THRESHOLD} consecutive failures have
+   * accumulated (mt#3278).
+   *
+   * Written as an upsert rather than an update because a session whose very
+   * FIRST ingest fails has no row yet — an UPDATE would silently match nothing
+   * and the failure would never be counted, which is precisely the
+   * "indistinguishable from normal" shape this task removes. The insert carries
+   * only the identity columns plus the failure record; it deliberately does NOT
+   * set `last_ingested_jsonl_timestamp`, so a placeholder row created this way
+   * still has a null watermark and re-collects everything on the next attempt.
+   *
+   * Best-effort: a failure to record a failure is logged and swallowed. The
+   * caller is already returning an error for the original problem, and throwing
+   * from here would replace a specific diagnosis with a bookkeeping error.
+   */
+  private async recordIngestFailure(agentSessionId: string, cause: Error): Promise<void> {
+    try {
+      const summary = getLoggableErrorSummary(cause);
+      // safeTruncate, not `.slice`: a plain slice can cut a UTF-16 surrogate
+      // pair in half, and a lone surrogate is invalid UTF-8 — which Postgres
+      // rejects. Truncating the error text unsafely could therefore fail the
+      // very insert whose job is to record that something failed.
+      const message = safeTruncate(
+        sanitizeForPostgres(typeof summary === "string" ? summary : String(cause.message)),
+        INGEST_ERROR_TEXT_LIMIT
+      );
+
+      await this.db
+        .insert(agentTranscriptsTable)
+        .values({
+          agentSessionId: agentSessionId as ConversationId,
+          harness: UNKNOWN_HARNESS,
+          ingestFailureCount: 1,
+          ingestLastError: message,
+          ingestLastFailedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: agentTranscriptsTable.agentSessionId,
+          set: {
+            ingestFailureCount: sql`${agentTranscriptsTable.ingestFailureCount} + 1`,
+            ingestLastError: message,
+            ingestLastFailedAt: new Date(),
+            // Quarantine on the threshold-th consecutive failure. Compares
+            // against the PRE-increment stored value, hence `+ 1 >=`. Already
+            // -quarantined rows keep their original timestamp (COALESCE) so the
+            // record shows when the session was first given up on, not when it
+            // was last looked at.
+            ingestQuarantinedAt: sql`CASE WHEN ${agentTranscriptsTable.ingestFailureCount} + 1 >= ${INGEST_QUARANTINE_THRESHOLD} THEN COALESCE(${agentTranscriptsTable.ingestQuarantinedAt}, now()) ELSE ${agentTranscriptsTable.ingestQuarantinedAt} END`,
+          },
+        });
+    } catch (err) {
+      log.warn(`Failed to record ingest failure for session ${agentSessionId}`, {
+        error: getLoggableErrorSummary(err),
+      });
+    }
   }
 
   /**
@@ -579,18 +760,26 @@ export class AgentTranscriptIngestService {
     let totalIngested = 0;
     let sessionsProcessed = 0;
     let sessionsErrored = 0;
+    let sessionsQuarantined = 0;
 
     for await (const session of this.source.discoverSessions()) {
       sessionsProcessed++;
       try {
         const result = await this.ingestSession(session);
         totalIngested += result.ingested;
-        if (result.error !== undefined) {
-          // ingestSession hit a failure along one of its internal paths
-          // (HWM read, stream, upsert — abort; turn-extract, attachment
-          // insert — best-effort). Count it honestly (mt#1444).
+        if (result.quarantined === true) {
+          // Not an error THIS pass — nothing was attempted. Counted separately
+          // so an operator can tell "N sessions are failing right now" from
+          // "N sessions have been given up on" (mt#3278).
+          sessionsQuarantined++;
+        } else if (result.error !== undefined) {
+          // mt#3278 (SC3): this used to log at `warn` as a "degraded ingest",
+          // which read like a partial success. An ingest that wrote nothing and
+          // returned an error is a FAILED ingest — for a permanently-failing
+          // session it means that conversation has silently stopped being
+          // captured — so it is logged as one, at `error`, saying so.
           sessionsErrored++;
-          log.warn(`Session ${session.agentSessionId} reported a degraded ingest`, {
+          log.error(`Ingest FAILED for session ${session.agentSessionId}`, {
             error: getLoggableErrorSummary(result.error),
             ingested: result.ingested,
           });
@@ -605,8 +794,23 @@ export class AgentTranscriptIngestService {
       }
     }
 
-    log.info(`Ingest sweep complete`, { totalIngested, sessionsProcessed, sessionsErrored });
-    return { totalIngested, sessionsProcessed, sessionsErrored };
+    log.info(`Ingest sweep complete`, {
+      totalIngested,
+      sessionsProcessed,
+      sessionsErrored,
+      sessionsQuarantined,
+    });
+    // mt#3278: a standing quarantine is an operator-visible condition, not a
+    // per-sweep event, so it is surfaced every sweep rather than only on the
+    // pass that created it — otherwise the one line announcing it scrolls away
+    // and the sessions stay silently uncaptured.
+    if (sessionsQuarantined > 0) {
+      log.warn(
+        `${sessionsQuarantined} session(s) are quarantined and were not attempted — see agent_transcripts.ingest_last_error`,
+        { sessionsQuarantined }
+      );
+    }
+    return { totalIngested, sessionsProcessed, sessionsErrored, sessionsQuarantined };
   }
 }
 
@@ -622,12 +826,30 @@ export interface IngestSessionResult {
    * it. mt#1444.
    */
   error?: Error;
+  /**
+   * True when this session was SKIPPED because it is quarantined (mt#3278) —
+   * it failed to ingest {@link INGEST_QUARANTINE_THRESHOLD} times running, so
+   * no attempt was made this pass.
+   *
+   * Deliberately distinct from `error`: a quarantined session is not an error
+   * THIS pass, it is a standing condition an operator needs to see. Counting
+   * it as an error would make the sweep's error count grow forever on a
+   * session nobody is retrying, which is the same "indistinguishable from
+   * normal" failure shape this task exists to remove.
+   */
+  quarantined?: boolean;
 }
 
 export interface IngestAllResult {
   totalIngested: number;
   sessionsProcessed: number;
   sessionsErrored: number;
+  /**
+   * Sessions SKIPPED this pass because they are quarantined (mt#3278). Disjoint
+   * from `sessionsErrored` — a quarantined session was not attempted, so it
+   * cannot also have failed. Both are counted within `sessionsProcessed`.
+   */
+  sessionsQuarantined: number;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

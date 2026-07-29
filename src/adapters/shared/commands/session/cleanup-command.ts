@@ -6,9 +6,18 @@
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
 import { type LazySessionDeps, withErrorLogging } from "./types";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import { sessionCleanupCommandParams } from "./session-parameters";
 
-export function createSessionCleanupCommand(getDeps: LazySessionDeps): CommandDefinition {
+export function createSessionCleanupCommand(
+  getDeps: LazySessionDeps,
+  /**
+   * Optional (non-throwing) persistence provider — mt#2487 adapter pattern.
+   * Carries the presence-claim read for the mt#3105 live-actor gate and the
+   * mt#3021 guard.overridden audit sink on each per-candidate delete.
+   */
+  getPersistenceProvider?: () => PersistenceProvider | undefined
+): CommandDefinition {
   return {
     id: "session.cleanup",
     category: CommandCategory.SESSION,
@@ -148,8 +157,12 @@ export function createSessionCleanupCommand(getDeps: LazySessionDeps): CommandDe
         const sessionId = candidate.session.sessionId;
         try {
           const result = await deleteSessionImpl(
-            { sessionId, force: false },
-            { sessionDB: sessionProvider, gitService: deps.gitService }
+            { sessionId },
+            {
+              sessionDB: sessionProvider,
+              gitService: deps.gitService,
+              persistenceProvider: getPersistenceProvider?.(),
+            }
           );
           if (result.deleted) {
             deleted++;

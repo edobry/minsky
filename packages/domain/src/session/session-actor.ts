@@ -52,10 +52,31 @@ import { isPidAlive as defaultIsPidAlive } from "./attachment";
  */
 export type SessionActorVerdict = "live" | "not-live" | "inconclusive";
 
+/**
+ * Structured discriminator for WHY a verdict is `inconclusive` (mt#3105,
+ * ask#6273). The delete/cleanup gates treat the two causes differently:
+ *
+ * - `"store-unavailable"` — the presence store could not be consulted (no
+ *   repository, read threw). Fail closed: refuse.
+ * - `"no-claim"` — the store read fine and there has never been a claim for
+ *   this session. Operator ruling ask#6273: the liveness gate ABSTAINS here
+ *   and the git-state guard (mt#3021) decides — the claim mechanism began
+ *   2026-07-16, so the claimless population is dominated by legacy sessions,
+ *   which are exactly the routine deletion targets.
+ *
+ * An `inconclusive` result with NO cause (e.g. a claim-derived gray state:
+ * wedged-alive-but-stale, unverifiable-and-stale) is refuse-class: consumers
+ * may abstain ONLY on the explicit `"no-claim"` cause, so any future
+ * inconclusive branch defaults to the safe treatment.
+ */
+export type SessionActorInconclusiveCause = "no-claim" | "store-unavailable";
+
 export interface SessionActorResult {
   verdict: SessionActorVerdict;
   /** Human-readable basis, suitable for a refusal message. */
   reason: string;
+  /** Why the verdict is `inconclusive`, when a consumer-visible cause exists (mt#3105). */
+  cause?: SessionActorInconclusiveCause;
   /** The actor holding the session, when one was identified (mt#3105 SC2). */
   actorId?: string;
   /** That actor's last observed activity, ISO-8601 (mt#3105 SC2). */
@@ -185,6 +206,7 @@ export async function resolveSessionActor(
     if (!repo) {
       return {
         verdict: "inconclusive",
+        cause: "store-unavailable",
         reason:
           "presence store unavailable (no repository) — cannot establish whether an actor is live",
       };
@@ -207,6 +229,7 @@ export async function resolveSessionActor(
     });
     return {
       verdict: "inconclusive",
+      cause: "store-unavailable",
       reason: `presence read failed (${err instanceof Error ? err.message : String(err)}) — cannot establish whether an actor is live`,
     };
   }
@@ -217,6 +240,7 @@ export async function resolveSessionActor(
     // write was dropped, looks identical to a genuinely empty one.
     return {
       verdict: "inconclusive",
+      cause: "no-claim",
       reason:
         "no presence claim on record for this session — absence of a claim is not evidence nobody is working",
     };
@@ -237,4 +261,33 @@ export async function resolveSessionActor(
   }
 
   return best as SessionActorResult;
+}
+
+/**
+ * Adapter from an optional persistence provider to this module's
+ * `getRepository` dependency shape — the standard way a destructive-gate call
+ * site (mt#3105 delete, mt#3104 cleanup) supplies presence access from the
+ * `persistenceProvider` it already carries for the audit sink.
+ *
+ * Mirrors `session ps`'s repository construction
+ * (`src/adapters/shared/commands/session/ps-command.ts`) and
+ * `presence-activity.ts`'s provider shape. Resolving to null — no provider,
+ * no `getDatabaseConnection`, no connection, or a throw — yields the
+ * primitive's `store-unavailable` refusal upstream; this helper never throws.
+ */
+export async function presenceRepositoryFromProvider(
+  provider: { getDatabaseConnection?: () => Promise<unknown> } | undefined | null
+): Promise<PresenceClaimRepository | null> {
+  try {
+    if (!provider?.getDatabaseConnection) return null;
+    const db = await provider.getDatabaseConnection();
+    if (!db) return null;
+    const { buildPresenceClaimRepository } = await import("../presence/index");
+    return buildPresenceClaimRepository(db);
+  } catch (err) {
+    log.debug("presenceRepositoryFromProvider: failed to build repository", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 }

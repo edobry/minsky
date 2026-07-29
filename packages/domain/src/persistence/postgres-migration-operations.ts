@@ -12,6 +12,20 @@ import { log } from "@minsky/shared/logger";
 import { logPostgresNotice } from "./postgres-notice-handler";
 
 /**
+ * Where migration SQL lives in the repository, relative to the repo root.
+ *
+ * POSIX separators: this is used both as a path segment and as a `git <tree>:<path>`
+ * tree-ish, and git tree paths require forward slashes on every platform.
+ *
+ * Single definition on purpose (PR #2378 R1). It is consumed by BOTH
+ * `resolvePgMigrationsFolder`'s cwd-relative fallback and the unmerged-migration
+ * guard's origin/main lookup; two copies could drift apart, and the guard
+ * failing to find a file the resolver happily loaded is exactly the class of bug
+ * mt#3296 fixes.
+ */
+const CANONICAL_MIGRATIONS_SOURCE_DIR = "packages/domain/src/storage/migrations/pg";
+
+/**
  * Resolve the absolute path of the Postgres migrations folder.
  *
  * Three cases tried in order; returns the first one whose `meta/_journal.json` exists:
@@ -63,7 +77,7 @@ export function resolvePgMigrationsFolder(): string {
 
     // (c) Legacy cwd-relative fallback: preserves the behaviour that existed
     //     before mt#2369 when run from the Minsky repo root.
-    join(process.cwd(), "packages/domain/src/storage/migrations/pg"),
+    join(process.cwd(), CANONICAL_MIGRATIONS_SOURCE_DIR),
   ];
 
   for (const candidate of candidates) {
@@ -155,6 +169,14 @@ export interface UnmergedMigrationCheckResult {
    * migration. Distinguishing this from per-file absence is the mt#2277 review fix.
    */
   skippedReason?: string;
+  /**
+   * Repo-relative paths the guard looked for on `origin/main`, per unmerged tag
+   * (mt#3296). Surfaced so a block names what was actually checked: the previous
+   * message asserted a migration was "NOT present on origin/main" without
+   * saying at which path, which is what made a false positive take a hand-run
+   * `git cat-file` to diagnose.
+   */
+  checkedPaths?: Record<string, string[]>;
 }
 
 /**
@@ -226,6 +248,19 @@ export async function checkUnmergedMigrations(
   }
 
   const unmergedTags: string[] = [];
+  const checkedPaths: Record<string, string[]> = {};
+
+  /** True when `<repoRelPath>` exists in the `origin/main` tree. */
+  const existsOnOriginMain = async (repoRelPath: string): Promise<boolean> => {
+    try {
+      // `git cat-file -e origin/main:<path>` exits 0 if the object exists,
+      // non-zero if it doesn't (file not on origin/main)
+      await execFileAsync("git", ["cat-file", "-e", `origin/main:${repoRelPath}`], { cwd });
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   for (const entry of pendingEntries) {
     const sqlFileName = `${entry.tag}.sql`;
@@ -240,21 +275,79 @@ export async function checkUnmergedMigrations(
     // no `..` segments, no leading `-`, and no `:` — safe to interpolate.
     const repoRelPath = relative(repoRoot, absSqlPath).split(sep).join("/");
 
-    try {
-      // `git cat-file -e origin/main:<path>` exits 0 if the object exists,
-      // non-zero if it doesn't (file not on origin/main)
-      await execFileAsync("git", ["cat-file", "-e", `origin/main:${repoRelPath}`], { cwd });
-      // exit 0 → file is present on origin/main → not blocked
-    } catch {
-      // non-zero exit → file is NOT on origin/main
+    // Look for the migration where it was resolved from AND at its canonical
+    // source location (mt#3296). Both, not just the latter, because a migration
+    // applied from the source tree must still be checked at the path it was
+    // actually read from — narrowing to the canonical path alone would stop
+    // verifying the file in front of us.
+    //
+    // Checking both cannot weaken the guard: a genuinely unmerged migration is
+    // absent from origin/main at EVERY path, so it still blocks. What it fixes
+    // is the case where the file is merged but was resolved from a build-output
+    // copy that is gitignored by design.
+    const canonicalRelPath = `${CANONICAL_MIGRATIONS_SOURCE_DIR}/${sqlFileName}`;
+    const candidates =
+      repoRelPath === canonicalRelPath ? [repoRelPath] : [repoRelPath, canonicalRelPath];
+
+    let present = false;
+    for (const candidate of candidates) {
+      if (await existsOnOriginMain(candidate)) {
+        present = true;
+        break;
+      }
+    }
+
+    if (!present) {
       unmergedTags.push(entry.tag);
+      checkedPaths[entry.tag] = candidates;
     }
   }
 
   return {
     blocked: unmergedTags.length > 0,
     unmergedTags,
+    ...(Object.keys(checkedPaths).length > 0 ? { checkedPaths } : {}),
   };
+}
+
+/**
+ * Build the operator-facing message for a blocked apply.
+ *
+ * Extracted so the message itself is testable (PR #2378 R1): it was previously
+ * inline in `runPgMigrate`, which needs a live connection, so nothing asserted
+ * that the searched paths actually reach the operator — only that the check
+ * returned them. The whole point of mt#3296's message change is what the person
+ * reading the failure sees, so that is what the test should pin.
+ *
+ * @param check   A blocked result from {@link checkUnmergedMigrations}
+ * @param masked  The connection string with credentials already redacted
+ */
+export function formatUnmergedMigrationBlockMessage(
+  check: UnmergedMigrationCheckResult,
+  masked: string
+): string {
+  // Name the paths actually searched. The previous message asserted absence
+  // without saying where it looked, so diagnosing a false positive meant
+  // hand-running `git cat-file` to discover the guard had checked a gitignored
+  // build-output path.
+  const tagList = check.unmergedTags
+    .map((tag) => {
+      const paths = check.checkedPaths?.[tag] ?? [];
+      const where = paths.map((p) => `\n      looked at: ${p}`).join("");
+      return `  - ${tag}.sql${where}`;
+    })
+    .join("\n");
+
+  return (
+    `\n🚫 Unmerged-migration guard blocked apply to shared production DB (${masked})\n\n` +
+    `The following pending migration(s) are NOT present on origin/main:\n` +
+    `${tagList}\n\n` +
+    `Merge the originating branch to main FIRST, then re-run:\n` +
+    `  minsky persistence migrate --execute\n\n` +
+    `Break-glass override (use only when the migration IS intentionally\n` +
+    `applied ahead of merge — will be audit-logged):\n` +
+    `  ${UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV}=1 minsky persistence migrate --execute`
+  );
 }
 
 /** Shape of a single journal entry from _journal.json */
@@ -849,17 +942,7 @@ export async function runPostgresSchemaMigrations(
           );
         }
         if (check.blocked) {
-          const tagList = check.unmergedTags.map((t) => `  - ${t}.sql`).join("\n");
-          throw new Error(
-            `\n🚫 Unmerged-migration guard blocked apply to shared production DB (${masked})\n\n` +
-              `The following pending migration(s) are NOT present on origin/main:\n` +
-              `${tagList}\n\n` +
-              `Merge the originating branch to main FIRST, then re-run:\n` +
-              `  minsky persistence migrate --execute\n\n` +
-              `Break-glass override (use only when the migration IS intentionally\n` +
-              `applied ahead of merge — will be audit-logged):\n` +
-              `  ${UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV}=1 minsky persistence migrate --execute`
-          );
+          throw new Error(formatUnmergedMigrationBlockMessage(check, masked));
         }
       }
     }

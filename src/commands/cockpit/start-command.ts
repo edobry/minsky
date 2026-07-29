@@ -19,6 +19,7 @@ import {
   startSweepMetaWatchdog,
 } from "../../cockpit/sweepers";
 import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
+import { refreshSchemaReadinessFromDb } from "../../cockpit/schema-readiness";
 import {
   markDbDegraded,
   startDbRetryBackoff,
@@ -385,6 +386,14 @@ export function createStartCommand(): Command {
       // full-discovery ingest + embedding backfill to cover dropped FS events,
       // sessions missed while the daemon was down, and stale embeddings.
       const stopTranscriptSweep = startTranscriptSweepBackstop();
+      // Schema readiness (mt#3297): populate the /api/health `schema` block at
+      // boot, independently of any sweep. The transcript sweep also refreshes
+      // it every tick, but relying on that alone would leave `current: null`
+      // forever whenever that sweep is not running (PR #2379 R1) — a health
+      // field that is permanently "unknown" is indistinguishable from one that
+      // is broken, which is the failure shape this whole task removes.
+      // Fire-and-forget: it never throws, and boot must not block on the DB.
+      void refreshSchemaReadinessFromDb();
       // Dispatch watchdog refresh (mt#2646): periodically check in-flight
       // subagent dispatches (IN-PROGRESS/IN-REVIEW tasks with no commit/PR-
       // event/subagent_invocations progress) and write the flagged set to the

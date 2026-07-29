@@ -25,6 +25,7 @@ import { TranscriptSweepTracker } from "../transcript-sweep-tracker";
 import { DispatchWatchdogSweepTracker } from "../dispatch-watchdog";
 import { ProdStateSweepTracker } from "../prod-state-sweep-tracker";
 import { getDbStatus } from "../shared-persistence";
+import { getSchemaReadiness } from "../schema-readiness";
 import type { WidgetModule } from "../types";
 
 const serverStartTime = Date.now();
@@ -147,6 +148,13 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
         ...watcherTracker.getSummary(),
         activeSessions: watcherTracker.getActiveSessions(),
       },
+      // mt#3297: whether the DB has the schema this build expects. The status
+      // code cannot carry this — the daemon boots fine and answers 200 whether
+      // or not its migrations are applied, which is exactly how a merged
+      // migration left every ingest failing for hours while /health stayed
+      // green. `current: null` means the check could not run, and is
+      // deliberately NOT reported as current.
+      schema: getSchemaReadiness(),
       transcriptSweep: sweepTracker.getSummary(),
       dispatchWatchdogSweep: dispatchWatchdogSweepTracker.getSummary(),
       prodStateSweep: prodStateSweepTracker.getSummary(),

@@ -86,11 +86,18 @@ afterEach(async () => {
 });
 
 describe("deleteSessionImpl — mt#3021 SC2 acceptance tests", () => {
+  // mt#3105: these tests exercise the git-state guard; the live-actor gate is
+  // stubbed not-live wherever a delete must proceed past it.
+  const notLiveActor = async () => ({
+    verdict: "not-live" as const,
+    reason: "test: nobody live",
+  });
+
   it("AT1: refuses to delete a workspace with MERGE_HEAD present; the directory still exists afterward", async () => {
     await writeFile(join(workspaceDir, ".git", "MERGE_HEAD"), "deadbeef\n");
     const sessionDB = makeSessionDB([sessionRecord]);
 
-    const result = await deleteSessionImpl({ sessionId: SESSION_ID, force: true }, { sessionDB });
+    const result = await deleteSessionImpl({ sessionId: SESSION_ID }, { sessionDB });
 
     expect(result.deleted).toBe(false);
     expect(result.error).toContain("MERGE_HEAD");
@@ -104,7 +111,7 @@ describe("deleteSessionImpl — mt#3021 SC2 acceptance tests", () => {
     await writeFile(join(workspaceDir, "a.txt"), "modified, not committed");
     const sessionDB = makeSessionDB([sessionRecord]);
 
-    const result = await deleteSessionImpl({ sessionId: SESSION_ID, force: true }, { sessionDB });
+    const result = await deleteSessionImpl({ sessionId: SESSION_ID }, { sessionDB });
 
     expect(result.deleted).toBe(false);
     expect(result.error).toContain("uncommitted changes");
@@ -115,7 +122,10 @@ describe("deleteSessionImpl — mt#3021 SC2 acceptance tests", () => {
   it("AT4: proceeds unchanged for a clean, non-merging workspace (no-over-fire)", async () => {
     const sessionDB = makeSessionDB([sessionRecord]);
 
-    const result = await deleteSessionImpl({ sessionId: SESSION_ID, force: false }, { sessionDB });
+    const result = await deleteSessionImpl(
+      { sessionId: SESSION_ID },
+      { sessionDB, resolveActor: notLiveActor }
+    );
 
     expect(result.deleted).toBe(true);
     const { existsSync } = await import("node:fs");
@@ -133,10 +143,12 @@ describe("deleteSessionImpl — mt#3021 SC2 acceptance tests", () => {
     const result = await deleteSessionImpl(
       {
         sessionId: SESSION_ID,
-        force: false,
         overrideReason: "session confirmed abandoned; recovering disk space",
       },
-      { sessionDB, persistenceProvider }
+      // mt#3105: liveness stubbed not-live so exactly ONE guard (git-state)
+      // trips and exactly one audit event is asserted; the liveness gate's
+      // own override/audit path is covered in session-delete-liveness-gate.test.ts.
+      { sessionDB, persistenceProvider, resolveActor: notLiveActor }
     );
 
     expect(result.deleted).toBe(true);
@@ -154,23 +166,27 @@ describe("deleteSessionImpl — mt#3021 SC2 acceptance tests", () => {
     });
   });
 
-  it("a bare force:true (the pre-existing flag) does NOT satisfy the new guard on its own", async () => {
-    await writeFile(join(workspaceDir, ".git", "MERGE_HEAD"), "deadbeef\n");
-    const sessionDB = makeSessionDB([sessionRecord]);
-
-    const result = await deleteSessionImpl({ sessionId: SESSION_ID, force: true }, { sessionDB });
-
-    expect(result.deleted).toBe(false);
-  });
+  // NOTE (mt#3105 SC5): the former "a bare force:true does NOT satisfy the new
+  // guard" test is retired — the `force` flag no longer exists on
+  // SessionDeleteParams at all, which is a strictly stronger guarantee than
+  // asserting it has no effect.
 });
 
 describe("cleanupSessionImpl — mt#3021 SC2 acceptance tests", () => {
-  it("refuses cleanup of a workspace with MERGE_HEAD present EVEN WITH force:true (the applyPostMergeStateSync shape)", async () => {
+  // mt#3104: the live-actor gate runs after the git-state guard; stub it
+  // not-live where a cleanup must proceed past it. The former `force` param
+  // is removed (mt#3104) — these tests' old force:true args are gone.
+  const notLiveCleanupActor = async () => ({
+    verdict: "not-live" as const,
+    reason: "test: nobody live",
+  });
+
+  it("refuses cleanup of a workspace with MERGE_HEAD present (the applyPostMergeStateSync shape — no force-style skip exists)", async () => {
     await writeFile(join(workspaceDir, ".git", "MERGE_HEAD"), "deadbeef\n");
     const sessionDB = makeSessionDB([sessionRecord]);
 
     const result = await cleanupSessionImpl(
-      { sessionId: SESSION_ID, taskId: sessionRecord.taskId, force: true },
+      { sessionId: SESSION_ID, taskId: sessionRecord.taskId },
       { sessionDB }
     );
 
@@ -180,7 +196,7 @@ describe("cleanupSessionImpl — mt#3021 SC2 acceptance tests", () => {
     expect(existsSync(workspaceDir)).toBe(true);
   });
 
-  it("proceeds when overridden with a reason, even under force:true", async () => {
+  it("proceeds when overridden with a reason (one overrideReason lifts both the git-state guard and the liveness gate)", async () => {
     await writeFile(join(workspaceDir, ".git", "MERGE_HEAD"), "deadbeef\n");
     const sessionDB = makeSessionDB([sessionRecord]);
 
@@ -188,7 +204,6 @@ describe("cleanupSessionImpl — mt#3021 SC2 acceptance tests", () => {
       {
         sessionId: SESSION_ID,
         taskId: sessionRecord.taskId,
-        force: true,
         overrideReason: "confirmed abandoned via presence check",
       },
       { sessionDB }
@@ -203,8 +218,8 @@ describe("cleanupSessionImpl — mt#3021 SC2 acceptance tests", () => {
     const sessionDB = makeSessionDB([sessionRecord]);
 
     const result = await cleanupSessionImpl(
-      { sessionId: SESSION_ID, taskId: sessionRecord.taskId, force: false },
-      { sessionDB }
+      { sessionId: SESSION_ID, taskId: sessionRecord.taskId },
+      { sessionDB, resolveActor: notLiveCleanupActor }
     );
 
     expect(result.sessionDeleted).toBe(true);

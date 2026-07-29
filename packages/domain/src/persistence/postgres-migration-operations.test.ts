@@ -18,6 +18,7 @@ import { readFileSync } from "fs";
 import {
   isProdPostgresConnection,
   checkUnmergedMigrations,
+  formatUnmergedMigrationBlockMessage,
   computeMigrationHash,
   resolvePendingMigrations,
   formatPendingMigrationsListing,
@@ -241,6 +242,145 @@ describe("checkUnmergedMigrations", () => {
       }
     );
   }
+
+  // mt#3296. The mock above matches by TAG, which cannot express the bug: the
+  // same migration present at one path and absent at another. This one matches
+  // the exact repo-relative path `git cat-file` is asked for.
+  function gitMockByPath(presentPaths: string[]) {
+    return mock(
+      (
+        _file: string,
+        args: string[],
+        _opts: object,
+        callback: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        if (args[0] === "rev-parse") {
+          callback(null, args[1] === "--show-toplevel" ? "/repo\n" : "", "");
+          return;
+        }
+        const target = (args[2] ?? "").replace("origin/main:", "");
+        if (presentPaths.includes(target)) callback(null, "", "");
+        else callback(new Error("not found") as any, "", "");
+      }
+    );
+  }
+
+  const SOURCE_DIR = "packages/domain/src/storage/migrations/pg";
+  const DIST_DIR = "dist/storage/migrations/pg";
+
+  test("does not block a merged migration applied from the dist build folder", async () => {
+    // The regression. The MCP server resolves migrationsFolder to dist/, which
+    // is gitignored, so the file can never be found there — while the SAME
+    // migration is on origin/main at its source path. Before mt#3296 this
+    // blocked every merged migration applied through MCP.
+    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(
+      gitMockByPath([`${SOURCE_DIR}/0076_merged.sql`]) as any
+    );
+    try {
+      const entries = [makeEntry(0, "0076_merged")];
+      const result = await checkUnmergedMigrations(`/repo/${DIST_DIR}`, entries, 0, "/repo");
+      expect(result.blocked).toBe(false);
+      expect(result.unmergedTags).toEqual([]);
+    } finally {
+      spyExecFile.mockRestore();
+    }
+  });
+
+  test("still blocks a genuinely unmerged migration when run from dist", async () => {
+    // The load-bearing half: the fix must not become "skip the check for dist".
+    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(
+      gitMockByPath([]) as any
+    );
+    try {
+      const entries = [makeEntry(0, "0077_unmerged")];
+      const result = await checkUnmergedMigrations(`/repo/${DIST_DIR}`, entries, 0, "/repo");
+      expect(result.blocked).toBe(true);
+      expect(result.unmergedTags).toEqual(["0077_unmerged"]);
+    } finally {
+      spyExecFile.mockRestore();
+    }
+  });
+
+  test("still blocks a genuinely unmerged migration when run from source", async () => {
+    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(
+      gitMockByPath([]) as any
+    );
+    try {
+      const entries = [makeEntry(0, "0077_unmerged")];
+      const result = await checkUnmergedMigrations(`/repo/${SOURCE_DIR}`, entries, 0, "/repo");
+      expect(result.blocked).toBe(true);
+      expect(result.unmergedTags).toEqual(["0077_unmerged"]);
+    } finally {
+      spyExecFile.mockRestore();
+    }
+  });
+
+  test("reports every path it searched when it blocks", async () => {
+    // So a future false positive is diagnosable from the error alone, instead
+    // of needing a hand-run `git cat-file` to discover where the guard looked.
+    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(
+      gitMockByPath([]) as any
+    );
+    try {
+      const entries = [makeEntry(0, "0077_unmerged")];
+      const result = await checkUnmergedMigrations(`/repo/${DIST_DIR}`, entries, 0, "/repo");
+      expect(result.checkedPaths?.["0077_unmerged"]).toEqual([
+        `${DIST_DIR}/0077_unmerged.sql`,
+        `${SOURCE_DIR}/0077_unmerged.sql`,
+      ]);
+    } finally {
+      spyExecFile.mockRestore();
+    }
+  });
+
+  test("does not double-check the same path when run from the canonical source dir", async () => {
+    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(
+      gitMockByPath([]) as any
+    );
+    try {
+      const entries = [makeEntry(0, "0077_unmerged")];
+      const result = await checkUnmergedMigrations(`/repo/${SOURCE_DIR}`, entries, 0, "/repo");
+      expect(result.checkedPaths?.["0077_unmerged"]).toEqual([`${SOURCE_DIR}/0077_unmerged.sql`]);
+    } finally {
+      spyExecFile.mockRestore();
+    }
+  });
+
+  // PR #2378 R1: assert what the OPERATOR sees, not just what the check
+  // returns. The searched paths only matter if they reach the failure message.
+  test("the block message names every path that was searched", () => {
+    const message = formatUnmergedMigrationBlockMessage(
+      {
+        blocked: true,
+        unmergedTags: ["0077_unmerged"],
+        checkedPaths: {
+          "0077_unmerged": [`${DIST_DIR}/0077_unmerged.sql`, `${SOURCE_DIR}/0077_unmerged.sql`],
+        },
+      },
+      "postgresql://***:***@example.com:5432/db"
+    );
+
+    expect(message).toContain("0077_unmerged.sql");
+    expect(message).toContain(`looked at: ${DIST_DIR}/0077_unmerged.sql`);
+    expect(message).toContain(`looked at: ${SOURCE_DIR}/0077_unmerged.sql`);
+    // The override is still offered, but only after the operator can see where
+    // the guard looked — otherwise reaching for it is the path of least effort.
+    expect(message).toContain(UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV);
+    // Credentials must stay masked in the failure text.
+    expect(message).not.toContain("password");
+  });
+
+  test("the block message degrades gracefully when no paths were recorded", () => {
+    // `checkedPaths` is optional on the result type; an older or partial result
+    // must still produce a usable message rather than throwing or printing
+    // "undefined" at the operator.
+    const message = formatUnmergedMigrationBlockMessage(
+      { blocked: true, unmergedTags: ["0077_unmerged"] },
+      "masked"
+    );
+    expect(message).toContain("  - 0077_unmerged.sql");
+    expect(message).not.toContain("undefined");
+  });
 
   test("returns blocked when a pending entry is NOT on origin/main", async () => {
     const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(

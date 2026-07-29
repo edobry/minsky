@@ -322,23 +322,34 @@ describe("measureSilentStretch", () => {
 // ---------------------------------------------------------------------------
 
 describe("findTurnBoundaryTimestamps", () => {
-  test("returns the previous and current real-prompt timestamps", () => {
+  // mt#3280: the second boundary is the measured turn's OWN last line, not a
+  // later real prompt. Updating the previous expectation (which read the
+  // trailing prompt's timestamp as "the current prompt") because that prompt
+  // is the one that OPENED the measured turn in the shape the harness
+  // actually produces at UserPromptSubmit time.
+  test("returns the opening prompt's timestamp and the turn's own end", () => {
     const lines = [
       userPromptLine(0, "first message"),
       assistantToolUseLine(1),
       toolResultLine(2),
       userPromptLine(100, "second message (interrupt)"),
     ];
-    const { turnStartTimestamp, currentPromptTimestamp } = findTurnBoundaryTimestamps(lines);
+    const { turnStartTimestamp, turnEndTimestamp } = findTurnBoundaryTimestamps(lines);
     expect(turnStartTimestamp).toBe(ts(0));
-    expect(currentPromptTimestamp).toBe(ts(100));
+    expect(turnEndTimestamp).toBe(ts(2));
   });
 
-  test("fewer than 2 real prompts -> both undefined", () => {
-    const lines = [userPromptLine(0), assistantToolUseLine(1)];
-    const result = findTurnBoundaryTimestamps(lines);
+  test("a trailing turn with no following prompt still resolves both boundaries", () => {
+    const lines = [userPromptLine(0), assistantToolUseLine(1), toolResultLine(2)];
+    const { turnStartTimestamp, turnEndTimestamp } = findTurnBoundaryTimestamps(lines);
+    expect(turnStartTimestamp).toBe(ts(0));
+    expect(turnEndTimestamp).toBe(ts(2));
+  });
+
+  test("no resolvable turn -> both undefined", () => {
+    const result = findTurnBoundaryTimestamps([userPromptLine(0)]);
     expect(result.turnStartTimestamp).toBeUndefined();
-    expect(result.currentPromptTimestamp).toBeUndefined();
+    expect(result.turnEndTimestamp).toBeUndefined();
   });
 });
 
@@ -561,22 +572,22 @@ describe("buildTurnAnchor", () => {
   test("combines both boundary timestamps", () => {
     const anchor = buildTurnAnchor({
       turnStartTimestamp: ts(0),
-      currentPromptTimestamp: ts(100),
+      turnEndTimestamp: ts(100),
     });
     expect(anchor).toBe(`${ts(0)}::${ts(100)}`);
   });
 
   test("missing either boundary -> undefined (never a dedupe candidate)", () => {
     expect(
-      buildTurnAnchor({ turnStartTimestamp: undefined, currentPromptTimestamp: ts(100) })
+      buildTurnAnchor({ turnStartTimestamp: undefined, turnEndTimestamp: ts(100) })
     ).toBeUndefined();
     expect(
-      buildTurnAnchor({ turnStartTimestamp: ts(0), currentPromptTimestamp: undefined })
+      buildTurnAnchor({ turnStartTimestamp: ts(0), turnEndTimestamp: undefined })
     ).toBeUndefined();
   });
 
   test("the SAME turn (identical boundaries) always produces the SAME anchor", () => {
-    const boundaries = { turnStartTimestamp: ts(0), currentPromptTimestamp: ts(50) };
+    const boundaries = { turnStartTimestamp: ts(0), turnEndTimestamp: ts(50) };
     expect(buildTurnAnchor(boundaries)).toBe(buildTurnAnchor({ ...boundaries }));
   });
 });

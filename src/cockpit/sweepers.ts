@@ -28,6 +28,11 @@ import {
   getServerTaskService,
 } from "./db-providers";
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
+import {
+  getSchemaReadiness,
+  isSchemaBehind,
+  refreshSchemaReadinessFromDb,
+} from "./schema-readiness";
 import { createPresenceSweepState } from "./conversation-presence-sweep";
 
 // ---------------------------------------------------------------------------
@@ -826,7 +831,12 @@ export function resolveSweepIntervalMs(): number {
  */
 export interface TranscriptSweepDeps {
   /** Run a full ingest sweep (wraps ingestAll). Must be idempotent/HWM-gated. */
-  runIngest: () => Promise<{ sessionsProcessed: number; sessionsErrored: number }>;
+  runIngest: () => Promise<{
+    sessionsProcessed: number;
+    sessionsErrored: number;
+    /** mt#3278 — sessions skipped because they are quarantined. */
+    sessionsQuarantined?: number;
+  }>;
   /** Run the embedding backfill (wraps PerTurnEmbeddingPipeline.run). May throw. */
   runEmbeddings: () => Promise<void>;
   /** Tracker singleton to record observability counters. */
@@ -842,6 +852,12 @@ export interface TranscriptSweepBackstopOptions {
    * (ClaudeCodeTranscriptSource + AgentTranscriptIngestService + PerTurnEmbeddingPipeline).
    */
   deps?: TranscriptSweepDeps;
+  /**
+   * Set false to skip the schema-readiness gate (mt#3297). Tests that inject
+   * `deps` have no real database for the check to interrogate, so leaving it on
+   * would make every such test depend on live persistence.
+   */
+  schemaReadiness?: boolean;
 }
 
 /**
@@ -870,7 +886,11 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
 
   const tracker = TranscriptSweepTracker.getInstance();
 
-  const runIngest = async (): Promise<{ sessionsProcessed: number; sessionsErrored: number }> => {
+  const runIngest = async (): Promise<{
+    sessionsProcessed: number;
+    sessionsErrored: number;
+    sessionsQuarantined: number;
+  }> => {
     const { ClaudeCodeTranscriptSource } = await import(
       "@minsky/domain/transcripts/claude-code-transcript-source"
     );
@@ -886,6 +906,7 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
     return {
       sessionsProcessed: result.sessionsProcessed,
       sessionsErrored: result.sessionsErrored,
+      sessionsQuarantined: result.sessionsQuarantined,
     };
   };
 
@@ -960,8 +981,37 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
 
         const { runIngest, runEmbeddings, tracker } = sweepDeps;
 
+        // ── Phase 0: schema readiness (mt#3297) ───────────────────────────────
+        // Every write below targets columns this build expects the DB to have.
+        // After a merge that carries a migration, the tray restarts the daemon
+        // onto the new code within seconds while the migration is (correctly)
+        // NOT applied automatically to a shared database — so there is a window
+        // where all of this fails on a missing column. Skipping the sweep once,
+        // with a reason, replaces one failure per session per tick.
+        //
+        // Re-checked every tick rather than only at boot, so applying the
+        // migration lifts the pause on the next tick with no restart.
+        if (opts?.schemaReadiness !== false) {
+          await refreshSchemaReadinessFromDb();
+          if (isSchemaBehind()) {
+            // At debug, not warn: `refreshSchemaReadinessFromDb` already logged
+            // the transition into behind at warn, and repeating the reason on
+            // every tick would make a check whose purpose is bounding log volume
+            // into a recurring writer (PR #2379 R1). The standing condition is
+            // on /api/health.
+            log.debug("cockpit: transcript sweep skipped — schema behind", {
+              pending: getSchemaReadiness().pending,
+            });
+            return;
+          }
+        }
+
         // ── Phase 1: ingest sweep (idempotent/HWM-gated) ──────────────────────
-        let ingestResult: { sessionsProcessed: number; sessionsErrored: number };
+        let ingestResult: {
+          sessionsProcessed: number;
+          sessionsErrored: number;
+          sessionsQuarantined?: number;
+        };
         try {
           ingestResult = await runIngest();
         } catch (err) {
@@ -978,7 +1028,19 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
             sessionsErrored: ingestResult.sessionsErrored,
           });
         }
-        tracker.recordSweepCompleted(ingestResult.sessionsProcessed, ingestResult.sessionsErrored);
+        // mt#3278: a quarantined session is not an error this pass — nothing was
+        // attempted — but it IS a standing condition an operator needs to see,
+        // so it is logged every sweep rather than only when it first happens.
+        if ((ingestResult.sessionsQuarantined ?? 0) > 0) {
+          log.warn("cockpit: transcript sweep: sessions quarantined and not attempted", {
+            sessionsQuarantined: ingestResult.sessionsQuarantined,
+          });
+        }
+        tracker.recordSweepCompleted(
+          ingestResult.sessionsProcessed,
+          ingestResult.sessionsErrored,
+          ingestResult.sessionsQuarantined ?? 0
+        );
 
         // ── Phase 2: embedding backfill (heavy, fail-open) ─────────────────────
         // SC2: default semantic-embedding backfill, run off the critical path.
