@@ -132,3 +132,65 @@ describe("run (mt#3179)", () => {
     expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#3336 (ask#6448 dispositions): quoted-context elision + same-turn dedup
+// against ask-routing-deferral.
+// ---------------------------------------------------------------------------
+
+describe("mt#3336 — quoted-context elision", () => {
+  // Replay of the self-demonstrating false positive recorded in mt#3303's
+  // spec: a handoff QUOTING detector data in a markdown blockquote tripped
+  // the "say-the-word" family. Quoted text is reported, not said.
+  test("a commitment phrase inside a blockquote does NOT match", () => {
+    const handoffShape =
+      "Recording the calibration backlog for the next session. The flagged text was:\n\n" +
+      '> the open question is a 7-of-10 "Say the word" cluster that needs turn context\n\n' +
+      "No disposition was recorded; the review task carries the details.";
+    expect(detectUntakenAction(handoffShape)).toEqual([]);
+  });
+
+  test("a commitment phrase inside a code fence or inline code does NOT match", () => {
+    const fenced =
+      "Documented the detector families.\n\n```\n{ family: 'say-the-word' } matches: say the word\n```\nDone.";
+    expect(detectUntakenAction(fenced)).toEqual([]);
+    const inline = "The `say the word` pattern stays as-is; nothing else changed.";
+    expect(detectUntakenAction(inline)).toEqual([]);
+  });
+
+  test("the same phrase UNQUOTED still matches (elision does not over-suppress)", () => {
+    const matches = detectUntakenAction("Everything is staged. Say the word and it ships.");
+    expect(matches.map((m) => m.family)).toContain("say-the-word");
+  });
+});
+
+describe("mt#3336 — dedup against ask-routing-deferral", () => {
+  function inputFor(message: string): StopHookInput {
+    return {
+      session_id: "mt3336-dedup-session",
+      last_assistant_message: message,
+    } as StopHookInput;
+  }
+
+  // "say the word" sits in BOTH detectors' pattern sets; without the dedup
+  // this turn gets an untaken-action reminder at Stop AND an
+  // ask-routing-deferral reminder at the next UserPromptSubmit.
+  test("a message also matching the deferral patterns logs but does NOT inject", () => {
+    const both = "Everything is staged and green. Say the word and it ships.";
+    const outcome = run(inputFor(both), ctx, storeDir);
+    expect(outcome?.calibration).toBeDefined();
+    expect((outcome?.calibration as Record<string, unknown>).suppressedByAskRoutingDeferral).toBe(
+      true
+    );
+    expect(outcome?.additionalContext).toBeUndefined();
+  });
+
+  test("a commitment-only message (no deferral shape) still injects", () => {
+    const outcome = run(inputFor(R3_FINAL_MESSAGE), ctx, storeDir);
+    expect(outcome?.calibration).toBeDefined();
+    expect((outcome?.calibration as Record<string, unknown>).suppressedByAskRoutingDeferral).toBe(
+      false
+    );
+    expect(outcome?.additionalContext).toBeDefined();
+  });
+});
