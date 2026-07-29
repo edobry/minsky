@@ -157,6 +157,20 @@ export const GAP_MINUTES_THRESHOLD = 10;
 export const TOOL_CALL_THRESHOLD = 15;
 
 /**
+ * mt#3336 (ask#6448 disposition): the bare call-count leg over-fired — 9 of
+ * the 14 most recent logged fires were sub-5-minute tool bursts (15-25 calls,
+ * gaps 1.4-5.2 min), rapid rule-conformant work rather than perceived
+ * silence. The leg now fires only for a run that is EITHER genuinely long
+ * (HARD_CALL_COUNT_THRESHOLD) or call-heavy AND spanning a real wall-clock
+ * gap (TOOL_CALL_THRESHOLD + CALL_LEG_MIN_GAP_MINUTES). Grounded against the
+ * calibration log: every burst false positive fails both arms; every
+ * long-gap fire (20/12.5min, 43/11.9, 45/13.0, 54/9.3) and every long burst
+ * (34/3.3) still matches.
+ */
+export const CALL_LEG_MIN_GAP_MINUTES = 8;
+export const HARD_CALL_COUNT_THRESHOLD = 30;
+
+/**
  * Minimum tool calls for a run to be a "tool-only work chain" at all (mt#3196).
  *
  * The cadence rule this detector enforces has a SCOPE condition and, within
@@ -292,10 +306,14 @@ export function measureSilentStretch(
   const evaluateRun = (): void => {
     if (runToolCallCount === 0) return;
     const gapMinutes = computeGapMinutes(runStartTimestamp, runLastToolTimestamp);
-    // mt#3196: the wall-clock leg is bounded by the scope predicate; the
-    // tool-call leg is self-scoping (15 consecutive calls IS a work chain).
+    // mt#3196: the wall-clock leg is bounded by the scope predicate. The
+    // tool-call leg is self-scoping (a qualifying run IS a work chain), but
+    // since mt#3336 it is no longer bare call-count: a 15+-call run must also
+    // span a real gap, or the run must reach the hard 30-call ceiling.
     const crossesGap = gapMinutes >= GAP_MINUTES_THRESHOLD && isToolOnlyWorkChain(runToolCallCount);
-    const crossesCallCount = runToolCallCount >= TOOL_CALL_THRESHOLD;
+    const crossesCallCount =
+      runToolCallCount >= HARD_CALL_COUNT_THRESHOLD ||
+      (runToolCallCount >= TOOL_CALL_THRESHOLD && gapMinutes >= CALL_LEG_MIN_GAP_MINUTES);
     const crosses = crossesGap || crossesCallCount;
     if (!crosses) return;
     matched = true;

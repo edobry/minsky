@@ -1047,20 +1047,27 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
           timestamp: "2026-01-01T00:00:00Z",
         },
         // TOOL_CALL_THRESHOLD=15 consecutive tool_use-only assistant lines,
-        // zero assistant TEXT in between — crosses the tool-count cadence
-        // bar regardless of the wall-clock gap threshold.
-        ...Array.from({ length: 15 }, (_, i) => ({
-          type: "assistant",
-          message: {
-            role: "assistant",
-            content: [{ type: "tool_use", name: "Bash", input: {} }],
-          },
-          timestamp: `2026-01-01T00:00:${String(i + 1).padStart(2, "0")}Z`,
-        })),
+        // zero assistant TEXT in between, spaced 40s apart so the run spans
+        // ~10 minutes — since mt#3336 the call leg is gap-qualified
+        // (CALL_LEG_MIN_GAP_MINUTES), so a genuine stretch needs both the
+        // call count AND a real wall-clock span.
+        ...Array.from({ length: 15 }, (_, i) => {
+          const totalSeconds = (i + 1) * 40;
+          const mm = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+          const ss = String(totalSeconds % 60).padStart(2, "0");
+          return {
+            type: "assistant",
+            message: {
+              role: "assistant",
+              content: [{ type: "tool_use", name: "Bash", input: {} }],
+            },
+            timestamp: `2026-01-01T00:${mm}:${ss}Z`,
+          };
+        }),
         {
           type: "user",
           message: { role: "user", content: "still going" },
-          timestamp: "2026-01-01T00:00:16Z",
+          timestamp: "2026-01-01T00:10:30Z",
         },
       ],
       expects: "calibration",

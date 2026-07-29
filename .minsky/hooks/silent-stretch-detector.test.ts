@@ -112,16 +112,24 @@ function assistantToolUseLine(offsetSeconds: number, toolName = "Read"): Transcr
   };
 }
 
-/** A single tool_use + its tool_result, `count` times, starting at `startOffset` seconds, 5s apart. */
-function toolCallChain(startOffset: number, count: number): TranscriptLine[] {
+/** A single tool_use + its tool_result, `count` times, starting at `startOffset` seconds, `spacingSeconds` apart. */
+function toolCallChain(startOffset: number, count: number, spacingSeconds = 5): TranscriptLine[] {
   const lines: TranscriptLine[] = [];
   for (let i = 0; i < count; i++) {
-    const base = startOffset + i * 5;
+    const base = startOffset + i * spacingSeconds;
     lines.push(assistantToolUseLine(base, `Tool${i}`));
     lines.push(toolResultLine(base + 1));
   }
   return lines;
 }
+
+/**
+ * Spacing that spreads a 16-20-call chain across >= 8 minutes, satisfying the
+ * mt#3336 gap-qualified call leg (CALL_LEG_MIN_GAP_MINUTES) — a genuine
+ * stretch, vs the default 5s spacing which builds the sub-5-minute BURST
+ * shape the mt#3336 tune stops matching.
+ */
+const STRETCH_SPACING = 30;
 
 const DAY_SECONDS = 24 * 60 * 60;
 
@@ -149,13 +157,33 @@ describe("isToolOnlyWorkChain (mt#3196)", () => {
 });
 
 describe("measureSilentStretch", () => {
-  test("20 consecutive tool calls, no text -> matched (tool-call threshold)", () => {
-    const turnLines = toolCallChain(0, 20);
+  test("20 tool calls spanning a real gap -> matched (gap-qualified call leg, mt#3336)", () => {
+    const turnLines = toolCallChain(0, 20, STRETCH_SPACING);
     const measurement = measureSilentStretch(turnLines, ts(0));
     expect(measurement.toolCallCount).toBe(20);
     expect(measurement.hadTextInTurn).toBe(false);
     expect(measurement.matched).toBe(true);
     expect(measurement.toolCallCount).toBeGreaterThanOrEqual(TOOL_CALL_THRESHOLD);
+  });
+
+  // mt#3336 regression (ask#6448): the burst shape that drove 9 of the last
+  // 14 logged fires — 15-25 calls with gaps of 1.4-5.2 minutes, e.g. the
+  // 2026-07-29T09:35:17Z record (15 calls / 1.77 min). Rapid rule-conformant
+  // work is not perceived silence; the bare call-count leg no longer exists.
+  test("mt#3336: 20 calls in under 2 minutes (burst) -> NOT matched", () => {
+    const turnLines = toolCallChain(0, 20);
+    const measurement = measureSilentStretch(turnLines, ts(0));
+    expect(measurement.toolCallCount).toBe(20);
+    expect(measurement.matched).toBe(false);
+  });
+
+  // mt#3336: the hard ceiling — the 2026-07-28T16:43:58Z record's shape
+  // (34 calls / 3.33 min) stays a match regardless of gap.
+  test("mt#3336: 34-call burst crosses the hard ceiling regardless of gap", () => {
+    const turnLines = toolCallChain(0, 34);
+    const measurement = measureSilentStretch(turnLines, ts(0));
+    expect(measurement.toolCallCount).toBe(34);
+    expect(measurement.matched).toBe(true);
   });
 
   test("5 consecutive tool calls, no text, short wall-clock gap -> NOT matched", () => {
@@ -287,8 +315,8 @@ describe("measureSilentStretch", () => {
     // 2 more tool calls. `matched` must reflect the EARLY run, not just the
     // final (small) trailing run — and the reported stats must describe
     // WHY it matched (the early run), never the unrelated small trailing run.
-    const genuineStretch = toolCallChain(0, 20);
-    const textOffset = 20 * 5 + 2;
+    const genuineStretch = toolCallChain(0, 20, STRETCH_SPACING);
+    const textOffset = 20 * STRETCH_SPACING + 2;
     const narration = assistantTextLine(textOffset, "Wrapping up with a quick check.");
     const shortFollowUp = toolCallChain(textOffset + 5, 2);
     const turnLines = [...genuineStretch, narration, ...shortFollowUp];
@@ -404,8 +432,8 @@ describe("run() (dispatcher-compatible)", () => {
   test("20-tool-call silent turn -> calibration record, NO additionalContext (INJECTION_ENABLED=false)", () => {
     const transcriptLines = [
       userPromptLine(0),
-      ...toolCallChain(1, 20),
-      userPromptLine(1 + 20 * 5 + 30, "why has nothing happened?"),
+      ...toolCallChain(1, 20, STRETCH_SPACING),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30, "why has nothing happened?"),
     ];
     const outcome = run(HOOK_INPUT, makeCtx(transcriptLines), noDedupeDeps());
     expect(outcome?.calibration).toBeDefined();
@@ -515,10 +543,13 @@ describe("mt#3027 — within-turn-only measurement (13/13 FP calibration round)"
   });
 
   test("a synthetic genuine stretch (16 consecutive tool calls, no text) still fires", () => {
+    // 35s spacing: 15 intervals x 35s = 8.75 min, clearing
+    // CALL_LEG_MIN_GAP_MINUTES for a 16-call chain (STRETCH_SPACING's 30s
+    // only reaches 7.5 min at this count).
     const transcriptLines = [
       userPromptLine(0),
-      ...toolCallChain(1, 16),
-      userPromptLine(1 + 16 * 5 + 10, "how's it going?"),
+      ...toolCallChain(1, 16, 35),
+      userPromptLine(1 + 16 * 35 + 10, "how's it going?"),
     ];
     const outcome = run(HOOK_INPUT, makeCtx(transcriptLines), noDedupeDeps());
     expect(outcome?.calibration).toBeDefined();
@@ -549,14 +580,14 @@ describe("mt#2357 — skill body does not reset the silence window", () => {
           },
         ],
       },
-      timestamp: ts(1 + 10 * 5),
+      timestamp: ts(1 + 10 * STRETCH_SPACING),
     };
     const transcriptLines = [
       userPromptLine(0),
-      ...toolCallChain(1, 10),
+      ...toolCallChain(1, 10, STRETCH_SPACING),
       skillBodyLine,
-      ...toolCallChain(1 + 10 * 5 + 5, 10),
-      userPromptLine(1 + 20 * 5 + 40, "how is it going?"),
+      ...toolCallChain(1 + 10 * STRETCH_SPACING + 5, 10, STRETCH_SPACING),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 40, "how is it going?"),
     ];
     const outcome = run(HOOK_INPUT, makeCtx(transcriptLines), noDedupeDeps());
     expect(outcome?.calibration).toBeDefined();
@@ -619,7 +650,11 @@ describe("run() — mt#3003 cross-transcript contamination", () => {
       ...toolCallChain(1, 5),
       userPromptLine(1 + 5 * 5 + 10, "status?"),
     ];
-    const subagentLines = [userPromptLine(0), ...toolCallChain(1, 20), userPromptLine(500)];
+    const subagentLines = [
+      userPromptLine(0),
+      ...toolCallChain(1, 20, STRETCH_SPACING),
+      userPromptLine(500),
+    ];
     const contaminated = [...parentLines, ...subagentLines];
     const ctx = makeCtxWithCandidates(contaminated, [PARENT_PATH, SUBAGENT_PATH]);
     const deps: RunDeps = {
@@ -636,8 +671,8 @@ describe("run() — mt#3003 cross-transcript contamination", () => {
   test("a genuine parent-side stretch still fires even with a contaminated multi-candidate ctx", () => {
     const parentLines = [
       userPromptLine(0),
-      ...toolCallChain(1, 20),
-      userPromptLine(1 + 20 * 5 + 30, "still going?"),
+      ...toolCallChain(1, 20, STRETCH_SPACING),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30, "still going?"),
     ];
     const subagentLines = [
       userPromptLine(0),
@@ -659,8 +694,8 @@ describe("run() — mt#3003 cross-transcript contamination", () => {
   test("<=1 candidate -> unaffected, uses ctx.transcriptLines directly (no parseTranscriptFn call)", () => {
     const transcriptLines = [
       userPromptLine(0),
-      ...toolCallChain(1, 20),
-      userPromptLine(1 + 20 * 5 + 30),
+      ...toolCallChain(1, 20, STRETCH_SPACING),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30),
     ];
     const ctx = makeCtxWithCandidates(transcriptLines, [PARENT_PATH]);
     const poisoned: RunDeps = {
@@ -688,8 +723,8 @@ describe("run() — mt#3003 dedupe (five-repeat calibration shape)", () => {
     // happened in the parent thread between firings).
     const transcriptLines = [
       userPromptLine(0),
-      ...toolCallChain(1, 20), // genuine 20-tool-call stretch -> crosses TOOL_CALL_THRESHOLD
-      userPromptLine(1 + 20 * 5 + 30, "why so long?"),
+      ...toolCallChain(1, 20, STRETCH_SPACING), // genuine 20-tool-call stretch -> crosses the gap-qualified call leg
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30, "why so long?"),
     ];
     const ctx = makeCtx(transcriptLines);
 
@@ -714,8 +749,8 @@ describe("run() — mt#3003 dedupe (five-repeat calibration shape)", () => {
   test("a DIFFERENT turn for the same session (changed anchor) is NOT deduped", () => {
     const firstTurn = [
       userPromptLine(0),
-      ...toolCallChain(1, 20),
-      userPromptLine(1 + 20 * 5 + 30, "still going?"),
+      ...toolCallChain(1, 20, STRETCH_SPACING),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30, "still going?"),
     ];
     const outcome1 = run(HOOK_INPUT, makeCtx(firstTurn), {
       readCalibrationLogTextFn: () => undefined,
@@ -725,11 +760,11 @@ describe("run() — mt#3003 dedupe (five-repeat calibration shape)", () => {
 
     // A genuinely NEW turn (different boundary timestamps) must still fire,
     // even though a (stale, different-anchor) prior record exists.
-    const secondTurnStart = 1 + 20 * 5 + 30;
+    const secondTurnStart = 1 + 20 * STRETCH_SPACING + 30;
     const secondTurn = [
       userPromptLine(secondTurnStart, "still going?"),
-      ...toolCallChain(secondTurnStart + 1, 20),
-      userPromptLine(secondTurnStart + 1 + 20 * 5 + 30, "and now?"),
+      ...toolCallChain(secondTurnStart + 1, 20, STRETCH_SPACING),
+      userPromptLine(secondTurnStart + 1 + 20 * STRETCH_SPACING + 30, "and now?"),
     ];
     const outcome2 = run(HOOK_INPUT, makeCtx(secondTurn), {
       readCalibrationLogTextFn: () => priorLogText,
@@ -740,15 +775,15 @@ describe("run() — mt#3003 dedupe (five-repeat calibration shape)", () => {
   test("A -> B -> A sequence: the repeat A is deduped even though B is the most recent record", () => {
     const turnA = [
       userPromptLine(0),
-      ...toolCallChain(1, 20),
-      userPromptLine(1 + 20 * 5 + 30, "A"),
+      ...toolCallChain(1, 20, STRETCH_SPACING),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30, "A"),
     ];
     const anchorA = buildTurnAnchor(findTurnBoundaryTimestamps(turnA));
-    const turnBStart = 1 + 20 * 5 + 30;
+    const turnBStart = 1 + 20 * STRETCH_SPACING + 30;
     const turnB = [
       userPromptLine(turnBStart, "A"),
-      ...toolCallChain(turnBStart + 1, 20),
-      userPromptLine(turnBStart + 1 + 20 * 5 + 30, "B"),
+      ...toolCallChain(turnBStart + 1, 20, STRETCH_SPACING),
+      userPromptLine(turnBStart + 1 + 20 * STRETCH_SPACING + 30, "B"),
     ];
     const anchorB = buildTurnAnchor(findTurnBoundaryTimestamps(turnB));
 
