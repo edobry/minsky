@@ -24,8 +24,9 @@ use crate::watcher_backend::{
     cockpit_backend_root, cockpit_backend_src, newest_backend_mtime, start_backend_watcher,
 };
 use crate::watcher_web::{
-    cockpit_source_root, cockpit_web_src, format_hms_utc, preflight_rebuild, report_build_result,
-    run_cockpit_build, set_build_status, start_web_watcher, PreflightResult,
+    cockpit_source_root, cockpit_web_src, format_hms_utc, preflight_rebuild, reload_cockpit_window,
+    report_build_result, run_cockpit_build, set_build_status, should_reload_after_build,
+    start_web_watcher, PreflightResult,
 };
 
 pub(crate) const DAEMON_PORT: u16 = 3737;
@@ -1023,14 +1024,24 @@ fn run_supervisor(
                     Some(SupervisorCmd::Rebuild) => {
                         // Runtime source change. Rebuild WITHOUT touching the
                         // daemon — Express serves dist from disk per request, so
-                        // a fresh bundle is picked up on the next browser
-                        // refresh; a failed rebuild leaves the prior bundle.
+                        // the fresh bundle is live for any NEW client
+                        // immediately; a failed rebuild leaves the prior bundle.
+                        //
+                        // An ALREADY-OPEN cockpit window is the exception: it
+                        // keeps running the JS/CSS it loaded at document-load
+                        // time, so it needs an explicit refresh or it silently
+                        // sits on stale code indefinitely (mt#3320 — this used
+                        // to say the bundle was "picked up on the next browser
+                        // refresh", which quietly made that the operator's job).
                         if let (Some(root), Some(bun)) =
                             (cockpit_source_root(&path), resolve_program("bun", &path))
                         {
                             set_build_status(&app, &mut sup, "Rebuilding bundle...".to_string());
                             let result = run_cockpit_build(&bun, &root, &path);
                             report_build_result(&app, &mut sup, &result, true);
+                            if should_reload_after_build(&result) {
+                                reload_cockpit_window(&app);
+                            }
                         }
                     }
                     Some(SupervisorCmd::Shutdown) | None => {
