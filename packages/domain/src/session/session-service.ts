@@ -150,6 +150,15 @@ export class SessionService {
 
   /**
    * Delete a session.
+   *
+   * NOTE (mt#3105): the live-actor gate inside `deleteSessionImpl` reads
+   * presence claims via an optional persistence provider. `SessionDeps`
+   * deliberately excludes persistence (adapter-composition concern — see
+   * `registerSessionCommands`'s `getOptionalPersistenceProvider`), so THIS
+   * path runs the gate without a provider and fail-closes (refuses) for
+   * non-terminal sessions unless an overrideReason is supplied. The
+   * production delete path (`session.delete` command) calls
+   * `deleteSessionImpl` directly with the provider wired.
    */
   async delete(params: SessionDeleteParams): Promise<DeleteSessionResult> {
     return deleteSessionImpl(params, {
