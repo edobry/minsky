@@ -380,19 +380,64 @@ export interface AcceptanceTestItem {
 }
 
 /**
- * Extracts the raw body of a spec's `## Acceptance Tests` section (everything between
- * the heading and the next `##` heading, a `---` divider, or end-of-string).
+ * Matches a heading that introduces a SUPERSEDING acceptance-test section (mt#3306
+ * Defect 2) — `## Remaining acceptance tests`, `### Updated acceptance tests`, etc.
+ *
+ * Why this exists: long-lived incident tasks get rescoped mid-life, and this repo's
+ * convention (mt#3142, mt#3030, mt#3251) is to APPEND the new disposition while
+ * PRESERVING the original `## Acceptance Tests` section as an audit trail — so a spec
+ * can legitimately carry both a stale original section and a live "Remaining / Updated /
+ * Revised / Current acceptance tests" section at once, in EITHER document order (a
+ * rescoping preface commonly sits near the TOP of the spec, ahead of the original
+ * section it supersedes, which is kept further down for history — see mt#3142's real
+ * spec). Deliberately no `^`/`m`-flag anchoring gotcha: `(?:^|\n)` requires the heading
+ * to start a line without turning on multiline `$` semantics, which would otherwise make
+ * the trailing `$` alternative below match at the end of every line (including the blank
+ * line right after the heading) instead of true end-of-string.
+ */
+const SUPERSEDING_ACCEPTANCE_TESTS_RE =
+  /(?:^|\n)#{2,3}\s+(?:Remaining|Updated|Revised|Current)\s+acceptance tests\s*\n([\s\S]*?)(?=\n#{2,3}\s|\n---|$)/i;
+
+/**
+ * Matches the ORIGINAL `## Acceptance Tests` heading and its body.
+ *
+ * Boundary rule (mt#3306 Defect 1): the section ends at the next heading of the SAME OR
+ * DEEPER level (`##` or `###`), not just an exact `## ` sibling. `work-completion.mdc
+ * §Recovery layer spec discipline` REQUIRES a `### Covers` / `### Does NOT cover` pair on
+ * every spec introducing a sweeper/retry/fallback/gate — exactly the infrastructure-
+ * hardening specs this check most wants to police — and a `###` boundary was invisible
+ * to the old `\n##\s` lookahead (its third `#` fails the `\s` check), so extraction ran
+ * straight past the subsection and swept its bullets in as acceptance tests (mt#3117 /
+ * PR #2234: reported 10 "ATs" against a spec that declared 4).
+ */
+const ACCEPTANCE_TESTS_RE = /##\s*Acceptance Tests\s*\n([\s\S]*?)(?=\n#{2,3}\s|\n---|$)/i;
+
+/**
+ * Extracts the raw body of a spec's acceptance-tests section.
  *
  * Historical note: this regex originally mirrored one in
  * `require-acceptance-tests-before-done.ts`, an unregistered, never-live DONE-transition
  * hook deleted as dead code in mt#975. This hook is now the sole reader of this spec
  * convention.
  *
- * Returns `null` when no such section exists.
+ * Precedence (mt#3306 Defect 2): a SUPERSEDING section — matched by
+ * `SUPERSEDING_ACCEPTANCE_TESTS_RE` above — always wins over the original `##
+ * Acceptance Tests` section when both are present, regardless of which appears first in
+ * the document. `String.prototype.match` only ever returns the FIRST literal match, so
+ * without this explicit precedence check the extractor would silently keep reading a
+ * stale, already-superseded section (mt#3142 / PR #2365: reported 3 of 5 "unaddressed"
+ * ATs, all three satisfied and dispositioned DONE days earlier — the spec's own
+ * `### Remaining acceptance tests` section, listing the 3 checks that actually still
+ * applied, was never consulted).
+ *
+ * Returns `null` when neither a superseding nor an original section exists.
  */
 export function extractAcceptanceTestsSection(specContent: string): string | null {
-  const match = specContent.match(/##\s*Acceptance Tests\s*\n([\s\S]*?)(?=\n##\s|\n---|$)/i);
-  return match ? (match[1] ?? "") : null;
+  const superseding = specContent.match(SUPERSEDING_ACCEPTANCE_TESTS_RE);
+  if (superseding) return superseding[1] ?? "";
+
+  const original = specContent.match(ACCEPTANCE_TESTS_RE);
+  return original ? (original[1] ?? "") : null;
 }
 
 /**
