@@ -21,7 +21,7 @@ For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev`
 | Server | Express (`src/cockpit/server.ts`) |
 | Frontend | React (`src/cockpit/web/{pages,widgets,components}/*.tsx` — see §Widget vocabulary below) |
 | Styling | Tailwind (`tailwind.config.ts`, scoped to `src/cockpit/web/**`) |
-| Component lib | shadcn/ui (mt#1773 shipped — `src/cockpit/web/components/ui/*.tsx`, `components.json`) |
+| Component lib | shadcn/ui conventions (mt#1773 shipped — `src/cockpit/web/components/ui/*.tsx`). Primitives are **hand-authored** thin Radix wrappers following shadcn's documented subcomponent contracts; there is NO `components.json`, so the `shadcn add` CLI is not the mechanism here (verified mt#3347). Add a primitive by matching the house idiom in `ui/popover.tsx` / `ui/select.tsx`. |
 | Data layer | TanStack Query (mt#1773 shipped — pages/widgets self-fetch via `useQuery`/`useMutation`; no bare `fetch` + `useState` for server data anywhere in `web/**` per mt#2616 + mt#2641, which migrated the last two `Rail.tsx` holdouts) |
 | Build | Vite (`vite.config.ts`) |
 | Tests | bun test (`src/cockpit/cockpit.test.ts`, `bun run test:components` for pages/widgets/components) |
@@ -86,7 +86,7 @@ categorization for a naming problem that a doc paragraph already resolves.
 
 **Avoid waterfalls.** Don't sequence client-side data fetches when they can run in parallel. Use `Promise.all` for parallel fetches. Use `useQueries` for parallel TanStack Query calls. Pattern reference: `vercel-labs/react-best-practices`.
 
-**Tailwind config: semantic tokens + `dark` class.** `tailwind.config.ts` defines CSS variables in `:root` and `.dark` for every semantic color. `darkMode: "class"`. The base layer (`src/cockpit/web/index.css`) declares the CSS variable values, per shadcn/ui's `components.json` scaffold.
+**Tailwind config: semantic tokens + `dark` class.** `tailwind.config.ts` defines CSS variables in `:root` and `.dark` for every semantic color. `darkMode: "class"`. The base layer (`src/cockpit/web/index.css`) declares the CSS variable values, following shadcn/ui's documented CSS-variable convention.
 
 ## Information architecture
 

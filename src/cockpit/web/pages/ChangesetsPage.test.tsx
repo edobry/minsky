@@ -367,8 +367,11 @@ describe("ChangesetsPage — age filter", () => {
       expect(screen.getByText(/3 active/)).toBeDefined();
     });
 
-    const ageSelect = screen.getByLabelText("Filter by age") as HTMLSelectElement;
-    fireEvent.change(ageSelect, { target: { value: "24h" } });
+    const ageSelect = screen.getByLabelText("Filter by age");
+    // Radix opens on keydown (the DOM stub lacks pointer capture) and the
+    // options only mount while the panel is open.
+    fireEvent.keyDown(ageSelect, { key: "Enter" });
+    fireEvent.click(screen.getByRole("option", { name: "Active in last 24h" }));
 
     await waitFor(() => {
       expect(screen.getByText(/2 active/)).toBeDefined();
@@ -386,8 +389,9 @@ describe("ChangesetsPage — age filter", () => {
       expect(screen.getByText(/3 active/)).toBeDefined();
     });
 
-    const ageSelect = screen.getByLabelText("Filter by age") as HTMLSelectElement;
-    fireEvent.change(ageSelect, { target: { value: "7d" } });
+    const ageSelect = screen.getByLabelText("Filter by age");
+    fireEvent.keyDown(ageSelect, { key: "Enter" });
+    fireEvent.click(screen.getByRole("option", { name: "Active in last 7d" }));
 
     await waitFor(() => {
       expect(screen.getByText(/2 active/)).toBeDefined();

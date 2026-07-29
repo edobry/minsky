@@ -34,6 +34,13 @@ import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { statusStyle } from "../lib/status-colors";
 import { useProject } from "../lib/project-context";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 
 // ---------------------------------------------------------------------------
 // Types — mirror of server TaskListItem / TaskListPayload
@@ -267,33 +274,37 @@ function TaskListControlBar({
             <span className="text-eyebrow font-mono uppercase text-muted-foreground ml-1">
               Kind:
             </span>
-            <select
-              value={filters.kind}
-              onChange={(e) => onFilterKind(e.target.value)}
-              className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              aria-label="Filter by kind"
-            >
-              <option value="all">All</option>
-              {kinds.map((k) => (
-                <option key={k} value={k}>{k}</option>
-              ))}
-            </select>
+            <Select value={filters.kind} onValueChange={onFilterKind}>
+              <SelectTrigger className="h-6 bg-background" aria-label="Filter by kind">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                {kinds.map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {k}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </>
         )}
 
         <span className="text-border mx-1">|</span>
 
         <span className="text-eyebrow font-mono uppercase text-muted-foreground">Per page:</span>
-        <select
-          value={pageSize}
-          onChange={(e) => onPageSize(Number(e.target.value))}
-          className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-          aria-label="Items per page"
-        >
-          {pageSizeOptions.map((n) => (
-            <option key={n} value={n}>{n}</option>
-          ))}
-        </select>
+        <Select value={String(pageSize)} onValueChange={(v) => onPageSize(Number(v))}>
+          <SelectTrigger className="h-6 bg-background" aria-label="Items per page">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {pageSizeOptions.map((n) => (
+              <SelectItem key={n} value={String(n)}>
+                {n}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         {hasActiveFilters && (
           <Button

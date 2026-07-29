@@ -21,6 +21,13 @@ import {
   type ReplaySpeed,
   type ReplayWindow,
 } from "../lib/plant-replay";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 export interface ScrubberBarProps {
   mode: PlantMode;
@@ -123,18 +130,21 @@ export function ScrubberBar({
           <span className="text-muted-foreground" data-testid="replay-playhead">
             {playheadIso ?? "—"}
           </span>
-          <select
-            aria-label="Replay speed"
-            value={speed}
-            onChange={(e) => onSpeedChange(Number(e.target.value) as ReplaySpeed)}
-            className={controlClass}
+          <Select
+            value={String(speed)}
+            onValueChange={(v) => onSpeedChange(Number(v) as ReplaySpeed)}
           >
-            {REPLAY_SPEEDS.map((s) => (
-              <option key={s} value={s}>
-                {s}×
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className={controlClass} aria-label="Replay speed">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {REPLAY_SPEEDS.map((s) => (
+                <SelectItem key={s} value={String(s)}>
+                  {s}×
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <button type="button" onClick={onPlayPause} className={buttonClass} aria-label={playing ? "Pause replay" : "Play replay"}>
             {playing ? "⏸ pause" : "▶ play"}
           </button>

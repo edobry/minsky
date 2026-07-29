@@ -40,6 +40,13 @@ import { ContextBlockView } from "./ContextBlockView";
 import { ConversationOverviewPanel } from "./ConversationOverviewPanel";
 import { livenessDotClass } from "../lib/liveness-colors";
 import type { WorkspaceId, ConversationId } from "@minsky/domain/ids";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 
 // ---------------------------------------------------------------------------
 // Types — mirror the backend payloads (session-detail.ts / workspace-overview.ts)
@@ -492,17 +499,21 @@ export function RunDetail({ id, keySpace, onConversationNotFound }: RunDetailPro
           {keySpace === "workspace" && conversationCandidates.length > 1 && (
             <label className="text-xs text-muted-foreground flex items-center gap-2">
               Conversation
-              <select
-                className="text-sm bg-background border border-input rounded px-2 py-1"
-                value={activeConversationId ?? ""}
-                onChange={(e) => setSelectedConversationId(e.target.value || null)}
+              <Select
+                value={activeConversationId ?? undefined}
+                onValueChange={(v) => setSelectedConversationId(v || null)}
               >
-                {conversationCandidates.map((c) => (
-                  <option key={c.agentSessionId} value={c.agentSessionId}>
-                    {c.agentSessionId}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="text-sm" aria-label="Conversation">
+                  <SelectValue placeholder="Select a conversation" />
+                </SelectTrigger>
+                <SelectContent>
+                  {conversationCandidates.map((c) => (
+                    <SelectItem key={c.agentSessionId} value={c.agentSessionId}>
+                      {c.agentSessionId}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </label>
           )}
           {keySpace === "workspace" && workspaceQuery.isPending ? (
