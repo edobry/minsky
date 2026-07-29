@@ -260,3 +260,38 @@ describe("resolveSessionActor — the repository's `stale` annotation is ignored
     expect(r.verdict).toBe("not-live");
   });
 });
+
+describe("resolveSessionActor — inconclusive cause discriminator (mt#3105 / ask#6273)", () => {
+  it("tags the zero-claims branch with cause 'no-claim'", async () => {
+    const r = await resolveSessionActor(SESSION_ID, deps([]));
+    expect(r.verdict).toBe("inconclusive");
+    expect(r.cause).toBe("no-claim");
+  });
+
+  it("tags the no-repository branch with cause 'store-unavailable'", async () => {
+    const r = await resolveSessionActor(SESSION_ID, {
+      getRepository: async () => null,
+    });
+    expect(r.verdict).toBe("inconclusive");
+    expect(r.cause).toBe("store-unavailable");
+  });
+
+  it("tags the read-failure branch with cause 'store-unavailable'", async () => {
+    const r = await resolveSessionActor(SESSION_ID, {
+      getRepository: async () => {
+        throw new Error("connection reset");
+      },
+    });
+    expect(r.verdict).toBe("inconclusive");
+    expect(r.cause).toBe("store-unavailable");
+  });
+
+  it("a claim-derived inconclusive (unverifiable pid + stale claim) carries NO cause — refuse-class for gate consumers", async () => {
+    const r = await resolveSessionActor(
+      SESSION_ID,
+      deps([claim({ host: "other-host", pid: 999, lastRefreshedAt: agoMs(60 * 60 * 1000) })])
+    );
+    expect(r.verdict).toBe("inconclusive");
+    expect(r.cause).toBeUndefined();
+  });
+});

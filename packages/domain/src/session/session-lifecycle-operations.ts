@@ -19,6 +19,11 @@ import { taskIdToBranchName } from "../tasks/task-id";
 import type { PersistenceProvider } from "../persistence/types";
 import { checkWorkspaceGitStateForDelete } from "./session-workspace-git-state-guard";
 import {
+  resolveSessionActor,
+  presenceRepositoryFromProvider,
+  type SessionActorResult,
+} from "./session-actor";
+import {
   resolveDestructiveOverride,
   isValidDestructiveOverride,
   recordDestructiveOverride,
@@ -118,6 +123,11 @@ export async function deleteSessionImpl(
     fs?: { existsSync: typeof existsSync; rmSync: typeof rmSync };
     /** mt#3021 SC2: best-effort audit-event sink for a used override. */
     persistenceProvider?: PersistenceProvider;
+    /**
+     * mt#3105: test seam for the live-actor gate. Defaults to the real
+     * mt#3103 primitive reading presence claims via `persistenceProvider`.
+     */
+    resolveActor?: (sessionId: string) => Promise<SessionActorResult>;
   }
 ): Promise<DeleteSessionResult> {
   const { sessionId, task, repo } = params;
@@ -213,6 +223,71 @@ export async function deleteSessionImpl(
         guard: "session-delete-git-state",
         reason: override.reason,
         details: { sessionId: resolvedSessionId, reasonCode: gitState.reasonCode },
+        persistenceProvider: deps.persistenceProvider,
+        relatedSessionId: resolvedSessionId,
+        relatedTaskId: sessionRecord?.taskId,
+      });
+    }
+
+    // mt#3105: live-ACTOR gate — the second, independently-failing axis next
+    // to the git-state guard above (AND, not OR: file-state evidence can be
+    // reasoned past — the 2026-07-21 incident's deleting agent used accurate
+    // git-state evidence as a reason TO delete; a live-actor check fails
+    // independently). Consults the mt#3103 presence primitive fresh, at the
+    // moment of the call.
+    //
+    // Verdict handling (four branches, operator ruling ask#6273 — recorded in
+    // the mt#3105 spec §Resolution and mem#749):
+    //   live                              → refuse (names actor + last activity)
+    //   inconclusive / store-unavailable  → refuse (fail closed — not knowing
+    //                                       because we could not LOOK is never
+    //                                       permission)
+    //   inconclusive / no-claim           → ABSTAIN: the git-state guard above
+    //                                       already decided. The claim
+    //                                       mechanism began 2026-07-16, so
+    //                                       claimless ≈ legacy — the routine
+    //                                       deletion population. Refusing it
+    //                                       would demand overrideReason on
+    //                                       ~99% of deletes and train reflex
+    //                                       flag-passing.
+    //   not-live                          → proceed
+    // Any OTHER inconclusive (claim-derived gray state, untagged cause) is
+    // refuse-class — abstention is opt-in on the explicit "no-claim" cause
+    // only, so future inconclusive branches default to the safe treatment.
+    //
+    // Only the shared destructive-override contract lifts a refusal; when it
+    // does, the use is recorded as its own guard.overridden audit event —
+    // separate from the git-state guard's record above, so the audit trail
+    // names each independently-tripped gate.
+    const resolveActor =
+      deps.resolveActor ??
+      ((sessionId: string) =>
+        resolveSessionActor(sessionId, {
+          getRepository: () => presenceRepositoryFromProvider(deps.persistenceProvider),
+        }));
+    const actor = await resolveActor(resolvedSessionId);
+    const livenessRefuses =
+      actor.verdict === "live" || (actor.verdict === "inconclusive" && actor.cause !== "no-claim");
+    if (livenessRefuses) {
+      const override = resolveDestructiveOverride(params.overrideReason);
+      if (!isValidDestructiveOverride(override)) {
+        return {
+          deleted: false,
+          error:
+            `Refusing to delete session '${resolvedSessionId}': ${actor.reason} — ` +
+            `pass an explicit overrideReason to delete anyway.`,
+        };
+      }
+      await recordDestructiveOverride({
+        guard: "session-delete-liveness",
+        reason: override.reason,
+        details: {
+          sessionId: resolvedSessionId,
+          verdict: actor.verdict,
+          cause: actor.cause,
+          actorId: actor.actorId,
+          lastRefreshedAt: actor.lastRefreshedAt,
+        },
         persistenceProvider: deps.persistenceProvider,
         relatedSessionId: resolvedSessionId,
         relatedTaskId: sessionRecord?.taskId,

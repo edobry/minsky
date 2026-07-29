@@ -2777,10 +2777,6 @@
               "takesValue": true
             },
             {
-              "flags": ["--force"],
-              "description": "Force the operation"
-            },
-            {
               "flags": ["--repo"],
               "description": "Repository path",
               "takesValue": true

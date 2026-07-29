@@ -104,10 +104,10 @@ export async function registerSessionCommands(
     createSessionBindingsRefreshCommand(getDeps, getOptionalPersistenceProvider),
 
     // Management
-    createSessionDeleteCommand(getDeps),
+    createSessionDeleteCommand(getDeps, getOptionalPersistenceProvider),
     createSessionUpdateCommand(getDeps),
     createSessionMigrateBackendCommand(getDeps),
-    createSessionCleanupCommand(getDeps),
+    createSessionCleanupCommand(getDeps, getOptionalPersistenceProvider),
 
     // Workflow
     createSessionCommitCommand(getDeps),
