@@ -16,7 +16,20 @@ export interface ClaudeHookInput {
 export interface ToolHookInput extends ClaudeHookInput {
   tool_name: string;
   tool_input: Record<string, unknown>;
+  /**
+   * The key this repo's hooks historically read. Production does NOT send it (mt#3308,
+   * measured on Claude Code 2.1.220; mt#3182 found the absence in production for
+   * `session_start` without identifying the real key) — `readInput` synthesizes it from
+   * `tool_response` below so every existing reader keeps working.
+   */
   tool_result?: Record<string, unknown>;
+  /**
+   * The key production actually sends on PostToolUse (mt#3308 captures):
+   * a parsed object for native tools (Agent), or the MCP content envelope
+   * `[{type:"text", text:"<json>"}]` for MCP tools, with the tool's JSON result
+   * STRINGIFIED inside the first text block.
+   */
+  tool_response?: unknown;
 }
 
 /**
@@ -356,7 +369,63 @@ export function execWithPath(
 
 // Read hook input from stdin
 export async function readInput<T = ClaudeHookInput>(): Promise<T> {
-  return (await Bun.stdin.json()) as T;
+  const raw = await Bun.stdin.json();
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    normalizeToolResult(raw as Record<string, unknown>);
+  }
+  return raw as T;
+}
+
+/** True for an MCP content block of the form `{type: "text", text: string}`. */
+function isTextContentBlock(block: unknown): block is { type: "text"; text: string } {
+  return (
+    !!block &&
+    typeof block === "object" &&
+    (block as { type?: unknown }).type === "text" &&
+    typeof (block as { text?: unknown }).text === "string"
+  );
+}
+
+/**
+ * Normalize the measured PostToolUse payload shape onto the `tool_result` key this repo's
+ * hooks read (mt#3308). Production sends `tool_response`, never `tool_result`:
+ *
+ *   - Native tools (e.g. `Agent`): `tool_response` is already a parsed object — copied over
+ *     directly.
+ *   - MCP tools (`mcp__*`): `tool_response` is the MCP content envelope
+ *     `[{type:"text", text:"<json>"}]` with the tool's JSON result STRINGIFIED in the first
+ *     text block — unwrapped and parsed.
+ *
+ * Before this normalization, every PostToolUse reader gating on `tool_result` contents was
+ * silently dead or degraded against production payloads (mt#3182's stamp hook wrote 0 rows in
+ * 235 sessions; the drive-pr-to-convergence reminder never fired). Fail-open by design: an
+ * absent/unparseable `tool_response` leaves the payload untouched, and an already-usable
+ * `tool_result` (e.g. a hand-built test payload) is never overwritten.
+ */
+export function normalizeToolResult(payload: Record<string, unknown>): void {
+  const existing = payload["tool_result"];
+  if (existing && typeof existing === "object" && !Array.isArray(existing)) return;
+
+  const response = payload["tool_response"];
+  if (!response) return;
+
+  if (typeof response === "object" && !Array.isArray(response)) {
+    payload["tool_result"] = response;
+    return;
+  }
+
+  if (Array.isArray(response)) {
+    const textBlock = response.find(isTextContentBlock);
+    if (!textBlock) return;
+    try {
+      const parsed: unknown = JSON.parse(textBlock.text);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        payload["tool_result"] = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Non-JSON text result (plain prose output) — leave untouched.
+    }
+  }
 }
 
 // Write hook output to stdout
