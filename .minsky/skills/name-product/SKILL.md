@@ -5,13 +5,13 @@ description: >-
   microsite, campaign, or marketing surface — using the Lexicon Branding
   methodology (three-phase identify/invent/implement, sound-symbolism,
   compound multiplier, processing fluency, polarization test, the diamond
-  exercise, the synchronicity drill) with a mandatory prior-use /
-  trademark-collision screen before any candidate advances. The synthesis dual
-  of analyze-adjacent-product: that skill reads an existing name semiotically,
-  this one generates a new name. Composes with minsky-brand (locked register
-  constraint) and marketing-site-design (surface application). Use when naming a
-  new operand, sub-product, or marketing surface, or evaluating an adjacent
-  product's name.
+  exercise, the synchronicity drill, blind-cycle generation, the center-fit
+  screen) with a mandatory prior-use / trademark-collision screen before any
+  candidate advances. The synthesis dual of analyze-adjacent-product: that
+  skill reads an existing name semiotically, this one generates a new name.
+  Composes with minsky-brand (locked register constraint) and
+  marketing-site-design (surface application). Use when naming a new operand,
+  sub-product, or marketing surface, or evaluating an adjacent product's name.
 user-invocable: true
 ---
 
@@ -44,8 +44,12 @@ Lexicon's process is **identify → invent → implement**. The single-agent for
 ### Phase 2 — Invent
 
 1. **Generate in generative mode, not evaluative mode.** Ask "what _could_ we do with this name?" — never "is this name good?" Humans default to noticing-what's-wrong; that reflex kills candidates before they're developed. Generate a wide set first; evaluate later.
-2. **Run the synchronicity drill** (§4) to force adjacency to unrelated domains.
-3. **Bias toward the construction rules** in `minsky-brand` §7.1:
+2. **Blind-cycle discipline (mt#2206 two-cycle finding).** Candidate GENERATION runs in a fresh context — a subagent dispatch blind to prior candidate slates and prior screen results; the dispatching agent compares outputs to prior slates only AFTER generation returns. Rationale: the June (Opus) and July (Fable) mt#2206 cycles were deliberately blind to each other, so cross-model convergence (the Orrery/Zoetrope territory) could be read as signal, and blindness prevented anchoring on incumbent candidates. Three sub-rules from the 2026-07-17 cycle-3 protocol refinement:
+   - **The blindness extends to the DISPATCH PROMPT itself.** Do not name prior candidates even as register examples — cycle 3's brief cited "Kedge-class obscure-but-real nautical terms" as a register illustration, the agent generated Kedge, and it had to be excluded as contaminated rather than counted as blind convergence. Register examples in a blind brief come from OUTSIDE the product's own naming history (Windsurf/BlackBerry-class public exemplars only).
+   - **Pole-balance check.** When the anchor artifact names a generative axis (e.g. designer's-act vs actor's-experience), verify both poles are represented in the screened set after generation; cycle 3's shortlist skewed 4/4 to one pole. Run a focused balancing pass if not.
+   - **Namespace-saturation calibration.** Expect a high screen kill rate (69% on the 2026-07 Fable set). The two observed escape directions: coined conceptual-pillar compounds, and obscure-but-real operational words — real-word + clean is achievable.
+3. **Run the synchronicity drill** (§4) to force adjacency to unrelated domains.
+4. **Bias toward the construction rules** in `minsky-brand` §7.1:
    - **Sound-symbolism** — pull noise-generating phonemes for signal. The per-phoneme table is the single source of truth in [`/minsky-brand`](../minsky-brand/SKILL.md) §7.1 (V / Z / X / B / S / K / M / L-N) — consult it there; this skill does not duplicate it. Note the locked-vocab gap analysis: the `MINSKY` head-noun carries zero V/Z/X high-intensity phonemes, so high-intensity operands can compensate.
    - **Compound multiplier** — prefer a compound (_Minsky <operand>_) where 1 + 1 = 3; resist the client-reflex pull toward a single short token.
    - **Make intangible tangible** — for an abstract substrate, reach for a physical-operational noun (Mesh, Section, Cockpit, Flock), not a sophisticated coinage.
@@ -53,16 +57,17 @@ Lexicon's process is **identify → invent → implement**. The single-agent for
 
 ### Phase 3 — Implement
 
-Screen the surviving candidates through the four tests (§2) AND the mandatory trademark-collision screen (§5). Only a candidate that passes all of them advances to a naming decision. For a marketing surface, derive the visual treatment afterward per `marketing-site-design` §7 Step 5.
+Screen the surviving candidates through the five tests (§2) AND the mandatory trademark-collision screen (§5). Only a candidate that passes all of them advances to a naming decision. For a marketing surface, derive the visual treatment afterward per `marketing-site-design` §7 Step 5.
 
 ## 2. The screening checks
 
-Run each finalist through all four. Any failure is disqualifying or a flag, not a footnote.
+Run each finalist through all five. Any failure is disqualifying or a flag, not a footnote.
 
 - **Polarization test.** Does the name provoke argument on first hearing? Comfortable team consensus is the warning sign — it means the name is too safe (Andy Grove's Pentium principle). Argument is energy.
 - **Compound-multiplier check.** Does the name multiply associations (1 + 1 = 3), or sit as a lone token where a compound would carry two semantic circles? For operands, prefer the compound with the locked referent.
 - **Processing-fluency check.** If coined, are the morphemes individually familiar? If a reader can't decode the parts, the whole reads as opaque.
 - **Not-like-the-other-guys test.** Run the competitor drill (§3): would a buyer say "they're not like the other guys" _before_ knowing what the thing does? That predisposition-to-consider is the signal the name is working.
+- **Center-fit test.** A head-noun or primitive candidate must carry the product's CENTER as recorded in the current center artifact — the manifesto page (Notion `3a0937f0-3cb4-811d-8bda-e1b9445081f0`; check its live state — it is DRAFT until Eugene ratifies). For Minsky today that means the name carries the field-shaping move (posture / landscape / compiled judgment / wu-wei territory), not the actor, the watching, or the enforcement mechanism. Cite the center artifact by reference at screen time rather than restating its content here, so a revised manifesto propagates without a skill edit. One open sub-question — whether the name's surface promise should read as the designer's act or the actor's experience — is a principal decision input; this check surfaces it, it does not resolve it.
 
 ## 3. The diamond exercise
 

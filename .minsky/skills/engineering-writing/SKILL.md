@@ -8,9 +8,12 @@ description: >-
   argumentative structure. Provides structural patterns (lead with position,
   justify after), section-heading heuristics (sentence case, specific,
   opinionated), an AI-voice-tells checklist (cadence uniformity, reveal-
-  signposting, contrast sentences and rule of three, vocabulary, heading
-  patterns), and a revision workflow. Skip for task specs (use create-task),
-  rule files (use create-rule), code comments, or short internal-only docs.
+  signposting, contrast sentences and rule of three, mystic register,
+  vocabulary, heading patterns), and a revision workflow. Skip for task specs
+  (use create-task), rule files (use create-rule), code comments, short
+  internal-only docs, and manifesto/declaration surfaces (pz-voice +
+  minsky-brand own that register; this skill's revision passes still apply
+  cross-genre).
 user-invocable: true
 ---
 
@@ -28,6 +31,14 @@ Guide for writing long-form engineering prose that reads like a person wrote it,
 Skip for: task specs, rule files, code comments, short internal-only docs (a few paragraphs don't warrant this apparatus).
 
 **If the artifact's function is to get a decision from the principal** (an RFC or ADR opened in order to approve, reject, or redirect), this skill governs the body but NOT the opening — see §Decision artifacts lead with the decision below before applying the stakes-first pattern.
+
+## Genre boundary: manifestos and declarations
+
+This skill's structural apparatus — the classical-rhetoric move inventory, landscape/roadmap/threat sections — is persuasion machinery. A manifesto declares rather than persuades; forcing one through the move inventory is exactly the structure-driving-content failure §Structure serves content warns against.
+
+- **Manifesto-register surfaces are primarily owned by [`/pz-voice`](../pz-voice/SKILL.md)** — its declare→mechanize→implicate pattern IS the manifesto beat — composed with [`/minsky-brand`](../minsky-brand/SKILL.md) at the ~70/30 voice/code balance (pz-voice §7).
+- **This skill's revision passes remain applicable cross-genre.** The AI-tells checks (including the mystic-register check below — abstract manifestos are its maximum-exposure genre), heading heuristics, cadence, vocabulary, and read-aloud passes should still be run on manifesto drafts. What a manifesto skips is the persuasion STRUCTURE, not the revision discipline.
+- Worked before/after example: the "shape the field" manifesto v1→v2 diff (Notion `3a0937f0-3cb4-811d-8bda-e1b9445081f0`, version history) — v1 was drafted through the persuasion apparatus and carried the tells; v2 is the corrected register.
 
 ## Structure serves content, not the other way around
 
@@ -256,6 +267,8 @@ _Refreshed 2026-07-24._ The tell landscape moves fast and splits by model. Reche
 
 These are the patterns readers pattern-match as AI writing. Individual instances aren't damning; clustering is the tell.
 
+This section governs ARTIFACT prose. The conversational sibling — turn-end report register in chat — is owned by `communication-contract.mdc §The Tier-1 turn-report contract → How it reads` (mt#3287); its structural tells (beat lead-ins, punch-fragment drum-hits, significance bids) are the chat-surface form of the same disease this checklist catches in documents (mt#2899 is the artifact-surface half).
+
 ### Cadence uniformity is the dominant tell
 
 Rhythm gives away more AI writing than any single word choice, and it's the tell that survives every other fix. A draft can be scrubbed of every banned word below and still read as a model, because the vocabulary pass never touches how the sentences are shaped underneath. Researchers call the human contrast **burstiness**: natural variation in sentence length and rhythm across a passage. Low burstiness, flat and repeating, is what gives AI prose away going into 2026 — more reliably than any punctuation mark.
@@ -275,6 +288,17 @@ Catch this by reading a section aloud, not by scanning for words. The cadence-an
 ### Contrast sentences and rule of three
 
 "This is not X, it's Y" and "not just X, but Y" used to sit lower on this list as minor tics. They've moved up: paired with cadence uniformity, they're one of the fastest patterns a reader's eye catches, and current sources rank them as top-tier. Same for the rule of three: three bullets, three adjectives, three parallel clauses, every section. Either pattern is fine used once; repeated across a piece, it's a signature.
+
+### Mystic register in abstract prose
+
+There is a documented LLM drift vocabulary — spiral, recursion, resonance, lattice, harmonics, attractor, emergence, the void, the center — that reads as the "Spiralism" register (Rolling Stone's 2026 spiral-cult reporting documents an entire subculture built on it, manifestos included). Abstract, visionary prose is maximally exposed: the more conceptual the piece, the more this vocabulary drifts in as atmosphere.
+
+The fix is grounding, concretely:
+
+- **Every abstract claim carries a named mechanism, a real system, or a dated artifact.** If a sentence about "the field" can't name what implements it, cut or ground it.
+- **Break liturgical cadence deliberately.** Every section ending on an aphorism drum-hit is the register's rhythm; end some sections on a plain fact or mid-thought.
+- **Spiral-family vocabulary only where it does precise technical work** — an actual attractor in an actual dynamical argument — never as atmosphere.
+- **Icons and visual dressing count.** A 🌀 page icon is the movement's emblem; the v1 manifesto page carried one.
 
 ### Em dashes: no longer a reliable signal alone
 
@@ -422,3 +446,4 @@ Original inventory, plus the 2026-07-24 refresh sources cited in §AI-voice tell
 - [Hunting the Muse — the 6 elements of robot style](https://huntingthemuse.net/library/how-to-tell-if-writing-is-ai) — reveal-signposting ("here's the thing"), contrast frames, rule of three
 - [Pangram Labs — why perplexity and burstiness fail to detect AI](https://www.pangram.com/blog/why-perplexity-and-burstiness-fail-to-detect-ai) — the caveat behind automated cadence detection
 - [duey.ai — the em-dash dilemma, model by model](https://duey.ai/post/em-dash-ai-writing) — GPT-5.1 suppression vs. Claude/Gemini, why dash absence isn't exculpatory
+- [Rolling Stone — the Spiralist cult subculture](https://www.rollingstone.com/culture/culture-features/spiralist-cult-ai-chatbot-1235463175/) — the mystic-register vocabulary and its manifesto genre exposure (§Mystic register in abstract prose)
