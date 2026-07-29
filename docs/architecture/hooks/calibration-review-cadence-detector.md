@@ -146,3 +146,43 @@ prompted its review) and is noted as a follow-up rather than backfilled here
   the agent at when a log is review-due; Step 1a / Step 4 / Step 5 record and
   reconcile `openAskId`
 - mt#2483 — the calibration-review sweep command/skill this hook keeps honest
+
+## Ask-state verification (mt#3270)
+
+Until mt#3270 the pending line asserted "awaiting operator response" for every log carrying an
+`openAskId`, **without ever consulting the ask**. When the operator had already answered and
+closed it, the line was simply false — and it stayed false for as long as the id sat in the
+watermark. The realized cost was not cosmetic: the agent relayed it to the principal as an open
+item awaiting them, and the principal then tried to open and action an ask that was already
+closed.
+
+`resolveAskStates` now looks each referenced ask up and `formatPendingAskLines` renders one of
+four branches:
+
+| Lookup                                                     | Rendered as                                                                                             |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| open (`routed` / `suspended`)                              | `disposition pending on ask <link> — awaiting operator response.`                                       |
+| settled (`closed` / `responded` / `cancelled` / `expired`) | `prior ask <link> is <state> — this log still needs a disposition; the ask is spent.`                   |
+| not found                                                  | `referenced ask <link> could not be found — disposition state unknown.`                                 |
+| store unreachable                                          | `could not read the state of ask <link> — ask store unreachable (<reason>); disposition state unknown.` |
+
+The header's "no action needed" is emitted only when EVERY referenced ask is genuinely open;
+otherwise it reads "Calibration disposition status". Ask ids render as
+`[<shortId>](minsky://ask/<uuid>)` so the line is openable (`cockpit-deeplinks.mdc`).
+
+**Why not-found and unreachable are separate branches.** This hook reached no persistence layer
+at all before mt#3270 — its imports were `node:fs`, `node:path`, `./types`, `./registry`. The
+lookup crosses the hook-bootstrap boundary that silently killed two hooks (mt#3019, mt#3046),
+where a swallowed failure is indistinguishable from a legitimately empty result. Collapsing
+"store unreachable" into "unknown ask" would reproduce exactly that shape — and exactly the
+shape of the bug this section fixes. The unreachable branch therefore names the reason inline
+and writes a stderr line.
+
+**Cost.** `resolveAskStates` is called only when at least one pending log will actually be
+rendered, so an ordinary turn — nothing past threshold — opens no database connection. The
+bootstrap's own CONNECT phase is capped at 2s (`ensureHookDomainBootstrap`).
+
+**What this does NOT fix.** The stale `openAskId` still sits in the watermark after an ask
+closes; this change stops the detector from misreporting it, but clearing it remains the
+disposition flow's job (`clearResolvedAskIds`). A write-side refresh would be the complementary
+fix and is not in this task's scope.
