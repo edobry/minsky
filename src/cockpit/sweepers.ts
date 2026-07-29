@@ -28,6 +28,11 @@ import {
   getServerTaskService,
 } from "./db-providers";
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
+import {
+  getSchemaReadiness,
+  isSchemaBehind,
+  refreshSchemaReadinessFromDb,
+} from "./schema-readiness";
 import { createPresenceSweepState } from "./conversation-presence-sweep";
 
 // ---------------------------------------------------------------------------
@@ -847,6 +852,12 @@ export interface TranscriptSweepBackstopOptions {
    * (ClaudeCodeTranscriptSource + AgentTranscriptIngestService + PerTurnEmbeddingPipeline).
    */
   deps?: TranscriptSweepDeps;
+  /**
+   * Set false to skip the schema-readiness gate (mt#3297). Tests that inject
+   * `deps` have no real database for the check to interrogate, so leaving it on
+   * would make every such test depend on live persistence.
+   */
+  schemaReadiness?: boolean;
 }
 
 /**
@@ -969,6 +980,31 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
         }
 
         const { runIngest, runEmbeddings, tracker } = sweepDeps;
+
+        // ── Phase 0: schema readiness (mt#3297) ───────────────────────────────
+        // Every write below targets columns this build expects the DB to have.
+        // After a merge that carries a migration, the tray restarts the daemon
+        // onto the new code within seconds while the migration is (correctly)
+        // NOT applied automatically to a shared database — so there is a window
+        // where all of this fails on a missing column. Skipping the sweep once,
+        // with a reason, replaces one failure per session per tick.
+        //
+        // Re-checked every tick rather than only at boot, so applying the
+        // migration lifts the pause on the next tick with no restart.
+        if (opts?.schemaReadiness !== false) {
+          await refreshSchemaReadinessFromDb();
+          if (isSchemaBehind()) {
+            // At debug, not warn: `refreshSchemaReadinessFromDb` already logged
+            // the transition into behind at warn, and repeating the reason on
+            // every tick would make a check whose purpose is bounding log volume
+            // into a recurring writer (PR #2379 R1). The standing condition is
+            // on /api/health.
+            log.debug("cockpit: transcript sweep skipped — schema behind", {
+              pending: getSchemaReadiness().pending,
+            });
+            return;
+          }
+        }
 
         // ── Phase 1: ingest sweep (idempotent/HWM-gated) ──────────────────────
         let ingestResult: {
