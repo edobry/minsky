@@ -36,6 +36,18 @@
  * deliberate follow-up operational step, not something this PR runs
  * automatically.
  *
+ * ## Idempotency (mt#3295 PR #2391 R1)
+ *
+ * `recordFindings` (findings.ts) inserts every row with `onConflictDoNothing`
+ * against `reviewer_findings.natural_key` — a hash of (owner, repo, pr
+ * number, round, file, line, lineEnd, title). This script therefore is safe
+ * to `--execute` more than once (a re-run, or a partial run resumed after a
+ * failure, no-ops on any finding it already wrote) and safe to overlap with
+ * the LIVE writer (review-finalize.ts) for the same PR — both funnel through
+ * the same `recordFindings` call and share the same conflict target, so
+ * whichever write lands first wins and the other is a no-op rather than a
+ * duplicate row.
+ *
  * Usage:
  *   bun services/reviewer/scripts/backfill-findings-from-webhook-events.ts
  *   bun services/reviewer/scripts/backfill-findings-from-webhook-events.ts --limit 50

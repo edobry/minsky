@@ -21,7 +21,8 @@
  * Sealed: no imports from src/.
  */
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, lt } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import type { ReviewerDb } from "./db/client";
 import {
   reviewerFindingsTable,
@@ -208,12 +209,60 @@ export function buildFindingRecordsFromBody(
 // ---------------------------------------------------------------------------
 
 /**
+ * Compute the idempotency key for one finding row (mt#3295 PR #2391 R1).
+ *
+ * A stable sha256 hash of (prOwner, prRepo, prNumber, round, file, line,
+ * lineEnd, title) — the natural key identifying "this logical finding, in
+ * this round." Hashing the tuple (rather than indexing the raw columns, or
+ * indexing raw `title` directly) keeps the unique index a single fixed-width
+ * column regardless of title length (Postgres btree has a ~2.7KB per-row
+ * limit) and sidesteps text-collation edge cases.
+ *
+ * Used by `recordFindings`'s `onConflictDoNothing` — the SAME conflict
+ * target for both the live writer path (review-finalize.ts, one call per
+ * round) and the one-shot backfill script
+ * (scripts/backfill-findings-from-webhook-events.ts), so a backfill re-run
+ * or a backfill/live-writer overlap for the same PR can never duplicate a
+ * row: whichever write lands first wins, the other is a no-op.
+ *
+ * Pure function. Exported for unit testing.
+ */
+export function computeFindingNaturalKey(input: {
+  prOwner: string;
+  prRepo: string;
+  prNumber: number;
+  round: number;
+  file: string;
+  line?: number;
+  lineEnd?: number;
+  title: string;
+}): string {
+  const raw = [
+    input.prOwner,
+    input.prRepo,
+    String(input.prNumber),
+    String(input.round),
+    input.file,
+    String(input.line ?? ""),
+    String(input.lineEnd ?? ""),
+    input.title,
+  ].join("::");
+  return createHash("sha256").update(raw).digest("hex");
+}
+
+/**
  * Persist a batch of findings for one review round.
  *
  * No-ops on an empty array (nothing to insert). Wrapped in try/catch — logs
  * on failure but never throws; reviews must not fail because a finding write
  * fails. Invalid severity/disposition values are dropped (with a warning)
  * before the insert rather than left to the DB to reject the whole batch.
+ *
+ * Idempotent (mt#3295 PR #2391 R1): each row's `naturalKey` (see
+ * `computeFindingNaturalKey`) is unique-indexed, and the insert uses
+ * `onConflictDoNothing` against that column — a duplicate call for the same
+ * logical finding (a backfill re-run, or a backfill overlapping the live
+ * writer for the same PR) is a no-op rather than a duplicate row.
  */
 export async function recordFindings(
   db: ReviewerDb,
@@ -261,12 +310,25 @@ export async function recordFindings(
       body: r.body,
       disposition: r.disposition ?? null,
       dispositionSetAt: r.disposition != null ? new Date() : null,
+      naturalKey: computeFindingNaturalKey({
+        prOwner: r.prOwner,
+        prRepo: r.prRepo,
+        prNumber: r.prNumber,
+        round: r.round,
+        file: r.file,
+        line: r.line,
+        lineEnd: r.lineEnd,
+        title: r.title,
+      }),
     }));
 
   if (values.length === 0) return;
 
   try {
-    await db.insert(reviewerFindingsTable).values(values);
+    await db
+      .insert(reviewerFindingsTable)
+      .values(values)
+      .onConflictDoNothing({ target: reviewerFindingsTable.naturalKey });
   } catch (err: unknown) {
     log.error("finding_write_error", {
       event: "finding_write_error",
@@ -281,22 +343,38 @@ export async function recordFindings(
 }
 
 /**
- * Resolve outstanding (disposition IS NULL) BLOCKING findings for a PR once
- * it converges (the current round's event is APPROVE) — the second cheap
- * disposition signal (mt#3295 SC#2). Marks them `disposition: "unknown"`
- * rather than guessing HOW they were resolved (fixed / dismissed / resolved-
- * without-code-change): that deeper classification needs diff-mining and is
- * mt#3300's job. This just ensures every finding on a converged PR carries a
- * non-NULL disposition (per the mt#3295 spec's AT#2), honestly labeled as
- * "resolved, mechanism unknown" rather than a specific (and possibly wrong)
- * claim.
+ * Resolve outstanding (disposition IS NULL) BLOCKING findings from EARLIER
+ * rounds of a PR once it converges (the current round's event is APPROVE)
+ * — the second cheap disposition signal (mt#3295 SC#2). Marks them
+ * `disposition: "unknown"` rather than guessing HOW they were resolved
+ * (fixed / dismissed / resolved-without-code-change): that deeper
+ * classification needs diff-mining and is mt#3300's job. This just ensures
+ * every finding on a converged PR carries a non-NULL disposition (per the
+ * mt#3295 spec's AT#2), honestly labeled as "resolved, mechanism unknown"
+ * rather than a specific (and possibly wrong) claim.
+ *
+ * Scoping (mt#3295 PR #2391 R1):
+ *   - `round < params.round` — strictly excludes the APPROVING round's own
+ *     just-inserted findings. An APPROVE round should have zero open
+ *     BLOCKING findings by construction, but scoping the query this way
+ *     means a same-round BLOCKING finding (were one to exist, e.g. a future
+ *     bug in the upstream event-decision logic) is never masked by an
+ *     immediate "unknown" stamp in the same call that persisted it — it
+ *     stays visibly open (disposition NULL) for the next round to resolve.
+ *   - `isNull(disposition)` — never overwrites an already-set disposition
+ *     (e.g. `bypassed`, set at insert time for a same-round downgrade in an
+ *     EARLIER round). A finding dispositioned in round N is untouched by an
+ *     APPROVE in any later round.
  *
  * No-ops when db is undefined at the call site (callers check before
  * calling). Wrapped in try/catch — logs on failure but never throws.
+ *
+ * @param params.round The APPROVING round's 1-based index (iterationIndex).
+ *   Only rows with `round < params.round` are eligible.
  */
 export async function resolveOutstandingFindingsOnApproval(
   db: ReviewerDb,
-  params: { prOwner: string; prRepo: string; prNumber: number }
+  params: { prOwner: string; prRepo: string; prNumber: number; round: number }
 ): Promise<void> {
   try {
     await db
@@ -308,7 +386,8 @@ export async function resolveOutstandingFindingsOnApproval(
           eq(reviewerFindingsTable.prRepo, params.prRepo),
           eq(reviewerFindingsTable.prNumber, params.prNumber),
           eq(reviewerFindingsTable.severity, "BLOCKING"),
-          isNull(reviewerFindingsTable.disposition)
+          isNull(reviewerFindingsTable.disposition),
+          lt(reviewerFindingsTable.round, params.round)
         )
       );
   } catch (err: unknown) {
@@ -318,6 +397,7 @@ export async function resolveOutstandingFindingsOnApproval(
       prOwner: params.prOwner,
       prRepo: params.prRepo,
       prNumber: params.prNumber,
+      round: params.round,
     });
     // Intentionally swallow — reviews proceed regardless of disposition-write failures.
   }

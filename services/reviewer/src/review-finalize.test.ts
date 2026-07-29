@@ -53,7 +53,7 @@ function makeFindingsTrackingDb() {
     insert: mock(() => ({
       values: mock((rows: Record<string, unknown>[]) => {
         insertedRows.push(...rows);
-        return Promise.resolve();
+        return { onConflictDoNothing: mock(() => Promise.resolve()) };
       }),
     })),
     update: mock(() => ({

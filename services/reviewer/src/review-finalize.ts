@@ -360,6 +360,7 @@ export async function finalizeReviewSuccess(
         prOwner: owner,
         prRepo: repo,
         prNumber: pr.number,
+        round: iterationIndex,
       });
     }
   }

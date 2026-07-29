@@ -16,7 +16,7 @@
  * carried forward vs. resolved) is a query-time concern, not a write-time one.
  */
 
-import { pgTable, uuid, text, integer, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 /**
@@ -159,6 +159,19 @@ export const reviewerFindingsTable = pgTable(
     /** When `disposition` was last set. NULL while disposition is NULL. */
     dispositionSetAt: timestamp("disposition_set_at", { withTimezone: true }),
 
+    /**
+     * Idempotency key (mt#3295 PR #2391 R1): a stable hash of
+     * (pr_owner, pr_repo, pr_number, round, file, line, line_end, title) —
+     * see `computeFindingNaturalKey` in `findings.ts`. Unique-indexed so
+     * `recordFindings` can `onConflictDoNothing` on it: the live writer path
+     * (review-finalize.ts, one call per round) and the one-shot backfill
+     * script (scripts/backfill-findings-from-webhook-events.ts, which can
+     * legitimately re-run or overlap with the live writer for the same PR)
+     * both go through `recordFindings`, so both share this same conflict
+     * target and can never duplicate a row for the same logical finding.
+     */
+    naturalKey: text("natural_key").notNull(),
+
     /** Row insertion timestamp (UTC). */
     createdAt: timestamp("created_at", { withTimezone: true })
       .default(sql`now()`)
@@ -181,6 +194,9 @@ export const reviewerFindingsTable = pgTable(
 
     /** Severity-filtered aggregation (e.g. BLOCKING-only category counts). */
     bySeverity: index("idx_rf_severity").on(table.severity),
+
+    /** Idempotency: one row per logical finding. See `naturalKey` above. */
+    byNaturalKeyUnique: uniqueIndex("idx_rf_natural_key_unique").on(table.naturalKey),
   })
 );
 

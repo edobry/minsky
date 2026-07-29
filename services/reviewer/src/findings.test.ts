@@ -3,6 +3,8 @@
  */
 
 import { describe, test, expect, mock } from "bun:test";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import {
   findingLocatorKey,
   buildBypassedLocatorSet,
@@ -11,6 +13,7 @@ import {
   buildFindingRecordsFromBody,
   recordFindings,
   resolveOutstandingFindingsOnApproval,
+  computeFindingNaturalKey,
   type FindingRecordInput,
   type FindingPersistContext,
 } from "./findings";
@@ -245,7 +248,7 @@ function makeFakeInsertDb(onInsert: (values: InsertValues[]) => void): ReviewerD
     insert: mock(() => ({
       values: mock((values: InsertValues[]) => {
         onInsert(values);
-        return Promise.resolve();
+        return { onConflictDoNothing: mock(() => Promise.resolve()) };
       }),
     })),
   } as unknown as ReviewerDb;
@@ -254,7 +257,9 @@ function makeFakeInsertDb(onInsert: (values: InsertValues[]) => void): ReviewerD
 function makeThrowingInsertDb(): ReviewerDb {
   return {
     insert: mock(() => ({
-      values: mock(() => Promise.reject(new Error("connection refused"))),
+      values: mock(() => ({
+        onConflictDoNothing: mock(() => Promise.reject(new Error("connection refused"))),
+      })),
     })),
   } as unknown as ReviewerDb;
 }
@@ -294,6 +299,47 @@ describe("recordFindings", () => {
       body: "body",
       disposition: null,
     });
+    // Idempotency key (mt#3295 PR #2391 R1): every inserted row carries the
+    // natural key recordFindings computes for it.
+    expect(captured[0]?.["naturalKey"]).toBe(
+      computeFindingNaturalKey({
+        prOwner: "edobry",
+        prRepo: "minsky",
+        prNumber: 3295,
+        round: 1,
+        file: "src/foo.ts",
+        line: 10,
+        title: "title",
+      })
+    );
+  });
+
+  // mt#3295 PR #2391 R1: backfill re-runs or a backfill/live-writer overlap
+  // must not duplicate rows. Asserts the insert actually goes through
+  // onConflictDoNothing against the naturalKey column — the shared conflict
+  // target for both the live writer (review-finalize.ts) and the one-shot
+  // backfill script.
+  test("uses onConflictDoNothing against the naturalKey column (idempotent insert)", async () => {
+    let conflictTarget: unknown;
+    const db = {
+      insert: mock(() => ({
+        values: mock(() => ({
+          onConflictDoNothing: mock((opts: { target: unknown }) => {
+            conflictTarget = opts.target;
+            return Promise.resolve();
+          }),
+        })),
+      })),
+    } as unknown as ReviewerDb;
+
+    await recordFindings(db, [SAMPLE_RECORD]);
+
+    expect(conflictTarget).toBeDefined();
+    // The target is the naturalKey column object itself (reference identity
+    // to reviewerFindingsTable.naturalKey) — assert its column name rather
+    // than importing the table (keeps this test decoupled from schema
+    // internals beyond the public contract).
+    expect((conflictTarget as { name: string }).name).toBe("natural_key");
   });
 
   test("drops records with an invalid severity", async () => {
@@ -351,6 +397,7 @@ describe("resolveOutstandingFindingsOnApproval", () => {
       prOwner: "edobry",
       prRepo: "minsky",
       prNumber: 3295,
+      round: 3,
     });
 
     expect(setValues?.["disposition"]).toBe("unknown");
@@ -369,7 +416,84 @@ describe("resolveOutstandingFindingsOnApproval", () => {
         prOwner: "edobry",
         prRepo: "minsky",
         prNumber: 3295,
+        round: 3,
       })
     ).resolves.toBeUndefined();
+  });
+
+  // mt#3295 PR #2391 R1: reviewer-flagged scoping bug — the query must
+  // exclude the approving round's own findings AND never touch an
+  // already-dispositioned row. Verified against the ACTUAL compiled SQL
+  // (mirrors migrate.test.ts's buildExpectedTablesQuery SQL-shape tests) so
+  // this is a real assertion on the query's structure, not just that
+  // `set()` was invoked with the right values.
+  test("scopes the WHERE clause to round < approving round AND disposition IS NULL", async () => {
+    let whereCondition: SQL | undefined;
+    const db = {
+      update: mock(() => ({
+        set: mock(() => ({
+          where: mock((cond: SQL) => {
+            whereCondition = cond;
+            return Promise.resolve();
+          }),
+        })),
+      })),
+    } as unknown as ReviewerDb;
+
+    // A finding dispositioned "bypassed" in round 2 must survive an APPROVE
+    // in round 3 unchanged: the compiled query below must both (a) exclude
+    // round 3 (the approving round) via round < 3, and (b) exclude any row
+    // whose disposition is already set (not NULL) — a bypassed round-2 row
+    // fails the disposition-IS-NULL filter and is therefore never touched,
+    // regardless of round.
+    await resolveOutstandingFindingsOnApproval(db, {
+      prOwner: "edobry",
+      prRepo: "minsky",
+      prNumber: 3295,
+      round: 3,
+    });
+
+    expect(whereCondition).toBeDefined();
+    const dialect = new PgDialect();
+    const compiled = dialect.sqlToQuery(whereCondition as SQL);
+    expect(compiled.sql).toMatch(/"round"\s*<\s*\$/);
+    expect(compiled.sql).toMatch(/"disposition"\s+is\s+null/i);
+    expect(compiled.sql).toMatch(/"severity"\s*=\s*\$/);
+    expect(compiled.params).toContain(3);
+    expect(compiled.params).toContain("BLOCKING");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeFindingNaturalKey (mt#3295 PR #2391 R1 — idempotent backfill/live writes)
+// ---------------------------------------------------------------------------
+
+describe("computeFindingNaturalKey", () => {
+  const BASE = {
+    prOwner: "edobry",
+    prRepo: "minsky",
+    prNumber: 3295,
+    round: 1,
+    file: "src/foo.ts",
+    line: 10,
+    title: "title",
+  };
+
+  test("is stable for identical inputs", () => {
+    expect(computeFindingNaturalKey(BASE)).toBe(computeFindingNaturalKey({ ...BASE }));
+  });
+
+  test("differs when any natural-key field differs", () => {
+    const base = computeFindingNaturalKey(BASE);
+    expect(computeFindingNaturalKey({ ...BASE, round: 2 })).not.toBe(base);
+    expect(computeFindingNaturalKey({ ...BASE, file: "src/bar.ts" })).not.toBe(base);
+    expect(computeFindingNaturalKey({ ...BASE, line: 11 })).not.toBe(base);
+    expect(computeFindingNaturalKey({ ...BASE, title: "different title" })).not.toBe(base);
+    expect(computeFindingNaturalKey({ ...BASE, prNumber: 9999 })).not.toBe(base);
+  });
+
+  test("treats absent line/lineEnd consistently", () => {
+    const { line: _line, ...withoutLine } = BASE;
+    expect(computeFindingNaturalKey(withoutLine)).toBe(computeFindingNaturalKey(withoutLine));
   });
 });
