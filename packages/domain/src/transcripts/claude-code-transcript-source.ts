@@ -83,6 +83,20 @@ const DEFAULT_PROJECT_DIR_GLOB = "*";
 
 const SUBAGENTS_DIR = "subagents";
 
+/**
+ * How many directory levels below a session's `subagents/` directory to walk
+ * (mt#3294).
+ *
+ * The only nesting the harness produces today is one level —
+ * `subagents/workflows/<wf-id>/` — so 3 leaves room for it to grow twice more
+ * without another silent-invisibility incident, while still refusing to walk an
+ * arbitrarily deep tree if something unexpected (a symlink loop, a stray
+ * checkout) lands under there. Chosen over an unbounded walk because discovery
+ * runs over the whole corpus on every sweep and an unbounded descent is how
+ * that becomes someone else's incident.
+ */
+export const MAX_SUBAGENT_TREE_DEPTH = 3;
+
 const JSONL_EXT = ".jsonl";
 
 /** Loosely-typed parsed JSONL line (we narrow on `type`). */
@@ -127,7 +141,7 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
         if (!entry.isDirectory()) continue;
         const subagentsDir = join(projectDir, entry.name, SUBAGENTS_DIR);
         if (await pathExists(subagentsDir)) {
-          yield* this.scanDir(subagentsDir, true);
+          yield* this.scanSubagentTree(subagentsDir);
         }
       }
     }
@@ -181,8 +195,59 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
     return null;
   }
 
-  private async *scanDir(dir: string, isSubagent: boolean): AsyncIterable<DiscoveredSession> {
+  /**
+   * Walk a session's `subagents/` tree, yielding every transcript at any depth
+   * (mt#3294).
+   *
+   * The tree is not flat. Workflow-spawned subagents write one level deeper, at
+   * `subagents/workflows/<wf-id>/*.jsonl`, and the original one-level scan
+   * skipped those directories entirely — 41 of 1,024 local transcripts were
+   * invisible to every sweep, including one whose stored row sat at 48 lines
+   * against 109 on disk. It had 48 at all only because some other write path
+   * had reached it, which is what made the gap quiet: the row existed and
+   * looked plausible.
+   *
+   * Recursing generally rather than special-casing `workflows/`: the harness
+   * introduced that nesting without any change on our side, so matching the one
+   * shape we happen to know about leaves the next one just as invisible. Depth
+   * is bounded anyway — see {@link MAX_SUBAGENT_TREE_DEPTH}.
+   *
+   * Everything found here is a subagent transcript by construction (it is under
+   * `subagents/`), so `isSubagent` is true at every depth.
+   *
+   * Reads each directory ONCE and partitions the entries, rather than calling
+   * `scanDir` (which reads) and then reading again to recurse — the directory
+   * count here multiplies across every session on every sweep (PR #2377 R1).
+   *
+   * Symlinked directories are not descended, and no explicit check is needed
+   * for that: `readdir` with `withFileTypes` reports a symlink via
+   * `isSymbolicLink()` and NOT `isDirectory()` (lstat semantics), so the filter
+   * below already excludes them. An added `|| entry.isSymbolicLink()` was tried
+   * and removed as dead code — the symlink test below passes with and without
+   * it, which is the evidence. The test is kept as a lock on that platform
+   * behavior, since the safety of this walk depends on it (PR #2377 R1).
+   */
+  private async *scanSubagentTree(dir: string, depth = 0): AsyncIterable<DiscoveredSession> {
     const entries = await safeReaddir(dir);
+    yield* this.yieldTranscripts(dir, entries, true);
+    if (depth >= MAX_SUBAGENT_TREE_DEPTH) return;
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      yield* this.scanSubagentTree(join(dir, entry.name), depth + 1);
+    }
+  }
+
+  private async *scanDir(dir: string, isSubagent: boolean): AsyncIterable<DiscoveredSession> {
+    yield* this.yieldTranscripts(dir, await safeReaddir(dir), isSubagent);
+  }
+
+  /** Yield a `DiscoveredSession` for each `.jsonl` file among already-read entries. */
+  private async *yieldTranscripts(
+    dir: string,
+    entries: Dirent[],
+    isSubagent: boolean
+  ): AsyncIterable<DiscoveredSession> {
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(JSONL_EXT)) continue;
       const jsonlPath = join(dir, entry.name);
@@ -311,14 +376,22 @@ function deriveCwdFromProjectDir(parentDir: string): string | undefined {
  * with `-` (the Claude Code project-dir convention). Returns the basename or
  * undefined if none found within a small number of hops.
  *
- * This handles both top-level session files (parent is the project dir) and
- * subagent files (parent is `<projectDir>/<sessionId>/subagents`).
+ * This handles top-level session files (parent is the project dir), subagent
+ * files (parent is `<projectDir>/<sessionId>/subagents`), and subagent files
+ * nested deeper still (`.../subagents/workflows/<wf-id>`, mt#3294).
  */
 function findProjectDirName(parentDir: string): string | undefined {
   let current = parentDir;
-  // Cap at 3 hops to avoid walking the whole filesystem on misconfigured input:
-  // the deepest legitimate case is subagents/ → sessionId/ → projectDir/ (2 hops).
-  for (let i = 0; i < 3; i++) {
+  // Hop budget must cover the deepest path scanSubagentTree can reach:
+  // <wf-id>/ → workflows/ → subagents/ → sessionId/ → projectDir/. That is
+  // 2 hops for a flat subagent dir plus MAX_SUBAGENT_TREE_DEPTH more for the
+  // nesting below it, +1 so the projectDir itself is inspected rather than
+  // just stepped onto. Derived from the depth cap rather than hard-coded, so
+  // raising one cannot silently outrun the other — the previous fixed cap of 3
+  // stopped one directory short of the project dir for workflow-nested files,
+  // which would have left their cwd undefined once discovery could see them.
+  const maxHops = 2 + MAX_SUBAGENT_TREE_DEPTH + 1;
+  for (let i = 0; i < maxHops; i++) {
     const name = basename(current);
     if (name.startsWith("-") && name !== SUBAGENTS_DIR) return name;
     const next = dirname(current);
