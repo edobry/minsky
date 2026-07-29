@@ -189,6 +189,18 @@ export const WORD_COUNT_THRESHOLD = LEAD_WORD_BUDGET * OVER_BUDGET_MULTIPLIER;
 export const LEAD_WINDOW_WORDS = 150;
 
 /**
+ * Word-count floor for the lead-labels leg (mt#3336, ask#6448 disposition).
+ * The leg exists to catch REPORTS whose lead is written in audit-trail
+ * vocabulary — but with no floor it also flagged a 56-word one-liner for
+ * containing "SC#5" (2026-07-29T11:38:59Z record), which is not a wall of
+ * text under any reading. Grounded against the calibration log: the false
+ * positive sat at 56 words; every real lead-labels fire was a full report
+ * (278 and 328 words). 100 — half the Tier-1 budget — separates the observed
+ * populations with margin on both sides.
+ */
+export const LEAD_LABELS_MIN_WORDS = 100;
+
+/**
  * Skill-internal label patterns the contract bars from the lead
  * (communication-contract.mdc: "no skill-internal labels (gate letters (l),
  * premise-audit labels (iii), criterion-table IDs)"). Conservative by
@@ -266,7 +278,7 @@ export function measureWallOfText(finalText: string): WallOfTextMeasurement {
   const namedRefCount = (finalText.match(NAMED_REF_RE) ?? []).length;
 
   const overBudget = wordCount >= WORD_COUNT_THRESHOLD;
-  const hasLeadLabels = leadLabelHits.length > 0;
+  const hasLeadLabels = leadLabelHits.length > 0 && wordCount >= LEAD_LABELS_MIN_WORDS;
   const matched = overBudget || hasLeadLabels;
   const trigger =
     overBudget && hasLeadLabels
@@ -336,6 +348,23 @@ export const DEPTH_REQUEST_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }>
     name: "full-breakdown",
     re: /\b(?:give me|want|need)\s+(?:the |a )?(?:full|complete)\s+breakdown\b/i,
   },
+  // mt#3336 (ask#6448 disposition) — evidence-based widening, via exactly the
+  // signal the narrowness note above reserves for it: the 2026-07-29T09:32:54Z
+  // record (728 words, suppressedByDepthRequest: false) was classified a false
+  // positive — the operator had explicitly asked for an expansive report in
+  // phrasing outside the v1 trio. Additions stay imperative-shaped (an
+  // explicit request for MORE depth), preserving the over- vs
+  // under-suppression asymmetry the v1 note documents.
+  {
+    name: "deep-dive",
+    re: /\b(?:do|take|give me|want|need)\s+a\s+deep\s+dive\b|\bdeep-?dive into\b/i,
+  },
+  { name: "go-into-detail", re: /\bgo into (?:more |full |great )?detail\b/i },
+  {
+    name: "be-expansive",
+    re: /\bbe (?:expansive|exhaustive|thorough|comprehensive|detailed|verbose)\b/i,
+  },
+  { name: "in-full-detail", re: /\bin (?:full|complete|great) detail\b/i },
 ];
 
 /** Text content of a single user-role transcript line (string or text-block-array content). */

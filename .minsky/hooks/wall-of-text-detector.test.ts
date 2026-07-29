@@ -249,14 +249,26 @@ describe("measureWallOfText", () => {
   });
 
   test("under budget but 'gate (l)' in the lead -> trigger 'lead-labels'", () => {
-    const m = measureWallOfText(`Gate (l) blocked promotion. ${words(50)}`);
+    const m = measureWallOfText(`Gate (l) blocked promotion. ${words(150)}`);
     expect(m.matched).toBe(true);
     expect(m.trigger).toBe("lead-labels");
     expect(m.leadLabelHits).toEqual(["gate-letter"]);
   });
 
+  // mt#3336 regression (ask#6448): the 2026-07-29T11:38:59Z record — a
+  // 56-word one-liner flagged only for containing "SC#5". Below
+  // LEAD_LABELS_MIN_WORDS the lead-labels leg no longer fires: a short reply
+  // is not a wall of text whatever vocabulary it uses.
+  test("mt#3336: a 56-word reply containing SC#5 does NOT match (word-count floor)", () => {
+    const m = measureWallOfText(`SC#5 is discharged. ${words(52)}`);
+    expect(m.wordCount).toBeLessThan(100);
+    expect(m.leadLabelHits).toEqual(["sc-ref"]);
+    expect(m.matched).toBe(false);
+    expect(m.trigger).toBe("none");
+  });
+
   test("SC#N ref in the lead -> 'sc-ref' hit", () => {
-    const m = measureWallOfText(`SC#3 is unmet. ${words(20)}`);
+    const m = measureWallOfText(`SC#3 is unmet. ${words(150)}`);
     expect(m.leadLabelHits).toEqual(["sc-ref"]);
     expect(m.matched).toBe(true);
   });
@@ -474,11 +486,15 @@ describe("run — mt#3112 depth-request override", () => {
 });
 
 describe("detectDepthRequest / DEPTH_REQUEST_PATTERNS", () => {
-  test("exposes exactly the three named patterns cited in the mt#3112 spec", () => {
+  test("exposes the three mt#3112 patterns plus the four mt#3336 widenings", () => {
     expect(DEPTH_REQUEST_PATTERNS.map((p) => p.name)).toEqual([
       "walk-me-through",
       "show-the-detail",
       "full-breakdown",
+      "deep-dive",
+      "go-into-detail",
+      "be-expansive",
+      "in-full-detail",
     ]);
   });
 
@@ -486,6 +502,16 @@ describe("detectDepthRequest / DEPTH_REQUEST_PATTERNS", () => {
     expect(detectDepthRequest(["walk me through everything please"]).matched).toBe(true);
     expect(detectDepthRequest(["can you show me the detail"]).matched).toBe(true);
     expect(detectDepthRequest(["give me the full breakdown"]).matched).toBe(true);
+  });
+
+  // mt#3336 widenings — each imperative-shaped request for MORE depth.
+  test("matches each of the mt#3336 widened phrasings", () => {
+    expect(detectDepthRequest(["take a deep dive on the auth module"]).matched).toBe(true);
+    expect(detectDepthRequest(["deep-dive into the sweep logic"]).matched).toBe(true);
+    expect(detectDepthRequest(["go into more detail on the failure"]).matched).toBe(true);
+    expect(detectDepthRequest(["be expansive here"]).matched).toBe(true);
+    expect(detectDepthRequest(["be thorough about the edge cases"]).matched).toBe(true);
+    expect(detectDepthRequest(["explain it in full detail"]).matched).toBe(true);
   });
 
   test("does not match ordinary prose", () => {
