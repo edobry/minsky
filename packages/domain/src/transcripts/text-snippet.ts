@@ -27,21 +27,26 @@
  */
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
+import { HARNESS_MARKUP_TAGS } from "@minsky/shared/harness-markup";
+
 /**
  * Harness-injected structural wrapper tags whose CONTENTS are never operator
  * prose (mt#2784). `<command-message>` is a deliberate judgment call, not an
  * oversight: its body is just the invoked skill/command's display name (e.g.
  * "error-handling"), which reads like plausible label text — but it is
  * harness boilerplate the operator never typed, so it is discarded entirely
- * along with the other three tags rather than unwrapped (contrast with a
- * markdown link, where the visible text IS operator-authored and is kept).
+ * along with the other tags rather than unwrapped (contrast with a markdown
+ * link, where the visible text IS operator-authored and is kept).
+ *
+ * mt#3322 replaced this module's hand-maintained four-tag list with the
+ * shared inventory in `./harness-markup`, which the cockpit's render-surface
+ * detector also consumes. The two lists had drifted:
+ * `local-command-caveat` was missing here (125 turns in the corpus carry it),
+ * and `command-args` / `skill-format` were covered only incidentally by
+ * {@link stripLeadingWrapperBlocks}'s position-based pass — so a wrapper
+ * appearing mid-text leaked. Adopting the shared set closes both gaps.
  */
-const HARNESS_WRAPPER_TAGS = [
-  "command-message",
-  "command-name",
-  "local-command-stdout",
-  "system-reminder",
-] as const;
+const HARNESS_WRAPPER_TAGS = HARNESS_MARKUP_TAGS;
 
 /**
  * Strip harness command-wrapper / system-reminder blocks — tag markers AND

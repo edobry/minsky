@@ -16,7 +16,7 @@
  * @see mt#3262 — this extraction
  * @see mt#2374 / mt#2790 / mt#2791 — original implementation history
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { cn } from "../lib/utils";
 import type { ConversationElement, ConversationRole } from "@minsky/domain/transcripts/conversation-elements";
 import type { EntityIndex } from "../lib/entity-linkifier";
@@ -42,6 +42,21 @@ export type PreparedElement =
   | { kind: "tool-invocation"; call: ToolCallElement; result?: ToolResultElement }
   | { kind: "tool-result-orphan"; result: ToolResultElement; callName: string | undefined }
   | { kind: "injected"; span: InjectedSpan }
+  /**
+   * A slash-command invocation merged with its captured output and the
+   * harness caveat that accompanies it (mt#3322) — the command analogue of
+   * `tool-invocation`. The harness emits these as up to THREE consecutive
+   * user turns; rendering them as three prose bubbles is what buried the real
+   * conversation. `output`/`caveat` are optional: a command with no captured
+   * stdout, or a transcript whose caveat fell outside the rendered window,
+   * still renders as a command.
+   */
+  | {
+      kind: "command-invocation";
+      command: InjectedSpan;
+      output?: InjectedSpan;
+      caveat?: InjectedSpan;
+    }
   | { kind: "unknown"; rawType: string; raw: unknown };
 
 // ── API-error text detection (mt#2793) ──────────────────────────────────────
@@ -323,6 +338,85 @@ export function InjectedContentBlock({
   );
 }
 
+// ── Command invocation (mt#3322) ────────────────────────────────────────────
+//
+// A slash command and its captured output, rendered as ONE element in the
+// shape the terminal uses:
+//
+//     > /model
+//       Set model to Fable 5 for this session only
+//
+// The command name and its result are the two things the operator actually
+// wants to read, so both are shown inline rather than collapsed. The raw
+// harness markup (the wrapper tags, and the model-directed caveat) is real
+// content and is NOT discarded — it moves behind the disclosure toggle, per
+// the mt#2791 contract that injected content is demoted, never dropped.
+
+/** Strip the leading slash so the rendered prompt reads `> /model`, not `> //model`. */
+function commandLabelText(span: InjectedSpan): string {
+  const withoutPrefix = span.label.replace(/^command:\s*/i, "").trim();
+  return withoutPrefix.startsWith("/") ? withoutPrefix : `/${withoutPrefix}`;
+}
+
+export function CommandInvocation({
+  element,
+  entityIndex,
+  expandSignal,
+}: {
+  element: Extract<PreparedElement, { kind: "command-invocation" }>;
+  entityIndex: EntityIndex;
+  expandSignal: ExpandSignal;
+}) {
+  const [open, setOpen] = useState(false);
+  const expandEpoch = expandSignal?.epoch;
+  useEffect(() => {
+    if (expandSignal) setOpen(expandSignal.open);
+  }, [expandEpoch]);
+
+  // Ties the toggle to the region it controls so a screen reader announces
+  // what expanded (PR #2403 R1, non-blocking).
+  const detailsId = useId();
+  const { command, output, caveat } = element;
+
+  return (
+    <div className="rounded border border-border/40 bg-muted/10">
+      <div className="flex items-start gap-2 px-2 py-1">
+        <span aria-hidden className="select-none font-mono text-xs text-muted-foreground/60">
+          &gt;
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-mono text-xs text-foreground/90">{commandLabelText(command)}</div>
+          {output && output.content.length > 0 && (
+            <div className="mt-0.5 font-mono text-xs text-muted-foreground">{output.content}</div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-controls={detailsId}
+          aria-label={open ? "Hide raw command markup" : "Show raw command markup"}
+          className="ml-auto shrink-0 text-xs text-muted-foreground/60"
+        >
+          {open ? "▾" : "▸"}
+        </button>
+      </div>
+      {open && (
+        <div id={detailsId} className="space-y-1 border-t border-border/40 px-2 py-1">
+          <Prose entityIndex={entityIndex} className="text-muted-foreground/90">
+            {command.content}
+          </Prose>
+          {caveat && (
+            <Prose entityIndex={entityIndex} className="text-muted-foreground/70">
+              {caveat.content}
+            </Prose>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── The single-element renderer ─────────────────────────────────────────────
 
 export function ElementView({
@@ -396,6 +490,14 @@ export function ElementView({
           element={element.result}
           callName={element.callName}
           entityIndex={entityIndex}
+        />
+      );
+    case "command-invocation":
+      return (
+        <CommandInvocation
+          element={element}
+          entityIndex={entityIndex}
+          expandSignal={expandSignal}
         />
       );
     case "injected":

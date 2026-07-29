@@ -102,6 +102,12 @@ export interface ConversationTurn {
    */
   isCompactSummary?: boolean;
   /**
+   * True when the harness — not the operator — generated this turn (mt#3322).
+   * Carried by the `<local-command-caveat>` line attached to a slash-command
+   * invocation, whose body is addressed to the model rather than the reader.
+   */
+  isMeta?: boolean;
+  /**
    * The assistant message's model, when recorded. `"<synthetic>"` marks a
    * harness-generated retry turn rather than a real model response (mt#3260).
    */
@@ -264,6 +270,7 @@ export function snapshotBlockToConversationTurn(
     isSpawnBoundary,
     spawnAgentKind,
     isCompactSummary: block.isCompactSummary,
+    isMeta: block.isMeta,
     model: block.model,
   };
 }
