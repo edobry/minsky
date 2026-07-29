@@ -23,6 +23,13 @@
  * @see mt#2071
  */
 
+// tsyringe reflect polyfill. MUST be static and first: every domain import
+// below is dynamic, and a type-only import is erased at runtime, so nothing
+// else in this file loads the polyfill. Without it the first tsyringe
+// decorator throws "tsyringe requires a reflect polyfill" and the script dies
+// before its first query (mt#3178; same class as mt#3019 / mt#3176).
+import "reflect-metadata";
+
 import type { MemoryServiceSurface, MemoryServiceDb } from "@minsky/domain/memory/memory-service";
 
 async function buildMemoryService(): Promise<MemoryServiceSurface> {

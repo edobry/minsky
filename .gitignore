@@ -54,6 +54,7 @@ services/reviewer/eval/results/
 # workspace (hooks running with a subpackage cwd spill logs into e.g.
 # cockpit-tray/.minsky/ and infra/.minsky/).
 **/.minsky/*-calibration.jsonl
+**/.minsky/subagent-model-mismatch.jsonl
 **/.minsky/calibration-review-watermarks.json
 **/.minsky/calibration-review-cadence-last-warned.json
 

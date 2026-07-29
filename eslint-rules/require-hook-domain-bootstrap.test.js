@@ -18,6 +18,9 @@ const hookFile = ".minsky/hooks/some-hook.ts";
 const hookTestFile = ".minsky/hooks/some-hook.test.ts";
 const bootstrapFile = ".minsky/hooks/domain-bootstrap.ts";
 const outsideFile = "src/domain/tasks/unrelated.ts";
+// mt#3178 widened coverage to the `scripts/**` entry-point tree.
+const scriptFile = "scripts/some-backfill.ts";
+const scriptTestFile = "scripts/some-backfill.test.ts";
 
 const MSG = "missingBootstrap";
 
@@ -91,6 +94,37 @@ tester.run("require-hook-domain-bootstrap", rule, {
       filename: outsideFile,
       code: `
         import { resolvePersistenceProvider } from "./persistence/factory";
+        export const p = resolvePersistenceProvider();
+      `,
+    },
+    // mt#3178: a script satisfies the invariant with a STATIC reflect polyfill.
+    // This is the idiom 29 of the 31 flagged scripts already used.
+    {
+      filename: scriptFile,
+      code: `
+        import "reflect-metadata";
+        import { resolvePersistenceProvider } from "@minsky/domain/persistence/factory";
+        export const p = resolvePersistenceProvider();
+      `,
+    },
+    // mt#3178: the hook idiom also satisfies a script — the two are alternatives,
+    // not mutually exclusive.
+    {
+      filename: scriptFile,
+      code: `
+        import { ensureHookDomainBootstrap } from "../.minsky/hooks/domain-bootstrap";
+        import { resolvePersistenceProvider } from "@minsky/domain/persistence/factory";
+        export async function run() {
+          await ensureHookDomainBootstrap();
+          return resolvePersistenceProvider();
+        }
+      `,
+    },
+    // A test is not an entry point — the exemption carries over to scripts.
+    {
+      filename: scriptTestFile,
+      code: `
+        import { resolvePersistenceProvider } from "@minsky/domain/persistence/factory";
         export const p = resolvePersistenceProvider();
       `,
     },
@@ -232,6 +266,56 @@ tester.run("require-hook-domain-bootstrap", rule, {
           return resolvePersistenceProvider();
         }
         export { run };
+      `,
+      errors: [{ messageId: MSG }],
+    },
+    // mt#3178 SC#5: a scripts/** file reaching persistence with NO bootstrap
+    // is flagged. Before mt#3178 this passed silently — the rule's own path
+    // guard rejected every scripts/** file regardless of the config glob.
+    {
+      filename: scriptFile,
+      code: `
+        import { resolvePersistenceProvider } from "@minsky/domain/persistence/factory";
+        export const p = resolvePersistenceProvider();
+      `,
+      errors: [{ messageId: MSG }],
+    },
+    // mt#3178 SC#3: the negative control carries over to scripts — a bare
+    // identifier is not an import, so deleting the import while leaving the
+    // call site behind must still fail.
+    {
+      filename: scriptFile,
+      code: `
+        export async function run() {
+          await ensureHookDomainBootstrap();
+          return resolvePersistenceProvider();
+        }
+      `,
+      errors: [{ messageId: MSG }],
+    },
+    // mt#3178 asymmetry: the reflect polyfill alone does NOT satisfy a HOOK.
+    // `ensureHookDomainBootstrap` does polyfill AND configuration init; a hook
+    // with only the polyfill still resolves a null provider — the mt#3019
+    // failure. Accepting it here would silently weaken the original rule.
+    {
+      filename: hookFile,
+      code: `
+        import "reflect-metadata";
+        import { resolvePersistenceProvider } from "./persistence/factory";
+        export const p = resolvePersistenceProvider();
+      `,
+      errors: [{ messageId: MSG }],
+    },
+    // mt#3178: only a STATIC polyfill import counts. A dynamic one does not
+    // reliably precede the domain imports it must precede.
+    {
+      filename: scriptFile,
+      code: `
+        export async function run() {
+          await import("reflect-metadata");
+          const { resolvePersistenceProvider } = await import("@minsky/domain/persistence/factory");
+          return resolvePersistenceProvider();
+        }
       `,
       errors: [{ messageId: MSG }],
     },

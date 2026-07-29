@@ -134,6 +134,13 @@ defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
   BRAINTRUST_API_KEY: sealed("braintrust-api-key"),
   SWEEPER_ENABLED: plain("true"),
   REVIEWER_COMPOSITION_CONVERGENCE_ENABLED: plain("true"),
+  // mt#3245: deterministic verifier that demotes a BLOCKING duplicate-identifier /
+  // duplicate-declaration finding to NON-BLOCKING when a declaration-FORM count (not
+  // identifier occurrences) against the file's actual current content at the review ref
+  // finds <=1 declaration. mt#3307: enabling it now — mt#3245 merged 2026-07-26 (PR #2334)
+  // but this variable was never declared here, so the check has been deployed-but-inert;
+  // mt#2575 instance 5 (PR #2325, 2026-07-26) is the incident it targets.
+  REVIEWER_STRUCTURAL_CLAIM_VERIFICATION_ENABLED: plain("true"),
   // mt#2799: zero-downtime redeploy drain/overlap. Originally declared to
   // DUPLICATE services/reviewer/railway.json's `deploy.drainingSeconds` /
   // `deploy.overlapSeconds` as a belt-and-suspenders measure, because the

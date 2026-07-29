@@ -170,8 +170,9 @@ Full detail: `docs/rules-rationale/cockpit-deeplinks.md`.
     types from `InferParams<typeof <map>>`, never hand-rolled `*Params`.
   - `custom/no-entity-id-param-drift` (mt#2780) — command params maps must declare the family's
     canonical entity-id name, not the alias alone.
-  - `custom/require-hook-domain-bootstrap` (mt#3046) — `.minsky/hooks/**` files reaching
-    persistence must import `ensureHookDomainBootstrap`.
+  - `custom/require-hook-domain-bootstrap` (mt#3046; widened mt#3178) — `.minsky/hooks/**` and
+    `scripts/**` files reaching persistence must bootstrap first: hooks import
+    `ensureHookDomainBootstrap`; scripts may instead use a static `import "reflect-metadata"`.
   - `custom/no-direct-service-construction` (mt#911; DI-fallback-shape check added mt#2642) —
     bans `<identifier> ?? create<PascalCase>(...)` / `<identifier>?.<prop> ?? new
     <PascalCase>(...)` (ADR-026) across `src/` and `packages/domain/src/`, plus the original
@@ -472,6 +473,7 @@ decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture
 - **SubagentStop recording** — writes Stop-time columns on dispatch row. none.
 - **PR-author link** — stamps workspace↔conversation link at `session_pr_create` (mt#3101). none.
 - **Session-creator link** — stamps workspace↔conversation link at `session_start` (mt#3120). none.
+- **Subagent model verification** — Agent-tool PostToolUse: warns when `tool_input.model` (requested tier) mismatches `tool_response.resolvedModel` (what actually ran), the mt#3151 false-provenance shape; degraded payloads log to `.minsky/subagent-model-mismatch.jsonl` instead of warning (mt#3257). `MINSKY_SKIP_SUBAGENT_MODEL_CHECK`.
 - **Session-end ingest** — ingests transcript at SessionEnd. `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK`.
 - **Calibration (log-only)** — causal-premise/cadence/silent-stretch/build-claim/knowledge-acquisition. `MINSKY_ACK_*`/`MINSKY_SKIP_*`.
 - **Guard-health tracker** — guard failure streaks, tagged `infra`/`logic` when known (mt#3072); escalation banner cools down per-session for up to 1h instead of repeating every turn (mt#3072). none.
@@ -760,7 +762,7 @@ context-scoping capability outside Minsky's control, per mt#2512/mt#2521).
 
 **Choosing the model (mt#3043).** Pass `tasks_dispatch`'s optional `model` (`sonnet`/`opus`/`haiku`/`fable`, the registry the cockpit picker also reads) when difficulty warrants a specific tier; an unrecognized id is REJECTED rather than silently defaulted. Mechanics: `docs/rules-rationale/subagent-routing.md §Choosing the model`.
 
-**How the tier resolves, and how to verify it (mt#3151).** Per-call `model` wins; else the agent definition's frontmatter; else the subagent inherits the MAIN model. All seven types in `.claude/agents/` declare `model: sonnet`, so a routine dispatch stays cheap with no argument — but **built-in types (`general-purpose`, `Explore`, `Plan`) have no definition file and no floor: pass `model` explicitly or they inherit the main model (Opus).** A committed `CLAUDE_CODE_SUBAGENT_MODEL: "sonnet"` used to sit above all of this and silently override every explicit request in BOTH directions (a `haiku` request also ran Sonnet, so it was not a cost cap), which made the escalation below nominal for as long as it was set; removed 2026-07-26 per ask#6205. To CHECK a tier rather than assume it: the `Agent` tool returns the subagent's `agentId`, and `<session-dir>/subagents/agent-<agentId>.jsonl` records the model it actually ran — "the tool accepted `model: opus`" is not evidence it ran Opus (`/check-premise` cue (h)).
+**How the tier resolves, and how to verify it (mt#3151).** Per-call `model` wins; else the agent definition's frontmatter; else the subagent inherits the MAIN model. All seven types in `.claude/agents/` declare `model: sonnet`, so a routine dispatch stays cheap with no argument — but **built-in types (`general-purpose`, `Explore`, `Plan`) have no definition file and no floor: pass `model` explicitly or they inherit the main model (Opus).** A committed `CLAUDE_CODE_SUBAGENT_MODEL: "sonnet"` used to sit above all of this and silently override every explicit request in BOTH directions (a `haiku` request also ran Sonnet, so it was not a cost cap), which made the escalation below nominal for as long as it was set; removed 2026-07-26 per ask#6205; explicit tiers verified honored in both directions 2026-07-28/29 (mt#3257). Verification is now structural: the `verify-subagent-model` PostToolUse observer (mt#3257, `hook-observers.mdc`) compares the requested tier against the payload's `resolvedModel` on every raw-`Agent` dispatch and warns on mismatch — trust its silence over an assumption, and treat its warning as authoritative over the request. Fallback for deeper checks (and for `tasks_dispatch`-path dispatches, which the observer never sees): the `Agent` tool returns the subagent's `agentId`, and `<session-dir>/subagents/agent-<agentId>.jsonl` records the model it actually ran — "the tool accepted `model: opus`" is not evidence it ran Opus (`/check-premise` cue (h)).
 
 **Escalation to Opus:** The default model is Sonnet. When you recognize you're struggling — 2nd identical tool error from the same tool, architectural ambiguity you can't resolve, multi-file reasoning that isn't converging, or a task that requires deep investigation — spawn a subagent with `model: "opus"` to analyze the problem. Let Opus produce the plan or diagnosis, then continue executing with Sonnet. Don't persist on a problem that exceeds your current model's capability. (See §Error Investigation for the mechanical 2-strikes rule.)
 
