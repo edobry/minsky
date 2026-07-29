@@ -288,6 +288,22 @@ path: `.github/workflows/deploy-reviewer.yml` deploys the reviewer on merge usin
 `RAILWAY_DOCKERFILE_PATH` variable above remains a defense-in-depth measure against a
 trigger-fired build, not evidence that one has occurred.
 
+### Sequencing rule: apply the new state and verify it live before removing the old pin
+
+The incident above generalizes into a rule for the next source migration on any service: **apply
+the new source state and verify it live BEFORE removing the old pin.** A config that PINS build
+behavior — a `dockerfilePath`, a `railway.json`, a version constraint, a branch filter — must not
+be deleted until the state it is being migrated TO is live and confirmed. With the pin gone and
+the new state not yet applied, the window's behavior is the platform DEFAULT — which for a Railway
+repo-source build is the repo-ROOT Dockerfile, i.e. an entirely different application.
+
+Correct order: **apply the new state → verify it live → then remove the old pin.**
+
+mt#3117 deleted `services/reviewer/railway.json` in the same PR that declared the reviewer service
+image-source, while the live service was still repo-source; the next unrelated merge to `main`
+fired the standing repo trigger described above, Railway fell back to the repo-root Dockerfile,
+and the Minsky MCP Server was deployed onto the reviewer host. See mem#747 for the full analysis.
+
 ## Database migrations on deploy (mt#2505)
 
 Prod schema migrations are applied by a **single, deploy-keyed step** in
