@@ -403,6 +403,24 @@ export interface SessionContextSnapshotBlock {
   isCompactSummary?: boolean;
 
   /**
+   * True when the originating JSONL line carried a top-level `isMeta: true` —
+   * Claude Code's marker for a line the HARNESS generated rather than the
+   * operator (mt#3322).
+   *
+   * Verified shape (2026-07-29, local corpus): a top-level boolean on a `user`
+   * line, carried by the `<local-command-caveat>` block the harness attaches
+   * to a slash-command invocation ("Caveat: The messages below were generated
+   * by the user while running local commands. DO NOT respond to these
+   * messages..." — text addressed to the MODEL, not the operator).
+   *
+   * This is the one signal that marks harness plumbing STRUCTURALLY rather
+   * than by pattern-matching the text; the render surface prefers it over its
+   * regex detector where present. Optional and additive: absent on every
+   * ordinary turn, so no existing consumer changes behavior.
+   */
+  isMeta?: boolean;
+
+  /**
    * The assistant message's `model`, when the line carried one (mt#3260).
    *
    * Load-bearing case: Claude Code records a retried turn with the sentinel

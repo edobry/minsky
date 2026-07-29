@@ -149,6 +149,9 @@ export function turnLineToBlock(
   const isCompactSummary = l.isCompactSummary === true ? true : undefined;
   const message = l.message as Record<string, unknown> | undefined;
   const model = typeof message?.["model"] === "string" ? (message["model"] as string) : undefined;
+  // mt#3322: same defensive/additive shape — `isMeta` is a TOP-LEVEL boolean on
+  // a `user` line marking harness-generated (not operator-typed) content.
+  const isMeta = l.isMeta === true ? true : undefined;
 
   return {
     id: turnBlockId(agentSessionId, turnIndex),
@@ -156,6 +159,7 @@ export function turnLineToBlock(
     source: "observed",
     content: l.message ?? l,
     ...(isCompactSummary ? { isCompactSummary } : {}),
+    ...(isMeta ? { isMeta } : {}),
     ...(model ? { model } : {}),
     parentUuid,
     timestamp: tsStr,

@@ -71,7 +71,11 @@ import {
   snapshotQueryKey,
   snapshotRetry,
 } from "../lib/conversation-snapshot";
-import { splitInjectedContent } from "../lib/injected-content";
+import {
+  splitInjectedContent,
+  type InjectedContentKind,
+  type InjectedSpan,
+} from "../lib/injected-content";
 import { formatLocalTime, turnSeparator, type TurnSeparator } from "../lib/conversation-timeline";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -197,6 +201,8 @@ interface PreparedTurn {
   spawnAgentKind?: string;
   /** This turn IS the context-compaction summary (mt#3260). */
   isCompactSummary?: boolean;
+  /** The harness, not the operator, generated this turn (mt#3322). */
+  isMeta?: boolean;
   /** Assistant model; `<synthetic>` marks a harness retry turn (mt#3260). */
   model?: string;
 }
@@ -324,9 +330,89 @@ function pairToolInvocations(
       isSpawnBoundary: turn.isSpawnBoundary,
       spawnAgentKind: turn.spawnAgentKind,
       isCompactSummary: turn.isCompactSummary,
+      isMeta: turn.isMeta,
       model: turn.model,
     };
   });
+}
+
+// ── Command-invocation merging (mt#3322) ────────────────────────────────────
+//
+// The harness emits ONE slash command as up to three consecutive user turns:
+// a model-directed caveat (`isMeta: true`), the command wrapper, and the
+// captured stdout. Rendered turn-by-turn that is three USER bubbles of raw
+// harness plumbing above the operator's actual message.
+//
+// This pass is the command analogue of `pairToolInvocations` above: it folds
+// the output and caveat INTO the command element, then leaves the drained
+// turns with no renderable elements so the existing
+// `hasRenderablePreparedElement` filter drops them. Nothing is discarded —
+// the wrapper markup and the caveat both remain reachable behind the command
+// element's disclosure toggle.
+//
+// Scoped to the rendered window like its sibling: a command whose output turn
+// fell outside the window simply renders without output, and an orphaned
+// output turn keeps its standalone collapsed treatment rather than vanishing.
+
+/** How far ahead of a command turn to look for its output/caveat turns. */
+const COMMAND_PART_LOOKAHEAD = 3;
+
+function soleInjectedSpan(turn: PreparedTurn, kind: InjectedContentKind): InjectedSpan | null {
+  if (turn.role !== "user" || turn.elements.length !== 1) return null;
+  const [only] = turn.elements;
+  if (!only || only.kind !== "injected" || only.span.kind !== kind) return null;
+  return only.span;
+}
+
+function mergeCommandInvocations(turns: PreparedTurn[]): PreparedTurn[] {
+  // Elements are removed from their origin turns as they are absorbed; a copy
+  // per turn keeps this pass non-mutating with respect to its input.
+  const working = turns.map((t) => ({ ...t, elements: [...t.elements] }));
+
+  for (let i = 0; i < working.length; i++) {
+    const turn = working[i];
+    if (!turn || turn.role !== "user") continue;
+
+    const commandIndex = turn.elements.findIndex(
+      (el) => el.kind === "injected" && el.span.kind === "command"
+    );
+    if (commandIndex === -1) continue;
+    const commandElement = turn.elements[commandIndex];
+    if (!commandElement || commandElement.kind !== "injected") continue;
+
+    let output: InjectedSpan | undefined;
+    let caveat: InjectedSpan | undefined;
+
+    // The caveat precedes the command in file order; the output follows it.
+    // Both are single-element turns, which is what makes absorbing them safe:
+    // a turn carrying anything else keeps its own rendering.
+    for (let j = Math.max(0, i - COMMAND_PART_LOOKAHEAD); j < i; j++) {
+      const candidate = working[j];
+      if (!candidate) continue;
+      const span = soleInjectedSpan(candidate, "local-command-caveat");
+      if (!span) continue;
+      caveat = span;
+      candidate.elements = [];
+    }
+    for (let j = i + 1; j <= i + COMMAND_PART_LOOKAHEAD && j < working.length; j++) {
+      const candidate = working[j];
+      if (!candidate) continue;
+      const span = soleInjectedSpan(candidate, "local-command-output");
+      if (!span) continue;
+      output = span;
+      candidate.elements = [];
+      break;
+    }
+
+    turn.elements[commandIndex] = {
+      kind: "command-invocation",
+      command: commandElement.span,
+      ...(output ? { output } : {}),
+      ...(caveat ? { caveat } : {}),
+    };
+  }
+
+  return working;
 }
 
 function hasRenderablePreparedElement(el: PreparedElement): boolean {
@@ -664,7 +750,7 @@ function ConversationThread({
   // whose result got merged into its call's block above).
   const preparedTurns = useMemo(
     () =>
-      pairToolInvocations(windowedTurns, callNameByToolUseId).filter((t) =>
+      mergeCommandInvocations(pairToolInvocations(windowedTurns, callNameByToolUseId)).filter((t) =>
         t.elements.some(hasRenderablePreparedElement)
       ),
     [windowedTurns, callNameByToolUseId]
