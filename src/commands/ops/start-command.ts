@@ -905,6 +905,14 @@ export function createOpsStartCommand(externalContainer?: AppContainerInterface)
 
       process.on("SIGTERM", () => void shutdown("SIGTERM"));
       process.on("SIGINT", () => void shutdown("SIGINT"));
+
+      // Hold the action open forever: cli.ts main() calls exit(0) as soon as
+      // parseAsync() resolves, so a returning action tears the server down
+      // immediately after boot (observed in production as a silent exit-0
+      // ~1.5s after "Starting Container", mt#2132). The shutdown handler
+      // above owns process exit. Same pattern as `mcp start`
+      // (src/commands/mcp/start-command.ts).
+      await new Promise(() => {});
     });
 
   return startCommand;

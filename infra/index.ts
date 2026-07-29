@@ -112,6 +112,19 @@ defineVariables("minsky-mcp", minskyMcpEnv, minskyMcpServiceId, {
 // "<command>"` (documented in services/minsky-ops/deploy.config.ts) — NOT
 // expressible here, and NOT a `config_path` (which Railway rejects alongside
 // `source_image`, per the minsky-mcp comment above).
+//
+// PORT (mt#2132, verified empirically): unlike the root Dockerfile's shell-form
+// CMD (which Docker wraps in `/bin/sh -c "..."`, letting `$PORT` expand from
+// Railway's injected env var), Railway's `deploy.startCommand` override does
+// NOT go through a shell — `--port $PORT` in the override string arrives at
+// the CLI as the LITERAL 5-character string `$PORT`, which fails
+// `parsePositiveIntEnv`-style validation and crash-loops. The override
+// therefore uses a LITERAL port matching this declared `PORT` variable, and
+// Railway's edge networking (per its documented behavior, confirmed against
+// minsky-mcp's own `targetPort: null` domain config) routes the public
+// domain to whatever value the service's `PORT` variable holds — declaring
+// it here makes the routing target and the app's actual listening port the
+// same fixed value instead of depending on shell expansion.
 export const minskyOpsService = new railway.Service("minsky-ops", {
   projectId: minskyMcpProject,
   name: "minsky-ops",
@@ -136,8 +149,17 @@ defineVariables("minsky-ops", minskyMcpEnv, minskyOpsService.id, {
   // minsky-mcp (see that service's comment above for the full rationale).
   MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-app-postgres-url"),
   NODE_ENV: plain("production"),
+  // Route info-level logs to stdout as JSON so Railway captures them. Without
+  // this the default CLI logger mode keeps info logs off stdout and the
+  // container is silent even when boot succeeds (observed during mt#2132
+  // bring-up: zero log lines after "Starting Container").
+  MINSKY_LOG_MODE: plain("STRUCTURED"),
   OPENAI_API_KEY: sealed("openai-api-key"),
   MINSKY_OAUTH_SIGNING_KEY: sealed("minsky-oauth-signing-key"),
+  // Fixed listening/routing port — see the `minskyOpsService` comment above
+  // for why this is a literal value rather than Railway's usual `$PORT`
+  // shell-expansion convention.
+  PORT: plain("8081"),
   // Adoption sweeper (mt#1630 loop, mt#2101 ops-service wiring, mt#3328
   // container-blindness fix). ADOPTION_SWEEPER_EXECUTE is DELIBERATELY NOT
   // set — the sweeper defaults to dry-run (mt#3328); flipping to execute is
