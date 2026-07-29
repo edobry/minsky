@@ -540,6 +540,13 @@
       "when": 1785293537526,
       "tag": "0076_cuddly_giant_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1785348666820,
+      "tag": "0077_abandoned_junta",
+      "breakpoints": true
     }
   ]
 }

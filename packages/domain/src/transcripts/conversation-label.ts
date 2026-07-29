@@ -5,9 +5,13 @@
  * provider wiring in widgets/context-inspector.ts, so the precedence logic
  * itself is unit-testable without a mocked Drizzle chain.
  *
- * Precedence (per the mt#2770 spec):
+ * Precedence (per the mt#2770 spec, extended by mt#3321):
  *   1. Bound task title (via `minsky_session_links` -> `sessions` -> task
  *      backend), when the link AND the title both resolve.
+ *   1b. Generated conversation title (`agent_transcripts.title`, mt#3321) —
+ *      a short LLM-written label. Sits below the bound task title (that is
+ *      ground truth, this is an inference) and above the prompt snippet
+ *      below, which cannot be robust to a garbled opening message.
  *   2. First-SUBSTANTIVE-user-prompt snippet (markdown-stripped, harness-
  *      markup-stripped, ~60 chars). "First" is not always the literal
  *      earliest turn: a slash-command or hook-injected turn (e.g. a bare
@@ -85,7 +89,16 @@ export interface ConversationLabelInputs {
   /** Tier 1: resolved task title, only when BOTH the link and the title resolved. */
   linkedTaskTitle: string | null;
 
-  /** Tier 2: raw first-user-turn text (un-stripped markdown), if any. */
+  /**
+   * Tier 2 (mt#3321): the generated conversation title from
+   * `agent_transcripts.title`, when one has been produced.
+   *
+   * OPTIONAL so the four existing call sites keep compiling and adopt the tier
+   * individually; an absent field behaves exactly as before this tier existed.
+   */
+  generatedTitle?: string | null;
+
+  /** Tier 3: raw first-user-turn text (un-stripped markdown), if any. */
   firstUserText: string | null;
 
   /** Tier 3: pre-composed subagent dispatch descriptor, if any (see composeSubagentDescriptor). */
@@ -146,6 +159,19 @@ export function computeConversationLabel(input: ConversationLabelInputs): string
   if (input.linkedTaskTitle && input.linkedTaskTitle.trim().length > 0) {
     return toDisplaySnippet(input.linkedTaskTitle, TASK_TITLE_MAX_LEN) || input.linkedTaskTitle;
   }
+
+  // Tier 2 (mt#3321) — a generated title beats a head-cut of the opening
+  // prompt, but a BOUND TASK's title still wins above: that one is ground
+  // truth about what the conversation is for, not an inference about it.
+  //
+  // Deliberately NOT run through `toDisplaySnippet`: that helper strips
+  // markdown and harness markup from raw operator prose, and a generated title
+  // is neither — it is already clean, short, and normalized by
+  // `normalizeTitle`. Passing it through would only risk mangling a title that
+  // legitimately contains markdown-ish characters (`session_pr_merge`,
+  // `--dry-run`, `#1234`).
+  const generated = input.generatedTitle?.trim();
+  if (generated) return generated;
 
   const snippet = toDisplaySnippet(input.firstUserText, FIRST_PROMPT_SNIPPET_MAX_LEN);
   if (snippet) return snippet;

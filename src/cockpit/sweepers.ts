@@ -12,6 +12,7 @@
  *   - startTranscriptSweepBackstop (mt#2321)
  *   - startDispatchWatchdogSweeper (mt#2646)
  *   - startDeploySmokeSweeper      (mt#2599)
+ *   - startConversationTitleSweeper (mt#3321)
  *
  * These previously duplicated an ~8-line skeleton (running-guard, boot tick,
  * setInterval, clearInterval) with NO protection against a single tick
@@ -1312,6 +1313,128 @@ export function startConversationPresenceSweeper(intervalMs?: number): () => voi
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: conversation presence sweep failed", { message });
+      }
+    },
+  });
+}
+
+// ── Conversation-title sweeper (mt#3321) ────────────────────────────────────
+
+/**
+ * Cadence for generating conversation titles. Slower than the presence/
+ * follow-up sweeps because it is not latency-sensitive — a conversation
+ * without a title still renders, it just falls back to the older prompt-snippet
+ * label. Paired with `DEFAULT_TITLE_BATCH_SIZE`, this drains the historical
+ * backlog over hours rather than in one burst of completion calls.
+ */
+const CONVERSATION_TITLE_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+
+/** Injectable seam so tests can drive a tick without a DB or an AI provider. */
+export interface ConversationTitleSweepDeps {
+  /** Run one bounded titling batch. Returns per-run counters. */
+  runTitling: () => Promise<{
+    candidates: number;
+    titled: number;
+    skipped: number;
+    errored: number;
+  }>;
+}
+
+export interface ConversationTitleSweepOptions {
+  /** Cadence override in milliseconds. */
+  intervalMs?: number;
+  /** Injected deps for testing; when absent the real DB + AI path is built. */
+  deps?: ConversationTitleSweepDeps;
+}
+
+/**
+ * Build the real titling runner from the shared persistence service and the
+ * configured AI completion service. Returns null when the provider is not
+ * SQL-capable — the same degradation the transcript backstop uses.
+ */
+async function buildRealTitleSweepDeps(): Promise<ConversationTitleSweepDeps | null> {
+  const { getSharedPersistenceService } = await import("./shared-persistence");
+  const svc = await getSharedPersistenceService();
+  const provider = svc.getProvider();
+
+  if (
+    !("getDatabaseConnection" in provider) ||
+    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
+  ) {
+    return null;
+  }
+
+  const sqlProvider = provider as {
+    getDatabaseConnection: () => Promise<
+      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+    >;
+  };
+  const db = await sqlProvider.getDatabaseConnection();
+  if (!db) return null;
+
+  return {
+    runTitling: async () => {
+      const { getConfiguration } = await import("@minsky/domain/configuration");
+      const { DefaultAICompletionService } = await import("@minsky/domain/ai/completion-service");
+      const { DirectCognitionProvider } = await import("@minsky/domain/cognition/providers/direct");
+      const { TitlePipeline } = await import("@minsky/domain/transcripts/title-pipeline");
+
+      const configService = {
+        loadConfiguration: () => Promise.resolve({ resolved: getConfiguration() }),
+      };
+      const cognitionProvider = new DirectCognitionProvider(
+        new DefaultAICompletionService(configService)
+      );
+
+      return new TitlePipeline(db, cognitionProvider).run();
+    },
+  };
+}
+
+/**
+ * Start the conversation-title sweeper — the invocation path for mt#3321.
+ *
+ * This is the piece the pre-existing summary pipeline never had: `SummaryPipeline`
+ * has run only when an operator manually invoked `transcripts index-embeddings`,
+ * which is why 11 of 1,992 transcripts carried a summary and none of the 281
+ * from the preceding week did. A titling mechanism with no caller would repeat
+ * that exactly, so the caller ships in the same change as the mechanism.
+ *
+ * Degrades quietly and retries: a non-SQL provider, a DB outage, or an AI
+ * failure logs and waits for the next tick. Rows stay NULL and are retried —
+ * no partial or placeholder title is ever written.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startConversationTitleSweeper(options?: ConversationTitleSweepOptions): () => void {
+  return createIntervalSweeper({
+    name: "conversation title",
+    intervalMs: options?.intervalMs ?? CONVERSATION_TITLE_SWEEP_INTERVAL_MS,
+    tick: async () => {
+      try {
+        const deps = options?.deps ?? (await buildRealTitleSweepDeps());
+        if (!deps) {
+          // Not an error — a non-SQL provider simply has nothing to title. Logged
+          // so a permanently-idle sweeper is distinguishable from a working one
+          // with no backlog (PR #2408 R1).
+          log.debug("cockpit: conversation title sweep skipped (no SQL persistence)");
+          return;
+        }
+        const result = await deps.runTitling();
+        // Per-run counters at the sweeper level, not only inside the pipeline:
+        // `errored > 0` is the signal that titling is failing while the sweeper
+        // itself looks healthy.
+        if (result.candidates > 0 || result.errored > 0) {
+          log.info("cockpit: conversation title sweep complete", {
+            candidates: result.candidates,
+            titled: result.titled,
+            skipped: result.skipped,
+            errored: result.errored,
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: conversation title sweep failed", { message });
       }
     },
   });

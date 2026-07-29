@@ -209,3 +209,94 @@ describe("pickSubstantiveUserText", () => {
     expect(result).toBe("a real first turn");
   });
 });
+
+// ── mt#3321: the generated-title tier ───────────────────────────────────────
+
+describe("computeConversationLabel — generated-title tier (mt#3321)", () => {
+  /** The real mangled opening the old snippet tier rendered verbatim (mem#759). */
+  const GARBLED =
+    "rn they're in into a better one, which will have positive externalities. It will shift the QPS";
+
+  /** Reused fall-through fixture — a clean opening prompt the snippet tier handles fine. */
+  const CLEAN_PROMPT = "Fix the retry bug";
+
+  const base = {
+    agentSessionId: "77c6ca4f-1241-4e1a-9648-7ce3e28c6c25",
+    cwd: "/Users/edobry/Projects/minsky",
+    startedAt: new Date("2026-07-29T16:10:07.481Z"),
+    linkedTaskTitle: null,
+    firstUserText: null,
+    subagentDescriptor: null,
+  };
+
+  test("a generated title beats the first-prompt snippet — the originating case", () => {
+    const label = computeConversationLabel({
+      ...base,
+      generatedTitle: "Agent self-improvement loops",
+      firstUserText: GARBLED,
+    });
+
+    expect(label).toBe("Agent self-improvement loops");
+    expect(label).not.toContain("rn they're in into");
+  });
+
+  test("a BOUND TASK title still outranks a generated title", () => {
+    // Ground truth about what the conversation is for beats an inference.
+    const label = computeConversationLabel({
+      ...base,
+      linkedTaskTitle: "mt#3321 Conversation titles",
+      generatedTitle: "Something the model guessed",
+    });
+
+    expect(label).toBe("mt#3321 Conversation titles");
+  });
+
+  test("a generated title outranks a subagent descriptor", () => {
+    const label = computeConversationLabel({
+      ...base,
+      generatedTitle: "Cockpit render fixes",
+      subagentDescriptor: "refactorer — mt#123",
+    });
+
+    expect(label).toBe("Cockpit render fixes");
+  });
+
+  test("an absent generated title falls through to the snippet, unchanged", () => {
+    const label = computeConversationLabel({ ...base, firstUserText: CLEAN_PROMPT });
+    expect(label).toBe(CLEAN_PROMPT);
+  });
+
+  test("an explicitly null generated title falls through to the snippet", () => {
+    const label = computeConversationLabel({
+      ...base,
+      generatedTitle: null,
+      firstUserText: CLEAN_PROMPT,
+    });
+    expect(label).toBe(CLEAN_PROMPT);
+  });
+
+  test("a whitespace-only generated title is ignored rather than rendering blank", () => {
+    const label = computeConversationLabel({
+      ...base,
+      generatedTitle: "   ",
+      firstUserText: CLEAN_PROMPT,
+    });
+    expect(label).toBe(CLEAN_PROMPT);
+  });
+
+  test("with no title and no other input, the timestamp fallback still applies", () => {
+    const label = computeConversationLabel({ ...base, generatedTitle: null });
+    expect(label).toContain("minsky");
+    expect(label).toContain("77c6ca4f");
+  });
+
+  test("a title containing markdown-ish engineering characters is NOT mangled", () => {
+    // Generated titles are already normalized, so they deliberately skip
+    // `toDisplaySnippet`'s markdown stripping — which would eat these.
+    const label = computeConversationLabel({
+      ...base,
+      generatedTitle: "session_pr_merge fails on --dry-run",
+    });
+    expect(label).toBe("session_pr_merge fails on --dry-run");
+  });
+});

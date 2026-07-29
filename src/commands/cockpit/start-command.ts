@@ -10,6 +10,7 @@ import {
   startAskAdvancementSweeper,
   startStaleAskCloseSweeper,
   startProdStateRefreshSweeper,
+  startConversationTitleSweeper,
   startTopologySweeper,
   startTranscriptSweepBackstop,
   startDispatchWatchdogSweeper,
@@ -397,6 +398,11 @@ export function createStartCommand(): Command {
       // full-discovery ingest + embedding backfill to cover dropped FS events,
       // sessions missed while the daemon was down, and stale embeddings.
       const stopTranscriptSweep = startTranscriptSweepBackstop();
+      // Conversation-title generation (mt#3321): fill `agent_transcripts.title`
+      // for conversations that don't have one, so the cockpit labels a run by
+      // what it's ABOUT instead of the first 60 characters of the opening
+      // prompt (which is unusable when that prompt is garbled).
+      const stopConversationTitleSweeper = startConversationTitleSweeper();
       // Schema readiness (mt#3297): populate the /api/health `schema` block at
       // boot, independently of any sweep. The transcript sweep also refreshes
       // it every tick, but relying on that alone would leave `current: null`
@@ -448,6 +454,7 @@ export function createStartCommand(): Command {
         stopTopologySweeper();
         stopTranscriptWatcher();
         stopTranscriptSweep();
+        stopConversationTitleSweeper();
         stopDispatchWatchdogSweeper();
         stopDeploySmokeSweeper();
         stopFollowUpSweeper();

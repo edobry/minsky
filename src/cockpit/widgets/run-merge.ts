@@ -212,7 +212,13 @@ function pickFirstUserText(
 }
 
 function labelFor(
-  row: { agentSessionId: string; cwd: string | null; startedAt: Date | null },
+  row: {
+    agentSessionId: string;
+    cwd: string | null;
+    startedAt: Date | null;
+    /** Generated conversation title (mt#3321), when one exists. */
+    title?: string | null;
+  },
   firstUserTextById: Map<string, string>,
   spawnAgentKindById: Map<string, string>
 ): string {
@@ -227,12 +233,15 @@ function labelFor(
       })
     : null;
 
-  if (firstUserText || subagentDescriptor) {
+  // `row.title` joins the guard so a run whose only label source is its
+  // generated title still reaches the label function (mt#3321).
+  if (row.title || firstUserText || subagentDescriptor) {
     return computeConversationLabel({
       agentSessionId: row.agentSessionId,
       cwd: row.cwd,
       startedAt: row.startedAt,
       linkedTaskTitle: null,
+      generatedTitle: row.title ?? null,
       firstUserText,
       subagentDescriptor,
     });
@@ -275,6 +284,8 @@ export async function mergeConversationRows(
         // this table (agentSessionId-keyed, matching this row's identity),
         // simply not selected before this task.
         model: agentTranscriptsTable.model,
+        // mt#3321 — generated conversation title; feeds the label tier above.
+        title: agentTranscriptsTable.title,
       })
       .from(agentTranscriptsTable)
       .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)

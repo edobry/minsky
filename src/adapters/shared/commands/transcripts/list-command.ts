@@ -242,13 +242,17 @@ function buildEntry(row: TranscriptListRow, taskTitles: Map<string, string>): Tr
     spawnAgentKind: row.subagentSpawnAgentKind,
   });
 
+  // `row.generatedTitle` joins the guard as well as the inputs (mt#3321), so a
+  // conversation whose only label source is its generated title still reaches
+  // the label function instead of dropping to the timestamp fallback.
   const label =
-    linkedTaskTitle || firstUserText || subagentDescriptor
+    linkedTaskTitle || row.generatedTitle || firstUserText || subagentDescriptor
       ? computeConversationLabel({
           agentSessionId: row.agentSessionId,
           cwd: row.cwd,
           startedAt: row.startedAt,
           linkedTaskTitle,
+          generatedTitle: row.generatedTitle,
           firstUserText,
           subagentDescriptor,
         })
