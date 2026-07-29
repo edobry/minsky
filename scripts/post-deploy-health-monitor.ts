@@ -742,7 +742,7 @@ async function ensureLabelsExist(repo: string, token: string): Promise<void> {
             label === P0_LABEL
               ? "P0 outage: service is down or deploy failed"
               : label === DIGEST_LAG_PENDING_LABEL
-                ? "Pending digest-lag observation (mt#3251) — not yet a confirmed sustained lag"
+                ? "Pending digest-lag observation (mt#3251, mt#3284) — a lag was seen once but has not yet persisted long enough (see DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS) to be a confirmed sustained lag"
                 : "Auto-opened by post-deploy-health-monitor (mt#1302)",
         });
       } catch (err) {
@@ -1580,7 +1580,8 @@ async function main(): Promise<void> {
     } else if (svc.image && !result.digestLagError) {
       // Digest check ran cleanly and found no lag this run — if a pending
       // tracker exists from an earlier observation, the transient lag
-      // resolved before reaching two consecutive detections. Clean it up
+      // resolved before it persisted past the elapsed-time threshold
+      // (DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS, mt#3284). Clean it up
       // rather than leaving a stale "possible lag" issue open forever.
       await closeDigestLagPendingTracker(githubRepo, githubToken, svc.name, dryRun);
     }
