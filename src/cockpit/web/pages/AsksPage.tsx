@@ -56,6 +56,13 @@ import {
   type AskItem,
   type AsksListResponse,
 } from "../widgets/AskDetail";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 
 // ---------------------------------------------------------------------------
 // Filter / sort types — filters apply to ASKS, sort + pagination to GROUPS.
@@ -519,62 +526,74 @@ export function AsksPage() {
         </h1>
 
         <div className="flex flex-wrap items-center gap-2">
-          <select
+          <Select
             value={controls.filters.kind}
-            onChange={(e) => controls.setFilter("kind", e.target.value)}
-            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
-            aria-label="Filter by kind"
+            onValueChange={(v) => controls.setFilter("kind", v)}
           >
-            <option value="all">All kinds</option>
-            {uniqueKinds.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger aria-label="Filter by kind">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All kinds</SelectItem>
+              {uniqueKinds.map((k) => (
+                <SelectItem key={k} value={k}>
+                  {k}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-          <select
+          <Select
             value={controls.filters.requestor}
-            onChange={(e) => controls.setFilter("requestor", e.target.value)}
-            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
-            aria-label="Filter by requestor"
+            onValueChange={(v) => controls.setFilter("requestor", v)}
           >
-            <option value="all">All requestors</option>
-            {uniqueRequestors.map((r) => {
-              const label = formatRequestorOption(r);
-              return (
-                <option key={r} value={r}>
-                  {label.length > 30 ? label.slice(0, 30) + "..." : label}
-                </option>
-              );
-            })}
-          </select>
+            <SelectTrigger aria-label="Filter by requestor">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All requestors</SelectItem>
+              {uniqueRequestors.map((r) => {
+                const label = formatRequestorOption(r);
+                return (
+                  <SelectItem key={r} value={r}>
+                    {label.length > 30 ? label.slice(0, 30) + "..." : label}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
 
-          <select
+          <Select
             value={controls.filters.cohort}
-            onChange={(e) => controls.setFilter("cohort", e.target.value)}
-            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
-            aria-label="Filter by cohort"
+            onValueChange={(v) => controls.setFilter("cohort", v)}
           >
-            <option value="all">All cohorts</option>
-            {uniqueCohorts.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger aria-label="Filter by cohort">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All cohorts</SelectItem>
+              {uniqueCohorts.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-          <select
+          <Select
             value={groupSort}
-            onChange={(e) => setGroupSort(e.target.value as `${SortKey}_${SortDir}`)}
-            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
-            aria-label="Sort order"
+            onValueChange={(v) => setGroupSort(v as `${SortKey}_${SortDir}`)}
           >
-            <option value="priority_asc">Needs me first</option>
-            <option value="age_asc">Oldest first</option>
-            <option value="age_desc">Newest first</option>
-            <option value="kind_asc">Kind (A-Z)</option>
-          </select>
+            <SelectTrigger aria-label="Sort order">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="priority_asc">Needs me first</SelectItem>
+              <SelectItem value="age_asc">Oldest first</SelectItem>
+              <SelectItem value="age_desc">Newest first</SelectItem>
+              <SelectItem value="kind_asc">Kind (A-Z)</SelectItem>
+            </SelectContent>
+          </Select>
 
           {controls.hasActiveFilters && (
             <Button variant="ghost" size="sm" onClick={controls.clearFilters} className="text-xs">

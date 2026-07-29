@@ -20,8 +20,22 @@
  * control with no useful state to select between).
  */
 import { useProject } from "../lib/project-context";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
-const ALL_PROJECTS_VALUE = "";
+/**
+ * Non-empty on purpose (mt#3347): Radix spells "no value" as `""`, so an item
+ * with `value=""` is indistinguishable from an unset Select and the trigger
+ * shows the placeholder instead of this option's label. `null` remains the
+ * ProjectProvider-side representation of "all projects"; this sentinel exists
+ * only at the control boundary.
+ */
+const ALL_PROJECTS_VALUE = "__all__";
 
 export function ProjectSelector() {
   const { projects, selectedSlug, setSelectedSlug, isLoading } = useProject();
@@ -32,22 +46,26 @@ export function ProjectSelector() {
 
   return (
     <div className="flex-shrink-0 border-b border-border px-2 py-2">
-      <select
+      <Select
         value={selectedSlug ?? ALL_PROJECTS_VALUE}
-        onChange={(e) =>
-          setSelectedSlug(e.target.value === ALL_PROJECTS_VALUE ? null : e.target.value)
-        }
-        className="w-full text-xs bg-muted border border-border rounded px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Filter by project"
-        title="Filter the cockpit to one project, or view all projects"
+        onValueChange={(v) => setSelectedSlug(v === ALL_PROJECTS_VALUE ? null : v)}
       >
-        <option value={ALL_PROJECTS_VALUE}>All projects</option>
-        {projects.map((p) => (
-          <option key={p.id} value={p.slug}>
-            {p.displayName ?? p.slug}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger
+          className="w-full"
+          aria-label="Filter by project"
+          title="Filter the cockpit to one project, or view all projects"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL_PROJECTS_VALUE}>All projects</SelectItem>
+          {projects.map((p) => (
+            <SelectItem key={p.id} value={p.slug}>
+              {p.displayName ?? p.slug}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

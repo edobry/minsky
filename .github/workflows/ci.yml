@@ -25,7 +25,7 @@ jobs:
       - name: Cache Bun install (shared root + services/reviewer)
         uses: actions/cache@v4
         with:
-          path: $HOME/.bun/install/cache
+          path: ~/.bun/install/cache
           key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock', 'services/reviewer/bun.lock') }}
           restore-keys: |
             bun-install-${{ runner.os }}-
@@ -231,7 +231,7 @@ jobs:
       - name: Cache Bun install (shared root + services/reviewer)
         uses: actions/cache@v4
         with:
-          path: $HOME/.bun/install/cache
+          path: ~/.bun/install/cache
           key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock', 'services/reviewer/bun.lock') }}
           restore-keys: |
             bun-install-${{ runner.os }}-

@@ -12,7 +12,7 @@
  * live-tail pulse indicator (reusing `useActiveConversationSessions`, the
  * same mechanism the retired `/conversations` page used).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import {
@@ -40,6 +40,7 @@ import { needsMeBand, subagentElapsed, BAND_RANK, type NeedsMeBand } from "../li
 import { fetchAsks, type AsksListResponse } from "./AskDetail";
 import { useProject } from "../lib/project-context";
 import { AgentDrivenPeek } from "./AgentDrivenPeek";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 
 /** Kind badge (mt#2767 Row model; "driven-session" added by mt#2752). */
 type RunKind = "dispatched-agent" | "principal-conversation" | "subagent-group" | "driven-session";
@@ -360,6 +361,12 @@ function AgentsControlBar({
   includeInactive,
   onIncludeInactive,
 }: ControlBarProps) {
+  // aria-labelledby targets; useId so "Per page:" cannot collide with the
+  // identically-labelled control bars in TaskList / Workstreams.
+  const livenessLabelId = useId();
+  const kindLabelId = useId();
+  const pageSizeLabelId = useId();
+
   return (
     <div className="flex flex-wrap items-center gap-2 py-2 mb-2 border-b border-border">
       {/* Sort controls */}
@@ -404,19 +411,31 @@ function AgentsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Liveness filter */}
-      <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">Liveness:</span>
-      <select
-        value={filters.liveness}
-        onChange={(e) => onFilterLiveness(e.target.value as AgentFilters["liveness"])}
-        className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Filter by liveness"
+      <span
+        id={livenessLabelId}
+        className="text-eyebrow font-mono uppercase text-muted-foreground mr-1"
       >
-        <option value="all">All</option>
-        <option value="healthy">Healthy</option>
-        <option value="idle">Idle</option>
-        <option value="stale">Stale</option>
-        <option value="orphaned">Orphaned</option>
-      </select>
+        Liveness:
+      </span>
+      <Select
+        value={filters.liveness}
+        onValueChange={(v) => onFilterLiveness(v as AgentFilters["liveness"])}
+      >
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={livenessLabelId}
+          title="Filter by liveness"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All</SelectItem>
+          <SelectItem value="healthy">Healthy</SelectItem>
+          <SelectItem value="idle">Idle</SelectItem>
+          <SelectItem value="stale">Stale</SelectItem>
+          <SelectItem value="orphaned">Orphaned</SelectItem>
+        </SelectContent>
+      </Select>
 
       {/* Activity bound (mt#3118). The default view drops workspaces quiet
           past the threshold; this restores them. The count is rendered in the
@@ -453,36 +472,54 @@ function AgentsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Kind filter (mt#2767) */}
-      <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">Kind:</span>
-      <select
-        value={filters.kind}
-        onChange={(e) => onFilterKind(e.target.value as AgentFilters["kind"])}
-        className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Filter by kind"
+      <span
+        id={kindLabelId}
+        className="text-eyebrow font-mono uppercase text-muted-foreground mr-1"
       >
-        <option value="all">All</option>
-        <option value="dispatched-agent">Agent</option>
-        <option value="principal-conversation">Conversation</option>
-        <option value="subagent-group">Subagent</option>
-        <option value="driven-session">Driven</option>
-      </select>
+        Kind:
+      </span>
+      <Select
+        value={filters.kind}
+        onValueChange={(v) => onFilterKind(v as AgentFilters["kind"])}
+      >
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={kindLabelId}
+          title="Filter by kind"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All</SelectItem>
+          <SelectItem value="dispatched-agent">Agent</SelectItem>
+          <SelectItem value="principal-conversation">Conversation</SelectItem>
+          <SelectItem value="subagent-group">Subagent</SelectItem>
+          <SelectItem value="driven-session">Driven</SelectItem>
+        </SelectContent>
+      </Select>
 
       <span className="text-border mx-1">|</span>
 
       {/* Page size */}
-      <span className="text-xs text-muted-foreground">Per page:</span>
-      <select
-        value={pageSize}
-        onChange={(e) => onPageSize(Number(e.target.value))}
-        className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Items per page"
-      >
-        {pageSizeOptions.map((n) => (
-          <option key={n} value={n}>
-            {n}
-          </option>
-        ))}
-      </select>
+      <span id={pageSizeLabelId} className="text-xs text-muted-foreground">
+        Per page:
+      </span>
+      <Select value={String(pageSize)} onValueChange={(v) => onPageSize(Number(v))}>
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={pageSizeLabelId}
+          title="Items per page"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {pageSizeOptions.map((n) => (
+            <SelectItem key={n} value={String(n)}>
+              {n}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       {/* Clear filters */}
       {hasActiveFilters && (

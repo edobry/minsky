@@ -19,6 +19,16 @@ import type { AskItem } from "../widgets/AskDetail";
 
 const originalFetch = global.fetch;
 
+/**
+ * The ask ROW's expand toggle, addressed by its aria-label.
+ *
+ * NOT `button[aria-expanded]` (mt#3347): this page's filter dropdowns are now
+ * Radix Selects, whose trigger is also a `button[aria-expanded]` and sits
+ * EARLIER in the DOM — so the broad selector silently matches a filter
+ * control instead of the row under test.
+ */
+const ROW_EXPAND_SELECTOR = 'button[aria-label="Expand question"]';
+
 afterEach(() => {
   cleanup();
   global.fetch = originalFetch;
@@ -153,7 +163,7 @@ describe("AsksPage row layout — long option labels stay in-bounds (mt#3246)", 
     expect(bar.className).not.toContain("flex-shrink-0");
 
     // It is a sibling band below the title line, not a cell inside it.
-    const titleLine = container.querySelector("button[aria-expanded]")?.parentElement;
+    const titleLine = container.querySelector(ROW_EXPAND_SELECTOR)?.parentElement;
     expect(titleLine).not.toBeNull();
     expect(titleLine?.contains(bar)).toBe(false);
   });
@@ -172,7 +182,7 @@ describe("AsksPage row layout — long option labels stay in-bounds (mt#3246)", 
     const ask = askWithLongOptions();
     const { container } = renderAsksPage([ask]);
     const titleButton = await waitFor(() => {
-      const el = container.querySelector("button[aria-expanded]");
+      const el = container.querySelector(ROW_EXPAND_SELECTOR);
       if (!el) throw new Error("title button not rendered yet");
       return el as HTMLElement;
     });
@@ -266,7 +276,7 @@ describe("AsksPage option labels — redundant letter markers stripped (mt#3253)
   test("the expanded option list renders one letter, not two", async () => {
     const { container } = renderAsksPage([askWithPrefixedOptions()]);
     const expand = await waitFor(() => {
-      const el = container.querySelector("button[aria-expanded]");
+      const el = container.querySelector(ROW_EXPAND_SELECTOR);
       if (!el) throw new Error("row not rendered yet");
       return el as HTMLElement;
     });

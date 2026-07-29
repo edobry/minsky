@@ -15,14 +15,21 @@
  * tab when a workspace exists; a workspace-less run (plain principal
  * conversation) shows conversation metadata instead — see `RunDetail`.
  *
- * Header label (mt#2770): the heading shows the same derived `label` the run
- * list uses (bound task title -> first-user-prompt snippet -> subagent
- * descriptor -> timestamp·cwd·id fallback), read from the same
- * context-inspector widget payload + TanStack query key the list/picker use
- * (`["context-inspector", "sessions"]`) so there's one shared cache, not a
- * second fetch. The raw id stays visible underneath in monospace for
- * copy/reference. Falls back to the bare id while the query is loading or if
- * this conversation isn't in the top-50 window the widget returns.
+ * Header label (mt#2770, corrected by mt#3343): the heading shows the
+ * conversation's OWN server-computed label, read from the same
+ * `GET /api/conversation/:id/overview` payload + `["conversation-overview", id]`
+ * query key `RunDetail` already fetches — so there is one shared cache entry,
+ * not a second request.
+ *
+ * mt#2770 originally derived this label by searching the context-inspector
+ * widget's TOP-50 picker window for this conversation's own id and falling back
+ * to the bare uuid on a miss. A conversation outside that window therefore had
+ * no name at all, and since the mono sub-line below is also the raw id, the page
+ * rendered the same 36-character uuid twice with nothing identifying the run
+ * (mt#3343; universal in practice because mt#3342's NULL-`started_at` rows
+ * crowd the window). A detail page must be able to name ITSELF — it must not
+ * depend on appearing in a paginated list, which is the same discipline
+ * `WorkspaceDetailPage` already follows for its breadcrumb (mt#2967).
  *
  * Tab hygiene (mt#2769): a genuinely unresolvable conversation id (404, not
  * `wrong_id_space`) reports up via `ConversationView`'s `onNotFound` (forwarded
@@ -39,11 +46,14 @@
 import { useParams, useLocation } from "react-router-dom";
 import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { RunDetail } from "../widgets/RunDetail";
+import {
+  RunDetail,
+  fetchConversationOverview,
+  type ConversationOverviewPayload,
+} from "../widgets/RunDetail";
 import { ConversationPresenceChip } from "../components/ConversationPresenceChip";
-import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
-import { extractConversationRows } from "../lib/conversations-source";
 import { useTabs } from "../lib/tabs";
+import type { ConversationId } from "@minsky/domain/ids";
 
 export function ConversationPage() {
   const { id } = useParams<{ id: string }>();
@@ -54,10 +64,15 @@ export function ConversationPage() {
     markTabError(pathname);
   }, [markTabError, pathname]);
 
-  const sessionsQuery = useQuery<WidgetData, Error>({
-    queryKey: ["context-inspector", "sessions"],
-    queryFn: () => fetchWidgetData("context-inspector"),
+  // Same query key + options as `RunDetail`'s own `conversationOverviewQuery`
+  // (mt#3343): TanStack Query dedupes identical keys under one QueryClient, so
+  // reading the label here costs no additional network request. Mirrors
+  // `WorkspaceDetailPage.tsx`'s breadcrumb-displayId pattern (mt#2967).
+  const overviewQuery = useQuery<ConversationOverviewPayload, Error>({
+    queryKey: ["conversation-overview", id],
+    queryFn: () => fetchConversationOverview(id as ConversationId),
     staleTime: 30_000,
+    retry: 1,
     enabled: Boolean(id),
   });
 
@@ -65,9 +80,16 @@ export function ConversationPage() {
     return <div className="p-4 text-sm text-muted-foreground">No conversation id in the URL.</div>;
   }
 
-  const rows = extractConversationRows(sessionsQuery.data);
-  const row = rows.find((r) => r.agentSessionId === id);
-  const label = row?.label ?? id;
+  // Falls back to the bare id only while the query is in flight or when the
+  // conversation is genuinely unresolvable (404) — the server's own tier-4
+  // fallback covers every resolvable conversation, so this is not the routine
+  // path it used to be.
+  const label = overviewQuery.data?.label ?? id;
+
+  // Never render the id twice (mt#3343). The mono sub-line exists to expose the
+  // raw id for copy/reference ALONGSIDE a human name; when the heading IS the
+  // raw id, repeating it verbatim underneath adds nothing and reads as a bug.
+  const showIdSubline = label !== id;
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 p-4">
@@ -75,9 +97,11 @@ export function ConversationPage() {
         <h1 className="truncate text-lg font-semibold" title={label}>
           {label}
         </h1>
-        <span className="font-mono text-xs text-muted-foreground" title={id}>
-          {id}
-        </span>
+        {showIdSubline && (
+          <span className="font-mono text-xs text-muted-foreground" title={id}>
+            {id}
+          </span>
+        )}
         <ConversationPresenceChip conversationId={id} />
       </div>
       <RunDetail key={id} id={id} keySpace="conversation" onConversationNotFound={handleNotFound} />

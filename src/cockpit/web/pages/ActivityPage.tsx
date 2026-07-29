@@ -19,6 +19,13 @@ import { ErrorState } from "../components/ErrorState";
 import { EntityRef } from "../components/EntityRef";
 import { cn } from "../lib/utils";
 import { useState } from "react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server SystemEvent shape
@@ -337,18 +344,18 @@ export function ActivityPage() {
             Show informational
           </label>
 
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
-            aria-label="Filter by event type"
-          >
-            {EVENT_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
+          <Select value={filterType} onValueChange={setFilterType}>
+            <SelectTrigger aria-label="Filter by event type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {EVENT_TYPES.map((t) => (
+                <SelectItem key={t.value} value={t.value}>
+                  {t.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
