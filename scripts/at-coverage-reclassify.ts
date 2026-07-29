@@ -212,12 +212,30 @@ interface FullPrReclassification {
   fireCount: number;
   specFetchOk: boolean;
   prBodyFetchOk: boolean;
+  /**
+   * Discriminated status for this (task, PR) pair's reclassification attempt. `"ok"` means
+   * both fetches succeeded and `stillUnaddressed`/`resolvedByFix` reflect a real
+   * classification. `"spec-fetch-failed"` / `"pr-body-fetch-failed"` mean the classification
+   * could NOT be attempted — a fetch failure is an INFRASTRUCTURE outcome, never silently
+   * recast as a content finding (mt#3316 PR #2410 R1 BLOCKING #2: "fail toward accusation" —
+   * see `undetermined` below).
+   */
+  status: "ok" | "spec-fetch-failed" | "pr-body-fetch-failed";
   /** Union of every AT ever flagged unaddressed for this (task, PR) pair, across fires. */
   originallyFlagged: FlaggedAt[];
-  /** Flagged ATs no longer unaddressed under the FULLY fixed pipeline (extraction + evidence-scan). */
+  /** Flagged ATs no longer unaddressed under the FULLY fixed pipeline (extraction + evidence-scan). Empty when `status !== "ok"` — see `undetermined`. */
   resolvedByFix: FlaggedAt[];
-  /** Flagged ATs STILL unaddressed under the fully fixed pipeline — a real fire, or an FP with a different root cause. */
+  /** Flagged ATs STILL unaddressed under the fully fixed pipeline — a real fire, or an FP with a different root cause. Empty when `status !== "ok"` — see `undetermined`. */
   stillUnaddressed: FlaggedAt[];
+  /**
+   * Flagged ATs whose true/false-positive status could NOT be determined this run because
+   * the spec or PR-body fetch failed. NEVER populated together with `stillUnaddressed` for
+   * the same pair — exactly one of the two carries `originallyFlagged`'s contents, so a
+   * reader iterating `stillUnaddressed` alone (text mode's per-pair listing, or a JSON
+   * consumer that doesn't check `status`) cannot mistake an unfetched pair for a confirmed
+   * coverage gap.
+   */
+  undetermined: FlaggedAt[];
 }
 
 function reclassifyFull(
@@ -253,21 +271,23 @@ function reclassifyFull(
       specCache.set(task, specFetch);
     }
 
-    if (!repo || !specFetch.ok || typeof specFetch.content !== "string") {
+    if (!specFetch.ok || typeof specFetch.content !== "string") {
       results.push({
         task,
         prNumber,
         fireCount: taskRecords.length,
-        specFetchOk: specFetch.ok,
+        specFetchOk: false,
         prBodyFetchOk: false,
+        status: "spec-fetch-failed",
         originallyFlagged,
         resolvedByFix: [],
-        stillUnaddressed: originallyFlagged,
+        stillUnaddressed: [],
+        undetermined: originallyFlagged,
       });
       continue;
     }
 
-    const prMeta = fetchPrMetaByNumber(repo, prNumber, { cwd: repoRoot });
+    const prMeta = repo ? fetchPrMetaByNumber(repo, prNumber, { cwd: repoRoot }) : null;
     if (!prMeta) {
       results.push({
         task,
@@ -275,9 +295,11 @@ function reclassifyFull(
         fireCount: taskRecords.length,
         specFetchOk: true,
         prBodyFetchOk: false,
+        status: "pr-body-fetch-failed",
         originallyFlagged,
         resolvedByFix: [],
-        stillUnaddressed: originallyFlagged,
+        stillUnaddressed: [],
+        undetermined: originallyFlagged,
       });
       continue;
     }
@@ -298,9 +320,11 @@ function reclassifyFull(
       fireCount: taskRecords.length,
       specFetchOk: true,
       prBodyFetchOk: true,
+      status: "ok",
       originallyFlagged,
       resolvedByFix,
       stillUnaddressed,
+      undetermined: [],
     });
   }
 
@@ -310,8 +334,9 @@ function reclassifyFull(
 }
 
 function printFullReport(results: FullPrReclassification[]): void {
-  const withStillUnaddressed = results.filter((r) => r.stillUnaddressed.length > 0);
-  const fetchFailed = results.filter((r) => !r.prBodyFetchOk);
+  const determined = results.filter((r) => r.status === "ok");
+  const withStillUnaddressed = determined.filter((r) => r.stillUnaddressed.length > 0);
+  const undeterminedPairs = results.filter((r) => r.status !== "ok");
 
   console.log(
     `\n--full re-measurement (mt#3316): re-runs the EVIDENCE side against each PR's real body`
@@ -321,16 +346,19 @@ function printFullReport(results: FullPrReclassification[]): void {
     `Pairs with >=1 AT STILL unaddressed under the fully-fixed pipeline: ${withStillUnaddressed.length}`
   );
   console.log(
-    `Pairs whose PR body could not be fetched (skipped, treated conservatively as still-unaddressed): ${fetchFailed.length}`
+    `Pairs whose status could NOT be determined this run (spec or PR-body fetch failed — NOT counted as unaddressed): ${undeterminedPairs.length}`
   );
   console.log("");
 
   for (const r of results) {
+    if (r.status !== "ok") {
+      console.log(
+        `  [UNDETERMINED: ${r.status}] ${r.task} (PR #${r.prNumber}) — ${r.undetermined.length} AT(s) not re-checked`
+      );
+      continue;
+    }
     if (r.stillUnaddressed.length === 0) continue;
-    const tag = r.prBodyFetchOk ? "" : " [PR BODY FETCH FAILED]";
-    console.log(
-      `  ${r.task} (PR #${r.prNumber})${tag} — ${r.stillUnaddressed.length} still unaddressed`
-    );
+    console.log(`  ${r.task} (PR #${r.prNumber}) — ${r.stillUnaddressed.length} still unaddressed`);
     for (const at of r.stillUnaddressed) {
       console.log(`      [still-unaddressed] AT${at.number}: ${at.text.slice(0, 120)}`);
     }

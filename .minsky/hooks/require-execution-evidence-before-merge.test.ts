@@ -1487,6 +1487,50 @@ describe("extractExecutionEvidenceText", () => {
     expect(text).toContain("14 pass");
     expect(text).toContain("K>1 references");
   });
+
+  it("PR #2410 R1 BLOCKING #1 fix: a heading-lookalike line INSIDE a fenced code block does not truncate Execution-evidence collection early", () => {
+    // Pasted test output can legitimately contain a line starting with "###" (e.g. a
+    // markdown snippet under test, or a stack-trace line). Pre-fix, the "stop at next
+    // heading" check matched that fence-internal line and cut collection off before
+    // reaching real evidence further down in the SAME fenced block.
+    const body = [
+      "## Execution evidence:",
+      "",
+      "```",
+      "bun test output:",
+      "### This looks like a heading but is inside a fence",
+      "5 pass, 0 fail",
+      "```",
+      "",
+      "## Testing",
+      "Unrelated section.",
+    ].join("\n");
+    const text = extractExecutionEvidenceText(body);
+    expect(text).toContain("5 pass, 0 fail");
+  });
+
+  it("PR #2410 R1 BLOCKING #1 fix: a fenced 'Acceptance tests' heading lookalike is not treated as a real section boundary by the mt#3316 widening", () => {
+    // No "Execution evidence:" heading anywhere in this body, so the ONLY way the fake
+    // AT content could appear in the extracted text is if the acceptance-tests widening
+    // pass incorrectly treats the fence-internal "### Acceptance tests (by number)" line
+    // as a real heading trigger.
+    const body = [
+      "## Summary",
+      "Some PR.",
+      "",
+      "## Testing",
+      "",
+      "```",
+      "Example markdown template:",
+      "### Acceptance tests (by number)",
+      "1. Fake AT reference: UNIQUEKEYWORDXYZ",
+      "```",
+      "",
+      "No execution evidence block at all here.",
+    ].join("\n");
+    const text = extractExecutionEvidenceText(body);
+    expect(text).not.toContain("UNIQUEKEYWORDXYZ");
+  });
 });
 
 describe("isAtReferencedByNumber", () => {
