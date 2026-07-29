@@ -161,6 +161,20 @@ Concrete procedure:
 
 For each root cause, propose a fix that is **structural, not behavioral**. Prefer changes that make the wrong thing hard over changes that require remembering the right thing.
 
+**Enforcement-tier requirement (mt#3302).** If the fix targets a code-defect class from the mt#3295 taxonomy (edge-case guards, silent failures, doc-code drift, spec-evidence, test quality, wiring, staleness, regression), name its enforcement tier — do not default to prose:
+
+| Tier                         | Mechanism                      | Fits when                                                   |
+| ---------------------------- | ------------------------------ | ----------------------------------------------------------- |
+| ESLint rule                  | `eslint-rules/*`               | Statically detectable pattern, no runtime needed            |
+| Pre-commit / PreToolUse hook | `.minsky/hooks/*`              | Deterministic, blocks the write/commit locally              |
+| CI check                     | `.github/workflows/*`          | Needs full build/test context unavailable pre-commit        |
+| Merge gate                   | reviewer-bot / merge-time hook | Needs review-time judgment or cross-file diff context       |
+| Prompt-time prose            | CLAUDE.md / skill step         | Genuinely judgment-dependent; no deterministic check exists |
+
+**Containment evidence** (mt#3295 §Measured corpus results item 4, per the claim-confidence discipline): prose checklist items do NOT contain their defect class — spec-decision reconciliation recurred 14x across 13 PRs after its §7 item shipped (rising), and production-wiring's recurrence rate ~doubled post-ship — while deterministic gates do: guard-doc (compile-check) and execution-evidence (merge gate) held near-zero at review level. Prose is the weakest tier for a mechanizable class; choose it deliberately, not by default.
+
+**If prose is chosen for a class the taxonomy marks mechanizable** (edge-case guards, silent failures, doc-code drift, spec-evidence, test quality, wiring), state why a deterministic mechanism isn't shipping now and file a tracking task for it. Staleness and regression are context-dependent — judge case by case.
+
 Fix types by category:
 
 - **Verification gap** — Add a step to the relevant skill (merge-coordination, auditor) or CLAUDE.md protocol
@@ -308,7 +322,7 @@ Present findings to the user as:
 
 ### Fixes
 
-1. **<artifact>**: <specific change> — prevents <failure mode> by <mechanism>
+1. **<artifact>** [tier: ESLint rule|pre-commit/PreToolUse hook|CI check|merge gate|prompt-time prose]: <specific change> — prevents <failure mode> by <mechanism>. If tier is prose for a mechanizable class: <justification + tracking task>.
 2. ...
 
 ### Verification
