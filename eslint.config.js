@@ -975,33 +975,40 @@ export default [
       "custom/no-entity-id-param-drift": "error",
     },
   },
-  // === HOOK DOMAIN-BOOTSTRAP ENFORCEMENT (mt#3046; widened mt#3178) ===
-  // A hook process is its own entry point: it inherits neither the tsyringe
-  // reflect polyfill nor the domain configuration system, so any hook reaching
-  // the persistence layer must import `ensureHookDomainBootstrap` first.
+  // === ENTRY-POINT DOMAIN-BOOTSTRAP ENFORCEMENT (mt#3046; widened mt#3178) ===
+  // A hook or script process is its own entry point: it inherits neither the
+  // tsyringe reflect polyfill nor the domain configuration system, so any such
+  // file reaching the persistence layer must bootstrap the domain layer first.
   // Without it the domain import throws or the provider resolves to null —
-  // and in both known instances the failure was SWALLOWED, leaving the hook
-  // silently dead (mt#3019: 0 of 62 rows carried any hook-written column for
-  // two weeks; mt#3046 found a second instance the same way).
+  // and the failure is typically SWALLOWED, leaving the entry point silently
+  // dead (mt#3019: 0 of 62 rows carried any hook-written column for two weeks;
+  // mt#3046 found a second instance the same way; mt#3178 found two more under
+  // `scripts/`, one of which masked the polyfill error behind its own
+  // "SKIP: Postgres not available" message).
   //
-  // `scripts/**` is the SAME entry-point class and was added by mt#3178 after
-  // the third occurrence landed in the one tree this rule did not watch
-  // (mt#3176: `scripts/verify-conversation-run-state.ts` died on the reflect
-  // polyfill before reaching a single DB assertion). A script only differs from
-  // a hook in that it usually prints its crash to a terminal someone is
-  // watching — put a `try/catch` around the domain import, which is a normal
-  // thing to write, and it becomes exactly as silent as the hook cases.
+  // SATISFACTION IS PER-TREE — the rule enforces the invariant, not one idiom:
+  //   - `.minsky/hooks/**` must import `ensureHookDomainBootstrap`, which does
+  //     polyfill AND config init. The bare polyfill is NOT enough here: a hook
+  //     with only the polyfill still resolves a null provider (the mt#3019
+  //     failure).
+  //   - `scripts/**` may instead use a STATIC `import "reflect-metadata"`, the
+  //     conventional scripts idiom (paired with `initializeConfiguration` /
+  //     `setupConfiguration`). Static only — a dynamic polyfill import need not
+  //     precede the domain imports it must precede.
   //
-  // COVERAGE IS DECLARED HERE: `.minsky/hooks/**` and `scripts/**` are the
-  // enforced globs — for hooks the SOURCE tree, not the generated
-  // `.claude/hooks/**` copies (fixing a generated file is not a fix). Test
-  // files are excluded: a test is not an entry point and legitimately names
-  // these symbols in assertions. The rule additionally exempts
-  // `domain-bootstrap.ts` itself, which cannot import itself; `scripts/**` has
-  // no equivalent self-referential file, so it needs no extra exemption. This
-  // block needs no separate plugin registration —
-  // `require-hook-domain-bootstrap` is already in the main `**/*.ts` block's
-  // `custom` plugin object above.
+  // COVERAGE IS DECLARED IN TWO PLACES THAT MUST STAY IN SYNC: the `files` glob
+  // below, AND `ENTRY_POINT_ROOTS_POSIX` in the rule itself. A root added to
+  // only one is silently unenforced — mt#3178 widened this glob alone and lint
+  // reported 0 violations across 144 files because the rule's own path guard
+  // rejected every `scripts/**` path.
+  //
+  // Covered trees are the SOURCE trees, not the generated `.claude/hooks/**`
+  // copies (fixing a generated file is not a fix). Test files are excluded: a
+  // test is not an entry point and legitimately names these symbols in
+  // assertions. The rule additionally exempts `domain-bootstrap.ts` itself,
+  // which cannot import itself. This block needs no separate plugin
+  // registration — `require-hook-domain-bootstrap` is already in the main
+  // `**/*.ts` block's `custom` plugin object above.
   {
     files: [".minsky/hooks/**/*.ts", "scripts/**/*.ts"],
     ignores: ["**/*.test.ts"],

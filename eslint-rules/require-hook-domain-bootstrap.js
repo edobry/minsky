@@ -1,10 +1,11 @@
 /**
- * @fileoverview Require the shared domain bootstrap in any hook that reaches
- * the persistence layer (mt#3046, the structural fix for the mt#3019 class).
+ * @fileoverview Require domain bootstrapping in any ENTRY POINT that reaches
+ * the persistence layer (mt#3046, the structural fix for the mt#3019 class;
+ * widened to `scripts/**` by mt#3178).
  *
- * A hook process is its OWN entry point. It inherits nothing from `cli.ts` or
- * the MCP server boot, and two things are mandatory before ANY domain import
- * that leads to the persistence factory:
+ * A hook or script process is its OWN entry point. It inherits nothing from
+ * `cli.ts` or the MCP server boot, and two things are mandatory before ANY
+ * domain import that leads to the persistence factory:
  *
  *   1. `reflect-metadata` — domain classes reached through the factory are
  *      `@injectable()`, so the IMPORT of `packages/domain/src/persistence/factory`
@@ -12,7 +13,13 @@
  *   2. Domain configuration — `PersistenceService.initialize()` throws
  *      "Configuration not initialized" without it.
  *
- * Both live in `.minsky/hooks/domain-bootstrap.ts`'s `ensureHookDomainBootstrap()`.
+ * Both live in `.minsky/hooks/domain-bootstrap.ts`'s `ensureHookDomainBootstrap()`,
+ * which is what a HOOK must import. A SCRIPT conventionally does the two halves
+ * inline instead — a static `import "reflect-metadata"` plus
+ * `initializeConfiguration` / `setupConfiguration` — so for `scripts/**` the
+ * static polyfill import also satisfies the invariant. See
+ * `REFLECT_POLYFILL_SPECIFIER` for why the asymmetry is deliberate: the bare
+ * polyfill must NOT satisfy a hook, which would still resolve a null provider.
  *
  * WHY A LINT RULE AND NOT A RUNTIME SMOKE TEST (mt#3046 planning, 2026-07-22).
  * The original proposal was to spawn each hook and assert no bootstrap-class
@@ -31,10 +38,13 @@
  * probe it cannot be defeated by a swallowed error, needs no live database,
  * and fires at authoring time instead of after merge.
  *
- * Coverage model (mirrors `no-entity-id-param-drift`, mt#2780): the
- * `eslint.config.js` block enumerates the covered glob — config, not
- * path-parsing, is the scoping mechanism. The path check below is
- * defense-in-depth for direct/RuleTester invocations.
+ * Coverage model (mirrors `no-entity-id-param-drift`, mt#2780): coverage is
+ * declared in TWO places that MUST stay in sync — the `files` glob of the
+ * `eslint.config.js` block, and `ENTRY_POINT_ROOTS_POSIX` below. A root present
+ * in only one of them is silently unenforced: mt#3178 widened the config glob
+ * alone and lint reported 0 violations across 144 files because this guard
+ * still rejected every `scripts/**` path. Config remains the primary scoping
+ * mechanism; the path check is the direct/RuleTester companion.
  *
  * Conservatism: only files under a declared ENTRY-POINT ROOT are considered
  * (`.minsky/hooks/` and `scripts/` — see `ENTRY_POINT_ROOTS_POSIX`); `.test.ts`
@@ -120,6 +130,16 @@ const REFLECT_POLYFILL_SPECIFIER = "reflect-metadata";
 /** Entry-point roots whose convention accepts a bare static reflect polyfill. */
 const REFLECT_POLYFILL_ROOTS_POSIX = ["scripts"];
 
+/**
+ * Per-tree remedy text for the report. The two trees satisfy the invariant
+ * differently, so telling a script author to import a helper out of
+ * `.minsky/hooks/` would be actively misleading (PR #2381 R1).
+ */
+const REMEDY_HOOK =
+  "Import `ensureHookDomainBootstrap` from './domain-bootstrap' — it does both the reflect polyfill and the configuration init.";
+const REMEDY_SCRIPT =
+  'Add a static `import "reflect-metadata"` as the first runtime import (the scripts convention, paired with `initializeConfiguration` / `setupConfiguration`), or import `ensureHookDomainBootstrap` from `.minsky/hooks/domain-bootstrap`.';
+
 function toPosix(filename) {
   return filename.split(pathSep).join("/");
 }
@@ -167,12 +187,12 @@ export default {
     type: "problem",
     docs: {
       description:
-        "Require ensureHookDomainBootstrap in any entry-point file (.minsky/hooks, scripts) that reaches the persistence layer (mt#3046; the mt#3019 dead-DB-path class)",
+        "Require domain bootstrapping in any entry-point file (.minsky/hooks, scripts) that reaches the persistence layer (mt#3046; the mt#3019 dead-DB-path class)",
     },
     schema: [],
     messages: {
       missingBootstrap:
-        "This entry point reaches the persistence layer ({{trigger}}) without importing `ensureHookDomainBootstrap` from './domain-bootstrap'. A hook or script is its own entry point: without the bootstrap the domain import throws (tsyringe reflect polyfill) or the provider resolves to null (configuration not initialized), and the failure is typically swallowed — the entry point silently does nothing. See mt#3019 (hook) and mt#3176 (script).",
+        "This entry point reaches the persistence layer ({{trigger}}) without bootstrapping the domain layer. {{remedy}} Without it the domain import throws (tsyringe reflect polyfill) or the provider resolves to null (configuration not initialized), and the failure is typically swallowed — the entry point silently does nothing. See mt#3019 (hook) and mt#3176 (script).",
     },
   },
 
@@ -250,7 +270,10 @@ export default {
         context.report({
           node: trigger.node ?? programNode,
           messageId: "missingBootstrap",
-          data: { trigger: trigger.description },
+          data: {
+            trigger: trigger.description,
+            remedy: acceptsReflectPolyfill ? REMEDY_SCRIPT : REMEDY_HOOK,
+          },
         });
       },
     };
