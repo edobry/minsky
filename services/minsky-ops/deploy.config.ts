@@ -1,52 +1,63 @@
 /**
  * Deployment-target declaration for the `minsky-ops` service.
  *
- * The ops service runs `bun dist/minsky.js ops start --port 8081` using the
- * same Docker image as minsky-mcp. No dedicated serviceId yet — this file
- * is a placeholder that establishes the deployment topology declaration
- * for when the Railway service is provisioned.
+ * Provisioned mt#2132 (2026-07-29). Runs the SAME GHCR image as minsky-mcp
+ * (`ghcr.io/edobry/minsky:latest`), with a start-command override so it
+ * boots the ops background-loop / health-endpoint process instead of the
+ * MCP server.
  *
  * ## Relationship to minsky-mcp
  *
  * Same image, different start command:
- *   minsky-mcp:  `bun dist/minsky.js mcp start --http --port 8080`
- *   minsky-ops:  `bun dist/minsky.js ops start --port 8081`
+ *   minsky-mcp:  `bun run --preload reflect-metadata dist/minsky.js mcp start --http --host 0.0.0.0 --port $PORT --require-auth`
+ *   minsky-ops:  `bun run --preload reflect-metadata dist/minsky.js ops start`
+ *
+ * The `--preload reflect-metadata` wrapper mirrors the root Dockerfile's CMD
+ * (see `Dockerfile`'s comment on Bun 1.2.23's bundler reordering
+ * `import "reflect-metadata"` in the flattened bundle) — `ops start` boots
+ * the same tsyringe-based domain container as `mcp start`, so it needs the
+ * same preload to avoid the polyfill-ordering crash.
+ *
+ * ## Start-command override mechanism (mt#2132)
+ *
+ * The Pulumi `railway.Service` resource (terraform-community-providers/railway
+ * bridge, see `infra/index.ts`'s `minskyOpsService` comment) has no
+ * `startCommand`/`deploy.*` field, so the override is NOT expressed in
+ * `infra/index.ts`. It was set out-of-band via:
+ *
+ *   railway environment edit --json <<< '{"services":{"<serviceId>":{"deploy":{"startCommand":"bun run --preload reflect-metadata dist/minsky.js ops start"}}}}'
+ *
+ * Verified via read-back: `railway environment config --json | jq '.services["<serviceId>"].deploy'`.
+ * This is a one-time operator action, same class as the reviewer service's
+ * `deploy.healthcheckPath` gap documented in `infra/index.ts`.
  *
  * ## Environment variables
  *
- * Inherits all minsky-mcp variables plus:
- *   ADOPTION_SWEEPER_ENABLED       — "true" to activate (default: false)
+ * Declared in `infra/index.ts`'s `minskyOpsService` block (Pulumi-managed).
+ * Inherits all minsky-mcp variables (same domain-container bootstrap) except
+ * `MINSKY_MCP_MAX_SESSIONS` (MCP-HTTP-transport-only, not applicable), plus:
+ *   ADOPTION_SWEEPER_ENABLED       — "true" (set; sweeper active)
+ *   ADOPTION_SWEEPER_EXECUTE       — NOT set (dry-run default, mt#3328)
  *   ADOPTION_SWEEPER_INTERVAL_MS   — interval in ms (default: 86400000 = 24h)
  *   ADOPTION_SWEEPER_LOOKBACK_DAYS — days to look back (default: 14)
  *
- * @see mt#2101 — implementation task
+ * @see mt#2101 — implementation task (ops service code)
  * @see mt#2097 — operational topology epic
+ * @see mt#2132 — this provisioning task
+ * @see mt#3328 — adoption-sweeper container-blindness fix (gates enabling the sweeper)
  */
 
 import { defineDeployment } from "@minsky/shared/deployment-config";
 
-// NOTE: No railway.config.ts yet — the Railway service hasn't been provisioned.
-// When it is, add railway.config.ts alongside this file with the project/service
-// IDs, then import and use them here (following the minsky-mcp pattern).
-//
-// For now we export a skeleton so the workspace-COPY pre-commit guard and any
-// deployment tooling that walks services/* can discover this service declaration.
-
 export default defineDeployment({
   platform: "railway",
-  // No health URL yet — service is not provisioned. Set this when the Railway
-  // service is provisioned and a public URL is available (mt#1302).
-  healthUrl: null,
+  healthUrl: "https://minsky-ops-production.up.railway.app/health",
   railway: {
-    // Placeholder IDs — replace with real values from Railway when provisioned.
     projectId: "0e054318-7e19-4489-8e1e-de787965161d", // same project as minsky-mcp
-    environmentId: "0289b171-1514-4540-ac93-19b30da3e2c0", // same environment
-    serviceId: "", // TODO: provision the Railway service and fill in this ID
+    environmentId: "0289b171-1514-4540-ac93-19b30da3e2c0", // same environment (production)
+    serviceId: "f6e3f285-8075-4845-934b-8e9bed15ab12",
     source: {
-      rootDirectory: "/",
-    },
-    build: {
-      builder: "RAILPACK",
+      image: "ghcr.io/edobry/minsky:latest",
     },
   },
 });
