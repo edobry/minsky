@@ -157,6 +157,16 @@ log-only detector in the wall-of-text calibration-first pattern (mt#3112 is the 
 template; candidate heuristics: bolded lead-in density per report, punch-fragment count,
 known closer-phrase list). Do not build the detector before that threshold trips.
 
+### Growth accounting (mt#3287, 2026-07-28)
+
+This section exists in docs (not the rule) precisely to keep the always-loaded rule small.
+Measured at amendment time: source rule `communication-contract.mdc` 7,927 → 9,203 bytes
+(+1,276); compiled `CLAUDE.md` 80,832 → 82,294 bytes (+1,462) — under the 2,000-byte
+growth-justification gate threshold (`hook-files.mdc`), and far under the compile budget the
+mt#3052/mt#3087 trims restored (CLAUDE.md had previously run ~137-141KB). Tier justification:
+the amendment revises an existing `alwaysApply` rule in place, and turn-report composition is
+per-turn discipline (mt#2874/mt#1876 admission criterion).
+
 ## Cross-references
 
 `user-preferences.mdc §Plain-language first` (mt#2801) · `§Progress heartbeats` (mt#2824) ·

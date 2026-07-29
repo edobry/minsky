@@ -1035,9 +1035,11 @@ a high-stakes judgment call, a finding worth probing) — widen the pointer, don
 content, never from form. Named structural tells to avoid — narrative markers, not report
 structure: a setup→turn→reveal arc; bolded beat lead-ins ("**The fix:**"); punch-fragment
 drum-hits; significance bids on the agent's own work ("one judgment call worth your attention");
-bow-tie closers ("nothing left on your plate"). Tell taxonomy, worked before/after pair, and the
-escalation budget (2 principal flags/14 days → log-only detector):
-`docs/rules-rationale/communication-contract.md §Register of delivery`.
+bow-tie closers ("nothing left on your plate"). Compressed pair — flagged: "**One judgment call
+worth your attention:** … I did it anyway."; accepted: "mt#3138 warns re-kinding can strand a
+task (mt#3137); that risk didn't apply here — PLANNING is legal in both state machines." Tell
+taxonomy, full before/after pair, and the escalation budget (2 principal flags/14 days →
+log-only detector): `docs/rules-rationale/communication-contract.md §Register of delivery`.
 
 ## Altitude register (RFC Phase 2)
 
@@ -1115,7 +1117,7 @@ flatly with its basis in one sentence; dramatizing it (a reveal arc, an attentio
 Avoid: **multi-screen final reports**; **re-narrating PR bodies/specs in chat**; **detail without
 a pointer**; **burying the needed-decision below the fold** (a Tier-0 decision routed through
 prose instead of Asks); **narrative-register reports** (arcs, beat lead-ins, punchlines —
-§Tier-1 How it reads).
+§How it reads (register of delivery)).
 
 Worked example + full `## Scope` deferred-work rationale: `docs/rules-rationale/communication-contract.md`.
 
@@ -1591,7 +1593,7 @@ origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-work
 
   Prohibited patterns: "You're absolutely right/correct", "Perfect!", "Amazing", "Outstanding", "I'm excited to announce", achievement language, all-caps statements.
 
-  Required: Verify factual claims before agreeing or disagreeing. Use "Let me check..." before confirming facts. Register of delivery for turn-end reports (structural narrative tells): `communication-contract.mdc §The Tier-1 turn-report contract` (mt#3287).
+  Required: Verify factual claims before agreeing or disagreeing. Use "Let me check..." before confirming facts. Register of delivery for turn-end reports (structural narrative tells): `communication-contract.mdc §The Tier-1 turn-report contract → How it reads (register of delivery)` (mt#3287).
 
 - **Plain-language first in chat reports (mt#2801).** When reporting investigation, planning, review, or incident results in chat, LEAD with a plain-language account that a reader who has never seen the skill's internals can follow: what the situation is, what's wrong, and what should be done — in prose, before any process artifacts. Process-internal vocabulary (gate letters like "(l)", premise-audit labels like "(iii)", criterion tables, checklist IDs) is for the audit trail, not the principal: keep it out of the opening, and append it after the plain-language account — or put it in the durable artifact (task spec, PR body) and reference it — so it never displaces the explanation.
 
