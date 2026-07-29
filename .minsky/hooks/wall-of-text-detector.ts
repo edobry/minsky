@@ -125,6 +125,7 @@ import {
   extractLastAssistantTurn,
   extractAssistantText,
   findRealPromptIndices,
+  resolveCompletedTurn,
   resolveParentTranscriptLines,
   resolveParentTranscriptLinesForPath,
   readLogTailText,
@@ -361,20 +362,23 @@ function extractUserPromptText(line: TranscriptLine): string {
 /**
  * The transcript-line INDEX of the real user prompt that opened the
  * just-measured turn — the SAME boundary `extractLastAssistantTurn` slices
- * from (`promptIndices[length - 2]`). Returns `undefined` when fewer than 2
- * real prompts exist, mirroring `extractLastAssistantTurn`'s own guard and
+ * from. Delegates to the shared {@link resolveCompletedTurn} resolver
+ * (mt#3280) rather than recomputing `promptIndices[length - 2]`, which is
+ * correct only when the prompt that fired the hook has already been written
+ * to the transcript; at `UserPromptSubmit` it usually has not, and the
+ * recomputed index then pointed at the opening prompt of the turn BEFORE the
+ * measured one.
+ *
+ * Returns `undefined` when no turn can be resolved, mirroring
  * `silent-stretch-detector.ts`'s `findTurnBoundaryTimestamps` (PR #2228 R1
  * BLOCKING): fails CLOSED rather than defaulting to an arbitrary index (a
  * bare `?? 0` fallback previously here could point at a transcript line that
- * is not actually the measured turn's opening prompt, in any future
- * refactor that reordered or removed the caller's own >=2-prompt guard). A
- * caller that gets `undefined` back must treat the fire as unsuppressed —
- * NOT default to index 0 — since there is no reliable anchor to check.
+ * is not actually the measured turn's opening prompt). A caller that gets
+ * `undefined` back must treat the fire as unsuppressed — NOT default to
+ * index 0 — since there is no reliable anchor to check.
  */
 export function findOpeningPromptIndex(lines: TranscriptLine[]): number | undefined {
-  const promptIndices = findRealPromptIndices(lines);
-  if (promptIndices.length < 2) return undefined;
-  return promptIndices[promptIndices.length - 2];
+  return resolveCompletedTurn(lines).openingPromptIndex;
 }
 
 /**
