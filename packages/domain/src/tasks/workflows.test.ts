@@ -24,6 +24,8 @@ import {
   TERMINAL_TASK_STATUS_VALUES,
   computeStatusWalkPath,
   type TaskKind,
+  checkKindChangeStatusCompatibility,
+  describeKindChangeStatusConflict,
 } from "./workflows";
 import { ValidationError } from "../errors/index";
 
@@ -507,5 +509,79 @@ describe("computeStatusWalkPath() (mt#3010 — tasks.dispatch's registry-derived
       "PLANNING",
       "READY",
     ]);
+  });
+});
+
+describe("checkKindChangeStatusCompatibility (mt#3137)", () => {
+  test("the reproduced case: implementation/READY → umbrella is a conflict", () => {
+    // mt#2237, live 2026-07-23: the re-kind reported success, and the next
+    // status transition answered "Valid transitions from READY: none".
+    const conflict = checkKindChangeStatusCompatibility("READY", "implementation", "umbrella");
+
+    expect(conflict).not.toBeNull();
+    expect(conflict?.status).toBe("READY");
+    expect(conflict?.fromKind).toBe("implementation");
+    expect(conflict?.toKind).toBe("umbrella");
+    // The legal set must be offered so the operator can pick a landing status.
+    expect(conflict?.legalStatuses).toContain("PLANNING");
+    expect(conflict?.legalStatuses).not.toContain("READY");
+  });
+
+  test("a status the target kind DOES recognize is not a conflict", () => {
+    expect(checkKindChangeStatusCompatibility("TODO", "implementation", "umbrella")).toBeNull();
+    expect(checkKindChangeStatusCompatibility("DONE", "implementation", "umbrella")).toBeNull();
+  });
+
+  test("umbrella's other exclusions are caught too, not just READY", () => {
+    expect(
+      checkKindChangeStatusCompatibility("IN-REVIEW", "implementation", "umbrella")
+    ).not.toBeNull();
+    expect(
+      checkKindChangeStatusCompatibility("BLOCKED", "implementation", "umbrella")
+    ).not.toBeNull();
+  });
+
+  test("state-ops excludes IN-REVIEW and BLOCKED but keeps READY", () => {
+    expect(
+      checkKindChangeStatusCompatibility("IN-REVIEW", "implementation", "state-ops")
+    ).not.toBeNull();
+    expect(checkKindChangeStatusCompatibility("READY", "implementation", "state-ops")).toBeNull();
+  });
+
+  test("implementation is a superset — nothing strands moving TO it", () => {
+    for (const status of [
+      "TODO",
+      "PLANNING",
+      "READY",
+      "IN-PROGRESS",
+      "IN-REVIEW",
+      "DONE",
+      "BLOCKED",
+      "CLOSED",
+    ]) {
+      expect(checkKindChangeStatusCompatibility(status, "umbrella", "implementation")).toBeNull();
+    }
+  });
+
+  test("an absent status cannot conflict — there is nothing to strand", () => {
+    expect(checkKindChangeStatusCompatibility(undefined, "implementation", "umbrella")).toBeNull();
+    expect(checkKindChangeStatusCompatibility(null, "implementation", "umbrella")).toBeNull();
+    expect(checkKindChangeStatusCompatibility("", "implementation", "umbrella")).toBeNull();
+  });
+
+  test("an absent fromKind is reported as the system default, not blank", () => {
+    const conflict = checkKindChangeStatusCompatibility("READY", undefined, "umbrella");
+    expect(conflict?.fromKind).toBe("implementation");
+  });
+
+  test("the message names the conflict, the consequence, and the legal statuses", () => {
+    const conflict = checkKindChangeStatusCompatibility("READY", "implementation", "umbrella");
+    if (!conflict) throw new Error("expected a conflict for implementation/READY → umbrella");
+    const message = describeKindChangeStatusConflict(conflict);
+
+    expect(message).toContain("READY");
+    expect(message).toContain("umbrella");
+    expect(message).toContain("no valid transitions");
+    expect(message).toContain("PLANNING");
   });
 });

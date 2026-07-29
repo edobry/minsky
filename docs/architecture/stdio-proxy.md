@@ -166,6 +166,31 @@ Paths through the proxy:
      reserved `__proxy_ready_probe_` prefix is reserved by the proxy; no
      external client should ever send a request with this prefix.
 
+## Conversation-identity injection (mt#3285, ADR-006 Phase 2)
+
+The proxy is the sending side of ADR-006's conversation-scoped agent identity. At
+construction it resolves `CLAUDE_CODE_SESSION_ID` — the conversation UUID Claude Code sets in
+the environment of every MCP server process it spawns — into
+`com.anthropic.claude-code:conv:<uuid>` (`conversation-identity.ts`). The inbound transform
+then stamps `_meta["io.minsky/agent_id"]` into every `tools/call` request at its existing
+parse point, so the inner server's Layer-2 reader (`readLayer2`) resolves a
+conversation-scoped identity instead of falling through to the per-process Layer-1 hash.
+
+Rules, all enforced by `injectAgentIdMeta`:
+
+- Only `tools/call` requests are stamped; every other frame (initialize, ping,
+  notifications, responses) passes through byte-identical.
+- An already-declared `_meta["io.minsky/agent_id"]` is preserved, never overwritten —
+  forward-compatible with subagent-grain declarations (mt#2292) that flow through the same
+  proxy.
+- Absent or non-UUID env value → no injection at all (hookless environments and manual
+  invocations keep today's Layer-1 behavior).
+
+The env value is fixed at proxy spawn: an in-process conversation switch (`/clear`,
+in-process resume) attributes calls to the pre-switch conversation until the next reconnect
+respawns the proxy. See ADR-006 §Layer 3 amendment for the upgrade path. E2E verification:
+`scripts/verify-conv-identity-injection.ts`.
+
 ## `__proxy_restart_server` tool contract
 
 **Name:** `__proxy_restart_server`

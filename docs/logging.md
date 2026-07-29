@@ -141,3 +141,17 @@ When adding debug logs, follow these guidelines:
    ```
 
 This ensures that debug logs don't clutter terminal output but are available when needed for troubleshooting.
+
+## Log files on disk (cockpit daemon)
+
+The cockpit daemon persists logs under `~/.local/state/minsky/logs/`; every
+family is size-bounded:
+
+| File(s)                                                  | Writer                                                             | Rotation                                                                                                 |
+| -------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `cockpit-daemon.log` (+`1..4`)                           | winston File transport (`src/cockpit/daemon-file-log.ts`, mt#2894) | built-in `maxsize`/`maxFiles`: 20 MB x 5                                                                 |
+| `cockpit-stdout.log` / `cockpit-stderr.log` (+`.1`/`.2`) | supervisor stdio redirect (tray `open_log()` / launchd plist)      | in-daemon copytruncate sweep (`src/cockpit/stdio-log-rotation.ts`, mt#3298): 50 MB cap, 2 retained, 60 s |
+| `cockpit-build.log`                                      | tray web-bundle build watcher                                      | none (small; revisit if it grows)                                                                        |
+
+Mechanism detail and the rotation-policy rationale live in
+`docs/architecture/cockpit.md` (search "Stdio-redirect log rotation").

@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   computeChangeSet,
+  computeBlockedKindChanges,
   computeDryRunToken,
   checkRecordDrift,
   type BulkEditTaskState,
@@ -119,5 +120,75 @@ describe("checkRecordDrift", () => {
     };
     expect(checkRecordDrift(record, task("mt#1", undefined, ["b", "a"]))).toBe("pending");
     expect(checkRecordDrift(record, task("mt#1", undefined, ["c", "b", "a"]))).toBe("applied");
+  });
+});
+
+describe("bulk kind change — status stranding protection (mt#3137)", () => {
+  /** implementation/READY → umbrella is the reproduced stranding case. */
+  const stranding: BulkEditTaskState = {
+    id: "mt#stranded",
+    kind: "implementation",
+    status: "READY",
+  };
+  /** implementation/TODO → umbrella is safe: umbrella recognizes TODO. */
+  const safe: BulkEditTaskState = { id: "mt#safe", kind: "implementation", status: "TODO" };
+
+  test("a status-incompatible record is EXCLUDED from the change set", () => {
+    const changeSet = computeChangeSet([stranding], { kind: "umbrella" });
+    expect(changeSet).toEqual([]);
+  });
+
+  test("...and is reported as blocked, with the conflict attached", () => {
+    const blocked = computeBlockedKindChanges([stranding], { kind: "umbrella" });
+
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0]?.taskId).toBe("mt#stranded");
+    expect(blocked[0]?.conflict.status).toBe("READY");
+    expect(blocked[0]?.conflict.legalStatuses).not.toContain("READY");
+  });
+
+  test("a compatible sibling in the SAME batch still converts", () => {
+    // The heterogeneous case the spec calls out: one blocked record must not
+    // suppress the rest, and one convertible record must not carry the blocked
+    // one along with it.
+    const changeSet = computeChangeSet([stranding, safe], { kind: "umbrella" });
+
+    expect(changeSet).toHaveLength(1);
+    expect(changeSet[0]?.taskId).toBe("mt#safe");
+
+    const blocked = computeBlockedKindChanges([stranding, safe], { kind: "umbrella" });
+    expect(blocked.map((b) => b.taskId)).toEqual(["mt#stranded"]);
+  });
+
+  test("the blocked record is absent from the token — it cannot be applied by it", () => {
+    const withBlocked = computeDryRunToken(
+      computeChangeSet([stranding, safe], { kind: "umbrella" })
+    );
+    const safeOnly = computeDryRunToken(computeChangeSet([safe], { kind: "umbrella" }));
+
+    // Identical tokens prove the blocked record contributed nothing to the
+    // approved change set.
+    expect(withBlocked).toBe(safeOnly);
+  });
+
+  test("tag ops on a status-incompatible task are unaffected — only kind is gated", () => {
+    const changeSet = computeChangeSet([{ ...stranding, tags: [] }], { addTag: "x" });
+    expect(changeSet).toHaveLength(1);
+    expect(changeSet[0]?.field).toBe("tags");
+  });
+
+  test("no kind op means nothing is ever blocked", () => {
+    expect(computeBlockedKindChanges([stranding], { addTag: "x" })).toEqual([]);
+  });
+
+  test("a task with no status is not blocked — there is nothing to strand", () => {
+    const noStatus: BulkEditTaskState = { id: "mt#nostatus", kind: "implementation" };
+    expect(computeBlockedKindChanges([noStatus], { kind: "umbrella" })).toEqual([]);
+    expect(computeChangeSet([noStatus], { kind: "umbrella" })).toHaveLength(1);
+  });
+
+  test("a no-op kind change is never blocked, even from an odd status", () => {
+    const already: BulkEditTaskState = { id: "mt#x", kind: "umbrella", status: "TODO" };
+    expect(computeBlockedKindChanges([already], { kind: "umbrella" })).toEqual([]);
   });
 });

@@ -768,6 +768,11 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
       "mt#3161 run-state writer; explicitly an observer per its own settings.json annotations, fail-open on every event",
   },
   {
+    configPath: ".claude/hooks/verify-subagent-model.ts",
+    reason:
+      "mt#3257 subagent model-tier verification — PostToolUse observer that warns on requested-vs-resolved mismatch; no permission decision, fail-open (hook-observers.mdc)",
+  },
+  {
     configPath: ".claude/hooks/record-subagent-invocation.ts",
     reason:
       "SubagentStop recording — writes dispatch-row columns, makes no permission decision (hook-observers.mdc)",
