@@ -25,7 +25,7 @@
  *    register). Table-cell/badge text migrates text-xs -> text-small,
  *    row-title text-sm -> text-body — same pixel sizes, named tokens.
  */
-import { useCallback } from "react";
+import { useCallback, useId } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
@@ -34,6 +34,13 @@ import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { statusStyle } from "../lib/status-colors";
 import { useProject } from "../lib/project-context";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 
 // ---------------------------------------------------------------------------
 // Types — mirror of server TaskListItem / TaskListPayload
@@ -227,6 +234,11 @@ function TaskListControlBar({
   onClearFilters,
 }: ControlBarProps) {
   const selectedStatuses = parseStatusFilter(filters.status);
+  // aria-labelledby targets. useId, not literal ids: "Per page:" labels exist
+  // in several control bars (Agents, Workstreams), so a fixed id would collide
+  // if two ever render on one page.
+  const kindLabelId = useId();
+  const pageSizeLabelId = useId();
 
   return (
     <div className="flex flex-col gap-2 py-2 mb-2 border-b border-border">
@@ -264,36 +276,56 @@ function TaskListControlBar({
         {/* Kind filter */}
         {kinds.length > 1 && (
           <>
-            <span className="text-eyebrow font-mono uppercase text-muted-foreground ml-1">
+            <span
+              id={kindLabelId}
+              className="text-eyebrow font-mono uppercase text-muted-foreground ml-1"
+            >
               Kind:
             </span>
-            <select
-              value={filters.kind}
-              onChange={(e) => onFilterKind(e.target.value)}
-              className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              aria-label="Filter by kind"
-            >
-              <option value="all">All</option>
-              {kinds.map((k) => (
-                <option key={k} value={k}>{k}</option>
-              ))}
-            </select>
+            <Select value={filters.kind} onValueChange={onFilterKind}>
+              <SelectTrigger
+                className="h-6 bg-background"
+                aria-labelledby={kindLabelId}
+                title="Filter by kind"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                {kinds.map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {k}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </>
         )}
 
         <span className="text-border mx-1">|</span>
 
-        <span className="text-eyebrow font-mono uppercase text-muted-foreground">Per page:</span>
-        <select
-          value={pageSize}
-          onChange={(e) => onPageSize(Number(e.target.value))}
-          className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-          aria-label="Items per page"
+        <span
+          id={pageSizeLabelId}
+          className="text-eyebrow font-mono uppercase text-muted-foreground"
         >
-          {pageSizeOptions.map((n) => (
-            <option key={n} value={n}>{n}</option>
-          ))}
-        </select>
+          Per page:
+        </span>
+        <Select value={String(pageSize)} onValueChange={(v) => onPageSize(Number(v))}>
+          <SelectTrigger
+            className="h-6 bg-background"
+            aria-labelledby={pageSizeLabelId}
+            title="Items per page"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {pageSizeOptions.map((n) => (
+              <SelectItem key={n} value={String(n)}>
+                {n}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         {hasActiveFilters && (
           <Button

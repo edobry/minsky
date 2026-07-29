@@ -94,10 +94,16 @@ describe("ProjectSelector", () => {
 
     const select = await screen.findByLabelText("Filter by project");
     expect(select).toBeDefined();
-    expect(screen.getByText("All projects")).toBeDefined();
-    expect(screen.getByText("Minsky")).toBeDefined();
+
+    // Radix portals the option list and only mounts it while open, so the
+    // labels are not in the DOM until the panel opens. Opened via keydown:
+    // Radix gates pointer events on pointer capture the DOM stub lacks.
+    fireEvent.keyDown(select, { key: "Enter" });
+
+    expect(screen.getByRole("option", { name: "All projects" })).toBeDefined();
+    expect(screen.getByRole("option", { name: "Minsky" })).toBeDefined();
     // Falls back to the raw slug when displayName is null.
-    expect(screen.getByText("edobry/other-repo")).toBeDefined();
+    expect(screen.getByRole("option", { name: "edobry/other-repo" })).toBeDefined();
   });
 
   test("selecting a project updates the shared context's selectedSlug", async () => {
@@ -110,7 +116,8 @@ describe("ProjectSelector", () => {
     const select = await screen.findByLabelText("Filter by project");
     expect(screen.getByTestId("selected-slug").textContent).toBe("ALL");
 
-    fireEvent.change(select, { target: { value: "edobry/minsky" } });
+    fireEvent.keyDown(select, { key: "Enter" });
+    fireEvent.click(screen.getByRole("option", { name: "Minsky" }));
 
     await waitFor(() =>
       expect(screen.getByTestId("selected-slug").textContent).toBe("edobry/minsky")
