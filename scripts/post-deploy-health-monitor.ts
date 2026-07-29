@@ -41,16 +41,23 @@
  *     currently watches are single-platform (verified live 2026-07-28), so
  *     this is defensive coverage for a shape that would otherwise
  *     false-positive forever, not an active bug fix.
- *   - The transient in-flight-deploy window (mt#3251 R2 hardening). A
- *     healthy build+push+redeploy cycle leaves the registry ahead of the
- *     deployed digest for a few minutes; at a 10-minute check cadence, every
- *     normal deploy has a real chance of landing inside one check. This
- *     check does NOT alert on a single observation — resolveDigestLagSustained
- *     requires the SAME (deployedDigest, registryDigest) pair to be observed
- *     on two CONSECUTIVE runs (tracked via a non-P0 "pending" GitHub issue,
- *     since the monitor itself is stateless between runs) before escalating.
- *     A real freeze (this task's own incident: ~2 days) survives that
- *     trivially; a routine deploy (~2-5 minutes) does not.
+ *   - The transient in-flight-deploy window (mt#3251 R2 hardening, refined
+ *     mt#3284). A healthy build+push+redeploy cycle leaves the registry
+ *     ahead of the deployed digest for a few minutes; at a 10-minute check
+ *     cadence, every normal deploy has a real chance of landing inside one
+ *     check. This check does NOT alert on a single observation —
+ *     resolveDigestLagSustained requires the SAME (deployedDigest,
+ *     registryDigest) pair to be observed again AND at least
+ *     DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS of wall-clock time to have
+ *     elapsed since the FIRST observation (tracked via a non-P0 "pending"
+ *     GitHub issue, since the monitor itself is stateless between runs)
+ *     before escalating. Counting observations alone is not enough — two
+ *     manual `workflow_dispatch` runs seconds apart satisfy "two runs" as
+ *     trivially as a real freeze does (mt#3284: this produced a false
+ *     positive P0, issue #2363, during mt#3251's own live verification). A
+ *     real freeze (this task's own incident: ~2 days) survives the
+ *     elapsed-time requirement trivially; a routine deploy (~2-5 minutes)
+ *     does not, and nor does a rapid re-invocation.
  *
  * ### Does NOT cover (check (c), mt#3251)
  *
@@ -72,7 +79,9 @@
  *   - An operator deliberately rolling back to an older image. This
  *     check has no way to distinguish an intentional rollback from an
  *     unintentional freeze — both alert (after the sustained-check above
- *     confirms it across two runs). Consistent with this monitor's
+ *     confirms the SAME pair persists for at least the configured minimum
+ *     elapsed time, mt#3284 — not merely across two runs regardless of how
+ *     close together in time they were). Consistent with this monitor's
  *     existing philosophy elsewhere (a dismissable false alarm beats a
  *     missed freeze).
  *   - Private GHCR packages. The registry lookup uses the ANONYMOUS
@@ -733,7 +742,7 @@ async function ensureLabelsExist(repo: string, token: string): Promise<void> {
             label === P0_LABEL
               ? "P0 outage: service is down or deploy failed"
               : label === DIGEST_LAG_PENDING_LABEL
-                ? "Pending digest-lag observation (mt#3251) — not yet a confirmed sustained lag"
+                ? "Pending digest-lag observation (mt#3251, mt#3284) — a lag was seen once but has not yet persisted long enough (see DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS) to be a confirmed sustained lag"
                 : "Auto-opened by post-deploy-health-monitor (mt#1302)",
         });
       } catch (err) {
@@ -811,7 +820,8 @@ async function alertViaGitHubIssue(
 }
 
 // ---------------------------------------------------------------------------
-// Digest-lag sustained-check (mt#3251 R2) — cross-run pending tracker
+// Digest-lag sustained-check (mt#3251 R2, elapsed-time hardening mt#3284) —
+// cross-run pending tracker
 // ---------------------------------------------------------------------------
 //
 // The digest-lag check (c) can legitimately fire transiently: a healthy
@@ -827,16 +837,46 @@ async function alertViaGitHubIssue(
 // reusing the same substrate the P0 alerts already use as a persistence
 // layer, rather than standing up new infrastructure. On the FIRST
 // observation of a given (deployedDigest, registryDigest) pair for a
-// service, this records the pair on a "pending" tracker issue and does NOT
-// alert. Only when the SAME pair is observed again on a LATER run does it
-// escalate to a real `[P0]` alert — i.e. the lag must persist across at
-// least two consecutive 10-minute checks (roughly 10-20 minutes). A real
-// freeze survives that trivially (this task's own incident lasted ~2 days;
-// the post-unstick re-drift persisted 30+ minutes in R1's live evidence); a
-// normal deploy cycle (~2-5 minutes) does not.
+// service, this records the pair AND the observation timestamp on a
+// "pending" tracker issue and does NOT alert.
+//
+// mt#3284: counting observations alone is NOT sufficient — R2's original
+// "two consecutive runs" condition counts RUNS, not ELAPSED TIME, so two
+// `workflow_dispatch` invocations seconds apart satisfy it exactly as well
+// as a real multi-day freeze. That gap produced a real false positive
+// (issue #2363) during mt#3251's own live verification: two manual runs
+// ~20s apart escalated a P0 against a service that had deployed
+// successfully ~10 minutes earlier. Escalation now additionally requires
+// DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS of wall-clock time to have elapsed
+// since the FIRST observation, read back from the pending tracker issue's
+// body — the monitor is still stateless between runs, so that timestamp
+// has to be persisted and parsed back exactly like the digest pair already
+// was. A real freeze survives this trivially (this task's own incident
+// lasted ~2 days; the post-unstick re-drift persisted 30+ minutes in R1's
+// live evidence); a normal deploy cycle (~2-5 minutes) does not, and
+// neither does a rapid re-invocation.
 
 /** Label for the cross-run pending-observation tracker issues. Distinct from P0_LABEL. */
 const DIGEST_LAG_PENDING_LABEL = "digest-lag-pending";
+
+/**
+ * mt#3284 — minimum wall-clock time that must elapse between the FIRST and
+ * a LATER observation of the same (deployedDigest, registryDigest) pair
+ * before the sustained-check escalates to a P0. Two runs close together in
+ * time (e.g. two manual `workflow_dispatch` invocations ~20s apart) satisfy
+ * the "same pair observed again" condition trivially without the lag
+ * actually being SUSTAINED in wall-clock terms — this is exactly what
+ * produced the false positive in issue #2363 during mt#3251's own live
+ * verification.
+ *
+ * Set deliberately just UNDER the workflow's normal 10-minute cron cadence
+ * (.github/workflows/post-deploy-health-monitor.yml's `*\/10 * * * *`
+ * schedule) so a normal scheduled pair still satisfies this threshold on
+ * the very next tick with no added delay — the threshold only rejects runs
+ * that are ABNORMALLY close together (manual re-invocations), never the
+ * routine 10-minute cadence.
+ */
+const DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS = 8 * 60 * 1000; // 8 minutes
 
 function pendingTrackerTitle(serviceName: string): string {
   return `[pending] ${serviceName}: digest-lag observation (not yet escalated)`;
@@ -861,10 +901,77 @@ function parsePendingPairMarker(
 }
 
 /**
+ * mt#3284 — machine-parseable marker for the FIRST-OBSERVATION timestamp,
+ * persisted alongside the digest pair so a later run can read back WHEN the
+ * lag was first seen and measure elapsed wall-clock time, not just count
+ * runs.
+ */
+function formatPendingFirstObservedMarker(firstObservedAtIso: string): string {
+  return `PENDING_DIGEST_FIRST_OBSERVED_AT: ${firstObservedAtIso}`;
+}
+
+const PENDING_FIRST_OBSERVED_RE = /PENDING_DIGEST_FIRST_OBSERVED_AT:\s*(\S+)/;
+
+/** Returns the ISO timestamp string, or null if absent/unparseable as a date. */
+function parsePendingFirstObservedMarker(body: string | null): string | null {
+  if (!body) return null;
+  const match = PENDING_FIRST_OBSERVED_RE.exec(body);
+  if (!match) return null;
+  const [, isoString] = match;
+  if (!isoString || Number.isNaN(Date.parse(isoString))) return null;
+  return isoString;
+}
+
+/**
+ * mt#3284 — pure decision function: has enough wall-clock time elapsed
+ * between `nowMs` and the pair's FIRST-OBSERVATION timestamp to treat the
+ * lag as genuinely SUSTAINED (rather than two runs that merely happened to
+ * land close together)? Extracted as a pure, I/O-free function specifically
+ * so the smoke test (scripts/smoke-post-deploy-health-monitor.ts) can
+ * exercise this exact decision logic without needing live GitHub state.
+ */
+function isDigestLagSustainedByElapsedTime(nowMs: number, firstObservedAtIso: string): boolean {
+  const elapsedMs = nowMs - Date.parse(firstObservedAtIso);
+  return elapsedMs >= DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS;
+}
+
+/** Builds the pending-tracker issue body, embedding both machine-parseable markers. */
+function buildPendingTrackerBody(
+  serviceName: string,
+  firstObservedAtIso: string,
+  deployedDigest: string,
+  registryDigest: string
+): string {
+  const minutes = DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS / 60_000;
+  return [
+    "## Digest-lag pending observation (mt#3251)",
+    "",
+    `Tracking a POSSIBLE digest lag for \`${serviceName}\` — NOT YET escalated.`,
+    `Escalation requires the SAME deployed/registry digest pair to be observed`,
+    `again AND at least ${minutes} minutes to have elapsed since the first`,
+    "observation below (mt#3284) — not just a second consecutive run. This",
+    "issue closes automatically once the state resolves (digest catches up)",
+    "or escalates.",
+    "",
+    `**First observed at:** ${firstObservedAtIso}`,
+    "",
+    formatPendingPairMarker(deployedDigest, registryDigest),
+    formatPendingFirstObservedMarker(firstObservedAtIso),
+    "",
+    "---",
+    "*Auto-managed by [post-deploy-health-monitor](.github/workflows/post-deploy-health-monitor.yml)" +
+      " (mt#3251, mt#3284). Do not edit the PENDING_DIGEST_PAIR /" +
+      " PENDING_DIGEST_FIRST_OBSERVED_AT lines by hand.*",
+  ].join("\n");
+}
+
+/**
  * Decide whether a detected digest-lag should escalate to a real P0 alert
  * this run, using a cross-run pending-tracker issue as the persistence
- * layer. Returns `escalate: true` only on the SECOND consecutive
- * observation of the exact same (deployedDigest, registryDigest) pair.
+ * layer. Returns `escalate: true` only when the SAME (deployedDigest,
+ * registryDigest) pair has been observed on a LATER run AND at least
+ * DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS has elapsed since the pair's first
+ * observation (mt#3284) — a later run alone is not sufficient.
  *
  * Fails CLOSED on any GitHub API error along the way (logs a warning, never
  * escalates) — the same "prefer inconclusive over false alarm" discipline
@@ -899,25 +1006,13 @@ async function resolveDigestLagSustained(
     return { escalate: false, note: "pending-tracker lookup failed — treating as inconclusive" };
   }
 
-  const timestamp = new Date().toISOString();
-  const marker = formatPendingPairMarker(deployedDigest, registryDigest);
-  const body = [
-    "## Digest-lag pending observation (mt#3251)",
-    "",
-    `Tracking a POSSIBLE digest lag for \`${serviceName}\` — NOT YET escalated. A`,
-    "second consecutive observation of the SAME deployed/registry digest pair",
-    "will open a `[P0]` alert instead. This issue closes automatically once the",
-    "state resolves (digest catches up) or escalates.",
-    "",
-    `**First observed at:** ${timestamp}`,
-    "",
-    marker,
-    "",
-    "---",
-    "*Auto-managed by [post-deploy-health-monitor](.github/workflows/post-deploy-health-monitor.yml) (mt#3251). Do not edit the PENDING_DIGEST_PAIR line by hand.*",
-  ].join("\n");
+  const now = new Date();
+  const timestamp = now.toISOString();
 
   if (!existing) {
+    // First observation ever for this service — record both the pair and
+    // the observation timestamp so a later run can measure elapsed time.
+    const body = buildPendingTrackerBody(serviceName, timestamp, deployedDigest, registryDigest);
     try {
       await ensureLabelsExist(repo, token);
       const created = await githubRequest<GitHubIssue>("POST", `/repos/${repo}/issues`, token, {
@@ -941,28 +1036,70 @@ async function resolveDigestLagSustained(
     recorded.registry === registryDigest;
 
   if (samePair) {
-    // Second consecutive observation of the SAME lag — escalate. Close the
-    // pending tracker; the real [P0] issue (opened by the caller right
-    // after this returns) is now the persistent record.
-    try {
-      await githubRequest("PATCH", `/repos/${repo}/issues/${existing.number}`, token, {
-        state: "closed",
-      });
-    } catch (err) {
-      // Non-fatal: escalation proceeds either way — a lingering pending
-      // issue is a cosmetic cleanup gap, not a correctness problem.
-      console.warn(`[${serviceName}] could not close pending tracker #${existing.number}: ${err}`);
+    const recordedFirstObservedAt = parsePendingFirstObservedMarker(existing.body);
+
+    if (!recordedFirstObservedAt) {
+      // Same pair, but no parseable first-observed marker (e.g. a
+      // pre-mt#3284 tracker body). Fail closed: reset as a fresh
+      // observation rather than guessing an elapsed time that could
+      // wrongly satisfy the interval check.
+      console.warn(
+        `[${serviceName}] pending tracker #${existing.number} has no parseable first-observed marker — resetting as a fresh observation`
+      );
+      const body = buildPendingTrackerBody(serviceName, timestamp, deployedDigest, registryDigest);
+      try {
+        await githubRequest("PATCH", `/repos/${repo}/issues/${existing.number}`, token, { body });
+      } catch (err) {
+        console.warn(
+          `[${serviceName}] could not refresh pending tracker #${existing.number}: ${err}`
+        );
+      }
+      return {
+        escalate: false,
+        note: "same pair but missing first-observed marker — reset to fresh observation",
+      };
     }
+
+    if (isDigestLagSustainedByElapsedTime(now.getTime(), recordedFirstObservedAt)) {
+      // Same pair, AND enough wall-clock time has passed since the first
+      // observation — genuinely sustained. Escalate. Close the pending
+      // tracker; the real [P0] issue (opened by the caller right after
+      // this returns) is now the persistent record.
+      try {
+        await githubRequest("PATCH", `/repos/${repo}/issues/${existing.number}`, token, {
+          state: "closed",
+        });
+      } catch (err) {
+        // Non-fatal: escalation proceeds either way — a lingering pending
+        // issue is a cosmetic cleanup gap, not a correctness problem.
+        console.warn(
+          `[${serviceName}] could not close pending tracker #${existing.number}: ${err}`
+        );
+      }
+      const elapsedSec = Math.round((now.getTime() - Date.parse(recordedFirstObservedAt)) / 1000);
+      return {
+        escalate: true,
+        note: `sustained: same pair, ${elapsedSec}s since first observation (>= ${DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS / 1000}s threshold) — escalating (was pending issue #${existing.number})`,
+      };
+    }
+
+    // Same pair, but not enough elapsed time yet — deliberately do NOT
+    // refresh the tracker's first-observed timestamp (mt#3284). Refreshing
+    // it here would push escalation off forever under a fast repeat-
+    // invocation cadence, since every observation would reset the clock.
+    // Leave the tracker exactly as-is and wait for a later run.
+    const elapsedSec = Math.round((now.getTime() - Date.parse(recordedFirstObservedAt)) / 1000);
     return {
-      escalate: true,
-      note: `sustained across 2+ runs — escalating (was pending issue #${existing.number})`,
+      escalate: false,
+      note: `same pair observed again after only ${elapsedSec}s (< ${DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS / 1000}s threshold) — waiting for sustained elapsed time (pending issue #${existing.number})`,
     };
   }
 
   // Pending tracker exists but records a DIFFERENT pair — the state moved
   // (another push landed mid-window, or a prior lag resolved and a new one
-  // began). Treat as a fresh first observation: refresh the tracker, do not
-  // escalate yet.
+  // began). Treat as a fresh first observation: refresh the tracker (new
+  // pair + new first-observed timestamp), do not escalate yet.
+  const body = buildPendingTrackerBody(serviceName, timestamp, deployedDigest, registryDigest);
   try {
     await githubRequest("PATCH", `/repos/${repo}/issues/${existing.number}`, token, { body });
   } catch (err) {
@@ -976,9 +1113,9 @@ async function resolveDigestLagSustained(
 
 /**
  * Close a lingering digest-lag pending tracker when the check no longer
- * observes a lag (it resolved before reaching two consecutive
- * observations — the correct, no-false-alarm outcome). Best-effort: a
- * failure here is a cosmetic cleanup gap only.
+ * observes a lag (it resolved before reaching a sustained escalation — the
+ * correct, no-false-alarm outcome). Best-effort: a failure here is a
+ * cosmetic cleanup gap only.
  */
 async function closeDigestLagPendingTracker(
   repo: string,
@@ -1443,7 +1580,8 @@ async function main(): Promise<void> {
     } else if (svc.image && !result.digestLagError) {
       // Digest check ran cleanly and found no lag this run — if a pending
       // tracker exists from an earlier observation, the transient lag
-      // resolved before reaching two consecutive detections. Clean it up
+      // resolved before it persisted past the elapsed-time threshold
+      // (DIGEST_LAG_MIN_SUSTAINED_INTERVAL_MS, mt#3284). Clean it up
       // rather than leaving a stale "possible lag" issue open forever.
       await closeDigestLagPendingTracker(githubRepo, githubToken, svc.name, dryRun);
     }
