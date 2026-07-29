@@ -111,6 +111,7 @@ import {
   type ReviewRunContext,
 } from "./review-finalize";
 import { logRecoveryOutcomes } from "./review-recovery-logging";
+import { buildBypassedLocatorSet } from "./findings";
 import { ingestPriorReviews } from "./prior-review-ingestion";
 import {
   ingestCommitMessagesSinceLastReview,
@@ -1097,10 +1098,24 @@ async function runReviewBody(
       db: deps.db,
     });
 
+    // mt#3295 SC#2: union the four recovery passes' downgrade-audit arrays
+    // into the "bypassed" locator set — findings that WOULD have been
+    // BLOCKING but were downgraded by a structural pass rather than fixed by
+    // a real code change. Cheap (data already computed by
+    // applyRecoveryAndCompose above); passed through to persistFindings via
+    // finalizeReviewSuccess.
+    const bypassedFindingLocators = buildBypassedLocatorSet(
+      recoveryResult.downgrades,
+      recoveryResult.convergenceDowngrades,
+      recoveryResult.diffScopeBoundedDowngrades,
+      recoveryResult.refutationDowngrades
+    );
+
     // mt#2731: shared success finalize — publishCheckRun (with the recovered
     // tool calls as annotations) -> thread-resolve loop (mt#1345) -> convergence
     // stdout log -> persistConvergenceMetric (mt#2725, verdict per mt#2287) ->
-    // timing write (mt#2088) -> emit pr.review_posted (mt#2725) -> return.
+    // persistFindings (mt#3295) -> timing write (mt#2088) -> emit
+    // pr.review_posted (mt#2725) -> return.
     return finalizeReviewSuccess(reviewRunContext, {
       review,
       event,
@@ -1111,6 +1126,7 @@ async function runReviewBody(
       reviewThreads,
       status: "reviewed",
       reason: `Posted ${event} review as ${reviewerIdentity.login} (provider=${output.provider}, model=${output.model}, attempt=${attempt}) [output-tools]`,
+      bypassedFindingLocators,
     });
   }
 
