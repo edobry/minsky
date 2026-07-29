@@ -378,7 +378,8 @@ export interface AcceptanceTestItem {
 
 /**
  * Matches a heading that introduces a SUPERSEDING acceptance-test section (mt#3306
- * Defect 2) — `## Remaining acceptance tests`, `### Updated acceptance tests`, etc.
+ * Defect 2 / mt#3059 FP-2) — `## Remaining acceptance tests`, `### Updated acceptance
+ * tests`, etc.
  *
  * Why this exists: long-lived incident tasks get rescoped mid-life, and this repo's
  * convention (mt#3142, mt#3030, mt#3251) is to APPEND the new disposition while
@@ -387,51 +388,64 @@ export interface AcceptanceTestItem {
  * Revised / Current acceptance tests" section at once, in EITHER document order (a
  * rescoping preface commonly sits near the TOP of the spec, ahead of the original
  * section it supersedes, which is kept further down for history — see mt#3142's real
- * spec). Deliberately no `^`/`m`-flag anchoring gotcha: `(?:^|\n)` requires the heading
- * to start a line without turning on multiline `$` semantics, which would otherwise make
- * the trailing `$` alternative below match at the end of every line (including the blank
- * line right after the heading) instead of true end-of-string.
+ * spec).
+ *
+ * Boundary construction (merged mt#3059 PR #2386 R1 into mt#3306's regex): the trailing
+ * lookahead anchors the next-heading alternative on `^` (multiline) instead of requiring
+ * a literal preceding `\n`, so a heading that immediately follows this one with ZERO AT
+ * content (no blank line separating them) is still recognized as the boundary — a plain
+ * `\n#{2,3}\s` lookahead cannot match there, because the `\n` that would satisfy it was
+ * already consumed by THIS heading's own match, silently expanding the capture past the
+ * empty section into whatever came next. Turning on multiline mode for `^` has one
+ * consequence to guard against: the same flag also makes a bare `$` mean "end of every
+ * line," not "end of string" — the final alternative uses `(?![\s\S])` instead (a
+ * negative lookahead for "any character remains," true end-of-string regardless of the
+ * `m` flag) specifically to avoid that. Verified empirically against the exact fixture
+ * that caught this in PR #2386 R1 (a `## Acceptance Tests` heading immediately followed
+ * by `### Covers`, zero AT content) before merging this structure — the un-patched
+ * version over-captured past the subsection; this one correctly returns an empty section.
  */
 const SUPERSEDING_ACCEPTANCE_TESTS_RE =
-  /(?:^|\n)#{2,3}\s+(?:Remaining|Updated|Revised|Current)\s+acceptance tests\s*\n([\s\S]*?)(?=\n#{2,3}\s|\n---|$)/i;
+  /(?:^|\n)#{2,3}\s+(?:Remaining|Updated|Revised|Current)\s+acceptance tests\s*\n([\s\S]*?)(?=^#{2,3}\s|^---[ \t]*$|(?![\s\S]))/im;
 
 /**
  * Global-flagged twin of {@link SUPERSEDING_ACCEPTANCE_TESTS_RE}, used with
  * `matchAll` so the LAST superseding section wins when a spec has been rescoped
- * more than once. Kept as a separate constant rather than adding `g` to the
- * original: a `g`-flagged regex carries mutable `lastIndex` state across calls,
- * so sharing one instance between `match` and `matchAll` call sites would make
- * results depend on call order. `matchAll` itself clones the regex internally,
- * so this constant is safe to reuse.
+ * more than once — "later supersedes earlier" is the whole premise of preferring a
+ * superseding section at all, so selecting the FIRST match would reintroduce the same
+ * defect one level up. Kept as a separate constant rather than adding `g` to the
+ * original: a `g`-flagged regex carries mutable `lastIndex` state across calls, so
+ * sharing one instance between `match` and `matchAll` call sites would make results
+ * depend on call order. `matchAll` itself clones the regex internally, so this constant
+ * is safe to reuse.
  */
 const SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL = new RegExp(
   SUPERSEDING_ACCEPTANCE_TESTS_RE.source,
-  "gi"
+  "gim"
 );
 
 /**
  * Matches the ORIGINAL `## Acceptance Tests` heading and its body.
  *
- * Boundary rule (mt#3306 Defect 1): the section ends at the next heading of the SAME OR
- * DEEPER level (`##` or `###`), not just an exact `## ` sibling. `work-completion.mdc
- * §Recovery layer spec discipline` REQUIRES a `### Covers` / `### Does NOT cover` pair on
- * every spec introducing a sweeper/retry/fallback/gate — exactly the infrastructure-
- * hardening specs this check most wants to police — and a `###` boundary was invisible
- * to the old `\n##\s` lookahead (its third `#` fails the `\s` check), so extraction ran
- * straight past the subsection and swept its bullets in as acceptance tests (mt#3117 /
- * PR #2234: reported 10 "ATs" against a spec that declared 4).
+ * Boundary rule (mt#3306 Defect 1 / mt#3059 FP-1): the section ends at the next heading
+ * of the SAME OR DEEPER level (`##` or `###`), not just an exact `## ` sibling.
+ * `work-completion.mdc §Recovery layer spec discipline` REQUIRES a `### Covers` /
+ * `### Does NOT cover` pair on every spec introducing a sweeper/retry/fallback/gate —
+ * exactly the infrastructure-hardening specs this check most wants to police — and a
+ * `###` boundary was invisible to the old `\n##\s` lookahead (its third `#` fails the
+ * `\s` check), so extraction ran straight past the subsection and swept its bullets in as
+ * acceptance tests (mt#3117 / PR #2234: reported 10 "ATs" against a spec that declared 4).
+ *
+ * Same `^`/`(?![\s\S])` boundary construction as {@link SUPERSEDING_ACCEPTANCE_TESTS_RE}
+ * above (merged mt#3059 PR #2386 R1 fix) — see that constant's doc comment for why.
  */
-const ACCEPTANCE_TESTS_RE = /##\s*Acceptance Tests\s*\n([\s\S]*?)(?=\n#{2,3}\s|\n---|$)/i;
+const ACCEPTANCE_TESTS_RE =
+  /##\s*Acceptance Tests\s*\n([\s\S]*?)(?=^#{2,3}\s|^---[ \t]*$|(?![\s\S]))/im;
 
 /**
- * Extracts the raw body of a spec's acceptance-tests section.
+ * Extracts the raw body of a spec's authoritative acceptance-tests section.
  *
- * Historical note: this regex originally mirrored one in
- * `require-acceptance-tests-before-done.ts`, an unregistered, never-live DONE-transition
- * hook deleted as dead code in mt#975. This hook is now the sole reader of this spec
- * convention.
- *
- * Precedence (mt#3306 Defect 2): a SUPERSEDING section — matched by
+ * Precedence (mt#3306 Defect 2 / mt#3059 FP-2): a SUPERSEDING section — matched by
  * `SUPERSEDING_ACCEPTANCE_TESTS_RE` above — always wins over the original `##
  * Acceptance Tests` section when both are present, regardless of which appears first in
  * the document. `String.prototype.match` only ever returns the FIRST literal match, so
@@ -439,17 +453,19 @@ const ACCEPTANCE_TESTS_RE = /##\s*Acceptance Tests\s*\n([\s\S]*?)(?=\n#{2,3}\s|\
  * stale, already-superseded section (mt#3142 / PR #2365: reported 3 of 5 "unaddressed"
  * ATs, all three satisfied and dispositioned DONE days earlier — the spec's own
  * `### Remaining acceptance tests` section, listing the 3 checks that actually still
- * applied, was never consulted).
+ * applied, was never consulted). When a spec has been rescoped MORE than once, the LAST
+ * superseding section wins (see `SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL`).
+ *
+ * Historical note: the original (pre-mt#3059) regex here mirrored one in
+ * `require-acceptance-tests-before-done.ts`, an unregistered, never-live DONE-transition
+ * hook deleted as dead code in mt#975. This hook is now the sole reader of this spec
+ * convention.
  *
  * Returns `null` when neither a superseding nor an original section exists.
  */
 export function extractAcceptanceTestsSection(specContent: string): string | null {
-  // Take the LAST superseding section, not the first. A spec can be rescoped more
-  // than once (each rescope appends a new `### Remaining acceptance tests` while
-  // leaving prior ones in place as audit trail), and "later supersedes earlier" is
-  // the whole premise of preferring a superseding section at all — so selecting the
-  // FIRST match would reintroduce the very defect this function exists to fix, just
-  // one level up (PR #2385 R1 BLOCKING).
+  // Take the LAST superseding section, not the first — see
+  // SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL's doc comment.
   let lastSuperseding: RegExpMatchArray | null = null;
   for (const m of specContent.matchAll(SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL)) {
     lastSuperseding = m;

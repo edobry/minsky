@@ -1284,6 +1284,67 @@ describe("parseAcceptanceTests", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// mt#3059 PR #2386: additions beyond mt#3306's own regression suite above.
+// mt#3306's SPEC_MT3117_AT / SPEC_MT3142_AT fixtures and their
+// extractAcceptanceTestsSection/parseAcceptanceTests-level tests already cover the
+// "exactly 4 ATs" / "exactly 3 ATs" real-spec regressions — reused here rather than
+// duplicated. What follows is coverage mt#3306's suite did not have: (a)
+// checkAcceptanceTestCoverage-level assertions on those same two real-spec fixtures,
+// and (b) the "next heading immediately follows, zero AT content" boundary edge case
+// that PR #2386 R1 review caught in the ORIGINAL split-regex implementation and that
+// turned out to affect mt#3306's combined-regex form identically (verified empirically
+// against this exact fixture before merging the two implementations) — see
+// SUPERSEDING_ACCEPTANCE_TESTS_RE's doc comment for the fix.
+// ---------------------------------------------------------------------------
+
+describe("checkAcceptanceTestCoverage — mt#3059 FP-1/FP-2 real-spec fixtures", () => {
+  it("FP-1: never flags the Does-NOT-cover bullets as unaddressed executable ATs (mt#3117 fixture)", () => {
+    const evidenceReferencingAllFour = `## Execution evidence:\nAT1 verified. AT2 verified. AT3 verified. AT4 verified.\n`;
+    const result = checkAcceptanceTestCoverage(
+      SPEC_MT3117_AT,
+      "implementation",
+      evidenceReferencingAllFour
+    );
+    expect(result.executableAts).toHaveLength(4);
+    expect(result.unaddressedAts).toHaveLength(0);
+  });
+
+  it("FP-2: evaluates only the 3 superseding ATs, not the original 5 (mt#3142 fixture)", () => {
+    const evidenceReferencingAllThree = `## Execution evidence:\nAT1 verified via grep. AT2 verified via grep. AT3 verified by reading the doc.\n`;
+    const result = checkAcceptanceTestCoverage(
+      SPEC_MT3142_AT,
+      "implementation",
+      evidenceReferencingAllThree
+    );
+    expect(result.executableAts).toHaveLength(3);
+    expect(result.unaddressedAts).toHaveLength(0);
+  });
+});
+
+describe("extractAcceptanceTestsSection / parseAcceptanceTests — boundary edge case: heading immediately follows, zero AT content", () => {
+  // PR #2386 R1 BLOCKING fix: a boundary construction requiring a literal preceding
+  // "\n" before the next heading cannot match when that heading is the very FIRST line
+  // of the section body (zero AT content, no blank line separating the opening heading
+  // from the sibling subsection) — the "\n" that would satisfy it was already consumed
+  // by the OPENING heading's own match. That off-by-one lets extraction fall through to
+  // whatever heading appears NEXT in the document, over-capturing everything in
+  // between. Confirmed this affects mt#3306's combined-regex form identically before
+  // merging; both ACCEPTANCE_TESTS_RE and SUPERSEDING_ACCEPTANCE_TESTS_RE now share the
+  // `^`-anchored / `(?![\s\S])`-terminated boundary construction that closes it.
+  it("plain-heading path: bounds correctly when the next heading immediately follows with zero AT content", () => {
+    const spec = `## Acceptance Tests\n### Covers\n- Something this recovery layer covers.\n\n## Context\nUnrelated.\n`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(0);
+  });
+
+  it("superseding-heading path: bounds correctly when the next heading immediately follows with zero AT content", () => {
+    const spec = `### Remaining acceptance tests\n## Summary\nUnrelated context immediately after, no blank line.\n\n## Acceptance Tests\n\n1. Original AT, should be ignored (superseded).\n`;
+    const items = parseAcceptanceTests(spec);
+    expect(items).toHaveLength(0);
+  });
+});
+
 describe("isFindingsShapedAcceptanceTest", () => {
   it("matches 'audit produces' phrasing", () => {
     expect(isFindingsShapedAcceptanceTest("Audit produces a list of affected records.")).toBe(true);
