@@ -380,90 +380,103 @@ export interface AcceptanceTestItem {
 }
 
 /**
- * Regex source (shared between a first-match and an all-matches scan) for a SUPERSEDING
- * acceptance-tests heading — mt#3059 FP-2. A heading at level 2 or 3 reading "Remaining
- * acceptance tests" / "Updated acceptance tests" / "Revised acceptance tests" / "Current
- * acceptance tests" replaces the plain `## Acceptance Tests` section as the authoritative
- * AT list when both are present in the same spec.
+ * Matches a heading that introduces a SUPERSEDING acceptance-test section (mt#3306
+ * Defect 2 / mt#3059 FP-2) — `## Remaining acceptance tests`, `### Updated acceptance
+ * tests`, etc.
  *
- * This is the shape long-lived, rescoped tasks use in this repo (mt#3142, mt#3030,
- * mt#3251): APPEND the new disposition while preserving the original section as an audit
- * trail, rather than editing it in place (per `work-completion.mdc`'s preference for
- * recording corrections over silent edits) — so both sections coexist and the extractor
- * must know which one governs. Matching is intentionally NOT position-dependent: mt#3142's
- * actual instance places the superseding heading BEFORE the original `## Acceptance Tests`
- * section (as a "current scope — read this first" rescoping summary at the top of the
- * spec), so raw document order cannot be used to detect supersession. When more than one
- * such heading exists (a task rescoped more than once), the LAST match found is used.
+ * Why this exists: long-lived incident tasks get rescoped mid-life, and this repo's
+ * convention (mt#3142, mt#3030, mt#3251) is to APPEND the new disposition while
+ * PRESERVING the original `## Acceptance Tests` section as an audit trail — so a spec
+ * can legitimately carry both a stale original section and a live "Remaining / Updated /
+ * Revised / Current acceptance tests" section at once, in EITHER document order (a
+ * rescoping preface commonly sits near the TOP of the spec, ahead of the original
+ * section it supersedes, which is kept further down for history — see mt#3142's real
+ * spec).
+ *
+ * Boundary construction (merged mt#3059 PR #2386 R1 into mt#3306's regex): the trailing
+ * lookahead anchors the next-heading alternative on `^` (multiline) instead of requiring
+ * a literal preceding `\n`, so a heading that immediately follows this one with ZERO AT
+ * content (no blank line separating them) is still recognized as the boundary — a plain
+ * `\n#{2,3}\s` lookahead cannot match there, because the `\n` that would satisfy it was
+ * already consumed by THIS heading's own match, silently expanding the capture past the
+ * empty section into whatever came next. Turning on multiline mode for `^` has one
+ * consequence to guard against: the same flag also makes a bare `$` mean "end of every
+ * line," not "end of string" — the final alternative uses `(?![\s\S])` instead (a
+ * negative lookahead for "any character remains," true end-of-string regardless of the
+ * `m` flag) specifically to avoid that. Verified empirically against the exact fixture
+ * that caught this in PR #2386 R1 (a `## Acceptance Tests` heading immediately followed
+ * by `### Covers`, zero AT content) before merging this structure — the un-patched
+ * version over-captured past the subsection; this one correctly returns an empty section.
  */
-const SUPERSEDING_AT_HEADING_SOURCE =
-  "^#{2,3}[ \\t]+(?:Remaining|Updated|Revised|Current)\\s+acceptance tests[^\\n]*\\n";
-
-/** The plain, canonical `## Acceptance Tests` heading (unchanged pattern from before). */
-const CANONICAL_AT_HEADING_RE = /##\s*Acceptance Tests\s*\n/i;
+const SUPERSEDING_ACCEPTANCE_TESTS_RE =
+  /(?:^|\n)#{2,3}\s+(?:Remaining|Updated|Revised|Current)\s+acceptance tests\s*\n([\s\S]*?)(?=^#{2,3}\s|^---[ \t]*$|(?![\s\S]))/im;
 
 /**
- * Extracts the section body starting at `bodyStartIdx` (already past the heading's own
- * line) up to the next markdown heading of ANY level (1-6 `#` characters), a `---`
- * divider, or end-of-string.
- *
- * mt#3059 FP-1 fix: the previous boundary (stop only at the next `##` heading) is
- * insufficient — a spec can nest a LOWER-level (`###`+) subsection directly after
- * `## Acceptance Tests`, before the next `##` heading. The `work-completion.mdc`
- * recovery-layer discipline's `### Covers` / `### Does NOT cover` pair is exactly this
- * shape (mt#3117): those bullets were swept in as if they were acceptance-test items,
- * because no `##` heading intervened before them. Stopping at the very next heading of
- * ANY level closes that gap without needing special-case knowledge of "Covers" /
- * "Does NOT cover" specifically.
- *
- * PR #2386 R1 BLOCKING fix: the boundary regex previously required a LITERAL preceding
- * `\n` (`/\n {0,3}#{1,6}.../`), which cannot match when the next heading is the very
- * FIRST line of `rest` — `bodyStartIdx` already sits right after the opening heading's
- * own trailing newline was consumed, so a heading with zero AT items before it (no blank
- * line separating them) has no `\n` left in front of it to match against. That
- * off-by-one silently fell through to the NEXT occurrence of a heading further in the
- * document (or end-of-string), over-capturing everything in between — the exact
- * over-capture class this fix exists to close. Anchoring on `^` in multiline mode
- * matches both "right after a newline" AND "the very start of the string" in one
- * pattern, so an immediately-adjacent heading is caught correctly.
+ * Global-flagged twin of {@link SUPERSEDING_ACCEPTANCE_TESTS_RE}, used with
+ * `matchAll` so the LAST superseding section wins when a spec has been rescoped
+ * more than once — "later supersedes earlier" is the whole premise of preferring a
+ * superseding section at all, so selecting the FIRST match would reintroduce the same
+ * defect one level up. Kept as a separate constant rather than adding `g` to the
+ * original: a `g`-flagged regex carries mutable `lastIndex` state across calls, so
+ * sharing one instance between `match` and `matchAll` call sites would make results
+ * depend on call order. `matchAll` itself clones the regex internally, so this constant
+ * is safe to reuse.
  */
-function extractSectionBody(specContent: string, bodyStartIdx: number): string {
-  const rest = specContent.slice(bodyStartIdx);
-  const boundary = rest.match(/^ {0,3}#{1,6}[ \t]+\S.*$|^---[ \t]*$/m);
-  return boundary && boundary.index !== undefined ? rest.slice(0, boundary.index) : rest;
-}
+const SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL = new RegExp(
+  SUPERSEDING_ACCEPTANCE_TESTS_RE.source,
+  "gim"
+);
+
+/**
+ * Matches the ORIGINAL `## Acceptance Tests` heading and its body.
+ *
+ * Boundary rule (mt#3306 Defect 1 / mt#3059 FP-1): the section ends at the next heading
+ * of the SAME OR DEEPER level (`##` or `###`), not just an exact `## ` sibling.
+ * `work-completion.mdc §Recovery layer spec discipline` REQUIRES a `### Covers` /
+ * `### Does NOT cover` pair on every spec introducing a sweeper/retry/fallback/gate —
+ * exactly the infrastructure-hardening specs this check most wants to police — and a
+ * `###` boundary was invisible to the old `\n##\s` lookahead (its third `#` fails the
+ * `\s` check), so extraction ran straight past the subsection and swept its bullets in as
+ * acceptance tests (mt#3117 / PR #2234: reported 10 "ATs" against a spec that declared 4).
+ *
+ * Same `^`/`(?![\s\S])` boundary construction as {@link SUPERSEDING_ACCEPTANCE_TESTS_RE}
+ * above (merged mt#3059 PR #2386 R1 fix) — see that constant's doc comment for why.
+ */
+const ACCEPTANCE_TESTS_RE =
+  /##\s*Acceptance Tests\s*\n([\s\S]*?)(?=^#{2,3}\s|^---[ \t]*$|(?![\s\S]))/im;
 
 /**
  * Extracts the raw body of a spec's authoritative acceptance-tests section.
  *
- * Precedence (mt#3059 FP-2): if the spec contains a SUPERSEDING heading (see
- * `SUPERSEDING_AT_HEADING_SOURCE` above), that section is authoritative and the plain
- * `## Acceptance Tests` section (if also present) is ignored entirely. Otherwise falls
- * back to the plain `## Acceptance Tests` heading, as before.
- *
- * Section boundary (mt#3059 FP-1): the body runs from just after the heading line to the
- * next markdown heading of ANY level, a `---` divider, or end-of-string — see
- * `extractSectionBody` above.
+ * Precedence (mt#3306 Defect 2 / mt#3059 FP-2): a SUPERSEDING section — matched by
+ * `SUPERSEDING_ACCEPTANCE_TESTS_RE` above — always wins over the original `##
+ * Acceptance Tests` section when both are present, regardless of which appears first in
+ * the document. `String.prototype.match` only ever returns the FIRST literal match, so
+ * without this explicit precedence check the extractor would silently keep reading a
+ * stale, already-superseded section (mt#3142 / PR #2365: reported 3 of 5 "unaddressed"
+ * ATs, all three satisfied and dispositioned DONE days earlier — the spec's own
+ * `### Remaining acceptance tests` section, listing the 3 checks that actually still
+ * applied, was never consulted). When a spec has been rescoped MORE than once, the LAST
+ * superseding section wins (see `SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL`).
  *
  * Historical note: the original (pre-mt#3059) regex here mirrored one in
  * `require-acceptance-tests-before-done.ts`, an unregistered, never-live DONE-transition
  * hook deleted as dead code in mt#975. This hook is now the sole reader of this spec
  * convention.
  *
- * Returns `null` when no such section exists.
+ * Returns `null` when neither a superseding nor an original section exists.
  */
 export function extractAcceptanceTestsSection(specContent: string): string | null {
-  const supersedingMatches = [
-    ...specContent.matchAll(new RegExp(SUPERSEDING_AT_HEADING_SOURCE, "gim")),
-  ];
-  const supersedingMatch = supersedingMatches[supersedingMatches.length - 1];
-  if (supersedingMatch && supersedingMatch.index !== undefined) {
-    return extractSectionBody(specContent, supersedingMatch.index + supersedingMatch[0].length);
+  // Take the LAST superseding section, not the first — see
+  // SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL's doc comment.
+  let lastSuperseding: RegExpMatchArray | null = null;
+  for (const m of specContent.matchAll(SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL)) {
+    lastSuperseding = m;
   }
+  if (lastSuperseding) return lastSuperseding[1] ?? "";
 
-  const canonicalMatch = specContent.match(CANONICAL_AT_HEADING_RE);
-  if (!canonicalMatch || canonicalMatch.index === undefined) return null;
-  return extractSectionBody(specContent, canonicalMatch.index + canonicalMatch[0].length);
+  const original = specContent.match(ACCEPTANCE_TESTS_RE);
+  return original ? (original[1] ?? "") : null;
 }
 
 /**

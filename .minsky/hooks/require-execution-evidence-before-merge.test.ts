@@ -976,6 +976,104 @@ Docs-only change.
 N/A.
 `;
 
+/**
+ * mt#3306 Defect 1 fixture — trimmed from the REAL mt#3117 spec (PR #2234), preserving
+ * the exact heading shapes/nesting that produced the false positive: 4 numbered ATs
+ * immediately followed by a `### Covers` / `### Does NOT cover` pair (the
+ * `work-completion.mdc §Recovery layer spec discipline` convention), then a `## Context`
+ * sibling. Pre-fix, `extractAcceptanceTestsSection`'s `\n##\s` lookahead never fired on
+ * `### Covers` (its third `#` fails the `\s` check), so extraction ran past both
+ * subsections and the live check reported "2 of 10 executable acceptance tests" against
+ * a spec that declares exactly 4.
+ */
+const SPEC_MT3117_AT = `## Summary
+Reviewer deploy-keyed migration, replacing Railway's native auto-trigger.
+
+## Acceptance Tests
+
+1. **Sole-path test.** A push to \`main\` touching only \`services/reviewer/**\` results in exactly one deploy, driven by the new workflow; Railway's native trigger produces no independent deployment.
+2. **Migrate-gates-traffic test.** With a deliberately failing reviewer migration on a test branch, the workflow fails at the migrate step, no new image is promoted, and the previously-deployed reviewer continues serving \`/health\` 200.
+3. **Real migration-bearing deploy.** A commit adding a real (no-op-safe) reviewer migration deploys through the workflow: migrate applies as \`postgres\`, image is promoted, \`/health\` returns 200, and the new row is present in \`drizzle.__drizzle_migrations_reviewer\`.
+4. **Credential-boundary test.** The reviewer's Railway service environment contains no DDL-capable Postgres credential attributable to this workflow; the migrate step's credential resolves only from the CI secret.
+
+### Covers
+
+- Reviewer migration never applied before dependent reviewer code takes traffic (the ordering hazard above).
+- Boot-time migrate failures taking the service down during a DB outage (once mt#3030 removes boot migrate).
+- Unsynchronized branch-wide reviewer redeploys on unrelated pushes.
+
+### Does NOT cover
+
+- Main-domain migration ordering vs reviewer migration when a single change spans BOTH trees — no cross-tree ordering primitive is introduced here. **No current owner — file if such a change is attempted.**
+- Schema drift introduced out-of-band (manual SQL against prod) — \`verifyExpectedTables\` catches missing expected tables only.
+- Pre-merge detection of Dockerfile/runtime contract breaks — mt#1557.
+
+## Context
+
+Parent: mt#3059.
+`;
+
+/**
+ * mt#3306 Defect 2 fixture — trimmed from the REAL mt#3142 spec (PR #2365), preserving
+ * the exact document order that produced the false positive: a `### Remaining acceptance
+ * tests` section (3 items) appended near the TOP under a "current scope, read this
+ * first" rescoping preface, with the ORIGINAL `## Acceptance Tests` section (5 items,
+ * dispositioned DONE) kept further down as an audit trail. Pre-fix,
+ * `.match()`'s first-match semantics meant extraction always read the stale 5-item
+ * section, and the live check reported "3 of 5 executable acceptance tests not
+ * addressed" naming AT2/AT3/AT4 — all three satisfied days earlier.
+ */
+const SPEC_MT3142_AT = `## Current scope (rescoped 2026-07-24 during \`/plan-task\`) — READ THIS FIRST
+
+**The production outage this task was filed for is RESOLVED.**
+
+**Success-criteria disposition:**
+
+- SC#2, SC#3, SC#4 (reviewer serves; \`/retrigger\` reached; a live PR gets reviewed) — **DONE**,
+  verified at the 17:28Z recovery.
+
+### Remaining success criteria (supersede the original SC list above, which is fully dispositioned)
+
+- [ ] \`docs/deploy-minsky-railway.md\` states that a Railway service can hold \`source.image\` AND a
+      standing native GitHub **deployment trigger** at the same time.
+
+### Remaining acceptance tests
+
+- \`grep -c 'deploymentTrigger' docs/deploy-minsky-railway.md\` returns non-zero, and the surrounding
+  text states the trigger survives \`sourceRepo: null\`.
+- \`grep -c 'railway open --print' docs/deploy-minsky-railway.md\` returns non-zero.
+- A reader following only that doc can answer "why did a service with \`sourceImage\` set still deploy
+  from the repo?" without consulting this task's incident narrative.
+
+## Summary
+
+The Railway service behind \`minsky-reviewer-webhook-production.up.railway.app\` was serving the
+Minsky MCP server, not the reviewer webhook service.
+
+## Success Criteria
+
+- [ ] Root cause identified and named.
+- [ ] The reviewer-webhook service serves the reviewer application again.
+
+## Scope
+
+**In scope:** identifying and fixing the entrypoint/config defect.
+
+## Acceptance Tests
+
+- \`deployment_logs(service: "reviewer", type: "deploy")\` on the current deployment shows the
+  reviewer's startup banner and no \`Minsky MCP Server\` line.
+- \`curl -X POST .../retrigger\` with no auth header returns 401 (route reached), not 404.
+- \`reviewer_retrigger(pr: <open PR>)\` returns \`ok: true\`.
+- An open PR receives a bot review within the normal window, observed live.
+- Deliberately mis-pointing the service entrypoint in a test/preview environment causes the new
+  deploy check to FAIL — proving the check discriminates, rather than passing on any 200.
+
+## Context
+
+Found 2026-07-23 while driving a PR to convergence.
+`;
+
 describe("extractAcceptanceTestsSection", () => {
   it("extracts content between the heading and the next heading", () => {
     const section = extractAcceptanceTestsSection(SPEC_MT2542_3_AT);
@@ -1000,6 +1098,48 @@ describe("extractAcceptanceTestsSection", () => {
     const section = extractAcceptanceTestsSection(spec) ?? "";
     expect(section).toContain("First test");
     expect(section).not.toContain("Footer");
+  });
+
+  // mt#3306 Defect 1 regression: a following `### <heading>` (nested, three hashes) must
+  // terminate the section just like a `##` sibling does. Pre-fix the old `\n##\s`
+  // lookahead never fired on a three-hash heading, so extraction ran past it.
+  it("stops at a following ### heading, not just an exact ## sibling", () => {
+    const spec = `## Acceptance Tests\n\n1. First test.\n\n### Covers\n\n- Not an AT.\n`;
+    const section = extractAcceptanceTestsSection(spec) ?? "";
+    expect(section).toContain("First test");
+    expect(section).not.toContain("Not an AT");
+  });
+
+  // mt#3306 Defect 1, real-spec fixture (mt#3117 / PR #2234): the section body must not
+  // include either of the sibling `### Covers` / `### Does NOT cover` subsections.
+  it("stops before ### Covers / ### Does NOT cover for the real mt#3117 fixture", () => {
+    const section = extractAcceptanceTestsSection(SPEC_MT3117_AT) ?? "";
+    expect(section).toContain("Credential-boundary test");
+    expect(section).not.toContain("### Covers");
+    expect(section).not.toContain("### Does NOT cover");
+    expect(section).not.toContain("Schema drift introduced out-of-band");
+  });
+
+  // mt#3306 Defect 2, real-spec fixture (mt#3142 / PR #2365): a superseding
+  // `### Remaining acceptance tests` section — appended EARLIER in the document than the
+  // stale original `## Acceptance Tests` section it replaces — must win.
+  it("returns the superseding section for the real mt#3142 fixture, not the earlier-matched original", () => {
+    const section = extractAcceptanceTestsSection(SPEC_MT3142_AT) ?? "";
+    expect(section).toContain("grep -c 'deploymentTrigger'");
+    expect(section).toContain("railway open --print");
+    // The stale original section's content (further down in the document) must be absent.
+    expect(section).not.toContain("Minsky MCP Server` line");
+    expect(section).not.toContain("mis-pointing the service entrypoint");
+  });
+
+  // mt#3306 regression pin: an ordinary spec with a single, plain `## Acceptance Tests`
+  // section and no nested subsections or superseding heading must parse byte-identically
+  // to the pre-fix behavior. Guards against the fix silently changing the common case.
+  it("regression: a plain single Acceptance Tests section with no nesting is unaffected", () => {
+    const section = extractAcceptanceTestsSection(SPEC_MT2542_3_AT);
+    expect(section).toBe(
+      "1. CREATE TABLE is denied for the DML-only role.\n2. All 37 tables are granted DML privileges to the role.\n3. All deployed services boot and operate on the DML-only role.\n"
+    );
   });
 });
 
@@ -1108,107 +1248,61 @@ describe("parseAcceptanceTests", () => {
     );
     expect(items[1]?.text).toBe("Second top-level AT.");
   });
-});
 
-// ---------------------------------------------------------------------------
-// mt#3059: FP-1 (sibling ### subsections swept in) / FP-2 (supersession) regressions
-// ---------------------------------------------------------------------------
-
-/**
- * mt#3117-shaped fixture (mt#3059 FP-1 regression): a proper 4-item numbered Acceptance
- * Tests list immediately followed by a `### Covers` / `### Does NOT cover` recovery-layer
- * pair (the `work-completion.mdc` required subsection pattern) before the next `##`
- * heading. Pre-fix, the extractor swept the `### Does NOT cover` bullets in as if they
- * were acceptance tests — mt#3117 / PR #2234's actual fire reported "2 of 10 executable
- * acceptance test(s)... not addressed", naming two `### Does NOT cover` bullets, against a
- * spec with exactly 4 real ATs.
- */
-const SPEC_MT3117_SHAPE = `## Summary
-Reviewer CI-gated release-phase deploy.
-
-## Acceptance Tests
-
-1. **Sole-path test.** A push to \`main\` touching only \`services/reviewer/**\` results in exactly one deploy.
-2. **Migrate-gates-traffic test.** With a deliberately failing reviewer migration, the workflow fails at the migrate step.
-3. **Real migration-bearing deploy.** A commit adding a real migration deploys through the workflow.
-4. **Credential-boundary test.** The reviewer's Railway service environment contains no DDL-capable Postgres credential.
-
-### Covers
-
-- Reviewer migration never applied before dependent reviewer code takes traffic.
-- Boot-time migrate failures taking the service down during a DB outage.
-- Unsynchronized branch-wide reviewer redeploys on unrelated pushes.
-
-### Does NOT cover
-
-- Main-domain migration ordering vs reviewer migration when a single change spans BOTH trees.
-- Schema drift introduced out-of-band (manual SQL against prod) — \`verifyExpectedTables\` catches missing expected tables only.
-- Pre-merge detection of Dockerfile/runtime contract breaks — mt#1557.
-
-## Context
-
-Some unrelated context.
-`;
-
-/**
- * mt#3142-shaped fixture (mt#3059 FP-2 regression): a spec rescoped mid-life. The
- * ORIGINAL \`## Acceptance Tests\` section (5 items) is preserved further down as an audit
- * trail, but a \`### Remaining acceptance tests\` section — added later, positioned EARLIER
- * in the document as a "read this first" rescoping summary — lists the 3 items that are
- * actually authoritative for this PR. Pre-fix, the extractor read the original 5-item
- * section and ignored the superseding 3-item one — mt#3142 / PR #2365's actual fire
- * reported "3 of 5 executable acceptance test(s)... not addressed", naming three items
- * that were, per the spec's own disposition, already DONE.
- */
-const SPEC_MT3142_SHAPE = `## Current scope (rescoped) — READ THIS FIRST
-
-The production outage this task was filed for is RESOLVED.
-
-### Remaining success criteria (supersede the original SC list above)
-
-- [ ] Doc records the standing-trigger interaction.
-
-### Remaining acceptance tests
-
-- \`grep -c 'deploymentTrigger' docs/deploy-minsky-railway.md\` returns non-zero, and the surrounding
-  text states the trigger survives \`sourceRepo: null\`.
-- \`grep -c 'railway open --print' docs/deploy-minsky-railway.md\` returns non-zero.
-- A reader following only that doc can answer "why did a service with \`sourceImage\` set still deploy
-  from the repo?" without consulting this task's incident narrative.
-
-## Summary
-
-The Railway service was serving the wrong app.
-
-## Acceptance Tests
-
-- \`deployment_logs(service: "reviewer", type: "deploy")\` on the current deployment shows the reviewer's startup banner.
-- \`curl -X POST .../retrigger\` with no auth header returns 401 (route reached), not 404.
-- \`reviewer_retrigger(pr: <open PR>)\` returns \`ok: true\`.
-- An open PR receives a bot review within the normal window, observed live.
-- Deliberately mis-pointing the service entrypoint causes the new deploy check to FAIL.
-
-## Context
-
-Some unrelated context.
-`;
-
-describe("extractAcceptanceTestsSection / parseAcceptanceTests — mt#3059 FP-1/FP-2 regressions", () => {
-  it("FP-1: extracts exactly 4 ATs and excludes the sibling ### Covers/Does NOT cover bullets (mt#3117 shape)", () => {
-    const items = parseAcceptanceTests(SPEC_MT3117_SHAPE);
+  // mt#3306 Defect 1, real-spec fixture (mt#3117 / PR #2234). Pre-fix this returned 10
+  // items (4 real ATs + 3 "### Covers" bullets + 3 "### Does NOT cover" bullets), which
+  // is exactly the inflated denominator the live check reported ("2 of 10 executable").
+  it("returns exactly 4 items for the real mt#3117 fixture, none of them a Does NOT cover bullet", () => {
+    const items = parseAcceptanceTests(SPEC_MT3117_AT);
     expect(items).toHaveLength(4);
-    expect(items[3]?.number).toBe(4);
-    for (const at of items) {
-      expect(at.text).not.toContain("Schema drift");
-      expect(at.text).not.toContain("Pre-merge detection of Dockerfile");
-      expect(at.text).not.toContain("Main-domain migration ordering");
+    expect(items[0]?.text).toContain("Sole-path test");
+    expect(items[1]?.text).toContain("Migrate-gates-traffic test");
+    expect(items[2]?.text).toContain("Real migration-bearing deploy");
+    expect(items[3]?.text).toContain("Credential-boundary test");
+    for (const item of items) {
+      expect(item.text).not.toContain("cross-tree ordering primitive");
+      expect(item.text).not.toContain("Schema drift introduced out-of-band");
+      expect(item.text).not.toContain("Pre-merge detection of Dockerfile");
     }
   });
 
-  it("FP-1: checkAcceptanceTestCoverage never flags the Does-NOT-cover bullets as unaddressed executable ATs", () => {
+  // mt#3306 Defect 2, real-spec fixture (mt#3142 / PR #2365). Pre-fix this returned the
+  // stale, already-dispositioned 5-item original section; the live check reported "3 of
+  // 5 executable acceptance tests not addressed", naming AT2/AT3/AT4 — all three
+  // satisfied days earlier. Post-fix, only the 3 items under the superseding
+  // `### Remaining acceptance tests` heading are returned.
+  it("returns exactly the 3 remaining items for the real mt#3142 fixture", () => {
+    const items = parseAcceptanceTests(SPEC_MT3142_AT);
+    expect(items).toHaveLength(3);
+    expect(items[0]?.text).toContain("grep -c 'deploymentTrigger'");
+    expect(items[1]?.text).toContain("grep -c 'railway open --print'");
+    expect(items[2]?.text).toContain("A reader following only that doc");
+    for (const item of items) {
+      expect(item.text).not.toContain("Minsky MCP Server` line");
+      expect(item.text).not.toContain("mis-pointing the service entrypoint");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3059 PR #2386: additions beyond mt#3306's own regression suite above.
+// mt#3306's SPEC_MT3117_AT / SPEC_MT3142_AT fixtures and their
+// extractAcceptanceTestsSection/parseAcceptanceTests-level tests already cover the
+// "exactly 4 ATs" / "exactly 3 ATs" real-spec regressions — reused here rather than
+// duplicated. What follows is coverage mt#3306's suite did not have: (a)
+// checkAcceptanceTestCoverage-level assertions on those same two real-spec fixtures,
+// and (b) the "next heading immediately follows, zero AT content" boundary edge case
+// that PR #2386 R1 review caught in the ORIGINAL split-regex implementation and that
+// turned out to affect mt#3306's combined-regex form identically (verified empirically
+// against this exact fixture before merging the two implementations) — see
+// SUPERSEDING_ACCEPTANCE_TESTS_RE's doc comment for the fix.
+// ---------------------------------------------------------------------------
+
+describe("checkAcceptanceTestCoverage — mt#3059 FP-1/FP-2 real-spec fixtures", () => {
+  it("FP-1: never flags the Does-NOT-cover bullets as unaddressed executable ATs (mt#3117 fixture)", () => {
     const evidenceReferencingAllFour = `## Execution evidence:\nAT1 verified. AT2 verified. AT3 verified. AT4 verified.\n`;
     const result = checkAcceptanceTestCoverage(
-      SPEC_MT3117_SHAPE,
+      SPEC_MT3117_AT,
       "implementation",
       evidenceReferencingAllFour
     );
@@ -1216,42 +1310,35 @@ describe("extractAcceptanceTestsSection / parseAcceptanceTests — mt#3059 FP-1/
     expect(result.unaddressedAts).toHaveLength(0);
   });
 
-  it("FP-2: extracts exactly 3 ATs from the superseding 'Remaining acceptance tests' section (mt#3142 shape)", () => {
-    const items = parseAcceptanceTests(SPEC_MT3142_SHAPE);
-    expect(items).toHaveLength(3);
-    expect(items.some((at) => at.text.includes("railway open --print"))).toBe(true);
-    for (const at of items) {
-      expect(at.text).not.toContain("reviewer_retrigger");
-      expect(at.text).not.toContain("deployment_logs");
-    }
-  });
-
-  it("FP-2: checkAcceptanceTestCoverage evaluates only the 3 superseding ATs, not the original 5", () => {
+  it("FP-2: evaluates only the 3 superseding ATs, not the original 5 (mt#3142 fixture)", () => {
     const evidenceReferencingAllThree = `## Execution evidence:\nAT1 verified via grep. AT2 verified via grep. AT3 verified by reading the doc.\n`;
     const result = checkAcceptanceTestCoverage(
-      SPEC_MT3142_SHAPE,
+      SPEC_MT3142_AT,
       "implementation",
       evidenceReferencingAllThree
     );
     expect(result.executableAts).toHaveLength(3);
     expect(result.unaddressedAts).toHaveLength(0);
   });
+});
 
-  // PR #2386 R1 BLOCKING fix: the section-boundary regex previously required a literal
-  // preceding "\n" before the next heading, which cannot match when that heading is the
-  // very FIRST line of the section body (zero AT content, no blank line separating the
-  // opening heading from the sibling subsection). That off-by-one let the extraction
-  // fall through to whatever heading appeared NEXT in the document, over-capturing
-  // everything in between.
-  it("FP-1 edge case: bounds correctly when the next heading immediately follows with zero AT content", () => {
+describe("extractAcceptanceTestsSection / parseAcceptanceTests — boundary edge case: heading immediately follows, zero AT content", () => {
+  // PR #2386 R1 BLOCKING fix: a boundary construction requiring a literal preceding
+  // "\n" before the next heading cannot match when that heading is the very FIRST line
+  // of the section body (zero AT content, no blank line separating the opening heading
+  // from the sibling subsection) — the "\n" that would satisfy it was already consumed
+  // by the OPENING heading's own match. That off-by-one lets extraction fall through to
+  // whatever heading appears NEXT in the document, over-capturing everything in
+  // between. Confirmed this affects mt#3306's combined-regex form identically before
+  // merging; both ACCEPTANCE_TESTS_RE and SUPERSEDING_ACCEPTANCE_TESTS_RE now share the
+  // `^`-anchored / `(?![\s\S])`-terminated boundary construction that closes it.
+  it("plain-heading path: bounds correctly when the next heading immediately follows with zero AT content", () => {
     const spec = `## Acceptance Tests\n### Covers\n- Something this recovery layer covers.\n\n## Context\nUnrelated.\n`;
     const items = parseAcceptanceTests(spec);
     expect(items).toHaveLength(0);
   });
 
-  // Same edge case, but on the SUPERSEDING-heading path (FP-2), to confirm the shared
-  // extractSectionBody boundary fix covers both callers identically.
-  it("FP-2 edge case: bounds correctly when the next heading immediately follows the superseding heading with zero AT content", () => {
+  it("superseding-heading path: bounds correctly when the next heading immediately follows with zero AT content", () => {
     const spec = `### Remaining acceptance tests\n## Summary\nUnrelated context immediately after, no blank line.\n\n## Acceptance Tests\n\n1. Original AT, should be ignored (superseded).\n`;
     const items = parseAcceptanceTests(spec);
     expect(items).toHaveLength(0);

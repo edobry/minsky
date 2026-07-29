@@ -20,6 +20,11 @@ import { promisify } from "util";
 import chalk from "chalk";
 import { autoIndexTaskEmbedding } from "./auto-index-embedding";
 import { isKnownKind, WORKFLOWS } from "@minsky/domain/tasks/workflows";
+import {
+  checkKindChangeStatusCompatibility,
+  describeKindChangeStatusConflict,
+  type KindChangeStatusConflict,
+} from "@minsky/domain/tasks/workflows";
 
 /**
  * Task edit command implementation
@@ -183,15 +188,31 @@ export class TasksEditCommand extends BaseTaskCommand<typeof tasksEditParams> {
       this.debug(`Kind update: "${params.kind}"`);
     }
 
+    // mt#3137: a kind change selects WHICH state machine applies, so a status
+    // that is legal today can be absent from the target kind's states — leaving
+    // the task with zero valid transitions. Computed here (after the task is
+    // fetched, so the CURRENT status is known) and surfaced two ways: the
+    // dry-run preview names the consequence, and `--execute` refuses outright.
+    const kindStatusConflict: KindChangeStatusConflict | null = updates.kind
+      ? checkKindChangeStatusCompatibility(currentTask.status, currentTask.kind, updates.kind)
+      : null;
+
     // Show preview if not executing
     if (!params.execute && (updates.title || updates.spec || updates.tags || updates.kind)) {
       return this.formatResult(
         this.createSuccessResult(
           validatedTaskId,
-          this.buildPreviewMessage(currentTask, updates, validatedTaskId)
+          this.buildPreviewMessage(currentTask, updates, validatedTaskId, kindStatusConflict)
         ),
         params.json
       );
+    }
+
+    // Refuse the write rather than strand the task. Deliberately AFTER the
+    // preview branch: the operator running a dry-run must SEE the conflict, not
+    // an error in place of the diff.
+    if (kindStatusConflict) {
+      throw new ValidationError(describeKindChangeStatusConflict(kindStatusConflict));
     }
 
     // Apply the updates using the backend's setTaskMetadata method
@@ -456,7 +477,8 @@ export class TasksEditCommand extends BaseTaskCommand<typeof tasksEditParams> {
   private buildPreviewMessage(
     currentTask: Task,
     updates: { title?: string; spec?: string; tags?: string[]; kind?: string },
-    taskId: string
+    taskId: string,
+    kindStatusConflict: KindChangeStatusConflict | null
   ): string {
     let message = `${chalk.blue("Preview of changes for task")} ${taskId}:\n\n`;
 
@@ -502,6 +524,11 @@ export class TasksEditCommand extends BaseTaskCommand<typeof tasksEditParams> {
       message += `${chalk.bold("Kind change:")}\n`;
       message += `  ${chalk.red("- ")}${currentTask.kind || "implementation"}\n`;
       message += `  ${chalk.green("+ ")}${updates.kind}\n\n`;
+    }
+
+    if (kindStatusConflict) {
+      message += `${chalk.bold("Kind change consequence:")}\n`;
+      message += `  ${chalk.yellow(describeKindChangeStatusConflict(kindStatusConflict))}\n\n`;
     }
 
     message += `${chalk.yellow("To apply these changes, run with")} ${chalk.cyan("--execute")}`;

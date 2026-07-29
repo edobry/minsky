@@ -15,6 +15,11 @@
  */
 
 import { createHash } from "crypto";
+import {
+  checkKindChangeStatusCompatibility,
+  DEFAULT_KIND,
+  type KindChangeStatusConflict,
+} from "./workflows";
 
 /** Edit operations bulk mode supports (v1): kind reclassification + tag add/remove. */
 export interface BulkEditOps {
@@ -28,6 +33,12 @@ export interface BulkEditTaskState {
   id: string;
   kind?: string | null;
   tags?: string[] | null;
+  /**
+   * Current status — read only to reject a kind change that would strand the
+   * task (mt#3137). Optional: a caller that cannot supply it gets the
+   * pre-mt#3137 behavior for that record rather than a hard failure.
+   */
+  status?: string | null;
 }
 
 /**
@@ -48,8 +59,9 @@ export type DriftVerdict = "pending" | "applied" | "drift";
 /**
  * Tasks with no stored kind are treated as the system default so that a bulk
  * `kind: "implementation"` op is a no-op for them rather than a phantom change.
+ * `DEFAULT_KIND` is imported from `workflows.ts` — the single authority — rather
+ * than re-declared here (PR #2389 R1).
  */
-const DEFAULT_KIND = "implementation";
 
 /**
  * Canonical string form of a record value, for hashing and drift comparison.
@@ -76,7 +88,15 @@ export function computeChangeSet(tasks: BulkEditTaskState[], ops: BulkEditOps): 
     if (ops.kind !== undefined) {
       const before = task.kind ?? DEFAULT_KIND;
       if (before !== ops.kind) {
-        records.push({ taskId: task.id, field: "kind", before, after: ops.kind });
+        // mt#3137: a kind change whose target state machine does not recognize
+        // this task's status would leave it with zero valid transitions. Such a
+        // record is omitted from the change set entirely — so it is neither
+        // previewed as a pending change nor carried into the token hash, and
+        // `--execute` cannot apply it. `computeBlockedKindChanges` reports it.
+        const stranded = checkKindChangeStatusCompatibility(task.status, before, ops.kind);
+        if (!stranded) {
+          records.push({ taskId: task.id, field: "kind", before, after: ops.kind });
+        }
       }
     }
 
@@ -129,4 +149,33 @@ export function checkRecordDrift(
   if (canonical === canonicalValue(record.before)) return "pending";
   if (canonical === canonicalValue(record.after)) return "applied";
   return "drift";
+}
+
+/** A task excluded from a bulk kind change because it would be stranded (mt#3137). */
+export interface BlockedKindChange {
+  taskId: string;
+  conflict: KindChangeStatusConflict;
+}
+
+/**
+ * Tasks a bulk `kind` op would strand, and therefore must NOT convert (mt#3137).
+ *
+ * A heterogeneous bulk re-kind is exactly the amplified form of the
+ * single-task bug: each record reports success while landing in a status its
+ * new workflow does not recognize. These are reported as blocked instead.
+ */
+export function computeBlockedKindChanges(
+  tasks: BulkEditTaskState[],
+  ops: BulkEditOps
+): BlockedKindChange[] {
+  if (ops.kind === undefined) return [];
+
+  const blocked: BlockedKindChange[] = [];
+  for (const task of tasks) {
+    const before = task.kind ?? DEFAULT_KIND;
+    if (before === ops.kind) continue;
+    const conflict = checkKindChangeStatusCompatibility(task.status, before, ops.kind);
+    if (conflict) blocked.push({ taskId: task.id, conflict });
+  }
+  return blocked;
 }

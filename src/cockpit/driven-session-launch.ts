@@ -377,6 +377,74 @@ export interface LoadPersistedDrivenSessionsDeps {
     db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>
   ) => Promise<import("@minsky/domain/storage/schemas/driven-sessions-schema").DrivenSessionRow[]>;
   registry?: DrivenSessionRegistry;
+  /**
+   * Write back a terminal verdict this boot determined (mt#3269). Test seam;
+   * defaults to the store's `upsertDrivenSessionRecord`.
+   */
+  persistTerminalVerdict?: typeof import("@minsky/domain/transcripts/driven-session-registry-store").upsertDrivenSessionRecord;
+}
+
+/**
+ * Persist a boot-determined `unrecoverable` verdict (mt#3269).
+ *
+ * Writes back ONLY `status` and `unrecoverableReason`; every other column is
+ * carried through from the row as read. The store upserts with
+ * `onConflictDoUpdate({ set: values })`, so any field omitted or defaulted here
+ * would OVERWRITE the stored one — this function is recording a verdict, not
+ * rewriting the record (PR #2383 R1: an earlier draft passed `model: null` and
+ * silently destroyed it).
+ *
+ * That includes `pid`/`pidCmdline`. An earlier draft cleared them on the theory
+ * that a stale pid could mislead orphan cleanup; that rationale was wrong.
+ * `orchestrateDrivenSessionResume` returns early on both `!harnessSessionId`
+ * and `status === "unrecoverable"` BEFORE it takes the lock or touches the pid,
+ * so an unrecoverable row never reaches orphan cleanup at all. Nulling them
+ * would have destroyed a real record of what ran, for a hazard that cannot occur.
+ *
+ * Best-effort by design, matching the rest of boot reconciliation: a
+ * persistence hiccup must leave the daemon booting with what it did read, not
+ * abort startup. The cost of a miss is one more re-read next boot — the exact
+ * status quo this fixes — which is strictly better than a daemon that will not
+ * start.
+ */
+async function persistUnrecoverableVerdict(
+  db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
+  row: import("@minsky/domain/storage/schemas/driven-sessions-schema").DrivenSessionRow,
+  reason: string,
+  deps: LoadPersistedDrivenSessionsDeps
+): Promise<void> {
+  try {
+    const upsert =
+      deps.persistTerminalVerdict ??
+      (await import("@minsky/domain/transcripts/driven-session-registry-store"))
+        .upsertDrivenSessionRecord;
+    await upsert(db, {
+      localId: row.localId,
+      harnessSessionId: row.harnessSessionId,
+      cwd: row.cwd,
+      permissionMode: row.permissionMode,
+      taskId: row.taskId,
+      minskySessionId: row.minskySessionId,
+      // The two fields this write exists to change.
+      status: "unrecoverable",
+      unrecoverableReason: reason,
+      // Preserved verbatim — see the docblock.
+      pid: row.pid,
+      pidCmdline: row.pidCmdline,
+      model: row.model,
+      actuatorGeneration: row.actuatorGeneration,
+      startedAt: row.startedAt.toISOString(),
+    });
+    log.info(
+      `[driven-session] boot reconciliation: persisted unrecoverable verdict for ${row.localId} ` +
+        `(it will no longer be re-read at boot)`
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn(
+      `[driven-session] could not persist the unrecoverable verdict for ${row.localId}: ${message}`
+    );
+  }
 }
 
 /**
@@ -424,6 +492,30 @@ export async function loadPersistedDrivenSessions(
         startedAt: row.startedAt.toISOString(),
       });
       registry.register(record);
+
+      // mt#3269 — WRITE THE VERDICT BACK, for the unrecoverable case only.
+      //
+      // Without this the classification above is computed and discarded: the
+      // row keeps its non-terminal status, so the next boot re-reads it,
+      // re-derives the identical verdict, and re-registers it — forever. The
+      // table grows without bound, and the cockpit's session list shows
+      // phantom sessions that can never resolve.
+      //
+      // Only the `unrecoverable` branch is persisted, and deliberately so: a
+      // null `harnessSessionId` means there is no transcript and never will be,
+      // so the verdict provably cannot change on a later boot. A `reconnecting`
+      // row is a DIFFERENT question — "is this still worth offering to
+      // resume?" — which depends on a staleness policy nobody has decided
+      // (spec §Scope). Guessing a timeout here would silently reap
+      // conversations the principal may still want.
+      if (!resumable) {
+        await persistUnrecoverableVerdict(
+          db,
+          row,
+          record.unrecoverableReason ?? "spawn-died-before-init",
+          deps
+        );
+      }
     }
 
     if (rows.length > 0) {
