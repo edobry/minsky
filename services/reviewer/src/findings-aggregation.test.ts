@@ -54,7 +54,7 @@ describe("classifyFindingCategory", () => {
     expect(
       classifyFindingCategory(
         "Placeholder test",
-        "This test uses a placeholder assertion expect(true).toBe(true)."
+        "This test uses a bare tautological placeholder assertion."
       )
     ).toBe("test-quality");
   });
