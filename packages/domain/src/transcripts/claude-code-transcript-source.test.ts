@@ -18,6 +18,8 @@ const PROJECT_DIR_GLOB = `${PROJECT_DIR_NAME}*`;
 const DERIVED_PROJECT_CWD = "/Users/edobry/Projects/minsky";
 const TOP_SESSION_ID = "abc-123";
 const SUB_SESSION_ID = "agent-deadbeef";
+/** Mirrors `SUBAGENTS_DIR` in the source; the fixtures build real paths. */
+const SUBAGENTS_DIR_NAME = "subagents";
 
 const USER_LINE = JSON.stringify({
   type: "user",
@@ -201,6 +203,105 @@ describe("ClaudeCodeTranscriptSource.discoverSessions", () => {
       expect(await collect(src.discoverSessions())).toHaveLength(0);
     } finally {
       await rm(empty, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("ClaudeCodeTranscriptSource — nested subagent transcripts (mt#3294)", () => {
+  const NESTED_ID = "agent-nested-wf";
+  const DEEPER_ID = "agent-nested-twice";
+
+  async function makeNestedFixture(): Promise<{ dir: string; cleanup: () => Promise<void> }> {
+    const dir = await mkdtemp(join(tmpdir(), "minsky-cc-source-nested-"));
+    const proj = join(dir, PROJECT_DIR_NAME);
+    // The real shape the harness produces:
+    // <projectDir>/<sessionId>/subagents/workflows/<wf-id>/<agent>.jsonl
+    const wfDir = join(proj, "parent-session", SUBAGENTS_DIR_NAME, "workflows", "wf_abc123");
+    await mkdir(wfDir, { recursive: true });
+    await writeFile(join(wfDir, `${NESTED_ID}.jsonl`), `${USER_LINE}\n`);
+    return { dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  }
+
+  test("discovers a transcript under subagents/workflows/<wf-id>/", async () => {
+    const { dir, cleanup } = await makeNestedFixture();
+    try {
+      const src = new ClaudeCodeTranscriptSource({
+        claudeProjectsDir: dir,
+        projectDirGlob: PROJECT_DIR_GLOB,
+      });
+      const sessions = await collect(src.discoverSessions());
+      const found = sessions.find((s) => s.agentSessionId === NESTED_ID);
+
+      expect(found).toBeDefined();
+      // Everything under `subagents/` is a subagent transcript, at any depth.
+      expect(found?.isSubagent).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("recovers cwd for a nested transcript via the project-dir fallback", async () => {
+    // The fallback walks UP to the project dir. Before mt#3294 its hop budget
+    // was 3, which stops one directory short for this depth — so discovery
+    // finding the file would not have been enough on its own.
+    const dir = await mkdtemp(join(tmpdir(), "minsky-cc-source-nested-cwd-"));
+    try {
+      const wfDir = join(
+        dir,
+        PROJECT_DIR_NAME,
+        "parent-session",
+        SUBAGENTS_DIR_NAME,
+        "workflows",
+        "wf_abc123"
+      );
+      await mkdir(wfDir, { recursive: true });
+      // No `cwd` on any line, so recovery must fall through to the project dir.
+      await writeFile(join(wfDir, `${DEEPER_ID}.jsonl`), `${USER_LINE}\n`);
+
+      const src = new ClaudeCodeTranscriptSource({
+        claudeProjectsDir: dir,
+        projectDirGlob: PROJECT_DIR_GLOB,
+      });
+      const sessions = await collect(src.discoverSessions());
+      expect(sessions.find((s) => s.agentSessionId === DEEPER_ID)?.cwd).toBe(DERIVED_PROJECT_CWD);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("still finds transcripts directly under subagents/ (no regression)", async () => {
+    const sessions = await collect(makeSource().discoverSessions());
+    const sub = sessions.find((s) => s.agentSessionId === SUB_SESSION_ID);
+    expect(sub).toBeDefined();
+    expect(sub?.isSubagent).toBe(true);
+  });
+
+  test("does not descend past the depth cap", async () => {
+    // Guards the other direction: the walk is bounded, so a pathological tree
+    // under subagents/ cannot turn every sweep into a full-filesystem crawl.
+    const dir = await mkdtemp(join(tmpdir(), "minsky-cc-source-toodeep-"));
+    try {
+      const tooDeep = join(
+        dir,
+        PROJECT_DIR_NAME,
+        "parent-session",
+        SUBAGENTS_DIR_NAME,
+        "a",
+        "b",
+        "c",
+        "d"
+      );
+      await mkdir(tooDeep, { recursive: true });
+      await writeFile(join(tooDeep, "agent-too-deep.jsonl"), `${USER_LINE}\n`);
+
+      const src = new ClaudeCodeTranscriptSource({
+        claudeProjectsDir: dir,
+        projectDirGlob: PROJECT_DIR_GLOB,
+      });
+      const sessions = await collect(src.discoverSessions());
+      expect(sessions.find((s) => s.agentSessionId === "agent-too-deep")).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
     }
   });
 });
