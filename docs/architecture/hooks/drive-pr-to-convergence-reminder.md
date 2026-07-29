@@ -20,7 +20,11 @@ enforcement in originating incidents.
 **Behavior:**
 
 - Fires on PostToolUse for `mcp__minsky__session_pr_create` only.
-- Inspects `tool_result.success`; emits the reminder when strictly `true`.
+- Inspects `tool_result.success`; emits the reminder when strictly `true`. Note (mt#3308): the
+  harness actually delivers the result as `tool_response` (for MCP tools, a content envelope
+  with the JSON stringified inside) — `readInput`'s `normalizeToolResult` synthesizes
+  `tool_result` from it, which is what makes this inspection see real data; before that
+  normalization shipped, this reminder had never fired in production.
 - Silent on failure paths (the agent gets the error from the tool surface
   itself, no need to add noise) and non-matching tools (defensive).
 - Reminder text names: the required next action
