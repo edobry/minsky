@@ -235,6 +235,14 @@ export interface OctokitFailureClass {
  * Extends `MinskyError` rather than replacing it so every existing
  * `instanceof MinskyError` check — including `github-pr-operations.ts`'s
  * rethrow guard and this module's own tests — keeps passing unchanged.
+ *
+ * **The original error is always passed as `cause`** (mt#3169). This handler
+ * replaces the thrown value, so without it the upstream payload —
+ * `response.data.documentation_url`, the raw `errors[]`, the request's
+ * method/URL — is destroyed at the throw and no caller can ever print it. That
+ * is precisely why `session_pr_create`'s advertised `--debug` had nothing to
+ * show: the detail was gone before the adapter saw the error, so the fix had to
+ * restore the chain before it could render anything.
  */
 export class GitHubApiError extends MinskyError {
   constructor(
@@ -310,7 +318,8 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `  2. Set it as GITHUB_TOKEN or GH_TOKEN environment variable\n` +
         `  3. Ensure the token has 'repo' and 'pull_requests' permissions\n\n` +
         `Repository: ${ctx.owner}/${ctx.repo}`,
-      classOf("auth", info)
+      classOf("auth", info),
+      error
     );
   }
 
@@ -334,7 +343,8 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `To fix this:\n` +
         `  - Wait a few minutes before trying again\n` +
         `  - Use a GitHub token for higher rate limits`,
-      classOf("rate-limit", info)
+      classOf("rate-limit", info),
+      error
     );
   }
 
@@ -353,7 +363,8 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `  - Ensure you have write access to the repository\n` +
         `  - Verify your GitHub token has sufficient permissions\n\n` +
         `Repository: https://github.com/${ctx.owner}/${ctx.repo}`,
-      classOf("permission", info)
+      classOf("permission", info),
+      error
     );
   }
 
@@ -373,7 +384,8 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `  - Verify the repository/PR exists and is accessible\n` +
         `  - Check if the repository is private and you have access\n\n` +
         `https://github.com/${ctx.owner}/${ctx.repo}${prSuffix}`,
-      classOf("not-found", info)
+      classOf("not-found", info),
+      error
     );
   }
 
@@ -416,7 +428,8 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `To fix this:\n` +
         `  - Check GitHub status: https://www.githubstatus.com/\n` +
         `  - Retry the operation in a few minutes\n\n${formatErrorDetailLine(info)}`,
-      classOf("degraded", info)
+      classOf("degraded", info),
+      error
     );
   }
 
@@ -442,7 +455,8 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `  - Check your internet connection\n` +
         `  - Verify GitHub is accessible (https://githubstatus.com)\n` +
         `  - Try again in a few moments\n\n${formatErrorDetailLine(info)}`,
-      classOf("network", info)
+      classOf("network", info),
+      error
     );
   }
 
@@ -460,14 +474,16 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `${prLink}Next steps:\n` +
         `  - Request a review from a maintainer\n` +
         `  - Have another collaborator approve the PR`,
-      classOf("self-approval", info)
+      classOf("self-approval", info),
+      error
     );
   }
 
   // ── Fallback ────────────────────────────────────────────────────
   throw new GitHubApiError(
     `Failed to ${ctx.operation}: ${getErrorMessage(error)}`,
-    classOf("unclassified", info)
+    classOf("unclassified", info),
+    error
   );
 }
 
@@ -554,6 +570,10 @@ export function handleMerge405or422(
       `  - Required status checks not passing\n` +
       `  - PR is not in an open state`;
 
+  // No cause available here: this helper receives the already-parsed `info`,
+  // not the original error (its callers hold that). Threading it would mean a
+  // signature change across callers for a path `--debug` does not exercise —
+  // mt#3169 scopes the cause chain to `handleOctokitError`.
   throw new GitHubApiError(
     `Pull Request Cannot Be Merged\n\n` +
       `Pull request #${ctx.prNumber} cannot be merged automatically.\n\n` +
