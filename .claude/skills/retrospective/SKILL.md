@@ -171,6 +171,10 @@ For each root cause, propose a fix that is **structural, not behavioral**. Prefe
 | Merge gate                   | reviewer-bot / merge-time hook | Needs review-time judgment or cross-file diff context       |
 | Prompt-time prose            | CLAUDE.md / skill step         | Genuinely judgment-dependent; no deterministic check exists |
 
+(Fallback list if the table renders poorly: ESLint rule → pre-commit/PreToolUse hook → CI check → merge gate → prompt-time prose, in roughly ascending build cost.)
+
+Tier selection is per-**specific pattern instance**, not per whole class — a class name (e.g. "test quality") can span both statically-detectable instances (ESLint tier) and dynamic-context instances (CI/merge-gate tier); pick the highest tier the INSTANCE actually supports, not the class's ceiling.
+
 **Containment evidence** (mt#3295 §Measured corpus results item 4, per the claim-confidence discipline): prose checklist items do NOT contain their defect class — spec-decision reconciliation recurred 14x across 13 PRs after its §7 item shipped (rising), and production-wiring's recurrence rate ~doubled post-ship — while deterministic gates do: guard-doc (compile-check) and execution-evidence (merge gate) held near-zero at review level. Prose is the weakest tier for a mechanizable class; choose it deliberately, not by default.
 
 **If prose is chosen for a class the taxonomy marks mechanizable** (edge-case guards, silent failures, doc-code drift, spec-evidence, test quality, wiring), state why a deterministic mechanism isn't shipping now and file a tracking task for it. Staleness and regression are context-dependent — judge case by case.
