@@ -229,6 +229,16 @@ specializes `user-preferences.mdc §Plain-language first`).
 **When to expand.** Two triggers only: the principal asks, or an exception warrants it (severity,
 a high-stakes judgment call, a finding worth probing) — widen the pointer, don't re-narrate.
 
+**How it reads (register of delivery, mt#3287).** Flat declarative prose; significance comes from
+content, never from form. Named structural tells to avoid — narrative markers, not report
+structure: a setup→turn→reveal arc; bolded beat lead-ins ("**The fix:**"); punch-fragment
+drum-hits; significance bids on the agent's own work ("one judgment call worth your attention");
+bow-tie closers ("nothing left on your plate"). Compressed pair — flagged: "**One judgment call
+worth your attention:** … I did it anyway."; accepted: "mt#3138 warns re-kinding can strand a
+task (mt#3137); that risk didn't apply here — PLANNING is legal in both state machines." Tell
+taxonomy, full before/after pair, and the escalation budget (2 principal flags/14 days →
+log-only detector): `docs/rules-rationale/communication-contract.md §Register of delivery`.
+
 ## Altitude register (RFC Phase 2)
 
 The Tier-1 contract above defines what a turn-end report *contains*; the **register** selects
@@ -296,13 +306,16 @@ lead with the decision` (more specific, otherwise silently overrides this rule).
 principal's behalf (mechanical passes are receipts: task record, not lead). Belongs in the lead:
 bypass-merging under a documented escape valve; skipping live verification for "UNVERIFIED";
 picking an approach without asking first; descoping part of a spec. Does NOT belong: "tests
-passed," "lint clean," "rebased cleanly" (record, don't lead).
+passed," "lint clean," "rebased cleanly" (record, don't lead). Surfacing a call means stating it
+flatly with its basis in one sentence; dramatizing it (a reveal arc, an attention bid) is a
+§Tier-1 register violation, not extra diligence.
 
 ## Anti-patterns
 
 Avoid: **multi-screen final reports**; **re-narrating PR bodies/specs in chat**; **detail without
 a pointer**; **burying the needed-decision below the fold** (a Tier-0 decision routed through
-prose instead of Asks).
+prose instead of Asks); **narrative-register reports** (arcs, beat lead-ins, punchlines —
+§How it reads (register of delivery)).
 
 Worked example + full `## Scope` deferred-work rationale: `docs/rules-rationale/communication-contract.md`.
 
@@ -310,7 +323,9 @@ Worked example + full `## Scope` deferred-work rationale: `docs/rules-rationale/
 
 `user-preferences.mdc §Plain-language first` · `humility.mdc §Escalation packaging` ·
 `decision-defaults.mdc` · `subagent-routing.mdc §Escalation to Opus` (sets the register on the
-consuming side) · `mt#1034` (attention-allocation subsystem). Full cross-reference index:
+consuming side) · `mt#1034` (attention-allocation subsystem) · `engineering-writing` skill
+(artifact-surface AI-voice checklist; mt#2899 + mt#3287 are the two surfaces of one register
+discipline). Full cross-reference index:
 `docs/rules-rationale/communication-contract.md §Cross-references`.
 
 # Compact Instructions
@@ -911,7 +926,7 @@ origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-work
 
   Prohibited patterns: "You're absolutely right/correct", "Perfect!", "Amazing", "Outstanding", "I'm excited to announce", achievement language, all-caps statements.
 
-  Required: Verify factual claims before agreeing or disagreeing. Use "Let me check..." before confirming facts.
+  Required: Verify factual claims before agreeing or disagreeing. Use "Let me check..." before confirming facts. Register of delivery for turn-end reports (structural narrative tells): `communication-contract.mdc §The Tier-1 turn-report contract → How it reads (register of delivery)` (mt#3287).
 
 - **Plain-language first in chat reports (mt#2801).** When reporting investigation, planning, review, or incident results in chat, LEAD with a plain-language account that a reader who has never seen the skill's internals can follow: what the situation is, what's wrong, and what should be done — in prose, before any process artifacts. Process-internal vocabulary (gate letters like "(l)", premise-audit labels like "(iii)", criterion tables, checklist IDs) is for the audit trail, not the principal: keep it out of the opening, and append it after the plain-language account — or put it in the durable artifact (task spec, PR body) and reference it — so it never displaces the explanation.
 

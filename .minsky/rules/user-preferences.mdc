@@ -81,7 +81,7 @@ tags:
 
   Prohibited patterns: "You're absolutely right/correct", "Perfect!", "Amazing", "Outstanding", "I'm excited to announce", achievement language, all-caps statements.
 
-  Required: Verify factual claims before agreeing or disagreeing. Use "Let me check..." before confirming facts.
+  Required: Verify factual claims before agreeing or disagreeing. Use "Let me check..." before confirming facts. Register of delivery for turn-end reports (structural narrative tells): `communication-contract.mdc §The Tier-1 turn-report contract → How it reads (register of delivery)` (mt#3287).
 
 - **Plain-language first in chat reports (mt#2801).** When reporting investigation, planning, review, or incident results in chat, LEAD with a plain-language account that a reader who has never seen the skill's internals can follow: what the situation is, what's wrong, and what should be done — in prose, before any process artifacts. Process-internal vocabulary (gate letters like "(l)", premise-audit labels like "(iii)", criterion tables, checklist IDs) is for the audit trail, not the principal: keep it out of the opening, and append it after the plain-language account — or put it in the durable artifact (task spec, PR body) and reference it — so it never displaces the explanation.
 
