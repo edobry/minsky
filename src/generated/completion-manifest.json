@@ -2787,7 +2787,7 @@
             },
             {
               "flags": ["--override-reason"],
-              "description": "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard. Required (non-empty) to delete a workspace with in-progress work; recorded in a structured audit event.",
+              "description": "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard and the live-actor liveness gate. Required (non-empty) to delete a workspace with in-progress work or a live/unknown actor; recorded in a structured audit event.",
               "takesValue": true
             }
           ],

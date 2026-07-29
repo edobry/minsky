@@ -274,7 +274,7 @@ export const sessionDeleteCommandParams = {
   overrideReason: {
     schema: z.string().min(1),
     description:
-      "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard. Required (non-empty) to delete a workspace with in-progress work; recorded in a structured audit event.",
+      "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard and the live-actor liveness gate. Required (non-empty) to delete a workspace with in-progress work or a live/unknown actor; recorded in a structured audit event.",
     required: false,
   },
 };
