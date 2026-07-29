@@ -31,9 +31,10 @@
 // to a blocking decision is a follow-up once false-positive rate is measured against
 // real merges. Override: `MINSKY_SKIP_AT_COVERAGE=1` skips the check entirely.
 // Graduation (flip WARN -> deny once the calibration FP rate is measured) is tracked
-// as mt#3059 — this task ships Phase 1 (log-only) only.
+// as mt#3339 (mt#3059 fixed FP-1/FP-2; mt#3316 fixed FP-3 and discovered FP-4, still
+// open) — this task ships Phase 1 (log-only) only.
 // @see mt#3033 — this addition; mt#2542 (root incident); mt#2263 (calibration ladder)
-// @see mt#3059 — graduation follow-up (WARN -> deny)
+// @see mt#3059 / mt#3316 / mt#3339 — graduation lineage (WARN -> deny)
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -587,17 +588,111 @@ export function isExecutableAcceptanceTest(text: string, taskKind?: string): boo
  * marker is present — this is a plain text-extraction helper, deliberately independent
  * of `hasExecutionEvidence` (which stays byte-for-byte unchanged per mt#3033 constraint
  * 2) so neither function's behavior can regress the other's test suite.
+ *
+ * **mt#3316 FP-3 fix (originating incident: mt#3174 / PR #2264).** The scan ALSO covers
+ * any PR-body section whose heading names "acceptance test(s)" — e.g. `### Acceptance
+ * tests (mt#3174 spec, by number)` — in addition to the literal `Execution evidence:`
+ * block. Before this fix, an AT-by-number reference living in a SIBLING section (a
+ * heading immediately following the Execution evidence content) was invisible to the
+ * scan, which stops at the next heading of any level: `checkAcceptanceTestCoverage`
+ * would then report a genuinely-addressed AT as unaddressed — recorded as FP-3 in
+ * mt#3059's `## Observed false positives` running log. `communication-contract.mdc
+ * §Three authoring requirements` (mt#3200) now tells authors to keep AT references
+ * INSIDE the Execution evidence block going forward; this widening is the scanner-side
+ * complement, covering evidence written before that convention existed (like PR #2264
+ * itself) and PR bodies that reasonably split a dedicated AT-by-number section out for
+ * readability. Deliberately narrow — matches only on heading TEXT containing "acceptance
+ * test(s)", not arbitrary PR-body prose, to keep the false-negative surface small (per
+ * `checkAcceptanceTestCoverage`'s existing false-positive-averse design).
+ *
+ * **Fence-aware scanning (PR #2410 R1 BLOCKING #1).** Both heading-detection passes
+ * below (the pre-existing Execution-evidence scan AND the acceptance-tests widening —
+ * same bug class, fixed together per class-not-instance) skip lines that sit INSIDE a
+ * fenced code block when deciding whether a line is a real Markdown heading. A PR body
+ * legitimately pastes example Markdown or terminal output inside ``` fences; a
+ * heading-looking line in there (e.g. an illustrative `### Acceptance tests` snippet, or
+ * a test-failure message starting with `# `) must not be misread as a real section
+ * boundary — it would either wrongly widen the acceptance-tests scan into unrelated
+ * pasted content, or wrongly truncate a real Execution-evidence block early. This
+ * REUSES the fence-delimiter recognition already centralized in `elision.ts`'s
+ * `elideQuotedContexts` (backtick OR tilde, 3+ markers) as a per-line predicate — not
+ * that module's whole-string blank-and-replace transform, which would incorrectly blank
+ * real pasted test-run output that legitimately lives inside a fence (exactly what an
+ * `Execution evidence:` block usually contains).
  */
+const ACCEPTANCE_TESTS_HEADING_LINE_PATTERN = /^ {0,3}#{1,6}\s+.*\bacceptance tests?\b/i;
+
+/**
+ * Matches a fenced-code-block delimiter line (opening or closing): backtick OR tilde
+ * fence, 3+ markers, up to 3 leading spaces per CommonMark. Mirrors the fence-marker
+ * regex in `elision.ts`'s `elideQuotedContexts` — see that constant's sibling doc
+ * comment above for why this is a per-line predicate rather than a reuse of the
+ * whole-string elision transform itself.
+ */
+const FENCE_DELIMITER_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
+
+/**
+ * Computes, for each line index in `lines`, whether that line sits INSIDE a fenced
+ * code block — between an opening delimiter and its matching close. Delimiter lines
+ * themselves are never marked fence-internal (irrelevant either way: a fence marker
+ * never matches a heading pattern), only the lines BETWEEN them are. Single forward
+ * pass over the whole document, O(n) — correct as long as fences are balanced, which a
+ * well-formed PR body's Markdown always is.
+ */
+function computeFenceInternalLines(lines: string[]): boolean[] {
+  const result: boolean[] = new Array(lines.length).fill(false);
+  let inFence = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line !== undefined && FENCE_DELIMITER_PATTERN.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    result[i] = inFence;
+  }
+  return result;
+}
+
+/**
+ * Collects the content of every section in `lines` whose heading line matches
+ * `isHeadingLine`, from just after the heading up to (not including) the next Markdown
+ * heading of any level, or end-of-string. Extracted so `extractExecutionEvidenceText`'s
+ * two scan passes (Execution evidence + mt#3316's acceptance-tests widening) share one
+ * boundary implementation. `fenceInternal[i]` (from `computeFenceInternalLines`) gates
+ * BOTH the heading-candidacy check and the next-heading stop condition, so a
+ * heading-like line inside a fence is neither treated as a new section start nor as the
+ * boundary that ends collection.
+ */
+function collectHeadingSections(
+  lines: string[],
+  fenceInternal: boolean[],
+  isHeadingLine: (line: string) => boolean
+): string[] {
+  const collected: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined || fenceInternal[i] || !isHeadingLine(line)) continue;
+    for (let j = i + 1; j < lines.length; j++) {
+      const nextLine = lines[j];
+      if (nextLine === undefined) break;
+      if (!fenceInternal[j] && /^ {0,3}#{1,6}\s/.test(nextLine)) break;
+      collected.push(nextLine);
+    }
+  }
+  return collected;
+}
+
 export function extractExecutionEvidenceText(prBody: string): string {
   const strippedBody = prBody.replace(/<!--[\s\S]*?-->/g, "");
   const headingPattern =
     /^(?: {0,3}(#{1,6})\s+execution evidence\s*:?|execution evidence\s*:)\s*(.*)$/im;
   const lines = strippedBody.split("\n");
+  const fenceInternal = computeFenceInternalLines(lines);
   const collected: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (line === undefined) continue;
+    if (line === undefined || fenceInternal[i]) continue;
     const match = line.match(headingPattern);
     if (!match) continue;
 
@@ -610,10 +705,18 @@ export function extractExecutionEvidenceText(prBody: string): string {
     for (let j = i + 1; j < lines.length; j++) {
       const nextLine = lines[j];
       if (nextLine === undefined) break;
-      if (/^ {0,3}#{1,6}\s/.test(nextLine)) break;
+      if (!fenceInternal[j] && /^ {0,3}#{1,6}\s/.test(nextLine)) break;
       collected.push(nextLine);
     }
   }
+
+  // mt#3316 FP-3: widen the scan to also cover any "acceptance test(s)" heading's
+  // section, in addition to the literal Execution evidence block collected above.
+  collected.push(
+    ...collectHeadingSections(lines, fenceInternal, (line) =>
+      ACCEPTANCE_TESTS_HEADING_LINE_PATTERN.test(line)
+    )
+  );
 
   return collected.join("\n");
 }
