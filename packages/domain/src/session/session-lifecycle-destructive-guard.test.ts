@@ -173,12 +173,20 @@ describe("deleteSessionImpl — mt#3021 SC2 acceptance tests", () => {
 });
 
 describe("cleanupSessionImpl — mt#3021 SC2 acceptance tests", () => {
-  it("refuses cleanup of a workspace with MERGE_HEAD present EVEN WITH force:true (the applyPostMergeStateSync shape)", async () => {
+  // mt#3104: the live-actor gate runs after the git-state guard; stub it
+  // not-live where a cleanup must proceed past it. The former `force` param
+  // is removed (mt#3104) — these tests' old force:true args are gone.
+  const notLiveCleanupActor = async () => ({
+    verdict: "not-live" as const,
+    reason: "test: nobody live",
+  });
+
+  it("refuses cleanup of a workspace with MERGE_HEAD present (the applyPostMergeStateSync shape — no force-style skip exists)", async () => {
     await writeFile(join(workspaceDir, ".git", "MERGE_HEAD"), "deadbeef\n");
     const sessionDB = makeSessionDB([sessionRecord]);
 
     const result = await cleanupSessionImpl(
-      { sessionId: SESSION_ID, taskId: sessionRecord.taskId, force: true },
+      { sessionId: SESSION_ID, taskId: sessionRecord.taskId },
       { sessionDB }
     );
 
@@ -188,7 +196,7 @@ describe("cleanupSessionImpl — mt#3021 SC2 acceptance tests", () => {
     expect(existsSync(workspaceDir)).toBe(true);
   });
 
-  it("proceeds when overridden with a reason, even under force:true", async () => {
+  it("proceeds when overridden with a reason (one overrideReason lifts both the git-state guard and the liveness gate)", async () => {
     await writeFile(join(workspaceDir, ".git", "MERGE_HEAD"), "deadbeef\n");
     const sessionDB = makeSessionDB([sessionRecord]);
 
@@ -196,7 +204,6 @@ describe("cleanupSessionImpl — mt#3021 SC2 acceptance tests", () => {
       {
         sessionId: SESSION_ID,
         taskId: sessionRecord.taskId,
-        force: true,
         overrideReason: "confirmed abandoned via presence check",
       },
       { sessionDB }
@@ -211,8 +218,8 @@ describe("cleanupSessionImpl — mt#3021 SC2 acceptance tests", () => {
     const sessionDB = makeSessionDB([sessionRecord]);
 
     const result = await cleanupSessionImpl(
-      { sessionId: SESSION_ID, taskId: sessionRecord.taskId, force: false },
-      { sessionDB }
+      { sessionId: SESSION_ID, taskId: sessionRecord.taskId },
+      { sessionDB, resolveActor: notLiveCleanupActor }
     );
 
     expect(result.sessionDeleted).toBe(true);

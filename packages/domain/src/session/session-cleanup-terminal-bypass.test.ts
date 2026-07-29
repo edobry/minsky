@@ -127,12 +127,12 @@ describe("applyPostMergeStateSync — terminal-state bypass regression (mt#3021 
 });
 
 describe("cleanupSessionImpl — terminal-state bypass does not reopen the guard's hole (mt#3021 R1)", () => {
-  it("still refuses a DIRTY workspace for a NON-terminal session, even under force:true", async () => {
+  it("still refuses a DIRTY workspace for a NON-terminal session (no force-style skip exists — mt#3104 removed the flag)", async () => {
     const sessionRecord = makeSessionRecord({ status: SessionStatus.ACTIVE });
     const sessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
 
     const result = await cleanupSessionImpl(
-      { sessionId: SESSION_ID, taskId: TASK_ID, force: true },
+      { sessionId: SESSION_ID, taskId: TASK_ID },
       { sessionDB }
     );
 
@@ -147,7 +147,7 @@ describe("cleanupSessionImpl — terminal-state bypass does not reopen the guard
     const sessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
 
     const result = await cleanupSessionImpl(
-      { sessionId: SESSION_ID, taskId: TASK_ID, force: true },
+      { sessionId: SESSION_ID, taskId: TASK_ID },
       { sessionDB }
     );
 

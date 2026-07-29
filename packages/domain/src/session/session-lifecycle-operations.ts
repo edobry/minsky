@@ -445,18 +445,17 @@ export async function cleanupSessionImpl(
   params: {
     sessionId: string;
     taskId?: string;
-    force?: boolean;
     dryRun?: boolean;
     /**
-     * mt#3021 SC2: justification required to clean up a workspace with an
-     * in-progress merge (MERGE_HEAD present) or uncommitted changes. This is
-     * a SEPARATE, UNCONDITIONAL check from `force` above — `force` only
-     * skips the pre-existing (largely vacuous) `validateSessionSafeForCleanup`
-     * stub; it does NOT lift this guard. This is deliberate: the incident
-     * this task closes was a caller (`applyPostMergeStateSync`) that already
-     * passes `force: true` unconditionally on every post-merge cleanup — the
-     * exact "already reasoned itself into safe, passes a bare flag without
-     * pausing" failure mode the shared override contract exists to stop.
+     * mt#3021 SC2 + mt#3104: justification required to clean up a workspace
+     * with an in-progress merge / uncommitted changes (git-state guard) or a
+     * live/unknown actor (liveness gate). The former `force` flag is REMOVED
+     * (mt#3104 criterion 4, strong form): its only effect was skipping the
+     * validateSessionSafeForCleanup no-op stub, and the incident this family
+     * closes was a caller (`applyPostMergeStateSync`) passing `force: true`
+     * unconditionally — the exact "already reasoned itself into safe, passes
+     * a bare flag without pausing" failure mode the shared override contract
+     * exists to stop. This override reason is the ONLY lifter.
      */
     overrideReason?: string;
   },
@@ -465,17 +464,22 @@ export async function cleanupSessionImpl(
     gitService?: GitServiceInterface;
     /** mt#3021 SC2: best-effort audit-event sink for a used override. */
     persistenceProvider?: PersistenceProvider;
+    /**
+     * mt#3104: test seam for the live-actor gate. Defaults to the real
+     * mt#3103 primitive reading presence claims via `persistenceProvider`.
+     */
+    resolveActor?: (sessionId: string) => Promise<SessionActorResult>;
   }
 ): Promise<{
   sessionDeleted: boolean;
   directoriesRemoved: string[];
   errors: string[];
 }> {
-  const { sessionId, taskId, force = false, dryRun = false } = params;
+  const { sessionId, taskId, dryRun = false } = params;
   const directoriesRemoved: string[] = [];
   const errors: string[] = [];
 
-  log.debug("Starting session cleanup", { sessionId, taskId, force, dryRun });
+  log.debug("Starting session cleanup", { sessionId, taskId, dryRun });
 
   try {
     // 1. Get session record before deletion
@@ -544,14 +548,64 @@ export async function cleanupSessionImpl(
           });
         }
       }
+
+      // mt#3104: live-ACTOR gate — same four-branch verdict handling as the
+      // deleteSessionImpl gate above (operator ruling ask#6273; recorded in
+      // the mt#3105 spec §Resolution and mem#749): live → refuse;
+      // inconclusive/store-unavailable → refuse (fail closed);
+      // inconclusive/no-claim → abstain (the git-state loop above already
+      // decided); not-live → proceed. Any untagged inconclusive is
+      // refuse-class — abstention is opt-in on the explicit "no-claim" cause.
+      // One per-SESSION check (the actor holds the session, not a directory),
+      // after the per-directory git-state loop, before any removal. Replaces
+      // the deleted validateSessionSafeForCleanup no-op stub (mt#3104
+      // criterion 1) — and unlike the stub, it is unconditional: the removed
+      // `force` flag cannot skip it, closing the applyPostMergeStateSync
+      // blanket bypass (criterion 4; that caller's post-merge path passes
+      // through the terminal-state bypass above instead, since effect (b)
+      // sets MERGED before effect (e) triggers cleanup).
+      const resolveActor =
+        deps.resolveActor ??
+        ((id: string) =>
+          resolveSessionActor(id, {
+            getRepository: () => presenceRepositoryFromProvider(deps.persistenceProvider),
+          }));
+      const actor = await resolveActor(sessionId);
+      const livenessRefuses =
+        actor.verdict === "live" ||
+        (actor.verdict === "inconclusive" && actor.cause !== "no-claim");
+      if (livenessRefuses) {
+        const override = resolveDestructiveOverride(params.overrideReason);
+        if (!isValidDestructiveOverride(override)) {
+          const msg =
+            `Refusing to clean up session '${sessionId}': ${actor.reason} — ` +
+            `pass an explicit overrideReason to clean up anyway.`;
+          log.warn(msg);
+          return {
+            sessionDeleted: false,
+            directoriesRemoved: [],
+            errors: [msg],
+          };
+        }
+        await recordDestructiveOverride({
+          guard: "session-cleanup-liveness",
+          reason: override.reason,
+          details: {
+            sessionId,
+            taskId,
+            verdict: actor.verdict,
+            cause: actor.cause,
+            actorId: actor.actorId,
+            lastRefreshedAt: actor.lastRefreshedAt,
+          },
+          persistenceProvider: deps.persistenceProvider,
+          relatedSessionId: sessionId,
+          relatedTaskId: taskId,
+        });
+      }
     }
 
-    // 3. Safety validation (unless force flag is used)
-    if (!force) {
-      await validateSessionSafeForCleanup(sessionRecord as Session | null, sessionId, taskId);
-    }
-
-    // 4. Remove session directories
+    // 3. Remove session directories
     for (const directory of sessionDirectories) {
       try {
         if (existsSync(directory)) {
@@ -569,7 +623,7 @@ export async function cleanupSessionImpl(
       }
     }
 
-    // 5. Remove session from database — only if all directory removals succeeded.
+    // 4. Remove session from database — only if all directory removals succeeded.
     // If any directory removal failed, preserving the DB record prevents orphan directories.
     let sessionDeleted = false;
     if (sessionRecord && errors.length === 0) {
@@ -644,25 +698,8 @@ async function getSessionDirectoriesToCleanup(
   return directories;
 }
 
-/**
- * Validate that a session is safe to clean up
- */
-async function validateSessionSafeForCleanup(
-  sessionRecord: Session | null,
-  sessionId: string,
-  taskId?: string
-): Promise<void> {
-  // For now, we'll implement basic validation
-  // Future enhancements could include:
-  // - Check if task is DONE
-  // - Check if PR is merged
-  // - Check for uncommitted changes
-
-  if (!sessionRecord) {
-    log.debug(`Session ${sessionId} not found in database, allowing cleanup`);
-    return;
-  }
-
-  // Add more validation rules here in the future
-  log.debug("Session validation passed for cleanup", { sessionId, taskId });
-}
+// NOTE (mt#3104 criterion 1): the former `validateSessionSafeForCleanup`
+// no-op stub is DELETED, not extended — its role (a real safety check on
+// cleanup) is filled by the unconditional git-state guard (mt#3021) and
+// live-actor gate (mt#3104) inside cleanupSessionImpl, which no force-style
+// flag can skip.
