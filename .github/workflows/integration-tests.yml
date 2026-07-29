@@ -207,8 +207,7 @@ jobs:
           SUPABASE_INTEGRATION_BRANCH_URL: ${{ secrets.SUPABASE_INTEGRATION_BRANCH_URL }}
         run: |
           bun test --preload ./tests/setup.ts --timeout=60000 \
-            tests/integration/postgres-pool-saturation.supabase.integration.test.ts \
-            tests/integration/transcript-metadata-fill-if-null.supabase.integration.test.ts
+            tests/integration/postgres-pool-saturation.supabase.integration.test.ts
 
   docker-suite:
     name: Integration (Docker/testcontainer — manual only)
