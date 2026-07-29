@@ -27,6 +27,7 @@ import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { isKnownKind, WORKFLOWS } from "@minsky/domain/tasks/workflows";
 import {
   computeChangeSet,
+  computeBlockedKindChanges,
   computeDryRunToken,
   checkRecordDrift,
   canonicalValue,
@@ -175,8 +176,19 @@ export class TasksBulkEditCommand extends BaseTaskCommand<typeof tasksBulkEditPa
   ) {
     const tasks = await this.fetchAll(ids, service);
     const changeSet = computeChangeSet(tasks, ops);
+    // mt#3137: kind changes that would strand a task are excluded from the
+    // change set (and therefore from the token) and reported separately.
+    const blocked = computeBlockedKindChanges(tasks, ops);
 
     if (changeSet.length === 0) {
+      // Do NOT claim "already in the desired state" when records were BLOCKED —
+      // that is the silent-success shape this task exists to remove.
+      const message =
+        blocked.length > 0
+          ? `No applicable changes — ${blocked.length} of ${ids.length} target(s) blocked because ` +
+            "the kind change would leave them with no valid transitions. " +
+            "Set a legal status on each first, then re-run."
+          : `No changes needed — all ${ids.length} target(s) already in the desired state.`;
       return this.formatResult(
         {
           success: true,
@@ -184,7 +196,8 @@ export class TasksBulkEditCommand extends BaseTaskCommand<typeof tasksBulkEditPa
           count: 0,
           targets: ids.length,
           changeSet: [],
-          message: `No changes needed — all ${ids.length} target(s) already in the desired state.`,
+          blocked,
+          message,
         },
         params.json
       );
@@ -206,6 +219,11 @@ export class TasksBulkEditCommand extends BaseTaskCommand<typeof tasksBulkEditPa
     }
 
     const affected = new Set(changeSet.map((r) => r.taskId)).size;
+    const blockedNote =
+      blocked.length > 0
+        ? ` ${blocked.length} target(s) BLOCKED (kind change would leave them with no valid ` +
+          "transitions) and are excluded from this change set and its token."
+        : "";
     return this.formatResult(
       {
         success: true,
@@ -214,8 +232,10 @@ export class TasksBulkEditCommand extends BaseTaskCommand<typeof tasksBulkEditPa
         count: changeSet.length,
         targets: ids.length,
         changeSet,
+        blocked,
         message:
-          `Dry-run: ${changeSet.length} change(s) across ${affected} of ${ids.length} target(s). ` +
+          `Dry-run: ${changeSet.length} change(s) across ${affected} of ${ids.length} target(s).` +
+          `${blockedNote} ` +
           `To apply exactly this change set, re-run with execute: true and token: ${token}`,
       },
       params.json
