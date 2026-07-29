@@ -57,7 +57,7 @@ to that family.)
 
 ## Additional trigger cues (Tier-3 residual slice — mt#2698)
 
-Nine narrow per-surface cues, filed as cheap Tier-3 residual-slice
+Ten narrow per-surface cues, filed as cheap Tier-3 residual-slice
 amendments to the "When to invoke" list above — not a new containment
 strategy. Per the `mt#2485` strategic partition (family record `b0b294ab`):
 the broad-detector tier is demoted; per-surface prose-tier cues like these
@@ -294,6 +294,36 @@ on a real read — but nothing in the turn required re-reading before
 asserting, and the invalidating event was the agent's OWN prior action, not
 an external one.
 
+### (j) A diagnostic conclusion from a non-discriminating signal
+
+Trigger: mid-diagnosis, about to assert a state conclusion — "the push didn't
+land", "the outage is over / was never real", "the telemetry falsifies X",
+"the fix didn't take" — from a signal you actually read.
+
+Falsifier: name ONE alternative hypothesis that produces the SAME observation,
+and rule it out before asserting. A signal CONSISTENT with the conclusion is
+not EVIDENCE FOR it unless it separates the conclusion from its alternatives;
+if you cannot state the discriminating difference in one sentence, the honest
+label is "consistent with, unverified." The alternatives that recur: the
+instrument has a silent fallback that substitutes a different measurement; the
+reference you read was never initialized/fetched; the reporting surface lags
+the state it describes.
+
+_Origin:_ `b0b294ab` R17 (mt#3314; incident record mem#748, 2026-07-28) —
+three in one session, each plausible, confidently asserted, and wrong:
+"first-party telemetry falsified mt#3151's root cause" (`actual_model`
+silently recorded the PARENT conversation's model whenever the subagent had no
+per-agent transcript — became mt#3256); "the push genuinely didn't land"
+(`git_log --ref origin/<branch>` on a never-fetched tracking ref reports
+"unknown revision" for a landed and an unlanded push alike — the
+discriminating read is fetch-then-log); "the GitHub outage was
+transient/falsified" (a status page lags the API it reports on). Neighbor
+boundaries: cue (i) is a probe that RAN and then expired; mem#733's surfaces
+are a probe scoped to the wrong POPULATION; mem#704 makes discriminating power
+a property of the probe at design time — this cue applies it at signal-READ
+time, where the probe already ran and its output simply does not separate the
+hypotheses.
+
 ## Artifact-content and identity claims (mt#2534)
 
 A second family, distinct from causal/mechanism claims above: factual claims
@@ -451,13 +481,14 @@ unverified premises, say "unverified — need to check X."
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference`
   (memory `88d92439`) — sibling family (strategic framing vs mechanism claims).
 - Memory `b0b294ab` — family record for the "assertion frozen as fact without
-  verification" pattern (R6–R16); R11–R16 are the origin of the nine
-  cues above. `mt#2485` — the strategic partition (Tier-1 `mt#2488`, Tier-2
+  verification" pattern (R6–R17); R11–R17 are the origin of the ten cues
+  above. `mt#2485` — the strategic partition (Tier-1 `mt#2488`, Tier-2
   `mt#2486`, Tier-3 residual = these per-surface cues). `mt#2698` — cues
   (a)–(c)'s task; `mt#3055` — cue (d)'s task; `mt#3126` — cues (e)/(f)'s task;
-  `mt#3152` — cues (g)/(h)'s task; `mt#3216` — cue (i)'s task. Cue (d)'s
-  incident memory: `mem#674` (`07cb2686`); cues (e)/(f)'s: `mem#698`
-  (`8f594a7e`); cues (g)/(h)'s: `mem#706` (`a28844c1`).
+  `mt#3152` — cues (g)/(h)'s task; `mt#3216` — cue (i)'s task; `mt#3314` —
+  cue (j)'s task. Cue (d)'s incident memory: `mem#674` (`07cb2686`); cues
+  (e)/(f)'s: `mem#698` (`8f594a7e`); cues (g)/(h)'s: `mem#706` (`a28844c1`);
+  cue (j)'s: `mem#748` (`ed91af3e`).
 - Cues (b), (d), (e) and (f) share one structural property worth stating
   plainly: each is a case where a same-turn read of the RIGHT first-party file
   is present and still does not establish the claim, because the claim is about
