@@ -220,6 +220,8 @@ Before declaring complete:
 
 Before invoking step §8 (Create PR), walk through this checklist; if any check fails, fix the gap before creating the PR.
 
+**Checklist-authoring discipline (mt#3302).** When a retrospective or task adds a NEW item to this checklist for a code-defect class, name its enforcement tier — ESLint rule / pre-commit or PreToolUse hook / CI check / merge gate / prompt-time prose (checklist item) — per the table in `/retrospective` Step 4, and tag the new item's heading with the SAME `[tier: ...]` format that skill's `### Fixes` template requires, e.g. `11. **New check name** [tier: CI check]: ...`. Containment evidence (mt#3295 §Measured corpus results item 4): the prose-only "Spec-decision reconciliation" and "Production-wiring + real-binding verification" items recurred 14x/13 PRs (rising) and ~2x post-ship respectively; the gated "Guard/rule documentation" (compile-check) and "Added a new test file?" execution-evidence items (merge gate) held near-zero. If prose is the right tier for a mechanizable class, state why a deterministic mechanism isn't shipping now and file a tracking task for it.
+
 **Preventive phase (before first PR creation):**
 
 1. **Trust-boundary defensive coverage.** Every site where external input enters the system needs a runtime guard or wrapper. Grep for each category below and confirm each hit has a `try/catch` wrapper, a `safe*` helper, or a runtime type guard (Zod, manual `typeof`, etc.) on the result:
