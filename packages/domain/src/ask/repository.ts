@@ -24,6 +24,7 @@ import { and, desc, eq, inArray, isNotNull, notInArray, sql } from "drizzle-orm"
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { asksTable } from "../storage/schemas/ask-schema";
+import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import type { AskRecord, AskInsert } from "../storage/schemas/ask-schema";
 import type { Ask, AskState, AskKind, AgentId, AttentionCost } from "./types";
 import { guardTransition, isTerminal, ALL_ASK_STATES, TERMINAL_ASK_STATES } from "./state-machine";
@@ -666,7 +667,12 @@ export class DrizzleAskRepository implements AskRepository {
     return nextShortId("ask", liveIds, []);
   }
 
-  async create(input: CreateAskInput): Promise<Ask> {
+  async create(rawInput: CreateAskInput): Promise<Ask> {
+    // mt#3278: sanitize at the boundary rather than at each write site — an ask
+    // body, its options, and its contextRefs are all agent-authored prose that
+    // can carry a codepoint Postgres cannot store, and a per-site fix is one
+    // refactor away from missing a path.
+    const input: CreateAskInput = sanitizeForPostgresDeep(rawInput).value;
     // Retry loop mirroring MinskyTaskBackend.tryInsertTask (mt#2205): the
     // short-id proposal (SELECT max) and the INSERT are not atomic, so a
     // concurrent writer may claim the proposed id between the two. The
@@ -793,7 +799,9 @@ export class DrizzleAskRepository implements AskRepository {
     return toAsk(row);
   }
 
-  async respond(id: string, input: RespondAskInput): Promise<Ask> {
+  async respond(id: string, rawInput: RespondAskInput): Promise<Ask> {
+    // mt#3278 — see `create` above.
+    const input: RespondAskInput = sanitizeForPostgresDeep(rawInput).value;
     const existing = await this.getById(id);
     if (!existing) {
       throw new Error(`Ask not found: ${id}`);

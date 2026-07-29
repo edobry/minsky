@@ -826,7 +826,12 @@ export function resolveSweepIntervalMs(): number {
  */
 export interface TranscriptSweepDeps {
   /** Run a full ingest sweep (wraps ingestAll). Must be idempotent/HWM-gated. */
-  runIngest: () => Promise<{ sessionsProcessed: number; sessionsErrored: number }>;
+  runIngest: () => Promise<{
+    sessionsProcessed: number;
+    sessionsErrored: number;
+    /** mt#3278 — sessions skipped because they are quarantined. */
+    sessionsQuarantined?: number;
+  }>;
   /** Run the embedding backfill (wraps PerTurnEmbeddingPipeline.run). May throw. */
   runEmbeddings: () => Promise<void>;
   /** Tracker singleton to record observability counters. */
@@ -870,7 +875,11 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
 
   const tracker = TranscriptSweepTracker.getInstance();
 
-  const runIngest = async (): Promise<{ sessionsProcessed: number; sessionsErrored: number }> => {
+  const runIngest = async (): Promise<{
+    sessionsProcessed: number;
+    sessionsErrored: number;
+    sessionsQuarantined: number;
+  }> => {
     const { ClaudeCodeTranscriptSource } = await import(
       "@minsky/domain/transcripts/claude-code-transcript-source"
     );
@@ -886,6 +895,7 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
     return {
       sessionsProcessed: result.sessionsProcessed,
       sessionsErrored: result.sessionsErrored,
+      sessionsQuarantined: result.sessionsQuarantined,
     };
   };
 
@@ -961,7 +971,11 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
         const { runIngest, runEmbeddings, tracker } = sweepDeps;
 
         // ── Phase 1: ingest sweep (idempotent/HWM-gated) ──────────────────────
-        let ingestResult: { sessionsProcessed: number; sessionsErrored: number };
+        let ingestResult: {
+          sessionsProcessed: number;
+          sessionsErrored: number;
+          sessionsQuarantined?: number;
+        };
         try {
           ingestResult = await runIngest();
         } catch (err) {
@@ -978,7 +992,19 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
             sessionsErrored: ingestResult.sessionsErrored,
           });
         }
-        tracker.recordSweepCompleted(ingestResult.sessionsProcessed, ingestResult.sessionsErrored);
+        // mt#3278: a quarantined session is not an error this pass — nothing was
+        // attempted — but it IS a standing condition an operator needs to see,
+        // so it is logged every sweep rather than only when it first happens.
+        if ((ingestResult.sessionsQuarantined ?? 0) > 0) {
+          log.warn("cockpit: transcript sweep: sessions quarantined and not attempted", {
+            sessionsQuarantined: ingestResult.sessionsQuarantined,
+          });
+        }
+        tracker.recordSweepCompleted(
+          ingestResult.sessionsProcessed,
+          ingestResult.sessionsErrored,
+          ingestResult.sessionsQuarantined ?? 0
+        );
 
         // ── Phase 2: embedding backfill (heavy, fail-open) ─────────────────────
         // SC2: default semantic-embedding backfill, run off the critical path.

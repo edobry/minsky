@@ -20,6 +20,7 @@ import { eq, and, isNull, inArray, or, lt, gte, lte, sql } from "drizzle-orm";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
 import { memoriesTable } from "../storage/schemas/memory-embeddings";
+import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
 import { MEMORY_SCOPES } from "./types";
@@ -272,7 +273,12 @@ export class MemoryService implements MemoryServiceSurface {
    * `DrizzleAskRepository.create` (mt#2965) and
    * `MinskyTaskBackend.tryInsertTask` (mt#2205).
    */
-  async create(input: MemoryCreateInput): Promise<MemoryRecord> {
+  async create(rawInput: MemoryCreateInput): Promise<MemoryRecord> {
+    // mt#3278: sanitize at the service boundary, not at each of the several
+    // write sites below — a per-site fix is one refactor away from missing a
+    // path, and the whole failure mode here is a write that fails permanently
+    // and silently.
+    const input: MemoryCreateInput = sanitizeForPostgresDeep(rawInput).value;
     const MAX_RETRIES = 5;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const shortId = await this.nextMemoryShortId();
@@ -418,7 +424,9 @@ export class MemoryService implements MemoryServiceSurface {
   // Update
   // -------------------------------------------------------------------------
 
-  async update(id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null> {
+  async update(id: string, rawInput: MemoryUpdateInput): Promise<MemoryRecord | null> {
+    // mt#3278 — see `create` above for why this is at the boundary.
+    const input: MemoryUpdateInput = sanitizeForPostgresDeep(rawInput).value;
     const where = memoryIdWhere(id);
     // Neither a uuid nor a `mem#N` short id — a miss, not a query (mt#3108).
     if (!where) return null;
