@@ -194,6 +194,125 @@ function registerLoop(
 }
 
 // ---------------------------------------------------------------------------
+// Callsite check (git grep) — distinguishes found / zero / unavailable
+// ---------------------------------------------------------------------------
+
+/** Outcome of a git-grep-based callsite check for a single pattern. */
+export type CallsiteCheckResult =
+  | { status: "found"; count: number }
+  | { status: "zero" }
+  | { status: "unavailable"; reason: string };
+
+/**
+ * Function signature for the injectable exec dependency used by
+ * `checkCallsites` (matches `@minsky/shared/exec`'s `execAsync`).
+ */
+export type ExecAsyncFn = (command: string) => Promise<{ stdout: string; stderr: string }>;
+
+/**
+ * Run `git grep -l -e <pattern> -- 'src/**\/*.ts'` against `workspaceRoot` and
+ * classify the outcome into exactly one of three buckets.
+ *
+ * This is the mt#3328 fix for the adoption sweeper's "container blindness"
+ * bug: the previous implementation appended `2>/dev/null || true` to the
+ * shell command, which converted EVERY non-zero exit — including "not a git
+ * repository" (e.g. the Railway image, whose `.dockerignore` excludes `.git`)
+ * — into a successful, empty-stdout resolution indistinguishable from a
+ * genuine zero-match result. That made "the check could not run" and "the
+ * check ran and found nothing" the same observable outcome, so a repo
+ * missing `.git` entirely would read every adoption signal as unadopted and
+ * mass-file bogus follow-up tasks.
+ *
+ * `git grep -l` exit codes:
+ *   - `0`     — one or more files matched (a real result; count = matched files).
+ *   - `1`     — the search ran successfully and found nothing (a real,
+ *               successful "zero" result — NOT an error).
+ *   - other   — the search itself could not run (no such repository, git
+ *               binary missing, bad pathspec, timeout, buffer overflow,
+ *               etc). `execAsyncFn` rejects with an error carrying `.code`
+ *               for these.
+ *
+ * @param execAsyncFn - Injectable exec function so tests can simulate
+ *   failure (missing repo, git absent) without touching the real
+ *   filesystem/git.
+ * @param workspaceRoot - Repository root to search.
+ * @param pattern - Grep pattern (from `buildGrepPattern`).
+ * @param safeShellQuoteFn - Shell-quoting helper (from `@minsky/shared/exec`).
+ */
+export async function checkCallsites(
+  execAsyncFn: ExecAsyncFn,
+  workspaceRoot: string,
+  pattern: string,
+  safeShellQuoteFn: (s: string) => string
+): Promise<CallsiteCheckResult> {
+  try {
+    const { stdout } = await execAsyncFn(
+      `git -C ${safeShellQuoteFn(workspaceRoot)} grep -l -e ${safeShellQuoteFn(pattern)} -- 'src/**/*.ts'`
+    );
+    const lines = stdout.trim().split("\n").filter(Boolean);
+    return { status: "found", count: lines.length };
+  } catch (err) {
+    const execErr = err as { code?: number; stderr?: string; message?: string };
+    if (execErr.code === 1) {
+      // git grep's "no lines matched" exit code: a genuine, successful
+      // zero-result — not an error.
+      return { status: "zero" };
+    }
+    const reason =
+      (typeof execErr.stderr === "string" && execErr.stderr.trim()) ||
+      execErr.message ||
+      (err instanceof Error ? err.message : String(err));
+    return { status: "unavailable", reason };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Positive control (canary) for the callsite check
+// ---------------------------------------------------------------------------
+
+/**
+ * Name grepped by the adoption sweeper's positive-control check.
+ *
+ * Deliberately self-referential: this exact identifier is called immediately
+ * below (`adoptionSweeperPositiveControlCanary()`), so `git grep` for this
+ * literal name is GUARANTEED to find >= 1 match in `src/**\/*.ts` as long as
+ * this file exists — independent of any other codebase content. If the
+ * canary check ever returns anything other than `{ status: "found", count > 0 }`,
+ * the callsite-check mechanism itself (not any particular adoption signal)
+ * is broken — e.g. the container has no `.git` directory (mt#3328).
+ */
+export const ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME = "adoptionSweeperPositiveControlCanary";
+
+/**
+ * Canary target for the positive control. Never remove the call in
+ * `runPositiveControlCheck` below — it is what gives this name a real
+ * production callsite for the grep to find.
+ */
+function adoptionSweeperPositiveControlCanary(): void {
+  // Intentionally empty: exists only to be grepped by name.
+}
+
+/**
+ * Run the positive-control callsite check: grep for a signal known to
+ * always be adopted (the canary above). A healthy result is
+ * `{ status: "found", count > 0 }`; anything else means the callsite-check
+ * mechanism itself cannot be trusted this tick (mt#3328).
+ */
+async function runPositiveControlCheck(
+  execAsyncFn: ExecAsyncFn,
+  safeShellQuoteFn: (s: string) => string,
+  workspaceRoot: string
+): Promise<CallsiteCheckResult> {
+  adoptionSweeperPositiveControlCanary(); // ensure the canary has a real callsite
+  return checkCallsites(
+    execAsyncFn,
+    workspaceRoot,
+    ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME,
+    safeShellQuoteFn
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Adoption sweeper loop (direct domain access — no callMcp())
 // ---------------------------------------------------------------------------
 
@@ -212,8 +331,34 @@ function registerLoop(
  *   ADOPTION_SWEEPER_ENABLED     — set to "true" to activate (default: false)
  *   ADOPTION_SWEEPER_INTERVAL_MS — sweep interval (default: 86_400_000 = 24h)
  *   ADOPTION_SWEEPER_LOOKBACK_DAYS — how many days back (default: 14)
+ *   ADOPTION_SWEEPER_EXECUTE     — set to "true"/"1" to actually file follow-up
+ *     tasks (mt#3328, per operational-safety-dry-run-first). Default: dry-run —
+ *     proposed filings are logged via `adoption_sweeper.dry_run_proposed_filing`
+ *     but `createTaskFromTitleAndSpec` is never called. None of the
+ *     `ADOPTION_SWEEPER_*` vars are registered in
+ *     `environmentMappings`/`HOOK_ONLY_ENV_VARS` — the
+ *     `custom/no-unregistered-minsky-env-var` ESLint rule only inspects
+ *     names starting with `MINSKY_`, which this family deliberately is not,
+ *     for consistency with its existing siblings.
+ *
+ * ## Container blindness fix (mt#3328)
+ *
+ * The callsite check (`git grep`) used to append `2>/dev/null || true` to
+ * the shell command, which converted EVERY non-zero exit — including "not a
+ * git repository" (the Railway image's `.dockerignore` excludes `.git`) —
+ * into a successful, empty-stdout result indistinguishable from a genuine
+ * zero-match. This tick now distinguishes three outcomes for every callsite
+ * check via `checkCallsites`: callsites found, genuinely zero callsites, and
+ * check-could-not-run. The last is hard-skipped (no task filed, ever) and
+ * tracked separately so a degraded run surfaces as a loop error rather than
+ * a clean tick. A positive control (a self-referential canary signal
+ * guaranteed to have >0 callsites) runs first each tick to fail fast if the
+ * check mechanism itself is broken.
  */
-async function adoptionSweeperTick(container: AppContainerInterface): Promise<void> {
+export async function adoptionSweeperTick(
+  container: AppContainerInterface,
+  deps?: { execAsyncFn?: ExecAsyncFn }
+): Promise<void> {
   const lookbackDays = parsePositiveIntEnv("ADOPTION_SWEEPER_LOOKBACK_DAYS", 14);
   const taskService = container.get("taskService");
 
@@ -221,14 +366,63 @@ async function adoptionSweeperTick(container: AppContainerInterface): Promise<vo
   const { extractAdoptionSignals, buildGrepPattern } = await import(
     "@minsky/shared/adoption/signal-extraction"
   );
-  const { execAsync, safeShellQuote } = await import("@minsky/shared/exec");
+  const { execAsync: realExecAsync, safeShellQuote } = await import("@minsky/shared/exec");
+  const execAsyncFn = deps?.execAsyncFn ?? realExecAsync;
+
+  // Dry-run gate (mt#3328): default to dry-run until explicitly set to execute.
+  const executeRaw = process.env["ADOPTION_SWEEPER_EXECUTE"] ?? "false";
+  const dryRun = !(executeRaw === "true" || executeRaw === "1");
 
   const startedAt = new Date().toISOString();
   log.info("adoption_sweeper.run_started", {
     event: "adoption_sweeper.run_started",
     timestamp: startedAt,
     lookbackDays,
+    dryRun,
   });
+
+  const workspaceRoot = taskService.getWorkspacePath();
+
+  // Positive control (mt#3328): a known-adopted canary signal must resolve
+  // to callsites > 0, or the callsite-check mechanism itself is considered
+  // unavailable this tick — hard-skip everything rather than trust "zero
+  // callsites" results that might really mean "the check never ran."
+  let callsiteCheckUnavailableCount = 0;
+  const positiveControlResult = await runPositiveControlCheck(
+    execAsyncFn,
+    safeShellQuote,
+    workspaceRoot
+  );
+  const positiveControlHealthy =
+    positiveControlResult.status === "found" && positiveControlResult.count > 0;
+
+  if (!positiveControlHealthy) {
+    callsiteCheckUnavailableCount++;
+    log.error("adoption_sweeper.callsite_check_unavailable", {
+      event: "adoption_sweeper.callsite_check_unavailable",
+      source: "positive_control",
+      result: positiveControlResult,
+      message:
+        "Positive control failed: the callsite-check mechanism did not find its " +
+        "own canary signal. Hard-skipping this entire run to avoid mass bogus " +
+        "task filing (mt#3328).",
+    });
+    log.info("adoption_sweeper.run_completed", {
+      event: "adoption_sweeper.run_completed",
+      startedAt,
+      tasksChecked: 0,
+      tasksWithSignals: 0,
+      totalGapsFiled: 0,
+      totalGapsProposed: 0,
+      dryRun,
+      errorCount: 0,
+      callsiteCheckUnavailableCount,
+    });
+    throw new Error(
+      "adoption_sweeper: callsite check unavailable (positive control failed) — " +
+        "see adoption_sweeper.callsite_check_unavailable logs"
+    );
+  }
 
   // Step 1: List DONE tasks updated within the lookback window.
   const sinceMs = Date.now() - lookbackDays * 24 * 60 * 60 * 1000;
@@ -264,6 +458,7 @@ async function adoptionSweeperTick(container: AppContainerInterface): Promise<vo
 
   let tasksWithSignals = 0;
   let totalGapsFiled = 0;
+  let totalGapsProposed = 0;
   const errors: string[] = [];
 
   // Step 2–5: Process each task (cap concurrency at 3).
@@ -292,27 +487,36 @@ async function adoptionSweeperTick(container: AppContainerInterface): Promise<vo
           if (signals.length === 0) return;
           tasksWithSignals++;
 
-          const workspaceRoot = taskService.getWorkspacePath();
-
           for (const signal of signals) {
             try {
-              // Count production callsites via git grep.
-              // Use safeShellQuote (mt#1742) to prevent shell injection from
-              // signal patterns that contain metacharacters.
+              // Count production callsites via git grep. checkCallsites
+              // distinguishes found / zero / unavailable (mt#3328) — a
+              // check that could not run is hard-skipped, never treated as
+              // "zero callsites."
               const pattern = buildGrepPattern(signal);
-              let callsiteCount = 0;
-              try {
-                const { stdout } = await execAsync(
-                  `git -C ${safeShellQuote(workspaceRoot)} grep -l -e ${safeShellQuote(pattern)} -- 'src/**/*.ts' 2>/dev/null || true`
-                );
-                const lines = stdout.trim().split("\n").filter(Boolean);
-                callsiteCount = lines.length;
-              } catch {
-                callsiteCount = 0;
+              const checkResult = await checkCallsites(
+                execAsyncFn,
+                workspaceRoot,
+                pattern,
+                safeShellQuote
+              );
+
+              if (checkResult.status === "unavailable") {
+                callsiteCheckUnavailableCount++;
+                log.error("adoption_sweeper.callsite_check_unavailable", {
+                  event: "adoption_sweeper.callsite_check_unavailable",
+                  source: "per_task_signal",
+                  taskId,
+                  signalKind: signal.kind,
+                  signalName: signal.name,
+                  reason: checkResult.reason,
+                });
+                continue; // Hard-skip: never file a task on an unavailable check.
               }
 
-              if (callsiteCount > 0) continue; // Already adopted.
+              if (checkResult.status === "found") continue; // Already adopted.
 
+              // checkResult.status === "zero" — genuinely no callsites found.
               // Check for existing adoption task before filing.
               // We can't search by title via TaskListOptions (no `search` field),
               // so we list all tasks and filter client-side. Adoption tasks are
@@ -341,8 +545,22 @@ async function adoptionSweeperTick(container: AppContainerInterface): Promise<vo
                 continue;
               }
 
-              // File a new adoption follow-up task.
+              // File a new adoption follow-up task — or, in dry-run mode
+              // (the default; mt#3328), only log the proposed filing.
               const followUpSpec = buildAdoptionFollowUpSpec(taskId, signal);
+
+              if (dryRun) {
+                totalGapsProposed++;
+                log.info("adoption_sweeper.dry_run_proposed_filing", {
+                  event: "adoption_sweeper.dry_run_proposed_filing",
+                  parentTaskId: taskId,
+                  signalKind: signal.kind,
+                  signalName: signal.name,
+                  proposedTitle: targetTitle,
+                });
+                continue;
+              }
+
               try {
                 const newTask = await taskService.createTaskFromTitleAndSpec(
                   targetTitle,
@@ -386,7 +604,10 @@ async function adoptionSweeperTick(container: AppContainerInterface): Promise<vo
     tasksChecked: recentTasks.length,
     tasksWithSignals,
     totalGapsFiled,
+    totalGapsProposed,
+    dryRun,
     errorCount: errors.length,
+    callsiteCheckUnavailableCount,
   });
 
   if (errors.length > 0) {
@@ -394,6 +615,16 @@ async function adoptionSweeperTick(container: AppContainerInterface): Promise<vo
       event: "adoption_sweeper.run_errors",
       errors,
     });
+  }
+
+  // A degraded run (any check-unavailable outcome, including the positive
+  // control) must surface as a loop error via the ops loop registry
+  // (OpsLoopSlot.errorCount/lastErrorAt), not a clean tick (mt#3328).
+  if (callsiteCheckUnavailableCount > 0) {
+    throw new Error(
+      `adoption_sweeper: callsite check unavailable for ${callsiteCheckUnavailableCount} ` +
+        `signal(s) this run — see adoption_sweeper.callsite_check_unavailable logs`
+    );
   }
 }
 
