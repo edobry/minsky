@@ -35,7 +35,9 @@
 import type { DispatchContext, GuardOutcome } from "./registry";
 import type { StopHookInput } from "./turn-end-retro-scan";
 import { flagKey, readFlagged, writeFlagged } from "./turn-end-scan-store";
-import { createHash } from "crypto";
+import { createHash } from "node:crypto";
+import { elideQuotedAndCodeContexts } from "./elision";
+import { detectDeferralPhrases } from "./ask-routing-deferral-detector";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_UNTAKEN_ACTION";
 
@@ -102,18 +104,28 @@ export interface UntakenActionMatch {
  * Pure detector — exported for tests. Returns matches found in the TAIL of the
  * final assistant message, unless a suppression signal is present anywhere in
  * that message.
+ *
+ * Matching runs over quoted-context-ELIDED text (mt#3336): code fences,
+ * inline code, blockquotes, and double-quoted prose are blanked first, so a
+ * commitment phrase the agent is QUOTING — detector data in a handoff's
+ * blockquote (the mt#3303 self-demonstrating false positive), a rule excerpt,
+ * a calibration record — cannot fire. Same posture, same rationale, as the
+ * ask-routing-deferral sibling's mt#3271 fix; elision blanks with same-length
+ * whitespace so tail-window offsets are unaffected.
  */
 export function detectUntakenAction(finalMessage: string): UntakenActionMatch[] {
   if (!finalMessage) return [];
 
+  const scanned = elideQuotedAndCodeContexts(finalMessage);
+
   for (const s of SUPPRESSION_PATTERNS) {
-    if (s.test(finalMessage)) return [];
+    if (s.test(scanned)) return [];
   }
 
   const tail =
-    finalMessage.length > TAIL_WINDOW_CHARS
-      ? finalMessage.slice(finalMessage.length - TAIL_WINDOW_CHARS)
-      : finalMessage;
+    scanned.length > TAIL_WINDOW_CHARS
+      ? scanned.slice(scanned.length - TAIL_WINDOW_CHARS)
+      : scanned;
 
   const matches: UntakenActionMatch[] = [];
   for (const { family, re } of COMMITMENT_PATTERNS) {
@@ -213,6 +225,16 @@ export function run(
   }
   writeFlagged(sessionId, flagged, storeDir);
 
+  // mt#3336 (ask#6448 disposition): when the same final message ALSO matches
+  // the ask-routing-deferral patterns, that live detector will inject its own
+  // reminder at the next UserPromptSubmit for this exact text — two
+  // injections about one closing sentence ("say the word" sits in BOTH
+  // pattern sets). Suppress THIS guard's injection — the deferral guidance
+  // (route it through an ask / classify-before-deferring) is the more
+  // specific of the two — but keep the calibration record, with the
+  // suppression named, so the overlap stays measurable.
+  const suppressedByAskRoutingDeferral = detectDeferralPhrases(finalMessage).length > 0;
+
   return {
     calibration: {
       source: "live",
@@ -222,7 +244,8 @@ export function run(
       stop_hook_active: input.stop_hook_active === true,
       matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
       final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
+      suppressedByAskRoutingDeferral,
     },
-    additionalContext: buildReminder(newMatches),
+    ...(suppressedByAskRoutingDeferral ? {} : { additionalContext: buildReminder(newMatches) }),
   };
 }
