@@ -25,6 +25,7 @@
 import { execGitWithTimeout } from "@minsky/domain/utils/git-exec";
 import { log } from "@minsky/shared/logger";
 import { MIGRATION_DIRS } from "./immutable-migration-detector";
+import { readStagedFileContent } from "./staged-file-reader";
 
 /**
  * Env var that, when truthy (`1`, `true`, `yes`), skips this check. Audit-
@@ -144,29 +145,6 @@ export interface MigrationGuardCheckResult {
   message: string;
   exitCode: number;
   overridden?: boolean;
-}
-
-/** Read a staged blob (`git show :<path>`) as text, via argv (no shell). */
-async function readStagedFileContent(projectRoot: string, filePath: string): Promise<string> {
-  const TIMEOUT_MS = 5000;
-  const proc = Bun.spawn(["git", "-C", projectRoot, "show", `:${filePath}`], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const timer = setTimeout(() => proc.kill(), TIMEOUT_MS);
-  try {
-    const textPromise = new Response(proc.stdout).text();
-    const exitCode = await proc.exited;
-    if (exitCode !== 0) {
-      const stderrText = await new Response(proc.stderr).text();
-      throw new Error(
-        `git show :${filePath} exited ${exitCode}: ${stderrText.trim() || "no stderr"}`
-      );
-    }
-    return await textPromise;
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /**
