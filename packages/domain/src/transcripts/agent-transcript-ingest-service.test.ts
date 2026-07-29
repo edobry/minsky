@@ -38,6 +38,15 @@ class FakeTranscriptSource implements TranscriptSource {
   private readonly sessionsMap = new Map<string, RawTurnLine[]>();
   private readonly discoveredMap = new Map<string, DiscoveredSession>();
 
+  /**
+   * mt#3288: how many times `discoverSessions()` was walked. `ingestAll` must
+   * walk it exactly once no matter how many sessions it processes — a count
+   * that scales with the session count is the quadratic id-lookup regressing.
+   */
+  discoverSessionsCalls = 0;
+  /** mt#3288: the `jsonlPath` each `readSession` call received (undefined = none). */
+  readSessionPaths: (string | undefined)[] = [];
+
   addSession(sessionId: string, lines: RawTurnLine[], mtime?: Date): void {
     this.sessionsMap.set(sessionId, lines);
     this.discoveredMap.set(sessionId, {
@@ -50,12 +59,23 @@ class FakeTranscriptSource implements TranscriptSource {
   }
 
   async *discoverSessions(): AsyncIterable<DiscoveredSession> {
+    this.discoverSessionsCalls++;
     for (const session of this.discoveredMap.values()) {
       yield session;
     }
   }
 
-  async *readSession(agentSessionId: string): AsyncIterable<RawTurnLine> {
+  async *readSession(agentSessionId: string, jsonlPath?: string): AsyncIterable<RawTurnLine> {
+    this.readSessionPaths.push(jsonlPath);
+    // Mirrors ClaudeCodeTranscriptSource: with no path, the id can only be
+    // resolved by walking discovery. Modelling that here is what makes
+    // `discoverSessionsCalls` a real regression signal — a fake that resolved
+    // from its map for free would report one walk either way.
+    if (jsonlPath === undefined) {
+      for await (const _ of this.discoverSessions()) {
+        /* scan to resolve the id, as the real source does */
+      }
+    }
     const lines = this.sessionsMap.get(agentSessionId) ?? [];
     for (const line of lines) {
       yield line;
@@ -910,6 +930,31 @@ describe("AgentTranscriptIngestService", () => {
       expect(result.sessionsProcessed).toBe(2);
       expect(result.sessionsErrored).toBe(0);
       expect(result.totalIngested).toBe(3); // TS1+TS2 from A, TS3 from B
+    });
+
+    // mt#3288 AT1. Before the fix, `ingestSession` called
+    // `readSession(agentSessionId)` with no path, so a discovery-backed source
+    // re-walked the whole corpus once per session — K walks for K sessions, and
+    // O(K^2) file reads for the sweep. These two assertions are the regression
+    // lock: the walk count must stay at 1 regardless of K, and every
+    // `readSession` call must carry the path its `DiscoveredSession` was found
+    // at, since that is what lets a real source skip the scan.
+    test("walks discoverSessions exactly once regardless of session count, and passes each jsonlPath through", async () => {
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, makeLines([TS1]));
+      source.addSession(SESSION_B, makeLines([TS2]));
+      source.addSession(SESSION_C, makeLines([TS3]));
+
+      const svc = makeSvc(makeDb(new Map<string, FakeRow>()), source);
+      const result: IngestAllResult = await svc.ingestAll();
+
+      expect(result.sessionsProcessed).toBe(3);
+      expect(source.discoverSessionsCalls).toBe(1);
+      expect(source.readSessionPaths).toEqual([
+        `/fake/projects/proj/${SESSION_A}.jsonl`,
+        `/fake/projects/proj/${SESSION_B}.jsonl`,
+        `/fake/projects/proj/${SESSION_C}.jsonl`,
+      ]);
     });
 
     test("a session DB error is counted via the typed result and does not abort the sweep", async () => {
