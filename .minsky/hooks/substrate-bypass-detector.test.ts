@@ -582,9 +582,14 @@ describe("parseTranscript", () => {
 });
 
 describe("extractLastAssistantTurn", () => {
-  test("returns [] when fewer than 2 user messages", () => {
+  // mt#3280: a single real prompt followed by assistant lines is the shape a
+  // UserPromptSubmit hook actually sees — the firing prompt has not been
+  // written to the transcript yet. Updating the previous expectation ([] when
+  // fewer than 2 user messages) because that guard skipped the just-completed
+  // turn rather than protecting against an incomplete one.
+  test("one user message with a trailing assistant turn resolves that turn", () => {
     const lines = [makeUserLine(), makeAssistantLine("Hello!")];
-    expect(extractLastAssistantTurn(lines)).toEqual([]);
+    expect(extractLastAssistantTurn(lines).length).toBe(1);
   });
 
   test("returns lines between second-to-last and last user message", () => {

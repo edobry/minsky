@@ -544,27 +544,99 @@ export function findRealPromptIndices(lines: TranscriptLine[]): number[] {
   return promptIndices;
 }
 
+/** The just-completed turn plus the boundary a caller should treat as its start. */
+export interface CompletedTurn {
+  /** Every line of the turn that just completed, in transcript order. */
+  turnLines: TranscriptLine[];
+  /**
+   * Index of the real user prompt that OPENED `turnLines`, or undefined when
+   * no turn could be resolved. Consumers that need the opening prompt's own
+   * timestamp, or a lookback window over prompts at-or-before it, must read it
+   * from here rather than recomputing `promptIndices[length - 2]` — that
+   * expression is only correct in one of the two shapes below.
+   */
+  openingPromptIndex: number | undefined;
+  /** Whether the prompt that fired this hook had already been written to the transcript. */
+  firingPromptLanded: boolean;
+}
+
 /**
- * Extract the just-completed logical turn: every line between the
- * second-to-last and the last REAL user prompt (the last real prompt is the
- * current prompt that fired the hook and is excluded).
+ * Resolve the just-completed turn from what the transcript ACTUALLY contains,
+ * rather than from an assumed prompt count.
+ *
+ * At `UserPromptSubmit` the prompt that fired the hook is usually not in the
+ * transcript yet, so the pre-mt#3280 rule — "the span between the last two
+ * real prompts, the last one being the firing prompt" — returned the turn
+ * BEFORE the one that just completed. Claude Code's hooks reference documents
+ * the underlying property (`transcript_path`, common input fields): the
+ * transcript "is written asynchronously and may lag the in-memory
+ * conversation, so it may not yet include the current turn's most recent
+ * messages when a hook fires."
+ *
+ * Because that lag is asynchronous, NEITHER shape can be assumed and a fixed
+ * one-boundary correction would be wrong whenever the prompt does land in
+ * time. The transcript answers the question itself:
+ *
+ * - Lines exist AFTER the last real prompt. Nothing can follow the firing
+ *   prompt at `UserPromptSubmit` time, so that prompt has not landed; the last
+ *   real prompt is the one that OPENED the completed turn, and the lines after
+ *   it are the turn.
+ * - Nothing follows the last real prompt. It is the newest line in the file —
+ *   the firing prompt, which landed before the read. The completed turn is
+ *   then the span between the last two real prompts, which is exactly what
+ *   this function returned before mt#3280 and is correct in this shape.
+ *
+ * Under the first shape a conversation's FIRST turn now resolves too (one real
+ * prompt is enough), where the two-prompt guard previously returned [].
+ *
+ * Returns empty `turnLines` when the transcript holds no real prompt at all,
+ * and when the firing prompt landed but no earlier prompt exists to bound the
+ * turn against.
+ *
+ * @see extractFinalTurn — the Stop-event sibling, which takes the same tail
+ *   unconditionally because at Stop time no subsequent prompt exists yet.
+ */
+export function resolveCompletedTurn(lines: TranscriptLine[]): CompletedTurn {
+  const promptIndices = findRealPromptIndices(lines);
+  if (promptIndices.length === 0) {
+    return { turnLines: [], openingPromptIndex: undefined, firingPromptLanded: false };
+  }
+
+  const lastPromptIdx = promptIndices[promptIndices.length - 1] as number;
+  const tail = lines.slice(lastPromptIdx + 1);
+  if (tail.length > 0) {
+    return { turnLines: tail, openingPromptIndex: lastPromptIdx, firingPromptLanded: false };
+  }
+
+  if (promptIndices.length < 2) {
+    return { turnLines: [], openingPromptIndex: undefined, firingPromptLanded: true };
+  }
+  const openingPromptIndex = promptIndices[promptIndices.length - 2] as number;
+  return {
+    turnLines: lines.slice(openingPromptIndex + 1, lastPromptIdx),
+    openingPromptIndex,
+    firingPromptLanded: true,
+  };
+}
+
+/**
+ * Extract the just-completed logical turn.
+ *
+ * Thin accessor over {@link resolveCompletedTurn} — see that function for how
+ * the turn's boundaries are resolved and why they cannot be derived from a
+ * fixed prompt offset. Callers that also need the turn's opening boundary
+ * should call `resolveCompletedTurn` directly so their boundary can never
+ * disagree with the window scanned here.
  *
  * Because the bounds are real prompts (not every user-role line), interleaved
  * `tool_result` user-role lines fall INSIDE the returned span rather than
  * splitting it. The result therefore covers all assistant segments AND all
  * tool_result lines of the turn — a full multi-round turn.
  *
- * Returns [] when there are fewer than 2 real user prompts (first turn of a
- * session, or no prior assistant turn).
+ * Returns [] when no turn can be resolved.
  */
 export function extractLastAssistantTurn(lines: TranscriptLine[]): TranscriptLine[] {
-  const promptIndices = findRealPromptIndices(lines);
-
-  if (promptIndices.length < 2) return [];
-
-  const startIdx = (promptIndices[promptIndices.length - 2] as number) + 1;
-  const endIdx = promptIndices[promptIndices.length - 1] as number;
-  return lines.slice(startIdx, endIdx);
+  return resolveCompletedTurn(lines).turnLines;
 }
 
 /**
