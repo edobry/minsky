@@ -104,15 +104,22 @@ describe("Session Command Domain Logic", () => {
   });
 
   describe("sessionDelete domain logic", () => {
+    // mt#3105: these tests exercise session resolution, not the live-actor
+    // gate — stub it not-live so deletes proceed to the code under test.
+    const notLiveActor = async () => ({
+      verdict: "not-live" as const,
+      reason: "test: nobody live",
+    });
+
     test("deletes session by explicit name", async () => {
       const result = await sessionDelete(
         {
           sessionId: "test-session",
-          force: true,
           json: false,
         },
         {
           sessionDB: mockSessionProvider,
+          resolveActor: notLiveActor,
         }
       );
 
@@ -123,11 +130,11 @@ describe("Session Command Domain Logic", () => {
       const result = await sessionDelete(
         {
           task: "md#456",
-          force: true,
           json: false,
         },
         {
           sessionDB: mockSessionProvider,
+          resolveActor: notLiveActor,
         }
       );
 
@@ -151,7 +158,6 @@ describe("Session Command Domain Logic", () => {
       const result = await sessionDelete(
         {
           sessionId: "non-existent",
-          force: true,
           json: false,
         },
         {
@@ -178,8 +184,11 @@ describe("Session Command Domain Logic", () => {
 
       // Test sessionDelete
       const deleteResult = await sessionDelete(
-        { task: taskId, force: true, json: false },
-        { sessionDB: mockSessionProvider }
+        { task: taskId, json: false },
+        {
+          sessionDB: mockSessionProvider,
+          resolveActor: async () => ({ verdict: "not-live" as const, reason: "test" }),
+        }
       );
       expect(deleteResult.deleted).toBe(true);
 

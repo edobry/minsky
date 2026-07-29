@@ -7,6 +7,7 @@ import {
   extractLastUserMessage,
   findRealPromptIndices,
   extractFinalTurn,
+  resolveCompletedTurn,
   resolveParentTranscriptLines,
   resolveParentTranscriptLinesForPath,
   readLogTailText,
@@ -270,14 +271,79 @@ describe("extractLastAssistantTurn — multi-round turn (tool_result split)", ()
     expect(extractToolUseNames(turn)).toContain("Bash");
   });
 
-  test("returns [] with fewer than 2 real prompts (tool_results do not count)", () => {
+  // mt#3280: the prompt that fires a UserPromptSubmit hook is usually NOT in
+  // the transcript yet (Claude Code writes it asynchronously), so a single
+  // real prompt followed by assistant lines is the COMMON shape, not an
+  // incomplete one. This replaces the previous expectation — [] for "fewer
+  // than 2 real prompts" — because that guard is what made every prompt-time
+  // detector skip the turn that had just completed.
+  test("one real prompt with a trailing turn resolves that turn (firing prompt not yet written)", () => {
     const lines: TranscriptLine[] = [
       userPrompt("only prompt"),
       assistantText("work"),
       toolResult(),
       assistantText("more"),
     ];
+    const turn = extractLastAssistantTurn(lines);
+    expect(turn.length).toBe(3);
+    expect(extractAssistantText(turn)).toContain("work");
+    expect(extractAssistantText(turn)).toContain("more");
+  });
+
+  const NEWEST_SEGMENT = "newest turn, second segment";
+
+  test("resolves the just-completed turn, not the one before it", () => {
+    const lines: TranscriptLine[] = [
+      userPrompt("first prompt"),
+      assistantText("older turn"),
+      userPrompt("second prompt"),
+      assistantText("newest turn"),
+      toolResult(),
+      assistantText(NEWEST_SEGMENT),
+    ];
+    const text = extractAssistantText(extractLastAssistantTurn(lines));
+    expect(text).toContain("newest turn");
+    expect(text).toContain(NEWEST_SEGMENT);
+    expect(text).not.toContain("older turn");
+  });
+
+  test("appending the firing prompt yields the same turn — result is stable across both shapes", () => {
+    const completed: TranscriptLine[] = [
+      userPrompt("first prompt"),
+      assistantText("older turn"),
+      userPrompt("second prompt"),
+      assistantText("newest turn"),
+      toolResult(),
+      assistantText(NEWEST_SEGMENT),
+    ];
+    const withFiringPrompt: TranscriptLine[] = [...completed, userPrompt("third prompt")];
+
+    expect(extractLastAssistantTurn(withFiringPrompt)).toEqual(extractLastAssistantTurn(completed));
+    expect(resolveCompletedTurn(completed).firingPromptLanded).toBe(false);
+    expect(resolveCompletedTurn(withFiringPrompt).firingPromptLanded).toBe(true);
+  });
+
+  test("openingPromptIndex names the prompt that opened the resolved turn, in both shapes", () => {
+    const completed: TranscriptLine[] = [
+      userPrompt("first prompt"),
+      assistantText("older turn"),
+      userPrompt("second prompt"),
+      assistantText("newest turn"),
+    ];
+    expect(resolveCompletedTurn(completed).openingPromptIndex).toBe(2);
+
+    const withFiringPrompt: TranscriptLine[] = [...completed, userPrompt("third prompt")];
+    expect(resolveCompletedTurn(withFiringPrompt).openingPromptIndex).toBe(2);
+  });
+
+  test("returns [] when the transcript holds no real prompt at all", () => {
+    expect(extractLastAssistantTurn([assistantText("work"), toolResult()])).toEqual([]);
+  });
+
+  test("returns [] when the firing prompt landed and no earlier prompt bounds the turn", () => {
+    const lines: TranscriptLine[] = [userPrompt("the only prompt")];
     expect(extractLastAssistantTurn(lines)).toEqual([]);
+    expect(resolveCompletedTurn(lines).firingPromptLanded).toBe(true);
   });
 });
 

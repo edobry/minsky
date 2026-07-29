@@ -5,6 +5,7 @@
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
 import { ValidationError } from "@minsky/domain/errors/index";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import {
   sessionDeleteCommandParams,
@@ -13,7 +14,16 @@ import {
   sessionMigrateCommandParams,
 } from "./session-parameters";
 
-export function createSessionDeleteCommand(getDeps: LazySessionDeps): CommandDefinition {
+export function createSessionDeleteCommand(
+  getDeps: LazySessionDeps,
+  /**
+   * Optional (non-throwing) persistence provider — mt#2487 adapter pattern.
+   * Carries the presence-claim read for the mt#3105 live-actor gate and the
+   * mt#3021 guard.overridden audit sink. Absent (e.g. CLI without a DB), the
+   * liveness gate fail-closes for non-terminal sessions.
+   */
+  getPersistenceProvider?: () => PersistenceProvider | undefined
+): CommandDefinition {
   return {
     id: "session.delete",
     category: CommandCategory.SESSION,
@@ -30,19 +40,30 @@ export function createSessionDeleteCommand(getDeps: LazySessionDeps): CommandDef
       }
     },
     execute: withErrorLogging("session.delete", async (params: Record<string, unknown>) => {
-      const { SessionService } = await import("@minsky/domain/session/session-service");
+      // Direct impl call (mirroring cleanup-command) so the optional
+      // persistence provider reaches the domain gates — SessionService's dep
+      // bundle deliberately excludes persistence (see session.ts's
+      // getOptionalPersistenceProvider note).
+      const { deleteSessionImpl } = await import(
+        "@minsky/domain/session/session-lifecycle-operations"
+      );
       const deps = await getDeps();
-      const service = new SessionService(deps);
 
-      const result = await service.delete({
-        sessionId: params.sessionId as string | undefined,
-        task: params.task as string | undefined,
-        force: (params.force as boolean | undefined) ?? false,
-        repo: params.repo as string | undefined,
-        json: (params.json as boolean | undefined) ?? false,
-        // mt#3021 SC2: git-state guard override.
-        overrideReason: params.overrideReason as string | undefined,
-      });
+      const result = await deleteSessionImpl(
+        {
+          sessionId: params.sessionId as string | undefined,
+          task: params.task as string | undefined,
+          repo: params.repo as string | undefined,
+          json: (params.json as boolean | undefined) ?? false,
+          // mt#3021 SC2 git-state guard + mt#3105 liveness gate override.
+          overrideReason: params.overrideReason as string | undefined,
+        },
+        {
+          sessionDB: deps.sessionProvider,
+          gitService: deps.gitService,
+          persistenceProvider: getPersistenceProvider?.(),
+        }
+      );
 
       return {
         success: result.deleted,

@@ -115,7 +115,7 @@ import {
   extractLastAssistantTurn,
   extractAssistantText,
   extractToolUseNames,
-  findRealPromptIndices,
+  resolveCompletedTurn,
   resolveParentTranscriptLines,
   resolveParentTranscriptLinesForPath,
   readLogTailText,
@@ -365,27 +365,34 @@ function computeGapMinutes(from: string | undefined, to: string | undefined): nu
 // ---------------------------------------------------------------------------
 
 export interface TurnBoundaryTimestamps {
-  /** Timestamp of the PREVIOUS real user prompt (the turn's start boundary). */
+  /** Timestamp of the real user prompt that OPENED the measured turn. */
   turnStartTimestamp: string | undefined;
-  /** Timestamp of the CURRENT real user prompt (the turn's end boundary — the prompt that just fired this hook). */
-  currentPromptTimestamp: string | undefined;
+  /**
+   * Timestamp of the LAST line of the measured turn — its own end, not a
+   * later prompt's. Before mt#3280 this field held "the current real user
+   * prompt, the one that just fired this hook", which the transcript almost
+   * never contains at `UserPromptSubmit` time; the name asserted a boundary
+   * that was really the PREVIOUS turn's opening prompt.
+   */
+  turnEndTimestamp: string | undefined;
 }
 
 /**
- * Locate the two real-prompt boundary LINES `extractLastAssistantTurn`
- * slices BETWEEN (exclusive of both), and return their timestamps. Needed
- * because the turn-slice itself never includes the boundary prompts.
+ * Locate the timestamps bounding the turn `extractLastAssistantTurn` returns.
+ *
+ * Both boundaries come from the shared {@link resolveCompletedTurn} resolver
+ * (mt#3280) rather than being recomputed here, so this pair can never
+ * disagree with the window actually measured — the disagreement that made
+ * every `turnAnchor` in the calibration log name the wrong turn.
  */
 export function findTurnBoundaryTimestamps(lines: TranscriptLine[]): TurnBoundaryTimestamps {
-  const indices = findRealPromptIndices(lines);
-  if (indices.length < 2) {
-    return { turnStartTimestamp: undefined, currentPromptTimestamp: undefined };
+  const { turnLines, openingPromptIndex } = resolveCompletedTurn(lines);
+  if (openingPromptIndex === undefined || turnLines.length === 0) {
+    return { turnStartTimestamp: undefined, turnEndTimestamp: undefined };
   }
-  const startIdx = indices[indices.length - 2] as number;
-  const endIdx = indices[indices.length - 1] as number;
   return {
-    turnStartTimestamp: lines[startIdx]?.timestamp,
-    currentPromptTimestamp: lines[endIdx]?.timestamp,
+    turnStartTimestamp: lines[openingPromptIndex]?.timestamp,
+    turnEndTimestamp: turnLines[turnLines.length - 1]?.timestamp,
   };
 }
 
@@ -403,8 +410,8 @@ export function findTurnBoundaryTimestamps(lines: TranscriptLine[]): TurnBoundar
  * with no anchor is never treated as a dedupe candidate, so it always logs.
  */
 export function buildTurnAnchor(boundaries: TurnBoundaryTimestamps): string | undefined {
-  if (!boundaries.turnStartTimestamp || !boundaries.currentPromptTimestamp) return undefined;
-  return `${boundaries.turnStartTimestamp}::${boundaries.currentPromptTimestamp}`;
+  if (!boundaries.turnStartTimestamp || !boundaries.turnEndTimestamp) return undefined;
+  return `${boundaries.turnStartTimestamp}::${boundaries.turnEndTimestamp}`;
 }
 
 // ---------------------------------------------------------------------------
