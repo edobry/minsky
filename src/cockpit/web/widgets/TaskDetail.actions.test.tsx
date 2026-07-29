@@ -83,20 +83,24 @@ describe("TaskActions (mt#2986)", () => {
     renderActions([{ kind: "start" }]);
     const picker = screen.getByRole("combobox", {
       name: /Model for start session/i,
-    }) as HTMLSelectElement;
-    expect(picker.value).toBe("sonnet");
-    const options = Array.from(picker.options).map((o) => o.value);
-    expect(options).toContain("fable");
-    expect(options).toContain("opus");
+    });
+    // The trigger shows the selected label; the option list is portalled and
+    // only mounts while open.
+    expect(picker.textContent).toContain("Sonnet");
+
+    fireEvent.keyDown(picker, { key: "Enter" });
+    expect(screen.getByRole("option", { name: "Fable" })).toBeDefined();
+    expect(screen.getByRole("option", { name: "Opus" })).toBeDefined();
   });
 
   test("the principal can override the launch model to Fable", () => {
     renderActions([{ kind: "start" }]);
     const picker = screen.getByRole("combobox", {
       name: /Model for start session/i,
-    }) as HTMLSelectElement;
-    fireEvent.change(picker, { target: { value: "fable" } });
-    expect(picker.value).toBe("fable");
+    });
+    fireEvent.keyDown(picker, { key: "Enter" });
+    fireEvent.click(screen.getByRole("option", { name: "Fable" }));
+    expect(picker.textContent).toContain("Fable");
   });
 
   test("non-launch actions render no model picker", () => {
