@@ -39,6 +39,11 @@ export const CLAUDE_CODE_SESSION_ID_ENV = "CLAUDE_CODE_SESSION_ID";
  * UUID shape check (RFC-4122 textual form, case-insensitive). Conservative on
  * purpose: only inject when the value is unambiguously a conversation UUID;
  * anything else falls through to Layer 1 rather than fabricating an id.
+ *
+ * Deliberately accepts ANY RFC-4122 variant rather than gating on v4: Claude
+ * Code does not document a version guarantee for its conversation ids, and a
+ * future switch (e.g. to time-ordered v7) should keep working without a
+ * proxy change. Non-UUID shapes are still rejected.
  */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -63,6 +68,19 @@ export function resolveConversationAgentId(
   // Defensive round-trip through the canonical validator so a drift in the
   // format rules can never make the proxy emit an id the reader rejects.
   return isValidAgentId(agentId) ? agentId : null;
+}
+
+/**
+ * Redact an agentId for log output: keep the kind and scope, truncate the id
+ * segment to its first 8 chars. Conversation UUIDs are attribution keys —
+ * logging them verbatim would create linkage between transcripts and
+ * infrastructure log sinks (PR #2390 R1).
+ */
+export function redactAgentId(agentId: string): string {
+  const lastColon = agentId.lastIndexOf(":");
+  if (lastColon === -1) return `${agentId.slice(0, 8)}…`;
+  const id = agentId.slice(lastColon + 1);
+  return `${agentId.slice(0, lastColon + 1)}${id.slice(0, 8)}…`;
 }
 
 /**

@@ -42,7 +42,11 @@ import {
   isReadyProbeResponse,
   type JsonRpcMessage,
 } from "./tools";
-import { resolveConversationAgentId, injectAgentIdMeta } from "./conversation-identity";
+import {
+  resolveConversationAgentId,
+  injectAgentIdMeta,
+  redactAgentId,
+} from "./conversation-identity";
 
 /** Default command for the inner MCP server. */
 const DEFAULT_CHILD_COMMAND = "minsky";
@@ -97,6 +101,12 @@ export interface ProxyOptions {
   childCommand?: string;
   /** Arguments for the inner MCP server command. Default: ["mcp", "start"] */
   childArgs?: string[];
+  /**
+   * Conversation-scoped agentId override (mt#3285). When omitted (undefined),
+   * the proxy resolves it from `CLAUDE_CODE_SESSION_ID`; pass an explicit
+   * string or null to bypass env resolution (tests, embedding callers).
+   */
+  conversationAgentId?: string | null;
 }
 
 /**
@@ -286,7 +296,10 @@ export class MinskyStdioProxy {
   constructor(options: ProxyOptions = {}) {
     this.childCommand = options.childCommand ?? DEFAULT_CHILD_COMMAND;
     this.childArgs = options.childArgs ?? DEFAULT_CHILD_ARGS;
-    this.conversationAgentId = resolveConversationAgentId();
+    this.conversationAgentId =
+      options.conversationAgentId !== undefined
+        ? options.conversationAgentId
+        : resolveConversationAgentId();
   }
 
   /**
@@ -307,8 +320,11 @@ export class MinskyStdioProxy {
    */
   async start(): Promise<void> {
     if (this.conversationAgentId) {
+      // Redacted on purpose: the conversation UUID is an attribution key;
+      // logging it verbatim would link transcripts to infra log sinks
+      // (PR #2390 R1 blocking finding 1).
       log.debug("[proxy] Conversation identity injection active", {
-        agentId: this.conversationAgentId,
+        agentId: redactAgentId(this.conversationAgentId),
       });
     } else {
       log.debug(

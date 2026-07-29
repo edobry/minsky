@@ -24,12 +24,14 @@
 import { spawn, type ChildProcess } from "child_process";
 import { appendFileSync, mkdtempSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
+import { fileURLToPath } from "url";
 import { createInterface } from "readline";
 
 const AGENT_ID_META_KEY = "io.minsky/agent_id";
 const TEST_UUID = "e2e0f1d2-3c4b-4a5d-9e8f-0123456789ab";
 const EXPECTED_AGENT_ID = `com.anthropic.claude-code:conv:${TEST_UUID}`;
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
 // ---------------------------------------------------------------------------
 // Recorder mode: child process standing in for the inner MCP server.
@@ -82,8 +84,8 @@ async function runCase(opts: {
 }): Promise<CaseResult> {
   const captureDir = mkdtempSync(join(tmpdir(), "conv-identity-verify-"));
   const captureFile = join(captureDir, "capture.jsonl");
-  const scriptPath = resolve(import.meta.dir, "verify-conv-identity-injection.ts");
-  const cliPath = resolve(import.meta.dir, "..", "src", "cli.ts");
+  const scriptPath = resolve(SCRIPT_DIR, "verify-conv-identity-injection.ts");
+  const cliPath = resolve(SCRIPT_DIR, "..", "src", "cli.ts");
 
   const env: Record<string, string | undefined> = { ...process.env };
   delete env["CLAUDE_CODE_SESSION_ID"];

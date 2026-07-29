@@ -12,6 +12,7 @@ import {
   CLAUDE_CODE_SESSION_ID_ENV,
   resolveConversationAgentId,
   injectAgentIdMeta,
+  redactAgentId,
 } from "./conversation-identity";
 import type { JsonRpcMessage } from "./tools";
 
@@ -51,6 +52,17 @@ describe("resolveConversationAgentId", () => {
     ]) {
       expect(resolveConversationAgentId({ [CLAUDE_CODE_SESSION_ID_ENV]: bad })).toBeNull();
     }
+  });
+});
+
+describe("redactAgentId", () => {
+  test("keeps kind and scope, truncates the uuid segment to 8 chars", () => {
+    expect(redactAgentId(EXPECTED_AGENT_ID)).toBe("com.anthropic.claude-code:conv:6c6fdc74…");
+    expect(redactAgentId(EXPECTED_AGENT_ID)).not.toContain(CONV_UUID);
+  });
+
+  test("degrades safely on a colon-free input", () => {
+    expect(redactAgentId("abcdefghijklmnop")).toBe("abcdefgh…");
   });
 });
 

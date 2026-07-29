@@ -434,10 +434,13 @@ describe("inbound transform — conversation-identity injection (mt#3285)", () =
   const CONV_AGENT_ID = "com.anthropic.claude-code:conv:6c6fdc74-d1b5-424f-a854-6f875b977dd2";
 
   function makeInboundTransform(agentId: string | null): NodeJS.ReadWriteStream {
-    const proxy = new MinskyStdioProxy({ childCommand: "bun", childArgs: ["--version"] });
-    // The field is resolved from process.env at construction; pin it directly
-    // so the test is hermetic regardless of the environment it runs in.
-    (proxy as unknown as { conversationAgentId: string | null }).conversationAgentId = agentId;
+    // Explicit null/string via the ProxyOptions seam bypasses env resolution,
+    // keeping the test hermetic regardless of the environment it runs in.
+    const proxy = new MinskyStdioProxy({
+      childCommand: "bun",
+      childArgs: ["--version"],
+      conversationAgentId: agentId,
+    });
     return (
       proxy as unknown as { createInboundTransform: () => NodeJS.ReadWriteStream }
     ).createInboundTransform();
