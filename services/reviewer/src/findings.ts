@@ -209,14 +209,35 @@ export function buildFindingRecordsFromBody(
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the idempotency key for one finding row (mt#3295 PR #2391 R1).
+ * Compute the idempotency key for one finding row (mt#3295 PR #2391 R1, R2).
  *
- * A stable sha256 hash of (prOwner, prRepo, prNumber, round, file, line,
- * lineEnd, title) — the natural key identifying "this logical finding, in
- * this round." Hashing the tuple (rather than indexing the raw columns, or
- * indexing raw `title` directly) keeps the unique index a single fixed-width
- * column regardless of title length (Postgres btree has a ~2.7KB per-row
- * limit) and sidesteps text-collation edge cases.
+ * A stable sha256 hash of (prOwner, prRepo, prNumber, headSha, round,
+ * severity, file, line, lineEnd) — the natural key identifying "this logical
+ * finding, in this round." Hashing the tuple (rather than indexing the raw
+ * columns) keeps the unique index a single fixed-width column and sidesteps
+ * text-collation edge cases.
+ *
+ * Deliberately does NOT include `title` or `body` (R2 fix — the original R1
+ * version did, and that was a bug): `title` is composed DIFFERENTLY across
+ * the two write paths for the exact same logical finding —
+ * `buildFindingRecordsFromToolCalls` (live output-tools path) uses the
+ * model's own `summary` field verbatim, while `buildFindingRecordsFromBody`
+ * (prose / backfill path) derives a title from the first sentence of the
+ * PARSED finding text (`deriveTitleFromText`). Those two derivations are not
+ * required to produce the same string for the same underlying finding, so
+ * including `title` in the key meant a backfill run for a PR the live writer
+ * had already persisted could hash to a DIFFERENT key and insert a duplicate
+ * row — defeating the exact cross-path dedup guarantee this key exists for.
+ *
+ * The remaining fields ARE stable across both paths: `severity`/`file`/
+ * `line`/`lineEnd` are embedded as literal tokens in the composed review
+ * markdown (`**[SEVERITY]** file:line-lineEnd — ...`) by `composeReviewBody`
+ * and parsed back out losslessly by `parseFindingsFromBody` — the same
+ * round-trip contract `severity-recovery.ts` and the mt#2726 corpus miner
+ * already rely on. `prOwner`/`prRepo`/`prNumber`/`headSha`/`round` are
+ * `FindingPersistContext` fields the caller supplies identically regardless
+ * of which builder produced the records, not derived from parsed text at
+ * all.
  *
  * Used by `recordFindings`'s `onConflictDoNothing` — the SAME conflict
  * target for both the live writer path (review-finalize.ts, one call per
@@ -231,21 +252,23 @@ export function computeFindingNaturalKey(input: {
   prOwner: string;
   prRepo: string;
   prNumber: number;
+  headSha: string;
   round: number;
+  severity: string;
   file: string;
   line?: number;
   lineEnd?: number;
-  title: string;
 }): string {
   const raw = [
     input.prOwner,
     input.prRepo,
     String(input.prNumber),
+    input.headSha,
     String(input.round),
+    input.severity,
     input.file,
     String(input.line ?? ""),
     String(input.lineEnd ?? ""),
-    input.title,
   ].join("::");
   return createHash("sha256").update(raw).digest("hex");
 }
@@ -314,11 +337,12 @@ export async function recordFindings(
         prOwner: r.prOwner,
         prRepo: r.prRepo,
         prNumber: r.prNumber,
+        headSha: r.headSha,
         round: r.round,
+        severity: r.severity,
         file: r.file,
         line: r.line,
         lineEnd: r.lineEnd,
-        title: r.title,
       }),
     }));
 

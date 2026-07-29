@@ -299,17 +299,19 @@ describe("recordFindings", () => {
       body: "body",
       disposition: null,
     });
-    // Idempotency key (mt#3295 PR #2391 R1): every inserted row carries the
-    // natural key recordFindings computes for it.
+    // Idempotency key (mt#3295 PR #2391 R1/R2): every inserted row carries
+    // the natural key recordFindings computes for it — title/body are NOT
+    // part of the key (R2 fix; see computeFindingNaturalKey's doc comment).
     expect(captured[0]?.["naturalKey"]).toBe(
       computeFindingNaturalKey({
         prOwner: "edobry",
         prRepo: "minsky",
         prNumber: 3295,
+        headSha: "abc123def456",
         round: 1,
+        severity: "BLOCKING",
         file: "src/foo.ts",
         line: 10,
-        title: "title",
       })
     );
   });
@@ -465,7 +467,7 @@ describe("resolveOutstandingFindingsOnApproval", () => {
 });
 
 // ---------------------------------------------------------------------------
-// computeFindingNaturalKey (mt#3295 PR #2391 R1 — idempotent backfill/live writes)
+// computeFindingNaturalKey (mt#3295 PR #2391 R1/R2 — idempotent backfill/live writes)
 // ---------------------------------------------------------------------------
 
 describe("computeFindingNaturalKey", () => {
@@ -473,10 +475,11 @@ describe("computeFindingNaturalKey", () => {
     prOwner: "edobry",
     prRepo: "minsky",
     prNumber: 3295,
+    headSha: "abc123def456",
     round: 1,
+    severity: "BLOCKING",
     file: "src/foo.ts",
     line: 10,
-    title: "title",
   };
 
   test("is stable for identical inputs", () => {
@@ -488,12 +491,98 @@ describe("computeFindingNaturalKey", () => {
     expect(computeFindingNaturalKey({ ...BASE, round: 2 })).not.toBe(base);
     expect(computeFindingNaturalKey({ ...BASE, file: "src/bar.ts" })).not.toBe(base);
     expect(computeFindingNaturalKey({ ...BASE, line: 11 })).not.toBe(base);
-    expect(computeFindingNaturalKey({ ...BASE, title: "different title" })).not.toBe(base);
     expect(computeFindingNaturalKey({ ...BASE, prNumber: 9999 })).not.toBe(base);
+    expect(computeFindingNaturalKey({ ...BASE, headSha: "deadbeef" })).not.toBe(base);
+    expect(computeFindingNaturalKey({ ...BASE, severity: "NON-BLOCKING" })).not.toBe(base);
   });
 
   test("treats absent line/lineEnd consistently", () => {
     const { line: _line, ...withoutLine } = BASE;
     expect(computeFindingNaturalKey(withoutLine)).toBe(computeFindingNaturalKey(withoutLine));
+  });
+
+  // mt#3295 PR #2391 R2 regression: the key must NOT depend on title/body —
+  // those are composed differently by the two write paths for the exact
+  // same logical finding (live: model's `summary`; backfill/prose: derived
+  // from parsed text). `computeFindingNaturalKey`'s input type has no
+  // title/body field at all, so this test documents the invariant at the
+  // call-site level: two records differing ONLY in text produce identical
+  // keys.
+  test("R2: is unaffected by title/body — the input type has no title/body field", () => {
+    const key = computeFindingNaturalKey(BASE);
+    // Re-computing from the exact same natural-key fields, irrespective of
+    // whatever title/body a caller happened to derive, always yields the
+    // same key — proving title/body cannot perturb it.
+    expect(computeFindingNaturalKey({ ...BASE })).toBe(key);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R2 cross-path regression: live writer + backfill for the SAME logical
+// finding must dedup to exactly one row, even though their `title`/`body`
+// text differs.
+// ---------------------------------------------------------------------------
+
+function makeDedupingInsertDb() {
+  const rowsByKey = new Map<string, Record<string, unknown>>();
+  const db = {
+    insert: mock(() => ({
+      values: mock((rows: Record<string, unknown>[]) => ({
+        onConflictDoNothing: mock(() => {
+          for (const row of rows) {
+            const key = row["naturalKey"] as string;
+            if (!rowsByKey.has(key)) {
+              rowsByKey.set(key, row);
+            }
+            // else: conflict -> do nothing, matching real Postgres
+            // onConflictDoNothing semantics.
+          }
+          return Promise.resolve();
+        }),
+      })),
+    })),
+  } as unknown as ReviewerDb;
+  return { db, rowsByKey };
+}
+
+describe("R2 cross-path dedup regression", () => {
+  test("live path (submit_finding) and backfill path (parsed body) for the same logical finding dedup to one row", async () => {
+    const { db, rowsByKey } = makeDedupingInsertDb();
+    const ctx: FindingPersistContext = {
+      prOwner: "edobry",
+      prRepo: "minsky",
+      prNumber: 999,
+      headSha: "deadbeef1234",
+      round: 2,
+    };
+
+    // Live output-tools path: title = the model's own one-sentence summary.
+    const liveToolCalls: ReviewToolCall[] = [
+      {
+        name: "submit_finding",
+        args: {
+          severity: "BLOCKING",
+          file: "src/foo.ts",
+          line: 42,
+          summary: "Short one-sentence summary.",
+          details: "The full explanation paragraph with rationale and suggested fix.",
+        },
+      },
+    ];
+    const liveRecords = buildFindingRecordsFromToolCalls(liveToolCalls, ctx);
+    await recordFindings(db, liveRecords);
+
+    // Backfill/prose path: title is DERIVED from parsed markdown text for
+    // the SAME underlying finding (same severity/file/line) — deliberately
+    // worded differently from `summary` above, to prove the dedup survives
+    // title divergence (the exact R2 bug).
+    const backfillRecords = buildFindingRecordsFromBody(
+      "**[BLOCKING]** src/foo.ts:42 - A differently-worded description of the identical underlying issue.",
+      ctx
+    );
+    await recordFindings(db, backfillRecords);
+
+    expect(liveRecords[0]?.title).not.toBe(backfillRecords[0]?.title);
+    expect(rowsByKey.size).toBe(1);
   });
 });

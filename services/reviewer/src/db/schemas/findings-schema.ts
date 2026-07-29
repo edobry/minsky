@@ -160,12 +160,22 @@ export const reviewerFindingsTable = pgTable(
     dispositionSetAt: timestamp("disposition_set_at", { withTimezone: true }),
 
     /**
-     * Idempotency key (mt#3295 PR #2391 R1): a stable hash of
-     * (pr_owner, pr_repo, pr_number, round, file, line, line_end, title) —
-     * see `computeFindingNaturalKey` in `findings.ts`. Unique-indexed so
-     * `recordFindings` can `onConflictDoNothing` on it: the live writer path
-     * (review-finalize.ts, one call per round) and the one-shot backfill
-     * script (scripts/backfill-findings-from-webhook-events.ts, which can
+     * Idempotency key (mt#3295 PR #2391 R1, R2): a stable hash of
+     * (pr_owner, pr_repo, pr_number, head_sha, round, severity, file, line,
+     * line_end) — see `computeFindingNaturalKey` in `findings.ts`.
+     * Deliberately excludes `title`/`body`: those are composed DIFFERENTLY
+     * by the two write paths for the same logical finding (the live
+     * output-tools path uses the model's `summary` field verbatim; the
+     * prose/backfill path derives a title from parsed text), so including
+     * either in the key would let the same finding hash to two different
+     * keys and duplicate across paths — the exact bug R2 fixed. The
+     * remaining fields round-trip losslessly through the composed review
+     * markdown on both paths.
+     *
+     * Unique-indexed so `recordFindings` can `onConflictDoNothing` on it:
+     * the live writer path (review-finalize.ts, one call per round) and the
+     * one-shot backfill script
+     * (scripts/backfill-findings-from-webhook-events.ts, which can
      * legitimately re-run or overlap with the live writer for the same PR)
      * both go through `recordFindings`, so both share this same conflict
      * target and can never duplicate a row for the same logical finding.
