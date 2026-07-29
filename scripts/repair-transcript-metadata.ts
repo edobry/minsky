@@ -31,13 +31,28 @@
  * blobs into the process — these rows are live conversations whose transcripts
  * are large, and the sibling model-backfill hit a statement timeout doing that.
  *
- * `harness` is set to `claude_code` for repaired rows. That is not a guess:
- * `'unknown'` has exactly ONE producer in the repo (`UNKNOWN_HARNESS`, in
- * `recordIngestFailure`), and BOTH ingest sources that write real rows
- * (`SingleFileTranscriptSource`, `ClaudeCodeTranscriptSource`) declare
- * `HARNESS = "claude_code"`. A row carrying the placeholder AND a non-empty
- * transcript was therefore ingested by one of those two. Rows with no transcript
- * are left alone — there is no evidence for them either way.
+ * `harness` is deliberately NOT repaired by this script.
+ *
+ * An earlier version stamped `claude_code` on every placeholder row, reasoning
+ * that `'unknown'` has one producer and both real ingest sources declare that
+ * harness. `minsky-reviewer[bot]` blocked it on PR #2412 and was right: it is an
+ * assumption about data rather than a reading of it, and it would silently
+ * rewrite any future harness value that happened to pass through the
+ * placeholder state.
+ *
+ * The correct answer is that harness needs no repair here at all. The
+ * ingest-side fix uses `COALESCE(NULLIF(harness, 'unknown'), EXCLUDED.harness)`,
+ * so the next successful ingest for a placeholder row replaces the sentinel with
+ * the harness the SOURCE actually declares — the true value, not an inferred
+ * one. These are live conversations reingested every few minutes, so that
+ * happens on its own. A conversation that never ingests again keeps `'unknown'`,
+ * which is the honest answer: there is no evidence to set it from.
+ *
+ * `started_at` is different, and is why this script exists: it does NOT
+ * self-heal. An incremental ingest's `extractStartedAt` only sees lines since
+ * the high-water-mark, so the value it would fill in is the wrong one (a later
+ * timestamp, not the session start). Recovering the true start requires reading
+ * the row's whole stored transcript, which is what this does.
  *
  * ## Operational safety (CLAUDE.md §Operational Safety: Dry-Run First)
  *
@@ -172,7 +187,12 @@ interface Report {
   brokenTotal: number;
   recoverable: number;
   skippedNoTimestamp: number;
-  harnessPlaceholders: number;
+  /**
+   * Rows still carrying the `'unknown'` harness sentinel. Reported for
+   * visibility only — this script does not touch `harness` (see the header).
+   * Expected to fall to ~0 on its own as live conversations reingest.
+   */
+  harnessPlaceholdersLeftToSelfHeal: number;
   updated: number;
   remainingBroken: number;
   sample: { agentSessionId: string; recoveredStartedAt: string }[];
@@ -218,8 +238,7 @@ async function runRepair(
       await db.execute(
         sql`WITH recoverable AS (${recoverableCte(limit)})
           UPDATE agent_transcripts t
-          SET started_at = r.recovered_started_at,
-              harness = CASE WHEN t.harness = ${UNKNOWN_HARNESS} THEN ${REAL_HARNESS} ELSE t.harness END
+          SET started_at = r.recovered_started_at
           FROM recoverable r
           WHERE t.agent_session_id = r.agent_session_id
             AND t.started_at IS NULL
@@ -240,7 +259,7 @@ async function runRepair(
     brokenTotal,
     recoverable,
     skippedNoTimestamp: brokenTotal - recoverable,
-    harnessPlaceholders,
+    harnessPlaceholdersLeftToSelfHeal: harnessPlaceholders,
     updated,
     remainingBroken,
     sample,

@@ -98,6 +98,35 @@ const INGEST_ERROR_TEXT_LIMIT = 2000;
 const UNKNOWN_HARNESS = "unknown";
 
 /**
+ * The mt#3342 fill-if-null SET entries for the ingest upsert's
+ * `onConflictDoUpdate`.
+ *
+ * EXPORTED so the integration test can exercise THIS fragment rather than a
+ * hand-copied duplicate of it. That distinction is the whole point: a test that
+ * re-types the SQL asserts only that the test's own SQL works, and would stay
+ * green while the production statement regressed. The reviewer's finding on
+ * PR #2412 was exactly this — the SQL change was unguarded by CI.
+ *
+ * `harness` needs NULLIF rather than a bare COALESCE: the column is NOT NULL,
+ * so `recordIngestFailure`'s placeholder row cannot use NULL as its "no value
+ * yet" marker and writes the string `'unknown'` instead. COALESCE would see a
+ * non-null value and preserve the placeholder forever.
+ *
+ * Fill-if-null, NOT overwrite-always: an incremental ingest's
+ * `extractStartedAt` only sees lines since the high-water-mark, so its
+ * `startedAt` is LATER than the true session start and must never win over a
+ * stored value.
+ */
+export function fillIfNullMetadataSet() {
+  return {
+    harness: sql`COALESCE(NULLIF(${agentTranscriptsTable.harness}, ${UNKNOWN_HARNESS}), EXCLUDED.harness)`,
+    startedAt: sql`COALESCE(${agentTranscriptsTable.startedAt}, EXCLUDED.started_at)`,
+    cwd: sql`COALESCE(${agentTranscriptsTable.cwd}, EXCLUDED.cwd)`,
+    projectDir: sql`COALESCE(${agentTranscriptsTable.projectDir}, EXCLUDED.project_dir)`,
+  };
+}
+
+/**
  * Pull the actual Postgres failure fields off a driver error (mt#3342).
  *
  * Drizzle wraps a failed statement in an Error whose `message` is
@@ -560,16 +589,11 @@ export class AgentTranscriptIngestService {
         .onConflictDoUpdate({
           target: agentTranscriptsTable.agentSessionId,
           set: {
-            // mt#3342 fill-if-null group. `harness` needs NULLIF, not a bare
-            // COALESCE: the failure stub writes the non-null string 'unknown'
-            // (the column is NOT NULL, so it cannot use NULL as its "no value
-            // yet" marker), and COALESCE would happily keep that placeholder
-            // forever. Treating the sentinel as absent is what makes the
-            // repair actually fire.
-            harness: sql`COALESCE(NULLIF(${agentTranscriptsTable.harness}, ${UNKNOWN_HARNESS}), EXCLUDED.harness)`,
-            startedAt: sql`COALESCE(${agentTranscriptsTable.startedAt}, EXCLUDED.started_at)`,
-            cwd: sql`COALESCE(${agentTranscriptsTable.cwd}, EXCLUDED.cwd)`,
-            projectDir: sql`COALESCE(${agentTranscriptsTable.projectDir}, EXCLUDED.project_dir)`,
+            // mt#3342 fill-if-null group — see fillIfNullMetadataSet's docblock
+            // for why `harness` needs NULLIF and why this is fill-if-null
+            // rather than overwrite-always. Shared with the integration test so
+            // CI guards this exact fragment.
+            ...fillIfNullMetadataSet(),
             transcript: sql`COALESCE(${agentTranscriptsTable.transcript}, '[]'::jsonb) || (
               SELECT COALESCE(jsonb_agg(new_elem ORDER BY ord), '[]'::jsonb)
               FROM jsonb_array_elements(EXCLUDED.transcript) WITH ORDINALITY AS t(new_elem, ord)
