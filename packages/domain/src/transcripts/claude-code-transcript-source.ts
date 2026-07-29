@@ -95,7 +95,7 @@ const SUBAGENTS_DIR = "subagents";
  * runs over the whole corpus on every sweep and an unbounded descent is how
  * that becomes someone else's incident.
  */
-const MAX_SUBAGENT_TREE_DEPTH = 3;
+export const MAX_SUBAGENT_TREE_DEPTH = 3;
 
 const JSONL_EXT = ".jsonl";
 

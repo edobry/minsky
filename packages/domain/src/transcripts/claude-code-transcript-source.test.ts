@@ -9,7 +9,10 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { ClaudeCodeTranscriptSource } from "./claude-code-transcript-source";
+import {
+  ClaudeCodeTranscriptSource,
+  MAX_SUBAGENT_TREE_DEPTH,
+} from "./claude-code-transcript-source";
 import type { RawTurnLine } from "./transcript-source";
 
 const PROJECT_DIR_NAME = "-Users-edobry-Projects-minsky";
@@ -305,30 +308,41 @@ describe("ClaudeCodeTranscriptSource — nested subagent transcripts (mt#3294)",
     }
   });
 
-  test("does not descend past the depth cap", async () => {
-    // Guards the other direction: the walk is bounded, so a pathological tree
-    // under subagents/ cannot turn every sweep into a full-filesystem crawl.
-    const dir = await mkdtemp(join(tmpdir(), "minsky-cc-source-toodeep-"));
+  // PR #2377 R2: pin BOTH sides of the bound in one fixture. Asserting only
+  // that some very deep file is missing shows the walk stops somewhere, not
+  // where — a cap that was accidentally 1 or 10 would pass that just as
+  // happily. Placing a transcript at every level and asserting exactly which
+  // ones are found makes an off-by-one in either direction fail.
+  test("descends exactly MAX_SUBAGENT_TREE_DEPTH levels below subagents/, and no further", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "minsky-cc-source-depth-"));
     try {
-      const tooDeep = join(
-        dir,
-        PROJECT_DIR_NAME,
-        "parent-session",
-        SUBAGENTS_DIR_NAME,
-        "a",
-        "b",
-        "c",
-        "d"
-      );
-      await mkdir(tooDeep, { recursive: true });
-      await writeFile(join(tooDeep, "agent-too-deep.jsonl"), `${USER_LINE}\n`);
+      const subagents = join(dir, PROJECT_DIR_NAME, "parent-session", SUBAGENTS_DIR_NAME);
+      // One transcript per level: level 0 is subagents/ itself, then one per
+      // nested directory, one level BEYOND the cap.
+      const levels = MAX_SUBAGENT_TREE_DEPTH + 1;
+      let current = subagents;
+      for (let level = 0; level <= levels; level++) {
+        await mkdir(current, { recursive: true });
+        await writeFile(join(current, `agent-level-${level}.jsonl`), `${USER_LINE}\n`);
+        current = join(current, `d${level + 1}`);
+      }
 
       const src = new ClaudeCodeTranscriptSource({
         claudeProjectsDir: dir,
         projectDirGlob: PROJECT_DIR_GLOB,
       });
-      const sessions = await collect(src.discoverSessions());
-      expect(sessions.find((s) => s.agentSessionId === "agent-too-deep")).toBeUndefined();
+      const found = (await collect(src.discoverSessions()))
+        .map((s) => s.agentSessionId)
+        .filter((id) => id.startsWith("agent-level-"))
+        .sort();
+
+      // Levels 0..MAX inclusive are reachable; the next one is not.
+      const expected = Array.from(
+        { length: MAX_SUBAGENT_TREE_DEPTH + 1 },
+        (_, level) => `agent-level-${level}`
+      ).sort();
+      expect(found).toEqual(expected);
+      expect(found).not.toContain(`agent-level-${MAX_SUBAGENT_TREE_DEPTH + 1}`);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
