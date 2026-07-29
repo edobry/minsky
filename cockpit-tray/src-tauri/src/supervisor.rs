@@ -1039,6 +1039,12 @@ fn run_supervisor(
                             set_build_status(&app, &mut sup, "Rebuilding bundle...".to_string());
                             let result = run_cockpit_build(&bun, &root, &path);
                             report_build_result(&app, &mut sup, &result, true);
+                            // Coalescing is upstream, not here: the watcher's
+                            // BUILD_DEBOUNCE (500ms) collapses a burst of saves
+                            // into ONE Rebuild command, so a burst yields one
+                            // rebuild and therefore one reload. No guard is
+                            // needed at this layer — adding a second debounce
+                            // would only delay the refresh.
                             if should_reload_after_build(&result) {
                                 reload_cockpit_window(&app);
                             }

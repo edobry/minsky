@@ -384,12 +384,32 @@ pub(crate) fn should_reload_after_build(result: &Result<(), String>) -> bool {
 /// No-ops when no cockpit window exists (the common case for a tray running
 /// without an open window); the next window created loads the fresh bundle
 /// anyway.
+///
+/// THREAD SAFETY — safe to call from the supervisor thread; do NOT wrap this in
+/// `run_on_main_thread` (PR #2414 R1 raised exactly that). Unlike the muda menu
+/// calls in `update_build_status`, which genuinely require the main thread,
+/// `WebviewWindow::reload()` self-marshals: it goes through
+/// `WebviewDispatcher::reload` -> `send_user_message`, which branches on
+/// `current_thread().id() == context.main_thread_id` and either handles the
+/// message inline (already on main) or posts it to the event-loop proxy
+/// (`tauri-runtime-wry-2.11.2/src/lib.rs:235`). Wrapping it would add a
+/// main-thread hop for no benefit, and `run_on_main_thread` is itself the
+/// shape that deadlocks when misused from the event loop (see
+/// `deeplink.rs`'s `WebviewWindowBuilder::build()` note).
 pub(crate) fn reload_cockpit_window(app: &AppHandle) {
     let Some(window) = app.get_webview_window(crate::menu::COCKPIT_WINDOW_LABEL) else {
         return;
     };
     if let Err(e) = window.reload() {
-        eprintln!("[cockpit-tray] failed to reload cockpit window after rebuild: {e}");
+        // Non-fatal: the rebuilt bundle IS on disk and live for any new client,
+        // so the only loss is that THIS window keeps the older UI until it is
+        // reloaded by hand (Cmd+R, or the tray's View -> Reload).
+        eprintln!(
+            "[cockpit-tray] failed to reload cockpit window after rebuild: {e} \
+             — the new bundle is served but this window still shows the old one; \
+             use Cmd+R or the tray's View > Reload. Tray log: \
+             ~/.local/state/minsky/logs/cockpit-stderr.log"
+        );
     }
 }
 
