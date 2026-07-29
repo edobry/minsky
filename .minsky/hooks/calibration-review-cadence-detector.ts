@@ -76,6 +76,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readInput, writeOutput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 import {
   CALIBRATION_LOG_REGISTRY,
   runSweep,
@@ -258,22 +259,152 @@ export function formatCadenceWarning(due: ReviewDueLog[]): string {
 }
 
 /**
- * Build the additionalContext message for due logs that have a still-open
- * disposition ask (mt#2659) — a single low-noise line per log instead of the
- * full `formatCadenceWarning` treatment, since the work is already surfaced
- * to the operator and blocked on their response, not on the agent.
+ * What a lookup of one `openAskId` established.
+ *
+ * `unavailable` is deliberately distinct from `not-found`: this detector reached no
+ * persistence layer at all before mt#3270, so the lookup added here crosses the
+ * hook-bootstrap boundary that silently killed two hooks (mt#3019, mt#3046). Collapsing an
+ * unreachable store into "unknown ask" would make a dead lookup render exactly like a healthy
+ * one that found nothing — the failure shape this detector's own bug already had.
  */
-export function formatPendingAskLines(pending: ReviewDueLog[]): string {
-  const lines: string[] = [
-    "[calibration-review-cadence-detector] Calibration disposition pending — no action needed (mt#2659):",
-    "",
-  ];
-  for (const d of pending) {
-    lines.push(
-      `  - ${d.name}: disposition pending on ask ${d.openAskId} ` +
-        `(${d.totalFires} total fires) — awaiting operator response.`
+export type AskLookup =
+  | { kind: "open"; state: string; shortId?: string }
+  | { kind: "settled"; state: string; shortId?: string }
+  | { kind: "not-found" }
+  | { kind: "unavailable"; reason: string };
+
+/** Ask states in which the operator genuinely still owes a response. */
+const OPEN_ASK_STATES = new Set(["routed", "suspended"]);
+
+/**
+ * Resolve the state of each referenced ask.
+ *
+ * Only called when at least one pending log exists, so the ordinary turn — where nothing is
+ * past threshold — pays no database cost at all. Every failure resolves to `unavailable` with
+ * the reason attached rather than throwing: a cadence reminder must never break the turn.
+ */
+export async function resolveAskStates(askIds: string[]): Promise<Map<string, AskLookup>> {
+  const out = new Map<string, AskLookup>();
+  if (askIds.length === 0) return out;
+
+  const unavailable = (reason: string): Map<string, AskLookup> => {
+    process.stderr.write(
+      `[calibration-review-cadence-detector] ask lookup unavailable: ${reason}\n`
     );
+    for (const id of askIds) out.set(id, { kind: "unavailable", reason });
+    return out;
+  };
+
+  try {
+    const bootstrap = await ensureHookDomainBootstrap();
+    if (!bootstrap.ok) {
+      return unavailable(bootstrap.error ?? "domain bootstrap failed");
+    }
+
+    const { resolvePersistenceProvider } = await import("@minsky/domain/persistence/factory");
+    const provider = await resolvePersistenceProvider();
+    if (!provider || !("getDatabaseConnection" in provider)) {
+      return unavailable("no persistence provider with a database connection");
+    }
+    const db = await (
+      provider as { getDatabaseConnection(): Promise<unknown> }
+    ).getDatabaseConnection();
+
+    // `@minsky/domain/ask/repository`, not the `/ask` barrel — the barrel is not an exported
+    // subpath, and a wrong specifier here fails at RUNTIME inside a swallowed catch (the
+    // mt#2760 shape). Every other call site in the repo uses this same path.
+    const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
+    const repo = new DrizzleAskRepository(
+      db as import("drizzle-orm/postgres-js").PostgresJsDatabase
+    );
+
+    for (const id of askIds) {
+      try {
+        const ask = await repo.getById(id);
+        if (!ask) {
+          out.set(id, { kind: "not-found" });
+          continue;
+        }
+        out.set(id, {
+          kind: OPEN_ASK_STATES.has(ask.state) ? "open" : "settled",
+          state: ask.state,
+          shortId: ask.shortId ?? undefined,
+        });
+      } catch (err) {
+        // A per-id failure is still a lookup failure for THAT id — never silently "not found".
+        out.set(id, {
+          kind: "unavailable",
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return out;
+  } catch (err) {
+    return unavailable(err instanceof Error ? err.message : String(err));
   }
+}
+
+/** `[label](minsky://ask/<uuid>)` per cockpit-deeplinks.mdc, so the id is openable from the line. */
+function askDeeplink(askId: string, shortId?: string): string {
+  return `[${shortId ?? askId.slice(0, 8)}](minsky://ask/${askId})`;
+}
+
+/**
+ * Render one line per past-threshold log carrying an `openAskId`.
+ *
+ * Before mt#3270 every line read "awaiting operator response" without the ask's state ever
+ * being consulted — so a closed, answered ask was reported as pending for days, and the
+ * principal tried to action an ask that could no longer be opened. Each branch below now says
+ * only what the lookup actually established.
+ */
+export function formatPendingAskLines(
+  pending: ReviewDueLog[],
+  lookups: Map<string, AskLookup> = new Map()
+): string {
+  const lookupFor = (d: ReviewDueLog): AskLookup =>
+    lookups.get(d.openAskId as string) ?? { kind: "unavailable", reason: "no lookup performed" };
+
+  // "no action needed" is only true when every referenced ask is genuinely still open.
+  const allOpen = pending.every((d) => lookupFor(d).kind === "open");
+  const header = allOpen
+    ? "[calibration-review-cadence-detector] Calibration disposition pending — no action needed (mt#2659):"
+    : "[calibration-review-cadence-detector] Calibration disposition status (mt#2659):";
+
+  const lines: string[] = [header, ""];
+
+  for (const d of pending) {
+    const askId = d.openAskId as string;
+    const lookup = lookupFor(d);
+    const fires = `(${d.totalFires} total fires)`;
+
+    switch (lookup.kind) {
+      case "open":
+        lines.push(
+          `  - ${d.name}: disposition pending on ask ${askDeeplink(askId, lookup.shortId)} ` +
+            `${fires} — awaiting operator response.`
+        );
+        break;
+      case "settled":
+        lines.push(
+          `  - ${d.name}: prior ask ${askDeeplink(askId, lookup.shortId)} is ${lookup.state} ` +
+            `${fires} — this log still needs a disposition; the ask is spent.`
+        );
+        break;
+      case "not-found":
+        lines.push(
+          `  - ${d.name}: referenced ask ${askDeeplink(askId)} could not be found ` +
+            `${fires} — disposition state unknown.`
+        );
+        break;
+      case "unavailable":
+        lines.push(
+          `  - ${d.name}: could not read the state of ask ${askDeeplink(askId)} ` +
+            `${fires} — ask store unreachable (${lookup.reason}); disposition state unknown.`
+        );
+        break;
+    }
+  }
+
   return lines.join("\n");
 }
 
@@ -379,7 +510,14 @@ export async function run(
 
     const parts: string[] = [];
     if (normalToWarn.length > 0) parts.push(formatCadenceWarning(normalToWarn));
-    if (pendingToShow.length > 0) parts.push(formatPendingAskLines(pendingToShow));
+    if (pendingToShow.length > 0) {
+      // Gated on there being something to render: the ordinary turn resolves no asks and
+      // therefore never touches the database.
+      const askStates = await resolveAskStates([
+        ...new Set(pendingToShow.map((d) => d.openAskId as string)),
+      ]);
+      parts.push(formatPendingAskLines(pendingToShow, askStates));
+    }
 
     return { additionalContext: parts.join("\n\n") };
   } catch (err) {

@@ -23,6 +23,7 @@ import {
   COOLDOWN_MS,
   type LastWarnedRecord,
   type LastWarnedStore,
+  type AskLookup,
 } from "./calibration-review-cadence-detector";
 
 // ---------------------------------------------------------------------------
@@ -477,24 +478,103 @@ describe("selectPendingAskLogs", () => {
 // ---------------------------------------------------------------------------
 
 describe("formatPendingAskLines", () => {
-  test("names the log and the open ask id, without demanding action", () => {
-    const pending: ReviewDueLog[] = [
-      {
-        name: POLICY_COVERAGE,
-        path: POLICY_COVERAGE_PATH,
-        kind: POLICY_COVERAGE,
-        firesSinceLastReview: 20,
-        totalFires: 1477,
-        distinctPhrases: 5,
-        reason: "past-threshold",
-        openAskId: TEST_ASK_ID,
-      },
-    ];
-    const msg = formatPendingAskLines(pending);
+  const pendingLog = (askId: string = TEST_ASK_ID): ReviewDueLog => ({
+    name: POLICY_COVERAGE,
+    path: POLICY_COVERAGE_PATH,
+    kind: POLICY_COVERAGE,
+    firesSinceLastReview: 20,
+    totalFires: 1477,
+    distinctPhrases: 5,
+    reason: "past-threshold",
+    openAskId: askId,
+  });
+
+  const lookups = (lookup: AskLookup, askId: string = TEST_ASK_ID): Map<string, AskLookup> =>
+    new Map([[askId, lookup]]);
+
+  // Extracted so a wording change can never leave an assertion silently checking prose the
+  // formatter no longer emits.
+  const AWAITING = "awaiting operator response";
+  const NO_ACTION_NEEDED = "no action needed";
+  const NEEDS_DISPOSITION = "still needs a disposition";
+  const UNKNOWN_STATE = "disposition state unknown";
+  const STORE_UNREACHABLE = "ask store unreachable";
+
+  test("an OPEN ask still renders the pending line, without demanding action", () => {
+    // mt#3270: the fixture states the ask state LITERALLY. Binding this to a live ask id
+    // is what made the original spec's example go stale within a day of being written.
+    const msg = formatPendingAskLines(
+      [pendingLog()],
+      lookups({ kind: "open", state: "suspended", shortId: "ask#6136" })
+    );
     expect(msg).toContain(POLICY_COVERAGE);
-    expect(msg).toContain(TEST_ASK_ID);
     expect(msg).toContain("disposition pending");
+    expect(msg).toContain(AWAITING);
+    expect(msg).toContain(NO_ACTION_NEEDED);
     expect(msg).not.toContain("/calibration-review");
+  });
+
+  test("a CLOSED, answered ask does NOT claim the operator owes a response", () => {
+    // The 109807e1 incident: closed+responded 2026-07-23, still reported as pending a day
+    // later, and the principal tried to action an ask that could no longer be opened.
+    const msg = formatPendingAskLines(
+      [pendingLog()],
+      lookups({ kind: "settled", state: "closed", shortId: "ask#5425" })
+    );
+    expect(msg).not.toContain(AWAITING);
+    expect(msg).not.toContain(NO_ACTION_NEEDED);
+    expect(msg).toContain("is closed");
+    expect(msg).toContain(NEEDS_DISPOSITION);
+  });
+
+  test("an unresolvable ask renders a neutral line rather than asserting operator state", () => {
+    const msg = formatPendingAskLines([pendingLog()], lookups({ kind: "not-found" }));
+    expect(msg).not.toContain(AWAITING);
+    expect(msg).toContain("could not be found");
+    expect(msg).toContain(UNKNOWN_STATE);
+  });
+
+  test("an UNREACHABLE store is distinguishable from a not-found ask", () => {
+    // Without this distinction a dead lookup renders exactly like a healthy one that found
+    // nothing — the mt#3019 / mt#3046 shape, and the same shape as this detector's own bug.
+    const notFound = formatPendingAskLines([pendingLog()], lookups({ kind: "not-found" }));
+    const unreachable = formatPendingAskLines(
+      [pendingLog()],
+      lookups({ kind: "unavailable", reason: "Configuration not initialized" })
+    );
+    expect(unreachable).not.toBe(notFound);
+    expect(unreachable).toContain(STORE_UNREACHABLE);
+    expect(unreachable).toContain("Configuration not initialized");
+    expect(unreachable).not.toContain(AWAITING);
+  });
+
+  test("a missing lookup never silently reads as an open ask", () => {
+    const msg = formatPendingAskLines([pendingLog()], new Map());
+    expect(msg).not.toContain(AWAITING);
+    expect(msg).toContain(STORE_UNREACHABLE);
+  });
+
+  test("the ask id renders as a clickable minsky://ask deeplink", () => {
+    const msg = formatPendingAskLines(
+      [pendingLog()],
+      lookups({ kind: "open", state: "routed", shortId: "ask#6136" })
+    );
+    expect(msg).toContain(`[ask#6136](minsky://ask/${TEST_ASK_ID})`);
+  });
+
+  test("the header drops 'no action needed' when any referenced ask is settled", () => {
+    const other = "9f1d2c33-0000-4000-8000-abcdefabcdef";
+    const msg = formatPendingAskLines(
+      [pendingLog(), { ...pendingLog(other), name: ASK_ROUTING_DEFERRAL }],
+      new Map<string, AskLookup>([
+        [TEST_ASK_ID, { kind: "open", state: "suspended" }],
+        [other, { kind: "settled", state: "closed" }],
+      ])
+    );
+    expect(msg).not.toContain(NO_ACTION_NEEDED);
+    expect(msg).toContain("Calibration disposition status");
+    expect(msg).toContain(AWAITING);
+    expect(msg).toContain(NEEDS_DISPOSITION);
   });
 });
 
