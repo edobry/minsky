@@ -79,6 +79,7 @@ import { mountEmbeddingsRoutes } from "./routes/embeddings";
 import { mountSweepRoutes } from "./routes/sweeps";
 import { mountFollowUpRoutes } from "./routes/follow-ups";
 import { mountDrivenSessionRoutes } from "./routes/driven-sessions";
+import { mountEntityThreadRoutes } from "./routes/entity-threads";
 import { mountConversationRunStateRoutes } from "./routes/conversation-run-state";
 import { mountConversationPresenceRoutes } from "./routes/conversation-presence";
 import type { ConversationPresenceRoutesOptions } from "./routes/conversation-presence";
@@ -347,6 +348,10 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   // see ./routes/driven-sessions.ts's docblock.
   if (!opts.isPublicDeployment) {
     mountDrivenSessionRoutes(app, opts.overrideDrivenSession ?? {});
+    // mt#3364 — entity discussion threads spawn the same genuine `claude`
+    // binary as the driven sessions above, so they carry the same
+    // local-daemon-only constraint and share this guard.
+    mountEntityThreadRoutes(app);
   }
 
   /**
