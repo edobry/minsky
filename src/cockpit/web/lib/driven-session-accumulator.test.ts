@@ -410,6 +410,20 @@ describe("foldDrivenSessionEvent — operator input (mt#3372)", () => {
     expect(turnText(state, 1)).toBe("an answer");
   });
 
+  test("a follow-up operator turn is ordered after the assistant block preceding it", () => {
+    let state = fold(
+      createInitialDrivenAccumulatorState(),
+      messageStart(),
+      contentBlockStart(0, "text"),
+      textDelta(0, "an answer"),
+      messageStop()
+    );
+    state = fold(state, operatorInput("a follow-up"));
+
+    expect(state.blocks.map((b) => b.rawJsonlType)).toEqual(["assistant", "user"]);
+    expect(turnText(state, 1)).toBe("a follow-up");
+  });
+
   test("two operator turns in one session are distinct blocks, not one overwritten block", () => {
     let state = fold(createInitialDrivenAccumulatorState(), operatorInput("first"));
     state = fold(state, operatorInput("second"));
