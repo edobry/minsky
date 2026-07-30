@@ -34,6 +34,13 @@ import {
 } from "../storage/schemas/entity-threads-schema";
 import type { SessionContextSnapshotBlock } from "../context/types";
 
+/**
+ * Re-exported so daemon-side callers (src/cockpit/**) import the thread's types
+ * from the thread's own module rather than reaching past it into the schema
+ * file — the schema is this module's implementation detail.
+ */
+export type { EntityThreadEntityType, EntityThreadTurnRole };
+
 // ---------------------------------------------------------------------------
 // Identity (pure — the invariants live here)
 // ---------------------------------------------------------------------------
@@ -91,6 +98,21 @@ const BLOCK_TYPE_BY_ROLE: Record<EntityThreadTurnRole, SessionContextSnapshotBlo
   agent: "assistant-text",
 };
 
+/**
+ * The harness line type each role corresponds to.
+ *
+ * `SessionContextSnapshotBlock.rawJsonlType` is documented as the "Original
+ * JSONL line type (`user` / `assistant` / `attachment` / `system`)". A thread
+ * turn has no JSONL line behind it, but it IS the same KIND of thing — an
+ * operator message or an assistant message — so it reports the type its
+ * harness-equivalent would carry. Inventing a new value here would break every
+ * consumer that switches on this field.
+ */
+const RAW_JSONL_TYPE_BY_ROLE: Record<EntityThreadTurnRole, string> = {
+  operator: "user",
+  agent: "assistant",
+};
+
 export interface EntityThreadTurn {
   id: string;
   localId: string;
@@ -113,6 +135,8 @@ export function turnToSnapshotBlock(turn: EntityThreadTurn): SessionContextSnaps
     type: BLOCK_TYPE_BY_ROLE[turn.role],
     source: "observed",
     content: turn.content,
+    timestamp: turn.createdAt.toISOString(),
+    rawJsonlType: RAW_JSONL_TYPE_BY_ROLE[turn.role],
   };
 }
 

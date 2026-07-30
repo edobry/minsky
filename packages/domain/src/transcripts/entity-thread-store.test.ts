@@ -103,6 +103,16 @@ describe("turnToSnapshotBlock", () => {
     expect(turnToSnapshotBlock(baseTurn).source).toBe("observed");
     expect(turnToSnapshotBlock({ ...baseTurn, role: "agent" }).source).toBe("observed");
   });
+
+  test("supplies the block type's two other required fields", () => {
+    // SessionContextSnapshotBlock requires `timestamp` and `rawJsonlType`; a
+    // projection missing either does not satisfy the render contract, so the
+    // "no adapter shim" claim depends on both being populated here.
+    const block = turnToSnapshotBlock(baseTurn);
+    expect(block.timestamp).toBe(CREATED_AT.toISOString());
+    expect(block.rawJsonlType).toBe("user");
+    expect(turnToSnapshotBlock({ ...baseTurn, role: "agent" }).rawJsonlType).toBe("assistant");
+  });
 });
 
 describe("mapRawEntityThreadTurnRow", () => {
