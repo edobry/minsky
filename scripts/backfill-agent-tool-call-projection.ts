@@ -407,22 +407,29 @@ async function main(): Promise<void> {
   process.exit(failed ? 1 : 0);
 }
 
-main().catch((err) => {
-  // mt#3360: drizzle-orm's postgres-js driver wraps a failed query in a
-  // `DrizzleQueryError` whose OWN `.message` is just "Failed query: <sql>\n
-  // params: <params>" — the underlying Postgres error (e.g. "cannot get
-  // array length of a scalar") lives on `.cause`, and printing only
-  // `err.message` (as this catch previously did) surfaced the query text
-  // with an effectively empty error, costing real diagnosis time. Print
-  // both.
-  const message = err instanceof Error ? err.message : String(err);
-  const cause = (err as { cause?: unknown } | undefined)?.cause;
-  const causeMessage =
-    cause instanceof Error ? cause.message : cause !== undefined ? String(cause) : undefined;
-  console.error(
-    `backfill-agent-tool-call-projection failed: ${message}${
-      causeMessage ? `\n  caused by: ${causeMessage}` : ""
-    }`
-  );
-  process.exit(1);
-});
+// mt#3360: guard the entry point (mirrors backfill-ask-short-ids.ts /
+// backfill-session-short-ids.ts's precedent) — without this, IMPORTING this
+// module's testable exports (e.g. countPendingProjectionRows, from this
+// script's own test file) would also kick off main()'s real DB bootstrap +
+// process.exit() as a side effect of the import.
+if (import.meta.main) {
+  main().catch((err) => {
+    // mt#3360: drizzle-orm's postgres-js driver wraps a failed query in a
+    // `DrizzleQueryError` whose OWN `.message` is just "Failed query: <sql>\n
+    // params: <params>" — the underlying Postgres error (e.g. "cannot get
+    // array length of a scalar") lives on `.cause`, and printing only
+    // `err.message` (as this catch previously did) surfaced the query text
+    // with an effectively empty error, costing real diagnosis time. Print
+    // both.
+    const message = err instanceof Error ? err.message : String(err);
+    const cause = (err as { cause?: unknown } | undefined)?.cause;
+    const causeMessage =
+      cause instanceof Error ? cause.message : cause !== undefined ? String(cause) : undefined;
+    console.error(
+      `backfill-agent-tool-call-projection failed: ${message}${
+        causeMessage ? `\n  caused by: ${causeMessage}` : ""
+      }`
+    );
+    process.exit(1);
+  });
+}
