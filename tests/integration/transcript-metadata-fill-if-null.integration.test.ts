@@ -11,6 +11,20 @@
  * said — the "check whose passing output is silence" shape. `NULLIF` and
  * `EXCLUDED` only mean anything to a real Postgres.
  *
+ * ## Why PLAIN Postgres, not the Supabase job (mt#3349)
+ *
+ * This originally lived in the `supabase` job, which was a scoping error. That
+ * job exists for `postgres-pool-saturation.supabase.integration.test.ts`, which
+ * asserts on the `XX000 "max clients reached"` error shape SUPAVISOR emits under
+ * pooler exhaustion — the pooler is that test's system under test, so it needs a
+ * real hosted branch. `COALESCE` / `NULLIF` / `EXCLUDED` are ordinary Postgres
+ * semantics with no pooler involvement; putting this test there inherited a
+ * paid, hosted, secrets-gated dependency it never needed (and which, per
+ * mt#3356, is currently unconfigured, so the job never runs at all).
+ *
+ * It now runs against a GitHub Actions Postgres service container — free, no
+ * secret, on every PR — mirroring `.github/workflows/cold-start-migrate.yml`.
+ *
  * ## Why it imports the production fragment
  *
  * It builds its upsert from {@link fillIfNullMetadataSet} — the SAME exported
@@ -20,13 +34,13 @@
  * `minsky-reviewer[bot]` flagged as BLOCKING on PR #2412 ("CI cannot catch
  * regressions in the raw SQL change").
  *
- * Skips (does not fail) without a database, matching
- * `postgres-pool-saturation.supabase.integration.test.ts`'s convention:
+ * Skips (does not fail) without a database:
  *
  *   RUN_INTEGRATION_TESTS=1
- *   SUPABASE_INTEGRATION_BRANCH_URL=<postgres connection string>
+ *   INTEGRATION_POSTGRES_URL=<postgres connection string>
  *
- * @see mt#3342 — this task
+ * @see mt#3342 — the fix this guards
+ * @see mt#3349 — the CI wiring + this re-homing
  * @see packages/domain/src/transcripts/agent-transcript-ingest-service.ts — fillIfNullMetadataSet
  */
 import { describe, test, expect, afterAll } from "bun:test";
@@ -37,7 +51,7 @@ import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-tran
 import { fillIfNullMetadataSet } from "@minsky/domain/transcripts/agent-transcript-ingest-service";
 import type { ConversationId } from "@minsky/domain/ids";
 
-const BRANCH_URL = process.env.SUPABASE_INTEGRATION_BRANCH_URL;
+const BRANCH_URL = process.env.INTEGRATION_POSTGRES_URL;
 
 /** Matches `recordIngestFailure`'s placeholder — the value the bug wrote. */
 const UNKNOWN_HARNESS = "unknown";
@@ -150,7 +164,7 @@ if (process.env.RUN_INTEGRATION_TESTS && BRANCH_URL) {
 } else {
   const missing: string[] = [];
   if (!process.env.RUN_INTEGRATION_TESTS) missing.push("RUN_INTEGRATION_TESTS=1");
-  if (!BRANCH_URL) missing.push("SUPABASE_INTEGRATION_BRANCH_URL=<connection-string>");
+  if (!BRANCH_URL) missing.push("INTEGRATION_POSTGRES_URL=<connection-string>");
   console.log(
     `[mt3342/fill-if-null] integration tests skipped — set ${missing.join(", ")} to run\n`
   );

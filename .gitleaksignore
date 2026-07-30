@@ -18,3 +18,14 @@
 # config-loader-visible copy of the same test-only ephemeral DSN (the loader
 # does not read DATABASE_URL). Step-scoped on the smoke step.
 .github/workflows/cold-start-migrate.yml:database-url-credentials:114
+
+# mt#3349 integration-tests workflow, `postgres-service` job: identical
+# format()-composed construct to the cold-start entries above — no literal URL
+# is embedded, and the credentials are test-only values scoped to the job's
+# ephemeral pgvector service container, unreachable from outside it.
+# Line 248 is the job-level INTEGRATION_POSTGRES_URL the test reads; line 276 is
+# the step-scoped MINSKY_POSTGRES_URL the config loader reads for `persistence
+# migrate` (the loader does not read the former). Same two-copies-of-one-DSN
+# reason as mt#1428 above.
+.github/workflows/integration-tests.yml:database-url-credentials:248
+.github/workflows/integration-tests.yml:database-url-credentials:276
