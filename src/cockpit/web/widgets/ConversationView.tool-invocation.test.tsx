@@ -168,7 +168,11 @@ describe("ConversationView — unified tool-invocation block (mt#2790)", () => {
     const { container } = renderCV(
       snapshotWithBlocks([userToolResultBlock(0, "call-nowhere", "orphan payload")])
     );
-    expect(screen.getByText("tool result")).toBeDefined();
+    // Both the standalone block header and the turn's origin label read this
+    // (mt#3374): an orphaned tool result is harness output, so its turn no
+    // longer renders under the operator's `user` label.
+    expect(screen.getAllByText("tool result").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryAllByText("user")).toHaveLength(0);
     expect(screen.getByText("orphan payload")).toBeDefined();
     // Standalone fallback, not the merged toggle block.
     expect(container.querySelector("button[aria-expanded]")).toBeNull();
