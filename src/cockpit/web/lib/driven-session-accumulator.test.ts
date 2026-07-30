@@ -380,3 +380,82 @@ describe("foldDrivenSessionEvent — session lifecycle", () => {
     expect(state.errorMessage).toBe("Session unrecoverable");
   });
 });
+
+describe("foldDrivenSessionEvent — operator input (mt#3372)", () => {
+  const OPERATOR_INPUT = "minsky_operator_input";
+  const SENT_AT = "2026-07-30T18:34:29.961Z";
+
+  function operatorInput(text: string, timestamp?: string) {
+    return timestamp === undefined
+      ? { type: OPERATOR_INPUT, text }
+      : { type: OPERATOR_INPUT, text, timestamp };
+  }
+
+  test("renders the operator's message as a user turn", () => {
+    const state = fold(createInitialDrivenAccumulatorState(), operatorInput("plan mt#3372"));
+
+    expect(state.blocks).toHaveLength(1);
+    const block = state.blocks[0];
+    expect(block?.rawJsonlType).toBe("user");
+    expect(block?.type).toBe("user-prompt");
+    expect(turnText(state, 0)).toBe("plan mt#3372");
+  });
+
+  test("keeps the operator turn ahead of the assistant reply it prompted", () => {
+    let state = fold(createInitialDrivenAccumulatorState(), operatorInput("first question"));
+    state = fold(state, messageStart(), contentBlockStart(0, "text"), textDelta(0, "an answer"));
+
+    expect(state.blocks.map((b) => b.rawJsonlType)).toEqual(["user", "assistant"]);
+    expect(turnText(state, 0)).toBe("first question");
+    expect(turnText(state, 1)).toBe("an answer");
+  });
+
+  test("a follow-up operator turn is ordered after the assistant block preceding it", () => {
+    let state = fold(
+      createInitialDrivenAccumulatorState(),
+      messageStart(),
+      contentBlockStart(0, "text"),
+      textDelta(0, "an answer"),
+      messageStop()
+    );
+    state = fold(state, operatorInput("a follow-up"));
+
+    expect(state.blocks.map((b) => b.rawJsonlType)).toEqual(["assistant", "user"]);
+    expect(turnText(state, 1)).toBe("a follow-up");
+  });
+
+  test("two operator turns in one session are distinct blocks, not one overwritten block", () => {
+    let state = fold(createInitialDrivenAccumulatorState(), operatorInput("first"));
+    state = fold(state, operatorInput("second"));
+
+    expect(state.blocks).toHaveLength(2);
+    expect(state.blocks[0]?.id).not.toBe(state.blocks[1]?.id);
+    expect([turnText(state, 0), turnText(state, 1)]).toEqual(["first", "second"]);
+  });
+
+  test("uses the frame's own send-time timestamp, not the fold-time clock", () => {
+    // The replay path folds the whole event log at once on reload; a fold-time
+    // clock would stamp every historical turn with the reload instant.
+    const state = fold(
+      createInitialDrivenAccumulatorState(),
+      operatorInput("sent earlier", SENT_AT)
+    );
+
+    expect(state.blocks[0]?.timestamp).toBe(SENT_AT);
+  });
+
+  test("falls back to a synthesized timestamp when the frame carries none", () => {
+    const state = fold(createInitialDrivenAccumulatorState(), operatorInput("no timestamp"));
+
+    expect(typeof state.blocks[0]?.timestamp).toBe("string");
+    expect(state.blocks[0]?.timestamp.length ?? 0).toBeGreaterThan(0);
+  });
+
+  test("closes the composer until the turn's terminal result reopens it", () => {
+    let state = fold(createInitialDrivenAccumulatorState(), operatorInput("go"));
+    expect(state.interactionState).toBe("streaming");
+
+    state = fold(state, { type: "result", subtype: "success" });
+    expect(state.interactionState).toBe("awaiting-input");
+  });
+});
