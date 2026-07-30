@@ -106,3 +106,105 @@ describe("runStandaloneDuplicateGuardInner -> guard-health log (mt#3072 AT1)", (
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#3358 — a fail-open skip must be diagnosable AFTER the fact (SC3) and
+// visible AT the create (SC2).
+// ---------------------------------------------------------------------------
+
+/** Run `fn` with stdout captured, so `writeOutput`'s JSON can be asserted on. */
+async function captureStdout(fn: () => Promise<void>): Promise<string> {
+  const chunks: string[] = [];
+  const original = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    await fn();
+  } finally {
+    process.stdout.write = original;
+  }
+  return chunks.join("");
+}
+
+/** Run `fn` against an isolated MINSKY_STATE_DIR, cleaning up after. */
+async function withScratchStateDir(label: string, fn: () => Promise<void>): Promise<void> {
+  const scratchDir = mkdtempSync(join(tmpdir(), label));
+  const prevStateDir = process.env.MINSKY_STATE_DIR;
+  process.env.MINSKY_STATE_DIR = scratchDir;
+  try {
+    await fn();
+  } finally {
+    if (prevStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
+    else process.env.MINSKY_STATE_DIR = prevStateDir;
+    rmSync(scratchDir, { recursive: true, force: true });
+  }
+}
+
+const TIMED_OUT_PROBE = {
+  failed: "in-process probe exceeded the 20000ms deadline",
+  causeClass: "infra" as const,
+};
+
+describe("standalone-duplicate guard — fail-open visibility (mt#3358)", () => {
+  test("SC3: the check-skip event names WHICH create went unchecked", async () => {
+    await withScratchStateDir("mt3358-subject-", async () => {
+      await runStandaloneDuplicateGuardInner(tasksCreateInput(), {
+        fetchSimilar: () => TIMED_OUT_PROBE,
+      });
+
+      const [event] = readGuardHealthEvents();
+      // Before this, the log recorded only toolName + sessionId — enough to say
+      // "some create in this session went unchecked", not WHICH one.
+      expect(event?.subject).toBe("Some new standalone task");
+    });
+  });
+
+  test("SC3: the subject is capped, since the health log is a diagnostic not an archive", async () => {
+    await withScratchStateDir("mt3358-subject-cap-", async () => {
+      const longTitle = "x".repeat(500);
+      await runStandaloneDuplicateGuardInner(
+        { ...tasksCreateInput(), tool_input: { title: longTitle } },
+        { fetchSimilar: () => TIMED_OUT_PROBE }
+      );
+
+      const [event] = readGuardHealthEvents();
+      expect(event?.subject?.length).toBeLessThanOrEqual(120);
+      expect(event?.subject?.endsWith("…")).toBe(true);
+    });
+  });
+
+  test("SC2: a degraded skip surfaces additionalContext at the create", async () => {
+    await withScratchStateDir("mt3358-visible-", async () => {
+      const out = await captureStdout(async () => {
+        await runStandaloneDuplicateGuardInner(tasksCreateInput(), {
+          fetchSimilar: () => TIMED_OUT_PROBE,
+        });
+      });
+
+      // stderr does not reach the agent and the health banner may not fire until
+      // a later session — additionalContext is the only channel that reaches the
+      // caller in the same turn as the create.
+      expect(out).toContain("additionalContext");
+      expect(out).toContain("SKIPPED");
+      expect(out).toContain("20000ms deadline");
+    });
+  });
+
+  test("SC2: silence is meaningful — a probe that RAN emits no skip notice", async () => {
+    await withScratchStateDir("mt3358-silence-", async () => {
+      const out = await captureStdout(async () => {
+        await runStandaloneDuplicateGuardInner(tasksCreateInput(), {
+          fetchSimilar: () => ({ results: [], degraded: false }),
+        });
+      });
+
+      // This is the pair that makes the skip notice load-bearing: because a
+      // completed probe says nothing, the PRESENCE of the notice means "not
+      // checked" and its ABSENCE means "checked". Emitting a positive
+      // "check ran" line here would put a notification on every create.
+      expect(out).not.toContain("SKIPPED");
+    });
+  });
+});
