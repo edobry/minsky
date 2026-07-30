@@ -201,6 +201,13 @@ export function useDrivenSession(localId: string | null | undefined): UseDrivenS
       // "switching localId resets accumulated state" behavior exactly).
       everLiveRef.current = false;
       neverLiveAttemptsRef.current = 0;
+      // ...including anything still queued for the PREVIOUS session (PR #2444
+      // R1). Undelivered text belongs to the conversation it was typed into;
+      // flushing it onto the new session's socket would put the operator's
+      // message in a conversation they were not addressing — worse than the
+      // silent drop this queue exists to remove. Dropped here rather than held,
+      // because the old socket is gone and will never reopen under this id.
+      outboundRef.current = [];
       setAccState(createInitialDrivenAccumulatorState());
       setConnectionState("connecting");
     } else {

@@ -384,4 +384,24 @@ describe("useDrivenSession — outbound queue (mt#3375)", () => {
       expect(next.sent.map((s) => JSON.parse(s).text)).toEqual(["typed mid-reconnect"]);
     });
   });
+
+  test("a message queued for one session never reaches a DIFFERENT session", () => {
+    // PR #2444 R1. The queue survived a localId switch, so text typed into
+    // conversation A would be flushed onto conversation B's socket — the
+    // operator's message landing somewhere they were not addressing.
+    const { result, rerender } = renderHook(({ id }) => useDrivenSession(id), {
+      initialProps: { id: "session-a" },
+    });
+    const wsA = firstWs();
+
+    act(() => result.current.sendText("meant for session A"));
+    expect(wsA.sent).toHaveLength(0);
+
+    // Switch to a different session before A's channel ever opened.
+    rerender({ id: "session-b" });
+    const wsB = nthWs(1);
+    act(() => wsB.simulateOpen());
+
+    expect(wsB.sent).toHaveLength(0);
+  });
 });
