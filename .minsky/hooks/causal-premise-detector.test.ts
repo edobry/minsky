@@ -62,6 +62,58 @@ This explains why the result set was empty.`;
     });
   });
 
+  describe("transcriptExcerpt capture (mt#3289)", () => {
+    test("captures text on BOTH sides of the matched phrase, not just the match", () => {
+      // The defect: `matchedPhrases` is `match[0].slice(0, 120)` — the matched
+      // text truncated, not the text around it. A reviewer reading
+      // `"matchedPhrases":["The root cause is"]` cannot tell a volunteered causal
+      // claim from a quotation of one, which is why this detector's fires were
+      // unratable in the 2026-07-28 review.
+      const before = "I looked at the failing job and formed a theory. ";
+      const claim = "The root cause is the encoding mechanism in the query layer.";
+      const after = " I have not confirmed that against the source yet.";
+      const result = detectCausalPremise(`${before}${claim}${after}`, []);
+
+      expect(result.matched).toBe(true);
+      expect(result.transcriptExcerpt.length).toBeGreaterThan(0);
+      // Surrounding context on both sides is the whole point — a window that
+      // only reproduced the match would leave the record exactly as unratable.
+      expect(result.transcriptExcerpt).toContain("formed a theory");
+      expect(result.transcriptExcerpt).toContain("not confirmed");
+    });
+
+    test("bounds the excerpt rather than mirroring the whole turn", () => {
+      // "encoding" is in MECHANISM_PATTERNS, so the proximity gate passes. (Note
+      // that "caching" would NOT match: the corpus entry is `cach[ei]\b`, which
+      // matches "cache" but whose trailing \b fails on the "-ing" inflection.
+      // Tracked separately — this task must not change which phrases match.)
+      const filler = "lorem ipsum dolor sit amet ".repeat(200);
+      const text = `${filler} The root cause is the encoding step in the resolver. ${filler}`;
+      const result = detectCausalPremise(text, []);
+
+      expect(result.matched).toBe(true);
+      // Bounded by a documented cap (80 chars per side) so the calibration log
+      // never becomes a transcript mirror.
+      expect(result.transcriptExcerpt.length).toBeLessThan(text.length);
+      expect(result.transcriptExcerpt.length).toBeLessThan(500);
+      // The match itself is still present — bounding must not drop the phrase.
+      expect(result.transcriptExcerpt).toContain("root cause is");
+    });
+
+    test("is empty when nothing matched", () => {
+      const result = detectCausalPremise("Nothing causal is claimed in this sentence.", []);
+      expect(result.matched).toBe(false);
+      expect(result.transcriptExcerpt).toBe("");
+    });
+
+    test("is empty — not the head of the text — when the turn is empty", () => {
+      // Guards the `indexOf("")` trap: an empty needle returns 0, which would
+      // log the first 80 characters of unrelated text as the match's context.
+      const result = detectCausalPremise("", []);
+      expect(result.transcriptExcerpt).toBe("");
+    });
+  });
+
   describe("R3 replay: 'reviewer shares author identity so APPROVE is blocked'", () => {
     test("flags identity-sharing claim without identity check tool call", () => {
       const text = `The reviewer shares the same App identity as the PR author, so GitHub blocks APPROVE.

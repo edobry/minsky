@@ -452,13 +452,32 @@ export interface CausalPremiseRecord {
   session_id?: string;
   matchedPhrases: string[];
   hadSameTurnVerification: boolean;
+  /**
+   * Text surrounding the first matched phrase (mt#3289).
+   *
+   * `matchedPhrases` carries `match[0].slice(0, 120)` — the matched text
+   * TRUNCATED, not the text around it — so a record reading
+   * `"matchedPhrases":["The root cause is"]` gives a reviewer the phrase and
+   * nothing to judge it by. Same field name and same window as
+   * `RetrospectiveTriggerRecord` below, whose fires were the only classifiable
+   * ones in the 2026-07-28 review.
+   */
+  transcript_excerpt?: string;
 }
 
 /** Parsed retrospective-trigger calibration record. */
 export interface RetrospectiveTriggerRecord {
   timestamp: string;
   session_id?: string;
-  matches: Array<{ family: string; phrase: string }>;
+  matches: Array<{
+    family: string;
+    phrase: string;
+    /**
+     * Per-match keys this branch does not consume structurally — e.g.
+     * `pre-narration`'s `expectedTool` / `hadMatchingTool` (mt#3289).
+     */
+    detectorFields?: Record<string, unknown>;
+  }>;
   transcript_excerpt?: string;
 }
 
@@ -579,6 +598,25 @@ export interface SharedCalibrationFields {
    *                record predates the field. NOT the same as empty.
    */
   suppressionReasons?: string[];
+
+  /**
+   * Every key on the raw record that the per-kind parse did not consume,
+   * carried through verbatim (mt#3289).
+   *
+   * Attached by `parseCalibrationRecord` for the same reason mt#3197 attached
+   * `suppressionReasons` there, and documented in that function's comment: the
+   * per-kind branches construct their objects field-by-field, so a key no
+   * branch names is dropped. mt#3197 fixed that for ONE field; the shared
+   * fallback branch then went on dropping `untaken-action`'s
+   * `final_message_tail` — the only field that makes its fires classifiable —
+   * which is why two consecutive calibration reviews reported "unclassifiable"
+   * while the evidence sat on disk in every record since the first.
+   *
+   * A passthrough rather than a third named field: naming them one at a time is
+   * what produced the same defect twice, and it puts the burden on a future
+   * detector author to remember a file they have no reason to open.
+   */
+  detectorFields?: Record<string, unknown>;
 }
 
 /** Union of all record types. */
@@ -703,6 +741,39 @@ export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
 }
 
 /**
+ * Match keys the shared fallback branch consumes structurally (mt#3289).
+ *
+ * `family`/`class`/`category` are the three per-detector label keys the branch
+ * collapses into one `family`, and `phrase` is the matched text. Anything else
+ * on a match object is detector-specific — `pre-narration` writes
+ * `expectedTool` and `hadMatchingTool` — and is carried through rather than
+ * dropped.
+ */
+const CONSUMED_MATCH_KEYS = new Set(["family", "class", "category", "phrase"]);
+
+/**
+ * Collect every raw record key the per-kind parse did not consume (mt#3289).
+ *
+ * Consumed-ness is derived from the PARSED record's own keys rather than a
+ * hand-maintained allowlist, so when a per-kind branch starts naming a field it
+ * automatically stops being reported here — there is no second list that can
+ * drift out of sync with the first. `suppressionReasons` is excluded because
+ * mt#3197 already gives it a typed field of its own.
+ *
+ * Returns `undefined` rather than `{}` when nothing was dropped, so a record
+ * that carries no detector-specific fields is byte-identical to what it parsed
+ * to before this change.
+ */
+function parseDetectorFields(
+  raw: Record<string, unknown>,
+  record: object
+): Record<string, unknown> | undefined {
+  const consumed = new Set<string>([...Object.keys(record), "suppressionReasons"]);
+  const dropped = Object.entries(raw).filter(([key]) => !consumed.has(key));
+  return dropped.length > 0 ? Object.fromEntries(dropped) : undefined;
+}
+
+/**
  * Parse one JSONL line into a typed record.
  *
  * mt#3197: the per-kind branches below construct their objects field-by-field
@@ -712,6 +783,14 @@ export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
  * thread the field through all eight branches (and require every future
  * branch to remember it), the per-kind parse is wrapped and the shared field
  * is attached once, here.
+ *
+ * mt#3289 generalizes that seam. Naming one field fixed one field: the shared
+ * fallback branch kept dropping `untaken-action`'s `final_message_tail`, the
+ * only field that makes its fires classifiable, and two consecutive calibration
+ * reviews concluded "unclassifiable" from records that had carried the evidence
+ * since the first one. So every unconsumed key now rides through as
+ * `detectorFields` — a detector author adding a field does not have to know
+ * this file exists for the field to reach a reviewer.
  */
 export function parseCalibrationRecord(
   line: string,
@@ -720,8 +799,14 @@ export function parseCalibrationRecord(
   const record = parseCalibrationRecordCore(line, kind);
   if (record === null) return record;
   try {
-    const suppressionReasons = parseSuppressionReasons(JSON.parse(line) as Record<string, unknown>);
-    return suppressionReasons === undefined ? record : { ...record, suppressionReasons };
+    const raw = JSON.parse(line) as Record<string, unknown>;
+    const suppressionReasons = parseSuppressionReasons(raw);
+    const detectorFields = parseDetectorFields(raw, record);
+    return {
+      ...record,
+      ...(suppressionReasons === undefined ? {} : { suppressionReasons }),
+      ...(detectorFields === undefined ? {} : { detectorFields }),
+    };
   } catch {
     // The core parse already succeeded, so the line IS valid JSON; this catch
     // exists only so a shared-field failure can never lose a record the
@@ -879,9 +964,11 @@ function parseCalibrationRecordCore(
     const matches = Array.isArray(raw["matches"])
       ? (raw["matches"] as unknown[]).map((m) => {
           const obj = m as Record<string, unknown>;
+          const dropped = Object.entries(obj).filter(([key]) => !CONSUMED_MATCH_KEYS.has(key));
           return {
             family: String(obj["family"] ?? obj["class"] ?? obj["category"] ?? ""),
             phrase: String(obj["phrase"] ?? ""),
+            ...(dropped.length > 0 ? { detectorFields: Object.fromEntries(dropped) } : {}),
           };
         })
       : [];
