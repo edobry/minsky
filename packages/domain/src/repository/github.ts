@@ -512,7 +512,17 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const sessionId = repoSession.sessionId;
       const workdir = this.getSessionWorkdir(sessionId);
 
-      // Use GitService for pushing changes
+      // mt#3205 (Gap 4): this method has zero production callers (confirmed
+      // by grep — no `.push()` no-arg call site anywhere outside this
+      // definition and its interface declaration), but it's a REQUIRED
+      // member of the `RepositoryBackend`/`ForgeBackend` interface (`push():
+      // Promise<Result>`), so it cannot simply be deleted without a wider
+      // interface change that is out of scope here. No change needed HERE
+      // though: `GitService.push()` itself (git.ts) now delegates to
+      // `pushWithConfirmation` internally, so this call inherits the
+      // bound/confirmation behavior automatically, closing the same
+      // unbounded-hang hazard mt#3177 fixed elsewhere, in case a future
+      // caller reaches this interface method.
       const pushResult = await this.gitService.push({
         repoPath: workdir,
         remote: "origin",

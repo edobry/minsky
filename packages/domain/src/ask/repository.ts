@@ -24,11 +24,42 @@ import { and, desc, eq, inArray, isNotNull, notInArray, sql } from "drizzle-orm"
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { asksTable } from "../storage/schemas/ask-schema";
+import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import type { AskRecord, AskInsert } from "../storage/schemas/ask-schema";
 import type { Ask, AskState, AskKind, AgentId, AttentionCost } from "./types";
 import { guardTransition, isTerminal, ALL_ASK_STATES, TERMINAL_ASK_STATES } from "./state-machine";
 import { isAllProjects, type ProjectScope } from "../project/scope";
-import { nextShortId, formatShortId } from "../utils/short-id";
+import { nextShortId, formatShortId, parseShortId } from "../utils/short-id";
+
+// ---------------------------------------------------------------------------
+// Id-shape resolution (mt#3259)
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical UUID shape. `asks.id` is a Postgres `uuid` column, so comparing it
+ * against a non-uuid string is a CAST ERROR, not an empty result.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Build the WHERE clause selecting a single ask by id, accepting either id
+ * form (ADR-029: the uuid is canonical, `ask#N` is an additional
+ * display/lookup handle).
+ *
+ * Returns `null` — explicitly, not a clause matching nothing — when the input
+ * is NEITHER form, so callers render a miss without issuing a query. Mirrors
+ * `memoryIdWhere` in `../memory/memory-service.ts`; the two are deliberately
+ * parallel because the underlying defect is identical on both surfaces.
+ */
+function askIdWhere(id: string) {
+  const trimmed = (id ?? "").trim();
+  const parsed = parseShortId(trimmed);
+  if (parsed && parsed.prefix === "ask") {
+    return eq(asksTable.shortId, formatShortId("ask", parsed.n));
+  }
+  if (UUID_RE.test(trimmed)) return eq(asksTable.id, trimmed);
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Row ↔ domain mapping
@@ -636,7 +667,12 @@ export class DrizzleAskRepository implements AskRepository {
     return nextShortId("ask", liveIds, []);
   }
 
-  async create(input: CreateAskInput): Promise<Ask> {
+  async create(rawInput: CreateAskInput): Promise<Ask> {
+    // mt#3278: sanitize at the boundary rather than at each write site — an ask
+    // body, its options, and its contextRefs are all agent-authored prose that
+    // can carry a codepoint Postgres cannot store, and a per-site fix is one
+    // refactor away from missing a path.
+    const input: CreateAskInput = sanitizeForPostgresDeep(rawInput).value;
     // Retry loop mirroring MinskyTaskBackend.tryInsertTask (mt#2205): the
     // short-id proposal (SELECT max) and the INSERT are not atomic, so a
     // concurrent writer may claim the proposed id between the two. The
@@ -664,7 +700,15 @@ export class DrizzleAskRepository implements AskRepository {
   }
 
   async getById(id: string): Promise<Ask | null> {
-    const rows = await this.db.select().from(asksTable).where(eq(asksTable.id, id)).limit(1);
+    const where = askIdWhere(id);
+    // Neither a uuid nor an `ask#N` short id — a genuine miss, not a query.
+    // `asks.id` is a Postgres `uuid` column, so passing a non-uuid string
+    // through to `eq()` raises `invalid input syntax for type uuid` and
+    // echoes the failing statement rather than returning empty (mt#3259 —
+    // the same defect fixed on the memory surface, confirmed live there).
+    if (!where) return null;
+
+    const rows = await this.db.select().from(asksTable).where(where).limit(1);
     const row = rows[0];
     return row ? toAsk(row) : null;
   }
@@ -755,7 +799,9 @@ export class DrizzleAskRepository implements AskRepository {
     return toAsk(row);
   }
 
-  async respond(id: string, input: RespondAskInput): Promise<Ask> {
+  async respond(id: string, rawInput: RespondAskInput): Promise<Ask> {
+    // mt#3278 — see `create` above.
+    const input: RespondAskInput = sanitizeForPostgresDeep(rawInput).value;
     const existing = await this.getById(id);
     if (!existing) {
       throw new Error(`Ask not found: ${id}`);

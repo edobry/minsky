@@ -1676,13 +1676,19 @@ describe("applyRecoveryAndCompose (mt#1496)", () => {
     expect(result.composed.event).toBe("COMMENT");
   });
 
-  test("conclude_review COMMENT (not REQUEST_CHANGES): no reconciliation needed", () => {
+  test("conclude_review COMMENT (not REQUEST_CHANGES): Step 3 reconciliation not needed, but mt#3202 promotes zero-BLOCKING COMMENT to APPROVE", () => {
+    // The model's OWN conclusion was COMMENT (not REQUEST_CHANGES), so Step 3
+    // (mt#1496's crossed-zero rewrite, which only fires for a REQUEST_CHANGES
+    // conclusion) never fires — reconcileApplied stays false. But
+    // composeReviewBody's own mt#3202 / ask#6013 reconciliation still applies
+    // to this genuinely zero-BLOCKING, model-authored COMMENT: it promotes to
+    // APPROVE, same as if no monotonicity recovery had run at all.
     const toolCalls: ReviewToolCall[] = [finding("BLOCKING", "src/foo.ts", 5), conclude("COMMENT")];
     const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
     const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
     expect(result.postRecoveryBlockingCount).toBe(0);
     expect(result.reconcileApplied).toBe(false);
-    expect(result.composed.event).toBe("COMMENT");
+    expect(result.composed.event).toBe("APPROVE");
   });
 
   test("downgrades array contains expected audit fields", () => {

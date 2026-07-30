@@ -12,7 +12,14 @@ async function startTestServer(): Promise<{
   url: string;
   close: () => Promise<void>;
 }> {
-  const app = createCockpitServer({ overrideToken: TEST_TOKEN });
+  const app = createCockpitServer({
+    overrideToken: TEST_TOKEN,
+    // mt#3254: assert the no-database degradation explicitly rather than by
+    // relying on the ambient environment to have no SQL provider. Without
+    // this the route reaches the production resolution path, which a test
+    // process is refused — and which is how test runs reached prod at all.
+    overrideProjectRoutes: { getDb: async () => null },
+  });
   const server: Server = createServer(app);
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

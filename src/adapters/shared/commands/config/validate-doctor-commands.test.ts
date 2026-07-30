@@ -24,11 +24,13 @@
 import { describe, test, expect } from "bun:test";
 import {
   checkReviewerRetriggerReachability,
+  checkGithubAppPermissionDrift,
   configDoctorRegistration,
 } from "./validate-doctor-commands";
 import { CustomConfigFactory, initializeConfiguration } from "@minsky/domain/configuration/index";
 
 const REACHABILITY_CHECK_NAME = "Reviewer Retrigger Reachability";
+const GITHUB_APP_PERMISSIONS_CHECK_NAME = "GitHub App Permissions";
 const MCP_AUTH_TOKEN_ENV_VAR = "MINSKY_MCP_AUTH_TOKEN";
 
 /** Minimal valid params for configDoctorRegistration.execute — none of these
@@ -74,6 +76,39 @@ describe("checkReviewerRetriggerReachability", () => {
     const result = checkReviewerRetriggerReachability("");
 
     expect(result.status).toBe("warning");
+  });
+});
+
+describe("checkGithubAppPermissionDrift (mt#3218)", () => {
+  test("no App configured → pass, nothing to check", async () => {
+    const result = await checkGithubAppPermissionDrift(undefined);
+
+    expect(result.check).toBe(GITHUB_APP_PERMISSIONS_CHECK_NAME);
+    expect(result.status).toBe("pass");
+    expect(result.message).toContain("No GitHub App service account configured");
+  });
+
+  test("all required permissions present → pass", async () => {
+    const result = await checkGithubAppPermissionDrift({
+      slug: "minsky-ai",
+      permissions: { pull_requests: "write", contents: "write", metadata: "read" },
+    });
+
+    expect(result.status).toBe("pass");
+    expect(result.message).toContain("minsky-ai");
+  });
+
+  test("contents:read instead of contents:write → warning naming the settings URL (mt#3210 case)", async () => {
+    const result = await checkGithubAppPermissionDrift({
+      slug: "minsky-ai",
+      permissions: { pull_requests: "write", contents: "read", metadata: "read" },
+    });
+
+    expect(result.status).toBe("warning");
+    expect(result.message).toContain("https://github.com/settings/apps/minsky-ai/permissions");
+    expect(result.message).toContain("contents");
+    expect(result.suggestion).toContain("https://github.com/settings/apps/minsky-ai/permissions");
+    expect(result.suggestion).toMatch(/accept/i);
   });
 });
 
@@ -152,6 +187,26 @@ describe("config.doctor execute — reviewer retrigger reachability (production 
       };
 
       const diag = result.diagnostics.find((d) => d.check === REACHABILITY_CHECK_NAME);
+      expect(diag).toBeDefined();
+      expect(diag?.status).toBe("pass");
+    });
+  });
+
+  test("no github.serviceAccount configured → GitHub App Permissions diagnostic is pass (mt#3218)", async () => {
+    await withIsolatedUserConfig(async () => {
+      await initializeConfiguration(new CustomConfigFactory(), {
+        overrides: {
+          reviewer: { url: "https://example-reviewer.example.com" },
+          mcp: { auth: { token: "real-token-value" } },
+        },
+        skipValidation: true,
+      });
+
+      const result = (await configDoctorRegistration.execute(DOCTOR_EXEC_PARAMS, {})) as {
+        diagnostics: Array<{ check: string; status: string; message: string }>;
+      };
+
+      const diag = result.diagnostics.find((d) => d.check === GITHUB_APP_PERMISSIONS_CHECK_NAME);
       expect(diag).toBeDefined();
       expect(diag?.status).toBe("pass");
     });

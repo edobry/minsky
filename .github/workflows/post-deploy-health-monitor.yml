@@ -25,8 +25,15 @@ name: Post-Deploy Health Monitor
 #       Catches the mt#1991 build-failure class (bun install --frozen-lockfile).
 #   (b) GET <service>/health returns 200 — alert on non-200/timeout.
 #       Catches the mt#2345 runtime-crash-after-green-build class.
-# Both checks are required: deploy-status alone misses (b); /health alone
-# misses build failures.
+#   (c) Deployed image digest lags the newest registry digest (mt#3251) —
+#       catches a service that stays HEALTHY on an OLD image because its
+#       deploy pipeline silently stopped shipping new ones. Image-source
+#       services only (reviewer, minsky-mcp); needs no additional secret —
+#       uses GHCR's anonymous registry-token flow. See the module
+#       doc-comment in scripts/post-deploy-health-monitor.ts for the full
+#       Covers / Does NOT cover breakdown.
+# All three checks are independent: deploy-status alone misses (b) and (c);
+# /health alone misses build failures and a frozen-but-healthy deploy.
 #
 # minsky-ops is skipped gracefully (empty serviceId in deploy.config.ts).
 #

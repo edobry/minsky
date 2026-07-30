@@ -31,15 +31,20 @@
 // to a blocking decision is a follow-up once false-positive rate is measured against
 // real merges. Override: `MINSKY_SKIP_AT_COVERAGE=1` skips the check entirely.
 // Graduation (flip WARN -> deny once the calibration FP rate is measured) is tracked
-// as mt#3059 — this task ships Phase 1 (log-only) only.
+// as mt#3339 (mt#3059 fixed FP-1/FP-2; mt#3316 fixed FP-3 and discovered FP-4, still
+// open) — this task ships Phase 1 (log-only) only.
 // @see mt#3033 — this addition; mt#2542 (root incident); mt#2263 (calibration ladder)
-// @see mt#3059 — graduation follow-up (WARN -> deny)
+// @see mt#3059 / mt#3316 / mt#3339 — graduation lineage (WARN -> deny)
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { execWithPath, findRepoRoot, readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
+import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
+import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
+import { computeFenceInternalLines, collectHeadingSections } from "./markdown-sections";
+import { runScCoverageCalibration, SC_COVERAGE_CALIBRATION_LOG } from "./success-criteria-coverage";
 import { classifyOverride } from "./fire-log";
 import {
   deriveRepoFromGit as deriveRepoFromGitImpl,
@@ -377,16 +382,103 @@ export interface AcceptanceTestItem {
 }
 
 /**
- * Extracts the raw body of a spec's `## Acceptance Tests` section (everything between
- * the heading and the next `##` heading, a `---` divider, or end-of-string). Mirrors the
- * section-extraction regex in `require-acceptance-tests-before-done.ts` for consistency
- * across the two hooks that read this same spec convention.
+ * Matches a heading that introduces a SUPERSEDING acceptance-test section (mt#3306
+ * Defect 2 / mt#3059 FP-2) — `## Remaining acceptance tests`, `### Updated acceptance
+ * tests`, etc.
  *
- * Returns `null` when no such section exists.
+ * Why this exists: long-lived incident tasks get rescoped mid-life, and this repo's
+ * convention (mt#3142, mt#3030, mt#3251) is to APPEND the new disposition while
+ * PRESERVING the original `## Acceptance Tests` section as an audit trail — so a spec
+ * can legitimately carry both a stale original section and a live "Remaining / Updated /
+ * Revised / Current acceptance tests" section at once, in EITHER document order (a
+ * rescoping preface commonly sits near the TOP of the spec, ahead of the original
+ * section it supersedes, which is kept further down for history — see mt#3142's real
+ * spec).
+ *
+ * Boundary construction (merged mt#3059 PR #2386 R1 into mt#3306's regex): the trailing
+ * lookahead anchors the next-heading alternative on `^` (multiline) instead of requiring
+ * a literal preceding `\n`, so a heading that immediately follows this one with ZERO AT
+ * content (no blank line separating them) is still recognized as the boundary — a plain
+ * `\n#{2,3}\s` lookahead cannot match there, because the `\n` that would satisfy it was
+ * already consumed by THIS heading's own match, silently expanding the capture past the
+ * empty section into whatever came next. Turning on multiline mode for `^` has one
+ * consequence to guard against: the same flag also makes a bare `$` mean "end of every
+ * line," not "end of string" — the final alternative uses `(?![\s\S])` instead (a
+ * negative lookahead for "any character remains," true end-of-string regardless of the
+ * `m` flag) specifically to avoid that. Verified empirically against the exact fixture
+ * that caught this in PR #2386 R1 (a `## Acceptance Tests` heading immediately followed
+ * by `### Covers`, zero AT content) before merging this structure — the un-patched
+ * version over-captured past the subsection; this one correctly returns an empty section.
+ */
+const SUPERSEDING_ACCEPTANCE_TESTS_RE =
+  /(?:^|\n)#{2,3}\s+(?:Remaining|Updated|Revised|Current)\s+acceptance tests\s*\n([\s\S]*?)(?=^#{2,3}\s|^---[ \t]*$|(?![\s\S]))/im;
+
+/**
+ * Global-flagged twin of {@link SUPERSEDING_ACCEPTANCE_TESTS_RE}, used with
+ * `matchAll` so the LAST superseding section wins when a spec has been rescoped
+ * more than once — "later supersedes earlier" is the whole premise of preferring a
+ * superseding section at all, so selecting the FIRST match would reintroduce the same
+ * defect one level up. Kept as a separate constant rather than adding `g` to the
+ * original: a `g`-flagged regex carries mutable `lastIndex` state across calls, so
+ * sharing one instance between `match` and `matchAll` call sites would make results
+ * depend on call order. `matchAll` itself clones the regex internally, so this constant
+ * is safe to reuse.
+ */
+const SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL = new RegExp(
+  SUPERSEDING_ACCEPTANCE_TESTS_RE.source,
+  "gim"
+);
+
+/**
+ * Matches the ORIGINAL `## Acceptance Tests` heading and its body.
+ *
+ * Boundary rule (mt#3306 Defect 1 / mt#3059 FP-1): the section ends at the next heading
+ * of the SAME OR DEEPER level (`##` or `###`), not just an exact `## ` sibling.
+ * `work-completion.mdc §Recovery layer spec discipline` REQUIRES a `### Covers` /
+ * `### Does NOT cover` pair on every spec introducing a sweeper/retry/fallback/gate —
+ * exactly the infrastructure-hardening specs this check most wants to police — and a
+ * `###` boundary was invisible to the old `\n##\s` lookahead (its third `#` fails the
+ * `\s` check), so extraction ran straight past the subsection and swept its bullets in as
+ * acceptance tests (mt#3117 / PR #2234: reported 10 "ATs" against a spec that declared 4).
+ *
+ * Same `^`/`(?![\s\S])` boundary construction as {@link SUPERSEDING_ACCEPTANCE_TESTS_RE}
+ * above (merged mt#3059 PR #2386 R1 fix) — see that constant's doc comment for why.
+ */
+const ACCEPTANCE_TESTS_RE =
+  /##\s*Acceptance Tests\s*\n([\s\S]*?)(?=^#{2,3}\s|^---[ \t]*$|(?![\s\S]))/im;
+
+/**
+ * Extracts the raw body of a spec's authoritative acceptance-tests section.
+ *
+ * Precedence (mt#3306 Defect 2 / mt#3059 FP-2): a SUPERSEDING section — matched by
+ * `SUPERSEDING_ACCEPTANCE_TESTS_RE` above — always wins over the original `##
+ * Acceptance Tests` section when both are present, regardless of which appears first in
+ * the document. `String.prototype.match` only ever returns the FIRST literal match, so
+ * without this explicit precedence check the extractor would silently keep reading a
+ * stale, already-superseded section (mt#3142 / PR #2365: reported 3 of 5 "unaddressed"
+ * ATs, all three satisfied and dispositioned DONE days earlier — the spec's own
+ * `### Remaining acceptance tests` section, listing the 3 checks that actually still
+ * applied, was never consulted). When a spec has been rescoped MORE than once, the LAST
+ * superseding section wins (see `SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL`).
+ *
+ * Historical note: the original (pre-mt#3059) regex here mirrored one in
+ * `require-acceptance-tests-before-done.ts`, an unregistered, never-live DONE-transition
+ * hook deleted as dead code in mt#975. This hook is now the sole reader of this spec
+ * convention.
+ *
+ * Returns `null` when neither a superseding nor an original section exists.
  */
 export function extractAcceptanceTestsSection(specContent: string): string | null {
-  const match = specContent.match(/##\s*Acceptance Tests\s*\n([\s\S]*?)(?=\n##\s|\n---|$)/i);
-  return match ? (match[1] ?? "") : null;
+  // Take the LAST superseding section, not the first — see
+  // SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL's doc comment.
+  let lastSuperseding: RegExpMatchArray | null = null;
+  for (const m of specContent.matchAll(SUPERSEDING_ACCEPTANCE_TESTS_RE_GLOBAL)) {
+    lastSuperseding = m;
+  }
+  if (lastSuperseding) return lastSuperseding[1] ?? "";
+
+  const original = specContent.match(ACCEPTANCE_TESTS_RE);
+  return original ? (original[1] ?? "") : null;
 }
 
 /**
@@ -500,17 +592,51 @@ export function isExecutableAcceptanceTest(text: string, taskKind?: string): boo
  * marker is present — this is a plain text-extraction helper, deliberately independent
  * of `hasExecutionEvidence` (which stays byte-for-byte unchanged per mt#3033 constraint
  * 2) so neither function's behavior can regress the other's test suite.
+ *
+ * **mt#3316 FP-3 fix (originating incident: mt#3174 / PR #2264).** The scan ALSO covers
+ * any PR-body section whose heading names "acceptance test(s)" — e.g. `### Acceptance
+ * tests (mt#3174 spec, by number)` — in addition to the literal `Execution evidence:`
+ * block. Before this fix, an AT-by-number reference living in a SIBLING section (a
+ * heading immediately following the Execution evidence content) was invisible to the
+ * scan, which stops at the next heading of any level: `checkAcceptanceTestCoverage`
+ * would then report a genuinely-addressed AT as unaddressed — recorded as FP-3 in
+ * mt#3059's `## Observed false positives` running log. `communication-contract.mdc
+ * §Three authoring requirements` (mt#3200) now tells authors to keep AT references
+ * INSIDE the Execution evidence block going forward; this widening is the scanner-side
+ * complement, covering evidence written before that convention existed (like PR #2264
+ * itself) and PR bodies that reasonably split a dedicated AT-by-number section out for
+ * readability. Deliberately narrow — matches only on heading TEXT containing "acceptance
+ * test(s)", not arbitrary PR-body prose, to keep the false-negative surface small (per
+ * `checkAcceptanceTestCoverage`'s existing false-positive-averse design).
+ *
+ * **Fence-aware scanning (PR #2410 R1 BLOCKING #1).** Both heading-detection passes
+ * below (the pre-existing Execution-evidence scan AND the acceptance-tests widening —
+ * same bug class, fixed together per class-not-instance) skip lines that sit INSIDE a
+ * fenced code block when deciding whether a line is a real Markdown heading. A PR body
+ * legitimately pastes example Markdown or terminal output inside ``` fences; a
+ * heading-looking line in there (e.g. an illustrative `### Acceptance tests` snippet, or
+ * a test-failure message starting with `# `) must not be misread as a real section
+ * boundary — it would either wrongly widen the acceptance-tests scan into unrelated
+ * pasted content, or wrongly truncate a real Execution-evidence block early. This
+ * REUSES the fence-delimiter recognition already centralized in `elision.ts`'s
+ * `elideQuotedContexts` (backtick OR tilde, 3+ markers) as a per-line predicate — not
+ * that module's whole-string blank-and-replace transform, which would incorrectly blank
+ * real pasted test-run output that legitimately lives inside a fence (exactly what an
+ * `Execution evidence:` block usually contains).
  */
+const ACCEPTANCE_TESTS_HEADING_LINE_PATTERN = /^ {0,3}#{1,6}\s+.*\bacceptance tests?\b/i;
+
 export function extractExecutionEvidenceText(prBody: string): string {
   const strippedBody = prBody.replace(/<!--[\s\S]*?-->/g, "");
   const headingPattern =
     /^(?: {0,3}(#{1,6})\s+execution evidence\s*:?|execution evidence\s*:)\s*(.*)$/im;
   const lines = strippedBody.split("\n");
+  const fenceInternal = computeFenceInternalLines(lines);
   const collected: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (line === undefined) continue;
+    if (line === undefined || fenceInternal[i]) continue;
     const match = line.match(headingPattern);
     if (!match) continue;
 
@@ -523,10 +649,18 @@ export function extractExecutionEvidenceText(prBody: string): string {
     for (let j = i + 1; j < lines.length; j++) {
       const nextLine = lines[j];
       if (nextLine === undefined) break;
-      if (/^ {0,3}#{1,6}\s/.test(nextLine)) break;
+      if (!fenceInternal[j] && /^ {0,3}#{1,6}\s/.test(nextLine)) break;
       collected.push(nextLine);
     }
   }
+
+  // mt#3316 FP-3: widen the scan to also cover any "acceptance test(s)" heading's
+  // section, in addition to the literal Execution evidence block collected above.
+  collected.push(
+    ...collectHeadingSections(lines, fenceInternal, (line) =>
+      ACCEPTANCE_TESTS_HEADING_LINE_PATTERN.test(line)
+    )
+  );
 
   return collected.join("\n");
 }
@@ -645,25 +779,40 @@ export function isAtCoverageSkipped(): boolean {
 }
 
 /**
- * Appends one AT-coverage calibration record. Fail-safe: never throws — a calibration-log
- * write failure must never affect the (log-only) merge decision.
+ * Appends one calibration record to `logRelPath` under `repoRootDir`. Fail-safe: never throws —
+ * a calibration-log write failure must never affect the (log-only) merge decision.
+ *
+ * The log path is REQUIRED, deliberately (PR #2432 R1). An earlier shape gave it a default of
+ * `AT_COVERAGE_CALIBRATION_LOG`, which meant any caller that forgot the argument silently wrote
+ * its records into the acceptance-test log — corrupting BOTH corpora at once, and in a way no
+ * test would notice because the write still succeeds. For a mechanism whose entire deliverable
+ * is a trustworthy measurement, that default is not a convenience worth its failure mode.
  */
-export function appendAtCoverageCalibration(
+export function appendCalibrationRecord(
   record: Record<string, unknown>,
-  repoRootDir: string
+  repoRootDir: string,
+  logRelPath: string
 ): void {
   try {
-    const logPath = resolve(repoRootDir, AT_COVERAGE_CALIBRATION_LOG);
+    const logPath = resolve(repoRootDir, logRelPath);
     const dir = dirname(logPath);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
   } catch (err) {
     process.stderr.write(
-      `[execution-evidence-at-coverage] Failed to write calibration log: ${
+      `[execution-evidence-calibration] Failed to write ${logRelPath}: ${
         err instanceof Error ? err.message : String(err)
       }\n`
     );
   }
+}
+
+/** Appends an acceptance-test calibration record. Thin wrapper naming its own log. */
+export function appendAtCoverageCalibration(
+  record: Record<string, unknown>,
+  repoRootDir: string
+): void {
+  appendCalibrationRecord(record, repoRootDir, AT_COVERAGE_CALIBRATION_LOG);
 }
 
 /** Result of fetching a task's spec for the AT-coverage check. */
@@ -717,22 +866,24 @@ export interface AtCoverageCalibrationRunResult {
 }
 
 /**
- * Runs the full AT-coverage calibration surface for one merge attempt: fetch spec, parse
- * ATs, classify, check coverage, log on a would-be-block, and return a WARN string (never
- * a deny). Fully guarded — this function must never throw and must never, by itself,
- * cause the hook process to exit non-zero or emit `permissionDecision: "deny"`.
+ * AT-coverage calibration against an ALREADY-FETCHED spec.
+ *
+ * Split out from {@link runAtCoverageCalibration} by PR #2432 R2. The entry point fetches the
+ * spec once and drives BOTH calibration surfaces from it, so the acceptance-test and
+ * success-criteria checks are genuinely independent: each honors only its own override. The
+ * previous shape had the entry point read the spec back out of this function's result, which
+ * silently coupled them — `MINSKY_SKIP_AT_COVERAGE=1` returned early with no spec, so it
+ * disabled the success-criteria surface too, contradicting the separate
+ * `MINSKY_SKIP_SC_COVERAGE` override those two are documented to have.
  */
-export function runAtCoverageCalibration(
+export function runAtCoverageCalibrationWithSpec(
   task: string,
   prNumber: number,
   prBody: string,
-  cwd: string,
-  repoRootDir: string,
-  exec: ExecFn = execWithPath
+  specFetch: TaskSpecFetchResult,
+  repoRootDir: string
 ): AtCoverageCalibrationRunResult {
   if (isAtCoverageSkipped()) return { ranCheck: false };
-
-  const specFetch = fetchTaskSpecForAtCoverage(task, cwd, exec);
   if (!specFetch.ok || typeof specFetch.content !== "string") return { ranCheck: false };
 
   let coverage: AtCoverageResult;
@@ -779,6 +930,25 @@ export function runAtCoverageCalibration(
   return { ranCheck: true, warning };
 }
 
+/**
+ * Runs the full AT-coverage calibration surface for one merge attempt: fetch spec, parse
+ * ATs, classify, check coverage, log on a would-be-block, and return a WARN string (never
+ * a deny). Fully guarded — this function must never throw and must never, by itself,
+ * cause the hook process to exit non-zero or emit `permissionDecision: "deny"`.
+ */
+export function runAtCoverageCalibration(
+  task: string,
+  prNumber: number,
+  prBody: string,
+  cwd: string,
+  repoRootDir: string,
+  exec: ExecFn = execWithPath
+): AtCoverageCalibrationRunResult {
+  if (isAtCoverageSkipped()) return { ranCheck: false };
+  const specFetch = fetchTaskSpecForAtCoverage(task, cwd, exec);
+  return runAtCoverageCalibrationWithSpec(task, prNumber, prBody, specFetch, repoRootDir);
+}
+
 // ---------------------------------------------------------------------------
 // Top-level hook entry point
 // ---------------------------------------------------------------------------
@@ -788,10 +958,32 @@ if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
   // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
   // once per invocation regardless of which exit fires below.
-  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
+  const fireLogContext: MergeGateFireLogContext = {};
+  const recordAndExit: RecordAndExit = makeRecordAndExit(
+    GUARD_NAME,
+    startMs,
+    input,
+    undefined,
+    fireLogContext
+  );
 
-  const task = (input.tool_input.task as string | undefined) ?? "";
-  if (!task) recordAndExit("allow");
+  // mt#3355: `session_pr_merge` takes EITHER `task` or `sessionId`, both optional. This
+  // used to read `tool_input.task` alone and exit `allow` when it was empty, so every
+  // `sessionId`-invoked merge silently skipped the whole gate (11.6% of recorded
+  // invocations). Resolve through the shared resolver, record which source produced the
+  // id, and WARN rather than allow when neither does.
+  const resolution = resolveMergeGateTaskId(input);
+  fireLogContext.taskResolutionSource = resolution.source;
+  const task = resolution.taskId;
+  if (!task) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
+      },
+    });
+    recordAndExit("warn");
+  }
 
   // Derive owner/repo from the git remote so the hook works on forks and
   // non-edobry/minsky remotes. Fail-open with a warning if derivation fails.
@@ -837,18 +1029,47 @@ if (import.meta.main) {
   // Combine top-level warnings (e.g. fetchPrFiles warning) with check-level warnings
   const allWarnings = [...topLevelWarnings, ...result.warnings];
 
-  // mt#3033: additive, calibration-first AT-cross-reference check. Runs regardless of
-  // the file-pattern trigger's outcome above — it is a SEPARATE, log-only signal, never
-  // a deny, and never suppresses or alters `result.blocked` in any way.
-  const atCoverage = runAtCoverageCalibration(
+  // mt#3033 / mt#3350: TWO additive, calibration-first cross-reference checks, driven from ONE
+  // spec fetch. Both run regardless of the file-pattern trigger's outcome above — they are
+  // SEPARATE, log-only signals, never a deny, and neither suppresses or alters
+  // `result.blocked` in any way.
+  //
+  // The fetch is deliberately OUTSIDE both surfaces (PR #2432 R2). Reading the spec back out of
+  // the AT result coupled them: `MINSKY_SKIP_AT_COVERAGE=1` returned early with no spec, which
+  // silently disabled the success-criteria surface too, despite the two having separate
+  // documented overrides.
+  const repoRootDir = findRepoRoot(input.cwd);
+  const specFetch = fetchTaskSpecForAtCoverage(task, input.cwd);
+
+  const atCoverage = runAtCoverageCalibrationWithSpec(
     task,
     context.prNumber,
     prBody,
-    input.cwd,
-    findRepoRoot(input.cwd)
+    specFetch,
+    repoRootDir
   );
   if (atCoverage.warning) {
     allWarnings.push(atCoverage.warning);
+  }
+
+  if (specFetch.ok && typeof specFetch.content === "string") {
+    const scCoverage = runScCoverageCalibration(
+      task,
+      context.prNumber,
+      specFetch.content,
+      prBody,
+      extractExecutionEvidenceText(prBody)
+    );
+    if (scCoverage.calibrationRecord) {
+      appendCalibrationRecord(
+        scCoverage.calibrationRecord,
+        repoRootDir,
+        SC_COVERAGE_CALIBRATION_LOG
+      );
+    }
+    if (scCoverage.warning) {
+      allWarnings.push(scCoverage.warning);
+    }
   }
   // mt#3084: MINSKY_SKIP_AT_COVERAGE is a documented escape hatch
   // (`isAtCoverageSkipped`, consulted inside `runAtCoverageCalibration`) —

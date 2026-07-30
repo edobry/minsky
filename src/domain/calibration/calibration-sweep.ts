@@ -71,6 +71,27 @@ export interface CalibrationLogEntry {
    *   the mt#2708 spec's Graduation contract — a tool-use-pattern detector
    *   has no natural "phrase," and distinct loaded-skill names are more
    *   semantically meaningful than tool names for this detector).
+   * "constructed-identifier-batch" → record.matches: {category, phrase, ...}[]
+   *   (mt#3125) — same matches-shape family as retrospective-trigger /
+   *   ask-routing-deferral / pre-narration (parsed by the shared fallback
+   *   branch below, no dedicated `kind === ...` branch needed); `category`
+   *   is the `${mintTool}+${consumeTool}` pair label, `phrase` is the
+   *   consuming call's free-text excerpt. `mintTool`/`consumeTool`/
+   *   `consumeField` are carried as extra context, not consulted here.
+   * "operator-deferral"        → record.matches: {category, phrase}[] (mt#2459) —
+   *   same matches-shape family as pre-narration / constructed-identifier-batch
+   *   (parsed by the shared fallback branch below); `category` is the surface
+   *   (`capability-deferral-prose` | `ask-option-label`), `phrase` is the
+   *   matched excerpt. BOTH of the detector's surfaces write to this one log —
+   *   they are two detection surfaces on ONE failure family, so measuring them
+   *   together is what the graduation decision needs.
+   * "untaken-action"           → record.matches: {family, phrase}[] (mt#3179) —
+   *   same matches-shape family as retrospective-trigger (parsed by the shared
+   *   fallback branch below); `family` is the commitment pattern that matched
+   *   (e.g. `taking-forward`), `phrase` is the matched excerpt. Given its OWN
+   *   kind rather than reusing "retrospective-trigger" because the registry
+   *   invariant (PR #2263 R1) requires kind values to be unique per entry —
+   *   that uniqueness is what keeps the fire-log guard-name mapping 1:1.
    */
   kind:
     | "causal-premise"
@@ -82,7 +103,10 @@ export interface CalibrationLogEntry {
     | "silent-stretch"
     | "wall-of-text"
     | "build-claim-injection"
-    | "knowledge-acquisition";
+    | "knowledge-acquisition"
+    | "constructed-identifier-batch"
+    | "operator-deferral"
+    | "untaken-action";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
    * trigger: the number of days a NEVER-reviewed log may accumulate fires
@@ -207,6 +231,12 @@ export function findInvalidLiveSinceDates(
  *     tighter than mt#2923's 30 — research-tool calls are routine, so the
  *     count/diversity leg should bind first; the time leg is a backstop, not
  *     the primary trigger, per the mt#2708 spec's Graduation contract).
+ * V7 entry (mt#3125):
+ *   - constructed-identifier-batch-calibration.jsonl (mt#3125 detector) —
+ *     the root-tier sibling of pre-narration/mt#2195's family: fires on the
+ *     BATCH itself (an id-minting call + an id-consuming call in one
+ *     parallel tool-call batch), not a downstream identifier surface.
+ *     Matched-phrase shape family (same as retrospective-trigger).
  *
  * To add another log: append one CalibrationLogEntry here.
  */
@@ -299,6 +329,25 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // carries the actual positive-control (writes a record) / negative-
     // control (writes nothing) transcript this date is derived from.
     liveSinceDate: "2026-07-23",
+  },
+  {
+    path: ".minsky/constructed-identifier-batch-calibration.jsonl",
+    name: "constructed-identifier-batch",
+    kind: "constructed-identifier-batch",
+  },
+  {
+    path: ".minsky/operator-deferral-calibration.jsonl",
+    name: "operator-deferral",
+    kind: "operator-deferral",
+  },
+  {
+    path: ".minsky/untaken-action-calibration.jsonl",
+    name: "untaken-action",
+    // mt#3179 — turn-end-untaken-action-scan emits `matches: {family, phrase}[]`,
+    // the same shape as retrospective-trigger, so it parses through the shared
+    // fallback branch with no dedicated parser case. It still gets its OWN kind:
+    // the registry invariant (PR #2263 R1) requires unique kinds per entry.
+    kind: "untaken-action",
   },
 ];
 
@@ -403,13 +452,32 @@ export interface CausalPremiseRecord {
   session_id?: string;
   matchedPhrases: string[];
   hadSameTurnVerification: boolean;
+  /**
+   * Text surrounding the first matched phrase (mt#3289).
+   *
+   * `matchedPhrases` carries `match[0].slice(0, 120)` — the matched text
+   * TRUNCATED, not the text around it — so a record reading
+   * `"matchedPhrases":["The root cause is"]` gives a reviewer the phrase and
+   * nothing to judge it by. Same field name and same window as
+   * `RetrospectiveTriggerRecord` below, whose fires were the only classifiable
+   * ones in the 2026-07-28 review.
+   */
+  transcript_excerpt?: string;
 }
 
 /** Parsed retrospective-trigger calibration record. */
 export interface RetrospectiveTriggerRecord {
   timestamp: string;
   session_id?: string;
-  matches: Array<{ family: string; phrase: string }>;
+  matches: Array<{
+    family: string;
+    phrase: string;
+    /**
+     * Per-match keys this branch does not consume structurally — e.g.
+     * `pre-narration`'s `expectedTool` / `hadMatchingTool` (mt#3289).
+     */
+    detectorFields?: Record<string, unknown>;
+  }>;
   transcript_excerpt?: string;
 }
 
@@ -514,8 +582,45 @@ export interface KnowledgeAcquisitionRecord {
   hadPropagation: boolean;
 }
 
+/**
+ * Fields every calibration record may carry regardless of its detector
+ * (mt#3197). Kept as an intersection rather than repeated on all eight member
+ * types so a new record kind inherits it automatically.
+ */
+export interface SharedCalibrationFields {
+  /**
+   * Injection-layer suppression outcome — the convention
+   * `code-mechanism-assertion` introduced in mt#3113, generalized here.
+   *
+   * - non-empty  → detected, then SUPPRESSED (reasons name the gate that fired)
+   * - empty `[]` → detected and INJECTED; the operator actually saw it
+   * - absent     → this detector does not record the outcome yet, OR the
+   *                record predates the field. NOT the same as empty.
+   */
+  suppressionReasons?: string[];
+
+  /**
+   * Every key on the raw record that the per-kind parse did not consume,
+   * carried through verbatim (mt#3289).
+   *
+   * Attached by `parseCalibrationRecord` for the same reason mt#3197 attached
+   * `suppressionReasons` there, and documented in that function's comment: the
+   * per-kind branches construct their objects field-by-field, so a key no
+   * branch names is dropped. mt#3197 fixed that for ONE field; the shared
+   * fallback branch then went on dropping `untaken-action`'s
+   * `final_message_tail` — the only field that makes its fires classifiable —
+   * which is why two consecutive calibration reviews reported "unclassifiable"
+   * while the evidence sat on disk in every record since the first.
+   *
+   * A passthrough rather than a third named field: naming them one at a time is
+   * what produced the same defect twice, and it puts the burden on a future
+   * detector author to remember a file they have no reason to open.
+   */
+  detectorFields?: Record<string, unknown>;
+}
+
 /** Union of all record types. */
-export type CalibrationRecord =
+export type CalibrationRecord = (
   | CausalPremiseRecord
   | RetrospectiveTriggerRecord
   | CodeMechanismAssertionRecord
@@ -523,7 +628,9 @@ export type CalibrationRecord =
   | SilentStretchRecord
   | WallOfTextRecord
   | BuildClaimInjectionRecord
-  | KnowledgeAcquisitionRecord;
+  | KnowledgeAcquisitionRecord
+) &
+  SharedCalibrationFields;
 
 // ---------------------------------------------------------------------------
 // Per-log result
@@ -537,8 +644,29 @@ export interface CalibrationLogResult {
   exists: boolean;
   /** Total records in the log (all-time). */
   totalFires: number;
-  /** Records added since the last acknowledged review (= total - watermark). */
+  /**
+   * Records added since the last acknowledged review (= total - watermark).
+   *
+   * POSITIONAL, deliberately: the watermark is itself a record count, so this
+   * must stay aligned with it. It is NOT the review-cadence signal — see
+   * `injectedFiresSinceLastReview` (mt#3197).
+   */
   firesSinceLastReview: number;
+  /**
+   * Of `firesSinceLastReview`, how many were detected then SUPPRESSED and so
+   * never reached the operator (mt#3197).
+   */
+  suppressedSinceLastReview: number;
+  /**
+   * `firesSinceLastReview` minus the suppressed ones — the count the review
+   * thresholds actually key off, because a suppressed detection is not an
+   * operator-facing fire (mt#3197).
+   *
+   * Records from detectors that don't record a suppression outcome, and
+   * records predating the field, count as injected here: unknown is treated
+   * as operator-facing so a missing outcome can never hide a real fire.
+   */
+  injectedFiresSinceLastReview: number;
   /** Number of distinct matched phrases across all fires-since-last-review records. */
   distinctPhrases: number;
   /** True when fires-since-last-review >= FIRES_THRESHOLD (count bar, diversity-agnostic). */
@@ -580,20 +708,134 @@ export interface CalibrationLogResult {
  * @param line - raw JSONL line string
  * @param kind - log kind (drives parse path)
  */
+/**
+ * Read the injection-layer suppression outcome off a raw record (mt#3197).
+ *
+ * `suppressionReasons` is the convention `code-mechanism-assertion` introduced
+ * in mt#3113: an empty/absent array means the detection was INJECTED (the
+ * operator actually saw it); a non-empty array means it was detected and then
+ * SUPPRESSED, with the reasons naming which gate fired.
+ *
+ * Absent is deliberately NOT the same as empty. A record written before its
+ * detector recorded the field cannot be classified either way, and treating
+ * "absent" as "injected" would silently re-inflate exactly the count this
+ * task exists to deflate. `isSuppressedRecord` therefore reports absent as
+ * not-suppressed (conservative: it still counts toward review) while
+ * `hasSuppressionOutcome` lets callers distinguish "known injected" from
+ * "unknown".
+ */
+function parseSuppressionReasons(raw: Record<string, unknown>): string[] | undefined {
+  const value = raw["suppressionReasons"];
+  if (!Array.isArray(value)) return undefined;
+  return value.map(String);
+}
+
+/** Was this detection suppressed before reaching the operator? (mt#3197) */
+export function isSuppressedRecord(record: CalibrationRecord): boolean {
+  return (record.suppressionReasons?.length ?? 0) > 0;
+}
+
+/** Does this record carry a suppression outcome at all? (mt#3197 back-compat) */
+export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
+  return Array.isArray(record.suppressionReasons);
+}
+
+/**
+ * Match keys the shared fallback branch consumes structurally (mt#3289).
+ *
+ * `family`/`class`/`category` are the three per-detector label keys the branch
+ * collapses into one `family`, and `phrase` is the matched text. Anything else
+ * on a match object is detector-specific — `pre-narration` writes
+ * `expectedTool` and `hadMatchingTool` — and is carried through rather than
+ * dropped.
+ */
+const CONSUMED_MATCH_KEYS = new Set(["family", "class", "category", "phrase"]);
+
+/**
+ * Collect every raw record key the per-kind parse did not consume (mt#3289).
+ *
+ * Consumed-ness is derived from the PARSED record's own keys rather than a
+ * hand-maintained allowlist, so when a per-kind branch starts naming a field it
+ * automatically stops being reported here — there is no second list that can
+ * drift out of sync with the first. `suppressionReasons` is excluded because
+ * mt#3197 already gives it a typed field of its own.
+ *
+ * Returns `undefined` rather than `{}` when nothing was dropped, so a record
+ * that carries no detector-specific fields is byte-identical to what it parsed
+ * to before this change.
+ */
+function parseDetectorFields(
+  raw: Record<string, unknown>,
+  record: object
+): Record<string, unknown> | undefined {
+  const consumed = new Set<string>([...Object.keys(record), "suppressionReasons"]);
+  const dropped = Object.entries(raw).filter(([key]) => !consumed.has(key));
+  return dropped.length > 0 ? Object.fromEntries(dropped) : undefined;
+}
+
+/**
+ * Parse one JSONL line into a typed record.
+ *
+ * mt#3197: the per-kind branches below construct their objects field-by-field
+ * and therefore DROP any key they don't name — which is why
+ * `suppressionReasons` was invisible to this sweep even though
+ * `code-mechanism-assertion` had been writing it since mt#3113. Rather than
+ * thread the field through all eight branches (and require every future
+ * branch to remember it), the per-kind parse is wrapped and the shared field
+ * is attached once, here.
+ *
+ * mt#3289 generalizes that seam. Naming one field fixed one field: the shared
+ * fallback branch kept dropping `untaken-action`'s `final_message_tail`, the
+ * only field that makes its fires classifiable, and two consecutive calibration
+ * reviews concluded "unclassifiable" from records that had carried the evidence
+ * since the first one. So every unconsumed key now rides through as
+ * `detectorFields` — a detector author adding a field does not have to know
+ * this file exists for the field to reach a reviewer.
+ */
 export function parseCalibrationRecord(
   line: string,
   kind: CalibrationLogEntry["kind"]
 ): CalibrationRecord | null {
+  let raw: Record<string, unknown>;
   try {
-    const raw = JSON.parse(line) as Record<string, unknown>;
+    raw = JSON.parse(line) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const record = parseCalibrationRecordCore(raw, kind);
+  if (record === null) return null;
+  const suppressionReasons = parseSuppressionReasons(raw);
+  const detectorFields = parseDetectorFields(raw, record);
+  return {
+    ...record,
+    ...(suppressionReasons === undefined ? {} : { suppressionReasons }),
+    ...(detectorFields === undefined ? {} : { detectorFields }),
+  };
+}
+
+function parseCalibrationRecordCore(
+  raw: Record<string, unknown>,
+  kind: CalibrationLogEntry["kind"]
+): CalibrationRecord | null {
+  try {
     if (kind === "causal-premise") {
-      // Shape: { timestamp, session_id?, matchedPhrases: string[], hadSameTurnVerification: boolean }
+      // Shape: { timestamp, session_id?, matchedPhrases: string[], hadSameTurnVerification: boolean,
+      //          transcript_excerpt? }
       if (!Array.isArray(raw["matchedPhrases"])) return null;
       return {
         timestamp: String(raw["timestamp"] ?? ""),
         session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
         matchedPhrases: (raw["matchedPhrases"] as unknown[]).map(String),
         hadSameTurnVerification: Boolean(raw["hadSameTurnVerification"]),
+        // Read explicitly rather than leaving it to the detectorFields
+        // passthrough (mt#3289 PR #2420 R1): the field is declared on
+        // CausalPremiseRecord and the retrospective-trigger branch reads its own
+        // copy the same way, so a reader comparing the two branches would
+        // otherwise see the type promise a field the parser never populates —
+        // and every consumer keying on `transcript_excerpt` would miss it,
+        // finding it nested one level down instead.
+        transcript_excerpt:
+          raw["transcript_excerpt"] !== undefined ? String(raw["transcript_excerpt"]) : undefined,
       } satisfies CausalPremiseRecord;
     }
 
@@ -729,9 +971,11 @@ export function parseCalibrationRecord(
     const matches = Array.isArray(raw["matches"])
       ? (raw["matches"] as unknown[]).map((m) => {
           const obj = m as Record<string, unknown>;
+          const dropped = Object.entries(obj).filter(([key]) => !CONSUMED_MATCH_KEYS.has(key));
           return {
             family: String(obj["family"] ?? obj["class"] ?? obj["category"] ?? ""),
             phrase: String(obj["phrase"] ?? ""),
+            ...(dropped.length > 0 ? { detectorFields: Object.fromEntries(dropped) } : {}),
           };
         })
       : [];
@@ -853,11 +1097,23 @@ export function computeLogResult(
   const newRecords = allRecords.slice(watermarkCount);
 
   const distinctPhrases = extractDistinctPhrases(newRecords).size;
+
+  // mt#3197: a SUPPRESSED detection never reached the operator, so it is not a
+  // "fire" for review-cadence purposes. Counting it was making a correctly-tuned
+  // detector trip review forever: code-mechanism-assertion reported 71 fires in
+  // the 2026-07-24 pass, of which 30 were known-suppressed and only 3 known-
+  // injected. `firesSinceLastReview` KEEPS its positional meaning (records added
+  // since the watermark) because the watermark is itself a record COUNT and the
+  // arithmetic must stay aligned with it; the threshold keys off the injected
+  // count instead.
+  const suppressedSinceLastReview = newRecords.filter(isSuppressedRecord).length;
+  const injectedFiresSinceLastReview = firesSinceLastReview - suppressedSinceLastReview;
+
   // The review threshold is DIVERSITY-AWARE (spec Success Criterion #3): a log is
   // only "past threshold" — i.e. worth surfacing for review — when it has enough
   // fires AND enough distinct shapes. Ten identical fires are NOT a review signal,
   // they're a uniform pattern; keep collecting until diversity arrives.
-  const atCountThreshold = firesSinceLastReview >= FIRES_THRESHOLD;
+  const atCountThreshold = injectedFiresSinceLastReview >= FIRES_THRESHOLD;
   const hasDiversity = distinctPhrases >= DIVERSITY_THRESHOLD;
   const pastThreshold = atCountThreshold && hasDiversity;
   // lowDiversity: hit the fire count but not the diversity bar (the "keep
@@ -869,6 +1125,8 @@ export function computeLogResult(
     exists,
     totalFires,
     firesSinceLastReview,
+    suppressedSinceLastReview,
+    injectedFiresSinceLastReview,
     distinctPhrases,
     atCountThreshold,
     lowDiversity,
@@ -927,6 +1185,14 @@ export interface ReviewDueLog {
   /** Registry kind (mt#2659) — drives the fire-count-vs-time-only re-warn split in the hook's `shouldReWarn`. */
   kind: CalibrationLogEntry["kind"];
   firesSinceLastReview: number;
+  /**
+   * Of `firesSinceLastReview`, how many actually reached the operator
+   * (mt#3197). This is the number the cadence warning should quote — the
+   * positional count includes suppressed detections nobody ever saw.
+   */
+  injectedFiresSinceLastReview: number;
+  /** Of `firesSinceLastReview`, how many were suppressed before injection (mt#3197). */
+  suppressedSinceLastReview: number;
   totalFires: number;
   distinctPhrases: number;
   reason: "past-threshold" | "time-stale" | "never-reviewed" | "never-fired";
@@ -956,6 +1222,8 @@ function toReviewDueLog(
     path: r.entry.path,
     kind: r.entry.kind,
     firesSinceLastReview: r.firesSinceLastReview,
+    injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,
+    suppressedSinceLastReview: r.suppressedSinceLastReview,
     totalFires: r.totalFires,
     distinctPhrases: r.distinctPhrases,
     reason,
@@ -1038,6 +1306,18 @@ export function computeReviewDueLogs(
         r.entry.reviewByDays !== undefined
           ? r.entry.reviewByDays * 24 * 60 * 60 * 1000
           : neverReviewedMsDefault;
+      // mt#3197 (PR #2300 R1, class sweep): same reasoning as the time-stale
+      // leg below — if every record since the (absent) watermark was
+      // suppressed, the operator has seen nothing and the warning would read
+      // "0 new fire(s)". Gated for consistency across all count-bearing legs.
+      //
+      // Counter-consideration deliberately NOT acted on here: a log that
+      // suppresses 100% of what it detects is arguably its own signal ("is the
+      // gate too broad?"). That is a different question from "review these
+      // fires", needs different warning text, and is not something to invent
+      // mid-review — the suppressed count remains visible in the sweep output
+      // for anyone who looks.
+      if (r.injectedFiresSinceLastReview <= 0) continue;
       if (nowMs - firstMs >= windowMs) {
         const windowDays = Math.round(windowMs / (24 * 60 * 60 * 1000));
         due.push(toReviewDueLog(r, "never-reviewed", undefined, windowDays));
@@ -1048,7 +1328,13 @@ export function computeReviewDueLogs(
     // time-stale: reviewed before, >= 1 new fire, review is >= staleMs old. A
     // reviewed log that hasn't accrued a new fire is "keep collecting," not
     // "forgotten."
-    if (r.firesSinceLastReview <= 0) continue;
+    //
+    // mt#3197 (PR #2300 R1): "new fire" here means an INJECTED one, matching
+    // the past-threshold leg. Keying this off the positional count would
+    // re-warn on a log whose only new records were suppressed — the operator
+    // saw nothing, so there is nothing to review, and the warning would name
+    // "0 new fire(s)" now that the message quotes the injected count.
+    if (r.injectedFiresSinceLastReview <= 0) continue;
     const reviewedMs = Date.parse(wm.lastReviewedAt);
     if (Number.isNaN(reviewedMs)) continue;
     if (nowMs - reviewedMs >= staleMs) {
@@ -1274,6 +1560,17 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "wall-of-text": "wall-of-text-detector",
   "build-claim-injection": "build-claim-injection-detector",
   "knowledge-acquisition": "knowledge-acquisition-detector",
+  "constructed-identifier-batch": "constructed-identifier-batch-detector",
+  // mt#2459: this log is written by TWO GUARD_REGISTRY entries —
+  // `operator-deferral-detector` (UserPromptSubmit prose surface) and
+  // `operator-deferral-ask-surface` (PreToolUse AskUserQuestion surface) —
+  // because they are two detection surfaces on ONE failure family and the
+  // graduation decision needs them measured together. This map is 1:1 by
+  // construction, so it names the PROSE surface as the log's canonical guard;
+  // the per-record `matches[].category` field is what distinguishes which
+  // surface actually fired, and `/calibration-review` reads that.
+  "operator-deferral": "operator-deferral-detector",
+  "untaken-action": "turn-end-untaken-action-scan",
 };
 
 /**

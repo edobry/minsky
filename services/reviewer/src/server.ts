@@ -28,6 +28,10 @@ import {
   loadAsksReconcileSchedulerConfig,
   startAsksReconcileScheduler,
 } from "./asks-reconcile-scheduler";
+import {
+  loadFindingsAggregationConfig,
+  startFindingsAggregationScheduler,
+} from "./findings-aggregation";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { callMcp } from "./mcp-client";
 import { loadMergeStateSweeperConfig, startMergeStateSweeper } from "./merge-state-sweeper";
@@ -1014,6 +1018,13 @@ export function createApp(
         return new Response(
           JSON.stringify({
             status: "ok",
+            // mt#3148: a bare `status: "ok"` cannot distinguish "this service is
+            // healthy" from "a DIFFERENT application is answering on this host".
+            // mt#3142 is the proof: the Minsky MCP server was deployed onto the
+            // reviewer's host and answered /health 200 for ~1h while every
+            // reviewer route 404'd. This field is the discriminator a healthcheck
+            // can assert on.
+            service: "minsky-reviewer",
             provider: cfg.provider,
             model: cfg.providerModel,
             tier2Enabled: cfg.tier2Enabled,
@@ -1670,6 +1681,16 @@ if (import.meta.main) {
     loadAsksReconcileSchedulerConfig(),
     domainServices?.container
   );
+
+  // Start the findings-aggregation scheduler (mt#3295 SC#3).
+  // In-process setInterval over reviewer_findings — surfaces the top
+  // recurring finding categories over a rolling window as a structured log
+  // line (findings_aggregation.cycle_complete), the same "query/module +
+  // wiring" shape as the other schedulers here; no new UI surface.
+  // Configurable via FINDINGS_AGGREGATION_ENABLED, FINDINGS_AGGREGATION_INTERVAL_MS,
+  // FINDINGS_AGGREGATION_WINDOW_DAYS, FINDINGS_AGGREGATION_TOP_N. Opt-in:
+  // disabled by default; set FINDINGS_AGGREGATION_ENABLED=true to activate.
+  startFindingsAggregationScheduler(db, loadFindingsAggregationConfig());
 
   // Start the merge-state sweeper backstop (mt#1614).
   // Uses domain imports (mt#2121) via SessionProviderInterface + applyPostMergeStateSync.

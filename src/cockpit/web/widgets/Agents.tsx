@@ -12,7 +12,7 @@
  * live-tail pulse indicator (reusing `useActiveConversationSessions`, the
  * same mechanism the retired `/conversations` page used).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import {
@@ -40,6 +40,8 @@ import { needsMeBand, subagentElapsed, BAND_RANK, type NeedsMeBand } from "../li
 import { fetchAsks, type AsksListResponse } from "./AskDetail";
 import { useProject } from "../lib/project-context";
 import { AgentDrivenPeek } from "./AgentDrivenPeek";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { Checkbox } from "../components/ui/checkbox";
 
 /** Kind badge (mt#2767 Row model; "driven-session" added by mt#2752). */
 type RunKind = "dispatched-agent" | "principal-conversation" | "subagent-group" | "driven-session";
@@ -360,6 +362,12 @@ function AgentsControlBar({
   includeInactive,
   onIncludeInactive,
 }: ControlBarProps) {
+  // aria-labelledby targets; useId so "Per page:" cannot collide with the
+  // identically-labelled control bars in TaskList / Workstreams.
+  const livenessLabelId = useId();
+  const kindLabelId = useId();
+  const pageSizeLabelId = useId();
+
   return (
     <div className="flex flex-wrap items-center gap-2 py-2 mb-2 border-b border-border">
       {/* Sort controls */}
@@ -404,19 +412,31 @@ function AgentsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Liveness filter */}
-      <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">Liveness:</span>
-      <select
-        value={filters.liveness}
-        onChange={(e) => onFilterLiveness(e.target.value as AgentFilters["liveness"])}
-        className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Filter by liveness"
+      <span
+        id={livenessLabelId}
+        className="text-eyebrow font-mono uppercase text-muted-foreground mr-1"
       >
-        <option value="all">All</option>
-        <option value="healthy">Healthy</option>
-        <option value="idle">Idle</option>
-        <option value="stale">Stale</option>
-        <option value="orphaned">Orphaned</option>
-      </select>
+        Liveness:
+      </span>
+      <Select
+        value={filters.liveness}
+        onValueChange={(v) => onFilterLiveness(v as AgentFilters["liveness"])}
+      >
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={livenessLabelId}
+          title="Filter by liveness"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All</SelectItem>
+          <SelectItem value="healthy">Healthy</SelectItem>
+          <SelectItem value="idle">Idle</SelectItem>
+          <SelectItem value="stale">Stale</SelectItem>
+          <SelectItem value="orphaned">Orphaned</SelectItem>
+        </SelectContent>
+      </Select>
 
       {/* Activity bound (mt#3118). The default view drops workspaces quiet
           past the threshold; this restores them. The count is rendered in the
@@ -424,11 +444,9 @@ function AgentsControlBar({
           — the operator can see there IS more, and how much. */}
       {(hiddenInactiveCount > 0 || includeInactive) && (
         <label className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none ml-1">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={includeInactive}
-            onChange={(e) => onIncludeInactive(e.target.checked)}
-            className="accent-primary"
+            onCheckedChange={(v) => onIncludeInactive(v === true)}
             aria-label={
               includeInactive
                 ? "Hide workspaces inactive past the activity window"
@@ -453,36 +471,54 @@ function AgentsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Kind filter (mt#2767) */}
-      <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">Kind:</span>
-      <select
-        value={filters.kind}
-        onChange={(e) => onFilterKind(e.target.value as AgentFilters["kind"])}
-        className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Filter by kind"
+      <span
+        id={kindLabelId}
+        className="text-eyebrow font-mono uppercase text-muted-foreground mr-1"
       >
-        <option value="all">All</option>
-        <option value="dispatched-agent">Agent</option>
-        <option value="principal-conversation">Conversation</option>
-        <option value="subagent-group">Subagent</option>
-        <option value="driven-session">Driven</option>
-      </select>
+        Kind:
+      </span>
+      <Select
+        value={filters.kind}
+        onValueChange={(v) => onFilterKind(v as AgentFilters["kind"])}
+      >
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={kindLabelId}
+          title="Filter by kind"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All</SelectItem>
+          <SelectItem value="dispatched-agent">Agent</SelectItem>
+          <SelectItem value="principal-conversation">Conversation</SelectItem>
+          <SelectItem value="subagent-group">Subagent</SelectItem>
+          <SelectItem value="driven-session">Driven</SelectItem>
+        </SelectContent>
+      </Select>
 
       <span className="text-border mx-1">|</span>
 
       {/* Page size */}
-      <span className="text-xs text-muted-foreground">Per page:</span>
-      <select
-        value={pageSize}
-        onChange={(e) => onPageSize(Number(e.target.value))}
-        className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Items per page"
-      >
-        {pageSizeOptions.map((n) => (
-          <option key={n} value={n}>
-            {n}
-          </option>
-        ))}
-      </select>
+      <span id={pageSizeLabelId} className="text-xs text-muted-foreground">
+        Per page:
+      </span>
+      <Select value={String(pageSize)} onValueChange={(v) => onPageSize(Number(v))}>
+        <SelectTrigger
+          className="h-6 bg-background"
+          aria-labelledby={pageSizeLabelId}
+          title="Items per page"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {pageSizeOptions.map((n) => (
+            <SelectItem key={n} value={String(n)}>
+              {n}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       {/* Clear filters */}
       {hasActiveFilters && (
@@ -717,24 +753,28 @@ function InterfaceBindingIndicator({ binding }: { binding: AgentRow["interfaceBi
  * row's main Link/button, not nested inside it — the row already nests a
  * DrivenChip <Link> inside the outer row <Link> (pre-existing), and adding a
  * second nested interactive element would compound that rather than fix it.
+ *
+ * Exported for direct unit testing (Agents.hookorder.test.tsx) — mirrors the
+ * existing `resolveGoToAction` export.
  */
-function GoToActionButton({ agent }: { agent: AgentRow }) {
+export function GoToActionButton({ agent }: { agent: AgentRow }) {
   const navigate = useNavigate();
   const focusMutation = useFocusAttachment();
   const action = resolveGoToAction(agent);
 
-  if (action.type === "disabled") {
-    return (
-      <span
-        title={action.reason}
-        aria-label={`Go to (disabled — ${action.reason})`}
-        className="flex-shrink-0 p-1 text-muted-foreground/30"
-      >
-        <ArrowUpRight className="h-3.5 w-3.5" />
-      </span>
-    );
-  }
-
+  // mt#3110 fix: this hook must run unconditionally on every render. Each
+  // row's GoToActionButton instance is keyed by sessionId and persists
+  // across the widget's 5s poll ticks (Agents.tsx refetchInterval); if
+  // agent.attachState (and therefore action.type) flips between "disabled"
+  // and a non-disabled value across two poll responses, calling useEffect
+  // only on the non-disabled branch changes the hook count between renders
+  // for the SAME component instance — React's "Rendered more/fewer hooks
+  // than during the previous render" (error #310). Computing outcomeShowing
+  // and calling useEffect here, BEFORE the early return below, keeps hook
+  // count constant regardless of action.type; the effect still no-ops via
+  // `if (!outcomeShowing) return;` when there is nothing to auto-dismiss
+  // (the disabled branch never calls focusMutation.mutate, so
+  // outcomeShowing stays false there — behaviorally unchanged).
   const outcomeShowing = focusMutation.isSuccess || focusMutation.isError;
 
   // Auto-dismiss the transient outcome message (mt#2286 R1 review finding:
@@ -754,6 +794,18 @@ function GoToActionButton({ agent }: { agent: AgentRow }) {
     // restart the timer on unrelated re-renders.
   }, [outcomeShowing]);
 
+  if (action.type === "disabled") {
+    return (
+      <span
+        title={action.reason}
+        aria-label={`Go to (disabled — ${action.reason})`}
+        className="flex-shrink-0 p-1 text-muted-foreground/30"
+      >
+        <ArrowUpRight className="h-3.5 w-3.5" />
+      </span>
+    );
+  }
+
   function handleClick(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
@@ -761,6 +813,12 @@ function GoToActionButton({ agent }: { agent: AgentRow }) {
       navigate(action.path);
       return;
     }
+    // Unreachable at runtime — the "disabled" case returned above, before this
+    // handler was ever constructed. Kept because it is load-bearing for the
+    // TYPE: TypeScript does not carry the outer early-return narrowing of
+    // `action` into a closure, so without this guard `action.sessionId` below
+    // fails to compile (TS2339 on the disabled variant). Deleting it as dead
+    // code breaks the build — verified, PR #2253 R1.
     if (action.type === "disabled") {
       return;
     }

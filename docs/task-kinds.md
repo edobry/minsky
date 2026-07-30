@@ -244,7 +244,7 @@ CLOSED      → TODO (reopen)
 
 ## Workflow definition shape
 
-The registry lives at `src/domain/tasks/workflows.ts`. Each entry has this shape:
+The registry lives at `packages/domain/src/tasks/workflows.ts`. Each entry has this shape:
 
 ```typescript
 interface Workflow {
@@ -278,7 +278,7 @@ field-by-field mapping without additional reverse-engineering.
 
 ## How the gate dispatches on kind
 
-`validateStatusTransition(from, to, kind?)` in `src/domain/tasks/status-transitions.ts`:
+`validateStatusTransition(from, to, kind?)` in `packages/domain/src/tasks/status-transitions.ts`:
 
 1. Reads `kind` from the task (defaults to `"implementation"` when unset).
 2. Calls `getWorkflow(kind)` to look up the workflow (falls back to `implementation`
@@ -296,7 +296,7 @@ apply only when `kind === "implementation"`.
 
 Adding a new kind requires **two changes only**:
 
-1. **Registry entry**: add a new entry to `WORKFLOWS` in `src/domain/tasks/workflows.ts`
+1. **Registry entry**: add a new entry to `WORKFLOWS` in `packages/domain/src/tasks/workflows.ts`
    with the full workflow definition (states, transitions, terminal, mappings).
 
 2. **Type union**: add the kind string to `TaskKind` in the same file.
@@ -434,6 +434,53 @@ end-to-end; mt#2311 later collapsed COMPLETED into DONE and migrated its rows
 
 ---
 
+## Changing a task's kind
+
+A task's kind selects **which state machine applies to it**. So a kind change can move a task into a workflow that does not recognize its current status — leaving it with no valid transitions at all.
+
+`implementation`'s state set is a superset of the other two, so nothing strands moving _to_ it. The stranding directions are:
+
+| Target kind | Statuses it does NOT recognize  |
+| ----------- | ------------------------------- |
+| `umbrella`  | `READY`, `IN-REVIEW`, `BLOCKED` |
+| `state-ops` | `IN-REVIEW`, `BLOCKED`          |
+
+### The kind change is refused, not migrated (mt#3137)
+
+`tasks edit --kind` refuses a change whose target kind does not recognize the task's current status, naming the conflict and the statuses that _would_ be legal:
+
+```
+Cannot change kind from "implementation" to "umbrella": the task's current status
+"READY" is not a valid state for "umbrella", so the task would have no valid
+transitions. Set the status to one of [TODO, PLANNING, IN-PROGRESS, DONE, CLOSED]
+first, then re-kind.
+```
+
+It refuses rather than auto-migrating the status because **no defensible cross-kind status mapping exists**: implementation `READY` asserts a planning gate _passed_, while umbrella `PLANNING` asserts investigation is _underway_. Equating them would destroy an audit-relevant distinction. Set a legal status explicitly, then re-kind — two separately-audited steps.
+
+**The dry-run shows the consequence before you commit.** Running `tasks edit --kind` without `--execute` renders a `Kind change consequence:` block alongside the kind diff, so the conflict is visible at preview time rather than surfacing as an error.
+
+### Bulk re-kind
+
+`tasks bulk-edit --kind` applies the same rule per record:
+
+- A stranding record is **excluded from the change set entirely**, so it is absent from the dry-run token and cannot be applied even by a redeemed token. It is reported under `blocked` with its conflict.
+- Compatible records in the same batch still convert — one blocked record does not suppress the rest.
+- If _every_ record is blocked, the dry-run says so explicitly rather than reporting "no changes needed".
+- The check runs **again at execute time**, before any write. Status is not part of a change record, so a status change between dry-run and execute is invisible to the drift check; the re-check catches it and aborts the whole execute.
+
+### Recovering an already-stranded task
+
+The check makes new strandings impossible, but if you encounter a task from before it shipped:
+
+1. Re-kind **back** to its previous kind — this restores its status as a legal state.
+2. Set a status legal in **both** kinds. `TODO`, `PLANNING`, `DONE`, and `CLOSED` are legal in all three.
+3. Re-kind forward again; it now passes the check.
+
+Step 2 alone is enough if the task is not yet stranded.
+
+---
+
 ## Cross-references
 
 - `mt#1812` — this feature's tracking task
@@ -443,10 +490,11 @@ end-to-end; mt#2311 later collapsed COMPLETED into DONE and migrated its rows
 - `mt#455` — work-content type classification (orthogonal axis)
 - `packages/domain/src/tasks/workflows.ts` — the workflow registry
 - `packages/domain/src/tasks/status-transitions.ts` — the gate that dispatches on kind
-- `src/domain/storage/migrations/pg/0036_add_task_kind.sql` — DB migration
+- `packages/domain/src/storage/migrations/pg/0036_add_task_kind.sql` — DB migration
 - `scripts/migrate-task-kinds.ts` — kind backfill script (promote-only, mt#2761)
 - `scripts/migrate-task-kinds-classify.ts` — extracted, unit-tested classification function
 - `scripts/smoke-task-kinds.ts` — smoke test for the system
 - `mt#2761` — promote-only fix + reflect-metadata boot fix for the backfill script
 - CLAUDE.md `## Task Lifecycle` — overview of the current state machine
 - CLAUDE.md `## Verification surfaces` — the merge gate that atomically sets DONE
+- `mt#3137` — kind-change status-compatibility refusal (`checkKindChangeStatusCompatibility` in `packages/domain/src/tasks/workflows.ts`)

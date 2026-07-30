@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { evaluateSubmitFindingCall, isResolutionNoteText } from "./resolution-note-guard";
+import {
+  classifyResolutionArgument,
+  evaluateSubmitFindingCall,
+  isResolutionNoteText,
+  markUntrackedDeferral,
+  UNTRACKED_DEFERRAL_MARKER,
+} from "./resolution-note-guard";
 import { composeReviewBody } from "./compose-review";
 import type { ReviewToolCall, SubmitFindingArgs } from "./output-tools";
 
@@ -144,6 +150,119 @@ describe("evaluateSubmitFindingCall", () => {
     expect(evaluateSubmitFindingCall({ args: noteArgs }).decision).toBe("reclassify");
     expect(evaluateSubmitFindingCall({ args: genuineArgs }).decision).toBe("accept");
     expect(evaluateSubmitFindingCall({ args: noteArgs }).decision).toBe("reclassify");
+  });
+});
+
+describe("classifyResolutionArgument (mt#3300 SC#2/SC#4)", () => {
+  test("classifies an explicit code-fix claim (mt#2863's original case)", () => {
+    expect(classifyResolutionArgument(PR1957_DETAILS)).toBe("code-fix");
+    expect(classifyResolutionArgument("already addressed by the fix commit")).toBe("code-fix");
+    expect(classifyResolutionArgument("fix verified against the reproduction")).toBe("code-fix");
+  });
+
+  test("classifies a spec-amendment argument", () => {
+    expect(
+      classifyResolutionArgument("no action needed — the spec was amended to drop this requirement")
+    ).toBe("spec-amendment");
+  });
+
+  test("classifies a pre-existence argument", () => {
+    expect(
+      classifyResolutionArgument("no action required — this is pre-existing and predates this PR")
+    ).toBe("pre-existence");
+  });
+
+  test("classifies a tracked deferral (deferral language + task id)", () => {
+    expect(
+      classifyResolutionArgument("no action required — deferred, tracked as mt#4200 for follow-up")
+    ).toBe("tracked-deferral");
+  });
+
+  test("classifies an untracked deferral (deferral language, no task id)", () => {
+    expect(
+      classifyResolutionArgument("no action required — this is deferred to a follow-up task")
+    ).toBe("untracked-deferral");
+  });
+
+  test("classifies unnamed resolution text as none", () => {
+    expect(classifyResolutionArgument("no action required, nothing further to do here")).toBe(
+      "none"
+    );
+  });
+});
+
+describe("evaluateSubmitFindingCall — argument-naming requirement (mt#3300 SC#2/SC#4)", () => {
+  function blockingArgs(details: string): SubmitFindingArgs {
+    return { severity: "BLOCKING", file: "a.ts", line: 1, summary: "Follow-up", details };
+  }
+
+  test("reclassifies a tracked-deferral resolution note (task id present)", () => {
+    const result = evaluateSubmitFindingCall({
+      args: blockingArgs("no action required — deferred, tracked as mt#4200"),
+    });
+    expect(result.decision).toBe("reclassify");
+    if (result.decision === "reclassify") {
+      expect(result.argumentKind).toBe("tracked-deferral");
+    }
+  });
+
+  test("rejects an untracked-deferral resolution note (no task id) — SC#4", () => {
+    const result = evaluateSubmitFindingCall({
+      args: blockingArgs("no action required — this is deferred to a follow-up task"),
+    });
+    expect(result.decision).toBe("reject");
+    if (result.decision === "reject") {
+      expect(result.argumentKind).toBe("untracked-deferral");
+    }
+  });
+
+  test("rejects a resolution note naming no recognized argument — SC#2", () => {
+    const result = evaluateSubmitFindingCall({
+      args: blockingArgs("no action required, nothing further to do here"),
+    });
+    expect(result.decision).toBe("reject");
+    if (result.decision === "reject") {
+      expect(result.argumentKind).toBe("none");
+    }
+  });
+
+  test("reclassifies a spec-amendment resolution note", () => {
+    const result = evaluateSubmitFindingCall({
+      args: blockingArgs("no action needed — the spec was amended to drop this requirement"),
+    });
+    expect(result.decision).toBe("reclassify");
+    if (result.decision === "reclassify") {
+      expect(result.argumentKind).toBe("spec-amendment");
+    }
+  });
+
+  test("reclassifies a pre-existence resolution note", () => {
+    const result = evaluateSubmitFindingCall({
+      args: blockingArgs("no action required — this predates this change"),
+    });
+    expect(result.decision).toBe("reclassify");
+    if (result.decision === "reclassify") {
+      expect(result.argumentKind).toBe("pre-existence");
+    }
+  });
+});
+
+describe("markUntrackedDeferral (mt#3300 R1 non-blocking — idempotent prepend)", () => {
+  test("prepends the marker to unmarked text", () => {
+    expect(markUntrackedDeferral("deferred to a follow-up")).toBe(
+      `${UNTRACKED_DEFERRAL_MARKER} deferred to a follow-up`
+    );
+  });
+
+  test("does not duplicate the marker when it is already present", () => {
+    const already = `${UNTRACKED_DEFERRAL_MARKER} deferred to a follow-up`;
+    expect(markUntrackedDeferral(already)).toBe(already);
+  });
+
+  test("is stable across repeated application (idempotent)", () => {
+    const once = markUntrackedDeferral("deferred to a follow-up");
+    const twice = markUntrackedDeferral(once);
+    expect(twice).toBe(once);
   });
 });
 

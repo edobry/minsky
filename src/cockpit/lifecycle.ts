@@ -114,9 +114,7 @@ export function getCockpitStateFilePath(workspaceKey: string): string {
 
 export function atomicWriteJSON(filePath: string, data: unknown): void {
   const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  fs.mkdirSync(dir, { recursive: true });
   const tmp = `${filePath}.tmp.${process.pid}`;
   try {
     fs.writeFileSync(tmp, JSON.stringify(data), "utf-8");

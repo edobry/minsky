@@ -13,6 +13,7 @@ import {
   assistantContentKind,
   mapAttachmentTypeToBlockType,
   mapTurnTypeToBlockType,
+  turnLineToBlock,
 } from "./session-context-snapshot";
 
 describe("mapTurnTypeToBlockType (mt#2022)", () => {
@@ -128,5 +129,67 @@ describe("assistantContentKind — content-array introspection (mt#2022, PR #122
     expect(assistantContentKind(undefined)).toBe("text");
     expect(assistantContentKind({})).toBe("text");
     expect(assistantContentKind("not an object")).toBe("text");
+  });
+});
+
+describe("turnLineToBlock — compaction + model extraction (mt#3260)", () => {
+  const TS = "2026-07-26T12:00:00.000Z";
+
+  test("extracts a top-level isCompactSummary from a user line", () => {
+    // Verified real shape (local corpus 2026-07-26): the flag is TOP-LEVEL on
+    // the line, NOT inside `message`.
+    const block = turnLineToBlock("sess-1", 0, {
+      type: "user",
+      isCompactSummary: true,
+      timestamp: TS,
+      message: { role: "user", content: "summary text" },
+    });
+
+    expect(block?.isCompactSummary).toBe(true);
+  });
+
+  test("extracts model from an assistant line's inner message", () => {
+    const block = turnLineToBlock("sess-1", 0, {
+      type: "assistant",
+      timestamp: TS,
+      message: { role: "assistant", content: [], model: "<synthetic>" },
+    });
+
+    expect(block?.model).toBe("<synthetic>");
+  });
+
+  test("omits both keys entirely when the line carries neither", () => {
+    const block = turnLineToBlock("sess-1", 0, {
+      type: "user",
+      timestamp: TS,
+      message: { role: "user", content: "hello" },
+    });
+
+    // Absent, not `undefined`-valued — a line without them must produce the
+    // same block shape as before mt#3260.
+    expect(block).not.toBeNull();
+    expect(Object.hasOwn(block as object, "isCompactSummary")).toBe(false);
+    expect(Object.hasOwn(block as object, "model")).toBe(false);
+  });
+
+  test("a non-boolean isCompactSummary is not coerced to true", () => {
+    const block = turnLineToBlock("sess-1", 0, {
+      type: "user",
+      isCompactSummary: "yes",
+      timestamp: TS,
+      message: { role: "user", content: "hello" },
+    });
+
+    expect(Object.hasOwn(block as object, "isCompactSummary")).toBe(false);
+  });
+
+  test("a non-string model is not carried through", () => {
+    const block = turnLineToBlock("sess-1", 0, {
+      type: "assistant",
+      timestamp: TS,
+      message: { role: "assistant", content: [], model: 42 },
+    });
+
+    expect(Object.hasOwn(block as object, "model")).toBe(false);
   });
 });

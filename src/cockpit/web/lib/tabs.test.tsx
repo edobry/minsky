@@ -2,7 +2,15 @@
  * Tests for the entity-tab route matcher (mt#2398, extended mt#1919, mt#2535, mt#2769).
  */
 import { describe, test, expect } from "bun:test";
-import { matchEntityRoute, isAcceptedTabKind, migrateLegacySessionPath, type EntityTab } from "./tabs";
+import {
+  matchEntityRoute,
+  isAcceptedTabKind,
+  migrateLegacySessionPath,
+  backfillTabRecency,
+  evictToCap,
+  MAX_OPEN_TABS,
+  type EntityTab,
+} from "./tabs";
 
 describe("matchEntityRoute", () => {
   test("matches /conversation/:id as kind session (harness agentSessionId)", () => {
@@ -208,5 +216,115 @@ describe("migrateLegacySessionPath (mt#2769 success criterion 1b)", () => {
     for (const tab of otherTabs) {
       expect(migrateLegacySessionPath(tab)).toEqual(tab);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LRU cap on the open-tab working set (mt#3252)
+// ---------------------------------------------------------------------------
+
+/** A task tab at `id`, activated at `lastActiveAt`. */
+function tabAt(id: string, lastActiveAt?: number): EntityTab {
+  return {
+    kind: "task",
+    entityId: `mt#${id}`,
+    path: `/tasks/mt%23${id}`,
+    label: `mt#${id}`,
+    ...(lastActiveAt === undefined ? {} : { lastActiveAt }),
+  };
+}
+
+describe("evictToCap — bounding the working set (mt#3252)", () => {
+  test("a set at or under the cap is returned untouched (same reference)", () => {
+    const tabs = [tabAt("1", 10), tabAt("2", 20)];
+    expect(evictToCap(tabs, { cap: 2 })).toBe(tabs);
+  });
+
+  test("evicts the LEAST-RECENTLY-ACTIVE tab, not the first opened", () => {
+    // Open order 1,2,3 — but tab 1 was activated most recently, so tab 2 is
+    // the coldest and must be the one to go.
+    const tabs = [tabAt("1", 300), tabAt("2", 100), tabAt("3", 200)];
+    const kept = evictToCap(tabs, { cap: 2 }).map((t) => t.entityId);
+    expect(kept).toEqual(["mt#1", "mt#3"]);
+  });
+
+  test("surviving tabs keep their original order (eviction is not a re-sort)", () => {
+    const tabs = [tabAt("1", 400), tabAt("2", 100), tabAt("3", 300), tabAt("4", 200)];
+    const kept = evictToCap(tabs, { cap: 2 }).map((t) => t.entityId);
+    expect(kept).toEqual(["mt#1", "mt#3"]);
+  });
+
+  test("the protected (active) tab is never evicted even when it is the coldest", () => {
+    const tabs = [tabAt("1", 300), tabAt("2", 1), tabAt("3", 200)];
+    const kept = evictToCap(tabs, { cap: 2, protectPath: "/tasks/mt%232" }).map((t) => t.entityId);
+    // Tab 2 is the coldest by far but is active, so tab 3 (the coldest
+    // evictable) goes instead — leaving the active tab and the warmest other.
+    expect(kept).toContain("mt#2");
+    expect(kept).toEqual(["mt#1", "mt#2"]);
+  });
+
+  test("a cap smaller than the protected set leaves the protected tab standing", () => {
+    const tabs = [tabAt("1", 10), tabAt("2", 20)];
+    const kept = evictToCap(tabs, { cap: 0, protectPath: "/tasks/mt%232" });
+    expect(kept.map((t) => t.entityId)).toEqual(["mt#2"]);
+  });
+
+  test("ties break by open order, so back-filled ordinal recencies stay stable", () => {
+    const tabs = [tabAt("1", 5), tabAt("2", 5), tabAt("3", 5)];
+    const kept = evictToCap(tabs, { cap: 2 }).map((t) => t.entityId);
+    expect(kept).toEqual(["mt#2", "mt#3"]);
+  });
+
+  test("a tab with no recency at all ranks oldest rather than crashing the sort", () => {
+    const tabs = [tabAt("1", 100), tabAt("2"), tabAt("3", 200)];
+    const kept = evictToCap(tabs, { cap: 2 }).map((t) => t.entityId);
+    expect(kept).toEqual(["mt#1", "mt#3"]);
+  });
+
+  test("the default cap is MAX_OPEN_TABS", () => {
+    const tabs = Array.from({ length: MAX_OPEN_TABS + 3 }, (_, i) => tabAt(String(i), i));
+    expect(evictToCap(tabs)).toHaveLength(MAX_OPEN_TABS);
+  });
+
+  test("a 49-tab backlog (the measured pre-fix state) is bounded to the cap, keeping the newest", () => {
+    const tabs = backfillTabRecency(Array.from({ length: 49 }, (_, i) => tabAt(String(i))));
+    const kept = evictToCap(tabs);
+    expect(kept).toHaveLength(MAX_OPEN_TABS);
+    // Back-filled recency is ordinal, so "newest" is the tail of persisted order.
+    expect(kept[0]?.entityId).toBe(`mt#${49 - MAX_OPEN_TABS}`);
+    expect(kept[kept.length - 1]?.entityId).toBe("mt#48");
+  });
+});
+
+describe("backfillTabRecency — legacy payloads (mt#3252)", () => {
+  test("tabs persisted without a recency field get ordinal recency, preserving order", () => {
+    const filled = backfillTabRecency([tabAt("1"), tabAt("2"), tabAt("3")]);
+    expect(filled.map((t) => t.lastActiveAt)).toEqual([0, 1, 2]);
+  });
+
+  test("no tab loses its identity in the back-fill", () => {
+    const legacy = [tabAt("1"), tabAt("2")];
+    const filled = backfillTabRecency(legacy);
+    expect(filled).toHaveLength(2);
+    expect(filled.map((t) => t.path)).toEqual(legacy.map((t) => t.path));
+  });
+
+  test("an existing recency value is left alone", () => {
+    const filled = backfillTabRecency([tabAt("1", 1_760_000_000_000)]);
+    expect(filled[0]?.lastActiveAt).toBe(1_760_000_000_000);
+  });
+
+  test("a non-finite persisted value is repaired rather than poisoning the LRU sort", () => {
+    const filled = backfillTabRecency([
+      { ...tabAt("1"), lastActiveAt: Number.NaN },
+      { ...tabAt("2"), lastActiveAt: Number.POSITIVE_INFINITY },
+    ]);
+    expect(filled.map((t) => t.lastActiveAt)).toEqual([0, 1]);
+  });
+
+  test("ordinal back-fill always ranks older than a real activation timestamp", () => {
+    const mixed = backfillTabRecency([tabAt("legacy"), tabAt("live", Date.now())]);
+    const [legacy, live] = mixed;
+    expect(legacy?.lastActiveAt).toBeLessThan(live?.lastActiveAt ?? 0);
   });
 });

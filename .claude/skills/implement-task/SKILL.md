@@ -4,8 +4,8 @@ name: implement-task
 description: >-
   Full implementation lifecycle for a Minsky task: read spec, plan, code, test,
   verify, commit, create PR, and drive to merge. All work happens in session
-  workspaces with absolute paths. Use when implementing a task, starting
-  development, or beginning work in a session.
+  workspaces via the session-scoped file tools. Use when implementing a task,
+  starting development, or beginning work in a session.
 user-invocable: true
 ---
 
@@ -102,10 +102,10 @@ may not have loaded it yet (it only loads the spec on-demand if `## Scope` parsi
 it):
 
 ```
-ToolSearch(query: "select:mcp__minsky__session_start,mcp__minsky__session_exec,mcp__minsky__session_edit_file,mcp__minsky__session_write_file,mcp__minsky__validate_typecheck,mcp__minsky__validate_lint,mcp__minsky__session_commit,mcp__minsky__session_update,mcp__minsky__session_pr_create,mcp__minsky__session_pr_wait-for-review,mcp__minsky__session_pr_checks,mcp__minsky__session_pr_merge,mcp__minsky__session_pr_get,mcp__minsky__forge_check_runs_list,mcp__minsky__deployment_wait-for-latest,mcp__minsky__tasks_spec_get,mcp__minsky__tasks_spec_patch,mcp__minsky__tasks_status_set", max_results: 30)
+ToolSearch(query: "select:mcp__minsky__session_start,mcp__minsky__session_exec,mcp__minsky__session_read_file,mcp__minsky__session_search_replace,mcp__minsky__session_write_file,mcp__minsky__validate_typecheck,mcp__minsky__validate_lint,mcp__minsky__session_commit,mcp__minsky__session_update,mcp__minsky__session_pr_create,mcp__minsky__session_pr_wait-for-review,mcp__minsky__session_pr_checks,mcp__minsky__session_pr_merge,mcp__minsky__session_pr_get,mcp__minsky__forge_check_runs_list,mcp__minsky__deployment_wait-for-latest,mcp__minsky__tasks_spec_get,mcp__minsky__tasks_spec_patch,mcp__minsky__tasks_status_set", max_results: 30)
 ```
 
-(`max_results` set above the current 18-tool count with headroom — if this list grows, bump
+(`max_results` set above the current 19-tool count with headroom — if this list grows, bump
 `max_results` in step so a future addition can't silently truncate the returned set below what
 was requested.)
 
@@ -177,7 +177,15 @@ Call `mcp__minsky__session_start` with the task ID. This:
 - Creates an isolated session workspace
 - Sets task status to IN-PROGRESS
 
-All subsequent file operations must use absolute paths under the session directory returned by `session_start`.
+All subsequent file operations go through the session-scoped file tools, which take the `sessionId` returned by `session_start` plus a path RELATIVE to the session root:
+
+| Operation | Tool |
+| --- | --- |
+| Read a session file | `mcp__minsky__session_read_file` |
+| Targeted edit | `mcp__minsky__session_search_replace` |
+| Create or fully rewrite | `mcp__minsky__session_write_file` |
+
+A session id plus a relative path cannot silently address the MAIN workspace the way an absolute path can — that is the point of the split. `mcp__minsky__session_edit_file` is fast-apply-model-based and carries three documented failure modes in its own description; it is NOT the default, and is for edits spanning many regions. The harness-native `Read`/`Edit`/`Write` remain correct for MAIN-workspace files.
 
 ### 4. Understand architectural context
 
@@ -203,7 +211,7 @@ Before writing any code:
 - Commit regularly with `mcp__minsky__session_commit`:
   - Use meaningful messages referencing the task ID
   - Group related changes in logical commits
-- All file edits must use absolute paths under the session directory
+- All file edits go through the session-scoped tools (`session_search_replace` for a targeted edit, `session_write_file` for a create/rewrite) — session id plus a relative path, per §3
 - **Run commands in the session** using `mcp__minsky__session_exec(task: "mt#<id>", command: "<cmd>")` — e.g., `bun test`, `bun run format:check`, `git status`. Never use `git -C <path>` or shell `cd` workarounds.
 
 ### 7. Verify implementation
@@ -213,12 +221,14 @@ Before declaring complete:
 - **Verify outcomes, not actions.** Never treat a command succeeding (exit 0, API 200) as proof the desired effect occurred. Read back the result: query the setting you changed, count rows after a migration, call the tool you registered.
 - If the task spec has acceptance tests, **execute them** — don't just re-read the spec
 - Verify rule compliance (architecture, testing, code quality rules)
-- **Typecheck covers sub-workspaces (mt#2256).** A default `mcp__minsky__validate_typecheck` (no `workspace` arg) typechecks the root tsconfig AND every workspace that declares its own `typecheck` script — currently `services/reviewer`, whose tsconfig (`noUncheckedIndexedAccess`) is stricter-by-scope than root (root's `include` set excludes `services/`). So when you touch `services/*` files, the default run already covers them; you do NOT need to run the sub-workspace's `bun run typecheck` separately. (Pass an explicit `workspace` to scope the check to a single directory.) This closes the dev-vs-CI gap where a change passed root typecheck but failed CI's separate per-service typecheck step.
+- **Typecheck covers every project CI checks (mt#2256, widened by mt#3183).** A default `mcp__minsky__validate_typecheck` (no `workspace` arg) now covers the same set CI's `build` job runs: the root tsconfig, every workspace that declares its own `typecheck` script (currently `services/reviewer`, whose tsconfig enables `noUncheckedIndexedAccess` — stricter-by-scope than root, whose `include` set excludes `services/`), `src/cockpit/web`, and every standalone root-level tsconfig project a `typecheck:*` script names via `-p` (`tsconfig.hooks.json` covering `.claude/hooks/**`, `tsconfig.scripts.json` covering `scripts/**`). So when you touch `services/*`, `scripts/*`, or `.claude/hooks/*`, the default run already covers them — you do NOT need to run `bun run typecheck:scripts` / `typecheck:hooks` separately. The result's `workspaces` field names every project actually checked; read it rather than assuming. (Pass an explicit `workspace` to scope the check to a single directory.) Until mt#3183 this claim was true only for workspace-declared scripts: `scripts/**` and `.claude/hooks/**` type errors passed locally and failed CI. One gap remains, owned by mt#2900: `tsconfig.hooks.json` includes the GENERATED `.claude/hooks` tree, so an error in a `.minsky/hooks` SOURCE file is not caught until that file is compiled.
 - **Target the SESSION workspace, not main (mt#2336).** `validate_typecheck` / `validate_lint` default to the MAIN repo (the MCP server's cwd). Pass `task` or `sessionId` so they validate THIS session's changes — e.g. `validate_typecheck({ task: "mt#<id>" })` — otherwise they typecheck/lint main and report a misleading clean result that ignores your edits. (An explicit `workspace: <session dir>` also works; with no routing arg they fall back to cwd.) Each result carries a `validatedWorkspace` field naming the directory actually checked — confirm it is the session dir, not main. Equivalently, run `bun run typecheck` via `session_exec` (it runs inside the session).
 
 #### Convergence checklist (mandatory before §8)
 
 Before invoking step §8 (Create PR), walk through this checklist; if any check fails, fix the gap before creating the PR.
+
+**Checklist-authoring discipline (mt#3302).** When a retrospective or task adds a NEW item to this checklist for a code-defect class, name its enforcement tier — ESLint rule / pre-commit or PreToolUse hook / CI check / merge gate / prompt-time prose (checklist item) — per the table in `/retrospective` Step 4, and tag the new item's heading with the SAME `[tier: ...]` format that skill's `### Fixes` template requires, e.g. `11. **New check name** [tier: CI check]: ...`. Containment evidence (mt#3295 §Measured corpus results item 4): the prose-only "Spec-decision reconciliation" and "Production-wiring + real-binding verification" items recurred 14x/13 PRs (rising) and ~2x post-ship respectively; the gated "Guard/rule documentation" (compile-check) and "Added a new test file?" execution-evidence items (merge gate) held near-zero. If prose is the right tier for a mechanizable class, state why a deterministic mechanism isn't shipping now and file a tracking task for it.
 
 **Preventive phase (before first PR creation):**
 
@@ -243,6 +253,14 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
    - "user must do this" / "operator follow-up"
    - "outside agent context" / "not available from agent context"
 
+   *Deferring to a later TIME or condition (mt#3200) — same probe, different shape:*
+
+   - "deferred to post-merge" / "deferred until X ships" / "will verify after X"
+   - "can't verify until X" / "needs X first" / "blocked on X landing"
+   - "verification deferred" with no named actor
+
+   **The probe question is availability-NOW, regardless of what the deferral defers TO.** Origin of this second group: mt#3189 / PR #2282 (2026-07-24) deferred live verification with "deferred to post-merge … the pre-change measurement was taken against merged main, so the post-change comparison needs this merged too." No actor-shaped phrase matched, so no probe fired — and the reason was false: serving a cockpit from the session workspace produced the verification in ~2 minutes. `minsky-reviewer[bot]` posted BLOCKING and the finding was legitimate. A deferral to a later time is a claim about your PRESENT capability and needs the same evidence as a deferral to a person.
+
    **Canonical probe sequence:**
 
    - CLI probe — `which <cli> && <cli> whoami` for the relevant tool (~5 sec).
@@ -258,11 +276,15 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
 
 4. **Guard/rule documentation (mt#2208).** If this PR adds or modifies a pre-commit guard, a Claude Code hook (`.claude/hooks/*`), an ESLint rule, or any mechanism whose siblings are documented in a `.minsky/rules/*.mdc` section (e.g., the pre-commit guards documented in `hook-files.mdc`), document the new mechanism in the SOURCE rule and recompile IN THIS PR — before `session_pr_create`. Skipping this means the reviewer-bot's `## Documentation impact` check returns BLOCKING at review time, costing a full extra round.
 
-   - Edit the canonical source — `.minsky/rules/<file>.mdc` — NOT the generated `CLAUDE.md` / `AGENTS.md` / `.cursor/rules/` outputs. Then run `bun run src/cli.ts rules compile`.
-   - **Verify each target regenerated.** The no-`--target` `rules compile` does not reliably regenerate every output — `grep` for the new section in `CLAUDE.md` specifically; if it is absent, run `rules compile --target claude.md` explicitly. If the change touches `.cursor/rules/`, run `bun run minsky compile --target cursor-rules-ts` (the sole `.cursor/rules/` writer as of mt#2995 — the legacy `rules compile --target cursor-rules` is retired).
+   - Edit the canonical source — `.minsky/rules/<file>.mdc` — NOT the generated `CLAUDE.md` / `AGENTS.md` / `.cursor/rules/` outputs. Then run `bun run src/cli.ts compile`. A bare invocation regenerates every target that already has output on disk — `claude.md`, `agents.md`, `claude-rules`, `cursor-rules-ts`, and the skill/agent/hook targets — in one pass, and reports each target it wrote (mt#2803).
+   - **Do NOT run `rules compile` (mt#3309).** The legacy command was retired by the mt#3058 cutover: a bare `rules compile` regenerates NOTHING and still prints `✅ Success`. Following it ships a PR whose `.mdc` source changed but whose generated outputs did not — precisely the mt#2208 Documentation-impact BLOCKING this item exists to prevent. (Explicit `rules compile --target claude.md` still functions today, but it is legacy and goes away with mt#2996; use `compile` instead.)
+   - **Verify the outputs actually regenerated — do NOT trust the exit code.** A compile command's success signal is not evidence of regeneration: `rules compile` printing `✅ Success` while writing nothing is exactly how mt#3309 was found. Check all three, every time:
+     1. The compile run's per-target report lists every target your change should have touched — it prints `Target "<name>": N file(s) written` per target, so a missing target is visible.
+     2. `git status` shows those generated outputs as modified.
+     3. `grep` your new section in EACH output the rule feeds, not just one. An `alwaysApply` rule lands in `CLAUDE.md`, `AGENTS.md`, AND `.cursor/rules/<name>.mdc`; a path-scoped rule (`globs` + `alwaysApply: false`) lands in `.claude/rules/<name>.md` and `.cursor/rules/<name>.mdc` (verified mt#3309). Grepping `CLAUDE.md` alone verifies ONE target out of three — it is the spot-check that caught mt#3309, not a sufficient check on its own.
    - Register any new `MINSKY_*` override env var in `HOOK_ONLY_ENV_VARS` (mt#1788).
 
-   Origin: mt#2208 / PR #1453 (2026-05-31) — the deploy-domain ownership guard shipped without its `hook-files.mdc` section (every sibling guard there is documented). The reviewer-bot's Documentation-impact check returned BLOCKING, costing an extra round + a recompile gotcha (the no-`--target` invocation regenerated `AGENTS.md` but not `CLAUDE.md`). See `feedback_new_guard_needs_source_rule_doc_at_authoring_time`.
+   Origin: mt#2208 / PR #1453 (2026-05-31) — the deploy-domain ownership guard shipped without its `hook-files.mdc` section (every sibling guard there is documented). The reviewer-bot's Documentation-impact check returned BLOCKING, costing an extra round + a recompile gotcha (the no-`--target` invocation regenerated `AGENTS.md` but not `CLAUDE.md` — historical: mt#2803 fixed that specific unreliability, and the current trap is the different one named in the bullets above). See `feedback_new_guard_needs_source_rule_doc_at_authoring_time`.
 
 5. **Spec-decision reconciliation.** Re-read the spec's `Design Decisions` / `Success Criteria`. For each, confirm the implementation reflects it. If you deviated from a stated decision mid-implementation (e.g., on the basis of a local code convention or comment), you MUST either (a) update the spec to record the change + rationale, or (b) revert to the spec — never leave an unreconciled spec-vs-impl divergence for the reviewer to find (a guaranteed extra round). A convention comment in ONE file is a claim about a local choice, not evidence of a global rule: grep for counter-examples across the broader codebase before letting it override a spec decision (see memory `d624c862`).
 
@@ -277,6 +299,18 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
    - **(a) No placeholder assertions** in your tests. The Prevent-Placeholder-Tests CI check (mt#1938, `.github/workflows/test-quality.yml`) greps the repo for `expect(true).toBe(true)` and comment-marked placeholders — so it fires on ANY test file you ADD OR MODIFY (broader scope than (b)); also avoid `.skip`, `.todo`, and empty test bodies. For a compile-time-only test (e.g. a `// @ts-expect-error` type-guard assertion), PAIR the directive with a REAL runtime assertion so the test still exercises executable behavior.
    - **(b) An `Execution evidence:` block in the PR body** — the LITERAL heading WITH the colon (the mt#1459 merge gate matches the regex `/Execution evidence:/`, NOT a markdown `## Execution evidence` heading without the colon). Put it near the PR body's Testing / Test Plan section (mirrors `/prepare-pr` §1b) and paste the ACTUAL test-run output for the new test files (`bun test ... <files>` — pass/fail counts + file names), not a promise to run them. The mt#1459 gate fires on **newly ADDED** test files only — a renamed/copied non-test→test conversion counts; MODIFYING an existing test does NOT (this matches `/prepare-pr` §1b's "newly created, not just modified" scope). If you genuinely cannot run them, use the `[unverified-tests]` title-tag escape hatch (`/prepare-pr` §1b) with a documented reason instead.
    - **(c) Per-AT coverage (mt#3033, calibration-first).** Independent of (a)/(b)'s file-pattern trigger, the gate additionally cross-references the bound task's `## Acceptance Tests`: for each AT it classifies as executable (skipping `state-ops`-kind tasks and findings-shaped ATs like "audit produces…" / "decision recorded…"), the `Execution evidence:` block should reference that AT by number (`AT3`, `AT#3`, `acceptance test 3`) or a distinctive keyword from its text — or the PR body should carry a `[atN-deferred: mt#NNNN]` marker naming a tracked follow-up task for that specific AT. As of mt#3033 this check is **log-only** (per the mt#2263 calibration ladder): an unaddressed AT logs a calibration record and surfaces a WARN in `additionalContext`, it does NOT block merge. Address it anyway — the point is real per-AT evidence (or an explicit, tracked deferral) instead of a proxy that silently skips the literal acceptance test, which is exactly the mt#2542 incident this addition exists to catch. Override (should not normally be needed): `MINSKY_SKIP_AT_COVERAGE=1`.
+
+     **Three authoring requirements the gate depends on (mt#3200).** The check above can only match evidence written a particular way, and that convention was never stated — so it emitted unmatchable warnings, which trains readers to discount its true positives:
+
+     1. **Use the bound task spec's OWN AT numbering.** Do not renumber in the PR body. A PR that writes its own 1..N list cannot line up with the spec's numbering, so no AT can ever match.
+     2. **Put the references, and their evidence, INSIDE the `Execution evidence:` block.** The gate scans that block only. Evidence living in a `## Live verification` (or any other) section is invisible to it — if it must live elsewhere, cross-reference it from inside the block.
+     3. **If an AT genuinely cannot run pre-merge, use the `[atN-deferred: mt#NNNN]` marker**, not prose. Prose explaining why an AT was skipped reads as coverage to a human and as nothing to the gate.
+
+     Counter-example — mt#3189 / PR #2282 (2026-07-24) violated (1) and (2) simultaneously: its body carried an "Acceptance tests by number" list using an independent 1–7 numbering, and put real live-verification output under `## Live verification`. The gate reported 5 of 6 ATs unaddressed; one was genuinely untested, the rest were unmatchable by construction. Same session, PR #2264 produced a pure false positive the same way. See mem#719 for why that noise is costly: a detector emitting unmatchable output erodes trust in its correct output.
+
+   - **(d) Per-criterion coverage of `## Success Criteria` (mt#3350, calibration-first).** The same gate ALSO cross-references the bound task's `## Success Criteria` — a different section from (c)'s, and one that until mt#3350 was read by nothing at all. Only the mechanically-EXECUTABLE criteria count: a criterion that names a runnable check plus an expected result (a backticked `grep`/`rg`/`wc`/`find`, a `$ <cmd>` line, "returns zero hits", "the count is N"). Judgment-shaped criteria are classified and left alone — the classifier's default is NON-executable, the inverse of (c)'s, because a criteria list is mostly prose. For each executable criterion, the `Execution evidence:` block should carry that command's ACTUAL output, or reference it by number (`SC3`), or the body should carry a dedicated `## SC3` section — or an explicit `[scN-deferred: mt#NNNN]` marker for that specific criterion. The marker is per-criterion and NUMBERED: `[sc1-deferred: ...]` does not excuse criterion 2. Log-only per the mt#2263 ladder. Override: `MINSKY_SKIP_SC_COVERAGE=1`.
+
+       **A criterion that names a command IS its own check — run it.** Originating incident (mt#3347): the spec's first criterion was "a repo-wide grep for `<select` under `src/cockpit/web` returns zero hits outside the primitive itself." It was authored by the agent ~40 minutes before implementation and never run. 21 of 22 call sites migrated; the 22nd was the exact control in the principal's screenshot. It shipped past clean typecheck (5 projects), clean lint (2920 files), 1487 passing tests, a commit and a push. The one-line grep would have settled it in under a second at any point. Per mem#736, self-authorship is an AGGRAVATING factor, not a mitigating one — weight this check UP when you wrote the spec yourself this session, because what you retain is the intent and the divergence lives in the specifics.
 
    Origin: mt#2524 (2026-06-19) hit three sequential reactive merge blocks in one session — placeholder assertions, then execution-evidence-missing, then a heading without the colon — each fixed in its own round. mt#2525 (2026-06-21) recurred on the missing `Execution evidence:` block at merge. Front-loading removes the reactive rounds. Gates: mt#1459 (`Execution evidence:` merge gate, newly-added test files), mt#1460 (/prepare-pr §1b sibling, also newly-created only), mt#1938 (Prevent-Placeholder-Tests CI check, repo-wide grep), mt#3033 (per-AT cross-reference, calibration-first).
 
@@ -591,6 +625,19 @@ deferring` — do not silently downgrade to "the deploy succeeded" as the comple
    done until `deployment_wait-for-latest` returns SUCCESS AND the runtime shows
    the service started (a `/health` 200 or `deployment_logs(..., type: "deploy")`
    showing the boot). Verify outcomes, not actions.
+
+   **A 200 from /health is not by itself proof the RIGHT service started
+   (mt#3148).** Every Minsky service is built from the same monorepo, so a
+   misconfigured build can put a DIFFERENT application on the host — and it
+   answers 200 exactly like the right one. mt#3142: the MCP server served the
+   reviewer's host for ~1h while every reviewer route 404'd, and the status-code
+   check stayed green throughout. Assert the health body's "service" field
+   (minsky-cockpit / minsky-mcp / minsky-reviewer / minsky-site) via
+   assertServiceIdentity() in
+   packages/domain/src/deployment/health-identity.ts — not merely the status
+   code. The general form: **a verification probe must be able to fail**; if the
+   broken state produces the same output as the healthy one, the probe carries
+   no information.
 2. **A deploy-verification-tool flake is a BLOCKER, not a license to defer.** If
    `deployment_wait-for-latest` errors on auth / an MCP transport flake (e.g.
    Railway `Unauthorized`), reconnect (`/mcp`) and retry — do NOT downgrade to an
@@ -613,7 +660,7 @@ deferring` — do not silently downgrade to "the deploy succeeded" as the comple
 
 These constraints apply throughout implementation:
 
-- **Absolute paths only.** Every file operation must use the full session path (e.g., `/Users/edobry/.local/state/minsky/sessions/<id>/src/...`). Relative paths may resolve against the main workspace.
+- **Session-scoped file tools only.** Every file operation in the session goes through `session_read_file` / `session_search_replace` / `session_write_file`, addressed by `sessionId` + a session-relative path. Do not reach for the harness-native `Read`/`Edit`/`Write` with an absolute session path: an absolute path can silently resolve against the main workspace, and a bare relative path certainly will.
 - **Never edit main workspace.** All changes happen in the session. If a bug is found in the main project, create a separate task for it.
 - **Never manually set DONE.** Task status flows: TODO → IN-PROGRESS → IN-REVIEW → DONE. DONE is only set after PR merge, never manually from a session.
 - **No work without a session.** Implementation work requires an active session for isolation and traceability.

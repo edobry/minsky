@@ -20,6 +20,8 @@ import { useCallback, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Search, Copy, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "../components/ui/button";
+import { EntityRef } from "../components/EntityRef";
+import { Checkbox } from "../components/ui/checkbox";
 
 // ---------------------------------------------------------------------------
 // Client-side mirror of the server response shape. The server type
@@ -153,12 +155,14 @@ function ConversationSearchResultRow({ turn }: { turn: ConversationSearchTurn })
   return (
     <div className="flex flex-col gap-1 py-2 border-b border-border/60 last:border-0">
       <div className="flex items-center gap-2">
-        <span
-          className="text-xs font-mono text-muted-foreground truncate"
-          title={turn.agentSessionId}
-        >
+        {/* No nesting complication (unlike Attention.tsx's DigestRow) — this
+            row is not itself a Link. Children mode preserves the exact prior
+            truncated visual (mt#3187); the hover card adds the conversation's
+            resolved label where the native `title` tooltip previously only
+            repeated the id. */}
+        <EntityRef type="conversation" id={turn.agentSessionId} className="text-xs truncate">
           {turn.agentSessionId}
-        </span>
+        </EntityRef>
         {turn.sessionMetadata.model && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground flex-shrink-0">
             {turn.sessionMetadata.model}
@@ -248,11 +252,7 @@ export function ConversationSearchPanel() {
               aria-label="To date"
             />
             <label className="flex items-center gap-1 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={semantic}
-                onChange={(e) => setSemantic(e.target.checked)}
-              />
+              <Checkbox checked={semantic} onCheckedChange={(v) => setSemantic(v === true)} />
               Semantic
             </label>
             <Button type="submit" size="sm" className="h-6 text-xs px-2" disabled={!query.trim()}>

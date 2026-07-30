@@ -217,7 +217,11 @@ function evalAssociationsUpdate(
 
 let idCounter = 1;
 function genId(): string {
-  return `mem-${String(idCounter++).padStart(4, "0")}`;
+  // UUID-shaped: `memories.id` is a Postgres `uuid` column, so a `mem-0001`
+  // synthetic id could never occur in production — and since mt#3259
+  // `MemoryService.get` treats a non-uuid, non-`mem#N` string as an
+  // unqueryable miss rather than letting it reach the driver as a cast error.
+  return `00000000-0000-4000-8000-${String(idCounter++).padStart(12, "0")}`;
 }
 
 /** Recorded call to db.update().set().where() */
@@ -405,7 +409,11 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
         where(cond: any) {
           const matched = queryRows(cond);
           for (const r of matched) rows.delete(r.id);
-          return Promise.resolve();
+          // `.returning()` mirrors Postgres DELETE ... RETURNING: the service
+          // reads the deleted row's canonical uuid from here so it can remove
+          // the matching embedding, which is keyed by uuid and never by a
+          // `mem#N` alias (mt#3108 / PR #2348 R1).
+          return { returning: () => Promise.resolve(matched) };
         },
       };
     },

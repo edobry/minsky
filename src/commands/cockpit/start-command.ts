@@ -10,14 +10,18 @@ import {
   startAskAdvancementSweeper,
   startStaleAskCloseSweeper,
   startProdStateRefreshSweeper,
+  startConversationTitleSweeper,
   startTopologySweeper,
   startTranscriptSweepBackstop,
   startDispatchWatchdogSweeper,
   startDeploySmokeSweeper,
   startFollowUpSweeper,
+  startConversationPresenceSweeper,
   startSweepMetaWatchdog,
 } from "../../cockpit/sweepers";
 import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
+import { refreshSchemaReadinessFromDb } from "../../cockpit/schema-readiness";
+import { startStdioLogRotationSweeper } from "../../cockpit/stdio-log-rotation";
 import {
   markDbDegraded,
   startDbRetryBackoff,
@@ -35,6 +39,13 @@ import {
   buildAllowedHosts,
 } from "../../cockpit/auth";
 import { attachDrivenSessionWebSocket } from "../../cockpit/driven-session-ws";
+import {
+  createHighestUpdateIdReader,
+  createInboundEventRecorder,
+  getPrincipalChannelDb,
+  respondToAskFromChannel,
+  startPrincipalChannel,
+} from "../../cockpit/principal-channel-launch";
 import { loadPersistedDrivenSessions } from "../../cockpit/driven-session-launch";
 
 const DEFAULT_PORT = 3737;
@@ -160,6 +171,16 @@ export function createStartCommand(): Command {
       // ENABLE_AGENT_LOGS. See src/cockpit/daemon-file-log.ts's docblock for
       // why this was previously a silent gap.
       installDaemonFileLogging();
+
+      // Stdio-redirect log rotation (mt#3298): bounds the supervisor-written
+      // cockpit-{stdout,stderr}.log capture files via copy-then-truncate —
+      // the one launch-path-agnostic place a size policy can live, since the
+      // files' fds are owned by whichever supervisor started this process.
+      // Started immediately after logging install (PR #2387 R1) so the boot
+      // tick bounds an oversized file left by a previous run before the
+      // subsystems below begin writing to stdout/stderr. Filesystem-only;
+      // deliberately not gated on schema readiness.
+      const stopStdioLogRotationSweeper = startStdioLogRotationSweeper();
 
       const port = parseInt(options.port, 10);
       if (isNaN(port) || port < 1 || port > 65535) {
@@ -336,6 +357,25 @@ export function createStartCommand(): Command {
       // expire) so the /asks surface reflects reality. Boot pass + 60s loop;
       // fail-open inside the sweeper.
       const stopAskSweeper = startAskAdvancementSweeper();
+      // Principal channel (mt#3228): the inbound Telegram poller, which drives
+      // a local `claude` conversation with the principal's messages. LOCAL
+      // DAEMON ONLY, like the driven-session surfaces above — it spawns the
+      // genuine binary with the operator's own credentials. Opt-in
+      // (`principalChannel.enabled`); fire-and-forget so a Telegram or
+      // Pulumi hiccup can never keep the cockpit from serving.
+      let stopPrincipalChannel: (() => void) | null = null;
+      void startPrincipalChannel({
+        respondToAsk: respondToAskFromChannel,
+        recordEvent: createInboundEventRecorder(getPrincipalChannelDb),
+        readHighestUpdateId: createHighestUpdateIdReader(getPrincipalChannelDb),
+      })
+        .then((handle) => {
+          stopPrincipalChannel = handle ? () => handle.stop() : null;
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(`Warning: principal channel failed to start: ${message}`);
+        });
       // Stale-suspended-ask close sweep (mt#3001): recurring reconciliation
       // over `suspended` asks — close parent-terminal authz/review asks,
       // close failed-commit orphans superseded by a later landed commit,
@@ -358,6 +398,19 @@ export function createStartCommand(): Command {
       // full-discovery ingest + embedding backfill to cover dropped FS events,
       // sessions missed while the daemon was down, and stale embeddings.
       const stopTranscriptSweep = startTranscriptSweepBackstop();
+      // Conversation-title generation (mt#3321): fill `agent_transcripts.title`
+      // for conversations that don't have one, so the cockpit labels a run by
+      // what it's ABOUT instead of the first 60 characters of the opening
+      // prompt (which is unusable when that prompt is garbled).
+      const stopConversationTitleSweeper = startConversationTitleSweeper();
+      // Schema readiness (mt#3297): populate the /api/health `schema` block at
+      // boot, independently of any sweep. The transcript sweep also refreshes
+      // it every tick, but relying on that alone would leave `current: null`
+      // forever whenever that sweep is not running (PR #2379 R1) — a health
+      // field that is permanently "unknown" is indistinguishable from one that
+      // is broken, which is the failure shape this whole task removes.
+      // Fire-and-forget: it never throws, and boot must not block on the DB.
+      void refreshSchemaReadinessFromDb();
       // Dispatch watchdog refresh (mt#2646): periodically check in-flight
       // subagent dispatches (IN-PROGRESS/IN-REVIEW tasks with no commit/PR-
       // event/subagent_invocations progress) and write the flagged set to the
@@ -375,9 +428,17 @@ export function createStartCommand(): Command {
       // general by every sweeper in this list); this is simply its newest
       // registrant plus a DB-durable one-shot primitive layered on top.
       const stopFollowUpSweeper = startFollowUpSweeper();
+      // Conversation presence absence-detection sweep (mt#3201, mt#3130
+      // Phase 2): detects presence TRANSITIONS the write path structurally
+      // cannot emit — above all LIVE -> STALLED, since a killed process emits
+      // no event to retract its own `running` row — and pushes them on
+      // `minsky.conversation.presence_changed` for the SSE broker. Started
+      // BEFORE the meta-watchdog below so the watchdog covers it like every
+      // other sweep.
+      const stopConversationPresenceSweeper = startConversationPresenceSweeper();
       // Sweep meta-watchdog (mt#2894): a "sweep of sweeps" on its OWN
       // self-rescheduling setTimeout chain (deliberately not setInterval —
-      // see sweepers.ts's docblock) that force-restarts any of the eight
+      // see sweepers.ts's docblock) that force-restarts any of the
       // sweeps above whose interval has stopped attempting ticks entirely.
       // Covers the class per-tick isolation structurally cannot: a dropped
       // or wedged setInterval handle, not a hung/throwing tick.
@@ -393,10 +454,16 @@ export function createStartCommand(): Command {
         stopTopologySweeper();
         stopTranscriptWatcher();
         stopTranscriptSweep();
+        stopConversationTitleSweeper();
         stopDispatchWatchdogSweeper();
         stopDeploySmokeSweeper();
         stopFollowUpSweeper();
+        stopConversationPresenceSweeper();
+        stopStdioLogRotationSweeper();
         stopSweepMetaWatchdog();
+        // Aborts the in-flight long poll rather than letting shutdown wait it
+        // out; null when the channel is disabled or still starting.
+        stopPrincipalChannel?.();
         removeCurrentCockpitState();
       };
       const cleanupAndExit = () => {

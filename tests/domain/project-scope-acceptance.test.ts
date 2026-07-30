@@ -535,7 +535,11 @@ function splitMemTopLevel(sql: string, keyword: string): string[] {
 
 let memIdCounter = 1;
 function genMemId(): string {
-  return `mem-${String(memIdCounter++).padStart(4, "0")}`;
+  // UUID-shaped: `memories.id` is a Postgres `uuid` column, so a `mem-0001`
+  // synthetic id could never occur in production — and since mt#3259
+  // `MemoryService.get` treats a non-uuid, non-`mem#N` string as an
+  // unqueryable miss rather than letting it reach the driver as a cast error.
+  return `00000000-0000-4000-8000-${String(memIdCounter++).padStart(12, "0")}`;
 }
 
 function createMemoryFakeDb(
@@ -796,12 +800,14 @@ describe("Memory — generated-SQL project_id predicate (ADR-021, mt#2416)", () 
 // ---------------------------------------------------------------------------
 
 /**
- * FakeAskRepository.listByState currently treats projectScope as a no-op
- * because Ask rows don't yet carry a projectId column (ADR-021 Phase-1.3b
- * follow-up, out-of-scope for mt#2416).  The acceptance tests here verify:
+ * FakeAskRepository.listByState filters by projectId (ADR-021, mt#2563)
+ * faithfully mirroring the Drizzle backend: a uuid-scoped read excludes
+ * unscoped Asks (projectId undefined) and includes only Asks stamped with
+ * that exact project_id. The acceptance tests here verify:
  *
  *   a. The method signature accepts projectScope without compiler errors.
- *   b. Passing a uuid projectScope does not crash.
+ *   b. Passing a uuid projectScope does not crash and correctly scopes
+ *      results to Asks stamped with that project.
  *   c. Passing ALL_PROJECTS returns all rows in the given state.
  *   d. The DrizzleAskRepository interface declares the same signature
  *      (structural, compile-time only — no runtime Postgres needed).
@@ -809,32 +815,34 @@ describe("Memory — generated-SQL project_id predicate (ADR-021, mt#2416)", () 
 describe("Asks — FakeAskRepository.listByState projectScope parameter (ADR-021, mt#2416)", () => {
   let repo: FakeAskRepository;
 
-  const makeAsk = () => ({
+  const makeAsk = (projectId?: string) => ({
     kind: "direction.decide" as const,
     classifierVersion: "v1",
     requestor: "agent:test" as const,
     title: "Test ask",
     question: "What should I do?",
+    projectId,
   });
 
   beforeEach(() => {
     repo = new FakeAskRepository();
   });
 
-  // quarantined: pre-existing failure, tracked in mt#2712. Unmasked by
-  // mt#2665's CI-truncation fix, not caused by it -- unrelated to this
-  // PR's scope (CI infrastructure only; no asks/domain code touched).
-  // eslint-disable-next-line custom/no-skipped-tests -- genuine quarantine of a pre-existing failure (mt#2712), not a placeholder; see comment above.
-  it.skip("listByState with PROJECT_A scope does not crash and returns asks in that state", async () => {
-    const ask = await repo.create(makeAsk());
+  // mt#2712: this test previously relied on FakeAskRepository treating
+  // projectScope as a no-op (stale comment, pre-mt#2563). FakeAskRepository
+  // now filters by projectId faithfully (mt#2563), so an unscoped ask is
+  // correctly EXCLUDED from a uuid-scoped read -- matching the Drizzle
+  // backend's `project_id = scope` SQL predicate. Stamp the ask with
+  // PROJECT_A so it is included in a PROJECT_A-scoped read, which is what
+  // this test's name and intent actually assert.
+  it("listByState with PROJECT_A scope does not crash and returns asks in that state", async () => {
+    const ask = await repo.create(makeAsk(PROJECT_A));
     // Advance to classified then suspended so it's in a queryable state
     await repo.transition(ask.id, "classified");
     await repo.transition(ask.id, "suspended");
 
     // Should not throw
     const results = await repo.listByState("suspended", PROJECT_A);
-    // FakeAskRepository doesn't filter by projectId (no-op per spec comment)
-    // so the ask is returned regardless of scope
     expect(results.some((a) => a.id === ask.id)).toBe(true);
   });
 

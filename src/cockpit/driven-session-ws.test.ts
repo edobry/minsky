@@ -75,10 +75,24 @@ interface TestServer {
   close: () => Promise<void>;
 }
 
+/**
+ * Hermetic default for the restart-recovery seam (mt#3254).
+ *
+ * Omitting `orchestrateResume` used to fall through to the real
+ * `orchestrateDrivenSessionResume`, which calls `getContextInspectorDb()` —
+ * the PRODUCTION resolution path. Under `bun test` that resolves whatever the
+ * environment points at, which is how this file contributed fixture rows to
+ * prod `driven_sessions`. "No persisted row" is the right default for a test
+ * that has not set one up; a test needing real resume behavior passes its own.
+ */
+const notFoundResume: typeof orchestrateDrivenSessionResume = async () => ({
+  outcome: "not-found",
+});
+
 async function startTestServer(
   registry: DrivenSessionRegistry,
   spawnFn: SpawnFn,
-  orchestrateResume?: typeof orchestrateDrivenSessionResume
+  orchestrateResume: typeof orchestrateDrivenSessionResume = notFoundResume
 ): Promise<TestServer> {
   const app = createCockpitServer({
     overrideToken: TEST_TOKEN,
@@ -218,13 +232,20 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
     expect(inputLine.type).toBe("user");
     expect(inputLine.message.content[0].text).toBe("continue please");
 
+    // The operator's own turn comes straight back over the channel (mt#3372) —
+    // the child never echoes stdin, so this frame is the host's, and without it
+    // the view would show the reply with nothing that prompted it.
+    await waitUntil(() => messages.length >= 3);
+    expect(messages[2]?.type).toBe("minsky_operator_input");
+    expect(messages[2]?.text).toBe("continue please");
+
     // Next turn streams in live.
     proc.emitLine({
       type: "assistant",
       message: { content: [{ type: "text", text: "continuing" }] },
     });
-    await waitUntil(() => messages.length >= 3);
-    expect(messages[2]?.type).toBe("assistant");
+    await waitUntil(() => messages.length >= 4);
+    expect(messages[3]?.type).toBe("assistant");
   });
 
   test("acceptance test 3: connecting without the auth token is refused", async () => {

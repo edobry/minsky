@@ -28,6 +28,9 @@ import {
   MERGE_ERROR_SUMMARY_EXCERPT_LIMIT,
 } from "./workflow-commands";
 import { SessionConflictError } from "@minsky/domain/errors/index";
+import { handleOctokitError } from "@minsky/domain/repository/github-error-handler";
+import { GitHubApiError } from "@minsky/domain/repository/index";
+import { classifyOctokitOriginReadError } from "./merge-error-classification";
 
 describe("classifyMergeError", () => {
   test("SessionConflictError instance classifies as conflict", () => {
@@ -215,3 +218,197 @@ describe("classifyMergeError + withOriginalMessage composition (mt#2890 acceptan
     expect(summary).not.toContain("Merge conflict");
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#3221 — end-to-end through the REAL producer.
+//
+// The tests above construct the degraded message by hand. These run the actual
+// `handleOctokitError` output through `classifyMergeError`, so the producer and
+// the parser are pinned together: Octokit synthesizes `status: 500` for every
+// transport-level failure, and before mt#3221 that made the operator's own
+// connectivity failure classify as a GitHub outage here.
+// ---------------------------------------------------------------------------
+
+describe("mt#3221 — transport failure vs GitHub-responded 5xx, end to end", () => {
+  const CTX = {
+    operation: "merge pull request",
+    owner: "owner",
+    repo: "repo",
+    prNumber: 1988,
+  };
+
+  function thrownMessage(error: unknown): string {
+    try {
+      handleOctokitError(error, CTX);
+    } catch (err) {
+      return (err as Error).message;
+    }
+    throw new Error("expected handleOctokitError to throw");
+  }
+
+  test("a synthesized transport 5xx (status, no response) does NOT classify as degraded", () => {
+    // The exact shape Octokit's fetch wrapper throws for a DNS/connection failure.
+    const transport = new Error(
+      "Unable to connect. Is the computer able to access the url?"
+    ) as Error & { status: number };
+    transport.status = 500;
+
+    expect(classifyMergeError(new Error(thrownMessage(transport))).kind).toBe("other");
+  });
+
+  test("a GitHub-responded 5xx still classifies as degraded with its status", () => {
+    const responded = new Error("boom") as Error & {
+      status: number;
+      response: { status: number };
+    };
+    responded.status = 503;
+    responded.response = { status: 503 };
+
+    expect(classifyMergeError(new Error(thrownMessage(responded)))).toEqual({
+      kind: "degraded",
+      status: "503",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3249 — the classification travels as DATA, so wording is no longer an API.
+//
+// Previously the domain layer computed what a failure was, discarded it into
+// prose, and these classifiers reconstructed it by matching that prose. The
+// round-trip is why mt#2890 had to push the status into the message purely so
+// it could be read back, and why mt#3171/mt#3221 each had to prove they had
+// not disturbed the headline. `GitHubApiError` carries the answer directly.
+// ---------------------------------------------------------------------------
+
+describe("mt#3249 — structured classification is preferred over message text", () => {
+  test("a reworded message does not change the classification (the whole point)", () => {
+    // Deliberately destroys BOTH prose signals the old path relied on: no
+    // "GitHub API degraded/unavailable" headline and no "(HTTP 5xx)" token.
+    const err = new GitHubApiError("something entirely different, no headline, no status token", {
+      kind: "degraded",
+      status: 503,
+      respondedByServer: true,
+    });
+
+    expect(classifyMergeError(err)).toEqual({ kind: "degraded", status: "503" });
+    expect(classifyOctokitOriginReadError(err)).toEqual({ kind: "degraded", status: "503" });
+  });
+
+  test("a reworded rate-limit message still classifies as rate-limit", () => {
+    const err = new GitHubApiError("totally different wording", {
+      kind: "rate-limit",
+      respondedByServer: true,
+    });
+
+    expect(classifyMergeError(err)).toEqual({ kind: "rate-limit" });
+    expect(classifyOctokitOriginReadError(err)).toEqual({ kind: "rate-limit" });
+  });
+
+  test("merge-blocked maps to conflict on the merge path, and to other on the read path", () => {
+    // The read path has no "conflict" kind — these sites never produce
+    // merge-conflict diagnoses (see the module doc), so it must not invent one.
+    const err = new GitHubApiError("reworded, no conflict phrase present", {
+      kind: "merge-blocked",
+      status: 405,
+      respondedByServer: true,
+    });
+
+    expect(classifyMergeError(err)).toEqual({ kind: "conflict" });
+    expect(classifyOctokitOriginReadError(err)).toEqual({ kind: "other" });
+  });
+
+  test("kinds with no downstream meaning fall to 'other', not to a wrong class", () => {
+    for (const kind of ["auth", "permission", "not-found", "network", "unclassified"] as const) {
+      const err = new GitHubApiError("irrelevant text", { kind, respondedByServer: true });
+      expect(classifyMergeError(err)).toEqual({ kind: "other" });
+      expect(classifyOctokitOriginReadError(err)).toEqual({ kind: "other" });
+    }
+  });
+
+  test("a degraded classification with no status omits it rather than emitting undefined", () => {
+    const err = new GitHubApiError("x", { kind: "degraded", respondedByServer: true });
+    expect(classifyMergeError(err)).toEqual({ kind: "degraded" });
+  });
+
+  test("a non-number status is omitted, never stringified (PR #2351 R1)", () => {
+    // `OctokitErrorInfo.status` is typed `number | undefined` but derives from
+    // `anyErr?.status ?? anyErr?.response?.status` over an `unknown` error, so an
+    // error shape carrying explicit nulls produces `null` at runtime. Guarding on
+    // `!== undefined` would let it through and emit the literal string "null".
+    const err = new GitHubApiError("x", {
+      kind: "degraded",
+      status: null as unknown as number,
+      respondedByServer: true,
+    });
+
+    expect(classifyMergeError(err)).toEqual({ kind: "degraded" });
+    expect(classifyOctokitOriginReadError(err)).toEqual({ kind: "degraded" });
+  });
+
+  test("adapters read `kind` and `status` and ignore `respondedByServer` (PR #2351 R1)", () => {
+    // `respondedByServer` exists for the DOMAIN's routing decision (mt#3221:
+    // did GitHub actually respond?). By the time a classification exists that
+    // question is already settled, so flipping it must not move either
+    // classifier — documenting which fields are part of this contract.
+    const base = { kind: "degraded", status: 502 } as const;
+
+    expect(
+      classifyMergeError(new GitHubApiError("x", { ...base, respondedByServer: true }))
+    ).toEqual(classifyMergeError(new GitHubApiError("x", { ...base, respondedByServer: false })));
+    expect(
+      classifyOctokitOriginReadError(new GitHubApiError("x", { ...base, respondedByServer: false }))
+    ).toEqual({ kind: "degraded", status: "502" });
+  });
+
+  test("back-compat: an error carrying NO classification still uses the string path", () => {
+    // Non-Octokit origins and any unmigrated path must keep working.
+    expect(
+      classifyMergeError(new Error("GitHub API degraded/unavailable (HTTP 502)\n\nblah"))
+    ).toEqual({ kind: "degraded", status: "502" });
+    expect(classifyMergeError(new Error("hit the rate limit"))).toEqual({ kind: "rate-limit" });
+    expect(classifyMergeError(new Error("merge conflict in foo.ts"))).toEqual({ kind: "conflict" });
+  });
+
+  test("PR #2018 R1 regression stays fixed on the read path", () => {
+    // A domain-typed error whose message merely CONTAINS "rate limit" carries
+    // no classification, so it takes the narrow headline path and is left
+    // alone — not silently reclassified into a transport shape.
+    expect(classifyOctokitOriginReadError(new Error("task 'rate limit' not found"))).toEqual({
+      kind: "other",
+    });
+  });
+
+  test("the real producer emits a structured error end to end", () => {
+    // Not a hand-built fixture: this is what handleOctokitError actually throws.
+    const responded = new Error("boom") as Error & {
+      status: number;
+      response: { status: number };
+    };
+    responded.status = 503;
+    responded.response = { status: 503 };
+
+    let thrown: unknown;
+    try {
+      handleOctokitError(responded, CTX_FOR_STRUCTURED);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(GitHubApiError);
+    expect((thrown as GitHubApiError).classification).toEqual({
+      kind: "degraded",
+      status: 503,
+      respondedByServer: true,
+    });
+    // And the consumer reads it without touching the message.
+    expect(classifyMergeError(thrown)).toEqual({ kind: "degraded", status: "503" });
+  });
+});
+
+const CTX_FOR_STRUCTURED = {
+  operation: "merge pull request",
+  owner: "owner",
+  repo: "repo",
+  prNumber: 1988,
+};

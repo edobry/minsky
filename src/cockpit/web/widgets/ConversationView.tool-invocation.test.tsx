@@ -110,7 +110,7 @@ describe("ConversationView — unified tool-invocation block (mt#2790)", () => {
 
     // Exactly one merged block (one toggle button), not a separate call block
     // plus a separate result block.
-    const toggles = container.querySelectorAll('button[aria-expanded]');
+    const toggles = container.querySelectorAll("button[aria-expanded]");
     expect(toggles).toHaveLength(1);
 
     // Collapsed by default: the truncated command shows, the full/raw
@@ -157,7 +157,7 @@ describe("ConversationView — unified tool-invocation block (mt#2790)", () => {
         userToolResultBlock(1, "call-err", "task not found", true),
       ])
     );
-    const toggle = container.querySelector('button[aria-expanded]');
+    const toggle = container.querySelector("button[aria-expanded]");
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
     // Full result body is already visible without an extra click.
     expect(screen.getByText("task not found")).toBeDefined();
@@ -168,10 +168,14 @@ describe("ConversationView — unified tool-invocation block (mt#2790)", () => {
     const { container } = renderCV(
       snapshotWithBlocks([userToolResultBlock(0, "call-nowhere", "orphan payload")])
     );
-    expect(screen.getByText("tool result")).toBeDefined();
+    // Both the standalone block header and the turn's origin label read this
+    // (mt#3374): an orphaned tool result is harness output, so its turn no
+    // longer renders under the operator's `user` label.
+    expect(screen.getAllByText("tool result").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryAllByText("user")).toHaveLength(0);
     expect(screen.getByText("orphan payload")).toBeDefined();
     // Standalone fallback, not the merged toggle block.
-    expect(container.querySelector('button[aria-expanded]')).toBeNull();
+    expect(container.querySelector("button[aria-expanded]")).toBeNull();
   });
 
   test("expand all / collapse all works across every block", () => {
@@ -213,5 +217,43 @@ describe("ConversationView — unified tool-invocation block (mt#2790)", () => {
       ])
     );
     expect(screen.getAllByText(/subagent \(Explore\)/).length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("a native Edit on a session file names the file and labels it session-scoped (mt#3378)", () => {
+    const sessionId = "010b0467-f007-4b2f-9d80-d5f6ed3cf4b7";
+    const absolute = `/Users/x/.local/state/minsky/sessions/${sessionId}/src/cockpit/web/lib/tool-summary.ts`;
+    const { container } = renderCV(
+      snapshotWithBlocks([
+        assistantToolCallBlock(0, "call-edit", "Edit", { file_path: absolute }),
+        userToolResultBlock(1, "call-edit", "ok"),
+      ])
+    );
+
+    const summary = container.querySelector("button[aria-expanded]")?.textContent ?? "";
+    // The file is named, the session-root boilerplate is gone, and the session
+    // id is not spent inline on the one line the operator reads.
+    expect(summary).toContain("src/cockpit/web/lib/tool-summary.ts");
+    expect(summary).not.toContain(".local/state/minsky/sessions");
+    expect(summary).not.toContain(sessionId);
+    expect(summary).toContain("session file");
+
+    // The session identity is still reachable — it moved to the tooltip.
+    const tooltip = container.querySelector("span[title]")?.getAttribute("title") ?? "";
+    expect(tooltip).toContain(sessionId);
+    expect(tooltip).toContain(absolute);
+  });
+
+  test("a main-workspace Edit is untouched — no session label, full path shown (mt#3378)", () => {
+    const { container } = renderCV(
+      snapshotWithBlocks([
+        assistantToolCallBlock(0, "call-edit", "Edit", {
+          file_path: "/Users/x/Projects/minsky/CLAUDE.md",
+        }),
+        userToolResultBlock(1, "call-edit", "ok"),
+      ])
+    );
+    const summary = container.querySelector("button[aria-expanded]")?.textContent ?? "";
+    expect(summary).toContain("/Users/x/Projects/minsky/CLAUDE.md");
+    expect(summary).not.toContain("session file");
   });
 });

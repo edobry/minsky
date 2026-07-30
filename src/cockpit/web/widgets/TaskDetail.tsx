@@ -16,10 +16,12 @@ import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { Prose } from "../components/Prose";
+import { EntityRef } from "../components/EntityRef";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { useStartDrivenSession } from "../hooks/useStartDrivenSession";
 import { statusStyle } from "../lib/status-colors";
 import { DISPATCH_MODELS, DEFAULT_DISPATCH_MODEL_ID } from "@minsky/domain/ai/dispatch-models";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the /api/tasks/:id response shape
@@ -110,17 +112,26 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Task ID chip — monospace, links to detail page
+// Task ID chip — monospace, links to detail page.
+//
+// Routed through the shared <EntityRef> (mt#3187) rather than a hand-rolled
+// <Link> so this chip gains the hover-card treatment. Children mode (id
+// verbatim, no derived "id · label" text): every call site already renders
+// the referenced task's title and <StatusBadge> immediately adjacent
+// (TaskRefRow's title span; the Parent section's inline title span) — default
+// mode would duplicate that info inline, the same "no duplicated title"
+// discipline mt#3175 established for TaskGraph's node chip.
 // ---------------------------------------------------------------------------
 
 function TaskIdChip({ id }: { id: string }) {
   return (
-    <Link
-      to={`/tasks/${encodeURIComponent(id)}`}
-      className="font-mono text-xs px-1.5 py-0.5 rounded bg-muted text-foreground hover:bg-muted/70 transition-colors"
+    <EntityRef
+      type="task"
+      id={id}
+      className="text-xs px-1.5 py-0.5 rounded bg-muted text-foreground hover:bg-muted/70 hover:no-underline transition-colors"
     >
       {id}
-    </Link>
+    </EntityRef>
   );
 }
 
@@ -128,7 +139,7 @@ function TaskIdChip({ id }: { id: string }) {
 // Task reference row — ID chip + title + status badge
 // ---------------------------------------------------------------------------
 
-function TaskRefRow({ task }: { task: TaskRef }) {
+export function TaskRefRow({ task }: { task: TaskRef }) {
   return (
     <div className="flex items-center gap-2 py-1.5 border-b border-border last:border-0">
       <StatusBadge status={task.status} />
@@ -273,20 +284,22 @@ function LaunchActionButton({
           {note}
         </span>
       )}
-      <select
-        value={modelId}
-        onChange={(e) => setModelId(e.target.value)}
-        disabled={start.isPending}
-        className="h-7 text-xs bg-muted border border-border rounded px-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-        aria-label={`Model for ${label.toLowerCase()}`}
-        title="Model the driven session runs on"
-      >
-        {DISPATCH_MODELS.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label}
-          </option>
-        ))}
-      </select>
+      <Select value={modelId} onValueChange={setModelId} disabled={start.isPending}>
+        <SelectTrigger
+          className="h-7"
+          aria-label={`Model for ${label.toLowerCase()}`}
+          title="Model the driven session runs on"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {DISPATCH_MODELS.map((m) => (
+            <SelectItem key={m.id} value={m.id}>
+              {m.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       <Button
         size="sm"
         onClick={() => start.mutate({ taskId, composePrefill, model: modelId })}

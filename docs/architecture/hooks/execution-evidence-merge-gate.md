@@ -38,3 +38,88 @@ error.
 - mt#3059 — tracked graduation from log-only WARN to blocking deny
 - mt#2542 — root incident motivating both the original gate and this extension
 - `/prepare-pr` §1b, `/implement-task` §7a — the paired preventive-phase skill steps
+
+## Success-criteria cross-reference (mt#3350, calibration-first)
+
+A FOURTH path, independent of the file-pattern triggers and of the AT cross-reference above.
+It reads the bound task's `## Success Criteria` — a section that, until mt#3350, was
+cross-referenced by **nothing**. `validate-task-spec.ts` checked the heading's PRESENCE at
+creation time and `task-prompt-generation.ts` checked `spec.includes("Success Criteria")` for a
+checklist table; no gate ever read the content.
+
+Implementation: `.minsky/hooks/success-criteria-coverage.ts`, called from this gate's entry
+point. It reuses the spec markdown the AT run already fetched, so it adds **no** CLI call per
+merge, and it shares `markdown-sections.ts`'s fence-aware scanning rather than re-deriving it.
+
+### The classifier default is INVERTED, deliberately
+
+`isExecutableAcceptanceTest` treats every AT as executable and SUBTRACTS findings-shaped text.
+`isExecutableSuccessCriterion` does the opposite: it requires a POSITIVE match, and requires
+**both halves** — a command shape (a backticked or bare `grep`/`rg`/`wc`/`find`, a `$ <cmd>`
+line) AND an expected-result shape ("returns zero hits", "the count is N", "exit code 0",
+"is empty").
+
+The conjunction is load-bearing (PR #2432 R1). The first implementation treated the two
+families as alternatives, so a bare `$ bun test` — a command with no stated expected outcome —
+classified as executable. That contradicts the premise: the point is that such a criterion IS
+ITS OWN CHECK, and a command with no expected result cannot settle anything by being run. The
+reviewer flagged the `$ <cmd>` case; the backticked-command shape had the same gap and was
+fixed with it.
+
+The inversion itself is the other half of the design. An `## Acceptance Tests` list is
+behavioral by construction; a `## Success Criteria` list is mostly judgment prose ("the control
+renders with cockpit surface tokens"), with the executable ones a sharp minority. Inheriting
+the AT default would flag nearly every criterion and bury the real signal — the mem#719 failure
+mode, where a detector's unmatchable output trains readers to discount its correct output too.
+Under-flagging is the safe direction while this ships log-only; the calibration log is how the
+pattern set widens on evidence.
+
+### What counts as addressing a criterion
+
+Any one of: a `[scN-deferred: mt#NNNN]` marker for that criterion number; a dedicated `SC<N>`
+heading section in the PR body; a by-number reference in the evidence block (`SC3`,
+`criterion 3`); or a distinctive keyword shared with the criterion's text.
+
+The deferral marker is **per-criterion and numbered**, mirroring `[atN-deferred:]`. A bare
+`[sc-deferred: ...]` — which mt#3350's own first spec draft proposed — cannot target one
+criterion, so a single marker would excuse an entire list. That is precisely the "prose
+explaining the skip reads as coverage to a human and as nothing to the gate" failure the marker
+convention exists to prevent.
+
+### `SC<N>` heading recognition is this task's half of FP-4
+
+mt#3339 owns the general FP-4 fix (evidence under non-canonical headings such as `## Testing`
+or `## Design/Approach`). `SC<N>`-shaped headings are carved out to mt#3350 by explicit
+agreement recorded in both specs, because mt#3350 is what DEFINES what an SC number means —
+recognizing the shape before that convention existed would be guessing at a numbering nothing
+produced. The real-world instance is mt#3149 / PR #2255, whose body carries
+`## SC3 (...) — re-verified, closed as already-resolved`.
+
+Matching is on the HEADING rather than by folding the section into the evidence text:
+`collectHeadingSections` collects from AFTER the heading line, so the number — the only part
+identifying WHICH criterion the section addresses — would otherwise be dropped.
+
+### Injection half
+
+`.minsky/hooks/inject-success-criteria.ts`, PreToolUse on `session_pr_create`, emits the
+criteria verbatim into `additionalContext`. Registered as its own matcher block; the existing
+`session_pr_create` PreToolUse blocks are multi-tool matchers that also cover `session_commit`,
+and injecting on every commit would be noise.
+
+Known limit, recorded rather than discovered later: PreToolUse fires with the create call
+already in flight, so the injection cannot shape the body being submitted — it prompts a
+follow-up `session_pr_edit`. The merge-time half above is the backstop that makes that
+acceptable.
+
+Override: `MINSKY_SKIP_SC_COVERAGE=1` (merge-time half). Calibration log:
+`.minsky/execution-evidence-sc-coverage-calibration.jsonl`. Originating incident: mt#3347,
+whose headline criterion — a one-line grep — was authored by the agent 40 minutes before
+implementation, never run, and shipped past clean typecheck, clean lint and 1487 passing tests
+with the exact control the principal had screenshotted still unmigrated. See mem#736.
+
+## Task-id resolution (mt#3355)
+
+This gate resolves its task id through the shared `merge-gate-task-resolution.ts` module, which
+prefers `tool_input.task`, falls back to the `task/mt-<id>` branch in `cwd`, and WARNS rather
+than silently allowing when neither resolves. See
+[Merge-Gate Task Resolution](./merge-gate-task-resolution.md).

@@ -38,12 +38,14 @@ import {
 } from "../command-registry";
 import { ValidationError } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
+import { APPROVAL_TOKEN_EXAMPLES, isApproveShapedToken } from "@minsky/shared/ask-approval";
 import {
   DrizzleAskRepository,
   type AskRepository,
   type CreateAskInput,
 } from "@minsky/domain/ask/repository";
 import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
+import { isAutomatedClosureResponder } from "@minsky/domain/ask/close-as-resolved";
 import {
   editAskContent,
   providedEditableFields,
@@ -594,11 +596,39 @@ export async function respondToAsk(
 // asks.create — schemas
 // ---------------------------------------------------------------------------
 
-const askOptionSchema = z.object({
-  label: z.string(),
-  value: z.unknown(),
-  description: z.string().optional(),
-});
+/**
+ * Decision-frame option accepted at the CLI/MCP boundary.
+ *
+ * `value` is declared OPTIONAL here and normalized to `label` when absent
+ * (mt#3181). It was previously `z.unknown()`, which Zod treats as optional
+ * inside `z.object` — so `{label, description}` (the shape
+ * `humility.mdc §Escalation packaging` describes, and the shape agents
+ * naturally write) validated cleanly and stored an option with NO `value`.
+ * Every response writer records the SELECTION by stringifying `option.value`,
+ * so answering such an Ask persisted an empty selection and silently lost the
+ * operator's choice — the Ask still reported `closed` with `respondedAt` set.
+ * Observed on ask#5769 (`{"chosen": "", "option": ""}`).
+ *
+ * Defaulting beats rejecting here: `{label, description}` is the documented
+ * calling convention across many agent callsites, so rejecting it would break
+ * working callers to fix a bug none of them caused. `label` is a meaningful
+ * machine value.
+ *
+ * The transform is load-bearing at BOTH boundaries: `convertMcpArgsToParameters`
+ * (`src/adapters/mcp/shared-command-integration.ts`) assigns `schema.parse(value)`
+ * — the parse OUTPUT — since mt#3155, and `normalizeCliParameters`
+ * (`src/adapters/shared/bridges/parameter-mapper.ts`) has always done the same.
+ */
+export const askOptionSchema = z
+  .object({
+    label: z.string(),
+    value: z.unknown().optional(),
+    description: z.string().optional(),
+  })
+  .transform((option) => ({
+    ...option,
+    value: option.value === undefined ? option.label : option.value,
+  }));
 
 const contextRefSchema = z.object({
   kind: z.string(),
@@ -606,7 +636,14 @@ const contextRefSchema = z.object({
   description: z.string().optional(),
 });
 
-const asksCreateParams = {
+// Exported (not just used internally) so tests can run raw CLI/MCP-shaped
+// input through the REAL production normalization functions
+// (`normalizeCliParameters` / `convertMcpArgsToParameters`) using the actual
+// parameter map `asks.create` is registered with — see the
+// "validate receives parsed params" pinning test in asks.test.ts (mt#3203
+// review R1) — rather than a hand-rolled duplicate parameter map that could
+// drift from the real one.
+export const asksCreateParams = {
   kind: {
     schema: z.enum(ALL_KINDS as [AskKind, ...AskKind[]]),
     description: "Ask kind (one of the 7 ADR-008 taxonomy values)",
@@ -688,6 +725,17 @@ const asksCreateParams = {
   // It is reaper-owned state (mt#1490): the reaper increments it each time a scheduled
   // window opens and the Ask is still pending. Callers must not set it directly via
   // asks.create — createAsk always initialises it to 0 for new Asks.
+  acknowledgeFormWarnings: {
+    schema: z.boolean().optional(),
+    description:
+      "When true, bypass the form-lint hard-reject (mt#3326) for this create call. A " +
+      "deliberate, per-call override for a genuinely long/complex ask — never a default. " +
+      "Recorded on the form-lint calibration log so override frequency stays reviewable via " +
+      "/calibration-review. Without it, a create whose question/options fail any form-lint " +
+      "check (internal-tool-id, over-word-budget, portal-no-link, long-option-label, " +
+      "letter-prefixed-option-label) is rejected with the violations listed.",
+    required: false,
+  },
 };
 
 /**
@@ -726,6 +774,142 @@ export function validateAsksCreateParams(params: {
         "Either drop windowKey, set serviceStrategy='scheduled', or omit serviceStrategy to use the kind's default."
     );
   }
+}
+
+/**
+ * Authoring-time guard against the mt#3203 footgun: an `authorization.approve`
+ * Ask whose options can never satisfy the redemption-time approval verifier.
+ *
+ * `.minsky/hooks/ask-verification.ts` anchors approval to an exact
+ * approve-shaped token (`APPROVAL_TOKEN`, imported from
+ * `@minsky/shared/ask-approval` — the SAME constant this function checks
+ * against, so the two cannot drift apart). `askOptionSchema` defaults an
+ * option's `value` to its `label` when no explicit `value` is supplied
+ * (mt#3181), so a purely descriptive button label — e.g. "Approve the
+ * override and merge" — silently becomes the recorded value and can never
+ * verify. Left undetected, this surfaces only at REDEMPTION time (a merge
+ * or guard-override attempt), after the operator has already approved, with
+ * an error that reads as though they declined.
+ *
+ * Deliberately narrow in scope, matching the spec's "Does NOT cover":
+ *   - Only fires for `kind === "authorization.approve"`. Every other kind's
+ *     options are free-form decision frames with no approval verifier to
+ *     satisfy.
+ *   - Only fires when `options` is non-empty. A free-text (no-options)
+ *     `authorization.approve` Ask is a different, already-out-of-scope
+ *     failure mode (it correctly fails verification on its own).
+ *
+ * A caller supplying an explicit approve-shaped `value` alongside an
+ * arbitrary human-readable `label` passes: this checks `value`, never
+ * `label`, so operator-facing wording is never constrained.
+ *
+ * Exported for direct testing without requiring the full command factory
+ * setup. The `asks.create` command's `validate` hook delegates to this
+ * function, matching `validateAsksCreateParams`'s pattern above.
+ *
+ * @throws {ValidationError} when kind is `authorization.approve`, options are
+ *   present, and none of them carries an approve-shaped `value`
+ */
+export function validateAuthorizationApproveOptions(params: {
+  kind?: AskKind;
+  options?: Array<{ label: string; value?: unknown }>;
+}): void {
+  if (params.kind !== "authorization.approve") return;
+  if (!params.options || params.options.length === 0) return;
+
+  const hasApproveShapedOption = params.options.some((option) =>
+    isApproveShapedToken(option.value)
+  );
+  if (hasApproveShapedOption) return;
+
+  const labels = params.options.map((option) => `"${option.label}"`).join(", ");
+  throw new ValidationError(
+    `authorization.approve Ask has no option with an approve-shaped value ` +
+      `(${APPROVAL_TOKEN_EXAMPLES.join("/")}). Options given: ${labels}. ` +
+      `A descriptive label is not enough — asks_create defaults "value" to "label" when ` +
+      `omitted, and only an exact approve-shaped value verifies. Add one explicitly, ` +
+      `e.g. {label: "...", value: "approve"} — the label can stay descriptive.`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// asks.create — form-lint hard-reject (mt#3326)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reject an `asks.create` call whose question/options fail any form-lint
+ * check (`@minsky/domain/ask/form-lint`'s `computeFormLintMatches`), unless
+ * the caller explicitly acknowledges the violations via
+ * `acknowledgeFormWarnings: true` (mt#3326).
+ *
+ * Design decision (recorded in the mt#3326 spec's "Design Decision" section
+ * before this function was written): hard-reject with the violations
+ * listed, mirroring the mt#2778 unknown-param MCP-boundary precedent,
+ * rather than forcing a same-turn `asks.edit`. Evidence:
+ * `.minsky/ask-form-lint-calibration.jsonl` shows the SAME over-word-budget
+ * fire ignored on 5 different Asks within ~20h (2026-07-28 through
+ * 2026-07-29) — detection was solved (`formWarnings` fires correctly) and
+ * its output was routinely ignored fleet-wide because it was advisory-only.
+ *
+ * ALL five form-lint checks are blocking here, not only the two the retro
+ * cites as recurring evidence (`over-word-budget`, `long-option-label`) —
+ * the calibration log shows every check has fired at least once in
+ * production; leaving the other three (`internal-tool-id`, `portal-no-link`,
+ * `letter-prefixed-option-label`) advisory-only would silently reproduce the
+ * same containment gap for those defect classes.
+ *
+ * `acknowledgeFormWarnings: true` is the sanctioned override for a
+ * genuinely long/complex ask (e.g. a multi-log calibration-review
+ * disposition ask) — an explicit, auditable per-call escape hatch, never a
+ * silent bypass, mirroring `forceImmediate`'s posture on the service-window
+ * fields above. The `asks.create` execute handler records `acknowledged:
+ * true` on the calibration-log entry when it is used, so override frequency
+ * stays reviewable via `/calibration-review`.
+ *
+ * Scope: `asks.create` only. `asks.edit` does not compute form-lint at all
+ * (before or after this change) — extending enforcement to edits that
+ * introduce a new violation is out of scope for this task (see the spec's
+ * Design Decision section).
+ *
+ * The underlying `computeFormLintMatches` stays pure and advisory-in-itself
+ * (unchanged by this task) — this function is what makes its output
+ * consequential, at the command-boundary layer, matching
+ * `validateAuthorizationApproveOptions`'s separation of concerns.
+ *
+ * Exported for direct testing without requiring the full command factory
+ * setup, matching `validateAuthorizationApproveOptions`'s pattern above.
+ *
+ * @throws {ValidationError} when form-lint matches exist and
+ *   `acknowledgeFormWarnings` is not `true`
+ */
+export function validateFormLintNotViolated(params: {
+  kind?: AskKind;
+  question?: string;
+  options?: Array<{ label: string }>;
+  acknowledgeFormWarnings?: boolean;
+}): void {
+  if (params.acknowledgeFormWarnings) return;
+  // Absence of kind/question is a required-field concern the parameter
+  // schema already enforces — nothing for this check to add.
+  if (!params.kind || !params.question) return;
+
+  const matches = computeFormLintMatches({
+    kind: params.kind,
+    question: params.question,
+    options: params.options,
+  });
+  if (matches.length === 0) return;
+
+  const violations = matches.map((m) => `  - ${m.check}: ${m.message}`).join("\n");
+  const plural = matches.length > 1 ? "s" : "";
+  throw new ValidationError(
+    `asks.create: ${matches.length} form-lint violation${plural} — fix the ask and retry:\n` +
+      `${violations}\n\n` +
+      `Form-lint checks are consequential at the asks_create boundary (mt#3326): the create ` +
+      `is rejected rather than silently accepted with an ignorable warning. If this ask is ` +
+      `genuinely long/complex and the violation is warranted, pass acknowledgeFormWarnings: ` +
+      `true to create it anyway — this is recorded for calibration review, not a silent bypass.`
+  );
 }
 
 /**
@@ -939,7 +1123,14 @@ export async function createAskWithFormLint(
   routerOptions: PolicyFirstRouteOptions = {}
 ): Promise<CreateAskWithFormLintResult> {
   const ask = await createAsk(repo, params, routerOptions);
-  const formLintMatches = computeFormLintMatches({ kind: params.kind, question: params.question });
+  const formLintMatches = computeFormLintMatches({
+    kind: params.kind,
+    question: params.question,
+    // Option labels are lint input too (mt#3253) — they render as the decision
+    // buttons, so a 167-char label or one repeating the surface-rendered letter
+    // is a form defect the producer should hear about.
+    options: params.options,
+  });
   return {
     ask,
     formWarnings: formLintMatches.map((m) => m.message),
@@ -982,12 +1173,19 @@ export function formatAskWaitMessage(result: AskWaitForResponseResult): string {
   if (result.resolved) {
     const payload = result.response.payload;
     const payloadStr = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
-    return [
-      `✓ Ask resolved (${result.state}) by ${result.response.responder} ` +
-        `after ${secs}s / ${result.pollCount} poll(s)`,
-      "",
-      payloadStr,
-    ].join("\n");
+    // mt#3215: `responded`/`closed` are response-bearing states regardless of
+    // WHO closed them — a system sweep's automated closure (parent-terminal,
+    // supersession) sets `response` exactly like a genuine operator answer
+    // does. Render the two differently so a caller reading this line alone
+    // (not the raw payload) cannot mistake an unanswered auto-close for a
+    // real response — the ask#6024 incident this task fixes.
+    const autoClosed = isAutomatedClosureResponder(result.response.responder);
+    const headline = autoClosed
+      ? `⚠ Ask auto-closed (${result.state}) by ${result.response.responder} — NOT an operator ` +
+        `response after ${secs}s / ${result.pollCount} poll(s)`
+      : `✓ Ask resolved (${result.state}) by ${result.response.responder} ` +
+        `after ${secs}s / ${result.pollCount} poll(s)`;
+    return [headline, "", payloadStr].join("\n");
   }
   if (result.terminal) {
     return (
@@ -1082,6 +1280,120 @@ export function validateAsksEditParams(
       );
     }
   }
+}
+
+/**
+ * Edit-time counterpart to `validateAuthorizationApproveOptions` (mt#3209).
+ *
+ * `asks.edit`'s own params carry no `kind` field — an edit payload alone
+ * doesn't say what kind the target Ask is, so the mt#3203 authoring-time
+ * guard can't be applied to it directly. This fetches the Ask's PERSISTED
+ * kind and re-uses `validateAuthorizationApproveOptions` against it — same
+ * function, same `@minsky/shared/ask-approval` vocabulary underneath it, no
+ * second copy of the approve-token regex.
+ *
+ * Chosen over deferring the check into `execute` (the spec's alternative
+ * path): keeping it in `validate` means an edit that would strip the last
+ * approve-shaped option from a live `authorization.approve` Ask is rejected
+ * BEFORE any mutation runs, via the same `ValidationError` type and the same
+ * validate→execute gate mt#3203 established for `asks.create` — not a
+ * generic `Error` thrown partway through the domain-level write path. This
+ * mirrors `command-registry`'s ADR-004 pipeline (`shared-command-integration.ts`
+ * / `command-generator-core.ts`): `validate()` is awaited and any throw
+ * short-circuits before `execute()` ever runs, so this fully gates the
+ * mutation exactly like the create-time check does.
+ *
+ * Failure mode — DB unavailable (or the fetch otherwise fails) at validate
+ * time: the guard is skipped (fail-open), NOT because the risk is silently
+ * accepted, but because `execute()` performs its OWN `buildAskRepository` /
+ * `getById` resolution moments later (via `editAskContent`) and will surface
+ * a clear "AskRepository unavailable" or "Ask not found" error on its own if
+ * persistence is genuinely broken or the id doesn't resolve — no edit
+ * reaches the repository either way. The only gap this leaves is a
+ * transient DB blip that resolves between `validate` and `execute` in the
+ * same request, which is narrow and consistent with this file's existing
+ * fail-open convention (`buildAskRepository`, `resolveAskIdInput`,
+ * `resolveCurrentProjectScope` all degrade gracefully on persistence
+ * failures rather than throwing from a resolution helper).
+ *
+ * Deliberately narrow, matching `validateAuthorizationApproveOptions`'s own
+ * scope in one respect: only fires when the caller is replacing `options`
+ * (checked by the `validate` hook before calling this — see the `asks.edit`
+ * command registration) — editing title/question/contextRefs/metadata on an
+ * `authorization.approve` Ask is unaffected, even when its EXISTING options
+ * already lack an approve-shaped value (pre-existing state; not this
+ * function's job to retroactively enforce).
+ *
+ * Diverges from `validateAuthorizationApproveOptions` on ONE point (mt#3209
+ * review R1): an EDIT that replaces `options` with an empty array is
+ * rejected here even though the create-time function treats empty/absent
+ * `options` as out of scope. That create-time skip encodes a real,
+ * deliberate case — a caller creating an ask that has never had options
+ * intends a free-text `authorization.approve` Ask (which correctly fails
+ * verification on its own, since `.minsky/hooks/ask-verification.ts` never
+ * treats a free-text `message` as approval). But an EDIT that sets
+ * `options: []` on an ask that previously had a valid approve-shaped option
+ * is STRIPPING it, not authoring a free-text ask from birth — and matches
+ * the spec's literal wording ("no option carries an approve-shaped value")
+ * vacuously for the empty set. Silently allowing it here would let the same
+ * mt#3203 footgun back in through a one-character `options: []` edit.
+ *
+ * Exported for direct testing with a `FakeAskRepository`, mirroring the
+ * rest of this file's conventions.
+ */
+export async function validateEditOptionsAgainstExistingAsk(
+  repo: AskRepository | null,
+  resolvedId: string,
+  options: Array<{ label: string; value?: unknown }>
+): Promise<void> {
+  if (!repo) return; // fail-open — execute() surfaces its own clear error
+
+  let existing: Ask | null;
+  try {
+    existing = await repo.getById(resolvedId);
+  } catch (err: unknown) {
+    log.warn(
+      "asks.edit: could not fetch existing Ask to check authorization.approve options guard (fail-open)",
+      {
+        askId: resolvedId,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    );
+    return;
+  }
+  if (!existing) return; // not-found surfaces from execute()'s own lookup
+
+  // mt#3209 review R1: reject an edit that strips ALL options from an
+  // authorization.approve Ask. validateAuthorizationApproveOptions
+  // deliberately skips empty/absent options (a legitimate CREATE-time
+  // "free-text ask" case), but that carve-out does not extend to an EDIT
+  // that empties out options previously present — see the docstring above.
+  if (existing.kind === "authorization.approve" && options.length === 0) {
+    throw new ValidationError(
+      `authorization.approve Ask edit would strip all options, leaving none with an ` +
+        `approve-shaped value (${APPROVAL_TOKEN_EXAMPLES.join("/")}). Add at least one option ` +
+        `with an explicit approve-shaped value, e.g. {label: "...", value: "approve"}, or omit ` +
+        `"options" from this edit to leave the existing ones untouched.`
+    );
+  }
+
+  validateAuthorizationApproveOptions({ kind: existing.kind, options });
+}
+
+/**
+ * Gate for whether an `asks.edit` call needs the `validateEditOptionsAgainstExistingAsk`
+ * check at all (mt#3209). Pulled out as a standalone pure function so the third
+ * success criterion — editing title/question/contextRefs/metadata on an
+ * `authorization.approve` Ask is UNAFFECTED, even when its existing options
+ * already lack an approve-shaped value — is directly testable, rather than
+ * only inferable from reading the `asks.edit` command's `validate` hook. A
+ * `false` result means the (persistence-touching) guard is skipped entirely,
+ * not merely that it happens not to fire.
+ */
+export function editRequiresApproveOptionsGuard(
+  params: Pick<EditAskContentParams, "title" | "question" | "options" | "contextRefs" | "metadata">
+): boolean {
+  return params.options !== undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -1371,6 +1683,15 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // Cross-field coherence: windowKey is only meaningful when serviceStrategy='scheduled'.
         // Reject at the parameter boundary so callers get immediate, actionable feedback.
         validateAsksCreateParams(params);
+        // mt#3203: reject an authorization.approve Ask whose options can never
+        // satisfy the redemption-time approval verifier — catch the footgun at
+        // authoring time, not at merge/guard-override time after the operator
+        // has already approved.
+        validateAuthorizationApproveOptions(params);
+        // mt#3326: reject a create whose question/options fail any form-lint
+        // check, unless the caller explicitly acknowledges them. Runs last —
+        // fixing form/wording is usually the last thing an author checks.
+        validateFormLintNotViolated(params);
       },
       execute: async (params, ctx: CommandExecutionContext): Promise<AsksCreateResult> => {
         const repo = await buildAskRepository(container);
@@ -1471,17 +1792,21 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           }
         }
 
-        // Advisory (warn-only) form-lint (mt#2798) — humility.mdc §Escalation
-        // packaging's "Form" sub-checklist, structurally checked via
-        // createAskWithFormLint above. NEVER blocks or alters Ask creation;
-        // matches only feed formWarnings on the result and a calibration
-        // JSONL for future /calibration-review.
+        // Form-lint (mt#2798; consequential at this boundary since mt#3326)
+        // — humility.mdc §Escalation packaging's "Form" sub-checklist,
+        // structurally checked via createAskWithFormLint above. By the time
+        // execute() runs, non-empty formLintMatches only happens when
+        // acknowledgeFormWarnings was true — the validate hook above already
+        // rejected the create otherwise. Record that override on the
+        // calibration JSONL so /calibration-review can see override
+        // frequency, not just fire counts.
         if (formLintMatches.length > 0) {
           appendAskFormLintCalibrationRecord(ctx?.workspacePath ?? process.cwd(), {
             timestamp: new Date().toISOString(),
             askId: result.id,
             kind: result.kind,
             matches: formLintMatches.map((m) => ({ class: m.check, phrase: m.message })),
+            acknowledged: Boolean(params.acknowledgeFormWarnings),
           });
         }
 
@@ -1551,6 +1876,26 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // At least one editable field must be provided — reject at the
         // parameter boundary so callers get immediate, actionable feedback.
         validateAsksEditParams(params);
+
+        // mt#3209: reject an edit that would replace `options` on an
+        // EXISTING `authorization.approve` Ask with none carrying an
+        // approve-shaped value — the same footgun mt#3203 closed on
+        // asks_create, reachable here because asks.edit can wholesale-
+        // replace options on an ask that already exists. Only fires when
+        // `options` is part of THIS edit; other fields are unaffected even
+        // when the ask's current options already lack an approve-shaped
+        // value (pre-existing state, not this check's job to retroactively
+        // enforce). See `validateEditOptionsAgainstExistingAsk` for the
+        // fetch-failure handling.
+        if (editRequiresApproveOptionsGuard(params)) {
+          const repo = await buildAskRepository(container);
+          const resolvedId = await resolveAskIdInput(params.id as string, container);
+          await validateEditOptionsAgainstExistingAsk(
+            repo,
+            resolvedId,
+            params.options as Array<{ label: string; value?: unknown }>
+          );
+        }
       },
       execute: async (params): Promise<{ ask: Ask }> => {
         const repo = await buildAskRepository(container);

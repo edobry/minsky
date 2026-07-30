@@ -196,6 +196,126 @@ describe("loadPersistedDrivenSessions", () => {
     });
     expect(count).toBe(0);
   });
+
+  // mt#3269: the verdict above was computed in memory and thrown away, so a row
+  // that can NEVER be resumed was re-classified from scratch at every boot and
+  // re-registered forever. Persisting it is what makes the next boot skip it.
+  test("PERSISTS the unrecoverable verdict so the next boot does not re-read the row", async () => {
+    const registry = new DrivenSessionRegistry();
+    const persisted: { localId: string; status: string; reason: string | null }[] = [];
+
+    await loadPersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [{ ...BASE_ROW, harnessSessionId: null }],
+      registry,
+      persistTerminalVerdict: async (_db, input) => {
+        persisted.push({
+          localId: input.localId,
+          status: input.status,
+          reason: input.unrecoverableReason ?? null,
+        });
+        return "written";
+      },
+    });
+
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]?.status).toBe("unrecoverable");
+    expect(persisted[0]?.reason).toContain("spawn-died-before-init");
+  });
+
+  // PR #2383 R1 (BLOCKING): the store upserts with `onConflictDoUpdate({ set: values })`,
+  // so any field this write defaults instead of carrying through OVERWRITES the
+  // stored one. The first draft passed `model: null` and silently destroyed it.
+  test("preserves every other persisted field — it records a verdict, not a rewrite", async () => {
+    const registry = new DrivenSessionRegistry();
+    const row = {
+      ...BASE_ROW,
+      harnessSessionId: null,
+      model: "fable",
+      pid: 4242,
+      pidCmdline: "claude -p --input-format stream-json",
+      actuatorGeneration: 3,
+    };
+    const writes: Record<string, unknown>[] = [];
+
+    await loadPersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [row],
+      registry,
+      persistTerminalVerdict: async (_db, input) => {
+        writes.push(input as unknown as Record<string, unknown>);
+        return "written";
+      },
+    });
+
+    const written = writes[0];
+    if (!written) throw new Error("expected exactly one verdict write");
+    expect(written["model"]).toBe("fable");
+    expect(written["pid"]).toBe(4242);
+    expect(written["pidCmdline"]).toBe("claude -p --input-format stream-json");
+    expect(written["actuatorGeneration"]).toBe(3);
+    expect(written["cwd"]).toBe(row.cwd);
+    // ...while the two fields the write exists to change did change.
+    expect(written["status"]).toBe("unrecoverable");
+  });
+
+  test("does NOT persist a verdict for a resumable row — it stays available to resume", async () => {
+    // The deliberate carve-out (spec §Scope): deciding when a RESUMABLE row is
+    // too stale to keep offering is a policy question this task does not answer.
+    const registry = new DrivenSessionRegistry();
+    const persisted: string[] = [];
+
+    await loadPersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [BASE_ROW],
+      registry,
+      persistTerminalVerdict: async (_db, input) => {
+        persisted.push(input.localId);
+        return "written";
+      },
+    });
+
+    expect(persisted).toHaveLength(0);
+    expect(registry.get("local-1")?.status).toBe("reconnecting");
+  });
+
+  test("is idempotent across boots: the second boot reads nothing for a persisted row", async () => {
+    // Simulates the real database: the query excludes terminal statuses, so once
+    // the verdict is written the row drops out of the next boot's result set.
+    const rows = [{ ...BASE_ROW, harnessSessionId: null }];
+    const terminal = new Set<string>();
+
+    const boot = () =>
+      loadPersistedDrivenSessions({
+        getDb: async () => FAKE_DB,
+        listNonTerminal: async () => rows.filter((r) => !terminal.has(r.localId)),
+        registry: new DrivenSessionRegistry(),
+        persistTerminalVerdict: async (_db, input) => {
+          terminal.add(input.localId);
+          return "written";
+        },
+      });
+
+    expect(await boot()).toBe(1);
+    expect(await boot()).toBe(0);
+  });
+
+  test("a failed verdict-persist does not break boot", async () => {
+    // Boot reconciliation is best-effort by construction — a persistence hiccup
+    // must not stop the daemon from registering what it did read.
+    const registry = new DrivenSessionRegistry();
+    const count = await loadPersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [{ ...BASE_ROW, harnessSessionId: null }],
+      registry,
+      persistTerminalVerdict: async () => {
+        throw new Error("simulated upsert failure");
+      },
+    });
+
+    expect(count).toBe(1);
+    expect(registry.get("local-1")?.status).toBe("unrecoverable");
+  });
 });
 
 describe("orchestrateDrivenSessionResume", () => {

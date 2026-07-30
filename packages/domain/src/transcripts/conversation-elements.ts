@@ -63,6 +63,18 @@ export type ConversationElement =
       /** Raw result payload (string or block array; renderer pretty-prints). */
       content: unknown;
       isError: boolean;
+      /**
+       * True when `content` is the canonical Claude Code interruption-
+       * rejection message ("The user doesn't want to proceed with this tool
+       * use...") — the harness marks this `is_error: true` too, so a naive
+       * error tally can't distinguish a genuine tool FAILURE from the user
+       * cancelling a pending call (mt#3131 D6). `isError` above stays truthful
+       * to the raw harness flag (still renders as an error bubble — the
+       * amber "Interrupted" visual treatment is separate, out-of-scope
+       * follow-up work); this flag is for AGGREGATE counting only, e.g.
+       * `computeConversationStats`'s `toolErrorCount`.
+       */
+      isInterruptionRejection: boolean;
     }
   | { kind: "unknown"; rawType: string; raw: unknown };
 
@@ -84,6 +96,22 @@ export interface ConversationTurn {
   isSpawnBoundary: boolean;
   /** Agent kind for the spawn boundary (e.g. `Explore`, `general-purpose`). */
   spawnAgentKind?: string;
+  /**
+   * True when this turn IS Claude Code's context-compaction summary (mt#3260).
+   * Renders as a labeled boundary rather than as an unmarked giant user turn.
+   */
+  isCompactSummary?: boolean;
+  /**
+   * True when the harness — not the operator — generated this turn (mt#3322).
+   * Carried by the `<local-command-caveat>` line attached to a slash-command
+   * invocation, whose body is addressed to the model rather than the reader.
+   */
+  isMeta?: boolean;
+  /**
+   * The assistant message's model, when recorded. `"<synthetic>"` marks a
+   * harness-generated retry turn rather than a real model response (mt#3260).
+   */
+  model?: string;
 }
 
 /** A loose view of an Anthropic-format content block. */
@@ -102,6 +130,27 @@ interface ContentBlock {
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+/**
+ * Prefix of the canonical Claude Code tool-result content emitted when a
+ * pending tool call is rejected because the user interrupted it — recorded
+ * with `is_error: true` alongside genuine tool failures, so an aggregate
+ * error tally needs this to tell the two apart (mt#3131 D6). Verified
+ * against a live corpus specimen (2026-07-13 transcript,
+ * `a9c1a09b-d7c8-4d95-bc49-70cfa922f0d7`): the full observed string is "The
+ * user doesn't want to proceed with this tool use. The tool use was
+ * rejected (eg. if it was a file edit, the new_string was NOT written to the
+ * file). STOP what you are doing and wait for the user to tell you how to
+ * proceed." — matching on the stable opening sentence rather than the full
+ * text so minor harness wording changes downstream don't silently break the
+ * match.
+ */
+const INTERRUPTION_REJECTION_PREFIX = "The user doesn't want to proceed with this tool use.";
+
+/** True iff a tool_result's raw `content` is the interruption-rejection message. */
+function isInterruptionRejectionContent(content: unknown): boolean {
+  return typeof content === "string" && content.startsWith(INTERRUPTION_REJECTION_PREFIX);
 }
 
 /**
@@ -177,6 +226,7 @@ function blockToElement(block: ContentBlock): ConversationElement {
         toolUseId: typeof block.tool_use_id === "string" ? block.tool_use_id : undefined,
         content: block.content,
         isError: block.is_error === true,
+        isInterruptionRejection: isInterruptionRejectionContent(block.content),
       };
     default:
       return { kind: "unknown", rawType: asString(block.type), raw: block };
@@ -219,6 +269,9 @@ export function snapshotBlockToConversationTurn(
     elements,
     isSpawnBoundary,
     spawnAgentKind,
+    isCompactSummary: block.isCompactSummary,
+    isMeta: block.isMeta,
+    model: block.model,
   };
 }
 

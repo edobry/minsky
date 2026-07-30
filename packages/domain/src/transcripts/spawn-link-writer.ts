@@ -17,7 +17,9 @@
  * The signal is the spawn PROMPT text itself: `session_generate_prompt`
  * (`packages/domain/src/session/prompt-generation.ts`'s `renderCommonHeader`)
  * always embeds the literal absolute workspace directory in its opening line
- * ("You are working in Minsky session at `<sessionDir>`."), and that prompt
+ * ("You are working in Minsky session `<sessionId>`, checked out at
+ * `<sessionDir>`." — mt#593 reworded this header; extraction keys on the
+ * `<stateDir>/sessions/<id>` path it still embeds, not on the sentence), and that prompt
  * text is preserved verbatim as the `input.prompt` field on the Agent tool
  * call captured in the PARENT's own `tool_calls` JSONB. `AgentSpawnsPipeline`
  * (mt#1327, `agent-spawns-pipeline.ts`) already loads that JSONB and resolves
@@ -44,7 +46,7 @@ import { log } from "@minsky/shared/logger";
 import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-turns-schema";
 import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import { minskySessionLinksTable } from "../storage/schemas/minsky-session-links-schema";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import { findAgentToolCall } from "./agent-tool-call-shape";
 
 /** Link-type value written by this module (mt#1313's `subagent_spawn` class). */
@@ -168,7 +170,7 @@ export async function writeSpawnLink(
     return "written";
   } catch (err) {
     log.warn(`writeSpawnLink: failed to upsert link for session ${childAgentSessionId}`, {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
       minskySessionId,
     });
     return "error";
@@ -236,7 +238,7 @@ export async function backfillSpawnLinks(
       );
   } catch (err) {
     log.error("backfillSpawnLinks: failed to load agent_spawns rows", {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
     });
     return result;
   }
@@ -273,7 +275,7 @@ export async function backfillSpawnLinks(
     } catch (err) {
       result.linksErrored++;
       log.warn(`backfillSpawnLinks: failed for ${row.childAgentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }

@@ -5,6 +5,7 @@ import {
   EnhancedMergeResult,
   SmartUpdateResult,
 } from "./conflict-detection";
+import type { PushWithConfirmationResult, PushWithConfirmationConfig } from "./push-operations";
 
 export type { EnhancedMergeResult } from "./conflict-detection";
 
@@ -65,9 +66,15 @@ export interface GitServiceInterface {
   mergeBranch(repoPath: string, branch: string): Promise<MergeResult>;
 
   /**
-   * Push changes to a remote
+   * Push changes to a remote. Bounded and remote-confirming (mt#3177/mt#3205)
+   * — the returned `PushWithConfirmationResult` is a superset of `PushResult`
+   * (adds `pushTimedOut`/`pushConfirmedVia`/`pushUnconfirmed`); callers that
+   * only read `workdir`/`pushed` are unaffected.
    */
-  push(options: PushOptions): Promise<PushResult>;
+  push(
+    options: PushOptions,
+    config?: PushWithConfirmationConfig
+  ): Promise<PushWithConfirmationResult>;
 
   /**
    * Apply stashed changes

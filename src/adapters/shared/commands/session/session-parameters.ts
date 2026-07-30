@@ -263,9 +263,20 @@ export const sessionSearchCommandParams = {
 export const sessionDeleteCommandParams = {
   sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
-  force: commonSessionParams.force,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+  // mt#3105 SC5: the former `force` entry is REMOVED — declared but never
+  // read by deleteSessionImpl; a bare boolean must never lift a destructive
+  // guard (mt#3021 design decision). `overrideReason` is the only lifter.
+  // mt#3021 SC2: justification required to delete a workspace with an
+  // in-progress merge (MERGE_HEAD present) or uncommitted changes; also
+  // lifts the mt#3105 live-actor gate.
+  overrideReason: {
+    schema: z.string().min(1),
+    description:
+      "Justification to override the MERGE_HEAD/uncommitted-changes git-state guard and the live-actor liveness gate. Required (non-empty) to delete a workspace with in-progress work or a live/unknown actor; recorded in a structured audit event.",
+    required: false,
+  },
 };
 
 /**

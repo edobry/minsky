@@ -15,19 +15,31 @@ name: Deploy Reviewer
 #
 # Migrate-before-push is the load-bearing gate (identical mechanism to
 # deploy-minsky-mcp.yml): the migrate step is FATAL — a failing migration
-# means the image is never pushed, which means Railway (which redeploys on
-# a NEW image landing at the watched tag, same mechanism as minsky-mcp,
-# mt#2342) never sees anything to deploy. The previously-deployed reviewer
-# keeps serving. The explicit "Trigger Railway redeploy" step at the end
-# stays NON-FATAL (mirrors deploy-minsky-mcp.yml exactly) — it is
-# belt-and-suspenders, not the deploy trigger; Railway's image-source
-# auto-redeploy-on-push is. (An earlier draft of this workflow's design
-# treated the explicit redeploy as newly load-bearing on the theory that
-# converting away from repo-source removes ALL auto-deploy fallback for the
-# reviewer — that reasoning was corrected mid-implementation, mt#3117 spec's
-# "External preconditions" section: the image-source conversion this same
-# task performs reintroduces the identical auto-redeploy-on-push mechanism
-# minsky-mcp already relies on, so the explicit call remains redundant.)
+# means the image is never pushed, so nothing new is ever deployed. The
+# previously-deployed reviewer keeps serving.
+#
+# mt#3180 CORRECTION (2026-07-25): this workflow originally treated the
+# explicit "Trigger Railway redeploy" step below as belt-and-suspenders —
+# non-fatal, on the claim that Railway's image-source auto-redeploy-on-push
+# (the same mechanism deploy-minsky-mcp.yml cites for minsky-mcp, mt#2342)
+# would independently pick up every new :latest push. That claim was NOT
+# actually verified for THIS service, and turned out to be false: across
+# four consecutive main-branch image pushes on 2026-07-24, the live
+# reviewer deployment never advanced (frozen at the operator's 17:27
+# image-source flip) — auto-redeploy-on-push does not fire for
+# minsky-reviewer-webhook. The explicit redeploy step is therefore the
+# ACTUAL deploy trigger for this service, not a backstop.
+#
+# It was also broken independently: the step hand-rolled a GraphQL
+# `serviceInstanceRedeploy` mutation authenticated with a plain
+# `Authorization: Bearer $RAILWAY_TOKEN` header, which returned
+# `Not Authorized` (CI run 30122524391) — `RAILWAY_TOKEN` is a Railway
+# PROJECT-scoped token, and the public GraphQL API does not accept a
+# project token via a bare Bearer header the way it accepts an account
+# token. The official `railway` CLI handles project-token auth correctly
+# (`railway redeploy --from-source` succeeded live against this exact
+# service on 2026-07-25) and now replaces the hand-rolled GraphQL call. See
+# mt#3180 for the full incident, root cause, and fix.
 #
 # Runs migration against the reviewer's OWN migration tree
 # (services/reviewer/migrations/pg, tracked via
@@ -49,9 +61,16 @@ name: Deploy Reviewer
 #
 # Prerequisites (one-time setup, OPERATOR follow-up — see
 # services/reviewer/DEPLOY.md):
-# 1. RAILWAY_TOKEN / MINSKY_PERSISTENCE_POSTGRES_URL secrets already exist
-#    in this repo (reused from deploy-minsky-mcp.yml; verified provisioned
-#    as of the mt#3117 spec's "External preconditions" check).
+# 1. RAILWAY_REVIEWER_TOKEN (a Railway PROJECT token scoped to
+#    minsky-reviewer / production) is NOT YET SET as a GitHub Actions
+#    secret (mt#3251, operator-only — minting a project token is a
+#    dashboard action with no CLI/API path). Until it exists, the redeploy
+#    step below falls back to the generic secrets.RAILWAY_TOKEN, which is
+#    scoped to a DIFFERENT project and is expected to keep failing — see
+#    "Trigger Railway redeploy" below and services/reviewer/DEPLOY.md.
+#    MINSKY_PERSISTENCE_POSTGRES_URL is already provisioned (reused from
+#    deploy-minsky-mcp.yml; verified as of the mt#3117 spec's "External
+#    preconditions" check).
 # 2. Railway `minsky-reviewer-webhook` service must be switched from
 #    repo+Dockerfile source to Docker Image source
 #    (ghcr.io/edobry/minsky-reviewer:latest) via the dashboard (Settings >
@@ -270,58 +289,138 @@ jobs:
           docker push $IMAGE:sha-${SHORT_SHA}
           echo "Pushed: $IMAGE:latest, $IMAGE:sha-${SHORT_SHA}"
 
-      # Belt-and-suspenders, NOT the deploy trigger. Railway auto-deploys
-      # the pushed ghcr.io/edobry/minsky-reviewer:latest image
-      # independently once the service is switched to image source (same
-      # verified mechanism as minsky-mcp, mt#2342) — so every failure
-      # branch below is non-fatal, mirroring deploy-minsky-mcp.yml exactly.
+      # mt#3180 (2026-07-25) — this step is the ACTUAL deploy trigger for
+      # minsky-reviewer-webhook, not a backstop (Railway's image-source
+      # auto-redeploy-on-push does not fire for this service — verified
+      # across four consecutive pushes that never advanced the live
+      # deployment). Installs the official `railway` CLI (railwayapp/cli,
+      # via the `@railway/cli` npm package — the same install
+      # `cockpit-preview.yml` uses) IN THIS SAME STEP as the redeploy call
+      # itself, so there is no cross-step PATH-propagation ambiguity to
+      # reason about. FATAL: a false-green report here is worse than an
+      # honest failure — a non-fatal version of this step produced FOUR
+      # false-green runs (2026-07-25T21:57-23:05Z) where nothing deployed.
+      #
+      # mt#3223 (2026-07-25) — first CLI fix attempt. Passed the secret as
+      # `RAILWAY_TOKEN` and failed with `Service '3913e8a4-…' not found` (run
+      # 30178827355) — a context-resolution failure, not a permission one.
+      # mt#3223 then tried to work around it by passing the secret as
+      # `RAILWAY_API_TOKEN` (account scope) instead, plus an explicit
+      # `railway link --project/--environment/--service` to establish
+      # project context in the unlinked CI checkout, plus a `whoami`
+      # diagnostic. Both `whoami` and `link` kept failing `Unauthorized` —
+      # `secrets.RAILWAY_TOKEN` is neither a valid ACCOUNT token for this
+      # workspace nor scoped to minsky-reviewer, because it is a Railway
+      # PROJECT token scoped to a DIFFERENT project (the same generic
+      # secret is also consumed by deploy-minsky-mcp.yml and
+      # post-deploy-health-monitor.yml, so it cannot simply be re-scoped to
+      # this one service). mt#3223 improved the diagnostics and made the
+      # failure legible; it did not and could not fix the credential.
+      #
+      # mt#3251 (2026-07-28) — CORRECTED FIX: adopt the per-project-secret
+      # precedent already established by `cockpit-preview.yml` (:52, :157)
+      # exactly, instead of working around the wrong credential. A Railway
+      # PROJECT token carries its OWN project+environment context, which is
+      # precisely why cockpit-preview passes it as `RAILWAY_TOKEN` with NO
+      # `railway link` step. (An earlier version of this comment claimed
+      # cockpit-preview.yml proves the IDENTICAL generic-token mechanism
+      # works in this repo's CI — that was wrong; cockpit passes its OWN
+      # project token, `RAILWAY_COCKPIT_TOKEN`, never the shared generic
+      # one. This step now FOLLOWS that same per-project-secret shape
+      # rather than merely describing it.) The mt#3223 `railway link` step
+      # is therefore REMOVED below — it is unnecessary once the token IS
+      # project-scoped. `whoami` is kept, but only as a NON-FATAL
+      # diagnostic (unchanged from mt#3223): it helps distinguish
+      # "token invalid" from "redeploy failed for another reason" if this
+      # step ever fails again.
+      #
+      # PREFER/FALLBACK, not a hard swap: `RAILWAY_REVIEWER_TOKEN` is a new
+      # secret that does NOT exist yet as of this change — minting a
+      # Railway project token is an operator-only dashboard action with no
+      # CLI/API path (probed and confirmed 2026-07-28; see
+      # services/reviewer/DEPLOY.md). A hard swap to `RAILWAY_REVIEWER_TOKEN`
+      # alone would turn today's "Unauthorized" failure into a "secret not
+      # set" failure — still red, and fixing nothing until the operator
+      # acts. Instead this step PREFERS `RAILWAY_REVIEWER_TOKEN` and FALLS
+      # BACK to the existing generic `RAILWAY_TOKEN` secret, so the deploy
+      # keeps its current (broken) behavior until the operator adds the new
+      # secret, and starts working the moment they do — no second PR
+      # required.
+      #
+      # The fallback is resolved in the SHELL (bash `${VAR:-default}`), not
+      # via a `${{ secrets.A || secrets.B }}` workflow-expression. GitHub's
+      # own docs (Evaluate expressions in workflows and actions) do not
+      # give an unambiguous answer for whether `||` returns an operand
+      # VALUE or a coerced boolean when used outside an `if:` conditional —
+      # community examples show both a value-returning ternary idiom
+      # (`cond && 'a' || 'b'`) and a boolean-coercion note ("falsy values
+      # are coerced to false / truthy to true") without reconciling the
+      # two for the plain `secrets.A || secrets.B` (no `&&`) case used
+      # here. Getting this wrong on a deploy-credential line would silently
+      # pass the literal string "true"/"false" as the token instead of
+      # failing loudly, so this step uses the unambiguous POSIX shell form
+      # instead.
       - name: Trigger Railway redeploy
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          # Preferred (mt#3251): a Railway PROJECT token scoped to
+          # minsky-reviewer / production. Not yet set as a repo secret —
+          # resolves to empty string until the operator provisions it.
+          RAILWAY_REVIEWER_TOKEN: ${{ secrets.RAILWAY_REVIEWER_TOKEN }}
+          # Fallback: the generic repo secret. Wrong scope for THIS
+          # service (mt#3251's root cause) but kept so the step degrades to
+          # today's known failure mode instead of a new "secret not set"
+          # one. Named distinctly from RAILWAY_TOKEN itself so the shell
+          # below can tell "preferred token present" apart from "only the
+          # fallback is present" without re-reading the secrets context.
+          RAILWAY_TOKEN_FALLBACK: ${{ secrets.RAILWAY_TOKEN }}
         run: |
+          # `-e` included deliberately (PR #2343 R1): an `npm install` failure
+          # must abort rather than be misattributed to a later command. The
+          # command whose own exit code carries diagnostic meaning
+          # (`redeploy`) is wrapped in an `if` condition, which is exempt
+          # from `-e`, so its tailored error message still prints.
           set -euo pipefail
 
-          if [ -z "${RAILWAY_TOKEN:-}" ]; then
-            echo "::warning::RAILWAY_TOKEN not set — skipping Railway redeploy. Add the secret to enable auto-deploy."
-            exit 0
-          fi
-
-          # Railway service identifiers from services/reviewer/deploy.config.ts
-          SERVICE_ID="3913e8a4-81ab-465a-aad8-b76b5e3f66ed"
-          ENVIRONMENT_ID="b3ea3f5d-8560-40ea-8824-17fe3ca0b32a"
-
-          RESP_FILE="$(mktemp)"
-          HTTP_STATUS=$(curl -sS -o "${RESP_FILE}" -w "%{http_code}" -X POST https://backboard.railway.com/graphql/v2 \
-            -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"query\": \"mutation { serviceInstanceRedeploy(serviceId: \\\"${SERVICE_ID}\\\", environmentId: \\\"${ENVIRONMENT_ID}\\\") }\"}") || {
-              echo "::warning::Railway redeploy request failed (curl/network error). Non-fatal — Railway auto-deploys the pushed image independently."
-              exit 0
-            }
-
-          echo "Railway API HTTP ${HTTP_STATUS}; body: $(cat "${RESP_FILE}")"
-
-          if [ "${HTTP_STATUS}" -lt 200 ] || [ "${HTTP_STATUS}" -ge 300 ]; then
-            echo "::warning::Railway redeploy got HTTP ${HTTP_STATUS}. Non-fatal — Railway auto-deploys the pushed image independently."
-            exit 0
-          fi
-
-          if ! jq -e . > /dev/null 2>&1 < "${RESP_FILE}"; then
-            echo "::warning::Railway redeploy response was not valid JSON. Non-fatal — Railway auto-deploys the pushed image independently."
-            exit 0
-          fi
-
-          if jq -e '.errors and (.errors | length > 0)' > /dev/null 2>&1 < "${RESP_FILE}"; then
-            echo "::warning::Railway redeploy not triggered (API returned errors). Non-fatal — check the RAILWAY_TOKEN secret scope to enable the explicit trigger."
-            jq '.errors' < "${RESP_FILE}"
-            exit 0
-          fi
-
-          if jq -e '.data.serviceInstanceRedeploy != null and .data.serviceInstanceRedeploy != false' > /dev/null 2>&1 < "${RESP_FILE}"; then
-            echo "Railway redeploy triggered successfully"
+          if [ -n "${RAILWAY_REVIEWER_TOKEN:-}" ]; then
+            echo "Using RAILWAY_REVIEWER_TOKEN (per-project token, mt#3251)."
+            RAILWAY_TOKEN="${RAILWAY_REVIEWER_TOKEN}"
           else
-            echo "::warning::Railway redeploy did not confirm success (data.serviceInstanceRedeploy missing/null/false). Non-fatal — Railway auto-deploys the pushed image independently."
-            jq . < "${RESP_FILE}"
-            exit 0
+            echo "::warning::RAILWAY_REVIEWER_TOKEN is not set — falling back to the generic RAILWAY_TOKEN secret, which is NOT scoped to the minsky-reviewer project and is expected to fail. See services/reviewer/DEPLOY.md for the operator action that fixes this (mt#3251)."
+            RAILWAY_TOKEN="${RAILWAY_TOKEN_FALLBACK:-}"
+          fi
+          export RAILWAY_TOKEN
+
+          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+            echo "::error::Neither RAILWAY_REVIEWER_TOKEN nor RAILWAY_TOKEN secrets are set — reviewer redeploy cannot be triggered."
+            exit 1
+          fi
+
+          npm install -g @railway/cli
+
+          # Railway identifier from services/reviewer/deploy.config.ts (kept
+          # inline, matching the pre-existing convention in this file and in
+          # deploy-minsky-mcp.yml). No `railway link` is needed: a
+          # project-scoped RAILWAY_TOKEN carries its own project+environment
+          # context (mt#3251) — the same reason cockpit-preview.yml needs
+          # none.
+          SERVICE_ID="3913e8a4-81ab-465a-aad8-b76b5e3f66ed"
+
+          # Diagnostic only (non-fatal): prints the authenticated identity,
+          # never the token. If RAILWAY_TOKEN is still the wrong-scope
+          # fallback, this is where that surfaces, making a failure
+          # self-diagnosing instead of another round of guessing.
+          #
+          # The email is masked because this repository's CI logs are public
+          # (PR #2343 R1 non-blocking finding).
+          echo "Railway auth identity:"
+          railway whoami 2>&1 | sed -E 's/([A-Za-z0-9._%+-]+)@/***@/g' \
+            || echo "note: railway whoami did not report an authenticated identity (non-fatal diagnostic) — see the RAILWAY_TOKEN scope notes above if the redeploy call below also fails."
+
+          if railway redeploy --from-source --service "${SERVICE_ID}" -y; then
+            echo "Railway redeploy triggered successfully via the CLI."
+          else
+            rc=$?
+            echo "::error::railway redeploy failed (exit ${rc}). See the 'whoami' output above to distinguish a token-scope problem from a genuine redeploy failure."
+            exit "$rc"
           fi

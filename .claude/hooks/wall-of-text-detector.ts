@@ -128,6 +128,7 @@ import {
   extractLastAssistantTurn,
   extractAssistantText,
   findRealPromptIndices,
+  resolveCompletedTurn,
   resolveParentTranscriptLines,
   resolveParentTranscriptLinesForPath,
   readLogTailText,
@@ -189,6 +190,18 @@ export const WORD_COUNT_THRESHOLD = LEAD_WORD_BUDGET * OVER_BUDGET_MULTIPLIER;
  * legitimately carry them, so the scan never extends past this window.
  */
 export const LEAD_WINDOW_WORDS = 150;
+
+/**
+ * Word-count floor for the lead-labels leg (mt#3336, ask#6448 disposition).
+ * The leg exists to catch REPORTS whose lead is written in audit-trail
+ * vocabulary — but with no floor it also flagged a 56-word one-liner for
+ * containing "SC#5" (2026-07-29T11:38:59Z record), which is not a wall of
+ * text under any reading. Grounded against the calibration log: the false
+ * positive sat at 56 words; every real lead-labels fire was a full report
+ * (278 and 328 words). 100 — half the Tier-1 budget — separates the observed
+ * populations with margin on both sides.
+ */
+export const LEAD_LABELS_MIN_WORDS = 100;
 
 /**
  * Skill-internal label patterns the contract bars from the lead
@@ -268,7 +281,7 @@ export function measureWallOfText(finalText: string): WallOfTextMeasurement {
   const namedRefCount = (finalText.match(NAMED_REF_RE) ?? []).length;
 
   const overBudget = wordCount >= WORD_COUNT_THRESHOLD;
-  const hasLeadLabels = leadLabelHits.length > 0;
+  const hasLeadLabels = leadLabelHits.length > 0 && wordCount >= LEAD_LABELS_MIN_WORDS;
   const matched = overBudget || hasLeadLabels;
   const trigger =
     overBudget && hasLeadLabels
@@ -338,6 +351,23 @@ export const DEPTH_REQUEST_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }>
     name: "full-breakdown",
     re: /\b(?:give me|want|need)\s+(?:the |a )?(?:full|complete)\s+breakdown\b/i,
   },
+  // mt#3336 (ask#6448 disposition) — evidence-based widening, via exactly the
+  // signal the narrowness note above reserves for it: the 2026-07-29T09:32:54Z
+  // record (728 words, suppressedByDepthRequest: false) was classified a false
+  // positive — the operator had explicitly asked for an expansive report in
+  // phrasing outside the v1 trio. Additions stay imperative-shaped (an
+  // explicit request for MORE depth), preserving the over- vs
+  // under-suppression asymmetry the v1 note documents.
+  {
+    name: "deep-dive",
+    re: /\b(?:do|take|give me|want|need)\s+a\s+deep\s+dive\b|\bdeep-?dive into\b/i,
+  },
+  { name: "go-into-detail", re: /\bgo into (?:more |full |great )?detail\b/i },
+  {
+    name: "be-expansive",
+    re: /\bbe (?:expansive|exhaustive|thorough|comprehensive|detailed|verbose)\b/i,
+  },
+  { name: "in-full-detail", re: /\bin (?:full|complete|great) detail\b/i },
 ];
 
 /** Text content of a single user-role transcript line (string or text-block-array content). */
@@ -364,20 +394,23 @@ function extractUserPromptText(line: TranscriptLine): string {
 /**
  * The transcript-line INDEX of the real user prompt that opened the
  * just-measured turn — the SAME boundary `extractLastAssistantTurn` slices
- * from (`promptIndices[length - 2]`). Returns `undefined` when fewer than 2
- * real prompts exist, mirroring `extractLastAssistantTurn`'s own guard and
+ * from. Delegates to the shared {@link resolveCompletedTurn} resolver
+ * (mt#3280) rather than recomputing `promptIndices[length - 2]`, which is
+ * correct only when the prompt that fired the hook has already been written
+ * to the transcript; at `UserPromptSubmit` it usually has not, and the
+ * recomputed index then pointed at the opening prompt of the turn BEFORE the
+ * measured one.
+ *
+ * Returns `undefined` when no turn can be resolved, mirroring
  * `silent-stretch-detector.ts`'s `findTurnBoundaryTimestamps` (PR #2228 R1
  * BLOCKING): fails CLOSED rather than defaulting to an arbitrary index (a
  * bare `?? 0` fallback previously here could point at a transcript line that
- * is not actually the measured turn's opening prompt, in any future
- * refactor that reordered or removed the caller's own >=2-prompt guard). A
- * caller that gets `undefined` back must treat the fire as unsuppressed —
- * NOT default to index 0 — since there is no reliable anchor to check.
+ * is not actually the measured turn's opening prompt). A caller that gets
+ * `undefined` back must treat the fire as unsuppressed — NOT default to
+ * index 0 — since there is no reliable anchor to check.
  */
 export function findOpeningPromptIndex(lines: TranscriptLine[]): number | undefined {
-  const promptIndices = findRealPromptIndices(lines);
-  if (promptIndices.length < 2) return undefined;
-  return promptIndices[promptIndices.length - 2];
+  return resolveCompletedTurn(lines).openingPromptIndex;
 }
 
 /**

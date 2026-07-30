@@ -3,6 +3,15 @@
  *
  * Interface-agnostic write operations: setStatus, update, create,
  * createFromTitleAndSpec, delete.
+ *
+ * Every function here is the canonical implementation the facade
+ * (`packages/domain/src/tasks.ts`) delegates to (mt#2704 precedent for
+ * setTaskStatusFromParams; mt#3190 consolidated the rest — updateTaskFromParams,
+ * createTaskFromParams, createTaskFromTitleAndSpec, deleteTaskFromParams). Both
+ * the CLI/MCP resolution path (`@minsky/domain/tasks` → `tasks/index.ts` →
+ * `../tasks.ts`, which delegates here) and the `taskCommands.ts` barrel
+ * terminate at these bodies. See `../../tasks.ts`'s header for the full
+ * cross-function delegation map.
  */
 
 import { z } from "zod";
@@ -324,26 +333,59 @@ export async function updateTaskFromParams(
           });
     }
 
-    // Verify the task exists before updating
-    const existingTask = await taskService.getTask(qualifiedTaskId);
+    // No upfront `taskService.getTask` existence check here (mt#3190 R1):
+    // this function previously had one and this file's facade counterpart
+    // (`packages/domain/src/tasks.ts`) did not. Removed rather than kept,
+    // matching tasks.ts's pre-consolidation behavior — the live MCP
+    // `tasks.spec.patch` / `tasks.spec.search_replace` tools
+    // (`src/adapters/mcp/task-edit-tools.ts`, `tests/adapters/mcp/task-edit-tools.test.ts`)
+    // call this via a taskService stub whose `getTask` always returns `null`
+    // (it validates existence separately via `getTaskSpecContentFromParams`,
+    // a different service method) while still expecting the update to
+    // succeed; keeping the check breaks that live path with a spurious
+    // ResourceNotFoundError. `taskService.updateTask` and the `!updatedTask`
+    // check below remain the source of truth for a genuinely missing task.
 
-    if (!existingTask || !existingTask.id) {
-      throw new ResourceNotFoundError(`Task ${qualifiedTaskId} not found`, "task", qualifiedTaskId);
-    }
-
-    // Prepare updates object
+    // Prepare updates object. `spec` MUST be applied here (mt#3190 Success
+    // Criterion 4): this function previously only forwarded `title`, silently
+    // dropping `params.spec` — the opposite-direction instance of the
+    // tasks.ts/commands split's "diverging copies" bug class. The live MCP
+    // `tasks.spec.patch` / `tasks.spec.search_replace` tools
+    // (`src/adapters/mcp/task-edit-tools.ts`) call `updateTaskFromParams` via
+    // `@minsky/domain/tasks` with `spec` set on every invocation — now that
+    // the facade delegates here (mt#3190), a spec-drop would have made both
+    // tools silently no-op.
     const updates: Partial<Task> = {};
     if (params.title !== undefined) {
       updates.title = params.title;
     }
-
-    // Update the task
-    const updatedTask = await taskService.updateTask?.(qualifiedTaskId, updates);
-
-    if (!updatedTask) {
-      throw new Error(`Failed to update task ${qualifiedTaskId}: updateTask returned no result`);
+    if (params.spec !== undefined) {
+      updates.spec = params.spec;
     }
-    return updatedTask;
+
+    // Update the task. No THROWING "falsy result" guard here (mt#3190 R1,
+    // same reasoning as the removed existence check above): the real
+    // `TaskServiceInterface.updateTask` always resolves `Promise<Task>`
+    // (`packages/domain/src/tasks/multi-backend-service.ts`), so a thrown
+    // guard here is unreachable on any real backend and only breaks
+    // lightweight test doubles (e.g. `tests/adapters/mcp/task-edit-tools.test.ts`'s
+    // mock, which returns `void`) — matching tasks.ts's pre-consolidation
+    // behavior of returning whatever `updateTask` resolves to, unguarded.
+    //
+    // The cast still needs to be honest about what it's asserting (PR #2326
+    // review, non-blocking): a silent `as Task` on a falsy result would hide
+    // a genuinely broken mock or backend behind a passing-looking return
+    // value with no signal anywhere. Log (not throw) when that happens, so
+    // the assumption is visible without reintroducing the throw that broke
+    // task-edit-tools.test.ts's intentionally-void mock.
+    const updatedTask = await taskService.updateTask?.(qualifiedTaskId, updates);
+    if (!updatedTask) {
+      log.debug(
+        `[updateTaskFromParams] taskService.updateTask resolved falsy for ${qualifiedTaskId}; ` +
+          `returning it as-is rather than throwing (see the comment above this call).`
+      );
+    }
+    return updatedTask as Task;
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError(

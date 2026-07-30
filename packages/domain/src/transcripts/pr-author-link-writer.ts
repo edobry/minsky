@@ -42,7 +42,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { minskySessionLinksTable } from "../storage/schemas/minsky-session-links-schema";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import type { ConversationId } from "../ids";
 
 /** Link-type value written by this module. */
@@ -116,7 +116,7 @@ export async function writePrAuthorLink(
     return "written";
   } catch (err) {
     log.warn(`writePrAuthorLink: failed for conversation ${input.conversationId}`, {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
       minskySessionId: input.workspaceSessionId,
     });
     return "error";

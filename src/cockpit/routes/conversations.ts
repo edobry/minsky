@@ -33,6 +33,52 @@ import { log } from "@minsky/shared/logger";
 import { getContextInspectorDb, getServerSessionProvider } from "../db-providers";
 import type { ConversationId } from "@minsky/domain/ids";
 import type { ResolveJsonlFsMod, StatFn, TailerLike } from "../live-tail-poller";
+import { looksLikeConversationId, withBoundedTimeout } from "../conversation-id-space";
+
+/**
+ * Bound for the `/overview` transcript lookup (mt#3131 D3) — see the sibling
+ * bound on the context-inspector snapshot route
+ * (`SNAPSHOT_ASSEMBLY_TIMEOUT_MS`) for the same rationale: a DB pool under
+ * contention must not leave this response pending indefinitely.
+ */
+const OVERVIEW_QUERY_TIMEOUT_MS = 15_000;
+
+/**
+ * Shared task-title cache for the overview route's label computation (mt#3343).
+ *
+ * Lazily constructed so a cockpit boot with no SQL-capable persistence provider
+ * never pays for it, and module-level so repeated overview polls reuse one
+ * cache rather than re-hitting the task backend per request — the same posture
+ * `widgets/context-inspector.ts` takes for the picker's labels. A null task
+ * service degrades tier-1/tier-3 task-title resolution to "not found" rather
+ * than throwing; `fetchEnrichment` already treats that as a tier miss.
+ */
+let overviewTitleCache: import("../task-title-cache").TaskTitleCache | null = null;
+async function getOverviewTitleCache(): Promise<
+  import("../task-title-cache").TaskTitleCache | null
+> {
+  if (overviewTitleCache) return overviewTitleCache;
+  try {
+    const { TaskTitleCache } = await import("../task-title-cache");
+    const { getServerTaskService } = await import("../db-providers");
+    overviewTitleCache = new TaskTitleCache(async () => {
+      const taskService = await getServerTaskService();
+      return (
+        taskService ?? {
+          async getTask() {
+            return null;
+          },
+          async getTasks() {
+            return [];
+          },
+        }
+      );
+    });
+    return overviewTitleCache;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Options accepted by {@link mountConversationRoutes}. Every field here is a
@@ -255,6 +301,21 @@ export function mountConversationRoutes(
         return;
       }
 
+      // mt#3131 (D3/D5): a syntactically-invalid conversation id (not
+      // UUID-shaped) can never resolve — reject before the transcript query
+      // (checked after DB-availability so a genuine 503 still takes
+      // precedence, matching the pre-existing "infra unavailable" contract),
+      // both for speed (zero I/O, can never hang) and so the client can
+      // distinguish "not found" from "not yet ingested" (mirrors the same
+      // check on the context-inspector snapshot endpoint).
+      if (!looksLikeConversationId(agentSessionId)) {
+        res.status(404).json({
+          error: `"${agentSessionId}" is not a valid conversation id.`,
+          code: "invalid_id",
+        });
+        return;
+      }
+
       const { agentTranscriptsTable } = await import(
         "@minsky/domain/storage/schemas/agent-transcripts-schema"
       );
@@ -266,23 +327,32 @@ export function mountConversationRoutes(
       );
       const { eq, count } = await import("drizzle-orm");
 
-      const transcriptRows = await db
-        .select({
-          harness: agentTranscriptsTable.harness,
-          cwd: agentTranscriptsTable.cwd,
-          startedAt: agentTranscriptsTable.startedAt,
-          endedAt: agentTranscriptsTable.endedAt,
-          // mt#2792 Overview enrichment — regex-extracted refs (mt#1329
-          // metadata-extractor) and the incremental-ingest high-water-mark
-          // (used as the duration fallback for a conversation with no
-          // endedAt yet, i.e. one still in progress).
-          relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
-          relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
-          lastIngestedJsonlTimestamp: agentTranscriptsTable.lastIngestedJsonlTimestamp,
-        })
-        .from(agentTranscriptsTable)
-        .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
-        .limit(1);
+      // mt#3131 (D3): bound the lookup — a DB pool under contention (e.g. a
+      // live conversation's own polling load) must not leave this response
+      // pending indefinitely.
+      const transcriptRows = await withBoundedTimeout(
+        db
+          .select({
+            harness: agentTranscriptsTable.harness,
+            cwd: agentTranscriptsTable.cwd,
+            startedAt: agentTranscriptsTable.startedAt,
+            endedAt: agentTranscriptsTable.endedAt,
+            // mt#2792 Overview enrichment — regex-extracted refs (mt#1329
+            // metadata-extractor) and the incremental-ingest high-water-mark
+            // (used as the duration fallback for a conversation with no
+            // endedAt yet, i.e. one still in progress).
+            relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
+            relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
+            lastIngestedJsonlTimestamp: agentTranscriptsTable.lastIngestedJsonlTimestamp,
+            // mt#3321 generated title — tier 2 of the label precedence, read
+            // off the row already being selected here (no extra query).
+            title: agentTranscriptsTable.title,
+          })
+          .from(agentTranscriptsTable)
+          .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
+          .limit(1),
+        OVERVIEW_QUERY_TIMEOUT_MS
+      );
 
       const transcript = transcriptRows[0];
       if (!transcript) {
@@ -346,8 +416,62 @@ export function mountConversationRoutes(
 
       const [turnCount, workspace] = await Promise.all([turnCountPromise, workspacePromise]);
 
+      // mt#3343 — the page must be able to name ITSELF. Before this,
+      // `/conversation/:id` derived its heading by searching the
+      // context-inspector widget's top-50 picker window for its own id and fell
+      // back to the raw uuid on a miss, which rendered the id as BOTH the
+      // heading and the mono sub-line beneath it. The label is computed here,
+      // server-side, because `custom/no-node-import-in-cockpit-web` bans value
+      // imports from `@minsky/domain` in the browser bundle AND tiers 1/3 need
+      // DB joins the browser cannot make.
+      //
+      // Tier 1 prefers the workspace overview's own resolved task title: this
+      // route already built it, so reusing it costs nothing and stays correct
+      // even if the `minsky_session_links` lookup inside `fetchEnrichment`
+      // resolves a different (weaker) link.
+      const label = await (async () => {
+        try {
+          const { fetchEnrichment, EMPTY_ENRICHMENT } = await import(
+            "../conversation-label-enrichment"
+          );
+          const { computeConversationLabel } = await import(
+            "@minsky/domain/transcripts/conversation-label"
+          );
+          const enrichmentMap = await fetchEnrichment(
+            db,
+            [agentSessionId],
+            await getOverviewTitleCache()
+          );
+          const enrichment = enrichmentMap.get(agentSessionId) ?? EMPTY_ENRICHMENT;
+          return computeConversationLabel({
+            agentSessionId,
+            cwd: transcript.cwd,
+            startedAt: transcript.startedAt instanceof Date ? transcript.startedAt : null,
+            linkedTaskTitle: workspace?.session.taskTitle ?? enrichment.linkedTaskTitle,
+            generatedTitle: transcript.title,
+            firstUserText: enrichment.firstUserText,
+            subagentDescriptor: enrichment.subagentDescriptor,
+          });
+        } catch (labelErr) {
+          // A label is chrome, not data — never fail the overview over it. The
+          // tier-4 fallback (timestamp·cwd·id-prefix) is still strictly more
+          // identifying than the bare uuid this task exists to remove.
+          const msg = labelErr instanceof Error ? labelErr.message : String(labelErr);
+          log.debug(`[conversation] label computation degraded: ${msg}`);
+          const { deriveFallbackLabel } = await import(
+            "@minsky/domain/transcripts/conversation-label"
+          );
+          return deriveFallbackLabel(
+            agentSessionId,
+            transcript.cwd,
+            transcript.startedAt instanceof Date ? transcript.startedAt : null
+          );
+        }
+      })();
+
       res.json({
         agentSessionId,
+        label,
         conversationMeta: {
           cwd: transcript.cwd,
           harness: transcript.harness,

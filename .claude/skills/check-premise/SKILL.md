@@ -57,7 +57,7 @@ to that family.)
 
 ## Additional trigger cues (Tier-3 residual slice — mt#2698)
 
-Four narrow per-surface cues, filed as cheap Tier-3 residual-slice
+Ten narrow per-surface cues, filed as cheap Tier-3 residual-slice
 amendments to the "When to invoke" list above — not a new containment
 strategy. Per the `mt#2485` strategic partition (family record `b0b294ab`):
 the broad-detector tier is demoted; per-surface prose-tier cues like these
@@ -144,6 +144,185 @@ force-restart ineffective (an infinite restart storm). One `grep` of
 `cockpit-daemon*.log`, or a read of live `/api/sweeps` `lastAttemptAt` (frozen),
 would have falsified the conclusion; the task shipped DONE on the wrong root
 cause (corrected + fixed by mt#3060). See memory mem#674.
+
+### (e) Language / runtime semantics beneath first-party code
+
+Trigger: about to assert something about **evaluation order, hoisting,
+scheduling, or lifecycle** — "this runs before that", "these execute in
+declaration order", "the body runs first", "the import completes by then".
+
+Falsifier: reading the file establishes the TEXTUAL order of its statements; it
+does NOT establish WHEN they evaluate. Evaluation order is a fact about the
+**language spec**, not about the file. Consult the spec/docs, or run a minimal
+empirical probe (a three-line module that prints the order). Note this is the
+same Tier-2 blind spot as cues (b) and (d): a same-turn read of the right
+file SATISFIES mt#2486's same-turn-read suppression while establishing nothing
+about the layer beneath it. Extra trap: a source COMMENT asserting the ordering
+("setup config FIRST before any other imports") is authorial INTENT — if the
+language's semantics contradict it, the comment makes the wrong answer look
+confirmed.
+
+_Origin:_ `b0b294ab` R14 (mt#3090, 2026-07-23) —
+`scripts/measure-eval-attribution.ts` was written to "mirror `src/cli.ts`'s
+eager top-level imports IN ORDER" and replicated cli.ts's textual order, which
+interleaves `setupConfiguration()` between imports. ESM evaluates a module's
+entire import graph before its body, so in reality every static import
+completes first. The harness mis-attributed ~20ms — `configuration/loader`
+measured 0.2ms against a true marginal cost of 20.7ms, and
+`setupConfiguration()` measured 36.0ms against 14.8ms — and those wrong numbers
+reached a PR body and a task spec before the reviewer caught the ordering. See
+memory mem#698.
+
+### (f) Derived-metric semantics
+
+Trigger: about to cite a **computed** metric — a tier delta, a layer
+decomposition, a ratio, a percentage — as evidence for the thing its label
+names.
+
+Falsifier: a derived metric's label is a CLAIM ABOUT ITS PROBE. Read what the
+probe actually executes and confirm it exercises the path the label names,
+before citing the number. Cross-check with a second probe on the same path; a
+confounded metric's tell is that no one has stated, in one sentence, what the
+probe does. This matters most for numbers that are about to enter a durable
+artifact, because a metric keeps looking authoritative while every downstream
+consumer silently inherits the error.
+
+_Origin:_ `b0b294ab` R14 (mt#3090, 2026-07-23) —
+`scripts/benchmark-cold-boot.ts` defines its "bundle load + runtime/DI/config
+init" layer as the tier delta `version − runtime`. But `minsky --version`
+tripped `needsAll` in `src/cli.ts`, eagerly loading all ten non-shared command
+groups (MCP SDK, AI tokenizer, …) — ~455ms that no narrow command pays. The
+layer was overstated roughly 2× (~780ms reported; ~365ms real), and the
+inflated figure hardened into three durable artifacts in sequence: mt#2968's
+`## Findings`, the mem#675 handoff's strategic conclusion, and then mt#3090's
+founding premise — a task created to attack a lever that did not exist at that
+size. Timing one narrow no-DB invocation (`completion` → ~365ms vs `--version`
+→ ~820ms) falsified it. See memory mem#698.
+
+### (g) A claim relayed from an intermediary
+
+Trigger: about to state, to the principal or into a durable artifact, a
+mechanism/behavior claim whose source is an **intermediary** rather than the
+primary source — a dispatched subagent's report, a `WebSearch` synthesis
+paragraph, a safety-monitor's verdict, or a memory's paraphrase of a doc.
+
+Falsifier: ask "did I read the PRIMARY source THIS turn?" — the actual vendor
+doc page, the issue body via API, the installed source, the config file. If
+not, either read it, or state the provenance and verification status
+explicitly. Per `claim-confidence.mdc`, a relayed claim is at most
+`inferred` / `strong-evidence`, **never `verified-*`**, until
+primary-source-checked.
+
+Specific falsifiers for the two commonest intermediaries:
+
+- **`WebSearch`'s summary paragraph is not a source.** It is a synthesis to
+  verify against the pages it links. The links are the leads; opening them
+  (`WebFetch`, or the GitHub API on the actual issue) is the work. Read the
+  issue BODY and its state/date, not the title — a closed-as-stale issue and
+  an active bug read identically in a title list.
+- **A subagent saying "I read the docs" is a claim, not verification.** The
+  subagent is subject to every cue on this page; its report inherits none of
+  their guarantees. Treat it as evidence the claim is worth checking.
+
+_Origin:_ `b0b294ab` R15 (mt#3152, 2026-07-24, memory mem#706) — across one
+session three claims were stated to the principal as fact from intermediaries
+and each was corrected only after pushback: that dispatched advisors were
+running on Fable (they ran on Sonnet), that a documented env var overrides the
+per-call model param (relayed from a subagent report plus a search synthesis,
+asserted before reading the docs — it later held up), and that the behavior
+was "a known upstream bug" (it is documented-intended). mem#686 named this for
+safety-monitor verdicts — "a monitor's verdict is evidence that an artifact
+needs checking, never a finding about it"; this cue generalizes it to every
+intermediary.
+
+### (h) Your own tooling's actual effect
+
+Trigger: about to assert what YOUR OWN tool call actually did — the model a
+dispatch ran on, the config a command actually resolved, the branch a push
+actually landed on — where the assertion rests on the call having been
+_accepted_ rather than on a signal of what it _did_.
+
+Falsifier: read a caller-visible signal of the ACTUAL value. "The tool
+accepted the param" is not evidence the param took effect; a silently-clamped
+value and an honored one produce identical tool results. Where no such signal
+exists, say the claim is UNVERIFIED — do not infer it from acceptance.
+
+_Origin:_ same session as (g). `.claude/settings.json` pinned
+`CLAUDE_CODE_SUBAGENT_MODEL: "sonnet"`, which overrode the per-invocation
+`model` param, so every dispatch requesting a tier was silently resolved to
+the pinned one with no error and no caller-visible notice; the agent read "the
+tool accepted `model: fable`" as "it is running Fable" and attached extra
+epistemic weight to those advisors' conclusions when representing them to the
+principal. Measured directly on 2026-07-26 (mt#3151): a dispatch requesting
+`opus` ran Sonnet, and so did one requesting `haiku` — an absolute override in
+both directions, not a cost cap. The pin was removed per ask#6205.
+
+The cue OUTLIVES that fix, and its falsifier is now cheap: a subagent's real
+model is in its transcript at `<session-dir>/subagents/agent-<agentId>.jsonl`,
+and the `Agent` tool returns the `agentId`. So for THIS claim there is a signal
+— read it. The general rule stands wherever no such signal exists: say
+UNVERIFIED rather than inferring effect from acceptance.
+
+### (i) An open item still needing the principal's action
+
+Trigger: about to tell the principal that an open item requires their
+action — an ask awaiting their answer, a PR awaiting their review, a task
+blocked on their decision.
+
+Falsifier: re-read the item's LIVE state THIS turn — `asks_get`,
+`session_pr_get`, `tasks_status_get`, `session_pr_wait-for-review` — before
+asserting. Per `claim-confidence.mdc`, a read from an earlier turn supports
+`inferred`, not `verified`; if the assertion is made without a same-turn
+re-read, label it as such rather than stating it flatly. Include the
+self-caused case explicitly: an action the agent itself took earlier in the
+SAME turn sequence — merging the item's parent task, closing a session,
+resolving a dependency — can invalidate the item's state with no external
+actor involved. There is nothing to prompt a re-check in that case except
+the discipline itself; the item's state can be moved by mechanisms the agent
+doesn't think of as actors (sweeps, other agents, webhooks, and the agent's
+own prior action alike).
+
+_Origin:_ `b0b294ab` R16 (mt#3216, 2026-07-25) — at 18:12Z the orchestrator
+read ask#6024 (`state: "suspended"`, unanswered). At 18:18Z it merged
+mt#3210, the ask's parent task. At 18:21Z a background sweep auto-closed the
+ask as a consequence of that merge. At 18:38Z — 26 minutes and several tool
+calls later — the orchestrator told the principal "only one of them needs
+you: ask#6024," from the 18:12 read, by then false. The principal attempted
+to answer, was told the ask had already been responded to, and had to ask
+whether the state had been checked. The claim was not careless — it rested
+on a real read — but nothing in the turn required re-reading before
+asserting, and the invalidating event was the agent's OWN prior action, not
+an external one.
+
+### (j) A diagnostic conclusion from a non-discriminating signal
+
+Trigger: mid-diagnosis, about to assert a state conclusion — "the push didn't
+land", "the outage is over / was never real", "the telemetry falsifies X",
+"the fix didn't take" — from a signal you actually read.
+
+Falsifier: name ONE alternative hypothesis that produces the SAME observation,
+and rule it out before asserting. A signal CONSISTENT with the conclusion is
+not EVIDENCE FOR it unless it separates the conclusion from its alternatives;
+if you cannot state the discriminating difference in one sentence, the honest
+label is "consistent with, unverified." The alternatives that recur: the
+instrument has a silent fallback that substitutes a different measurement; the
+reference you read was never initialized/fetched; the reporting surface lags
+the state it describes.
+
+_Origin:_ `b0b294ab` R17 (mt#3314; incident record mem#748, 2026-07-28) —
+three in one session, each plausible, confidently asserted, and wrong:
+"first-party telemetry falsified mt#3151's root cause" (`actual_model`
+silently recorded the PARENT conversation's model whenever the subagent had no
+per-agent transcript — became mt#3256); "the push genuinely didn't land"
+(`git_log --ref origin/<branch>` on a never-fetched tracking ref reports
+"unknown revision" for a landed and an unlanded push alike — the
+discriminating read is fetch-then-log); "the GitHub outage was
+transient/falsified" (a status page lags the API it reports on). Neighbor
+boundaries: cue (i) is a probe that RAN and then expired; mem#733's surfaces
+are a probe scoped to the wrong POPULATION; mem#704 makes discriminating power
+a property of the probe at design time — this cue applies it at signal-READ
+time, where the probe already ran and its output simply does not separate the
+hypotheses.
 
 ## Artifact-content and identity claims (mt#2534)
 
@@ -302,11 +481,22 @@ unverified premises, say "unverified — need to check X."
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference`
   (memory `88d92439`) — sibling family (strategic framing vs mechanism claims).
 - Memory `b0b294ab` — family record for the "assertion frozen as fact without
-  verification" pattern (R6–R13); R11–R13 are the origin of the four
-  cues above. `mt#2485` — the strategic partition (Tier-1 `mt#2488`, Tier-2
+  verification" pattern (R6–R17); R11–R17 are the origin of the ten cues
+  above. `mt#2485` — the strategic partition (Tier-1 `mt#2488`, Tier-2
   `mt#2486`, Tier-3 residual = these per-surface cues). `mt#2698` — cues
-  (a)–(c)'s task; `mt#3055` — cue (d)'s task. Cue (d)'s incident memory:
-  `mem#674` (`07cb2686`).
+  (a)–(c)'s task; `mt#3055` — cue (d)'s task; `mt#3126` — cues (e)/(f)'s task;
+  `mt#3152` — cues (g)/(h)'s task; `mt#3216` — cue (i)'s task; `mt#3314` —
+  cue (j)'s task. Cue (d)'s incident memory: `mem#674` (`07cb2686`); cues
+  (e)/(f)'s: `mem#698` (`8f594a7e`); cues (g)/(h)'s: `mem#706` (`a28844c1`);
+  cue (j)'s: `mem#748` (`ed91af3e`).
+- Cues (b), (d), (e) and (f) share one structural property worth stating
+  plainly: each is a case where a same-turn read of the RIGHT first-party file
+  is present and still does not establish the claim, because the claim is about
+  a layer beneath the file (a third-party platform, the runtime record, the
+  language spec, or what a probe executes). `mt#2486`'s same-turn-read
+  suppression is therefore knowingly blind to this set — see `mt#3113`, which
+  strengthens that suppression for precision, making these cues the residual
+  coverage rather than a duplicate of it.
 - Memory `eb4411f3` — bridge memory for the artifact-content/identity family
   (`## Artifact-content and identity claims` above); originating incidents
   R1–R4 (mt#2518, plus the 2026-06-24 and 2026-06-26 recurrences).

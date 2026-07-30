@@ -53,6 +53,19 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       "causal-premise-detector",
       "code-mechanism-assertion-detector",
       "ask-routing-deferral-detector",
+      // mt#3125 — root-tier sibling of the guidance-detector family above
+      // (fires on the batch itself, not a downstream symptom surface); new
+      // guard, not part of the Phase 2a/2b legacy-settings.json migration
+      // this test otherwise pins byte-for-byte; appended after the preserved
+      // legacy order.
+      "constructed-identifier-batch-detector",
+      // mt#2459 — operator-deferral prose surface, sibling of
+      // ask-routing-deferral above (that one covers a deferred DECISION, this
+      // one a deferred ACTION); new guard, not part of the Phase 2a/2b
+      // legacy-settings.json migration this test otherwise pins byte-for-byte.
+      // Its PreToolUse sibling (operator-deferral-ask-surface) is not listed
+      // here — this manifest covers UserPromptSubmit only.
+      "operator-deferral-detector",
       // mt#2812 — new guard, not part of the Phase 2a/2b legacy-settings.json
       // migration this test otherwise pins byte-for-byte; appended after the
       // preserved legacy order.

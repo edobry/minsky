@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, index, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, index, integer, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { vector } from "drizzle-orm/pg-core";
 import type { ConversationId } from "../../ids";
@@ -40,6 +40,19 @@ export const agentTranscriptsTable = pgTable(
     summary: text("summary"),
     summaryEmbedding: vector("summary_embedding", { dimensions: 1536 }),
 
+    /**
+     * Short generated conversation title (mt#3321) — a display LABEL, distinct
+     * from `summary` above.
+     *
+     * Kept as its own column rather than reusing `summary`: `summary` is a 3-6
+     * sentence paragraph whose whole purpose is to feed `summary_embedding`
+     * for semantic search (`transcript-similarity-service.ts`), so overloading
+     * it with a ~60-char title would break that consumer. Nullable — a
+     * conversation with no title yet falls through to the older label tiers in
+     * `conversation-label.ts`.
+     */
+    title: text("title"),
+
     // Regex-extracted references from transcript content
     relatedTaskIds: text("related_task_ids")
       .array()
@@ -64,6 +77,21 @@ export const agentTranscriptsTable = pgTable(
     // supplier, mt#2416/ADR-021) and stored here — nullable because resolution can fail
     // (unresolvable cwd, no matching project row) and ingestion must not block on it.
     projectId: uuid("project_id").references(() => projectsTable.id),
+
+    // Ingest-failure tracking (mt#3278). Some ingest failures are permanent —
+    // content Postgres cannot represent fails identically on every retry — so
+    // without a record of past failures the sweep re-attempts a doomed
+    // multi-megabyte upsert every 30 minutes forever. These columns make a
+    // repeated failure visible and let the sweep skip a session that has
+    // exhausted its attempts, instead of rediscovering the failure each pass.
+    //
+    // The counter is CONSECUTIVE: a successful ingest resets it to 0 and clears
+    // the quarantine, so a transient DB blip never accumulates toward one.
+    ingestFailureCount: integer("ingest_failure_count").notNull().default(0),
+    ingestLastError: text("ingest_last_error"),
+    ingestLastFailedAt: timestamp("ingest_last_failed_at", { withTimezone: true }),
+    /** Set once the consecutive-failure threshold is crossed; NULL means not quarantined. */
+    ingestQuarantinedAt: timestamp("ingest_quarantined_at", { withTimezone: true }),
   },
   (table) => [
     // mt#2767 — the context-inspector widget (and the unified agents-widget

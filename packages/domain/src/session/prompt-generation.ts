@@ -20,6 +20,7 @@ import matter from "gray-matter";
 import { readTextFileSync } from "@minsky/shared/fs";
 import { detectAgentHarness, type AgentHarness } from "../runtime/harness-detection";
 import { DEFAULT_DISPATCH_MODEL_ID } from "../ai/dispatch-models";
+import { ValidationError } from "../errors/index";
 
 export type PromptType = "implementation" | "refactor" | "review" | "cleanup" | "audit";
 
@@ -77,6 +78,20 @@ export interface GeneratePromptParams {
   type: PromptType;
   instructions: string;
   scope?: string[];
+  /**
+   * Free-prose description of what this dispatch covers (mt#1279).
+   *
+   * `scope` is a machine-consumed FILE LIST — it renders as the "Only modify
+   * the following files:" bullets and is re-read by the parallel-work guard
+   * for PR-collision detection. Prose belongs here instead, and renders as
+   * its own `## Scope Notes` section so it can never be mistaken for a path.
+   *
+   * Before this field existed, callers naturally wrote prose into `scope`
+   * (three occurrences across three months) and got fabricated file paths,
+   * because `scope` is comma-split and each chunk prefixed with the session
+   * directory.
+   */
+  scopeNotes?: string;
   omitOperatingEnvelope?: boolean;
   /**
    * Override harness detection. When omitted, `detectAgentHarness()` is called.
@@ -131,6 +146,70 @@ export interface GeneratePromptResult {
   batches?: GeneratePromptResult[]; // populated when scope > SCOPE_WARNING_THRESHOLD
   batchIndex?: number; // 1-based index of this batch
   totalBatches?: number; // total number of batches
+}
+
+/**
+ * Is this `scope` chunk plausibly a file path rather than prose? (mt#1279)
+ *
+ * The predicate is deliberately shape-based, not filesystem-based: a scope
+ * entry may name a file the dispatch is about to CREATE, so requiring the
+ * path to exist would reject legitimate input. Two signals, either sufficient:
+ *
+ *   - contains a `/` — a path separator; prose fragments essentially never do
+ *   - ends in a dotted extension (`.ts`, `.tsx`, `.md`) — a bare filename
+ *
+ * plus one hard disqualifier: internal whitespace. Every observed prose
+ * fragment carried spaces ("plus tests", "a new shared EntityRef component");
+ * no repo path does. Whitespace alone would catch all three recorded
+ * occurrences — the two positive signals exist so a bare `README.md` or a
+ * deep path both pass without a filesystem check.
+ */
+export function isPathShapedScopeChunk(chunk: string): boolean {
+  const trimmed = chunk.trim();
+  if (trimmed.length === 0) return false;
+  if (/\s/.test(trimmed)) return false;
+  if (trimmed.includes("/")) return true;
+  return /\.[A-Za-z0-9]+$/.test(trimmed);
+}
+
+/**
+ * Parse a caller-supplied `scope` string into absolute session-relative file
+ * paths, REJECTING prose (mt#1279).
+ *
+ * Both `session.generate_prompt` and `tasks.dispatch` call this so the split,
+ * the validation, and the session-directory prefixing exist in exactly one
+ * place — they previously carried byte-identical copies of the split, and a
+ * third copy lives in the parallel-work guard.
+ *
+ * Returns `undefined` for absent/blank input (scope is optional). Throws
+ * `ValidationError` naming every offending chunk when any chunk is prose —
+ * the loud failure that replaces silently emitting fabricated path bullets.
+ */
+export function parseScopeFileList(
+  scopeRaw: string | undefined,
+  sessionDir: string
+): string[] | undefined {
+  if (scopeRaw === undefined || scopeRaw.trim().length === 0) return undefined;
+
+  const chunks = scopeRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (chunks.length === 0) return undefined;
+
+  const offenders = chunks.filter((c) => !isPathShapedScopeChunk(c));
+  if (offenders.length > 0) {
+    throw new ValidationError(
+      `\`scope\` must be a comma-separated list of file paths, but ` +
+        `${offenders.length} entr${offenders.length === 1 ? "y is" : "ies are"} prose, not a path: ` +
+        `${offenders.map((o) => JSON.stringify(o)).join(", ")}. ` +
+        "Splitting prose on commas produces fabricated file paths, so this is rejected " +
+        "rather than rendered. Put the file paths in `scope` and move the prose " +
+        "description into `scopeNotes`."
+    );
+  }
+
+  return chunks.map((c) => (c.startsWith("/") ? c : `${sessionDir}/${c}`));
 }
 
 const SCOPE_WARNING_THRESHOLD = 40;
@@ -239,19 +318,48 @@ ${sections}`;
 
 function renderCommonHeader(params: GeneratePromptParams): string {
   const displayId = normalizeTaskIdForDisplay(params.taskId);
-  return `You are working in Minsky session at ${params.sessionDir}. All file paths MUST be absolute paths under this directory.
+  return `You are working in Minsky session \`${params.sessionId}\`, checked out at ${params.sessionDir}.
+
+Use the session-scoped file tools for every file operation in this session — they take this session id plus a path RELATIVE to the session root, so a path can never silently address the main workspace: \`session_read_file\` to read, \`session_search_replace\` for a targeted edit, \`session_write_file\` to create or fully rewrite. \`session_edit_file\` is fast-apply-model-based and is NOT the default; reach for it only when a single edit spans many regions. Reserve the harness-native \`Read\`/\`Edit\`/\`Write\` for MAIN-workspace files, which you should not be touching from here.
 
 Task ${displayId}: ${params.type.charAt(0).toUpperCase() + params.type.slice(1)} work
 
 ${params.instructions}`;
 }
 
+/**
+ * Section header for the machine-consumed file list. Exported alongside
+ * `SCOPE_NOTES_HEADER` because `extractScopeConstraintsFiles`
+ * (`.minsky/hooks/parallel-work-guard.ts`) matches this exact text — tests
+ * asserting the contract should reference the constant, not retype it.
+ */
+export const SCOPE_CONSTRAINTS_HEADER = "## Scope Constraints";
+
 function renderScopeSection(scope: string[]): string {
   return `
-## Scope Constraints
+${SCOPE_CONSTRAINTS_HEADER}
 
 Only modify the following files:
 ${scope.map((f) => `- ${f}`).join("\n")}`;
+}
+
+/**
+ * Section header for the free-prose scope description (mt#1279).
+ *
+ * Deliberately its OWN `##` section rather than extra lines inside
+ * `## Scope Constraints`. `extractScopeConstraintsFiles`
+ * (`.minsky/hooks/parallel-work-guard.ts`) reads every `- ` bullet between
+ * the Scope-Constraints heading and the NEXT `##` heading and treats each as
+ * a file path. Prose sharing that section would leak into the guard's
+ * file list the first time someone wrote a bulleted note.
+ */
+export const SCOPE_NOTES_HEADER = "## Scope Notes";
+
+function renderScopeNotesSection(scopeNotes: string): string {
+  return `
+${SCOPE_NOTES_HEADER}
+
+${scopeNotes.trim()}`;
 }
 
 /**
@@ -475,6 +583,12 @@ function generateSinglePrompt(
 
   if (effectiveScope && effectiveScope.length > 0) {
     sections.push(renderScopeSection(effectiveScope));
+  }
+
+  // mt#1279: rendered from `params`, not from the batch slice, so a batched
+  // dispatch carries the same scope prose in every batch.
+  if (params.scopeNotes && params.scopeNotes.trim().length > 0) {
+    sections.push(renderScopeNotesSection(params.scopeNotes));
   }
 
   if (type === "review") {

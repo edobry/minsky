@@ -35,6 +35,7 @@ interface RegisterAndExecuteResult {
   result: unknown;
   provisionCalls: { name: string; force?: boolean; via: "manifest" | "wizard" }[];
   storeOutputDirs: string[];
+  specs: Array<{ permissions: Record<string, string>; events: string[] }>;
 }
 
 function setupCommand(
@@ -43,6 +44,7 @@ function setupCommand(
 ): RegisterAndExecuteResult {
   const provisionCalls: RegisterAndExecuteResult["provisionCalls"] = [];
   const storeOutputDirs: string[] = [];
+  const specs: RegisterAndExecuteResult["specs"] = [];
 
   let lastVia: "manifest" | "wizard" = "manifest";
 
@@ -62,6 +64,7 @@ function setupCommand(
 
   const provisionMock: SetupGithubAppDeps["provisionGithubApp"] = async (opts) => {
     provisionCalls.push({ name: opts.name, force: opts.force, via: lastVia });
+    specs.push({ permissions: opts.spec.permissions, events: opts.spec.events });
     if (scenario.existsResult && !opts.force) {
       return { status: "already-exists", credentials: SAMPLE_CREDS };
     }
@@ -85,7 +88,7 @@ function setupCommand(
 
   registerSetupGithubAppCommand(deps);
 
-  return { result: undefined, provisionCalls, storeOutputDirs };
+  return { result: undefined, provisionCalls, storeOutputDirs, specs };
 }
 
 async function runCommand(params: Record<string, unknown>): Promise<unknown> {
@@ -193,6 +196,21 @@ describe("setup.github-app adapter", () => {
     })) as { success: boolean; message: string };
     expect(result.success).toBe(false);
     expect(result.message).toBe("user cancelled");
+  });
+
+  test("default permissions (no --permissions) include contents:write (mt#3218)", async () => {
+    // The manifest-flow default previously granted contents:read, which never
+    // matched session_commit's App-token push requirement (mt#1477) — the
+    // upstream cause of the mt#3210 incident. A fresh App must be created
+    // with contents:write so a first App-token push succeeds without falling
+    // back to keychain credentials.
+    const captured = setupCommand();
+    await runCommand({
+      name: "test-app",
+      repo: "owner/repo",
+    });
+    expect(captured.specs[0]?.permissions.contents).toBe("write");
+    expect(captured.specs[0]?.permissions.pull_requests).toBe("write");
   });
 
   test("outputDir with ~ is expanded to homedir", async () => {

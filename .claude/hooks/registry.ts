@@ -865,6 +865,119 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#3125 — root-tier sibling of the guidance-detector family above. Fires
+  // on the BATCH itself (an id-minting call + an id-consuming call in the
+  // same parallel tool-call batch) rather than a downstream symptom surface
+  // (mt#2195's fs path, mt#2197's narrated prose). Calibration-first
+  // (INJECTION_ENABLED=false in the module) — see the module header.
+  // -------------------------------------------------------------------------
+  {
+    name: "constructed-identifier-batch-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./constructed-identifier-batch-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "constructed-identifier-batch",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                name: "mcp__minsky__tasks_create",
+                input: { title: "canary task" },
+              },
+              {
+                type: "tool_use",
+                name: "mcp__minsky__session_commit",
+                input: { message: "fix(mt#0000): canary commit referencing the minted id" },
+              },
+            ],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      // Calibration-first (INJECTION_ENABLED=false) — same posture as
+      // causal-premise-detector's canary above: assert the calibration
+      // outcome, not additionalContext, so a future INJECTION_ENABLED flip
+      // doesn't silently break this canary (it would simply gain an
+      // ADDITIONAL warn outcome).
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#2459 — operator-deferral family (probe-before-defer / operator-must-do-X).
+  // TWO surfaces from ONE module, sharing ONE calibration log (they are two
+  // detection surfaces on one failure family): the UserPromptSubmit prose scan
+  // here, and the PreToolUse `AskUserQuestion` option-label scan below it. Both
+  // calibration-first (INJECTION_ENABLED=false in the module). The
+  // ACTIVATION-instruction half of this family belongs to
+  // substrate-bypass-detector's mt#2303 surface — see that module's
+  // SCOPE BOUNDARY note before adding a pattern to either.
+  // -------------------------------------------------------------------------
+  {
+    name: "operator-deferral-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./operator-deferral-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "operator-deferral",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Deferred to operator: requires Railway access." }],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      // Calibration-first (INJECTION_ENABLED=false) — assert the calibration
+      // outcome, not additionalContext, so a future flip doesn't break the
+      // canary (it would simply gain an ADDITIONAL warn outcome).
+      expects: "calibration",
+    },
+  },
+  {
+    name: "operator-deferral-ask-surface",
+    event: "PreToolUse",
+    matcher: "AskUserQuestion",
+    module: () => import("./operator-deferral-detector").then((m) => ({ run: m.runAskSurface })),
+    timeoutMs: 10000,
+    calibrationLog: "operator-deferral",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    canary: {
+      input: {
+        transcript_path: "mt2889-canary-transcript",
+        tool_name: "AskUserQuestion",
+        tool_input: {
+          questions: [
+            {
+              question: "The reviewer service is CRASHED. How should we proceed?",
+              options: [{ label: "You recover the reviewer service" }],
+            },
+          ],
+        },
+      },
+      transcriptLines: [{ type: "user", message: { role: "user", content: "first turn" } }],
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
   // mt#2812 — new guard, not part of any legacy settings.json migration.
   // Reads the guard-health JSONL log (a pure fs read + string compare, no
   // network/git calls) and injects a warning when any guard has reached
@@ -934,20 +1047,27 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
           timestamp: "2026-01-01T00:00:00Z",
         },
         // TOOL_CALL_THRESHOLD=15 consecutive tool_use-only assistant lines,
-        // zero assistant TEXT in between — crosses the tool-count cadence
-        // bar regardless of the wall-clock gap threshold.
-        ...Array.from({ length: 15 }, (_, i) => ({
-          type: "assistant",
-          message: {
-            role: "assistant",
-            content: [{ type: "tool_use", name: "Bash", input: {} }],
-          },
-          timestamp: `2026-01-01T00:00:${String(i + 1).padStart(2, "0")}Z`,
-        })),
+        // zero assistant TEXT in between, spaced 40s apart so the run spans
+        // ~10 minutes — since mt#3336 the call leg is gap-qualified
+        // (CALL_LEG_MIN_GAP_MINUTES), so a genuine stretch needs both the
+        // call count AND a real wall-clock span.
+        ...Array.from({ length: 15 }, (_, i) => {
+          const totalSeconds = (i + 1) * 40;
+          const mm = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+          const ss = String(totalSeconds % 60).padStart(2, "0");
+          return {
+            type: "assistant",
+            message: {
+              role: "assistant",
+              content: [{ type: "tool_use", name: "Bash", input: {} }],
+            },
+            timestamp: `2026-01-01T00:${mm}:${ss}Z`,
+          };
+        }),
         {
           type: "user",
           message: { role: "user", content: "still going" },
-          timestamp: "2026-01-01T00:00:16Z",
+          timestamp: "2026-01-01T00:10:30Z",
         },
       ],
       expects: "calibration",
@@ -1173,6 +1293,39 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       setup: async () => {
         const store = await import("./turn-end-scan-store");
         store.clearFlagged("mt2357-turn-end-canary");
+      },
+    },
+  },
+  {
+    // mt#3179 — turn-end sibling of the guard above: scans for a turn that ends
+    // by NAMING a next action without taking it. Keyed on POSITION (the text is
+    // in `last_assistant_message`, so nothing followed it), not on the agent's
+    // stated reason. Full rationale: the guard module's header.
+    name: "turn-end-untaken-action-scan",
+    event: "Stop",
+    module: () => import("./turn-end-untaken-action-scan").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    calibrationLog: "untaken-action",
+    denyCapable: false,
+    // False by design (PR #2293 R1): detection reads last_assistant_message, and
+    // the dedup key is derived from that message — NOT from the transcript,
+    // whose absent-case default would suppress the phrase session-wide.
+    needsTranscript: false,
+    attentionCost: { denialMessageSizeChars: 700, optionCount: 2 },
+    canary: {
+      input: {
+        session_id: "mt3179-untaken-action-canary",
+        transcript_path: "/nonexistent/mt3179-canary.jsonl",
+        // Verbatim tail of the R3 incident this guard exists to catch.
+        last_assistant_message:
+          "mt#3179 is incident-response, so I'm taking it forward rather than leaving it filed — that's the next step, not a question.",
+      },
+      // No transcriptLines: detection reads last_assistant_message only; the
+      // dedup turn-key degrades to a stable default without a transcript.
+      expects: "warn",
+      setup: async () => {
+        const store = await import("./turn-end-scan-store");
+        store.clearFlagged("mt3179-untaken-action-canary");
       },
     },
   },

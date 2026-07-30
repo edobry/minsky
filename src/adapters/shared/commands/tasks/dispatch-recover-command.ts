@@ -54,6 +54,25 @@
  *   touches its own session — see `computeDispatchStaleness`'s docstring
  *   for the full mechanism and why this stands in for the harness
  *   transcript JSONL mtime, which is unreachable here).
+ * - mt#3149: a dispatch with an open PR or commits ahead of base is NEVER
+ *   classified `crashed-no-output`, including at the 2-attempt-bound
+ *   escalate path — the probe (git status, commits-ahead, PR state) is now
+ *   built and consulted BEFORE that check, not only on the "recover" branch,
+ *   so an escalation can no longer echo a stale/pessimistic-default DB
+ *   `outcome` value for a row that was never actually re-classified against
+ *   live state (see `classifyDispatchRecoveryState`'s docstring and the
+ *   escalate branch below for the full incident and fix).
+ * - mt#3193: a dispatch working entirely through non-MCP harness tools
+ *   (`Read`/`Edit`/`Write`/`Glob`/`Grep` — no commit, no MCP tool call) is
+ *   NOT misclassified as dead, because the staleness check ALSO consults a
+ *   workspace-mtime signal (dirty-file filesystem timestamps in the session's
+ *   git working tree — see `computeDispatchStaleness`'s docstring and
+ *   `@minsky/domain/session/workspace-activity` for the full mechanism).
+ * - mt#3193: a dispatch whose task is IN-REVIEW with a still-open (or draft)
+ *   PR is returned as `healthy` UNCONDITIONALLY (before the staleness check
+ *   even runs) — idling on review is the DESIRED state there, and "no
+ *   commits for a while" inverts the signal if treated as staleness. See the
+ *   IN-REVIEW + open-PR gate below.
  *
  * ### Does NOT cover
  * - Semantically-wrong-but-alive work — a subagent that is actively
@@ -66,10 +85,12 @@
  *   orchestrator who suspects rate-limiting should check the cadence
  *   escalation tier before treating a stale read as a kill signal (per
  *   memory `5f2154cd`, "long-paused subagent != dead subagent").
- * - A dispatch that makes literally ZERO Minsky-MCP-routed tool calls for an
- *   entire stale window (e.g. stuck inside one very long non-MCP subprocess
- *   call) — this remains invisible to every signal here, commit or
- *   presence-based (mt#3086's documented residual blind spot).
+ * - A dispatch that makes literally ZERO Minsky-MCP-routed tool calls AND
+ *   writes/touches ZERO files in its workspace for an entire stale window
+ *   (e.g. stuck inside one very long non-MCP subprocess call, or a pure-
+ *   reasoning stretch) — this remains invisible to every signal here,
+ *   commit-, presence-, or workspace-mtime-based (mt#3086's originally
+ *   documented residual blind spot, narrowed but not closed by mt#3193).
  * - A `SendMessage`-resumed continuation of an ALREADY-CLOSED invocation row
  *   (`endedAt` set before the resume) — this command returns `not-in-flight`
  *   before ever reaching the staleness check for that case (see
@@ -78,12 +99,24 @@
  * - The full periodic sweep the dispatch-watchdog producer performs
  *   (`src/cockpit/dispatch-watchdog.ts`), including its `system_events`
  *   activity signal — this command's on-demand staleness check uses
- *   dispatch-start-time, last-commit-time, and (mt#3086) presence-claim
- *   activity, but not `system_events` (see `computeDispatchStaleness`'s
- *   docstring for the documented tradeoff).
+ *   dispatch-start-time, last-commit-time, (mt#3086) presence-claim
+ *   activity, and (mt#3193) workspace-mtime activity, but not
+ *   `system_events` (see `computeDispatchStaleness`'s docstring for the
+ *   documented tradeoff). mt#3172/mt#3193: the watchdog producer's OWN
+ *   staleness computation now ALSO consults presence-claim and
+ *   workspace-mtime activity (via the same shared helpers this command
+ *   uses) — the two staleness checks are no longer divergent on those
+ *   signals, even though the watchdog's `system_events` signal is still not
+ *   consulted here, and the watchdog's IN-REVIEW+open-PR exclusion is a
+ *   separate (parallel, not shared-code) implementation of the same rule
+ *   this command's gate enforces.
  *
  * @see mt#2831 — this task
  * @see mt#3086 — false-positive staleness fix + double-dispatch race documentation
+ * @see mt#3149 — false-positive crashed-no-output fix (PR/commit liveness at escalate time)
+ * @see mt#3172 — extracted the presence-claim lookup into a shared helper and
+ *   wired it into the watchdog PRODUCER's own staleness computation too
+ * @see mt#3193 — workspace-mtime signal + IN-REVIEW-with-open-PR healthy gate
  * @see mt#2646 — dispatch-watchdog detection + `dispatch-recovery-probe.ts`
  * @see mt#2512 — kill+redispatch doctrine (no mid-flight correction)
  *
@@ -126,6 +159,8 @@ import {
   buildDispatchRecoveryContinuationPrompt,
   DISPATCH_RECOVERY_STALE_MS,
 } from "@minsky/domain/session/dispatch-recovery-classifier";
+import { resolveLastPresenceActivityAtMs } from "@minsky/domain/session/presence-activity";
+import { resolveLastWorkspaceMtimeAtMs } from "@minsky/domain/session/workspace-activity";
 import type { PromptType } from "@minsky/domain/session/prompt-generation";
 
 // ---------------------------------------------------------------------------
@@ -176,82 +211,53 @@ export interface DispatchRecoveryActivityOps {
    * or the dispatch is brand new).
    */
   lastPresenceActivityAtMs(subagentSessionId: string): Promise<number | null>;
+  /**
+   * Ms epoch of the freshest dirty-file mtime in the session's git working
+   * tree (mt#3193), or null when unavailable (workspace missing, not a git
+   * repo, no dirty files, or every dirty path failed to `stat`). See
+   * `resolveLastWorkspaceMtimeAtMs` (`@minsky/domain/session/workspace-activity`)
+   * for the full mechanism and its documented residual blind spot — this is
+   * the signal that closes the "non-MCP harness-tool activity" gap
+   * `lastPresenceActivityAtMs` alone leaves open (presence-claims only
+   * refresh on Minsky-MCP-routed tool calls).
+   */
+  lastWorkspaceMtimeAtMs(sessionDir: string): Promise<number | null>;
 }
 
 /**
- * Real implementation: reads the session-grain `presence_claims` row(s) for
- * `subagentSessionId` and returns the freshest `lastRefreshedAt` across all
- * actors that have touched this session (an MCP tool call from EITHER the
- * subagent itself or, in principle, another actor sharing the workspace —
- * in practice a session workspace has exactly one active occupant, so this
- * is effectively "did the subagent make any Minsky-routed tool call
- * recently"). Fail-open: any resolution error (no persistence provider, no
- * DB, a query failure) returns null rather than throwing — this signal is
- * best-effort, matching the rest of the presence-claims write/read path's
- * posture (`src/mcp/server.ts`'s `writeSessionAttachment`,
- * `tasks.claims.list`).
+ * Real implementation: delegates to the shared
+ * `resolveLastPresenceActivityAtMs` helper
+ * (`@minsky/domain/session/presence-activity`, mt#3172 extraction) to read
+ * the session-grain `presence_claims` row(s) for `subagentSessionId` and
+ * return the freshest `lastRefreshedAt` across all actors that have touched
+ * this session (an MCP tool call from EITHER the subagent itself or, in
+ * principle, another actor sharing the workspace — in practice a session
+ * workspace has exactly one active occupant, so this is effectively "did the
+ * subagent make any Minsky-routed tool call recently"). Fail-open — see the
+ * shared helper's docstring for the full posture; this command and the
+ * dispatch-watchdog producer (`src/cockpit/dispatch-watchdog.ts`) now share
+ * the identical query instead of maintaining two copies of it.
  */
 export function createRealDispatchRecoveryActivityOps(
   getPersistenceProvider: () => unknown
 ): DispatchRecoveryActivityOps {
   return {
     async lastPresenceActivityAtMs(subagentSessionId) {
-      try {
-        const provider = getPersistenceProvider() as
-          | { getDatabaseConnection?: () => Promise<unknown> }
-          | undefined;
-        if (!provider?.getDatabaseConnection) {
-          // R1 (mt#3086): log every structurally-unavailable branch, not just the
-          // catch-block failure path below — a silent null here degrades the
-          // staleness check back to its pre-mt#3086 commit-only behavior with no
-          // diagnostic trail, reintroducing the original false-positive risk
-          // invisibly. debug (not warn): a persistence-less CLI/test context is a
-          // routine, expected shape, not an operational anomaly.
-          log.debug(
-            "[tasks.dispatch-recover] lastPresenceActivityAtMs: no persistence provider / getDatabaseConnection — presence signal unavailable",
-            { subagentSessionId }
-          );
-          return null;
-        }
-        const db = await provider.getDatabaseConnection();
-        if (!db) {
-          log.debug(
-            "[tasks.dispatch-recover] lastPresenceActivityAtMs: getDatabaseConnection() resolved no connection — presence signal unavailable",
-            { subagentSessionId }
-          );
-          return null;
-        }
-        const { buildPresenceClaimRepository } = await import("@minsky/domain/presence/index");
-        const repo = buildPresenceClaimRepository(db);
-        if (!repo) {
-          log.debug(
-            "[tasks.dispatch-recover] lastPresenceActivityAtMs: buildPresenceClaimRepository returned null — presence signal unavailable",
-            { subagentSessionId }
-          );
-          return null;
-        }
-        // Threshold is irrelevant here — we only read the raw timestamp and let
-        // computeDispatchStaleness's OWN staleMs decide freshness, not presence's
-        // separate 15-min TTL annotation. listClaims orders desc by
-        // lastRefreshedAt, so the first row is already the freshest.
-        const claims = await repo.listClaims("session", subagentSessionId, Number.MAX_SAFE_INTEGER);
-        const freshest = claims[0]?.lastRefreshedAt;
-        if (!freshest) return null;
-        const ms = Date.parse(freshest);
-        return Number.isFinite(ms) ? ms : null;
-      } catch (err) {
-        // R1 (mt#3086): warn (not debug) — unlike the "no persistence configured"
-        // branches above (a routine, expected shape in CLI/test contexts), reaching
-        // this catch means resolution STARTED (a provider/db/repo existed) and then
-        // threw — a DI-wiring break, an unexpected dynamic-import shape, or a real
-        // query failure. That is an operational anomaly worth surfacing, not a
-        // silent degrade.
-        log.warn(
-          "[tasks.dispatch-recover] lastPresenceActivityAtMs resolution failed unexpectedly (degrading to no presence signal)",
-          { subagentSessionId, error: err instanceof Error ? err.message : String(err) }
-        );
-        return null;
-      }
+      const provider = getPersistenceProvider() as
+        | { getDatabaseConnection?: () => Promise<unknown> }
+        | undefined;
+      return resolveLastPresenceActivityAtMs(subagentSessionId, provider, {
+        source: "tasks.dispatch-recover",
+      });
+    },
+    // mt#3193: delegates to the shared `resolveLastWorkspaceMtimeAtMs` helper
+    // (`@minsky/domain/session/workspace-activity`) — dirty-file mtime in the
+    // session's git working tree, closing the non-MCP-harness-tool gap
+    // `lastPresenceActivityAtMs` alone leaves open.
+    async lastWorkspaceMtimeAtMs(sessionDir) {
+      return resolveLastWorkspaceMtimeAtMs(sessionDir, {
+        source: "tasks.dispatch-recover",
+      });
     },
   };
 }
@@ -323,6 +329,18 @@ export function createRealDispatchRecoveryGitOps(): DispatchRecoveryGitOps {
       }
     },
   };
+}
+
+/**
+ * Whether a PR `state` (as recorded on the session record / probe) represents
+ * a still-open (or draft) PR — i.e. one whose existence is direct, positive
+ * evidence the dispatch pushed something (mt#3149 SC1/SC2). A draft PR still
+ * required a push to create, so it counts. `null`/`undefined`/`"closed"`/
+ * `"merged"` are not live — no PR, or a PR that no longer represents
+ * in-flight work.
+ */
+export function isLivePrState(state: string | null | undefined): boolean {
+  return state === "open" || state === "draft";
 }
 
 // ---------------------------------------------------------------------------
@@ -532,6 +550,11 @@ export function createTasksDispatchRecoverCommand(
       '3rd attempt for the same dispatch chain (returns status: "escalate"). If the ' +
       "dispatch tracker itself is unavailable, degrades to actionable manual-recovery " +
       'guidance instead of a bare error (returns status: "tracker-unavailable"). ' +
+      'An "escalate" result is NOT a finding that the dispatch is dead — it only means the ' +
+      "2-attempt auto-resume bound is reached. Its `escalation.probe` carries the live " +
+      "workspace state (dirtyFileCount, gitStatus, commitsAheadOfBase, handoff, PR) plus " +
+      "`workspaceMtimeAgoMs`; those are the signals that distinguish a dispatch editing " +
+      "uncommitted files from a dead one, whereas push/PR/review activity cannot (mt#3204). " +
       "DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually " +
       "still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive " +
       "or a hasty manual override) puts TWO agents in the SAME Minsky session workspace " +
@@ -634,22 +657,55 @@ export function createTasksDispatchRecoverCommand(
         };
       }
 
+      // ── IN-REVIEW + open-PR gate: idling on review is the DESIRED state. ─────────────
+      // mt#3193: a dispatch whose task is IN-REVIEW with a still-open (or draft) PR
+      // has already shipped its output and is correctly doing nothing while waiting
+      // on `minsky-reviewer[bot]` — "no commits for a while" is the EXPECTED signal
+      // there, not a stall. Checked BEFORE the staleness gate (not folded into
+      // computeDispatchStaleness as another activity signal) because this is a
+      // suppression based on WHAT STATE the dispatch is in, not evidence of recent
+      // activity — the whole point is that a healthy PR-idle dispatch may have NO
+      // recent activity at all. See the mt#3193 spec's second false-positive source:
+      // four dispatches were flagged simultaneously in one run, all IN-REVIEW with an
+      // open PR, all correctly idle.
+      const openPr = isLivePrState(sessionRecord?.pullRequest?.state);
+      if (taskStatus === "IN-REVIEW" && openPr) {
+        return {
+          success: true,
+          status: "healthy" as const,
+          taskId,
+          sessionId: subagentSessionId,
+          staleForMs: 0,
+          activitySource: "in-review-open-pr" as const,
+          message:
+            `Task ${taskId} is IN-REVIEW with an open PR` +
+            `${sessionRecord?.pullRequest?.number ? ` (#${sessionRecord.pullRequest.number})` : ""} — ` +
+            `waiting on review is the expected idle state, not a stall. No action taken.`,
+        };
+      }
+
       // ── Staleness gate: a healthy in-flight dispatch is left untouched. ──────────────
       // mt#3086: consults presence-claim activity ALONGSIDE commit activity — a
       // dispatch that is genuinely alive but quiet (reading code, running tests,
       // making session-scoped MCP tool calls with no commit yet) is no longer
-      // misclassified as dead. See computeDispatchStaleness's docstring for the
-      // full signal rationale and the documented residual blind spot.
+      // misclassified as dead. mt#3193: ALSO consults workspace-mtime activity
+      // (dirty-file filesystem timestamps) — closing the gap where a dispatch
+      // working entirely through non-MCP harness tools (Read/Edit/Write/Glob/Grep)
+      // produces neither a commit nor a presence-claim refresh. See
+      // computeDispatchStaleness's docstring for the full signal rationale and the
+      // documented residual blind spot.
       const lastCommitAtMs = await gitOps.lastCommitAtMs(sessionDir);
       const lastPresenceActivityAtMs =
         await activityOps.lastPresenceActivityAtMs(subagentSessionId);
+      const lastWorkspaceMtimeAtMs = await activityOps.lastWorkspaceMtimeAtMs(sessionDir);
       const startedAtMs = latest.startedAt.getTime();
       const staleness = computeDispatchStaleness(
         startedAtMs,
         lastCommitAtMs,
         now().getTime(),
         staleMs,
-        lastPresenceActivityAtMs
+        lastPresenceActivityAtMs,
+        lastWorkspaceMtimeAtMs
       );
 
       if (!staleness.stale) {
@@ -658,7 +714,9 @@ export function createTasksDispatchRecoverCommand(
             ? "recent tool-call activity (no commit yet)"
             : staleness.activitySource === "commit"
               ? "a recent commit"
-              : "no activity beyond dispatch start (still within the stale window)";
+              : staleness.activitySource === "workspace-mtime"
+                ? "recent file-write activity (no commit or MCP tool-call yet)"
+                : "no activity beyond dispatch start (still within the stale window)";
         return {
           success: true,
           status: "healthy" as const,
@@ -673,39 +731,19 @@ export function createTasksDispatchRecoverCommand(
         };
       }
 
-      // ── 2-attempt bound: refuse a 3rd attempt, return an escalation package. ─────────
-      const attemptNumber = latest.attemptNumber ?? 1;
-      if (attemptNumber >= 2) {
-        const chain = await tracker.getInvocationChainForTask(taskId);
-        const attempts: DispatchRecoveryEscalationAttempt[] = (
-          chain.length > 0 ? chain : [latest]
-        ).map((row) => ({
-          invocationId: row.id,
-          attemptNumber: row.attemptNumber ?? 1,
-          startedAt: row.startedAt.toISOString(),
-          outcome: row.outcome ?? null,
-        }));
-        return {
-          success: true,
-          status: "escalate" as const,
-          taskId,
-          sessionId: subagentSessionId,
-          escalation: {
-            taskId,
-            attempts,
-            message:
-              `Dispatch for ${taskId} has gone silent again after a prior auto-resume ` +
-              `(attempt ${attemptNumber}). The 2-attempt bound is reached — no further ` +
-              `auto-resume will be attempted. An operator/orchestrator decision is needed: ` +
-              `diagnose why this dispatch keeps stalling (repeated infra failure? a task ` +
-              `that genuinely exceeds a single dispatch's capacity? rate-limiting — check ` +
-              `SubagentDispatchTracker.getEscalation() before assuming death) before retrying ` +
-              `manually.`,
-          },
-        };
-      }
-
-      // ── Build the probe (git-diff presence, commits-ahead, handoff.md). ─────────────
+      // ── Build the probe (git-diff presence, commits-ahead, handoff.md, PR). ─────────
+      // mt#3149: this block was MOVED ABOVE the 2-attempt-bound check below (it used
+      // to run only on the "recover" path, AFTER that check). That ordering was the
+      // actual root cause of the mt#3149 incident: once a dispatch reached its 2nd
+      // stale classification, the code took the escalate branch and returned WITHOUT
+      // EVER calling `gitOps.commitsAheadOfBase` or looking at `sessionRecord.pullRequest`
+      // — it just echoed whatever `outcome` was already stored on the DB row, which for
+      // a row created by a prior recovery attempt is a hardcoded PESSIMISTIC DEFAULT
+      // (`"crashed-no-output"`, see `recordDispatchRecoveryAttempt` below), never a real,
+      // live-probed classification. This was NOT a "wrong ref/worktree" bug in the git
+      // probe itself (the probe code was correct) — the probe was simply never reached
+      // for the escalate case. Computing it here, unconditionally, before either branch
+      // is decided, closes that gap for both paths.
       const gitStatus = await gitOps.status(sessionDir);
       const baseBranch =
         sessionRecord?.pullRequest?.baseBranch ?? (await gitOps.detectDefaultBranch(sessionDir));
@@ -733,11 +771,162 @@ export function createTasksDispatchRecoverCommand(
         handoffMaxLines: DISPATCH_RECOVERY_PROBE_HANDOFF_MAX_LINES,
       });
 
+      // mt#3149 SC1/SC2: an open (or draft) PR is direct, positive evidence of prior
+      // output, consulted INDEPENDENTLY of `commitsAheadOfBase` — see
+      // `classifyDispatchRecoveryState`'s docstring for the full rationale.
+      const hasOpenPr = isLivePrState(probe.pr.state);
+      const hasLivenessEvidence = hasOpenPr || (probe.commitsAheadOfBase ?? 0) > 0;
+
       const classification = classifyDispatchRecoveryState({
         dirtyFileCount: probe.dirtyFileCount,
         commitsAheadOfBase: probe.commitsAheadOfBase,
         handoffExists: probe.handoff.exists,
+        hasOpenPr,
       });
+
+      // ── 2-attempt bound: refuse a 3rd attempt, return an escalation package. ─────────
+      const attemptNumber = latest.attemptNumber ?? 1;
+      if (attemptNumber >= 2) {
+        const chain = await tracker.getInvocationChainForTask(taskId);
+        const rows = chain.length > 0 ? chain : [latest];
+        // mt#3149 SC1/SC2: the LATEST row is still open (`endedAt` unset) — its stored
+        // `outcome` was never produced by a live classification (see the probe-ordering
+        // comment above), so substitute the classification just computed from THIS
+        // call's live probe. Every OTHER (already-closed) row in the chain keeps its
+        // stored outcome, since those genuinely were classified — with a live probe —
+        // at closure time.
+        const attempts: DispatchRecoveryEscalationAttempt[] = rows.map((row) => ({
+          invocationId: row.id,
+          attemptNumber: row.attemptNumber ?? 1,
+          startedAt: row.startedAt.toISOString(),
+          outcome: row.id === latest.id ? classification : (row.outcome ?? null),
+        }));
+
+        // mt#3149 R1 BLOCKING: persist the corrected classification onto the LATEST
+        // (still-open) row too — not just the response payload above. Without this,
+        // `subagent_invocations.outcome` for this row keeps reading the stale
+        // pessimistic-default value until the eventual SubagentStop overwrites it,
+        // so downstream consumers (debug.systemInfo's `subagentDispatches` aggregates,
+        // `SubagentDispatchTracker.getEscalation()`'s cadence thresholds) would keep
+        // seeing a false `crashed-no-output`/`partial-uncommitted-no-handoff` in the
+        // meantime — the exact "falsely-confident derived field" pathology this task
+        // exists to fix, just relocated from the response to the DB. Deliberately
+        // OMITS `endedAt` (the row stays open — this dispatch has not actually
+        // stopped, only gone quiet) so the eventual SubagentStop can still close it
+        // out normally; `recordSubagentInvocation`'s UPDATE path leaves a column
+        // untouched when the input omits it (see `_buildUpdateFields`). Best-effort:
+        // a persistence failure here must not break the escalation response itself.
+        if (classification !== latest.outcome) {
+          try {
+            await tracker.recordSubagentInvocation({
+              id: latest.id,
+              taskId,
+              subagentSessionId,
+              agentType: latest.agentType,
+              suggestedModel: latest.suggestedModel,
+              startedAt: latest.startedAt,
+              outcome: classification,
+              summary:
+                `Corrected from stale outcome '${latest.outcome}' to '${classification}' by a ` +
+                `live re-probe at 2-attempt-bound escalation (mt#3149) — row left open ` +
+                `(not ended) pending the eventual SubagentStop.`,
+            });
+          } catch (err) {
+            log.warn("[tasks.dispatch-recover] Failed to persist corrected escalation outcome", {
+              taskId,
+              invocationId: latest.id,
+              classification,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
+        // mt#3149 SC4: distinguish "we observed it die" (this command never has a
+        // process-level signal — only workspace/PR proxies, so that phrase is never
+        // accurate) from "we saw no activity in the window," and do not recommend
+        // redispatch-into-the-same-session on the weaker signal — especially not when
+        // there IS positive evidence (an open PR, or commits ahead) that the dispatch
+        // produced real output and may simply be between tool calls or wrapping up.
+        //
+        // mt#3204: the probe above is computed unconditionally but was previously
+        // DISCARDED on this path — the caller received prose and nothing else, while
+        // the message told it to "verify independently (check for further pushes,
+        // PR/review activity)". Every item on that list is a PROXY that goes quiet in
+        // exactly the state being tested: an agent editing files it has not committed
+        // yet produces no pushes, no PR events and no reviews, so those signals read
+        // identically to death precisely when the dispatch is alive and working. The
+        // workspace signals (uncommitted files, last file-write time) are the only
+        // discriminating ones available here, so surface them BOTH in the payload and
+        // inline in the message — a caller that reads only the message still gets the
+        // deciding fact.
+        const workspaceMtimeAgoMs =
+          lastWorkspaceMtimeAtMs === null
+            ? null
+            : // Clamped at 0 (PR #2316 R1): a future-dated mtime — clock skew on a
+              // network filesystem, or a file touched between the mtime read and
+              // this `now()` — would otherwise render "last written -500ms ago" in
+              // operator-facing text. Zero reads as "just now", which is the honest
+              // interpretation of a not-yet-elapsed interval.
+              Math.max(0, now().getTime() - lastWorkspaceMtimeAtMs);
+        const workspaceSummary =
+          probe.dirtyFileCount > 0
+            ? `The workspace has ${probe.dirtyFileCount} uncommitted file(s) ` +
+              `(${probe.gitStatus.staged.length} staged, ` +
+              `${probe.gitStatus.unstaged.length} modified, ` +
+              `${probe.gitStatus.untracked.length} untracked)${
+                workspaceMtimeAgoMs === null ? "" : `, last written ${workspaceMtimeAgoMs}ms ago`
+              } — this dispatch has in-flight work.`
+            : `The workspace tree is clean (no uncommitted files)${
+                workspaceMtimeAgoMs === null
+                  ? "."
+                  : `; last file-write ${workspaceMtimeAgoMs}ms ago.`
+              }`;
+        const verifyGuidance =
+          `To decide whether it is still alive, read the \`probe\` field on this result: ` +
+          `\`dirtyFileCount\` / \`gitStatus\` and \`workspaceMtimeAgoMs\` are the ` +
+          `DISCRIMINATING signals. Push, PR and review activity CANNOT distinguish ` +
+          `"working locally with uncommitted changes" from "dead" — do not decide on ` +
+          `those alone. Messaging the agent directly (SendMessage) is also definitive.`;
+
+        const message = hasLivenessEvidence
+          ? `Dispatch for ${taskId} went quiet again after a prior auto-resume ` +
+            `(attempt ${attemptNumber}) — no activity was observed in the stale window. ` +
+            `This is NOT confirmed death: the dispatch has ${
+              hasOpenPr && probe.pr.number
+                ? `an open PR (#${probe.pr.number})`
+                : `${probe.commitsAheadOfBase ?? 0} commit(s) ahead of base`
+            }, positive evidence it produced real output. ${workspaceSummary} ` +
+            `Do NOT redispatch the continuation prompt into this session on the strength ` +
+            `of this escalation alone — doing so risks running two agents against the same ` +
+            `workspace/branch at once. ${verifyGuidance}`
+          : `Dispatch for ${taskId} has gone silent again after a prior auto-resume ` +
+            `(attempt ${attemptNumber}) — no PR and no commits were observed in ` +
+            `the stale window. This reflects an absence of observed output, not a confirmed ` +
+            `process crash. ${workspaceSummary} The 2-attempt bound is reached — no further ` +
+            `auto-resume will be attempted. An operator/orchestrator decision is needed: ` +
+            `diagnose why this dispatch keeps stalling (repeated infra failure? a task that ` +
+            `genuinely exceeds a single dispatch's capacity? rate-limiting — check ` +
+            `SubagentDispatchTracker.getEscalation() before assuming death) before retrying ` +
+            `manually. ${verifyGuidance}`;
+
+        return {
+          success: true,
+          status: "escalate" as const,
+          taskId,
+          sessionId: subagentSessionId,
+          escalation: {
+            taskId,
+            attempts,
+            hasLivenessEvidence,
+            message,
+            // mt#3204: the probe the caller needs in order to perform the
+            // "verify independently" step the message asks for.
+            probe,
+            workspaceMtimeAtMs: lastWorkspaceMtimeAtMs,
+            workspaceMtimeAgoMs,
+          },
+        };
+      }
 
       const recoveryInstructions = buildDispatchRecoveryContinuationPrompt({
         taskId,

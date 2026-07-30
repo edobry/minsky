@@ -9,6 +9,7 @@
   ],
   "fields": {
     "status": "string",
+    "service": "string",
     "version": "string",
     "commit": "string",
     "uptimeSec": "number",
@@ -18,11 +19,13 @@
     "transcriptWatcher": "object",
     "transcriptSweep": "object",
     "dispatchWatchdogSweep": "object",
-    "prodStateSweep": "object"
+    "prodStateSweep": "object",
+    "schema": "object"
   },
   "rustConsumedFields": ["db", "processStartedAtMs"],
   "sample": {
     "status": "ok",
+    "service": "minsky-cockpit",
     "version": "0.1.0",
     "commit": "abc1234",
     "uptimeSec": 42,
@@ -38,6 +41,26 @@
       "lastSuccessAt": null,
       "lastErrorAt": null,
       "consecutiveFailures": 0
+    },
+    "schema": {
+      "current": true,
+      "pending": [],
+      "checkedAt": "2026-07-29T06:22:40.780Z"
+    }
+  },
+  "$schemaFieldNote": "mt#3297: `schema.current` is TRI-STATE — true (every shipped migration applied), false (the DB is behind this build, `pending` names which), or null (readiness could not be determined; `unknownReason` says why). A consumer that treats null as true reintroduces the bug this field exists to surface: the daemon boots fine and answers 200 while every schema-dependent write fails, so the status code cannot carry this and the body has to. Handle all three explicitly — true: proceed; false: the DB needs `minsky persistence migrate --execute`, and schema-dependent sweeps are paused; null: state unknown, treat as 'cannot vouch for it' rather than as either healthy or broken.",
+  "$schemaFieldVariants": {
+    "current": { "current": true, "pending": [], "checkedAt": "2026-07-29T06:22:40.780Z" },
+    "behind": {
+      "current": false,
+      "pending": ["0076_cuddly_giant_girl"],
+      "checkedAt": "2026-07-29T06:22:40.780Z"
+    },
+    "unknown": {
+      "current": null,
+      "pending": [],
+      "checkedAt": null,
+      "unknownReason": "no database connection available"
     }
   }
 }

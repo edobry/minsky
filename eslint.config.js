@@ -32,6 +32,9 @@ import noHandRolledCommandParams from "./eslint-rules/no-hand-rolled-command-par
 import noEntityIdParamDrift from "./eslint-rules/no-entity-id-param-drift.js";
 import noRawColorsInCockpit from "./eslint-rules/no-raw-colors-in-cockpit.js";
 import requireHookDomainBootstrap from "./eslint-rules/require-hook-domain-bootstrap.js";
+import noNodeImportInCockpitWeb from "./eslint-rules/no-node-import-in-cockpit-web.js";
+import noSilentCatch from "./eslint-rules/no-silent-catch.js";
+import requireSubprocessNetworkTimeout from "./eslint-rules/require-subprocess-network-timeout.js";
 
 // === RAW COLOR ENFORCEMENT IN COCKPIT (mt#2916) — declared coverage ===
 // The blessed healthy/warning raw-Tailwind-palette exception from
@@ -76,6 +79,12 @@ const COCKPIT_PALETTE_EXEMPT_FILES = [
   // categorical message-type distinction, not a status indicator. Same
   // token-budget rationale as JsonView.tsx above.
   "src/cockpit/web/widgets/ConversationView.tsx",
+  // mt#3262 SC 2: the ToolInvocation / InjectedContentBlock renderers
+  // (carrying the SAME sky/violet categorical chips as ConversationView.tsx
+  // above) were extracted out of ConversationView.tsx into this shared
+  // module so the session-film ribbon can reuse them without forking. Same
+  // exemption rationale, same code, new file.
+  "src/cockpit/web/components/ConversationElementRenderers.tsx",
   // Command-palette entity-type badges (memory=emerald, conversation=sky) —
   // categorical entity-type coloring, not health status. Unifying with the
   // signal-cyan convention Agents.tsx's KIND_BADGE_CONFIG already uses for
@@ -86,6 +95,46 @@ const COCKPIT_PALETTE_EXEMPT_FILES = [
   // cockpit healthy/warning pattern.
   "src/cockpit/web/widgets/Changesets.tsx",
 ];
+
+// === NODE-IMPORT GUARD FOR COCKPIT WEB (mt#3239) ===
+// Structural backstop for the "browser-bundled cockpit page imports a Node-only module and
+// crashes with `Can't find variable: process`" regression class (mt#3215 / PR #2315: AskPage.tsx
+// imported @minsky/domain/ask/close-as-resolved, which transitively imports
+// @minsky/shared/logger's top-level `process.env` reads — evaluating ANY export from that module
+// runs the logger's side effects, so the browser bundle crashed on load). See
+// eslint-rules/no-node-import-in-cockpit-web.js for the full rule doc, the stated
+// direct-vs-transitive coverage gap, and the `allowedExact` escape-hatch rationale below.
+const COCKPIT_NODE_IMPORT_GUARD_OPTIONS = {
+  bannedExact: ["@minsky/shared/logger"],
+  bannedPrefixes: ["@minsky/domain"],
+  // Spot-checked at mt#3239 authoring time: each of these already-in-use submodules has zero
+  // Node dependencies at least one import-hop deep. Adding an entry here is a decision, not a
+  // lint tweak — see the rule's own doc comment for the verification bar before adding another.
+  allowedExact: [
+    "@minsky/domain/ask/state-machine",
+    "@minsky/domain/transcripts/event-schema",
+    "@minsky/domain/transcripts/conversation-elements",
+    "@minsky/domain/ai/dispatch-models",
+    // mt#3259: verified stronger than the "one hop deep" bar above — short-id.ts
+    // has ZERO import statements of any kind (145 lines of pure string/number
+    // logic: normalizeShortIdPrefix / formatShortId / parseShortId / nextShortId),
+    // so it has no Node dependency at ANY hop, not merely at one. The cockpit
+    // linkifier imports `parseShortId` from it so the `<prefix>#<n>` token shape
+    // has ONE authority shared with the minting side, rather than a second
+    // hand-rolled regex in the web bundle that could drift from it.
+    "@minsky/domain/utils/short-id",
+    // mt#3323: same "zero imports at ANY hop" bar as short-id above —
+    // rewind-detection.ts's ONLY import is `import type { ... }` from
+    // ../context/types, which erases at compile time, so it contributes no
+    // runtime import edge whatsoever. ConversationView imports
+    // `isOperatorPrompt` from it so "which user line is an operator prompt
+    // vs. a tool result" has ONE authority shared with the detection side —
+    // the render surface previously approximated it as
+    // `rawJsonlType === "user"`, which silently miscounted tool results
+    // (PR #2419 R1 BLOCKING).
+    "@minsky/domain/transcripts/rewind-detection",
+  ],
+};
 
 // Shared plugin-object reference for TSX/JSX `custom` rules (mt#2916 PR #2045
 // review R1): ESLint flat config errors ("Cannot redefine plugin 'custom'")
@@ -98,6 +147,7 @@ const TSX_CUSTOM_PLUGIN = {
   rules: {
     "no-raw-console": noRawConsole,
     "no-raw-colors-in-cockpit": noRawColorsInCockpit,
+    "no-node-import-in-cockpit-web": noNodeImportInCockpitWeb,
   },
 };
 
@@ -226,6 +276,9 @@ export default [
           "no-entity-id-param-drift": noEntityIdParamDrift,
           "no-raw-colors-in-cockpit": noRawColorsInCockpit,
           "require-hook-domain-bootstrap": requireHookDomainBootstrap,
+          "no-node-import-in-cockpit-web": noNodeImportInCockpitWeb,
+          "no-silent-catch": noSilentCatch,
+          "require-subprocess-network-timeout": requireSubprocessNetworkTimeout,
         },
       },
     },
@@ -317,8 +370,50 @@ export default [
             // Migration command needs dual task services for source + target
             "**/src/adapters/shared/commands/tasks/migrate-backend-command.ts",
           ],
+          // DI-fallback-shape check (mt#2642, generalizing ADR-026 rule 3): `x ?? create<X>(...)`
+          // / `x?.y ?? new <X>(...)` across src/ + packages/domain/src/. Existing instances
+          // found by the initial repo-wide scan (18 violations, 10 files) — allowlisted per
+          // the ADR-026 precedent ("allowlist, don't decorate") since mass-rewriting call sites
+          // to make these deps required is out of this task's scope. Each entry below is a
+          // test-injection override parameter (production default via a factory/constructor,
+          // test override via the param) — the same architectural shape as the ADR-026-named
+          // `octokitOverride` instances, not a new pattern.
+          allowedFallbackFiles: [
+            // ADR-026's 6 named instances: `octokitOverride ?? createOctokit(...)`.
+            "**/packages/domain/src/repository/github-pr-review.ts",
+            "**/packages/domain/src/repository/github-labels.ts",
+            "**/packages/domain/src/repository/github-workflow-runs.ts",
+            "**/packages/domain/src/repository/github-checks-run.ts",
+            "**/packages/domain/src/repository/github-branch-protection.ts",
+            "**/packages/domain/src/repository/github-pr-operations.ts",
+            // `notifierOverride ?? createPostgresWindowNotifier(...)` — test-injection
+            // override for window.open/window.close's Postgres NOTIFY notifier.
+            "**/src/adapters/shared/commands/window/index.ts",
+            // `onHarnessSessionLinked ?? createDrivenInitLinkObserver()` — test-injection
+            // override for the driven-session task-link observer.
+            "**/src/cockpit/routes/driven-sessions.ts",
+            // `options?.retryService ?? new IntelligentRetryService(...)` — test-injection
+            // override for NotionProvider's retry strategy.
+            "**/packages/domain/src/knowledge/providers/notion-provider.ts",
+            // `deps?.ruleService ?? new RuleService(...)` — test-injection override in the
+            // rules CRUD-operations compile path.
+            "**/packages/domain/src/rules/operations/crud-operations.ts",
+          ],
+          // mt#2642 reconciliation note re: the mt#2642 spec's mt#1024-scope carve-out
+          // ("src/domain/tasks.ts, query-commands.ts, mutation-commands.ts — not already
+          // cleaned up by mt#1024 at the time this task is picked up"): `src/domain/tasks.ts`
+          // no longer exists (moved under packages/domain/src/ by mt#2108's domain-package
+          // extraction). `packages/domain/src/tasks/commands/{query,mutation}-commands.ts`
+          // DO still have a deps-optional-fallback to createConfiguredTaskService, but in an
+          // `if (!taskService) { taskService = deps?.createConfiguredTaskService ? ... : ... }`
+          // shape — a conditional/ternary, not this rule's literal `x ?? create<X>(...)` /
+          // `x?.y ?? new <X>(...)` LogicalExpression shapes, so it is not (and per the
+          // Acceptance Tests' two required fixtures, should not be) matched here. mt#1024
+          // (still TODO) remains the owner of eliminating that fallback, per ADR-026's
+          // migration policy and this task's explicit Scope carve-out ("the broader DI-tier
+          // migration is owned by mt#1024/mt#1804").
         },
-      ], // Prevent direct construction of domain services in adapter layer (mt#911)
+      ], // Prevent direct construction of domain services in adapter layer (mt#911), and the generalized DI-fallback shape (mt#2642 / ADR-026)
       "custom/no-validation-error-in-execute": "error", // ADR-004: ValidationError belongs in validate(), not execute()
       "custom/no-domain-singleton": [
         "error",
@@ -411,41 +506,70 @@ export default [
       // covered by mt#1626 /plan-task gate criterion h).
       "custom/no-unregistered-minsky-env-var": "error",
 
+      // mt#3299 — every catch block must rethrow, log, or carry an
+      // `// intentional-swallow: <reason>` comment (silent-failure class,
+      // mt#3295 corpus). Test files excluded by default (allowInTests).
+      // Registered "off": this repo's own pre-commit ESLint step enforces a
+      // HARD zero-tolerance warning gate (MAX_LINT_WARNINGS = 0, mt#1097, no
+      // override — see runESLintValidation in src/hooks/pre-commit.ts), so
+      // "warn" is not a viable ship state here — it would block every future
+      // commit repo-wide, not just ones touching violating files. A
+      // full-repo run at authoring time found 1462 violations across 560
+      // files, and a scoped check of just .minsky/hooks + .claude/hooks
+      // (the corpus's stated top-concentration area) still found 151 of
+      // those files — no directory-level slice is clean enough to flip to
+      // "error" today. Bulk cleanup + flip to "error" tracked at mt#3312.
+      "custom/no-silent-catch": "off",
+
+      // mt#3299 — flag execSync/spawnSync/fetch call sites lacking a
+      // timeout/AbortSignal argument (mechanizable slice of the
+      // unguarded-edge-case class, mt#3295 corpus). Sibling of
+      // no-unsafe-git-exec (git-specific); this rule is generic. Registered
+      // "off" for the same zero-tolerance-warning-gate reason as
+      // no-silent-catch above: a full-repo run found 542 violations across
+      // 137 files. Bulk cleanup + flip to "error" tracked at mt#3313.
+      "custom/require-subprocess-network-timeout": "off",
+
       // === SINGLETON ARCHITECTURE ===
       "custom/no-singleton-reach-in": [
         "warn",
         {
           allowedFiles: [
+            // mt#2643 — paths updated from the pre-mt#2108 `src/domain/...` location to
+            // the post-mt#2108 `packages/domain/src/...` location (the domain-package
+            // extraction flips the path segment order from `src/domain` to `domain/src`;
+            // same root cause as the require-injectable.js/no-domain-singleton.js fix in
+            // ADR-026 / mt#2623). Four entries were dropped entirely because their
+            // referenced files no longer exist anywhere in the repo (verified via
+            // repo-wide filename search): session-provider-cache.ts,
+            // storage/backends/postgres-storage.ts, tasks-importer-service.ts, and
+            // tasks/operations/base-task-operation.ts.
             // PersistenceService composition roots
-            "**/src/domain/persistence/service.ts",
-            "**/src/domain/persistence/validation-operations.ts",
+            "**/packages/domain/src/persistence/service.ts",
+            "**/packages/domain/src/persistence/validation-operations.ts",
             // Session provider composition roots
-            "**/src/domain/session/session-service.ts",
-            "**/src/domain/session/session-provider-cache.ts",
-            "**/src/domain/session/drizzle-session-repository.ts",
+            "**/packages/domain/src/session/session-service.ts",
+            "**/packages/domain/src/session/drizzle-session-repository.ts",
             // Session path resolver (lazy fallback for MCP handlers without DI context)
-            "**/src/domain/session/session-path-resolver.ts",
+            "**/packages/domain/src/session/session-path-resolver.ts",
             // Domain-level facade files that re-export/wire providers
-            "**/src/domain/session.ts",
-            "**/src/domain/git.ts",
+            "**/packages/domain/src/session.ts",
+            "**/packages/domain/src/git.ts",
             // Git operations base class (lazy fallback for session resolution)
-            "**/src/domain/git/operations/base-git-operation.ts",
+            "**/packages/domain/src/git/operations/base-git-operation.ts",
             // Storage backends that need direct provider access
-            "**/src/domain/storage/backends/postgres-storage.ts",
-            "**/src/domain/storage/vector/vector-storage-factory.ts",
-            "**/src/domain/storage/vector/postgres-vector-storage.ts",
+            "**/packages/domain/src/storage/vector/vector-storage-factory.ts",
+            "**/packages/domain/src/storage/vector/postgres-vector-storage.ts",
             // Task domain composition roots
-            "**/src/domain/tasks/tasks-importer-service.ts",
-            "**/src/domain/tasks/taskService.ts",
-            "**/src/domain/tasks/github-issues-api.ts",
+            "**/packages/domain/src/tasks/taskService.ts",
+            "**/packages/domain/src/tasks/github-issues-api.ts",
             // Rules domain
-            "**/src/domain/rules/rule-similarity-service.ts",
+            "**/packages/domain/src/rules/rule-similarity-service.ts",
             // Changeset adapters (resolve session provider for PR operations)
-            "**/src/domain/changeset/adapters/*.ts",
+            "**/packages/domain/src/changeset/adapters/*.ts",
             // Session domain (command orchestration and provider resolution)
-            "**/src/domain/tasks/operations/base-task-operation.ts",
-            "**/src/domain/tasks/taskCommands.ts",
-            "**/src/domain/tasks/commands/shared-helpers.ts",
+            "**/packages/domain/src/tasks/taskCommands.ts",
+            "**/packages/domain/src/tasks/commands/shared-helpers.ts",
             // DI composition roots (the canonical place for singleton resolution)
             "**/src/composition/**/*.ts",
             // Hook entry points (run outside DI container — legitimate bootstrap)
@@ -889,25 +1013,42 @@ export default [
       "custom/no-entity-id-param-drift": "error",
     },
   },
-  // === HOOK DOMAIN-BOOTSTRAP ENFORCEMENT (mt#3046) ===
-  // A hook process is its own entry point: it inherits neither the tsyringe
-  // reflect polyfill nor the domain configuration system, so any hook reaching
-  // the persistence layer must import `ensureHookDomainBootstrap` first.
+  // === ENTRY-POINT DOMAIN-BOOTSTRAP ENFORCEMENT (mt#3046; widened mt#3178) ===
+  // A hook or script process is its own entry point: it inherits neither the
+  // tsyringe reflect polyfill nor the domain configuration system, so any such
+  // file reaching the persistence layer must bootstrap the domain layer first.
   // Without it the domain import throws or the provider resolves to null —
-  // and in both known instances the failure was SWALLOWED, leaving the hook
-  // silently dead (mt#3019: 0 of 62 rows carried any hook-written column for
-  // two weeks; mt#3046 found a second instance the same way).
+  // and the failure is typically SWALLOWED, leaving the entry point silently
+  // dead (mt#3019: 0 of 62 rows carried any hook-written column for two weeks;
+  // mt#3046 found a second instance the same way; mt#3178 found two more under
+  // `scripts/`, one of which masked the polyfill error behind its own
+  // "SKIP: Postgres not available" message).
   //
-  // COVERAGE IS DECLARED HERE: `.minsky/hooks/**` is the enforced glob — the
-  // SOURCE tree, not the generated `.claude/hooks/**` copies (fixing a
-  // generated file is not a fix). Test files are excluded: a test is not an
-  // entry point and legitimately names these symbols in assertions. The rule
-  // additionally exempts `domain-bootstrap.ts` itself, which cannot import
-  // itself. This block needs no separate plugin registration —
-  // `require-hook-domain-bootstrap` is already in the main `**/*.ts` block's
-  // `custom` plugin object above.
+  // SATISFACTION IS PER-TREE — the rule enforces the invariant, not one idiom:
+  //   - `.minsky/hooks/**` must import `ensureHookDomainBootstrap`, which does
+  //     polyfill AND config init. The bare polyfill is NOT enough here: a hook
+  //     with only the polyfill still resolves a null provider (the mt#3019
+  //     failure).
+  //   - `scripts/**` may instead use a STATIC `import "reflect-metadata"`, the
+  //     conventional scripts idiom (paired with `initializeConfiguration` /
+  //     `setupConfiguration`). Static only — a dynamic polyfill import need not
+  //     precede the domain imports it must precede.
+  //
+  // COVERAGE IS DECLARED IN TWO PLACES THAT MUST STAY IN SYNC: the `files` glob
+  // below, AND `ENTRY_POINT_ROOTS_POSIX` in the rule itself. A root added to
+  // only one is silently unenforced — mt#3178 widened this glob alone and lint
+  // reported 0 violations across 144 files because the rule's own path guard
+  // rejected every `scripts/**` path.
+  //
+  // Covered trees are the SOURCE trees, not the generated `.claude/hooks/**`
+  // copies (fixing a generated file is not a fix). Test files are excluded: a
+  // test is not an entry point and legitimately names these symbols in
+  // assertions. The rule additionally exempts `domain-bootstrap.ts` itself,
+  // which cannot import itself. This block needs no separate plugin
+  // registration — `require-hook-domain-bootstrap` is already in the main
+  // `**/*.ts` block's `custom` plugin object above.
   {
-    files: [".minsky/hooks/**/*.ts"],
+    files: [".minsky/hooks/**/*.ts", "scripts/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {
       "custom/require-hook-domain-bootstrap": "error",
@@ -933,6 +1074,7 @@ export default [
         "error",
         { statusFiles: COCKPIT_STATUS_FILES, paletteExemptFiles: COCKPIT_PALETTE_EXEMPT_FILES },
       ],
+      "custom/no-node-import-in-cockpit-web": ["error", COCKPIT_NODE_IMPORT_GUARD_OPTIONS],
     },
   },
   // `.tsx` coverage is fully self-contained (PR #2045 review R1): its own
@@ -964,6 +1106,7 @@ export default [
         "error",
         { statusFiles: COCKPIT_STATUS_FILES, paletteExemptFiles: COCKPIT_PALETTE_EXEMPT_FILES },
       ],
+      "custom/no-node-import-in-cockpit-web": ["error", COCKPIT_NODE_IMPORT_GUARD_OPTIONS],
     },
   },
 ];

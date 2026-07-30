@@ -32,7 +32,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { log } from "@minsky/shared/logger";
 import { minskySessionLinksTable } from "../storage/schemas/minsky-session-links-schema";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import type { ConversationId, WorkspaceId } from "../ids";
 import type { AgentTranscriptService } from "../provenance/transcript-service";
 
@@ -73,7 +73,7 @@ export async function resolveConversationForWorkspace(
     log.warn(
       `resolveConversationForWorkspace: link lookup FAILED for workspace ${workspaceSessionId} — ` +
         "this is a database error, not an absent link",
-      { error: getErrorMessage(err) }
+      { error: getLoggableErrorSummary(err) }
     );
     return null;
   }

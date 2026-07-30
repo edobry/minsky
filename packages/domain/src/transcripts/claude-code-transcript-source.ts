@@ -22,6 +22,7 @@
  */
 
 import { promises as fs, type Dirent } from "fs";
+import type { FileHandle } from "fs/promises";
 import { homedir } from "os";
 import { basename, dirname, join } from "path";
 
@@ -54,7 +55,19 @@ import type {
  * exported Set, per `custom/no-domain-singleton`. The grouping is documented
  * here for readers; the routing logic lives in `agent-transcript-ingest-service.ts`.
  */
-const RETAINED_TYPES = new Set(["user", "assistant", "attachment", "system"]);
+/**
+ * `queue-operation` (mt#3260) records the operator queueing/dequeueing a message
+ * while a turn is in flight. Verified shape (2026-07-26, 170 of 1003 local
+ * transcripts): `{type, operation, timestamp, sessionId}` — **no `message`, no
+ * `uuid`**, unlike every other retained type.
+ *
+ * Retaining it is safe for turn extraction: `turn-extractor.ts` branches
+ * explicitly on `line.type === "user"` / `"assistant"` and ignores every other
+ * type, so a `queue-operation` line cannot open, close, or pollute a turn. It is
+ * retained so queued-message state is recoverable downstream at all — before
+ * this it was dropped at ingest and unrecoverable.
+ */
+const RETAINED_TYPES = new Set(["user", "assistant", "attachment", "system", "queue-operation"]);
 
 const HARNESS = "claude_code";
 
@@ -69,6 +82,20 @@ const HARNESS = "claude_code";
 const DEFAULT_PROJECT_DIR_GLOB = "*";
 
 const SUBAGENTS_DIR = "subagents";
+
+/**
+ * How many directory levels below a session's `subagents/` directory to walk
+ * (mt#3294).
+ *
+ * The only nesting the harness produces today is one level —
+ * `subagents/workflows/<wf-id>/` — so 3 leaves room for it to grow twice more
+ * without another silent-invisibility incident, while still refusing to walk an
+ * arbitrarily deep tree if something unexpected (a symlink loop, a stray
+ * checkout) lands under there. Chosen over an unbounded walk because discovery
+ * runs over the whole corpus on every sweep and an unbounded descent is how
+ * that becomes someone else's incident.
+ */
+export const MAX_SUBAGENT_TREE_DEPTH = 3;
 
 const JSONL_EXT = ".jsonl";
 
@@ -114,14 +141,17 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
         if (!entry.isDirectory()) continue;
         const subagentsDir = join(projectDir, entry.name, SUBAGENTS_DIR);
         if (await pathExists(subagentsDir)) {
-          yield* this.scanDir(subagentsDir, true);
+          yield* this.scanSubagentTree(subagentsDir);
         }
       }
     }
   }
 
-  async *readSession(agentSessionId: AgentSessionId): AsyncIterable<RawTurnLine> {
-    const path = await this.locateSessionFile(agentSessionId);
+  async *readSession(
+    agentSessionId: AgentSessionId,
+    jsonlPath?: string
+  ): AsyncIterable<RawTurnLine> {
+    const path = jsonlPath ?? (await this.locateSessionFile(agentSessionId));
     if (!path) return;
 
     const raw = await safeReadFile(path);
@@ -144,12 +174,19 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
   }
 
   /**
-   * Resolves an agent session ID to its JSONL path.
+   * Resolves an agent session ID to its JSONL path by scanning `discoverSessions()`.
    *
-   * v1 implementation re-runs `discoverSessions()`. Acceptable at the historical
-   * scale (~265 files); the mt#1351 ingest service will iterate
-   * `discoverSessions()` directly and pass `jsonlPath` through, so this lookup
-   * is only used by ad-hoc callers.
+   * O(all transcripts) per call, so it is reserved for callers that genuinely
+   * have only an id — today that is `scripts/backfill-agent-transcript-attachments.ts`.
+   * Any caller holding a `DiscoveredSession` MUST pass `jsonlPath` to
+   * `readSession` instead.
+   *
+   * This docblock previously asserted the ingest service already passed the path
+   * through, so the lookup was "only used by ad-hoc callers." That was false:
+   * `ingestSession` called `readSession(agentSessionId)` on every session, making
+   * `ingestAll` quadratic — measured at 1 ms for the first session in discovery
+   * order and 681 ms for the last, against 0-1 ms for a path-scoped read of the
+   * same file. mt#3288 made the path a parameter and fixed the caller.
    */
   private async locateSessionFile(agentSessionId: AgentSessionId): Promise<string | null> {
     for await (const session of this.discoverSessions()) {
@@ -158,8 +195,59 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
     return null;
   }
 
-  private async *scanDir(dir: string, isSubagent: boolean): AsyncIterable<DiscoveredSession> {
+  /**
+   * Walk a session's `subagents/` tree, yielding every transcript at any depth
+   * (mt#3294).
+   *
+   * The tree is not flat. Workflow-spawned subagents write one level deeper, at
+   * `subagents/workflows/<wf-id>/*.jsonl`, and the original one-level scan
+   * skipped those directories entirely — 41 of 1,024 local transcripts were
+   * invisible to every sweep, including one whose stored row sat at 48 lines
+   * against 109 on disk. It had 48 at all only because some other write path
+   * had reached it, which is what made the gap quiet: the row existed and
+   * looked plausible.
+   *
+   * Recursing generally rather than special-casing `workflows/`: the harness
+   * introduced that nesting without any change on our side, so matching the one
+   * shape we happen to know about leaves the next one just as invisible. Depth
+   * is bounded anyway — see {@link MAX_SUBAGENT_TREE_DEPTH}.
+   *
+   * Everything found here is a subagent transcript by construction (it is under
+   * `subagents/`), so `isSubagent` is true at every depth.
+   *
+   * Reads each directory ONCE and partitions the entries, rather than calling
+   * `scanDir` (which reads) and then reading again to recurse — the directory
+   * count here multiplies across every session on every sweep (PR #2377 R1).
+   *
+   * Symlinked directories are not descended, and no explicit check is needed
+   * for that: `readdir` with `withFileTypes` reports a symlink via
+   * `isSymbolicLink()` and NOT `isDirectory()` (lstat semantics), so the filter
+   * below already excludes them. An added `|| entry.isSymbolicLink()` was tried
+   * and removed as dead code — the symlink test below passes with and without
+   * it, which is the evidence. The test is kept as a lock on that platform
+   * behavior, since the safety of this walk depends on it (PR #2377 R1).
+   */
+  private async *scanSubagentTree(dir: string, depth = 0): AsyncIterable<DiscoveredSession> {
     const entries = await safeReaddir(dir);
+    yield* this.yieldTranscripts(dir, entries, true);
+    if (depth >= MAX_SUBAGENT_TREE_DEPTH) return;
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      yield* this.scanSubagentTree(join(dir, entry.name), depth + 1);
+    }
+  }
+
+  private async *scanDir(dir: string, isSubagent: boolean): AsyncIterable<DiscoveredSession> {
+    yield* this.yieldTranscripts(dir, await safeReaddir(dir), isSubagent);
+  }
+
+  /** Yield a `DiscoveredSession` for each `.jsonl` file among already-read entries. */
+  private async *yieldTranscripts(
+    dir: string,
+    entries: Dirent[],
+    isSubagent: boolean
+  ): AsyncIterable<DiscoveredSession> {
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(JSONL_EXT)) continue;
       const jsonlPath = join(dir, entry.name);
@@ -199,10 +287,64 @@ async function recoverCwd(jsonlPath: string, parentDir: string): Promise<string 
   return deriveCwdFromProjectDir(parentDir);
 }
 
+/**
+ * Sized so the common case resolves in a single read: the deepest first-`cwd`
+ * byte offset observed across the local 1,024-file corpus is 4,879 bytes, and
+ * 1,023 of those files resolve within one chunk.
+ */
+const CWD_SCAN_CHUNK_BYTES = 64 * 1024;
+
+/**
+ * Reads the JSONL a chunk at a time and stops at the first line carrying a
+ * `cwd`, instead of loading the whole file to inspect (almost always) its first
+ * line. `discoverSessions` calls this once per transcript, so this is the
+ * difference between a discovery pass reading the entire corpus and reading only
+ * its head: measured over the local corpus, 1,524 MB versus 4 MB.
+ *
+ * Behavior is unchanged, not merely bounded — a file whose first `cwd` sits past
+ * the first chunk keeps reading, and a file with no `cwd` at all is still read to
+ * EOF before the caller falls back to the parent-directory derivation.
+ *
+ * Not built on `JsonlTailer` (`jsonl-tailer.ts`): that primitive follows appends
+ * from a stored per-path offset and reads through to EOF in one call, which is
+ * the opposite of the bounded head read wanted here.
+ */
 async function readFirstTurnCwd(jsonlPath: string): Promise<string | undefined> {
-  const raw = await safeReadFile(jsonlPath);
-  if (raw === null) return undefined;
-  for (const line of raw.split("\n")) {
+  let handle: FileHandle | undefined;
+  try {
+    handle = await fs.open(jsonlPath, "r");
+    // Uint8Array + TextDecoder (not Buffer): the decoder is kept across reads
+    // with `stream: true` so a multi-byte UTF-8 character split across a chunk
+    // boundary decodes correctly instead of becoming a replacement character.
+    const chunk = new Uint8Array(CWD_SCAN_CHUNK_BYTES);
+    const decoder = new TextDecoder();
+    let pending = "";
+    let position = 0;
+
+    for (;;) {
+      const { bytesRead } = await handle.read(chunk, 0, CWD_SCAN_CHUNK_BYTES, position);
+      if (bytesRead === 0) break;
+      position += bytesRead;
+      pending += decoder.decode(chunk.subarray(0, bytesRead), { stream: true });
+
+      const lastNewline = pending.lastIndexOf("\n");
+      if (lastNewline === -1) continue;
+      const cwd = findCwdInLines(pending.slice(0, lastNewline));
+      if (cwd) return cwd;
+      pending = pending.slice(lastNewline + 1);
+    }
+
+    // Trailing line with no terminating newline.
+    return findCwdInLines(pending + decoder.decode());
+  } catch {
+    return undefined;
+  } finally {
+    await handle?.close();
+  }
+}
+
+function findCwdInLines(text: string): string | undefined {
+  for (const line of text.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     const parsed = parseJsonlLine(trimmed);
@@ -234,14 +376,22 @@ function deriveCwdFromProjectDir(parentDir: string): string | undefined {
  * with `-` (the Claude Code project-dir convention). Returns the basename or
  * undefined if none found within a small number of hops.
  *
- * This handles both top-level session files (parent is the project dir) and
- * subagent files (parent is `<projectDir>/<sessionId>/subagents`).
+ * This handles top-level session files (parent is the project dir), subagent
+ * files (parent is `<projectDir>/<sessionId>/subagents`), and subagent files
+ * nested deeper still (`.../subagents/workflows/<wf-id>`, mt#3294).
  */
 function findProjectDirName(parentDir: string): string | undefined {
   let current = parentDir;
-  // Cap at 3 hops to avoid walking the whole filesystem on misconfigured input:
-  // the deepest legitimate case is subagents/ → sessionId/ → projectDir/ (2 hops).
-  for (let i = 0; i < 3; i++) {
+  // Hop budget must cover the deepest path scanSubagentTree can reach:
+  // <wf-id>/ → workflows/ → subagents/ → sessionId/ → projectDir/. That is
+  // 2 hops for a flat subagent dir plus MAX_SUBAGENT_TREE_DEPTH more for the
+  // nesting below it, +1 so the projectDir itself is inspected rather than
+  // just stepped onto. Derived from the depth cap rather than hard-coded, so
+  // raising one cannot silently outrun the other — the previous fixed cap of 3
+  // stopped one directory short of the project dir for workflow-nested files,
+  // which would have left their cwd undefined once discovery could see them.
+  const maxHops = 2 + MAX_SUBAGENT_TREE_DEPTH + 1;
+  for (let i = 0; i < maxHops; i++) {
     const name = basename(current);
     if (name.startsWith("-") && name !== SUBAGENTS_DIR) return name;
     const next = dirname(current);

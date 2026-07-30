@@ -30,6 +30,19 @@ export {
   isPidAlive,
   reapStaleSessionAttachments,
 } from "./attachment";
+
+// Session live-ACTOR verdict — the gate primitive for destructive session
+// operations (mt#3103). Distinct from `deriveSessionLiveness`: that buckets a
+// sparse row checkpoint for DISPLAY; this composes a dense presence read with
+// a PID probe and fails CLOSED for GATING.
+export type {
+  SessionActorVerdict,
+  SessionActorResult,
+  SessionActorDeps,
+  SessionActorOptions,
+} from "./session-actor";
+export { resolveSessionActor, DEFAULT_SESSION_ACTOR_RECENCY_MS } from "./session-actor";
+
 export type { LiveSessionProcess, LsofRunner } from "./attachment-lsof";
 export {
   detectLiveSessionProcesses,

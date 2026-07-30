@@ -429,6 +429,78 @@ export function assertKnownKind(kind: string | undefined): void {
 }
 
 /**
+ * A re-kind that would leave a task in a status its new workflow does not
+ * recognize (mt#3137).
+ */
+export interface KindChangeStatusConflict {
+  /** The task's current status — legal in `fromKind`, absent from `toKind`. */
+  status: string;
+  fromKind: string;
+  toKind: string;
+  /** The statuses `toKind` DOES recognize, for the operator to pick from. */
+  legalStatuses: string[];
+}
+
+/**
+ * Check whether changing a task's kind would strand it (mt#3137).
+ *
+ * Returns `null` when the move is safe, or a {@link KindChangeStatusConflict}
+ * describing the collision.
+ *
+ * ## Why this refuses rather than migrating
+ *
+ * The kind change is what selects WHICH state machine applies. If the task's
+ * current status is absent from the target kind's `states`, the transition
+ * table yields NO valid successors — the task lands in a state it can only
+ * leave by re-kinding back. Reproduced live against mt#2237: `implementation` /
+ * `READY` re-kinded to `umbrella` (whose states deliberately exclude `READY`)
+ * reported success, and the next `tasks_status_set` answered "Valid transitions
+ * from READY: none".
+ *
+ * Migrating the status instead would need a cross-kind mapping that does not
+ * exist and is not obviously derivable — implementation `READY` asserts a
+ * planning gate PASSED, while umbrella `PLANNING` asserts investigation is
+ * UNDERWAY. Silently equating them destroys an audit-relevant distinction.
+ * Refusing is fail-closed and information-preserving: the operator sets a legal
+ * status first, then re-kinds — two explicit, separately-audited steps. A
+ * `--migrate`-style flag can be layered on later with no rework if a defensible
+ * mapping is ever justified.
+ *
+ * Pure and total: unknown kinds resolve through {@link getWorkflow}'s default,
+ * and an absent status cannot conflict (there is nothing to strand).
+ */
+export function checkKindChangeStatusCompatibility(
+  currentStatus: string | undefined | null,
+  fromKind: string | undefined | null,
+  toKind: string
+): KindChangeStatusConflict | null {
+  if (!currentStatus) return null;
+
+  const target = getWorkflow(toKind);
+  if (target.states.includes(currentStatus)) return null;
+
+  return {
+    status: currentStatus,
+    fromKind: fromKind || DEFAULT_KIND,
+    toKind,
+    legalStatuses: [...target.states],
+  };
+}
+
+/**
+ * Operator-facing message for a {@link KindChangeStatusConflict}. Shared so the
+ * refusal and the dry-run preview cannot drift apart in wording.
+ */
+export function describeKindChangeStatusConflict(conflict: KindChangeStatusConflict): string {
+  return (
+    `Cannot change kind from "${conflict.fromKind}" to "${conflict.toKind}": ` +
+    `the task's current status "${conflict.status}" is not a valid state for "${conflict.toKind}", ` +
+    `so the task would have no valid transitions. ` +
+    `Set the status to one of [${conflict.legalStatuses.join(", ")}] first, then re-kind.`
+  );
+}
+
+/**
  * Default task kind for tasks that have not been explicitly assigned a kind.
  */
 export const DEFAULT_KIND: TaskKind = "implementation";

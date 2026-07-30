@@ -38,7 +38,7 @@ import { formatTaskIdForDisplay } from "../tasks/task-id-utils";
 import type { WorkspaceId } from "../ids";
 import { applyListCap, type ListTruncationMetadata } from "../utils/list-pagination";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getLoggableErrorSummary } from "../errors/index";
 // mt#2818: reuse the same bound `pickSubstantiveUserText` (mt#2784) scans by
 // — both modules live in this package now, so there is no reason to keep an
 // independently-drifting duplicate of this constant.
@@ -69,7 +69,9 @@ export interface TranscriptListRow {
 
   /** Tier 1 input: display-form task id (e.g. "mt#123") bound via minsky_session_links, if resolved. */
   linkedTaskId: string | null;
-  /** Tier 2 input: earliest-first raw user-turn text candidates (not yet snippet-cleaned). */
+  /** Tier 2 input (mt#3321): generated conversation title, if one exists. */
+  generatedTitle: string | null;
+  /** Tier 3 input: earliest-first raw user-turn text candidates (not yet snippet-cleaned). */
   firstUserTurnCandidates: string[];
   /** Tier 3 input: agent_spawns.agent_kind for the child edge, if only the spawn edge resolved. */
   subagentSpawnAgentKind: string | null;
@@ -129,6 +131,8 @@ export class TranscriptListService {
           endedAt: agentTranscriptsTable.endedAt,
           cwd: agentTranscriptsTable.cwd,
           summary: agentTranscriptsTable.summary,
+          // mt#3321 — a BASE field (it lives on this row), not enrichment.
+          generatedTitle: agentTranscriptsTable.title,
           relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
           relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
           lastIngestedJsonlTimestamp: agentTranscriptsTable.lastIngestedJsonlTimestamp,
@@ -315,7 +319,7 @@ export class TranscriptListService {
       // zeroed turn stats + no label inputs (tier 4 fallback), never a
       // failed `transcripts.list` call.
       log.warn(
-        `TranscriptListService.fetchEnrichment: enrichment query failed: ${getErrorMessage(err)}`
+        `TranscriptListService.fetchEnrichment: enrichment query failed: ${getLoggableErrorSummary(err)}`
       );
       return new Map<string, Enrichment>();
     }
@@ -357,6 +361,7 @@ type TranscriptListBaseFields =
   | "endedAt"
   | "cwd"
   | "summary"
+  | "generatedTitle"
   | "relatedTaskIds"
   | "relatedPrNumbers"
   | "lastIngestedJsonlTimestamp";

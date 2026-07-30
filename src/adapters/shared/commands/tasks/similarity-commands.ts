@@ -142,6 +142,39 @@ export class TasksSimilarCommand extends BaseTaskCommand<typeof tasksSimilarPara
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
+    // mt#3305: the filter surface is identical to tasks.search; the DEFAULT is
+    // deliberately the opposite, and this is the one place that difference lives.
+    //
+    // tasks.search answers "what's out there about X?" — a browse, so it hides
+    // DONE/CLOSED by default. tasks.similar answers "does this already exist?" —
+    // a duplicate check, where an already-SHIPPED task is the single most
+    // valuable answer it can give. Excluding terminal statuses here defeats the
+    // command's entire purpose, and did: mt#3290 and mt#3352 were both filed as
+    // duplicates of tasks that were the nearest neighbour in the index but
+    // invisible because they were DONE.
+    //
+    // So no `statusExclude` is set. An explicit `--status` still narrows; `--all`
+    // exists for surface parity (a param must not be live on one door and absent
+    // on the other) and is a no-op here, because including everything is already
+    // what this command does.
+    //
+    // `--status` is honoured REGARDLESS of `--all` (PR #2434 R1, non-blocking).
+    // tasks.search guards its status filter with `!showAll` because there `--all`
+    // has real work to do — it suppresses the default `statusExclude`. Here it has
+    // none, so copying that guard would let a no-op flag silently cancel a filter
+    // the caller explicitly asked for. Passing both is contradictory; narrowing to
+    // the requested status is the readable resolution.
+    const filters: Record<string, unknown> = {};
+    if (params.backend) {
+      filters.backend = params.backend;
+    }
+    if (params.kind) {
+      filters.kind = params.kind;
+    }
+    if (params.status) {
+      filters.status = params.status;
+    }
+
     // ADR-021 / mt#2939: resolve project scope for this similarity query.
     const projectScope = await resolveTaskSimilarityProjectScope(
       params.allProjects,
@@ -149,7 +182,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<typeof tasksSimilarPara
     );
 
     const service = await this.createService(this.getPersistenceProvider(), this.getTaskService());
-    const response = await service.similarToTask(taskId, limit, threshold, projectScope);
+    const response = await service.similarToTask(taskId, limit, threshold, projectScope, filters);
 
     // Enhance results with task details for better usability
     const enhancedResults = await this.enhanceSearchResults(response.results, params.details);
@@ -425,8 +458,26 @@ export async function createTaskSimilarityService(
   // mt#2939: forward the caller-resolved projectScope (if any) into the live
   // tasks-table read — this is what closes the cross-project leak on both the
   // fast-path (similarToTask / no-filter searchByText) and filtered-path callers.
+  //
+  // mt#3305: `all: true` is load-bearing, not cosmetic. Every consumer of this
+  // function inside TaskSimilarityService is a LIVENESS / SCOPE cross-check —
+  // `applyProjectScope`'s id-set, `searchByText`'s `taskById` map, and the
+  // lexical backend's candidate list — none of which wants status filtering.
+  // Without it, `listTasks` applies its own default (hide DONE/CLOSED, see
+  // task-filters.ts `shouldIncludeTaskStatus`), so a terminal task's vector match
+  // resolved to `undefined` in `taskById` and was discarded by the
+  // `if (!task) return false` branch whose comment says "orphaned embedding" —
+  // i.e. shipped tasks were dropped as if they had no live row at all.
+  //
+  // That single default caused both observed defects: `tasks_similar` returned 0
+  // for any task whose neighbourhood was terminal (measured: mt#3271's ten nearest
+  // neighbours are all DONE/CLOSED, so it returned nothing while SQL showed them at
+  // distance 0.12-0.18), and `tasks_search --all` appeared to do nothing, because
+  // dropping `statusExclude` cannot help a task that never entered the map. Status
+  // filtering now happens ONLY where it is written down — `passes()` below and the
+  // per-command defaults — instead of being inherited from a listing default.
   const searchTasks = async (opts: { text?: string; projectScope?: ProjectScope }) =>
-    taskService.listTasks({ projectScope: opts?.projectScope });
+    taskService.listTasks({ projectScope: opts?.projectScope, all: true });
   const getTaskSpecContent = async (id: string) => taskService.getTaskSpecContent(id);
 
   const service = new TaskSimilarityService(

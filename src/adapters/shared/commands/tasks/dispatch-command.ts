@@ -50,6 +50,11 @@ import {
   validateEvidenceArgument,
   type EvidenceArgument,
 } from "@minsky/domain/validation/evidence-argument";
+import {
+  analyzeNegativeConstraints,
+  buildBareProhibitionMessage,
+  ENFORCEMENT_ENABLED as BARE_PROHIBITION_ENFORCEMENT_ENABLED,
+} from "@minsky/domain/validation/negative-constraint";
 
 const tasksDispatchParams = {
   title: {
@@ -103,7 +108,23 @@ const tasksDispatchParams = {
   },
   scope: {
     schema: z.string().optional(),
-    description: "Comma-separated file paths to constrain the subagent to",
+    description:
+      "Comma-separated FILE PATHS to constrain the subagent to. Paths only — this value is " +
+      "comma-split, each chunk is rendered as a bullet under 'Only modify the following " +
+      "files:', and the parallel-work guard re-reads it directly to detect PR collisions. " +
+      "A chunk is path-shaped when it has NO internal whitespace AND either contains a '/' " +
+      "or ends in a file extension; anything else (a prose fragment, or a bare word like " +
+      "'tests') is REJECTED with an error naming it, rather than rendered as a fabricated " +
+      "path (mt#1279). Put prose scope descriptions in `scopeNotes` instead.",
+    required: false,
+  },
+  scopeNotes: {
+    schema: z.string().optional(),
+    description:
+      "Free-prose description of what this dispatch covers (mt#1279). Renders as its own " +
+      "'## Scope Notes' section in the generated prompt, kept separate from the `scope` " +
+      "file list so prose can never be mistaken for a path. Use this for qualifications " +
+      "like 'plus tests' or 'do NOT convert the render sites'.",
     required: false,
   },
   intent: {
@@ -216,6 +237,41 @@ function validateDispatchMode(p: DispatchParams): void {
 }
 
 /**
+ * Bare-prohibition check for the dispatch `instructions` body (mt#3162).
+ *
+ * The mt#2488 evidence gate binds the dispatch's own POSITIVE premise ("the load-bearing
+ * assumption this action rests on"). It never looks at `instructions`, where a NEGATIVE
+ * constraint lives — and a prohibition written into a subagent's prompt is the worse failure:
+ * it removes the receiving agent's standing to falsify it (mem#702). This closes that half.
+ *
+ * Declared at module scope (not inline in `execute()`) for the same ADR-004 /
+ * `custom/no-validation-error-in-execute` reason as `validateDispatchMode` above, and wired via
+ * `validateEvidenceArgument`'s existing `structuralCheck` option — the callback closes over the
+ * call's `instructions`, so the shared primitive needs no signature change.
+ *
+ * CALIBRATION-FIRST (mt#3162 SC5, graduation tracked by mt#3167): while
+ * `ENFORCEMENT_ENABLED` is false this WARNS and returns null (never blocks). Returning the
+ * message instead is the one-line flip.
+ */
+function checkInstructionsForBareProhibition(instructions: string | undefined): string | null {
+  const report = analyzeNegativeConstraints(instructions);
+  if (report.bare.length === 0) return null;
+
+  const message = buildBareProhibitionMessage(report);
+
+  if (!BARE_PROHIBITION_ENFORCEMENT_ENABLED) {
+    log.warn("[tasks.dispatch] Bare prohibition in dispatch instructions (mt#3162, calibration)", {
+      phrases: report.bare.map((f) => f.phrase),
+      hasLicenceToFalsify: report.hasLicenceToFalsify,
+      enforcementEnabled: BARE_PROHIBITION_ENFORCEMENT_ENABLED,
+    });
+    return null;
+  }
+
+  return message;
+}
+
+/**
  * Bound applied ON TOP OF `getTracker`'s own (registry-setup.ts) timeout,
  * scoped specifically to Step 5's best-effort telemetry write (mt#3017 R1
  * BLOCKING #2). Deliberately much shorter than registry-setup.ts's 5s bound
@@ -313,7 +369,12 @@ export function createTasksDispatchCommand(
           falsifier: p.premiseFalsifier,
           evidence: p.premiseEvidence,
         },
-        { action: "tasks.dispatch" }
+        {
+          action: "tasks.dispatch",
+          // mt#3162: the negative half of the same gate — a prohibition in `instructions`
+          // must carry its basis and an explicit licence to falsify.
+          structuralCheck: () => checkInstructionsForBareProhibition(p.instructions),
+        }
       );
       log.info("[tasks.dispatch] Evidence gate passed", {
         claim: premise.claim,
@@ -549,7 +610,9 @@ export function createTasksDispatchCommand(
 
       // Step 4: Generate the subagent prompt
       log.debug("[tasks.dispatch] Generating prompt", { taskId, type: p.type });
-      const { generateSubagentPrompt } = await import("@minsky/domain/session/prompt-generation");
+      const { generateSubagentPrompt, parseScopeFileList } = await import(
+        "@minsky/domain/session/prompt-generation"
+      );
       const { resolveSessionDirectory } = await import(
         "@minsky/domain/session/resolve-session-directory"
       );
@@ -558,13 +621,9 @@ export function createTasksDispatchCommand(
       const sessionDir = await resolveSessionDirectory(sessionId, sessionProvider);
       const plainTaskId = taskId.replace(/^mt#/, "").replace(/^#/, "");
 
-      const scope = p.scope
-        ? p.scope
-            .split(",")
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0)
-            .map((s) => (s.startsWith("/") ? s : `${sessionDir}/${s}`))
-        : undefined;
+      // mt#1279: shared with session.generate_prompt — one split, one prose
+      // rejection, one session-dir prefixing rule.
+      const scope = parseScopeFileList(p.scope, sessionDir);
 
       const promptResult = generateSubagentPrompt({
         sessionDir,
@@ -573,6 +632,7 @@ export function createTasksDispatchCommand(
         type: p.type,
         instructions: p.instructions,
         scope,
+        scopeNotes: p.scopeNotes,
         intent: p.intent,
         model: p.model,
       });

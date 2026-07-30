@@ -1,4 +1,6 @@
 import { describe, it, expect } from "bun:test";
+import { dirname, basename } from "path";
+import { extractMinskySessionIdFromPrompt } from "@minsky/domain/transcripts/spawn-link-writer";
 import {
   generateSubagentPrompt,
   PROMPT_WATERMARK,
@@ -6,6 +8,10 @@ import {
   PROMPT_TYPE_TO_AGENT_TYPE,
   RECOMMENDED_SKILLS_HEADER,
   EMBEDDED_SKILLS_HEADER,
+  SCOPE_NOTES_HEADER,
+  SCOPE_CONSTRAINTS_HEADER,
+  isPathShapedScopeChunk,
+  parseScopeFileList,
   type GeneratePromptParams,
   type PromptType,
   type SkillLoader,
@@ -63,9 +69,35 @@ describe("generateSubagentPrompt", () => {
       expect(result.prompt).toContain("Add a new feature to do X.");
     });
 
-    it("includes absolute path requirement", () => {
+    it("prescribes the session-scoped file tools, not absolute paths (mt#593)", () => {
       const result = generateSubagentPrompt(baseParams);
-      expect(result.prompt).toContain("All file paths MUST be absolute paths under this directory");
+      expect(result.prompt).toContain("session_read_file");
+      expect(result.prompt).toContain("session_search_replace");
+      expect(result.prompt).toContain("session_write_file");
+      // The fast-apply tool must be named as the non-default, not omitted —
+      // omitting it invites a subagent to pick it as "the session edit tool".
+      expect(result.prompt).toContain("session_edit_file");
+      expect(result.prompt).toContain("NOT the default");
+      expect(result.prompt).not.toContain("MUST be absolute");
+    });
+
+    it("names the session id, so file tools can be addressed by it", () => {
+      const result = generateSubagentPrompt(baseParams);
+      expect(result.prompt).toContain(baseParams.sessionId);
+    });
+
+    it("keeps the session dir extractable for spawn-link writing (mt#593 regression)", () => {
+      // `extractMinskySessionIdFromPrompt` recovers the Minsky session id by
+      // matching `<sessionsDir>/<id>` in the dispatch prompt — the spawn-link
+      // writer depends on it. The existing extraction tests use hand-written
+      // prompt FIXTURES, so a change to the real header (as mt#593 made) could
+      // break extraction without failing any of them. Assert against the
+      // genuine generated prompt instead.
+      const sessionsDir = dirname(baseParams.sessionDir);
+      const result = generateSubagentPrompt(baseParams);
+      expect(extractMinskySessionIdFromPrompt(result.prompt, sessionsDir)).toBe(
+        basename(baseParams.sessionDir)
+      );
     });
   });
 
@@ -422,18 +454,15 @@ describe("generateSubagentPrompt", () => {
       }
 
       for (const type of MUTATING_TYPES) {
-        // quarantined: pre-existing failure, tracked in mt#2712. Asserts the
-        // prompt contains the literal "wip(mt#456)" commit-prefix example,
-        // but the commit-msg hook now rejects `wip(...)` prefixes (status
-        // lives in the description via a `partial:` marker instead -- see
-        // this repo's own operating-envelope template) -- the generator was
-        // updated and this test wasn't. Unmasked by mt#2665's CI fix, not
-        // caused by it; unrelated to this PR's scope.
-        // eslint-disable-next-line custom/no-skipped-tests -- genuine quarantine of a pre-existing failure (mt#2712), not a placeholder; see comment above.
-        it.skip(`includes checkpoint cadence for ${type} (mutating)`, () => {
+        // mt#2712: this test previously asserted the literal "wip(mt#456)"
+        // commit-prefix example, but the commit-msg hook now rejects
+        // `wip(...)` prefixes -- status lives in the description via a
+        // `partial:` marker instead (see the generator's current template).
+        // Updated to assert the current marker.
+        it(`includes checkpoint cadence for ${type} (mutating)`, () => {
           const result = generateSubagentPrompt({ ...baseParams, type });
           expect(result.prompt).toContain("**Checkpoint cadence.**");
-          expect(result.prompt).toContain("wip(mt#456)");
+          expect(result.prompt).toContain("partial:");
         });
       }
 
@@ -691,5 +720,125 @@ describe("generateSubagentPrompt", () => {
         expect(result.prompt).toContain(RECOMMENDED_SKILLS_HEADER);
       });
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// scope parsing + scopeNotes (mt#1279)
+// ---------------------------------------------------------------------------
+
+const SESSION_DIR = "/Users/test/.local/state/minsky/sessions/abc-123";
+const ONLY_MODIFY = "Only modify the following files:";
+
+describe("isPathShapedScopeChunk (mt#1279)", () => {
+  it("accepts path-shaped chunks", () => {
+    expect(isPathShapedScopeChunk("src/a.ts")).toBe(true);
+    expect(isPathShapedScopeChunk("/abs/path/b.tsx")).toBe(true);
+    expect(isPathShapedScopeChunk(".minsky/hooks/c.ts")).toBe(true);
+    // A bare filename with an extension and no separator still reads as a path.
+    expect(isPathShapedScopeChunk("README.md")).toBe(true);
+    // Surrounding whitespace is trimmed, not treated as internal whitespace.
+    expect(isPathShapedScopeChunk("  src/a.ts  ")).toBe(true);
+  });
+
+  it("rejects the prose fragments observed in all three recorded occurrences", () => {
+    expect(isPathShapedScopeChunk("plus tests")).toBe(false);
+    expect(isPathShapedScopeChunk("a new shared EntityRef component")).toBe(false);
+    expect(isPathShapedScopeChunk("Do NOT convert widget/page render sites")).toBe(false);
+    expect(isPathShapedScopeChunk("")).toBe(false);
+    // No separator and no extension — not a path.
+    expect(isPathShapedScopeChunk("tests")).toBe(false);
+  });
+});
+
+describe("parseScopeFileList (mt#1279)", () => {
+  it("parses a comma-separated path list and prefixes relative paths", () => {
+    expect(parseScopeFileList("src/foo.ts, src/bar.ts", SESSION_DIR)).toEqual([
+      `${SESSION_DIR}/src/foo.ts`,
+      `${SESSION_DIR}/src/bar.ts`,
+    ]);
+  });
+
+  it("leaves already-absolute paths untouched", () => {
+    expect(parseScopeFileList(`${SESSION_DIR}/src/foo.ts`, SESSION_DIR)).toEqual([
+      `${SESSION_DIR}/src/foo.ts`,
+    ]);
+  });
+
+  it("returns undefined for absent or blank input", () => {
+    expect(parseScopeFileList(undefined, SESSION_DIR)).toBeUndefined();
+    expect(parseScopeFileList("   ", SESSION_DIR)).toBeUndefined();
+    expect(parseScopeFileList(",, ,", SESSION_DIR)).toBeUndefined();
+  });
+
+  it("throws on the exact prose string from the 2026-07-24 occurrence, naming the offenders", () => {
+    // Verbatim from the mt#3174 dispatch that produced fabricated paths.
+    const prose =
+      "a new shared EntityRef component, src/cockpit/routes/tasks.ts, plus tests. " +
+      "Do NOT convert widget/page render sites.";
+
+    expect(() => parseScopeFileList(prose, SESSION_DIR)).toThrow(
+      /a new shared EntityRef component/
+    );
+    // The real path in the middle is not what makes it fail — the prose is.
+    expect(() => parseScopeFileList(prose, SESSION_DIR)).toThrow(/scopeNotes/);
+  });
+
+  it("rejects a list where only one chunk is prose", () => {
+    expect(() => parseScopeFileList("src/a.ts, plus tests", SESSION_DIR)).toThrow(/plus tests/);
+  });
+});
+
+describe("scopeNotes rendering (mt#1279)", () => {
+  it("renders prose as its own section with no file-list section", () => {
+    const result = generateSubagentPrompt({
+      ...baseParams,
+      scopeNotes: "Convert the three call sites only. Do NOT touch the render surfaces.",
+    });
+
+    expect(result.prompt).toContain(SCOPE_NOTES_HEADER);
+    expect(result.prompt).toContain("Do NOT touch the render surfaces.");
+    expect(result.prompt).not.toContain(ONLY_MODIFY);
+  });
+
+  it("renders both sections, distinctly, when scope and scopeNotes are both given", () => {
+    const result = generateSubagentPrompt({
+      ...baseParams,
+      scope: [`${SESSION_DIR}/src/foo.ts`],
+      scopeNotes: "Plus tests.",
+    });
+
+    expect(result.prompt).toContain(SCOPE_CONSTRAINTS_HEADER);
+    expect(result.prompt).toContain(ONLY_MODIFY);
+    expect(result.prompt).toContain(SCOPE_NOTES_HEADER);
+    // Notes come AFTER the constraints section — the ordering the guard's
+    // stop-at-next-heading parser depends on.
+    expect(result.prompt.indexOf(SCOPE_NOTES_HEADER)).toBeGreaterThan(
+      result.prompt.indexOf(SCOPE_CONSTRAINTS_HEADER)
+    );
+    // The prose must not appear inside the file-bullet block.
+    const constraintsBlock = result.prompt.slice(
+      result.prompt.indexOf(SCOPE_CONSTRAINTS_HEADER),
+      result.prompt.indexOf(SCOPE_NOTES_HEADER)
+    );
+    expect(constraintsBlock).not.toContain("Plus tests.");
+  });
+
+  it("omits the section entirely for absent or blank notes", () => {
+    expect(generateSubagentPrompt({ ...baseParams }).prompt).not.toContain(SCOPE_NOTES_HEADER);
+    expect(generateSubagentPrompt({ ...baseParams, scopeNotes: "   " }).prompt).not.toContain(
+      SCOPE_NOTES_HEADER
+    );
+  });
+
+  it("carries the notes into every batch when scope exceeds the batching threshold", () => {
+    const scope = Array.from({ length: 41 }, (_, i) => `${SESSION_DIR}/src/file${i}.ts`);
+    const result = generateSubagentPrompt({ ...baseParams, scope, scopeNotes: "Plus tests." });
+
+    expect(result.batches).toBeDefined();
+    for (const batch of result.batches ?? []) {
+      expect(batch.prompt).toContain(SCOPE_NOTES_HEADER);
+      expect(batch.prompt).toContain("Plus tests.");
+    }
   });
 });

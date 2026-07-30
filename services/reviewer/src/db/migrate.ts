@@ -65,7 +65,7 @@ export const REVIEWER_TABLES_SCHEMA = "public";
  *
  * Order matches the migration sequence (0000 → convergence_metrics,
  * 0001 → webhook_events, 0002 → inflight_reviews, 0003 → review_timing,
- * 0004 → submission_failures).
+ * 0004 → submission_failures, 0009 → findings).
  * Update this list whenever a new reviewer migration adds a table.
  */
 export const REVIEWER_EXPECTED_TABLES = [
@@ -74,6 +74,7 @@ export const REVIEWER_EXPECTED_TABLES = [
   "reviewer_inflight_reviews",
   "review_timing",
   "reviewer_submission_failures",
+  "reviewer_findings",
 ] as const;
 
 /**

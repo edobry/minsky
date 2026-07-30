@@ -50,13 +50,50 @@ DONE 2026-04-26 → silent-reviewer class declared "covered" → mt#1310 (alerti
 (webhook diagnosis) sat in PLANNING for ~6 days → 2026-05-02 the very class they would have
 caught (service-down) crashed the reviewer service silently for ~107 hours.
 
+**mt#3217 / 2026-07-25 incident (enumeration with no reader):** the discipline above was
+followed — mt#3001's spec correctly enumerated `## Does NOT cover` (a top-level heading; the
+canonical `### Does NOT cover` form is a subsection, but the reviewer instruction below is
+heading-level-agnostic) with an entry stating non-commit authorization asks would "never" be
+auto-closed. The shipped implementation (PR #2146) closed them anyway and documented the
+divergence as intentional in the changed file's own header comment. Every existing gate —
+including the reviewer's `submit_spec_verification` Success-Criteria check — passed, because
+none of them read the `### Does NOT cover` list at all; it existed only as prose. Cost: an
+unanswered operator authorization ask (ask#6024) was silently auto-closed when its parent task
+merged (2026-07-25). mt#3215 fixed the behavior; mt#3217 closed the process gap (see the
+Mechanism subsection below).
+
 Tracking task: mt#1567.
 
 ### How to apply
 
 - When **authoring** a recovery-layer task spec: include both subsections. List failure modes by name, not by area. If a failure mode lacks an owner task, file the owner task before marking the recovery-layer task READY.
-- When **reviewing** a recovery-layer PR: verify the runtime behavior matches the spec's `### Covers` list. If the implementation can't actually recover from a listed mode, fix or move to `### Does NOT cover`.
+- When **reviewing** a recovery-layer PR: verify the runtime behavior matches the spec's `### Covers` list. If the implementation can't actually recover from a listed mode, fix or move to `### Does NOT cover`. Separately, verify the implementation does NOT violate any `### Does NOT cover` entry — as of mt#3217 this is a mechanical instruction to the reviewer (see Mechanism below), not left to reviewer discretion.
 - When **transitioning** a recovery-layer task to DONE: confirm every `### Does NOT cover` entry has an owner task and that those owners are at least READY. A DONE recovery-layer task with PLANNING-status non-coverage owners is the false-completion pattern.
+
+### Mechanism: who consumes the `### Does NOT cover` enumeration (mt#3217)
+
+The enumeration requirement above and its consumer were separated in time — mt#1567 shipped the
+requirement; mt#3217 shipped the reader. As of mt#3217, `services/reviewer/src/prompt.ts`'s
+`submit_spec_verification` instruction (both the tool-emission and prose output-format variants)
+walks each `### Does NOT cover` / `## Does NOT cover` entry, one verification call per entry,
+using the same Met/Not Met/N/A contract already used for Success Criteria:
+
+- **Met** — the diff's actual behavior leaves that case alone.
+- **Not Met** — the diff's actual behavior violates the carve-out. A code comment documenting
+  the violation as intentional is explicitly NOT accepted as evidence of compliance — this is
+  the exact mt#3001 shape the mechanism targets.
+- **N/A** — a later Success Criterion or Acceptance Test explicitly supersedes the carve-out.
+  This defers to the reviewer's existing section-precedence hierarchy (Principle 12,
+  `prompt.ts:193`, unchanged by mt#3217) rather than amending it: a carve-out written at
+  planning time still cannot out-rank a later, deliberate scope change — the exact staleness
+  failure mode that hierarchy exists to prevent.
+
+A "Not Met" carve-out forces `REQUEST_CHANGES` through the existing `conclude_review`
+instruction — no new merge gate or schema change was needed. Whether a carve-out is ALSO
+restated as a testable Acceptance Test (the "acceptance-test convention" this task's spec named
+as a candidate mechanism) is good practice where feasible, but is not the hard gate — the
+reviewer verifies carve-out entries directly against the diff regardless of whether they were
+restated as an AT, so an author who forgets to add a matching AT does not lose coverage.
 
 ## Invocation path required for event/poll mechanisms
 

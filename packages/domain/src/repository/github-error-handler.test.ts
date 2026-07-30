@@ -17,6 +17,9 @@ import {
   classifyOctokitError,
   looksLikeHtmlBody,
   sanitizeOctokitMessage,
+  selectErrorDetail,
+  formatErrorDetailLine,
+  NO_DETAIL_PLACEHOLDER,
   type ErrorContext,
 } from "./github-error-handler";
 import { MinskyError } from "../errors/index";
@@ -28,6 +31,27 @@ import {
 function makeStatusError(status: number, message = `HTTP ${status}`): Error & { status: number } {
   const err = new Error(message) as Error & { status: number };
   err.status = status;
+  return err;
+}
+
+/**
+ * A GitHub-RESPONDED error: status plus a `response`, the shape
+ * `@octokit/request` throws when GitHub actually sent the status
+ * (`fetch-wrapper.js` passes `response: octokitResponse` on every such path).
+ *
+ * mt#3221 made this distinction load-bearing for the 5xx branch, so the 5xx
+ * tests below use this rather than {@link makeStatusError}: a bare `.status`
+ * with no `response` is Octokit's TRANSPORT-failure shape, which now
+ * deliberately classifies as a network error instead. `makeStatusError` stays
+ * in use for the 4xx cases, where `response` presence carries no meaning.
+ */
+function makeServerError(
+  status: number,
+  message = `HTTP ${status}`
+): Error & { status: number; response: { status: number } } {
+  const err = new Error(message) as Error & { status: number; response: { status: number } };
+  err.status = status;
+  err.response = { status };
   return err;
 }
 
@@ -48,6 +72,12 @@ const RECORDED_503_HTML_BODY =
 const RATE_LIMIT_EXCEEDED_MSG = "GitHub Rate Limit Exceeded";
 const SERVICE_UNAVAILABLE_MSG = "Service Unavailable";
 
+/** Headlines that are PARSED downstream (merge-error-classification.ts) — shared so a
+ * change to either is a one-line change here rather than a scattered find-and-replace. */
+const DEGRADED_HEADLINE_PREFIX = "GitHub API degraded/unavailable";
+const DEGRADED_HTTP_500 = `${DEGRADED_HEADLINE_PREFIX} (HTTP 500)`;
+const NETWORK_HEADLINE = "Network Connection Error";
+
 const CTX: ErrorContext = {
   operation: "merge pull request",
   owner: "owner",
@@ -59,14 +89,12 @@ const PERMISSION_DENIED_MSG = "GitHub Permission Denied";
 
 describe("handleOctokitError — 5xx branch (mt#2890)", () => {
   test("500 surfaces 'GitHub API degraded/unavailable (HTTP 500)'", () => {
-    expect(() => handleOctokitError(makeStatusError(500), CTX)).toThrow(
-      "GitHub API degraded/unavailable (HTTP 500)"
-    );
+    expect(() => handleOctokitError(makeServerError(500), CTX)).toThrow(DEGRADED_HTTP_500);
   });
 
   test("502/503/504 all surface the degraded message with their own status", () => {
     for (const status of [502, 503, 504]) {
-      expect(() => handleOctokitError(makeStatusError(status), CTX)).toThrow(
+      expect(() => handleOctokitError(makeServerError(status), CTX)).toThrow(
         `GitHub API degraded/unavailable (HTTP ${status})`
       );
     }
@@ -74,7 +102,7 @@ describe("handleOctokitError — 5xx branch (mt#2890)", () => {
 
   test("thrown error is a MinskyError", () => {
     try {
-      handleOctokitError(makeStatusError(503), CTX);
+      handleOctokitError(makeServerError(503), CTX);
       throw new Error("expected handleOctokitError to throw");
     } catch (err) {
       expect(err).toBeInstanceOf(MinskyError);
@@ -83,7 +111,7 @@ describe("handleOctokitError — 5xx branch (mt#2890)", () => {
 
   test("does not misclassify a 5xx as rate-limit or conflict", () => {
     try {
-      handleOctokitError(makeStatusError(500), CTX);
+      handleOctokitError(makeServerError(500), CTX);
       throw new Error("expected handleOctokitError to throw");
     } catch (err) {
       const msg = (err as Error).message;
@@ -229,5 +257,261 @@ describe("handleOctokitError — rate-limit reset time (mt#2888)", () => {
       expect(msg).toContain(RATE_LIMIT_EXCEEDED_MSG);
       expect(msg).not.toContain("(resets");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3171 — the trailing `Error:` line must carry the SERVER's detail, and must
+// never be bare.
+//
+// Originating incident (2026-07-24): a GitHub 500 during PR creation surfaced an
+// error ending in a bare `Error:` with nothing after it. The handler was not
+// discarding the body — it interpolated `info.message` (the Error object's own
+// message), which was empty, while `info.ghMessage` (GitHub's
+// `response.data.message`) held the server's actual text and went unread.
+// ---------------------------------------------------------------------------
+
+/** Build an Octokit-shaped error with independent control of every message source. */
+function makeDetailError(
+  status: number,
+  opts: { message?: string; ghMessage?: string; ghErrors?: Record<string, unknown>[] } = {}
+): Error {
+  const err = new Error(opts.message ?? "") as Error & {
+    status: number;
+    response: { status: number; data: Record<string, unknown> };
+  };
+  err.status = status;
+  err.response = {
+    status,
+    data: {
+      ...(opts.ghMessage !== undefined ? { message: opts.ghMessage } : {}),
+      ...(opts.ghErrors !== undefined ? { errors: opts.ghErrors } : {}),
+    },
+  };
+  return err;
+}
+
+function messageFromThrow(fn: () => void): string {
+  try {
+    fn();
+  } catch (err) {
+    return (err as Error).message;
+  }
+  throw new Error("expected the call to throw");
+}
+
+describe("mt#3171 — selectErrorDetail preference order", () => {
+  test("AT1: a 5xx with an EMPTY .message but a populated response.data.message surfaces the latter", () => {
+    const msg = messageFromThrow(() =>
+      handleOctokitError(
+        makeDetailError(500, { message: "", ghMessage: "Server Error: request id abc123" }),
+        CTX
+      )
+    );
+
+    expect(msg).toContain("Server Error: request id abc123");
+    // The headline is a parsed contract (merge-error-classification.ts) — it must survive.
+    expect(msg).toContain(DEGRADED_HTTP_500);
+  });
+
+  test("ghMessage is preferred over .message when BOTH are populated", () => {
+    const info = classifyOctokitError(
+      makeDetailError(500, { message: "generic client restatement", ghMessage: "the real cause" })
+    );
+    expect(selectErrorDetail(info)).toBe("the real cause");
+  });
+
+  test("falls back to .message when ghMessage is absent", () => {
+    const info = classifyOctokitError(makeDetailError(500, { message: "only the client message" }));
+    expect(selectErrorDetail(info)).toBe("only the client message");
+  });
+
+  test("falls back to structured response.data.errors when both messages are empty", () => {
+    const info = classifyOctokitError(
+      makeDetailError(500, {
+        message: "",
+        ghMessage: "",
+        ghErrors: [{ message: "upstream timeout", code: "custom", field: "base" }],
+      })
+    );
+    // Rendered for DISPLAY — not the lowercased `ghErrorsText` used for substring matching.
+    expect(selectErrorDetail(info)).toBe("upstream timeout custom base");
+  });
+
+  // PR #2313 R1 (BLOCKING): the original implementation put `.message` SECOND, ahead of
+  // `ghErrors`. That contradicted both SC1 and the stated server-before-client principle —
+  // `ghErrors` comes from GitHub's response body, `.message` is whatever Octokit put on the
+  // Error. This pins the corrected order so it cannot silently regress.
+  test("server-supplied ghErrors outranks the client-supplied .message", () => {
+    const info = classifyOctokitError(
+      makeDetailError(500, {
+        message: "client-side restatement",
+        ghMessage: "",
+        ghErrors: [{ message: "server-side detail", code: "custom" }],
+      })
+    );
+    expect(selectErrorDetail(info)).toBe("server-side detail custom");
+    expect(selectErrorDetail(info)).not.toContain("client-side restatement");
+  });
+
+  test("whitespace-only candidates do not count as detail", () => {
+    const info = classifyOctokitError(makeDetailError(500, { message: "   ", ghMessage: "\n\t" }));
+    expect(selectErrorDetail(info)).toBeNull();
+  });
+});
+
+describe("mt#3171 — no bare `Error:` line ever renders", () => {
+  test("AT2: a 5xx with message, ghMessage and errors[] all empty carries the explicit placeholder", () => {
+    const msg = messageFromThrow(() =>
+      handleOctokitError(makeDetailError(503, { message: "", ghMessage: "", ghErrors: [] }), CTX)
+    );
+
+    expect(msg).toContain(NO_DETAIL_PLACEHOLDER);
+    // The specific regression: a trailing "Error:" with nothing after it.
+    expect(msg).not.toMatch(/Error:\s*$/);
+  });
+
+  test("formatErrorDetailLine never returns a bare `Error:`", () => {
+    const empty = classifyOctokitError(makeDetailError(500, { message: "", ghMessage: "" }));
+    expect(formatErrorDetailLine(empty)).toBe(`Error: ${NO_DETAIL_PLACEHOLDER}`);
+    expect(formatErrorDetailLine(empty)).not.toMatch(/Error:\s*$/);
+  });
+});
+
+describe("mt#3171 — AT3: the network/timeout branch gets the same treatment (class-not-instance)", () => {
+  test("network branch surfaces ghMessage when .message lacks detail beyond the trigger word", () => {
+    // `.message` must contain a trigger word for this branch to be selected at all, and the
+    // error must NOT be a 5xx (no status) or the degraded branch would take it first.
+    const err = new Error("network") as Error & {
+      response: { data: Record<string, unknown> };
+    };
+    err.response = { data: { message: "getaddrinfo ENOTFOUND api.github.com" } };
+
+    const msg = messageFromThrow(() => handleOctokitError(err, CTX));
+    expect(msg).toContain(NETWORK_HEADLINE);
+    expect(msg).toContain("getaddrinfo ENOTFOUND api.github.com");
+  });
+
+  test("network branch renders the placeholder rather than a bare `Error:`", () => {
+    // A trigger word in `.message` with no server-side detail at all.
+    const msg = messageFromThrow(() => handleOctokitError(new Error("timeout"), CTX));
+    expect(msg).toContain(NETWORK_HEADLINE);
+    expect(msg).not.toMatch(/Error:\s*$/);
+    // `.message` is "timeout" — non-empty, so it IS the detail; the placeholder is not needed.
+    expect(msg).toContain("Error: timeout");
+  });
+});
+
+describe("mt#3171 — AT4: the 5xx text no longer asserts credentials/PR are fine", () => {
+  test("the unconditional 'not a problem with your PR or credentials' claim is gone", () => {
+    const msg = messageFromThrow(() =>
+      handleOctokitError(makeDetailError(500, { message: "boom" }), CTX)
+    );
+
+    expect(msg).not.toContain("not a problem with your PR or credentials");
+    // What replaced it states only what a 5xx actually establishes.
+    expect(msg).toContain("does not, by itself, establish");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3221 — "GitHub returned a 5xx" vs "the request never reached GitHub".
+//
+// `@octokit/request`'s fetch wrapper synthesizes `status: 500` for EVERY
+// transport-level failure (DNS failure, connection refused, TLS error, abort),
+// rethrowing as `new RequestError(message, 500, { request })` with no
+// `response` — while every path that throws for a response GitHub actually
+// SENT passes `response: octokitResponse`. Before this fix the 5xx branch
+// keyed on status alone, so the operator's OWN connectivity failure rendered
+// as "GitHub API degraded/unavailable" and `classifyMergeError` recorded a
+// GitHub outage.
+//
+// Verified against the installed @octokit/request during planning by issuing a
+// real request to an unresolvable host: status 500, `response` absent, message
+// "Unable to connect. Is the computer able to access the url?".
+// ---------------------------------------------------------------------------
+
+/** The exact shape Octokit synthesizes for a transport failure: status, no response. */
+function makeTransportError(message: string): Error & { status: number } {
+  return makeStatusError(500, message);
+}
+
+describe("mt#3221 — a synthesized transport 5xx is not a GitHub outage", () => {
+  test("AT1: status 500 with NO response classifies as network, not degraded", () => {
+    const msg = messageFromThrow(() =>
+      handleOctokitError(
+        makeTransportError("Unable to connect. Is the computer able to access the url?"),
+        CTX
+      )
+    );
+
+    expect(msg).toContain(NETWORK_HEADLINE);
+    expect(msg).not.toContain(DEGRADED_HEADLINE_PREFIX);
+    // The contract `merge-error-classification.ts:93` parses — its absence is
+    // what stops the merge classifier recording `degraded` for this case.
+    expect(msg).not.toMatch(/\(HTTP 5\d\d\)/);
+    // The upstream detail still survives (mt#3171 behavior, class-not-instance).
+    expect(msg).toContain("Unable to connect");
+  });
+
+  test("AT2: status 500 WITH a response still classifies as degraded, headline intact", () => {
+    const msg = messageFromThrow(() => handleOctokitError(makeServerError(500, "boom"), CTX));
+
+    expect(msg).toContain(DEGRADED_HTTP_500);
+    expect(msg).toMatch(/\(HTTP 5\d\d\)/);
+  });
+
+  test("a 502/503/504 that GitHub responded with is unaffected", () => {
+    for (const status of [502, 503, 504]) {
+      const msg = messageFromThrow(() => handleOctokitError(makeServerError(status), CTX));
+      expect(msg).toContain(`GitHub API degraded/unavailable (HTTP ${status})`);
+    }
+  });
+
+  test("AT3: a status-less error naming a gateway timeout stays on the network branch", () => {
+    // Deliberate disposition (SC3): with neither a status nor a response there
+    // is no evidence GitHub responded, so promoting it to "degraded" would
+    // assert exactly what cannot be established.
+    const msg = messageFromThrow(() => handleOctokitError(new Error("504 Gateway Timeout"), CTX));
+
+    expect(msg).toContain(NETWORK_HEADLINE);
+    expect(msg).not.toContain(DEGRADED_HEADLINE_PREFIX);
+  });
+
+  test("AT4: a non-status '500' in ordinary prose does not classify as degraded", () => {
+    // Why message-text matching was rejected for this branch: `500` is a common
+    // round number in prose in a way `403`/`404` are not.
+    const msg = messageFromThrow(() => handleOctokitError(new Error("processed 500 records"), CTX));
+
+    expect(msg).not.toContain(DEGRADED_HEADLINE_PREFIX);
+    expect(msg).not.toMatch(/\(HTTP 5\d\d\)/);
+    expect(msg).toContain("Failed to merge pull request: processed 500 records");
+  });
+
+  test("classifyOctokitError reports hasResponse for both shapes", () => {
+    expect(classifyOctokitError(makeServerError(500)).hasResponse).toBe(true);
+    expect(classifyOctokitError(makeTransportError("fetch failed")).hasResponse).toBe(false);
+    expect(classifyOctokitError(new Error("no shape at all")).hasResponse).toBe(false);
+  });
+
+  test("status is still read from response.status when only nested (regression)", () => {
+    const err = new Error("boom") as Error & { response: { status: number } };
+    err.response = { status: 502 };
+    const info = classifyOctokitError(err);
+    expect(info.status).toBe(502);
+    expect(info.hasResponse).toBe(true);
+    expect(() => handleOctokitError(err, CTX)).toThrow(
+      "GitHub API degraded/unavailable (HTTP 502)"
+    );
+  });
+
+  test("the 5xx check still precedes the network branch for a responded 5xx", () => {
+    // Ordering constraint (SC4): a GitHub-responded 5xx whose message ALSO
+    // contains a network trigger word must still classify as degraded.
+    const msg = messageFromThrow(() =>
+      handleOctokitError(makeServerError(503, "upstream timeout"), CTX)
+    );
+    expect(msg).toContain("GitHub API degraded/unavailable (HTTP 503)");
+    expect(msg).not.toContain(NETWORK_HEADLINE);
   });
 });

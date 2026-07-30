@@ -37,7 +37,7 @@
  * @see packages/domain/src/transcripts/conversation-elements.ts — the shared parser
  * @see mt#2370 — the session-tab frame this will eventually render into
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
@@ -47,25 +47,38 @@ import {
   type ConversationRole,
   type ConversationTurn,
 } from "@minsky/domain/transcripts/conversation-elements";
-import type { SessionContextSnapshot, SessionContextSnapshotBlock } from "@minsky/domain/context/types";
+import { isOperatorPrompt } from "@minsky/domain/transcripts/rewind-detection";
+import type {
+  SessionContextSnapshot,
+  SessionContextSnapshotBlock,
+} from "@minsky/domain/context/types";
 import type { ConversationId, WorkspaceId } from "@minsky/domain/ids";
 import type { EntityIndex } from "../lib/entity-linkifier";
 import { useEntityIndex } from "../lib/use-entity-index";
-import { Prose } from "../components/Prose";
-import { ToolPayload } from "../components/ToolPayload";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { useLiveTail, useConversationLiveTail } from "../hooks/useLiveTail";
-import { friendlyToolName, parseToolName } from "../lib/tool-name";
-import { toolIconFor } from "../lib/tool-icon";
-import { summarizeToolInvocation } from "../lib/tool-summary";
 import {
+  ElementView,
+  isApiErrorText,
+  type ExpandSignal,
+  type PreparedElement,
+  type ToolCallElement,
+  type ToolResultElement,
+} from "../components/ConversationElementRenderers";
+import {
+  classifySnapshotError,
   fetchSnapshot,
   snapshotQueryKey,
   snapshotRetry,
-  SnapshotError,
 } from "../lib/conversation-snapshot";
-import { splitInjectedContent, type InjectedSpan } from "../lib/injected-content";
+import {
+  splitInjectedContent,
+  type InjectedContentKind,
+  type InjectedSpan,
+} from "../lib/injected-content";
+import { formatLocalTime, turnSeparator, type TurnSeparator } from "../lib/conversation-timeline";
+import { classifyTurnOrigin } from "../lib/turn-origin";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -151,275 +164,19 @@ type ConversationViewProps =
 
 function formatTime(iso: string): string {
   try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return iso;
-    return d.toISOString().slice(11, 19); // HH:MM:SS
+    return formatLocalTime(iso);
   } catch {
     return iso;
   }
 }
 
 // ── Element renderers ──────────────────────────────────────────────────────────
-
-export function ThinkingBlock({
-  thinking,
-  entityIndex,
-}: {
-  thinking: string;
-  entityIndex: EntityIndex;
-}) {
-  // Render the (potentially very large) body only while expanded — collapsed
-  // thinking blocks otherwise pay full serialization/reconciliation cost for
-  // text nobody is looking at (PR #1667 R1 non-blocking).
-  const [open, setOpen] = useState(false);
-  return (
-    <details
-      className="group rounded border border-border/60 bg-muted/20"
-      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
-    >
-      <summary className="cursor-pointer select-none px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground">
-        <span className="italic">thinking</span>
-        <span className="ml-1 text-muted-foreground/60 group-open:hidden">
-          ({thinking.length} chars — click to expand)
-        </span>
-      </summary>
-      {open && (
-        // Thinking is agent reasoning prose — render as Markdown via the shared
-        // <Prose> (same as assistant text), entity-aware. mt#2556 (mt#2550 follow-up).
-        // Newline semantics intentionally match assistant text (Markdown soft
-        // newlines): model reasoning is paragraph-structured. remark-breaks is NOT
-        // enabled globally — it would regress spec/memory rendering on <Prose>'s
-        // other callers (PR #1746 reviewer note).
-        <Prose entityIndex={entityIndex} className="px-2 pb-2 pt-1 text-xs text-muted-foreground">
-          {thinking}
-        </Prose>
-      )}
-    </details>
-  );
-}
-
-// ── Unified tool-invocation block (mt#2790) ─────────────────────────────────────
 //
-// A merged call+result block, collapsed by default to one summary line
-// (icon + friendly name + arg/outcome digest), expandable to the full args +
-// result payloads via the existing (unchanged) ToolPayload rendering. Errors
-// default EXPANDED with destructive styling — a failure must never read as an
-// ok-looking collapsed line.
-//
-// `expandSignal` is a view-level "expand all / collapse all" broadcast (see
-// `ConversationThread`): each bump of `epoch` forces this block's local
-// `open` state to `expandSignal.open`, while the per-block toggle button
-// keeps working normally in between broadcasts.
-
-type ExpandSignal = { epoch: number; open: boolean } | undefined;
-
-function ToolInvocation({
-  call,
-  result,
-  entityIndex,
-  expandSignal,
-}: {
-  call: Extract<ConversationElement, { kind: "tool-call" }>;
-  result?: Extract<ConversationElement, { kind: "tool-result" }>;
-  entityIndex: EntityIndex;
-  expandSignal: ExpandSignal;
-}) {
-  const isError = result?.isError === true;
-  // Errors default expanded; everything else collapsed (mt#2790 design direction).
-  const [open, setOpen] = useState(isError);
-  // Re-sync on a NEW broadcast only (epoch), not on every `expandSignal.open`
-  // identity change — `expandSignal` is a fresh object per click by design.
-  const expandEpoch = expandSignal?.epoch;
-  useEffect(() => {
-    if (expandSignal) setOpen(expandSignal.open);
-  }, [expandEpoch]);
-
-  const parsed = useMemo(() => parseToolName(call.name), [call.name]);
-  const Icon = toolIconFor(parsed);
-  const label = friendlyToolName(call.name);
-  const digest = useMemo(
-    () =>
-      summarizeToolInvocation(
-        call.name,
-        call.input,
-        result ? { content: result.content, isError: result.isError } : undefined
-      ),
-    [call.name, call.input, result]
-  );
-
-  return (
-    <div
-      className={cn(
-        "rounded border",
-        isError ? "border-destructive/50 bg-destructive/5" : "border-sky-500/30 bg-sky-500/5"
-      )}
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs"
-      >
-        <Icon
-          aria-hidden
-          className={cn("h-3.5 w-3.5 shrink-0", isError ? "text-destructive" : "text-sky-500/80")}
-        />
-        <span
-          title={call.name}
-          className={cn("shrink-0 font-mono font-medium", isError ? "text-destructive" : "text-sky-300")}
-        >
-          {label}
-        </span>
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-muted-foreground",
-            isError && "text-destructive/80"
-          )}
-        >
-          {digest}
-        </span>
-        <span className="ml-auto flex shrink-0 items-center gap-1.5">
-          {call.spawn && (
-            <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300">
-              → subagent{call.spawn.agentKind ? ` (${call.spawn.agentKind})` : ""}
-            </span>
-          )}
-          <span aria-hidden className="text-muted-foreground/60">
-            {open ? "▾" : "▸"}
-          </span>
-        </span>
-      </button>
-      {open && (
-        <div className="border-t border-border/40">
-          <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
-            args
-          </div>
-          {/* Full expanded body (mt#2552, unchanged): JSON → entity-aware JsonView, else <pre> */}
-          <ToolPayload
-            value={call.input}
-            toolName={call.name}
-            entityIndex={entityIndex}
-            className="border-sky-500/20 text-foreground/80"
-          />
-          {result ? (
-            <>
-              <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
-                {result.isError ? "error" : "result"}
-              </div>
-              <ToolPayload
-                value={result.content}
-                toolName={call.name}
-                entityIndex={entityIndex}
-                className={cn(
-                  result.isError
-                    ? "border-destructive/30 text-destructive"
-                    : "border-border/40 text-foreground/70"
-                )}
-              />
-            </>
-          ) : (
-            <div className="px-2 py-1 text-xs text-muted-foreground/60">pending…</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Standalone fallback for a tool-result with no matching call in the rendered
-// window (mt#2790) — keeps the pre-redesign treatment. Uncommon: happens when
-// windowing/pagination cuts the call's turn out of view (or mt#2789's
-// subagent-transcript duplication produces a result with no local call).
-function ToolResult({
-  element,
-  callName,
-  entityIndex,
-}: {
-  element: Extract<ConversationElement, { kind: "tool-result" }>;
-  callName: string | undefined;
-  entityIndex: EntityIndex;
-}) {
-  return (
-    <div
-      className={cn(
-        "rounded border bg-muted/20",
-        element.isError ? "border-destructive/40" : "border-border/60"
-      )}
-    >
-      <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
-        <span aria-hidden>{element.isError ? "⚠" : "↩"}</span>
-        <span className="font-medium">{element.isError ? "tool error" : "tool result"}</span>
-        {callName && <span className="font-mono text-muted-foreground/70">{callName}</span>}
-      </div>
-      {/* Content-type dispatch (mt#2552): JSON payloads → JsonView (a Tier-3
-          per-tool renderer if registered, else the generic entity-aware tree);
-          non-JSON content → <pre> (unchanged). */}
-      <ToolPayload
-        value={element.content}
-        toolName={callName}
-        entityIndex={entityIndex}
-        className={cn(
-          element.isError
-            ? "border-destructive/30 text-destructive"
-            : "border-border/40 text-foreground/70"
-        )}
-      />
-    </div>
-  );
-}
-
-// ── Injected-content block (mt#2791) ────────────────────────────────────────────
-//
-// Harness-injected content — slash-command wrappers, skill-body preambles,
-// `<system-reminder>` blocks — collapsed by default behind a muted,
-// origin-labeled header (see ../lib/injected-content.ts for the detector).
-// Mirrors ToolInvocation's collapsed/expand-on-click + expandSignal
-// participation, but muted (not blue-accented) styling — this is harness
-// plumbing, not an agent action.
-
-function InjectedContentBlock({
-  span,
-  entityIndex,
-  expandSignal,
-}: {
-  span: InjectedSpan;
-  entityIndex: EntityIndex;
-  expandSignal: ExpandSignal;
-}) {
-  const [open, setOpen] = useState(false);
-  // Re-sync on a NEW broadcast only (epoch), not on every `expandSignal.open`
-  // identity change — mirrors ToolInvocation (mt#2790).
-  const expandEpoch = expandSignal?.epoch;
-  useEffect(() => {
-    if (expandSignal) setOpen(expandSignal.open);
-  }, [expandEpoch]);
-
-  return (
-    <div className="rounded border border-border/40 bg-muted/10">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs text-muted-foreground"
-      >
-        <span className="italic">{span.label}</span>
-        <span className="text-muted-foreground/50">
-          ({span.content.length.toLocaleString()} chars)
-        </span>
-        <span aria-hidden className="ml-auto text-muted-foreground/60">
-          {open ? "▾" : "▸"}
-        </span>
-      </button>
-      {open && (
-        <div className="border-t border-border/40 px-2 py-1">
-          <Prose entityIndex={entityIndex} className="text-muted-foreground/90">
-            {span.content}
-          </Prose>
-        </div>
-      )}
-    </div>
-  );
-}
+// The single-element renderers (ThinkingBlock, ToolInvocation, ToolResult,
+// InjectedContentBlock, ElementView) live in `../components/
+// ConversationElementRenderers.tsx` (mt#3262 SC 2 extraction) — imported
+// above, not redefined here, so the session-film ribbon's expanded row can
+// share the exact same rendering code.
 
 // ── Tool-invocation pairing (mt#2790) ───────────────────────────────────────────
 //
@@ -432,17 +189,10 @@ function InjectedContentBlock({
 // ORPHAN and keeps the pre-redesign standalone treatment; it is never
 // silently dropped.
 
-type ToolCallElement = Extract<ConversationElement, { kind: "tool-call" }>;
-type ToolResultElement = Extract<ConversationElement, { kind: "tool-result" }>;
-
-/** One conversational sub-element after tool-invocation pairing. */
-type PreparedElement =
-  | { kind: "text"; text: string }
-  | { kind: "thinking"; thinking: string }
-  | { kind: "tool-invocation"; call: ToolCallElement; result?: ToolResultElement }
-  | { kind: "tool-result-orphan"; result: ToolResultElement; callName: string | undefined }
-  | { kind: "injected"; span: InjectedSpan }
-  | { kind: "unknown"; rawType: string; raw: unknown };
+// `ToolCallElement` / `ToolResultElement` / `PreparedElement` are imported
+// above from `../components/ConversationElementRenderers` (mt#3262 SC 2) —
+// the shared module the session-film ribbon's expanded row also builds
+// `PreparedElement`s against.
 
 interface PreparedTurn {
   blockId: string;
@@ -451,6 +201,12 @@ interface PreparedTurn {
   elements: PreparedElement[];
   isSpawnBoundary: boolean;
   spawnAgentKind?: string;
+  /** This turn IS the context-compaction summary (mt#3260). */
+  isCompactSummary?: boolean;
+  /** The harness, not the operator, generated this turn (mt#3322). */
+  isMeta?: boolean;
+  /** Assistant model; `<synthetic>` marks a harness retry turn (mt#3260). */
+  model?: string;
 }
 
 /**
@@ -575,8 +331,122 @@ function pairToolInvocations(
       elements,
       isSpawnBoundary: turn.isSpawnBoundary,
       spawnAgentKind: turn.spawnAgentKind,
+      isCompactSummary: turn.isCompactSummary,
+      isMeta: turn.isMeta,
+      model: turn.model,
     };
   });
+}
+
+// ── Command-invocation merging (mt#3322) ────────────────────────────────────
+//
+// The harness emits ONE slash command as up to three user turns: the command
+// wrapper, the captured stdout, and a model-directed caveat (`isMeta: true`).
+// Rendered turn-by-turn that is three USER bubbles of raw harness plumbing
+// above the operator's actual message.
+//
+// This pass is the command analogue of `pairToolInvocations` above: it folds
+// the output and caveat INTO the command element, then leaves the drained
+// turns with no renderable elements so the existing
+// `hasRenderablePreparedElement` filter drops them. Nothing is discarded —
+// the wrapper markup and the caveat both remain reachable behind the command
+// element's disclosure toggle.
+//
+// **The parts FOLLOW their command, and the scan stops at the first turn that
+// is not one of them.** Turns render in TIMESTAMP order, not JSONL file order
+// — in conversation 77c6ca4f the caveat is the first line in the file but
+// carries the latest timestamp (.486 vs the command's and stdout's .481), so
+// the rendered group is command -> stdout -> caveat. Two hard boundaries keep
+// the association unambiguous when several commands run in quick succession
+// (PR #2403 R1): the scan stops at the NEXT command wrapper, which owns
+// everything after it, and at any turn that is not an absorbable part, since
+// the group is contiguous. Without those, a `/model` followed closely by
+// `/error-handling` could silently cross-wire one command's output onto the
+// other and drain the wrong turn.
+//
+// Scoped to the rendered window like its sibling: a command whose output turn
+// fell outside the window simply renders without output, and an orphaned
+// output turn keeps its standalone collapsed treatment rather than vanishing.
+
+/**
+ * How far past a command turn to look for its parts. An invocation
+ * contributes at most two (stdout + caveat); the extra slot is slack for an
+ * unexpected additional part, and the boundary checks below — not this
+ * number — are what prevent mis-association.
+ */
+const COMMAND_PART_LOOKAHEAD = 3;
+
+/** The injected-span kinds a command turn may absorb, in no particular order. */
+const ABSORBABLE_PART_KINDS = ["local-command-output", "local-command-caveat"] as const;
+
+/** Index of the `command` injected element in a user turn, or -1. */
+function commandElementIndex(turn: PreparedTurn): number {
+  if (turn.role !== "user") return -1;
+  return turn.elements.findIndex((el) => el.kind === "injected" && el.span.kind === "command");
+}
+
+function soleInjectedSpan(turn: PreparedTurn, kind: InjectedContentKind): InjectedSpan | null {
+  if (turn.role !== "user" || turn.elements.length !== 1) return null;
+  const [only] = turn.elements;
+  if (!only || only.kind !== "injected" || only.span.kind !== kind) return null;
+  return only.span;
+}
+
+function mergeCommandInvocations(turns: PreparedTurn[]): PreparedTurn[] {
+  // Elements are removed from their origin turns as they are absorbed; a copy
+  // per turn keeps this pass non-mutating with respect to its input.
+  const working = turns.map((t) => ({ ...t, elements: [...t.elements] }));
+
+  for (let i = 0; i < working.length; i++) {
+    const turn = working[i];
+    if (!turn) continue;
+
+    const commandIndex = commandElementIndex(turn);
+    if (commandIndex === -1) continue;
+    const commandElement = turn.elements[commandIndex];
+    if (!commandElement || commandElement.kind !== "injected") continue;
+
+    const absorbed = new Map<InjectedContentKind, InjectedSpan>();
+
+    // Forward-only, with two hard stops (see the section comment above):
+    // the next command wrapper, and any turn that is not an absorbable part.
+    // Absorbing is further restricted to SINGLE-element turns — a turn
+    // carrying anything else keeps its own rendering rather than being
+    // silently drained.
+    for (let j = i + 1; j <= i + COMMAND_PART_LOOKAHEAD && j < working.length; j++) {
+      const candidate = working[j];
+      if (!candidate) break;
+      // The next command owns everything from here on.
+      if (commandElementIndex(candidate) !== -1) break;
+
+      const part = ABSORBABLE_PART_KINDS.map(
+        (kind) => [kind, soleInjectedSpan(candidate, kind)] as const
+      ).find(([, span]) => span !== null);
+      // Not a part at all (operator prose, an assistant turn, a tool result):
+      // the contiguous invocation group has ended.
+      if (!part) break;
+
+      const [kind, span] = part;
+      // A second part of a kind already absorbed is not ours — leave it to
+      // render standalone rather than overwriting the nearer one.
+      if (span && !absorbed.has(kind)) {
+        absorbed.set(kind, span);
+        candidate.elements = [];
+      }
+    }
+
+    const output = absorbed.get("local-command-output");
+    const caveat = absorbed.get("local-command-caveat");
+
+    turn.elements[commandIndex] = {
+      kind: "command-invocation",
+      command: commandElement.span,
+      ...(output ? { output } : {}),
+      ...(caveat ? { caveat } : {}),
+    };
+  }
+
+  return working;
 }
 
 function hasRenderablePreparedElement(el: PreparedElement): boolean {
@@ -592,90 +462,121 @@ function hasRenderablePreparedElement(el: PreparedElement): boolean {
   }
 }
 
-// ── API-error text detection (mt#2793) ──────────────────────────────────────
-//
-// Harness-emitted failure text sometimes lands as an ordinary assistant text
-// turn (e.g. "API Error: Connection closed mid-response.") rather than a
-// tool-result error — it renders identically to normal prose and is easy to
-// scroll past. Detection is intentionally conservative: an ANCHORED prefix
-// match on the turn's TRIMMED text, not a substring match anywhere in the
-// turn — a turn that merely discusses "the API Error" elsewhere in its text
-// stays unstyled.
-const API_ERROR_PREFIX = "API Error:";
+// `isApiErrorText` is imported above from `../components/
+// ConversationElementRenderers` (mt#3262 SC 2) — `turnOutcome` below and the
+// shared `ElementView`'s text-case both need the SAME detection.
 
-function isApiErrorText(text: string): boolean {
-  return text.trim().startsWith(API_ERROR_PREFIX);
+/**
+ * The per-turn Outcome chip's value, or `null` when none is evidenced.
+ *
+ * mt#3130's Outcome register has six values (`Completed` · `Interrupted` ·
+ * `Errored` · `Rate-limited` · `Crashed` · `Stalled`). Two are evidenced by the
+ * transcript as parsed today:
+ *
+ *  - **`Interrupted`** — a tool-result carrying `isInterruptionRejection`
+ *    (`conversation-elements.ts`), i.e. the operator cancelled a pending tool
+ *    call. mt#3260.
+ *  - **`Errored`** — assistant text starting with the API-error prefix.
+ *
+ * The rest need signals that do not exist in the persisted transcript
+ * (`Completed` has no terminator field; `Rate-limited`/`Crashed`/`Stalled` are
+ * run-state, not transcript, facts).
+ *
+ * So an unremarkable turn returns `null` rather than `Completed` — deliberate,
+ * not a stub. Labeling a turn `Completed` without a completion signal would
+ * assert completion for turns that were actually cut off. An absent chip says
+ * "nothing to report"; a wrong `Completed` chip is the falsely-confident
+ * derived field this umbrella exists to remove.
+ */
+type TurnOutcome = "Interrupted" | "Errored";
+
+function elementIsInterruption(element: PreparedElement): boolean {
+  if (element.kind === "tool-invocation") return element.result?.isInterruptionRejection === true;
+  if (element.kind === "tool-result-orphan") return element.result.isInterruptionRejection === true;
+  return false;
 }
 
-function ElementView({
-  element,
-  role,
+function turnOutcome(turn: PreparedTurn): TurnOutcome | null {
+  if (turn.role !== "assistant") return null;
+  let errored = false;
+  for (const element of turn.elements) {
+    // Interruption WINS over error, and the precedence is load-bearing: the
+    // harness marks a cancelled tool call `isError`, but the operator
+    // cancelling is not a failure. Reporting it as `Errored` is exactly the
+    // miscount mt#3131 removed from the tallies — this keeps the RENDER
+    // consistent with those already-corrected counts.
+    if (elementIsInterruption(element)) return "Interrupted";
+    if (element.kind === "text" && isApiErrorText(element.text)) errored = true;
+  }
+  return errored ? "Errored" : null;
+}
+
+/**
+ * `Interrupted` is amber, never red — `docs/design-system.md`'s red-scarcity
+ * rule reserves the destructive tone for genuine failures, and mt#3130 calls
+ * out this exact distinction ("amber, NOT red — distinct from error").
+ */
+const OUTCOME_STYLES: Record<TurnOutcome, string> = {
+  Interrupted: "bg-warn-amber/15 text-warn-amber",
+  Errored: "bg-destructive/15 text-destructive",
+};
+
+/**
+ * The model value Claude Code records on a harness-generated retry turn rather
+ * than a real model response (mt#3260). Mirrors `SYNTHETIC_MODEL_SENTINEL` in
+ * `packages/domain/src/subagent/transcript-metrics.ts`; declared here because
+ * that module is subagent-metrics code, not a render dependency.
+ */
+const SYNTHETIC_MODEL = "<synthetic>";
+
+/**
+ * A context-compaction boundary (mt#3260).
+ *
+ * Claude Code injects its own summary as a `user` line carrying
+ * `isCompactSummary: true`. Rendering it as ordinary user prose is what makes
+ * it read as "an unmarked giant user turn" — the operator sees a wall of text
+ * they never typed, with no indication their context was just reset. This
+ * replaces the turn body with a labeled boundary; the summary itself stays
+ * reachable behind the disclosure so nothing is hidden.
+ */
+function CompactionBoundary({
+  turn,
   entityIndex,
   expandSignal,
 }: {
-  element: PreparedElement;
-  /** Turn role — scopes assistant-only treatments (e.g. API-error styling). */
-  role: ConversationRole;
-  /** Known-entity id-set for linkification of bare refs and minsky:// URIs. */
+  turn: PreparedTurn;
   entityIndex: EntityIndex;
   expandSignal: ExpandSignal;
 }) {
-  switch (element.kind) {
-    case "text": {
-      // Assistant/user prose turns are Markdown — render via the shared <Prose>
-      // (Markdown structure + entity-linkification). mt#2550.
-      if (element.text.trim().length === 0) return null;
-      // A harness-emitted "API Error: …" turn gets destructive-toned treatment
-      // (semantic `destructive` token only, per src/cockpit/CLAUDE.md §status
-      // colors) so a terminal failure is visible without reading every turn.
-      // Scoped to ASSISTANT turns (PR #1973 R1): the harness emits these as
-      // assistant output; a user asking about an "API Error:" is ordinary prose.
-      if (role === "assistant" && isApiErrorText(element.text)) {
-        return (
-          <div role="alert" className="rounded border border-destructive/40 bg-destructive/5 px-2 py-1">
-            <Prose entityIndex={entityIndex} className="text-destructive">
-              {element.text}
-            </Prose>
-          </div>
-        );
-      }
-      return <Prose entityIndex={entityIndex}>{element.text}</Prose>;
-    }
-    case "thinking":
-      return element.thinking.trim().length > 0 ? (
-        <ThinkingBlock thinking={element.thinking} entityIndex={entityIndex} />
-      ) : null;
-    case "tool-invocation":
-      return (
-        <ToolInvocation
-          call={element.call}
-          result={element.result}
-          entityIndex={entityIndex}
-          expandSignal={expandSignal}
-        />
-      );
-    case "tool-result-orphan":
-      return (
-        <ToolResult element={element.result} callName={element.callName} entityIndex={entityIndex} />
-      );
-    case "injected":
-      return (
-        <InjectedContentBlock span={element.span} entityIndex={entityIndex} expandSignal={expandSignal} />
-      );
-    case "unknown":
-      return (
-        <div className="rounded border border-border/40 bg-muted/10 px-2 py-1 text-xs text-muted-foreground">
-          unsupported block{element.rawType ? `: ${element.rawType}` : ""}
-        </div>
-      );
-    default: {
-      // Compiler-enforced exhaustiveness: adding a PreparedElement kind without
-      // a render case is a type error here, not a silently-dropped block.
-      const unhandled: never = element;
-      return unhandled;
-    }
-  }
+  return (
+    <details
+      className="rounded border border-border/60 bg-muted/20 px-2 py-1"
+      data-testid="compaction-boundary"
+    >
+      <summary className="cursor-pointer text-[11px] uppercase tracking-wide text-muted-foreground">
+        Context compacted here
+        <span className="ml-2 normal-case tabular-nums text-muted-foreground/60">
+          {formatTime(turn.timestamp)}
+        </span>
+      </summary>
+      <div className="mt-2 flex flex-col gap-2">
+        {turn.elements.map((element, i) => (
+          <ElementView
+            key={i}
+            element={element}
+            role={turn.role}
+            entityIndex={entityIndex}
+            expandSignal={expandSignal}
+          />
+        ))}
+      </div>
+    </details>
+  );
 }
+
+// `ElementView` is imported above from `../components/
+// ConversationElementRenderers` (mt#3262 SC 2) — see that module for the
+// per-`PreparedElement`-kind render switch.
 
 // Role → left accent + label styling for the thread.
 const ROLE_STYLES: Record<ConversationTurn["role"], { accent: string; label: string }> = {
@@ -683,6 +584,14 @@ const ROLE_STYLES: Record<ConversationTurn["role"], { accent: string; label: str
   assistant: { accent: "border-l-sky-500/40", label: "assistant" },
   other: { accent: "border-l-border", label: "other" },
 };
+
+/**
+ * Accent for a harness-authored turn (mt#3374). Deliberately NOT the `user`
+ * emerald: that accent is the operator's own voice in this thread, and reusing
+ * it for content they did not write is the visual half of the same
+ * misattribution the label fix addresses.
+ */
+const HARNESS_ACCENT = "border-l-border";
 
 function TurnView({
   turn,
@@ -694,6 +603,24 @@ function TurnView({
   expandSignal: ExpandSignal;
 }) {
   const roleStyle = ROLE_STYLES[turn.role];
+  // A `user`-role turn may be the operator's message OR harness plumbing the
+  // harness injected under that role (skill body, command wrapper, tool
+  // result). Label it by who actually wrote it (mt#3374); a null origin means
+  // no signal, so the role-derived styling stands.
+  const origin = classifyTurnOrigin(turn);
+  const label = origin?.kind === "harness" ? origin.label : roleStyle.label;
+  const accent = origin?.kind === "harness" ? HARNESS_ACCENT : roleStyle.accent;
+  const outcome = turnOutcome(turn);
+  const isRetry = turn.model === SYNTHETIC_MODEL;
+
+  // A compaction summary is not a turn the operator wrote — it replaces the
+  // body entirely with a labeled boundary rather than rendering as prose.
+  if (turn.isCompactSummary) {
+    return (
+      <CompactionBoundary turn={turn} entityIndex={entityIndex} expandSignal={expandSignal} />
+    );
+  }
+
   const rendered = turn.elements
     .map((element, i) => {
       const node = (
@@ -711,12 +638,34 @@ function TurnView({
 
   // A turn with no renderable elements (e.g. an empty pairing) is skipped by the caller.
   return (
-    <div className={cn("flex flex-col gap-2 border-l-2 pl-3", roleStyle.accent)}>
+    <div className={cn("flex flex-col gap-2 border-l-2 pl-3", accent)}>
       <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-        <span className="font-semibold">{roleStyle.label}</span>
+        <span className="font-semibold" data-testid="turn-role-label">
+          {label}
+        </span>
         {turn.isSpawnBoundary && (
           <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium normal-case text-violet-300">
             → subagent{turn.spawnAgentKind ? ` (${turn.spawnAgentKind})` : ""}
+          </span>
+        )}
+        {isRetry && (
+          <span
+            className="rounded bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium normal-case text-muted-foreground"
+            title="Harness-generated retry turn (model: <synthetic>), not a model response"
+            data-testid="turn-retrying"
+          >
+            Retrying…
+          </span>
+        )}
+        {outcome && (
+          <span
+            className={cn(
+              "rounded px-1.5 py-0.5 text-[10px] font-medium normal-case",
+              OUTCOME_STYLES[outcome]
+            )}
+            data-testid="turn-outcome"
+          >
+            {outcome}
           </span>
         )}
         <span className="ml-auto tabular-nums text-muted-foreground/60">
@@ -739,6 +688,27 @@ function TurnView({
  */
 const INITIAL_TURNS = 50;
 const OLDER_CHUNK = 100;
+
+/**
+ * A day boundary or a long-gap marker between two turns. Renders as a quiet
+ * rule with a centered label — it is orientation, not content, so it must not
+ * compete with the turns on either side.
+ */
+function TurnSeparatorRow({ separator }: { separator: TurnSeparator }) {
+  const isDay = separator.kind === "day";
+  return (
+    <div
+      className="flex items-center gap-3 py-1 text-[11px] text-muted-foreground/70"
+      data-testid={isDay ? "turn-day-divider" : "turn-gap-divider"}
+    >
+      <span className="h-px flex-1 bg-border" />
+      <span className={cn("tabular-nums", isDay && "font-medium text-muted-foreground")}>
+        {isDay ? separator.label : `${separator.label} gap`}
+      </span>
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
 
 function ConversationThread({
   snapshot,
@@ -763,11 +733,41 @@ function ConversationThread({
   // Merge snapshot blocks with any live-tail appends.
   const allBlocks = useMemo(
     () =>
-      extraBlocks && extraBlocks.length > 0 ? [...snapshot.blocks, ...extraBlocks] : snapshot.blocks,
+      extraBlocks && extraBlocks.length > 0
+        ? [...snapshot.blocks, ...extraBlocks]
+        : snapshot.blocks,
     [snapshot.blocks, extraBlocks]
   );
 
-  const turns = useMemo(() => snapshotBlocksToConversation(allBlocks), [allBlocks]);
+  /**
+   * Hide superseded (rewound) operator prompts (mt#3323).
+   *
+   * When the operator re-dictates or edits a prompt, the harness leaves the
+   * superseded message in the transcript as a sibling branch. Rendering it as
+   * an ordinary turn shows prose the agent never received — and in the
+   * originating incident the superseded version read BETTER than the live one,
+   * so the view was actively misleading.
+   *
+   * The blocks are marked upstream by `markAbandonedRewindBranches` at snapshot
+   * assembly and are still PRESENT in `snapshot.blocks` (the session film joins
+   * on `turnIndex`, so nothing may be removed there). Suppression is this
+   * surface's decision, and the count below keeps it visible rather than
+   * silent.
+   */
+  const { renderableBlocks, rewoundBlockCount } = useMemo(() => {
+    const kept = allBlocks.filter((b) => b.isAbandonedBranch !== true);
+    // Count operator PROMPTS, not blocks. A superseded prompt drags along both
+    // its attachment blocks and — when the operator rewound after the agent had
+    // already started working — the tool-result lines from the abandoned
+    // attempt. `rawJsonlType === "user"` matches those tool results too, so it
+    // would overstate a rewind that superseded 2 prompts (PR #2419 R1).
+    const rewoundPrompts = allBlocks.filter(
+      (b) => b.isAbandonedBranch === true && isOperatorPrompt(b)
+    ).length;
+    return { renderableBlocks: kept, rewoundBlockCount: rewoundPrompts };
+  }, [allBlocks]);
+
+  const turns = useMemo(() => snapshotBlocksToConversation(renderableBlocks), [renderableBlocks]);
 
   // Map every tool_use id → tool name so a tool-result can name the call it answers.
   // Computed over ALL turns (not the window): a windowed tool-result may answer
@@ -829,7 +829,7 @@ function ConversationThread({
   // whose result got merged into its call's block above).
   const preparedTurns = useMemo(
     () =>
-      pairToolInvocations(windowedTurns, callNameByToolUseId).filter((t) =>
+      mergeCommandInvocations(pairToolInvocations(windowedTurns, callNameByToolUseId)).filter((t) =>
         t.elements.some(hasRenderablePreparedElement)
       ),
     [windowedTurns, callNameByToolUseId]
@@ -890,6 +890,16 @@ function ConversationThread({
           Collapse all
         </button>
       </div>
+      {rewoundBlockCount > 0 && (
+        <p
+          data-testid="rewound-branch-notice"
+          className="text-center text-[11px] text-muted-foreground/70"
+        >
+          {rewoundBlockCount === 1
+            ? "1 superseded message hidden — the operator rewrote this prompt; the agent never received the earlier version."
+            : `${rewoundBlockCount} superseded messages hidden — the operator rewrote these prompts; the agent never received the earlier versions.`}
+        </p>
+      )}
       {hiddenCount > 0 && !showAll && (
         <div className="flex items-center justify-center gap-3 py-1">
           <button
@@ -908,10 +918,30 @@ function ConversationThread({
           </button>
         </div>
       )}
-      {preparedTurns.map((turn) => (
-        <TurnView key={turn.blockId} turn={turn} entityIndex={entityIndex} expandSignal={expandSignal} />
-      ))}
-      <div ref={endRef} aria-hidden />
+      {preparedTurns.flatMap((turn, i) => {
+        const separator = turnSeparator(preparedTurns[i - 1]?.timestamp, turn.timestamp);
+        const nodes: ReactNode[] = [];
+        if (separator) {
+          nodes.push(<TurnSeparatorRow key={`${turn.blockId}-sep`} separator={separator} />);
+        }
+        nodes.push(
+          <TurnView
+            key={turn.blockId}
+            turn={turn}
+            entityIndex={entityIndex}
+            expandSignal={expandSignal}
+          />
+        );
+        return nodes;
+      })}
+      {/* `scroll-mb-8` is load-bearing (mt#3344), not spacing: both
+          `scrollIntoView({block:"end"})` calls above align THIS sentinel's
+          bottom edge to the scrollport's bottom edge, which would park the
+          newest turn exactly where the tail's `sticky bottom-0` activity strip
+          floats — so the strip would cover the turn it is reporting on.
+          `scroll-margin-bottom` is honored by `scrollIntoView`, so this
+          reserves the strip's height without shifting anything in normal flow. */}
+      <div ref={endRef} aria-hidden className="scroll-mb-8" />
     </div>
   );
 }
@@ -1008,17 +1038,28 @@ function ConversationFetcher({
   );
   const liveBlocks = workspaceSessionId ? workspaceLive.liveBlocks : conversationLive.liveBlocks;
 
-  const snapErr = query.isError && query.error instanceof SnapshotError ? query.error : null;
-  const wrongIdSpace = snapErr?.code === "wrong_id_space" || snapErr?.status === 422;
-  const notFound = !wrongIdSpace && snapErr?.status === 404;
+  // mt#3131 (PR #2245 R1): all error-code/status interpretation is centralized
+  // in `classifySnapshotError` (lib/conversation-snapshot.ts) next to the
+  // `SnapshotError` type it classifies — this component never keys on raw
+  // `code === "..."` strings or bare status numbers, so a server-side contract
+  // drift has exactly one client site to update.
+  const errClass = query.isError ? classifySnapshotError(query.error) : null;
+  const wrongIdSpace = errClass === "wrong_id_space";
+  // mt#3131 (D3/D5): the server rejects a syntactically-invalid id (not even
+  // UUID-shaped) BEFORE any DB lookup, so it can never mean "still running" —
+  // distinguish it from a genuine "no transcript yet" so the copy below never
+  // tells the reader an impossible id "may still be running".
+  const invalidId = errClass === "invalid_id";
+  const notFound = errClass === "not_found";
 
   // Report a genuine unresolvable id to the host (mt#2769) — e.g. so a
   // URL-routed page can prune its own tab-strip entry. NOT fired for
   // wrong_id_space: that's a routing mistake (a valid workspace id used on
-  // the wrong route), not an invalid entity.
+  // the wrong route), not an invalid entity. `invalidId` (mt#3131 D3/D5) is
+  // the strongest case of "genuinely unresolvable" — it fires too.
   useEffect(() => {
-    if (notFound) onNotFound?.();
-  }, [notFound, onNotFound]);
+    if (notFound || invalidId) onNotFound?.();
+  }, [notFound, invalidId, onNotFound]);
 
   if (query.isError) {
     // Fail LOUD on the wrong-id-space mistake (mt#2525 / mt#2420): a workspace
@@ -1046,6 +1087,20 @@ function ConversationFetcher({
         </div>
       );
     }
+    // mt#3131 (D5): a syntactically-invalid id is definitively NOT FOUND —
+    // it could never have resolved, so the copy must not suggest it "may
+    // still be running" (that framing only makes sense for a plausible id
+    // whose transcript simply hasn't landed yet).
+    if (invalidId) {
+      return (
+        <div className={cn("flex flex-col items-center gap-1 py-10 text-center", className)}>
+          <p className="text-sm text-muted-foreground">Conversation not found.</p>
+          <p className="max-w-md text-xs text-muted-foreground/70">
+            &ldquo;{sessionId}&rdquo; is not a valid conversation id.
+          </p>
+        </div>
+      );
+    }
     if (notFound) {
       return (
         <div className={cn("flex flex-col items-center gap-1 py-10 text-center", className)}>
@@ -1059,7 +1114,9 @@ function ConversationFetcher({
         </div>
       );
     }
-    return <ErrorState prefix="Failed to load conversation" error={query.error} className={className} />;
+    return (
+      <ErrorState prefix="Failed to load conversation" error={query.error} className={className} />
+    );
   }
   if (query.isLoading || !query.data) {
     return <LoadingState message="Loading conversation…" className={className} />;

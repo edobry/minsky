@@ -83,10 +83,31 @@ export const PROVIDER_FETCHER_REGISTRY = {
 } as const satisfies EnsureCompleteRegistry<ProviderFetcherRegistry>;
 
 /**
- * Type guard to check if a provider has a fetcher implementation
+ * Type guard to check if a string is a KNOWN provider name.
+ *
+ * NOTE — this does NOT check that a fetcher implementation exists. Every entry
+ * in `SUPPORTED_PROVIDERS` returns true here, including providers whose
+ * `PROVIDER_FETCHER_REGISTRY` entry is `null!` (google, cohere, mistral). The
+ * name predates the `null!` placeholders; it is really an is-known-provider
+ * guard, and `validateProvider` relies on exactly that narrowing behavior.
+ *
+ * For "can this provider actually list models?", use `hasImplementedFetcher`.
  */
 export function hasProviderFetcher(provider: string): provider is AIProvider {
   return SUPPORTED_PROVIDERS.includes(provider as AIProvider);
+}
+
+/**
+ * Whether a provider has a real (non-placeholder) fetcher implementation.
+ *
+ * Distinct from `hasProviderFetcher` above, which only validates the provider
+ * NAME. This one reads the registry and rejects the `null!` placeholders, so it
+ * is the correct predicate for "listing is unsupported" vs "listing is broken"
+ * (mt#3337).
+ */
+export function hasImplementedFetcher(provider: string): boolean {
+  if (!hasProviderFetcher(provider)) return false;
+  return PROVIDER_FETCHER_REGISTRY[provider] != null;
 }
 
 /**

@@ -15,20 +15,53 @@ import type { DrivenSessionInteractionState } from "../lib/driven-session-accumu
 
 export interface DrivenSessionComposerProps {
   interactionState: DrivenSessionInteractionState;
-  onSend: (text: string) => void;
-  onStop: () => void;
+  /**
+   * Deliver the operator's text.
+   *
+   * May return a promise. When it does, the input is cleared only AFTER that
+   * promise resolves, and the text is PRESERVED if it rejects — a failed send
+   * that also wipes what the operator typed leaves them with no retry path
+   * and nothing to retry from (PR #2437 R1 BLOCKING). A caller that returns
+   * `void` keeps the original clear-immediately behavior.
+   */
+  onSend: (text: string) => void | Promise<unknown>;
+  /**
+   * Stop the in-flight turn. OPTIONAL: when omitted the Stop button is not
+   * rendered at all. A host that has nothing to stop — the entity discussion
+   * thread (mt#3365), which talks to its agent over REST and has no
+   * interrupt channel — would otherwise ship a permanently dead control,
+   * which is worse than no control.
+   */
+  onStop?: () => void;
   className?: string;
   /**
-   * Pre-fill the composer input (mt#2986) — e.g. "/plan-task mt#X" from the
-   * TaskDetail plan action's ?compose= param. Seed only; never auto-sent —
-   * the operator reviews and presses Enter themselves.
+   * Pre-fill the composer input (mt#2986) — e.g. a draft the host wants the
+   * operator to review before sending. Seed only: this component never sends
+   * on its own. (The task-launch path no longer uses this — it sends its
+   * primed command through the channel directly, mt#3375.)
    */
   initialText?: string;
+  /**
+   * Accessible label for the input. Defaults to the driven-session wording
+   * this component was built for; a different host passes its own so a
+   * screen reader is not told it is addressing a "driven session" when it is
+   * addressing something else (mt#3365).
+   */
+  ariaLabel?: string;
+  /** Placeholder shown when the composer is accepting input. Defaults to the
+   * driven-session wording, for the same reason as `ariaLabel`. */
+  idlePlaceholder?: string;
 }
 
+/**
+ * Placeholder per interaction state. `streaming` is NOT a disabled state
+ * (mt#3375) — the binary queues a message written mid-turn and runs it as the
+ * next turn (probed directly, 2026-07-30), so the placeholder says what will
+ * happen rather than refusing the input.
+ */
 const PLACEHOLDER_BY_STATE: Record<DrivenSessionInteractionState, string> = {
   "awaiting-input": "Send a message…",
-  streaming: "Assistant is responding…",
+  streaming: "Assistant is responding — your message will queue",
   exited: "Session has ended.",
 };
 
@@ -38,16 +71,47 @@ export function DrivenSessionComposer({
   onStop,
   className,
   initialText,
+  ariaLabel,
+  idlePlaceholder,
 }: DrivenSessionComposerProps) {
   const [text, setText] = useState(initialText ?? "");
-  const inputDisabled = interactionState !== "awaiting-input";
+  const [sending, setSending] = useState(false);
+  // Only a terminated session refuses input. While the assistant is streaming
+  // the composer stays open and the message queues — the transport has no
+  // turn-taking constraint, and the previous whole-turn lockout was a UI
+  // restriction with nothing behind it (mt#3375).
+  //
+  // `sending` still blocks: that is the in-flight guard for an async `onSend`
+  // host (mt#3365), preventing a double-submit while delivery is pending. It
+  // is about THIS send, not about the assistant's turn.
+  const inputDisabled = interactionState === "exited" || sending;
   const canSend = !inputDisabled && text.trim().length > 0;
   const canStop = interactionState !== "exited";
+  const placeholder =
+    interactionState === "awaiting-input" && idlePlaceholder
+      ? idlePlaceholder
+      : PLACEHOLDER_BY_STATE[interactionState];
 
   function submit(): void {
     const trimmed = text.trim();
     if (!trimmed || inputDisabled) return;
-    onSend(trimmed);
+    const result = onSend(trimmed);
+    if (result && typeof (result as Promise<unknown>).then === "function") {
+      // Await the caller's delivery before destroying the operator's draft.
+      setSending(true);
+      void (result as Promise<unknown>).then(
+        () => {
+          setSending(false);
+          setText("");
+        },
+        () => {
+          // Keep the text exactly as typed: the host surfaces the error, and
+          // pressing Send again IS the retry.
+          setSending(false);
+        }
+      );
+      return;
+    }
     setText("");
   }
 
@@ -71,18 +135,20 @@ export function DrivenSessionComposer({
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
         disabled={inputDisabled}
-        placeholder={PLACEHOLDER_BY_STATE[interactionState]}
+        placeholder={placeholder}
         rows={2}
-        aria-label="Message to the driven session"
+        aria-label={ariaLabel ?? "Message to the driven session"}
         className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
       />
       <div className="flex flex-col gap-1.5">
         <Button type="submit" size="sm" disabled={!canSend}>
           Send
         </Button>
-        <Button type="button" size="sm" variant="outline" disabled={!canStop} onClick={onStop}>
-          Stop
-        </Button>
+        {onStop ? (
+          <Button type="button" size="sm" variant="outline" disabled={!canStop} onClick={onStop}>
+            Stop
+          </Button>
+        ) : null}
       </div>
     </form>
   );

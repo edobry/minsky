@@ -1,8 +1,10 @@
-import { describe, it, expect, mock } from "bun:test";
+import { describe, it, expect, mock, afterEach } from "bun:test";
 import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
 import {
   parseNewDisconnectEvents,
   triggerMcpDisconnectEventSweep,
+  ensureDirSync,
+  defaultFsDeps,
   type DisconnectSweepFsDeps,
 } from "./disconnect-event-sweep";
 
@@ -121,6 +123,95 @@ describe("parseNewDisconnectEvents (mt#2537)", () => {
     expect(events).toHaveLength(0);
   });
 });
+
+describe("ensureDirSync (mt#2633 — TOCTOU fix)", () => {
+  it("does not throw when called twice in a row for the same directory", () => {
+    // Fake fs whose mkdirSync mimics real fs.mkdirSync semantics: throws
+    // EEXIST when the directory already exists and `recursive` is not
+    // passed as true, but is a no-op when `recursive: true` is passed.
+    // This reproduces the shape a non-hardcoded-recursive implementation of
+    // DisconnectSweepFsDeps would have, so the test actually exercises the
+    // fix (always passing `{ recursive: true }`) rather than passing
+    // vacuously because of an unrelated idempotent fake.
+    const dirs = new Set<string>();
+    const strictMkdirDeps: DisconnectSweepFsDeps = {
+      existsSync: (p) => dirs.has(p),
+      readFileSync: () => {
+        throw new Error("not used by this test");
+      },
+      writeFileSync: () => {
+        // not used by this test
+      },
+      mkdirSync: (p, options) => {
+        if (dirs.has(p) && !options?.recursive) {
+          throw Object.assign(new Error(`EEXIST: file already exists, mkdir '${p}'`), {
+            code: "EEXIST",
+          });
+        }
+        dirs.add(p);
+      },
+    };
+
+    // First call: directory does not exist yet.
+    expect(() => ensureDirSync("/fake/state-dir", strictMkdirDeps)).not.toThrow();
+    expect(strictMkdirDeps.existsSync("/fake/state-dir")).toBe(true);
+
+    // Second call: directory already exists (simulating a concurrent
+    // process having created it, or simply a second sweep run). The old
+    // `if (!existsSync) mkdirSync` shape would still be safe here since the
+    // check would short-circuit — the real risk was a *concurrent* creation
+    // between check and use, which this second call stands in for by
+    // calling mkdirSync directly against an already-existing directory.
+    expect(() => ensureDirSync("/fake/state-dir", strictMkdirDeps)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// defaultFsDeps.mkdirSync (mt#2633 R1 — PR #2272 review finding): the
+// production default wraps the REAL `node:fs.mkdirSync`, so pinning its
+// recursive-by-default behavior requires exercising real fs against an
+// isolated scratch dir — an in-memory fake would not exercise the actual
+// `fs.mkdirSync` call this regression was in. custom/no-real-fs-in-tests is
+// suppressed for this section only, following the precedent in
+// packages/domain/src/session/session-post-merge-sync.test.ts and
+// packages/domain/src/deployment/service-resolver.test.ts.
+// ---------------------------------------------------------------------------
+/* eslint-disable custom/no-real-fs-in-tests */
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+describe("defaultFsDeps.mkdirSync (mt#2633 R1 — PR #2272 review)", () => {
+  let scratchDir: string | undefined;
+
+  afterEach(() => {
+    if (scratchDir) rmSync(scratchDir, { recursive: true, force: true });
+    scratchDir = undefined;
+  });
+
+  it("does not disable recursive mode when called with a partial options object ({})", () => {
+    scratchDir = mkdtempSync(join(tmpdir(), "mt2633-mkdir-test-"));
+    const target = join(scratchDir, "nested", "dir");
+
+    // First call creates the (nested, not-yet-existing) directory tree.
+    // Passing `{}` rather than omitting the second argument entirely is the
+    // point of this test.
+    defaultFsDeps.mkdirSync(target, {});
+    expect(existsSync(target)).toBe(true);
+
+    // Second call: the directory already exists, and we again pass a
+    // partial options object ({}). This is the exact regression the PR
+    // #2272 review caught: `fs.mkdirSync(p, options ?? { recursive: true })`
+    // only substitutes the default when `options` is `undefined` — passing
+    // `{}` (a defined-but-empty object) short-circuits the `??` and forwards
+    // `{}` (non-recursive) straight to `fs.mkdirSync`, which throws EEXIST
+    // against an already-existing directory. The fixed implementation
+    // (`{ ...options, recursive: options?.recursive ?? true }`) must not
+    // throw here.
+    expect(() => defaultFsDeps.mkdirSync(target, {})).not.toThrow();
+  });
+});
+/* eslint-enable custom/no-real-fs-in-tests */
 
 describe("triggerMcpDisconnectEventSweep (mt#2537)", () => {
   // Redirect disconnect-tracker's state-dir resolution to a fixed fake path

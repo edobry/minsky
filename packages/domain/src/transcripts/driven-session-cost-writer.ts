@@ -26,7 +26,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { log } from "@minsky/shared/logger";
 import { drivenSessionCostTable } from "../storage/schemas/driven-session-cost-schema";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /** One model's usage entry, as extracted by driven-session-host.ts's `extractModelUsage`. */
 export interface DrivenSessionCostModelUsageInput {
@@ -90,7 +90,7 @@ export async function writeDrivenSessionCost(
     return "written";
   } catch (err) {
     log.warn(`writeDrivenSessionCost: failed for session ${input.localId}`, {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
       turnIndex: input.turnIndex,
     });
     return "error";

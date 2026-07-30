@@ -17,6 +17,7 @@ import { readFileSync } from "fs";
 import {
   startDrivenSession,
   sendDrivenSessionInput,
+  DRIVEN_OPERATOR_INPUT_EVENT_TYPE,
   stopDrivenSession,
   buildDrivenSessionArgs,
   buildResumeSessionArgs,
@@ -110,6 +111,8 @@ const SKIP_PERMISSIONS_FLAG = "--dangerously-skip-permissions";
 const PARSE_ERROR_TYPE = "minsky_parse_error";
 const BYPASS_PERMISSIONS_MODE = "bypassPermissions";
 const RESUME_HARNESS_SESSION_ID = "harness-resume-1";
+const MCP_CONFIG_FLAG = "--mcp-config";
+const STRICT_MCP_CONFIG_FLAG = "--strict-mcp-config";
 
 // ---------------------------------------------------------------------------
 // 1. Spawns with the documented flags
@@ -118,7 +121,9 @@ const RESUME_HARNESS_SESSION_ID = "harness-resume-1";
 describe("startDrivenSession — spawns with the documented flags", () => {
   test("default (bypassPermissions) argv matches the documented headless invocation", () => {
     const { spawnFn, calls } = makeFakeSpawnFn();
-    startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
+    // mcpConfig: null keeps this assertion scoped to the permission-mode flags —
+    // the mt#3377 default would otherwise inject a machine-dependent binary path.
+    startDrivenSession({ cwd: SCRATCH_CWD, spawnFn, mcpConfig: null });
 
     expect(calls.length).toBe(1);
     const call = first(calls);
@@ -138,7 +143,7 @@ describe("startDrivenSession — spawns with the documented flags", () => {
 
   test("permissionMode 'default' omits --dangerously-skip-permissions", () => {
     const { spawnFn, calls } = makeFakeSpawnFn();
-    startDrivenSession({ cwd: SCRATCH_CWD, permissionMode: "default", spawnFn });
+    startDrivenSession({ cwd: SCRATCH_CWD, permissionMode: "default", spawnFn, mcpConfig: null });
 
     const call = first(calls);
     expect(call.args).not.toContain(SKIP_PERMISSIONS_FLAG);
@@ -151,6 +156,44 @@ describe("startDrivenSession — spawns with the documented flags", () => {
       "--verbose",
       "--include-partial-messages",
     ]);
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#3377 — a driven session must be provisioned with the minsky MCP server.
+  // Before this, the child resolved MCP servers against its cwd (a session
+  // workspace, which carries no .mcp.json) and booted with ZERO servers.
+  // -------------------------------------------------------------------------
+
+  test("mt#3377: production default provisions the minsky MCP server", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
+
+    const call = first(calls);
+    const configIndex = call.args.indexOf(MCP_CONFIG_FLAG);
+    expect(configIndex).toBeGreaterThanOrEqual(0);
+
+    const parsed = JSON.parse(call.args[configIndex + 1] as string);
+    expect(Object.keys(parsed.mcpServers)).toEqual(["minsky"]);
+    // The server's --repo is the workspace the agent actually works in, so its
+    // repo-scoped tools don't resolve against the operator's main checkout.
+    expect(parsed.mcpServers.minsky.args).toContain(SCRATCH_CWD);
+  });
+
+  test("mt#3377: --strict-mcp-config pins the server set to exactly what we declare", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
+
+    // Without this the child ALSO loads the operator's ambient claude.ai
+    // connectors and plugin servers, making the tool surface machine-dependent.
+    expect(first(calls).args).toContain(STRICT_MCP_CONFIG_FLAG);
+  });
+
+  test("mt#3377: an explicit null spawns with no MCP config at all", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    startDrivenSession({ cwd: SCRATCH_CWD, spawnFn, mcpConfig: null });
+
+    expect(first(calls).args).not.toContain(MCP_CONFIG_FLAG);
+    expect(first(calls).args).not.toContain(STRICT_MCP_CONFIG_FLAG);
   });
 
   test("buildDrivenSessionArgs is the same function argv is derived from (no drift)", () => {
@@ -173,6 +216,20 @@ describe("startDrivenSession — spawns with the documented flags", () => {
     const { spawnFn, calls } = makeFakeSpawnFn();
     startDrivenSession({ cwd: "/tmp/x", command: "/fake/bin/claude", spawnFn });
     expect(first(calls).command).toBe("/fake/bin/claude");
+  });
+
+  // mt#3243: the principal channel needs ONE durable row it can find again
+  // after a restart. A caller-chosen localId gives it a stable upsert key
+  // without a schema change or a lookup heuristic.
+  test("uses a caller-supplied localId instead of generating one", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({
+      cwd: SCRATCH_CWD,
+      localId: "principal-channel-standing",
+      spawnFn,
+    });
+
+    expect(record.localId).toBe("principal-channel-standing");
   });
 });
 
@@ -439,6 +496,94 @@ describe("sendDrivenSessionInput", () => {
     expect(ok).toBe(false);
     expect(readStdinWrites(proc)).toBe("");
   });
+
+  // mt#3372 — the child never echoes stdin back, so the operator's own turn
+  // only reaches the view if the host appends it to the event log itself.
+  test("appends exactly one operator-input event to the replayable log", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const before = record.eventLog.length;
+
+    expect(sendDrivenSessionInput(record, "what changed in the last hour?")).toBe(true);
+
+    const appended = record.eventLog.slice(before);
+    expect(appended).toHaveLength(1);
+    expect(appended[0]?.payload["type"]).toBe(DRIVEN_OPERATOR_INPUT_EVENT_TYPE);
+    expect(appended[0]?.payload["text"]).toBe("what changed in the last hour?");
+    expect(typeof appended[0]?.payload["timestamp"]).toBe("string");
+  });
+
+  test("broadcasts the operator-input event to live subscribers", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const seen: Record<string, unknown>[] = [];
+    record.subscribers.add({ onEvent: (event) => seen.push(event.payload), onSwap: () => {} });
+
+    sendDrivenSessionInput(record, "first");
+    sendDrivenSessionInput(record, "second");
+
+    const operatorFrames = seen.filter((p) => p["type"] === DRIVEN_OPERATOR_INPUT_EVENT_TYPE);
+    expect(operatorFrames.map((p) => p["text"])).toEqual(["first", "second"]);
+
+    // Same two turns must also survive in the REPLAY source (the event log a
+    // reconnecting client is replayed from), in the same order — a subscriber
+    // broadcast alone would vanish on reload.
+    const replayed = record.eventLog
+      .filter((e) => e.payload["type"] === DRIVEN_OPERATOR_INPUT_EVENT_TYPE)
+      .map((e) => e.payload["text"]);
+    expect(replayed).toEqual(["first", "second"]);
+  });
+
+  test("appends nothing when the session has already exited", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+    proc.exit(0, null);
+    const before = record.eventLog.length;
+
+    sendDrivenSessionInput(record, "too late");
+
+    expect(record.eventLog.length).toBe(before);
+  });
+
+  test("echo:false delivers the text without attributing it to the operator", () => {
+    // The resume path sends a host-authored interruption notice through this
+    // same function; echoing it would put words in the operator's mouth.
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+
+    expect(sendDrivenSessionInput(record, "a system notice", { echo: false })).toBe(true);
+
+    expect(JSON.parse(readStdinWrites(proc).trim()).message.content[0].text).toBe(
+      "a system notice"
+    );
+    expect(
+      record.eventLog.filter((e) => e.payload["type"] === DRIVEN_OPERATOR_INPUT_EVENT_TYPE)
+    ).toHaveLength(0);
+  });
+
+  test("refuses a reconnecting placeholder rather than rendering a phantom turn", () => {
+    // PR #2433 R1. A `reconnecting` record is non-terminal but its proc is the
+    // dead placeholder, whose stdin is an inert PassThrough — the write lands
+    // nowhere. Echoing there would show the operator a turn that was never
+    // delivered, which is worse than the pre-existing silent loss.
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: "reconnecting-local-id",
+      harnessSessionId: "harness-id",
+      cwd: "/tmp/x",
+      permissionMode: "bypassPermissions",
+      taskId: null,
+      minskySessionId: null,
+      status: "reconnecting",
+      unrecoverableReason: null,
+      actuatorGeneration: 1,
+      startedAt: new Date().toISOString(),
+    });
+
+    expect(sendDrivenSessionInput(record, "into the void")).toBe(false);
+    expect(record.eventLog).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -641,6 +786,46 @@ describe("resumeDrivenSession — replaces the dead record for the SAME localId"
     expect(resumeCall).toBeDefined();
     expect(resumeCall?.args.slice(0, 3)).toEqual(["-p", "--resume", RESUME_HARNESS_SESSION_ID]);
     expect(resumeCall?.options.cwd).toBe(SCRATCH_CWD);
+  });
+
+  test("mt#3377: a resume re-provisions the MCP config rather than dropping it", () => {
+    // The conversation is durable and the actuator is disposable — so a resume
+    // that forgot the servers would silently strip the whole MCP tool surface
+    // at the first daemon restart, mid-conversation.
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const registry = new DrivenSessionRegistry();
+    const { record: original } = startDrivenSession({ cwd: SCRATCH_CWD, spawnFn, registry });
+    const originalProc = original.proc as unknown as FakeClaudeProcess;
+    originalProc.emitLine({
+      type: "system",
+      subtype: "init",
+      session_id: RESUME_HARNESS_SESSION_ID,
+    });
+    originalProc.exit(1, null);
+
+    resumeDrivenSession({
+      previous: {
+        localId: original.localId,
+        cwd: original.cwd,
+        permissionMode: original.permissionMode,
+        harnessSessionId: RESUME_HARNESS_SESSION_ID,
+        taskId: original.taskId,
+        minskySessionId: original.minskySessionId,
+        startedAt: original.startedAt,
+        actuatorGeneration: original.actuatorGeneration,
+      },
+      spawnFn,
+      registry,
+    });
+
+    const resumeArgs = calls[1]?.args ?? [];
+    const configIndex = resumeArgs.indexOf(MCP_CONFIG_FLAG);
+    expect(configIndex).toBeGreaterThanOrEqual(0);
+    expect(resumeArgs).toContain(STRICT_MCP_CONFIG_FLAG);
+
+    const parsed = JSON.parse(resumeArgs[configIndex + 1] as string);
+    expect(Object.keys(parsed.mcpServers)).toEqual(["minsky"]);
+    expect(parsed.mcpServers.minsky.args).toContain(SCRATCH_CWD);
   });
 
   // mt#3040 preservation (interaction fix) — the originally-selected model

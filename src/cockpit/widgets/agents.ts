@@ -68,6 +68,14 @@ export interface AgentRow {
   sessionId: string;
   /** Kind badge (mt#2767 Row model). Always "dispatched-agent" pre-mt#2767. */
   kind: RunKind;
+  /**
+   * The workspace's `ws#N` short id (ADR-029), when it has one. Null for
+   * conversation-derived rows, which are not workspaces and have no short id,
+   * and for workspace rows minted before the short-id backfill. Consumed by
+   * the entity linkifier's id-set so a bare `ws#42` in prose resolves
+   * (mt#3259); never a substitute for `sessionId`, which stays the row key.
+   */
+  shortId: string | null;
   title: string;
   /** Null for conversation-derived rows (principal-conversation / subagent-group) — the liveness dot only applies to workspace sessions. */
   liveness: "healthy" | "idle" | "stale" | "orphaned" | null;
@@ -293,6 +301,7 @@ function toAgentRow(record: SessionRecord, taskTitle: string | null): AgentRow {
   return {
     sessionId: record.sessionId,
     kind: "dispatched-agent",
+    shortId: record.shortId ?? null,
     title,
     liveness,
     taskId,
@@ -355,6 +364,9 @@ export function spliceDrivenSessions(
     standalone.push({
       sessionId: record.localId,
       kind: "driven-session",
+      // A driven session is addressed by its own local id, not a Minsky
+      // workspace sessionId — there is no `ws#N` to carry (mt#3259).
+      shortId: null,
       // SC3: an untasked scratch session is "clearly labeled" — the kind
       // badge carries "Driven"; the title marks it scratch when unbound.
       title: record.taskId ? cwdTail : `Scratch: ${cwdTail}`,
@@ -607,6 +619,9 @@ export function createAgentsWidget(
               attachState: null,
               // Nor does the iTerm-tab binding question (mt#1628) — same reasoning.
               interfaceBinding: null,
+              // Nor a `ws#N` short id (mt#3259) — that is a workspace handle,
+              // and these rows are conversations.
+              shortId: null,
             }));
           }
         }

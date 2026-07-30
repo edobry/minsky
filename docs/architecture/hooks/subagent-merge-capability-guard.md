@@ -147,3 +147,10 @@ the authorization; auditability comes from the grant record's
 - `.claude/hooks/inject-prod-state.ts` — state-dir resolution convention
   this guard mirrors
 - mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration
+
+## Task-id resolution (mt#3355)
+
+This gate resolves its task id through the shared `merge-gate-task-resolution.ts` module, which
+prefers `tool_input.task`, falls back to the `task/mt-<id>` branch in `cwd`, and WARNS rather
+than silently allowing when neither resolves. See
+[Merge-Gate Task Resolution](./merge-gate-task-resolution.md).

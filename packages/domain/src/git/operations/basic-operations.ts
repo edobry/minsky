@@ -122,6 +122,19 @@ export class PushOperation extends BaseGitOperation<PushParams, PushResult> {
   }
 
   async executeOperation(params: PushParams, gitService: GitServiceInterface): Promise<PushResult> {
+    // mt#3205 (Gap 4): this path (createPushOperation -> ModularGitCommandsManager
+    // .pushFromParams -> the raw `pushFromParams` facade exported from
+    // packages/domain/src/git.ts) currently has NO production callers — the
+    // `git.push` MCP command adapter and `session_commit` both call
+    // `pushFromParamsWithConfirmation` instead (mt#3177). That contradicts an
+    // earlier audit's "operations/index.ts has zero importers" claim: it IS
+    // imported (by git-commands-modular.ts, for clone/branch/commit/merge/etc)
+    // — the file isn't dead, only this specific push slice was unreached in
+    // practice. Left wired as public API (`pushFromParams`) rather than
+    // deleted. No change needed HERE though: `GitService.push()` itself
+    // (git.ts) now delegates to `pushWithConfirmation` internally, so this
+    // call inherits the bound/confirmation behavior automatically, the same
+    // way every other `gitService.push()` caller does.
     const result = await gitService.push({
       repoPath: params.repo,
       remote: params.remote,

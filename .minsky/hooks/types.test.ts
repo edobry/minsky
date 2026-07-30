@@ -16,7 +16,10 @@ import {
   resolveGitBinary,
   __resetGitBinaryCacheForTests,
   HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC,
+  normalizeToolResult,
 } from "./types";
+import { decideReminder } from "./drive-pr-to-convergence";
+import { isDoneTransition } from "./bridge-memory-retirement";
 
 describe("emitHookFiredOnDeny (mt#2537)", () => {
   afterEach(() => {
@@ -350,5 +353,155 @@ describe("execWithPath Postgres connect-timeout injection (mt#2982)", () => {
     const getEnv = captureSpawnEnv();
     execWithPath(["minsky", "tasks", "search", "query", "--json"]);
     expect(getEnv().MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT).toBe("7");
+  });
+});
+
+/**
+ * normalizeToolResult (mt#3308) — production PostToolUse payloads carry `tool_response`,
+ * never `tool_result`; the fixtures here are REAL captures (Claude Code 2.1.220,
+ * 2026-07-29, recorded in the mt#3257/mt#3308 specs), per mem#672's lesson that a hook
+ * whose tests hand-build the payload it claims to parse can ship dead against production.
+ */
+describe("normalizeToolResult", () => {
+  /** REAL capture: a native-tool (Agent) payload — tool_response is a parsed object. */
+  function realAgentPayload(): Record<string, unknown> {
+    return {
+      session_id: "902b7e22-bd44-4fa6-9590-43b80c8b8a59",
+      cwd: "/mock/repo",
+      hook_event_name: "PostToolUse",
+      tool_name: "Agent",
+      tool_input: { prompt: "Reply with exactly the single word ok.", model: "haiku" },
+      tool_response: {
+        status: "completed",
+        agentId: "af3976c1820b38d69",
+        agentType: "general-purpose",
+        resolvedModel: "claude-haiku-4-5-20251001",
+      },
+    };
+  }
+
+  /** REAL capture: an MCP-tool payload — tool_response is the content envelope. */
+  function realMcpPayload(): Record<string, unknown> {
+    return {
+      session_id: "d1f1d3bb-mock",
+      cwd: "/mock/repo",
+      hook_event_name: "PostToolUse",
+      tool_name: "mcp__minsky__tasks_status_get",
+      tool_input: { taskId: "mt#3308" },
+      tool_response: [
+        {
+          type: "text",
+          text: '{\n  "success": true,\n  "taskId": "mt#3308",\n  "message": "Task mt#3308 status: IN-PROGRESS",\n  "status": "IN-PROGRESS"\n}',
+        },
+      ],
+    };
+  }
+
+  test("native-tool object response is copied onto tool_result", () => {
+    const payload = realAgentPayload();
+    normalizeToolResult(payload);
+    const result = payload["tool_result"] as Record<string, unknown>;
+    expect(result["resolvedModel"]).toBe("claude-haiku-4-5-20251001");
+    expect(result["agentId"]).toBe("af3976c1820b38d69");
+  });
+
+  test("MCP envelope is unwrapped and its stringified JSON parsed onto tool_result", () => {
+    const payload = realMcpPayload();
+    normalizeToolResult(payload);
+    const result = payload["tool_result"] as Record<string, unknown>;
+    expect(result["success"]).toBe(true);
+    expect(result["status"]).toBe("IN-PROGRESS");
+  });
+
+  test("an already-usable tool_result (hand-built test payload) is never overwritten", () => {
+    const payload = realMcpPayload();
+    payload["tool_result"] = { success: false, marker: "hand-built" };
+    normalizeToolResult(payload);
+    expect((payload["tool_result"] as Record<string, unknown>)["marker"]).toBe("hand-built");
+  });
+
+  test("a non-JSON text block leaves the payload untouched (fail-open)", () => {
+    const payload = realMcpPayload();
+    payload["tool_response"] = [{ type: "text", text: "plain prose output, not JSON" }];
+    normalizeToolResult(payload);
+    expect(payload["tool_result"]).toBeUndefined();
+  });
+
+  test("an absent tool_response leaves the payload untouched", () => {
+    const payload = realMcpPayload();
+    delete payload["tool_response"];
+    normalizeToolResult(payload);
+    expect(payload["tool_result"]).toBeUndefined();
+  });
+
+  test("an envelope whose JSON parses to an array is not assigned (tool_result stays object-typed)", () => {
+    const payload = realMcpPayload();
+    payload["tool_response"] = [{ type: "text", text: "[1, 2, 3]" }];
+    normalizeToolResult(payload);
+    expect(payload["tool_result"]).toBeUndefined();
+  });
+
+  test("a non-PostToolUse payload is never mutated (PR #2402 R1)", () => {
+    const payload = realMcpPayload();
+    payload["hook_event_name"] = "PreToolUse";
+    const before = JSON.stringify(payload);
+    normalizeToolResult(payload);
+    expect(JSON.stringify(payload)).toBe(before);
+  });
+
+  test("a raw JSON-string tool_response is parsed (PR #2402 R1)", () => {
+    const payload = realMcpPayload();
+    payload["tool_response"] = '{"success": true, "marker": "string-shaped"}';
+    normalizeToolResult(payload);
+    expect((payload["tool_result"] as Record<string, unknown>)["marker"]).toBe("string-shaped");
+  });
+});
+
+/**
+ * End-to-end acceptance (mt#3308 AT1): a production-shaped payload drives a previously-DEAD
+ * hook's decision path to its intended behavior. Pre-fix, both hooks below returned their
+ * silent/false branch on every production payload — the envelope key never matched.
+ */
+describe("normalizeToolResult heals previously-dead hooks end-to-end (mt#3308 AT1)", () => {
+  test("drive-pr-to-convergence emits its reminder from a production-shaped pr_create payload", () => {
+    const payload: Record<string, unknown> = {
+      session_id: "e2e",
+      cwd: "/tmp",
+      hook_event_name: "PostToolUse",
+      tool_name: "mcp__minsky__session_pr_create",
+      tool_input: { title: "x", type: "fix" },
+      // The captured MCP envelope pattern carrying a REAL session_pr_create result shape
+      // (PR #2400's actual return, trimmed).
+      tool_response: [
+        {
+          type: "text",
+          text: '{"success": true, "url": "https://github.com/edobry/minsky/pull/2400", "statusTransition": {"from": "IN-PROGRESS", "to": "IN-REVIEW", "succeeded": true}}',
+        },
+      ],
+    };
+
+    // Pre-fix condition: without normalization the reminder never fires.
+    expect(decideReminder(payload as never)).toBeNull();
+
+    normalizeToolResult(payload);
+    const reminder = decideReminder(payload as never);
+    expect(reminder).not.toBeNull();
+    expect(reminder).toContain("Drive it to convergence");
+  });
+
+  test("bridge-memory-retirement detects a DONE transition from a production-shaped merge payload", () => {
+    const payload: Record<string, unknown> = {
+      session_id: "e2e",
+      cwd: "/tmp",
+      hook_event_name: "PostToolUse",
+      tool_name: "mcp__minsky__session_pr_merge",
+      tool_input: { task: "mt#0000" },
+      tool_response: [{ type: "text", text: '{"success": true}' }],
+    };
+
+    expect(isDoneTransition(payload as never)).toBe(false);
+
+    normalizeToolResult(payload);
+    expect(isDoneTransition(payload as never)).toBe(true);
   });
 });

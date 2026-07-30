@@ -41,6 +41,24 @@ const PROBE_SRC = [
   "",
 ].join("\n");
 
+// mt#3183: the two standalone root-level tsconfig PROJECTS (as opposed to sub-workspaces).
+// The root tsconfig excludes "scripts" outright and never includes ".claude/hooks", so a probe
+// in either tree is invisible to the root check — which is exactly what makes these clean
+// negative controls: if a default run flags them, it can only be because the standalone-project
+// pass ran.
+const SCRIPTS_PROBE_REL = "scripts/__mt3183_probe.ts";
+const SCRIPTS_PROBE_ABS = join(ROOT, SCRIPTS_PROBE_REL);
+const HOOKS_PROBE_REL = ".claude/hooks/__mt3183_probe.ts";
+const HOOKS_PROBE_ABS = join(ROOT, HOOKS_PROBE_REL);
+
+// Plain TS2322 — errors under any strict config, so the probe proves the PROJECT was checked
+// rather than depending on a project-specific compiler option.
+const STANDALONE_PROBE_SRC = [
+  'const n: number = "not a number";',
+  "export const probeN = n;",
+  "",
+].join("\n");
+
 function fail(msg: string): never {
   console.error(`FAIL: ${msg}`);
   cleanup();
@@ -50,6 +68,8 @@ function fail(msg: string): never {
 function cleanup(): void {
   try {
     rmSync(PROBE_ABS, { force: true });
+    rmSync(SCRIPTS_PROBE_ABS, { force: true });
+    rmSync(HOOKS_PROBE_ABS, { force: true });
   } catch {
     // best-effort
   }
@@ -144,8 +164,67 @@ async function main(): Promise<void> {
     fail("AT-3: explicit services/reviewer run did not flag the injected error");
   }
 
+  // --- mt#3183: standalone root-level tsconfig projects ---
+  cleanup(); // drop the mt#2256 probe so the counts below are unambiguous
+
+  const projects = await run();
+  console.log(`mt#3183 covered projects: ${JSON.stringify(projects.workspaces)}`);
+  for (const project of ["tsconfig.scripts.json", "tsconfig.hooks.json"]) {
+    if (!projects.workspaces.includes(project)) {
+      fail(`mt#3183: default run did not cover ${project} (standalone-project discovery missing)`);
+    }
+  }
+  // The cockpit project is declared BOTH as a direct check and as a `typecheck:cockpit-web`
+  // script; it must appear exactly once, or its errors would be reported twice.
+  const cockpitEntries = projects.workspaces.filter(
+    (w) => w === "src/cockpit/web" || w === "src/cockpit/web/tsconfig.json"
+  );
+  if (cockpitEntries.length !== 1) {
+    fail(
+      `mt#3183: cockpit project checked ${cockpitEntries.length} times, expected exactly 1 (dedupe failed): ${JSON.stringify(projects.workspaces)}`
+    );
+  }
+  if (!projects.success || projects.errorCount !== 0) {
+    fail(
+      `mt#3183: clean tree reported ${projects.errorCount} error(s): ${JSON.stringify(projects.errors)}`
+    );
+  }
+
+  writeFileSync(SCRIPTS_PROBE_ABS, STANDALONE_PROBE_SRC, "utf8");
+  writeFileSync(HOOKS_PROBE_ABS, STANDALONE_PROBE_SRC, "utf8");
+  const withStandaloneErrs = await run();
+  const scriptsHit = withStandaloneErrs.errors.find(
+    (e) => e.workspace === "tsconfig.scripts.json" && e.file.includes("__mt3183_probe")
+  );
+  const hooksHit = withStandaloneErrs.errors.find(
+    (e) => e.workspace === "tsconfig.hooks.json" && e.file.includes("__mt3183_probe")
+  );
+  console.log(
+    `mt#3183 default run with probes: errorCount=${withStandaloneErrs.errorCount} scriptsHit=${Boolean(scriptsHit)} hooksHit=${Boolean(hooksHit)}`
+  );
+  if (!scriptsHit) {
+    fail(
+      `mt#3183: default run did not flag the injected scripts/ error under tsconfig.scripts.json. Errors seen: ${JSON.stringify(withStandaloneErrs.errors)}`
+    );
+  }
+  if (!hooksHit) {
+    fail(
+      `mt#3183: default run did not flag the injected .claude/hooks/ error under tsconfig.hooks.json. Errors seen: ${JSON.stringify(withStandaloneErrs.errors)}`
+    );
+  }
+
+  // Negative control: the ROOT project must NOT see either probe — proving the hits above came
+  // from the standalone pass and not from the root check widening.
+  const rootOnlyStandalone = await run(".");
+  const rootLeaks = rootOnlyStandalone.errors.filter((e) => e.file.includes("__mt3183_probe"));
+  if (rootLeaks.length > 0) {
+    fail(
+      `mt#3183: explicit root-only run unexpectedly flagged a standalone-project probe: ${JSON.stringify(rootLeaks)}`
+    );
+  }
+
   cleanup();
-  console.log("PASS: AT-1, AT-2, AT-3 all verified.");
+  console.log("PASS: AT-1, AT-2, AT-3 and the mt#3183 standalone-project coverage all verified.");
   process.exit(0);
 }
 

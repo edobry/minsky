@@ -12,6 +12,7 @@
  *   - startTranscriptSweepBackstop (mt#2321)
  *   - startDispatchWatchdogSweeper (mt#2646)
  *   - startDeploySmokeSweeper      (mt#2599)
+ *   - startConversationTitleSweeper (mt#3321)
  *
  * These previously duplicated an ~8-line skeleton (running-guard, boot tick,
  * setInterval, clearInterval) with NO protection against a single tick
@@ -20,6 +21,7 @@
  * the `running` guard permanently `true`, silently starving every later tick.
  */
 import { log } from "@minsky/shared/logger";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
 import {
   getServerAskRepository,
@@ -27,6 +29,12 @@ import {
   getServerTaskService,
 } from "./db-providers";
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
+import {
+  getSchemaReadiness,
+  isSchemaBehind,
+  refreshSchemaReadinessFromDb,
+} from "./schema-readiness";
+import { createPresenceSweepState } from "./conversation-presence-sweep";
 
 // ---------------------------------------------------------------------------
 // Shared sweeper timer helper (mt#2602 R1 review) — centralizes the
@@ -824,7 +832,12 @@ export function resolveSweepIntervalMs(): number {
  */
 export interface TranscriptSweepDeps {
   /** Run a full ingest sweep (wraps ingestAll). Must be idempotent/HWM-gated. */
-  runIngest: () => Promise<{ sessionsProcessed: number; sessionsErrored: number }>;
+  runIngest: () => Promise<{
+    sessionsProcessed: number;
+    sessionsErrored: number;
+    /** mt#3278 — sessions skipped because they are quarantined. */
+    sessionsQuarantined?: number;
+  }>;
   /** Run the embedding backfill (wraps PerTurnEmbeddingPipeline.run). May throw. */
   runEmbeddings: () => Promise<void>;
   /** Tracker singleton to record observability counters. */
@@ -840,6 +853,12 @@ export interface TranscriptSweepBackstopOptions {
    * (ClaudeCodeTranscriptSource + AgentTranscriptIngestService + PerTurnEmbeddingPipeline).
    */
   deps?: TranscriptSweepDeps;
+  /**
+   * Set false to skip the schema-readiness gate (mt#3297). Tests that inject
+   * `deps` have no real database for the check to interrogate, so leaving it on
+   * would make every such test depend on live persistence.
+   */
+  schemaReadiness?: boolean;
 }
 
 /**
@@ -868,7 +887,11 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
 
   const tracker = TranscriptSweepTracker.getInstance();
 
-  const runIngest = async (): Promise<{ sessionsProcessed: number; sessionsErrored: number }> => {
+  const runIngest = async (): Promise<{
+    sessionsProcessed: number;
+    sessionsErrored: number;
+    sessionsQuarantined: number;
+  }> => {
     const { ClaudeCodeTranscriptSource } = await import(
       "@minsky/domain/transcripts/claude-code-transcript-source"
     );
@@ -884,6 +907,7 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
     return {
       sessionsProcessed: result.sessionsProcessed,
       sessionsErrored: result.sessionsErrored,
+      sessionsQuarantined: result.sessionsQuarantined,
     };
   };
 
@@ -958,8 +982,37 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
 
         const { runIngest, runEmbeddings, tracker } = sweepDeps;
 
+        // ── Phase 0: schema readiness (mt#3297) ───────────────────────────────
+        // Every write below targets columns this build expects the DB to have.
+        // After a merge that carries a migration, the tray restarts the daemon
+        // onto the new code within seconds while the migration is (correctly)
+        // NOT applied automatically to a shared database — so there is a window
+        // where all of this fails on a missing column. Skipping the sweep once,
+        // with a reason, replaces one failure per session per tick.
+        //
+        // Re-checked every tick rather than only at boot, so applying the
+        // migration lifts the pause on the next tick with no restart.
+        if (opts?.schemaReadiness !== false) {
+          await refreshSchemaReadinessFromDb();
+          if (isSchemaBehind()) {
+            // At debug, not warn: `refreshSchemaReadinessFromDb` already logged
+            // the transition into behind at warn, and repeating the reason on
+            // every tick would make a check whose purpose is bounding log volume
+            // into a recurring writer (PR #2379 R1). The standing condition is
+            // on /api/health.
+            log.debug("cockpit: transcript sweep skipped — schema behind", {
+              pending: getSchemaReadiness().pending,
+            });
+            return;
+          }
+        }
+
         // ── Phase 1: ingest sweep (idempotent/HWM-gated) ──────────────────────
-        let ingestResult: { sessionsProcessed: number; sessionsErrored: number };
+        let ingestResult: {
+          sessionsProcessed: number;
+          sessionsErrored: number;
+          sessionsQuarantined?: number;
+        };
         try {
           ingestResult = await runIngest();
         } catch (err) {
@@ -976,7 +1029,19 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
             sessionsErrored: ingestResult.sessionsErrored,
           });
         }
-        tracker.recordSweepCompleted(ingestResult.sessionsProcessed, ingestResult.sessionsErrored);
+        // mt#3278: a quarantined session is not an error this pass — nothing was
+        // attempted — but it IS a standing condition an operator needs to see,
+        // so it is logged every sweep rather than only when it first happens.
+        if ((ingestResult.sessionsQuarantined ?? 0) > 0) {
+          log.warn("cockpit: transcript sweep: sessions quarantined and not attempted", {
+            sessionsQuarantined: ingestResult.sessionsQuarantined,
+          });
+        }
+        tracker.recordSweepCompleted(
+          ingestResult.sessionsProcessed,
+          ingestResult.sessionsErrored,
+          ingestResult.sessionsQuarantined ?? 0
+        );
 
         // ── Phase 2: embedding backfill (heavy, fail-open) ─────────────────────
         // SC2: default semantic-embedding backfill, run off the critical path.
@@ -1144,6 +1209,232 @@ export function startFollowUpSweeper(opts?: FollowUpSweeperOptions): () => void 
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: follow-up sweep failed", { message });
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Conversation presence absence-detection sweep (mt#3201, mt#3130 Phase 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cadence for the presence sweep.
+ *
+ * Deliberately much SHORTER than the stall threshold it detects against
+ * (`PRESENCE_STALL_THRESHOLD_MS`, the measured ~24-minute turn-grain p99): the
+ * sweep's job is to notice a crossing promptly AFTER it happens, so its
+ * interval bounds detection LATENCY, not the threshold itself. One minute
+ * matches the meta-watchdog's own cadence and keeps the worst-case lag between
+ * "went stale" and "operator sees STALLED" to about a minute.
+ *
+ * The tick is cheap — one indexed range scan
+ * (`idx_conversation_run_state_last_event_at`) over a table with one row per
+ * conversation, plus a pure derivation per row.
+ */
+const CONVERSATION_PRESENCE_SWEEP_INTERVAL_MS = 60 * 1000;
+
+/**
+ * Start the conversation-presence absence-detection sweep (mt#3201).
+ *
+ * Detects presence TRANSITIONS (notably `LIVE` -> `STALLED`, which no writer
+ * can emit because a killed process emits nothing) and pushes them on
+ * `minsky.conversation.presence_changed` for the SSE broker to forward.
+ *
+ * It does NOT write a `presence` column — the schema deliberately has none, and
+ * the read path re-derives the value on every request. This sweep exists for
+ * PUSH and for other consumers, not to make the read path honest.
+ *
+ * Fail-open throughout: no SQL provider, a failed scan, or a dead NOTIFY all
+ * log and wait for the next tick. The read endpoint remains the contract.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startConversationPresenceSweeper(intervalMs?: number): () => void {
+  const state = createPresenceSweepState();
+
+  return createIntervalSweeper({
+    name: "conversation presence",
+    intervalMs: intervalMs ?? CONVERSATION_PRESENCE_SWEEP_INTERVAL_MS,
+    tick: async () => {
+      try {
+        const { getSharedPersistenceService } = await import("./shared-persistence");
+        const svc = await getSharedPersistenceService();
+        const provider = svc.getProvider();
+
+        const getDb =
+          "getDatabaseConnection" in provider &&
+          typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection ===
+            "function"
+            ? (
+                provider as {
+                  getDatabaseConnection: () => Promise<PostgresJsDatabase | null>;
+                }
+              ).getDatabaseConnection.bind(provider)
+            : null;
+        if (!getDb) {
+          log.debug("cockpit: presence sweep: no SQL-capable DB, skipping tick");
+          return;
+        }
+        const db = await getDb();
+        if (!db) return;
+
+        const getRawSql =
+          "getRawSqlConnection" in provider &&
+          typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function"
+            ? (
+                provider as { getRawSqlConnection: () => Promise<unknown> }
+              ).getRawSqlConnection.bind(provider)
+            : null;
+
+        const { listConversationsQuietSince } = await import(
+          "@minsky/domain/conversation-run-state/read"
+        );
+        const { runPresenceSweepTick } = await import("./conversation-presence-sweep");
+
+        const transitions = await runPresenceSweepTick(state, {
+          listQuietSince: (olderThan) => listConversationsQuietSince(db, olderThan),
+          now: () => new Date(),
+          emit: async (channel, payload) => {
+            if (!getRawSql) return;
+            const sql = (await getRawSql()) as {
+              unsafe: (query: string, params: unknown[]) => Promise<unknown>;
+            } | null;
+            if (!sql) return;
+            await sql.unsafe("SELECT pg_notify($1, $2)", [channel, payload]);
+          },
+        });
+
+        if (transitions.length > 0) {
+          log.info(`cockpit: ${transitions.length} conversation presence transition(s)`, {
+            transitions: transitions.map((t) => `${t.conversationId}: ${t.from ?? "-"}->${t.to}`),
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: conversation presence sweep failed", { message });
+      }
+    },
+  });
+}
+
+// ── Conversation-title sweeper (mt#3321) ────────────────────────────────────
+
+/**
+ * Cadence for generating conversation titles. Slower than the presence/
+ * follow-up sweeps because it is not latency-sensitive — a conversation
+ * without a title still renders, it just falls back to the older prompt-snippet
+ * label. Paired with `DEFAULT_TITLE_BATCH_SIZE`, this drains the historical
+ * backlog over hours rather than in one burst of completion calls.
+ */
+const CONVERSATION_TITLE_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+
+/** Injectable seam so tests can drive a tick without a DB or an AI provider. */
+export interface ConversationTitleSweepDeps {
+  /** Run one bounded titling batch. Returns per-run counters. */
+  runTitling: () => Promise<{
+    candidates: number;
+    titled: number;
+    skipped: number;
+    errored: number;
+  }>;
+}
+
+export interface ConversationTitleSweepOptions {
+  /** Cadence override in milliseconds. */
+  intervalMs?: number;
+  /** Injected deps for testing; when absent the real DB + AI path is built. */
+  deps?: ConversationTitleSweepDeps;
+}
+
+/**
+ * Build the real titling runner from the shared persistence service and the
+ * configured AI completion service. Returns null when the provider is not
+ * SQL-capable — the same degradation the transcript backstop uses.
+ */
+async function buildRealTitleSweepDeps(): Promise<ConversationTitleSweepDeps | null> {
+  const { getSharedPersistenceService } = await import("./shared-persistence");
+  const svc = await getSharedPersistenceService();
+  const provider = svc.getProvider();
+
+  if (
+    !("getDatabaseConnection" in provider) ||
+    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
+  ) {
+    return null;
+  }
+
+  const sqlProvider = provider as {
+    getDatabaseConnection: () => Promise<
+      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+    >;
+  };
+  const db = await sqlProvider.getDatabaseConnection();
+  if (!db) return null;
+
+  return {
+    runTitling: async () => {
+      const { getConfiguration } = await import("@minsky/domain/configuration");
+      const { DefaultAICompletionService } = await import("@minsky/domain/ai/completion-service");
+      const { DirectCognitionProvider } = await import("@minsky/domain/cognition/providers/direct");
+      const { TitlePipeline } = await import("@minsky/domain/transcripts/title-pipeline");
+
+      const configService = {
+        loadConfiguration: () => Promise.resolve({ resolved: getConfiguration() }),
+      };
+      const cognitionProvider = new DirectCognitionProvider(
+        new DefaultAICompletionService(configService)
+      );
+
+      return new TitlePipeline(db, cognitionProvider).run();
+    },
+  };
+}
+
+/**
+ * Start the conversation-title sweeper — the invocation path for mt#3321.
+ *
+ * This is the piece the pre-existing summary pipeline never had: `SummaryPipeline`
+ * has run only when an operator manually invoked `transcripts index-embeddings`,
+ * which is why 11 of 1,992 transcripts carried a summary and none of the 281
+ * from the preceding week did. A titling mechanism with no caller would repeat
+ * that exactly, so the caller ships in the same change as the mechanism.
+ *
+ * Degrades quietly and retries: a non-SQL provider, a DB outage, or an AI
+ * failure logs and waits for the next tick. Rows stay NULL and are retried —
+ * no partial or placeholder title is ever written.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startConversationTitleSweeper(options?: ConversationTitleSweepOptions): () => void {
+  return createIntervalSweeper({
+    name: "conversation title",
+    intervalMs: options?.intervalMs ?? CONVERSATION_TITLE_SWEEP_INTERVAL_MS,
+    tick: async () => {
+      try {
+        const deps = options?.deps ?? (await buildRealTitleSweepDeps());
+        if (!deps) {
+          // Not an error — a non-SQL provider simply has nothing to title. Logged
+          // so a permanently-idle sweeper is distinguishable from a working one
+          // with no backlog (PR #2408 R1).
+          log.debug("cockpit: conversation title sweep skipped (no SQL persistence)");
+          return;
+        }
+        const result = await deps.runTitling();
+        // Per-run counters at the sweeper level, not only inside the pipeline:
+        // `errored > 0` is the signal that titling is failing while the sweeper
+        // itself looks healthy.
+        if (result.candidates > 0 || result.errored > 0) {
+          log.info("cockpit: conversation title sweep complete", {
+            candidates: result.candidates,
+            titled: result.titled,
+            skipped: result.skipped,
+            errored: result.errored,
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: conversation title sweep failed", { message });
       }
     },
   });

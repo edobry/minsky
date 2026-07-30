@@ -9,6 +9,7 @@
 
 import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import { regenerateStagedClaudeHooks } from "./claude-hooks-compile-regen";
+import { regenerateDockerfileBunBuild, checkBunBuildSync } from "./bun-build-sync-regen";
 import { execGitWithTimeout } from "@minsky/domain/utils/git-exec";
 import { stat, readdir, readFile } from "fs/promises";
 import { join } from "path";
@@ -42,6 +43,14 @@ import {
   isMigrationCollisionOverrideTruthy,
   MIGRATION_COLLISION_CHECK_OVERRIDE_ENV,
 } from "./migration-collision-detector";
+import {
+  runMigrationGuardCheck as runMigrationGuardCheckImpl,
+  MIGRATION_GUARD_CHECK_OVERRIDE_ENV,
+} from "./migration-guard-detector";
+import {
+  runDuplicateGeneratedContentCheck as runDuplicateGeneratedContentCheckImpl,
+  DUPLICATE_GENERATED_CONTENT_CHECK_OVERRIDE_ENV,
+} from "./duplicate-generated-content-detector";
 import { runRelatedTestsCheck } from "./related-tests-check";
 import {
   recordPreCommitFireLogEntry,
@@ -314,6 +323,35 @@ export class PreCommitHook {
         return dockerfileWorkspaceCopyResult;
       }
 
+      // Step 3c-2: Dockerfile bun-build invocation regeneration (mt#3091).
+      // Regenerates the root Dockerfile's `RUN bun build ...` line from
+      // `scripts/cli-entry.ts`'s canonical `bunBuildArgs()` and re-stages it
+      // if it changed — same auto-fix-and-restage shape as Step 3c above,
+      // for the same reason: the Dockerfile invocation can no longer drift
+      // out of sync by hand once it's generated instead of hand-typed.
+      const dockerfileBunBuildResult = await this.instrumented("dockerfile-bun-build-regen", () =>
+        this.runDockerfileBunBuildRegen()
+      );
+      if (!dockerfileBunBuildResult.success) {
+        return dockerfileBunBuildResult;
+      }
+
+      // Step 3c-3: package.json bun-build sync check (mt#3091). Unlike the
+      // regen step above, package.json's `scripts.build` is a flat JSON
+      // string that isn't safely auto-rewritable the same way a
+      // comment-delimited Dockerfile block is — so this step BLOCKS the
+      // commit instead of auto-fixing when it diverges from the canonical
+      // `bunBuildCommand()` (the same "compile --check" block-instead-of-
+      // autofix shape used for content this repo's generators don't rewrite
+      // in place). Also re-verifies the Dockerfile as a defense-in-depth
+      // backstop for the regen step just above.
+      const bunBuildSyncResult = await this.instrumented("bun-build-sync-check", () =>
+        this.runBunBuildSyncCheck()
+      );
+      if (!bunBuildSyncResult.success) {
+        return bunBuildSyncResult;
+      }
+
       // Step 3d: Migration journal consistency (mt#2087). Verify that every
       // SQL file under packages/domain/src/storage/migrations/pg/ has a corresponding
       // entry in meta/_journal.json. Prevents the mt#2086 class where a
@@ -324,9 +362,7 @@ export class PreCommitHook {
         () => this.runMigrationJournalCheck(),
         MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV
       );
-      if (!migrationJournalResult.success) {
-        return migrationJournalResult;
-      }
+      if (!migrationJournalResult.success) return migrationJournalResult;
 
       // Step 3e-a: Immutable-migration check (mt#2268). Block staged
       // MODIFICATIONS (not additions) to .sql files under the migration
@@ -338,9 +374,7 @@ export class PreCommitHook {
         () => this.runImmutableMigrationCheck(),
         IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV
       );
-      if (!immutableMigrationResult.success) {
-        return immutableMigrationResult;
-      }
+      if (!immutableMigrationResult.success) return immutableMigrationResult;
 
       // Step 3e-b: Migration collision + journal-`when` immutability check
       // (mt#2948). Compare the staged journal against origin/main: block a
@@ -356,6 +390,29 @@ export class PreCommitHook {
       if (!migrationCollisionResult.success) {
         return migrationCollisionResult;
       }
+
+      // Step 3e-c (mt#3299): migration guard — unguarded DROP INDEX / CREATE
+      // UNIQUE INDEX (migration 0068 / PR #2142 / 065fc729f). Own
+      // overrideEnvVar (mt#3299 PR #2392 R1 BLOCKING #5 — a prior combined-
+      // step draft dropped fire-log override-attribution for both checks
+      // by omitting this 3rd arg entirely; each check now gets its own
+      // instrumented() call, same as every sibling pre-commit step).
+      const migrationGuardResult = await this.instrumented(
+        "migration-guard-check",
+        () => runMigrationGuardCheckImpl(this.projectRoot),
+        MIGRATION_GUARD_CHECK_OVERRIDE_ENV
+      );
+      if (!migrationGuardResult.success) return migrationGuardResult;
+
+      // Step 3g (mt#3299): duplicate-generated-content — a repeated
+      // top-level block in staged AGENTS.md/CLAUDE.md/compiled
+      // skills/completion-manifest.json.
+      const dupContentResult = await this.instrumented(
+        "duplicate-generated-content-check",
+        () => runDuplicateGeneratedContentCheckImpl(this.projectRoot),
+        DUPLICATE_GENERATED_CONTENT_CHECK_OVERRIDE_ENV
+      );
+      if (!dupContentResult.success) return dupContentResult;
 
       // Step 3e: Deploy-domain ownership check (mt#2208, live successor to
       // mt#2193). Verify every domain ASSERTED as a deployment target in
@@ -1198,6 +1255,41 @@ export class PreCommitHook {
       message: "Dockerfile workspace-COPY blocks regenerated and staged",
       exitCode: 0,
     };
+  }
+
+  /**
+   * Thin wrapper over {@link regenerateDockerfileBunBuild} (the logic lives
+   * in `./bun-build-sync-regen`, extracted for the max-lines ceiling,
+   * mt#3091 mirroring mt#2977): regenerate the root Dockerfile's
+   * `RUN bun build ...` line from `scripts/cli-entry.ts`'s canonical
+   * `bunBuildArgs()` and re-stage it if changed — same auto-fix-and-restage
+   * shape as Step 3c above.
+   */
+  private async runDockerfileBunBuildRegen(): Promise<HookResult> {
+    return regenerateDockerfileBunBuild({
+      projectRoot: this.projectRoot,
+      runGit: (args) => this.runGitArgv(args),
+      logLine: (line) => log.cli(line),
+      exec: execAsync,
+    });
+  }
+
+  /**
+   * Thin wrapper over {@link checkBunBuildSync} (mt#3091): block the commit
+   * if package.json's `scripts.build` (or, as a defense-in-depth backstop,
+   * the Dockerfile's generated block) diverges from the canonical
+   * `bunBuildCommand()`. Unlike {@link runDockerfileBunBuildRegen}, this
+   * does NOT auto-fix — package.json's build script is a flat JSON string,
+   * not a comment-delimited block, so rewriting it in place risks
+   * formatting drift a generator shouldn't introduce.
+   */
+  private async runBunBuildSyncCheck(): Promise<HookResult> {
+    return checkBunBuildSync({
+      projectRoot: this.projectRoot,
+      runGit: (args) => this.runGitArgv(args),
+      logLine: (line) => log.cli(line),
+      exec: execAsync,
+    });
   }
 
   /**
@@ -2109,6 +2201,10 @@ export function classifyDockerfileWorkspaceCopyRegenError(error: unknown): {
     message: `Dockerfile workspace-COPY regeneration failed: ${errorDetail.split("\n")[0]}`,
   };
 }
+
+// `classifyDockerfileBunBuildRegenError` moved to `./bun-build-sync-regen`
+// (mt#3091, extracted for the max-lines ceiling alongside the regen/check
+// functions it classifies errors for — see that module's header).
 
 /**
  * Maps which `.minsky/` source dirs are present to the compile targets the

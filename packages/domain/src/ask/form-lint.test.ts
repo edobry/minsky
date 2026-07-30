@@ -229,3 +229,157 @@ describe("ask 6807fb14 regression fixtures", () => {
     expect(countWords(ORIGINAL_QUESTION)).toBeGreaterThan(FORM_LINT_WORD_BUDGET);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Option-label checks (mt#3253)
+//
+// Fixtures are verbatim labels from the live ask corpus (measured 2026-07-26):
+// 200 options across 67 asks, label length p50 36 / p90 62 / max 167, with 23
+// labels over 60 chars (14 of them leaving `description` empty) and 35 carrying
+// a redundant letter marker. The label-shape rules themselves are unit-tested in
+// `packages/shared/src/ask-option-label.test.ts`; these tests cover the LINT
+// wiring — that the right check fires, once, with a message naming the fix.
+// ---------------------------------------------------------------------------
+
+const CHECK_LONG_OPTION_LABEL = "long-option-label" as const;
+const CHECK_LETTER_PREFIXED = "letter-prefixed-option-label" as const;
+
+/** The corpus worst case: 167 chars, and letter-prefixed as well. */
+const CORPUS_WORST_LABEL =
+  "B — boundary fix + Stop-event ADVISORY guard (recommended): agent self-addresses admissions at turn end; dedup vs prompt-time scanner; first Stop dispatcher entrypoint";
+
+const DECIDE: AskKind = "direction.decide";
+const CLEAN_QUESTION = "Pick the replacement mechanism for boot-time auto-migrate.";
+
+describe("form-lint option-label checks (mt#3253)", () => {
+  test("a long label fires long-option-label with a message naming description", () => {
+    const matches = computeFormLintMatches({
+      kind: DECIDE,
+      question: CLEAN_QUESTION,
+      options: [{ label: "x".repeat(61) }],
+    });
+    const match = matches.find((m) => m.check === CHECK_LONG_OPTION_LABEL);
+    expect(match).toBeDefined();
+    expect(match?.message).toContain("description");
+  });
+
+  test("a label at the corpus p50 length fires nothing", () => {
+    expect(
+      computeFormWarnings({
+        kind: DECIDE,
+        question: CLEAN_QUESTION,
+        options: [{ label: "x".repeat(36) }],
+      })
+    ).toEqual([]);
+  });
+
+  test("the boundary is exclusive: 60 chars passes, 61 fires", () => {
+    const at = computeFormLintMatches({
+      kind: DECIDE,
+      question: CLEAN_QUESTION,
+      options: [{ label: "x".repeat(60) }],
+    });
+    const over = computeFormLintMatches({
+      kind: DECIDE,
+      question: CLEAN_QUESTION,
+      options: [{ label: "x".repeat(61) }],
+    });
+    expect(at.map((m) => m.check)).not.toContain(CHECK_LONG_OPTION_LABEL);
+    expect(over.map((m) => m.check)).toContain(CHECK_LONG_OPTION_LABEL);
+  });
+
+  test("a letter-prefixed label fires letter-prefixed-option-label", () => {
+    const matches = computeFormLintMatches({
+      kind: DECIDE,
+      question: CLEAN_QUESTION,
+      options: [{ label: "[b] Railway pre-deploy" }],
+    });
+    expect(matches.map((m) => m.check)).toContain(CHECK_LETTER_PREFIXED);
+  });
+
+  test("an em-dash label with no letter marker fires NEITHER option check", () => {
+    // The negative control that matters: this is a real corpus label, and a
+    // naive prefix pattern would eat its leading word.
+    expect(
+      computeFormWarnings({
+        kind: DECIDE,
+        question: CLEAN_QUESTION,
+        options: [{ label: "Adopt fully — vocabulary + one-pager" }],
+      })
+    ).toEqual([]);
+  });
+
+  test("the corpus worst label fires BOTH option checks and nothing else", () => {
+    const checks = computeFormLintMatches({
+      kind: DECIDE,
+      question: CLEAN_QUESTION,
+      options: [{ label: CORPUS_WORST_LABEL }],
+    })
+      .map((m) => m.check)
+      .sort();
+    expect(checks).toEqual([CHECK_LETTER_PREFIXED, CHECK_LONG_OPTION_LABEL].sort());
+  });
+
+  test("each check fires ONCE for the ask, not once per offending option", () => {
+    const matches = computeFormLintMatches({
+      kind: DECIDE,
+      question: CLEAN_QUESTION,
+      options: [
+        { label: `[a] ${"x".repeat(70)}` },
+        { label: `[b] ${"y".repeat(70)}` },
+        { label: `[c] ${"z".repeat(70)}` },
+      ],
+    });
+    expect(matches.filter((m) => m.check === CHECK_LONG_OPTION_LABEL)).toHaveLength(1);
+    expect(matches.filter((m) => m.check === CHECK_LETTER_PREFIXED)).toHaveLength(1);
+  });
+
+  test("the message carries the offending count so the producer knows the scope", () => {
+    const matches = computeFormLintMatches({
+      kind: DECIDE,
+      question: CLEAN_QUESTION,
+      options: [{ label: "x".repeat(70) }, { label: "y".repeat(70) }, { label: "fine" }],
+    });
+    expect(matches.find((m) => m.check === CHECK_LONG_OPTION_LABEL)?.message).toContain("2 option");
+  });
+
+  test("only the offending option in a mixed set drives the warning", () => {
+    const checks = computeFormLintMatches({
+      kind: DECIDE,
+      question: CLEAN_QUESTION,
+      options: [{ label: "Approve" }, { label: "[b] Deny" }],
+    }).map((m) => m.check);
+    expect(checks).toContain(CHECK_LETTER_PREFIXED);
+    expect(checks).not.toContain(CHECK_LONG_OPTION_LABEL);
+  });
+
+  test("an empty options array fires neither check", () => {
+    expect(computeFormWarnings({ kind: DECIDE, question: CLEAN_QUESTION, options: [] })).toEqual(
+      []
+    );
+  });
+
+  test("omitting options entirely behaves exactly as before (v1 back-compat)", () => {
+    const withoutField = computeFormLintMatches({ kind: DECIDE, question: CLEAN_QUESTION });
+    const withUndefined = computeFormLintMatches({
+      kind: DECIDE,
+      question: CLEAN_QUESTION,
+      options: undefined,
+    });
+    expect(withoutField).toEqual([]);
+    expect(withUndefined).toEqual([]);
+  });
+
+  test("option checks compose with the v1 question checks rather than replacing them", () => {
+    const checks = computeFormLintMatches({
+      kind: DECIDE,
+      question: "Run mcp__minsky__setup_github-app to proceed.",
+      options: [{ label: CORPUS_WORST_LABEL }],
+    })
+      .map((m) => m.check)
+      .sort();
+    expect(checks).toEqual(
+      [CHECK_INTERNAL_TOOL_ID, CHECK_LETTER_PREFIXED, CHECK_LONG_OPTION_LABEL].sort()
+    );
+  });
+});

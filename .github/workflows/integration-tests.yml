@@ -209,6 +209,107 @@ jobs:
           bun test --preload ./tests/setup.ts --timeout=60000 \
             tests/integration/postgres-pool-saturation.supabase.integration.test.ts
 
+  # mt#3349 — integration tests that need a REAL Postgres but NOT Supabase.
+  #
+  # Distinct from the `supabase` job above on purpose. That one is gated on the
+  # SUPABASE_INTEGRATION_BRANCH_URL secret because its test asserts on the
+  # `XX000 "max clients reached"` shape SUPAVISOR emits under pooler exhaustion
+  # — the pooler is its system under test. (That secret is currently unset, so
+  # the job never runs; see mt#3356.)
+  #
+  # Tests here need only ordinary Postgres semantics, so they run against a
+  # service container: free, no secret, and on EVERY pull request. Mirrors
+  # `.github/workflows/cold-start-migrate.yml`, which established this pattern.
+  postgres-service:
+    name: Integration (Postgres service container)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # pgvector image, matching cold-start-migrate.yml: the schema uses the
+        # `vector` type, so `persistence migrate` fails on vanilla postgres:16.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: minsky_test
+          POSTGRES_PASSWORD: minsky_test
+          POSTGRES_DB: minsky_integration
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Composed from parts so gitleaks doesn't flag a hardcoded URL with a
+      # password (same rationale as cold-start-migrate.yml). Test-only
+      # credentials with no reach outside this job's ephemeral container.
+      INTEGRATION_POSTGRES_URL: ${{ format('postgres://{0}:{1}@{2}:5432/{3}', 'minsky_test', 'minsky_test', 'localhost', 'minsky_integration') }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      - name: Cache Bun install
+        uses: actions/cache@v4
+        with:
+          path: $HOME/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock', 'services/reviewer/bun.lock') }}
+          restore-keys: |
+            bun-install-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --no-progress
+
+      - name: Apply migrations
+        # The tests write real rows, so the schema has to exist. Run from source
+        # rather than the bundle — this job is not testing bundle packaging
+        # (cold-start-migrate.yml owns that), so there is no reason to pay for a
+        # build here.
+        env:
+          MINSKY_PERSISTENCE_BACKEND: postgres
+          MINSKY_POSTGRES_URL: ${{ format('postgres://{0}:{1}@{2}:5432/{3}', 'minsky_test', 'minsky_test', 'localhost', 'minsky_integration') }}
+        run: bun src/cli.ts persistence migrate --execute
+
+      - name: Verify agent_transcripts table exists
+        # Belt-and-suspenders: if migrations silently no-op, the test below would
+        # fail with a confusing driver error instead of a clear one.
+        #
+        # Done in bun rather than `psql` (PR #2416 R2). `psql` IS present on
+        # today's ubuntu-latest — this step ran green with `count 0 (1 row)` in
+        # run 30564350726 before this change — but the runner image shipping a
+        # postgres client is not a contract, and this repo already has a real
+        # Postgres driver in the lockfile. `cold-start-migrate.yml` still uses
+        # `psql` for its equivalent assertion; the divergence is deliberate, and
+        # if that one ever breaks on a runner-image change, this is the pattern
+        # to move it to.
+        run: |
+          bun -e '
+            const postgres = (await import("postgres")).default;
+            const sql = postgres(process.env.INTEGRATION_POSTGRES_URL, { max: 1 });
+            try {
+              const [row] = await sql`SELECT count(*)::int AS n FROM agent_transcripts`;
+              console.log(`agent_transcripts present, ${row.n} rows`);
+            } catch (err) {
+              console.error("::error::agent_transcripts missing after migrate:", err.message);
+              process.exit(1);
+            } finally {
+              await sql.end({ timeout: 5 });
+            }
+          '
+
+      - name: Run Postgres-backed integration tests
+        env:
+          RUN_INTEGRATION_TESTS: "1"
+        run: |
+          bun test --preload ./tests/setup.ts --timeout=60000 \
+            tests/integration/transcript-metadata-fill-if-null.integration.test.ts
+
   docker-suite:
     name: Integration (Docker/testcontainer — manual only)
     # NOTE: `inputs.run_docker_suite == true` (boolean comparison) is correct

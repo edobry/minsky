@@ -89,7 +89,8 @@ Flags:
 
 - `--name <name>` — required. Also used as file prefix under `~/.config/minsky/`.
 - `--repo <owner/repo>` — required. Owner is matched against the install account during installation lookup.
-- `--permissions <k:v,...>` — optional. Default: `pull_requests:write,contents:read,metadata:read`.
+- `--permissions <k:v,...>` — optional. Default: `pull_requests:write,contents:write,metadata:read`
+  (`contents:write` is required for `session_commit`'s App-token push, mt#1477/mt#3210/mt#3218).
 - `--events <e1,e2,...>` — optional. Default: none.
 - `--webhook-url <url>` — optional. Prefills `hook_attributes.url` in the App manifest. Use this for webhook-driven Apps (reviewer, automation services). Without it, a placeholder URL is submitted (GitHub requires the field).
 - `--inactive` — optional. Creates the App with `hook_attributes.active=false`. Default: active. Use this for Apps that don't need webhooks (the `minsky-ai` implementer App). Note that GitHub's REST API has no endpoint to toggle `active` later, so choose correctly up front — the only remediation is a manual toggle in the App settings UI.
@@ -99,50 +100,47 @@ Flags:
 
 The same flags are accepted by `minsky setup github-app`, plus `--via {manifest|wizard}`, `--apiBaseUrl <url>`, and `--webBaseUrl <url>` (for GitHub Enterprise hosts when `--via wizard`).
 
-### Updating an existing App's events or permissions
+### Checking for permission/event drift against an existing App (`--update`)
 
-After an App is created, you can update its webhook event subscriptions and permissions without visiting the GitHub portal. The `--update` flag switches the command from creation mode to update mode, reading stored credentials and calling `PATCH /app`.
+GitHub's REST API has **no endpoint** to update an existing App's `default_permissions` or
+`default_events` — modifying an already-created App's registration
+([docs](https://docs.github.com/en/apps/maintaining-github-apps/modifying-a-github-app-registration))
+is exclusively a web-UI procedure, and even then a permission change is only a _request_: every
+account where the App is installed must separately accept it before it takes effect. There is
+nothing to automate here beyond detecting that a change is needed.
+
+`minsky setup github-app --update` reflects that: it reads the App's stored credentials, fetches
+its **current, live** configuration via `GET /app` (a read, which works), diffs it against the
+`--events`/`--permissions` you pass, and prints an actionable message — never a mutation.
 
 ```bash
-# Preview what would change (dry-run, no API mutation):
-minsky setup github-app \
-  --name minsky-reviewer \
-  --update \
-  --events pull_request,issue_comment
-
-# Apply the change:
+# Show drift between the App's live config and the requested settings:
 minsky setup github-app \
   --name minsky-reviewer \
   --update \
   --events pull_request,issue_comment \
-  --execute
-
-# Update permissions:
-minsky setup github-app \
-  --name minsky-reviewer \
-  --update \
-  --permissions pull_requests:write,contents:read,metadata:read \
-  --execute
-
-# Both events and permissions in a single call:
-minsky setup github-app \
-  --name minsky-reviewer \
-  --update \
-  --events pull_request,issue_comment \
-  --permissions pull_requests:write,contents:read \
-  --execute
+  --permissions pull_requests:write,contents:read,metadata:read
 ```
+
+If the live config already matches, the command reports "No changes." If it differs, the output
+names the specific field(s) that differ, the App's exact settings URL
+(`https://github.com/settings/apps/<slug>/permissions`), and the installation-acceptance step. Go
+make the change there — see [Manual: GitHub UI](#manual-github-ui) step 4 for the permission-level
+meanings.
 
 Update-mode flags:
 
-- `--update` — switch to update mode. Reads stored credentials from `<outputDir>/<name>.{pem,json}`.
-- `--execute` — apply the change. Without this flag, the command shows a dry-run preview (current vs proposed) and exits without calling the API.
-- `--events <e1,e2,...>` — new event subscription list (replaces the current list entirely).
-- `--permissions <k:v,...>` — new permissions map (replaces the current map entirely).
+- `--update` — switch to drift-check mode. Reads stored credentials from `<outputDir>/<name>.{pem,json}`.
+- `--events <e1,e2,...>` — event subscription list to compare against the live config.
+- `--permissions <k:v,...>` — permissions map to compare against the live config.
 - `--name <name>` — required. Identifies which stored credentials to use.
 - `--repo` is **not required** in update mode (the App already exists).
+- `--execute` — accepted for backward compatibility; has no effect (there is no API call to gate behind it).
 
-The command verifies the update by reading back from `GET /app` after the `PATCH` succeeds.
+**Detecting drift automatically:** `minsky config doctor` also runs this comparison for you when
+a GitHub App service account is configured (mt#3218) — a "GitHub App Permissions" diagnostic
+reads the App's live permissions the same way and warns with the same settings-URL-plus-specific-permission
+message if anything is missing, without you needing to invoke `--update` by hand.
 
 After the script exits, skip to §4 (configure Minsky). Sections 2 and 3 are automated; section 1 steps below are only needed if you prefer the UI path.
 
@@ -161,17 +159,36 @@ After the script exits, skip to §4 (configure Minsky). Sections 2 and 3 are aut
    | Permission | Access level |
    |---|---|
    | Pull requests | Read & write |
-   | Contents | Read-only |
+   | Contents | Read & write |
    | Metadata | Read-only (auto-included) |
 
-   > **Optional: CI rerun capability (mt#2775).** The base permission set above does not
-   > include Actions. If you want to use `forge_ci_run_rerun` (the MCP/CLI tool that re-runs a
-   > GitHub Actions workflow run — see `src/adapters/shared/commands/forge.ts`), also grant
-   > **Actions: Read and write** under Repository permissions, either at creation time or later
-   > via "Updating an existing App's events or permissions" above
-   > (`--permissions pull_requests:write,contents:read,actions:write`). Without it, the tool
-   > returns a structured error naming the missing permission (403 "Resource not accessible by
-   > integration") rather than failing silently.
+   > **Why Contents is Read & write by default (mt#1477, mt#3210, mt#3218).** `session_commit`'s
+   > git push injects the App installation token as an HTTP Authorization header so the push
+   > authenticates as the App (pushes authenticated as the App reliably trigger `pull_request`
+   > workflows; keychain-credentialed pushes may not). That push needs **Contents: Read & write**
+   > to succeed — with `Contents: Read-only`, every App-token push is denied (403 "Permission ...
+   > denied to `<app-slug>`[bot]"), deterministically, regardless of token freshness. This was the
+   > manifest-flow's default for `minsky setup github-app` until mt#3218 (tracked as mt#3210's
+   > upstream cause); it is now `Read & write` in both places. `session_commit` still detects a
+   > denial and automatically retries via system keychain credentials as a safety net — so a
+   > misconfigured App degrades gracefully rather than surfacing a failed push — but you lose the
+   > App identity and the CI-trigger reliability mt#1477 exists for on that fallback path.
+   >
+   > **Downgrading to Read-only.** If this App only creates PRs and posts reviews via the REST API
+   > and never runs `session_commit` against it (e.g. a pure review-only service account),
+   > `Contents: Read-only` is sufficient and reduces the App's blast radius. There is no API to
+   > change this after creation (see [Checking for permission/event
+   > drift](#checking-for-permissionevent-drift-against-an-existing-app---update) above) — decide
+   > at creation time, or change it later at `https://github.com/settings/apps/<slug>/permissions`
+   > (the installing account must then accept the new permission set).
+   >
+   > **Optional: CI rerun capability (mt#2775).** The permission set above does not include
+   > Actions. If you want to use `forge_ci_run_rerun` (the MCP/CLI tool that re-runs a GitHub
+   > Actions workflow run — see `src/adapters/shared/commands/forge.ts`), also grant **Actions:
+   > Read and write** under Repository permissions. This can only be set at creation time or via
+   > the settings UI (`https://github.com/settings/apps/<slug>/permissions`) — there is no update
+   > API. Without it, the tool returns a structured error naming the missing permission (403
+   > "Resource not accessible by integration") rather than failing silently.
 
 5. **Where can this GitHub App be installed?**
 
@@ -368,7 +385,7 @@ GitHub App names are globally unique on github.com. Each deployment (individual 
 To set up a private deployment:
 
 1. Each deployment operator creates their own App at [https://github.com/settings/apps/new](https://github.com/settings/apps/new) with a unique name (e.g., `minsky-yourorg`).
-2. Configure the same permissions as listed in [Create the GitHub App](#1-create-the-github-app): pull requests (read & write), contents (read-only).
+2. Configure the same permissions as listed in [Create the GitHub App](#1-create-the-github-app): pull requests (read & write), contents (read & write).
 3. Install the App on the repositories the deployment will manage.
 4. Provide the App ID, private key file path, and installation ID to Minsky via the config file or environment variables described in [Configure Minsky](#4-configure-minsky).
 

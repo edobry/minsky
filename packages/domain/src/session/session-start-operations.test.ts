@@ -10,6 +10,15 @@ import { FakeTaskService } from "../tasks/fake-task-service";
 import { FakeWorkspaceUtils } from "../workspace/fake-workspace-utils";
 import { first } from "@minsky/shared/array-safety";
 
+// mt#3106: the --recover path now routes through the guarded delete, whose
+// live-actor gate would fail-closed in these provider-less fixtures. Existing
+// tests stub it not-live so they exercise their own concern; the mt#3106
+// describe block below overrides it per-case.
+const notLiveActor = async () => ({
+  verdict: "not-live" as const,
+  reason: "test: nobody live",
+});
+
 function createDeps(repoUrl: string): StartSessionDependencies & {
   addSessionSpy: ReturnType<typeof mock>;
 } {
@@ -53,6 +62,7 @@ function createDeps(repoUrl: string): StartSessionDependencies & {
     taskService,
     workspaceUtils,
     getRepositoryBackend,
+    resolveActor: notLiveActor,
     addSessionSpy,
   } as unknown as StartSessionDependencies & { addSessionSpy: ReturnType<typeof mock> };
 }
@@ -171,5 +181,347 @@ describe("startSessionImpl -> session.list integration (mt#2697 acceptance test)
     const found = await sessionDB.listSessions({ taskId: "md#999" });
     expect(found).toHaveLength(1);
     expect(found[0]?.taskId).toBe("md#999");
+  });
+});
+
+// mt#2895: an interrupted `session_start` leaves a CREATED-state session with no
+// workspace activity. The non-recover error tells the operator to re-run with
+// `--recover`; the report was that doing so returned the IDENTICAL error.
+//
+// `deriveSessionLiveness` falls back to `createdAt` when `lastActivityAt` is
+// absent, so a CREATED record older than the 2h stale threshold does classify as
+// `stale` — which is the branch `--recover` acts on. These tests pin that the
+// suggestion the error prints is actually true.
+const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
+const ABANDONED_SESSION_ID = "abandoned-created-session-mt2895";
+
+function buildAbandonedCreatedSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
+  // Not a path: liveness is time-derived (deriveSessionLiveness compares against
+  // now), so the fixture must express an age relative to the current clock rather
+  // than a fixed literal.
+  // eslint-disable-next-line custom/no-real-fs-in-tests
+  const longAgo = new Date(Date.now() - THREE_HOURS_MS).toISOString();
+  return {
+    sessionId: ABANDONED_SESSION_ID,
+    repoName: "owner-repo",
+    repoUrl: "https://github.com/owner/repo.git",
+    createdAt: longAgo,
+    taskId: "md#999",
+    status: SessionStatus.CREATED,
+    // The defining shape of the incident: the interrupted start created the
+    // record but never recorded any activity against it.
+    lastActivityAt: undefined,
+    projectId: undefined,
+    ...overrides,
+  };
+}
+
+describe("startSessionImpl - recover on an abandoned CREATED-state session (mt#2895)", () => {
+  it("without --recover, reports the session as abandoned and suggests --recover", async () => {
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [buildAbandonedCreatedSession()],
+    });
+    const deps: StartSessionDependencies = {
+      ...createDeps("https://github.com/owner/repo.git"),
+      sessionDB,
+    };
+    const params = { task: "md#999" } as unknown as SessionStartParameters;
+
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/appears abandoned/);
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/--recover/);
+  });
+
+  it("with --recover, succeeds in ONE call: the stale record is gone and a NEW session exists", async () => {
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [buildAbandonedCreatedSession()],
+    });
+    const deps: StartSessionDependencies = {
+      ...createDeps("https://github.com/owner/repo.git"),
+      sessionDB,
+    };
+    const params = { task: "md#999", recover: true } as unknown as SessionStartParameters;
+
+    const result = await startSessionImpl(params, deps);
+
+    // A NEW session, not the abandoned one.
+    expect(result.sessionId).not.toBe(ABANDONED_SESSION_ID);
+
+    // Exactly one session for the task, and it is the new one — the abandoned
+    // record was removed rather than left alongside it.
+    const found = await sessionDB.listSessions({ taskId: "md#999" });
+    expect(found).toHaveLength(1);
+    expect(found[0]?.sessionId).toBe(result.sessionId);
+  });
+
+  it("the suggestion the non-recover error prints is the call that actually works", async () => {
+    // Pins the two branches against each other: whatever the error tells the
+    // operator to run must not itself fail. This is the criterion mt#2895
+    // named ("the non-recover error's suggested command remains accurate").
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [buildAbandonedCreatedSession()],
+    });
+    const deps: StartSessionDependencies = {
+      ...createDeps("https://github.com/owner/repo.git"),
+      sessionDB,
+    };
+
+    let suggested = "";
+    try {
+      await startSessionImpl({ task: "md#999" } as unknown as SessionStartParameters, deps);
+    } catch (err) {
+      suggested = err instanceof Error ? err.message : String(err);
+    }
+    expect(suggested).toContain("--recover");
+
+    await startSessionImpl(
+      { task: "md#999", recover: true } as unknown as SessionStartParameters,
+      deps
+    );
+  });
+});
+
+// mt#3166: `--recover` used to be read ONLY inside the "a session record exists"
+// branch. For a task with no record it was silently ignored, and the call
+// degraded into an ordinary fresh session branched off main — wearing the name
+// of a recovery. These tests pin the three-case contract:
+//   no record + no branch  -> refuse
+//   no record + branch     -> recover FROM the branch
+//   stale record + branch  -> recover FROM the branch (not main)
+const REMOTE_BRANCH_LS_OUTPUT = "abc123\trefs/heads/task/md-999\n";
+const ORIGIN_TRACKING_REF = "origin/task/md-999";
+
+/**
+ * Wire a git service whose `execInRepository` answers the remote probe the way
+ * the test wants and records every command, so assertions can check WHICH git
+ * commands the recovery path actually ran.
+ */
+function createDepsWithRemote(options: {
+  branchOnRemote: boolean;
+  probeThrows?: boolean;
+}): StartSessionDependencies & { commands: string[] } {
+  const deps = createDeps("https://github.com/owner/repo.git");
+  const commands: string[] = [];
+
+  (deps.gitService as { execInRepository: unknown }).execInRepository = vi.fn(
+    async (_workdir: string, command: string) => {
+      commands.push(command);
+      if (command.includes("ls-remote")) {
+        if (options.probeThrows) throw new Error("fatal: could not read from remote repository");
+        return options.branchOnRemote ? REMOTE_BRANCH_LS_OUTPUT : "";
+      }
+      // Keep the reference-clone auto-detect from binding a referenceRepo.
+      return "";
+    }
+  );
+
+  return Object.assign(deps, { commands });
+}
+
+describe("startSessionImpl - --recover honors or refuses on every path (mt#3166)", () => {
+  it("refuses when there is NEITHER a session record NOR a remote branch", async () => {
+    const deps = createDepsWithRemote({ branchOnRemote: false });
+    const params = { task: "md#999", recover: true } as unknown as SessionStartParameters;
+
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/Nothing to recover/);
+    // The refusal names the likeliest real cause rather than implying a fault.
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/already be merged/);
+  });
+
+  it("creates NO session when it refuses", async () => {
+    const sessionDB = new FakeSessionProvider();
+    const deps: StartSessionDependencies = {
+      ...createDepsWithRemote({ branchOnRemote: false }),
+      sessionDB,
+    };
+    const params = { task: "md#999", recover: true } as unknown as SessionStartParameters;
+
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/Nothing to recover/);
+    expect(await sessionDB.listSessions({ taskId: "md#999" })).toHaveLength(0);
+  });
+
+  it("recovers FROM the remote branch when one exists (fetch from origin + checkout, not a fresh branch)", async () => {
+    const deps = createDepsWithRemote({ branchOnRemote: true });
+    const params = { task: "md#999", recover: true } as unknown as SessionStartParameters;
+
+    await startSessionImpl(params, deps);
+
+    const fetched = deps.commands.find((c) => c.startsWith("git fetch"));
+    const checkedOut = deps.commands.find((c) => c.includes("checkout -b"));
+    expect(fetched).toBeDefined();
+    expect(fetched).toContain("refs/heads/task/md-999");
+    // Fetch goes through `origin`, which carries the clone's credentials — a
+    // bare-URL fetch would re-authenticate from scratch and fail on a private
+    // repo (PR #2299 R1).
+    expect(fetched).toContain("origin");
+    expect(fetched).not.toContain("https://");
+    expect(checkedOut).toContain(ORIGIN_TRACKING_REF);
+
+    // Upstream is configured, so a later push/PR from this session targets the
+    // branch it was recovered from instead of erroring on a missing upstream.
+    // Matched in two parts because the ref is shell-quoted.
+    const upstream = deps.commands.find((c) => c.includes("--set-upstream-to="));
+    expect(upstream).toBeDefined();
+    expect(upstream).toContain(ORIGIN_TRACKING_REF);
+
+    // The plain "branch off whatever the clone landed on" path is NOT used —
+    // that is precisely the silent substitution this task removes.
+    expect(
+      (deps.gitService.branchWithoutSession as ReturnType<typeof mock>).mock.calls
+    ).toHaveLength(0);
+  });
+
+  it("recovers from the remote branch even when a stale session record also exists", async () => {
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [buildAbandonedCreatedSession()],
+    });
+    const deps: StartSessionDependencies & { commands: string[] } = Object.assign(
+      createDepsWithRemote({ branchOnRemote: true }),
+      { sessionDB }
+    );
+    const params = { task: "md#999", recover: true } as unknown as SessionStartParameters;
+
+    await startSessionImpl(params, deps);
+
+    expect(deps.commands.some((c) => c.includes(ORIGIN_TRACKING_REF))).toBe(true);
+    // The abandoned record was cleared, not left beside the new session.
+    const found = await sessionDB.listSessions({ taskId: "md#999" });
+    expect(found).toHaveLength(1);
+    expect(found[0]?.sessionId).not.toBe(ABANDONED_SESSION_ID);
+  });
+
+  it("branches off main (no fetch) when a record exists but the branch does not — the mt#2895 shape", async () => {
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [buildAbandonedCreatedSession()],
+    });
+    const deps: StartSessionDependencies & { commands: string[] } = Object.assign(
+      createDepsWithRemote({ branchOnRemote: false }),
+      { sessionDB }
+    );
+    const params = { task: "md#999", recover: true } as unknown as SessionStartParameters;
+
+    await startSessionImpl(params, deps);
+
+    // Nothing to fetch — this is "clear the abandoned record and start over".
+    expect(deps.commands.some((c) => c.startsWith("git fetch"))).toBe(false);
+    expect(
+      (deps.gitService.branchWithoutSession as ReturnType<typeof mock>).mock.calls.length
+    ).toBeGreaterThan(0);
+  });
+
+  it("refuses --recover without a task, rather than silently ignoring it", async () => {
+    const deps = createDepsWithRemote({ branchOnRemote: false });
+    const params = {
+      sessionId: "some-session",
+      recover: true,
+    } as unknown as SessionStartParameters;
+
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/--recover requires --task/);
+  });
+
+  it("a FAILED probe refuses distinctly — it is not reported as 'nothing to recover'", async () => {
+    // Treating an unreachable remote as "branch absent" would refuse a recovery
+    // that should have succeeded, so the probe fails closed with its own message.
+    const deps = createDepsWithRemote({ branchOnRemote: false, probeThrows: true });
+    const params = { task: "md#999", recover: true } as unknown as SessionStartParameters;
+
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/Could not determine whether/);
+    await expect(startSessionImpl(params, deps)).rejects.not.toThrow(/Nothing to recover/);
+  });
+
+  it("does not probe the remote at all when --recover is absent", async () => {
+    const deps = createDepsWithRemote({ branchOnRemote: true });
+    const params = { task: "md#999" } as unknown as SessionStartParameters;
+
+    await startSessionImpl(params, deps);
+
+    expect(deps.commands.some((c) => c.includes("ls-remote"))).toBe(false);
+  });
+});
+
+// mt#3106: the recover-path delete is GUARDED — it inherits mt#3105's
+// live-actor gate (ask#6273 four-branch semantics) and mt#3021's git-state
+// guard by routing through deleteSessionImpl instead of the raw
+// sessionDB.deleteSession. deriveSessionLiveness (which classified the record
+// stale) is a pre-filter only, never the authorizer.
+describe("startSessionImpl - --recover routes through the guarded delete (mt#3106)", () => {
+  const liveActor = async () => ({
+    verdict: "live" as const,
+    reason: "actor live-actor-3 (pid 555, alive) refreshed recently at 2026-07-29T04:00:00.000Z",
+    actorId: "live-actor-3",
+    lastRefreshedAt: "2026-07-29T04:00:00.000Z",
+  });
+
+  it("AT1: refuses recovery when the stale-by-lastActivityAt session has a LIVE actor; the record survives and the raw delete is never reached", async () => {
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [buildAbandonedCreatedSession()],
+    });
+    const deleteSpy = mock(sessionDB.deleteSession.bind(sessionDB));
+    sessionDB.deleteSession = deleteSpy;
+    const deps: StartSessionDependencies & { commands: string[] } = Object.assign(
+      createDepsWithRemote({ branchOnRemote: true }),
+      { sessionDB, resolveActor: liveActor }
+    );
+    const params = { task: "md#999", recover: true } as unknown as SessionStartParameters;
+
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/Cannot recover session/);
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/live-actor-3/);
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/--override-reason/);
+
+    // The abandoned-looking record was NOT deleted — neither via the guarded
+    // route (it refused) nor via the removed raw call (AT3).
+    expect(deleteSpy).not.toHaveBeenCalled();
+    expect(await sessionDB.getSession(ABANDONED_SESSION_ID)).not.toBeNull();
+  });
+
+  it("fail-closed default: with no resolveActor seam and no db, recovery of a non-terminal record refuses (store-unavailable)", async () => {
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [buildAbandonedCreatedSession()],
+    });
+    const base = createDepsWithRemote({ branchOnRemote: true });
+    // Remove the fixture-level stub so the REAL primitive path runs with no
+    // presence access at all.
+    const { resolveActor: _omitted, ...withoutActor } = base as StartSessionDependencies & {
+      commands: string[];
+    };
+    const deps = { ...withoutActor, sessionDB } as unknown as StartSessionDependencies;
+    const params = { task: "md#999", recover: true } as unknown as SessionStartParameters;
+
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/presence store unavailable/);
+    expect(await sessionDB.getSession(ABANDONED_SESSION_ID)).not.toBeNull();
+  });
+
+  it("production shape (R1): with persistence WIRED and no claims on record, the gate abstains (no-claim) and legacy recovery proceeds without an override", async () => {
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [buildAbandonedCreatedSession()],
+    });
+    const base = createDepsWithRemote({ branchOnRemote: true });
+    const { resolveActor: _omitted, ...withoutActor } = base as StartSessionDependencies & {
+      commands: string[];
+    };
+    // A drizzle-shaped fake whose claims query returns ZERO rows — the
+    // dominant legacy population (claim mechanism began 2026-07-16). Wired
+    // through the SAME provider carrier the production session.start command
+    // resolves its db from (basic-commands.ts, mt#2416).
+    const emptyClaimsDb = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            orderBy: async () => [],
+          }),
+        }),
+      }),
+    };
+    const deps = {
+      ...withoutActor,
+      sessionDB,
+      persistenceProvider: { getDatabaseConnection: async () => emptyClaimsDb },
+    } as unknown as StartSessionDependencies;
+    const params = { task: "md#999", recover: true } as unknown as SessionStartParameters;
+
+    const result = await startSessionImpl(params, deps);
+
+    // ask#6273 branch 3: no claim on record → abstain → the recovery proceeds.
+    expect(result.sessionId).not.toBe(ABANDONED_SESSION_ID);
+    expect(await sessionDB.getSession(ABANDONED_SESSION_ID)).toBeNull();
   });
 });

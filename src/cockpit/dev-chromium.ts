@@ -328,9 +328,7 @@ export async function ensureDevChromiumRunning(
 
   // 3. Ensure user-data-dir exists.
   try {
-    if (!fs.existsSync(userDataDir)) {
-      fs.mkdirSync(userDataDir, { recursive: true });
-    }
+    fs.mkdirSync(userDataDir, { recursive: true });
   } catch (err) {
     const e = err as Error;
     warn(`Cockpit dev chromium: failed to create user-data-dir ${userDataDir}: ${e.message}`);

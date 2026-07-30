@@ -68,7 +68,9 @@ export function registerTranscriptCommands(
       "Ingest agent conversation transcripts into the agent_transcripts table. " +
       "Pass --all to sweep every discoverable conversation, or --conversationId=<uuid> to " +
       "target one (the legacy --session alias is also accepted). " +
-      "Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged.",
+      "Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged. " +
+      "--ended (single-session mode, SessionEnd hook ONLY) marks the ingest as carrying " +
+      "positive termination evidence so endedAt is recorded; routine sweeps must omit it.",
     parameters: {
       all: {
         schema: z.boolean(),
@@ -84,11 +86,22 @@ export function registerTranscriptCommands(
         required: false,
         defaultValue: "claude_code",
       },
+      ended: {
+        schema: z.boolean(),
+        description:
+          "mt#3131 (D2): mark this ingest as carrying positive evidence the session has " +
+          "terminated (the harness's own SessionEnd event) — ONLY the SessionEnd hook should " +
+          "pass this. A routine sweep/poll must omit it, or `endedAt` will falsely assert " +
+          "termination for a still-running conversation. Single-session mode only.",
+        required: false,
+        defaultValue: false,
+      },
     },
     async execute(params, context): Promise<TranscriptIngestResult> {
       const doAll = (params.all as boolean | undefined) ?? false;
       const sessionId = resolveConversationId(params);
       const harness = (params.harness as string | undefined) ?? "claude_code";
+      const sessionEnded = (params.ended as boolean | undefined) ?? false;
 
       if (!doAll && !sessionId) {
         throw new Error(
@@ -167,10 +180,11 @@ export function registerTranscriptCommands(
       }
 
       try {
-        const result = await svc.ingestSession(found);
+        const result = await svc.ingestSession(found, { sessionEnded });
         log.info(`transcripts.ingest --session=${sessionId} complete`, {
           ingested: result.ingested,
           harness,
+          sessionEnded,
           ...(result.error ? { swallowedError: getErrorMessage(result.error) } : {}),
         });
         return {

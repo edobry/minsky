@@ -60,29 +60,40 @@ export async function analyzeBranchDivergenceImpl(
         baseBranch,
         sessionBranch,
       });
-      return {
-        sessionBranch,
-        baseBranch,
-        aheadCommits: 0,
-        behindCommits: 0,
-        lastCommonCommit: "",
-        sessionChangesInBase: false,
-        divergenceType: "none" as const,
-        recommendedAction: "none" as const,
-      };
+      // mt#3220: "undeterminable", NOT "converged". Returning zeros and
+      // `divergenceType: "none"` here made a failed measurement indistinguishable
+      // from a verified-identical pair, and `smartSessionUpdate` acts on exactly
+      // that value — it would skip the update with the reason "No update needed -
+      // session is current or ahead" without ever having compared anything.
+      return unknownDivergence(sessionBranch, baseBranch);
     }
 
     const aheadBehind = String(result.stdout);
     const [behindStr, aheadStr] = aheadBehind.trim().split("\t");
-    const behind = Number(behindStr) || 0;
-    const ahead = Number(aheadStr) || 0;
+    const behind = parseCount(behindStr);
+    const ahead = parseCount(aheadStr);
+
+    // mt#3220: `Number(x) || 0` turned both NaN (unparseable) and a missing
+    // field into a confident 0. An output shape we do not understand is not a
+    // measurement of zero divergence.
+    if (behind === null || ahead === null) {
+      deps.log.warn("Git rev-list output did not parse as an ahead/behind pair", {
+        stdout: aheadBehind,
+        repoPath,
+        baseBranch,
+        sessionBranch,
+      });
+      return unknownDivergence(sessionBranch, baseBranch);
+    }
 
     // Get last common commit
     const commonCommitResult = await deps.execAsync(
       `git -C ${qRepoPath} merge-base ${baseBranch} ${sessionBranch}`
     );
 
-    const commonCommit = commonCommitResult?.stdout?.toString().trim() || "";
+    // mt#3220: null, not "" — an empty string is the same "looks like an answer"
+    // ambiguity for a commit id that 0 was for the counts.
+    const commonCommit = commonCommitResult?.stdout?.toString().trim() || null;
 
     // Check if session changes are already in base
     const sessionChangesInBase = await checkSessionChangesInBase(
@@ -129,6 +140,49 @@ export async function analyzeBranchDivergenceImpl(
     });
     throw error;
   }
+}
+
+/**
+ * Parses one side of `git rev-list --left-right --count` output.
+ *
+ * Returns null rather than 0 for anything that is not a non-negative integer
+ * (mt#3220). The previous `Number(x) || 0` mapped `undefined` (field absent) and
+ * `NaN` (garbage) onto the same value a genuinely-zero count produces, so an
+ * output shape we do not understand was reported as "no divergence."
+ *
+ * Exported for tests.
+ */
+export function parseCount(raw: string | undefined): number | null {
+  if (raw === undefined) return null;
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const n = Number(trimmed);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+/**
+ * The result for a comparison that could not be made (mt#3220).
+ *
+ * `divergenceType: "unknown"` + `recommendedAction: "manual_review"` — never
+ * `"none"`, which asserts the branches ARE converged and causes
+ * `smartSessionUpdate` to skip with "No update needed."
+ *
+ * Exported for tests.
+ */
+export function unknownDivergence(
+  sessionBranch: string,
+  baseBranch: string
+): BranchDivergenceAnalysis {
+  return {
+    sessionBranch,
+    baseBranch,
+    aheadCommits: null,
+    behindCommits: null,
+    lastCommonCommit: null,
+    sessionChangesInBase: false,
+    divergenceType: "unknown",
+    recommendedAction: "manual_review",
+  };
 }
 
 /**

@@ -30,6 +30,7 @@ import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
+import { EntityRef } from "../components/EntityRef";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { formatRequestor, formatRequestorOption } from "../lib/entity-labels";
 import {
@@ -39,8 +40,10 @@ import {
   isStanding,
   STANDING_ASK_BUDGET,
   type AskGroup,
+  type InlineAction,
 } from "../lib/ask-groups";
 import { cn } from "../lib/utils";
+import { stripOptionLetterPrefix } from "@minsky/shared/ask-option-label";
 import {
   fetchAsks,
   resolveAsk,
@@ -53,6 +56,13 @@ import {
   type AskItem,
   type AsksListResponse,
 } from "../widgets/AskDetail";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 
 // ---------------------------------------------------------------------------
 // Filter / sort types — filters apply to ASKS, sort + pagination to GROUPS.
@@ -124,6 +134,75 @@ function RequestorCell({
 }
 
 // ---------------------------------------------------------------------------
+// Inline action bar — the ask's own typed actions (mt#2882).
+//
+// Option labels are producer-supplied and routinely 40-60 chars ("[a] GitHub
+// Actions migrate-on-merge (recommended)"), so this bar CANNOT share the
+// title line: three of them need ~860px against a row width of ~970px, which
+// is what pushed Defer and the open-detail affordance off-screen and squeezed
+// the title button to zero width (mt#3246). It wraps within its own band
+// instead, and each label is width-capped with the full text on hover so one
+// pathological label can't reintroduce the overflow.
+// ---------------------------------------------------------------------------
+
+const ACTION_LABEL_MAX_W = "max-w-[22rem]";
+
+function InlineActionBar({
+  ask,
+  actions,
+  inline,
+  pending,
+}: {
+  ask: AskItem;
+  actions: InlineAskActions;
+  inline: InlineAction[];
+  pending: boolean;
+}) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1">
+      {inline.map((a) =>
+        a.action === "resolve" ? (
+          <Button
+            key={a.label}
+            size="sm"
+            variant={a.optionLetter === "A" ? "default" : "outline"}
+            className={cn("h-6 min-w-0 px-2 text-xs", ACTION_LABEL_MAX_W)}
+            disabled={pending}
+            title={optionTitle(ask, a)}
+            onClick={() =>
+              actions.resolveMutation.mutate({ ask, optionLetter: a.optionLetter ?? "A" })
+            }
+          >
+            <span className="truncate">{stripOptionLetterPrefix(a.label)}</span>
+          </Button>
+        ) : (
+          <Button
+            key={a.label}
+            size="sm"
+            variant="ghost"
+            className="h-6 flex-shrink-0 px-2 text-xs"
+            disabled={pending}
+            onClick={() => actions.deferMutation.mutate(ask.id)}
+          >
+            {a.label}
+          </Button>
+        )
+      )}
+    </div>
+  );
+}
+
+/** Hover text for an option button: the label (which may be truncated on
+ *  screen) plus its description when the producer supplied one. Carries the
+ *  normalized label, matching what the button shows — the tooltip's job is to
+ *  un-truncate the visible text, not to reintroduce a stripped prefix. */
+function optionTitle(ask: AskItem, a: InlineAction): string {
+  const description = ask.options?.[(a.optionLetter ?? "A").charCodeAt(0) - 65]?.description;
+  const label = stripOptionLetterPrefix(a.label);
+  return description ? `${label} — ${description}` : label;
+}
+
+// ---------------------------------------------------------------------------
 // One ask row — badge, title, inline actions, expandable question.
 // ---------------------------------------------------------------------------
 
@@ -159,7 +238,7 @@ function AskRow({
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
           aria-label={expanded ? "Collapse question" : "Expand question"}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+          className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
         >
           {expanded ? (
             <ChevronDown aria-hidden className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
@@ -214,80 +293,94 @@ function AskRow({
           {formatRelative(ask.createdAt)}
         </span>
 
-        {/* Inline actions — answer from here (act-here over navigate-away). */}
-        <div className="flex flex-shrink-0 items-center gap-1">
-          {inline.map((a) =>
-            a.action === "resolve" ? (
-              <Button
-                key={a.label}
-                size="sm"
-                variant={a.optionLetter === "A" ? "default" : "outline"}
-                className="h-6 px-2 text-xs"
-                disabled={pending}
-                title={
-                  ask.options?.[(a.optionLetter ?? "A").charCodeAt(0) - 65]?.description ??
-                  undefined
-                }
-                onClick={() =>
-                  actions.resolveMutation.mutate({ ask, optionLetter: a.optionLetter ?? "A" })
-                }
-              >
-                {a.label}
-              </Button>
-            ) : (
-              <Button
-                key={a.label}
-                size="sm"
-                variant="ghost"
-                className="h-6 px-2 text-xs"
-                disabled={pending}
-                onClick={() => actions.deferMutation.mutate(ask.id)}
-              >
-                {a.label}
-              </Button>
-            )
-          )}
-          <button
-            type="button"
-            aria-label={`Open ask ${ask.shortId ?? ask.id}`}
-            title="Full detail (context, escalate)"
-            onClick={() => navigate(`/ask/${encodeURIComponent(ask.id)}`)}
-            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <ExternalLink aria-hidden className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        {/* Navigation, not a decision — anchored at the row's right edge so
+            full detail is reachable from a fixed position on every row. */}
+        <button
+          type="button"
+          aria-label={`Open ask ${ask.shortId ?? ask.id}`}
+          title="Full detail (context, escalate)"
+          onClick={() => navigate(`/ask/${encodeURIComponent(ask.id)}`)}
+          className="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ExternalLink aria-hidden className="h-3.5 w-3.5" />
+        </button>
       </div>
 
-      {/* Collapsed consequence line (PR #2027 R2): the question's lead
-          sentence — what this decision DOES — readable without expansion. */}
+      {/* Consequence + actions share one band, consequence FIRST: what the
+          decision does is read before it is taken. Short action sets (Approve
+          / Deny / Defer) sit on the consequence's line, so a row that already
+          fit keeps its two-line height; a long option set wraps beneath it
+          rather than overflowing the card (mt#3246). */}
       {!expanded && (
-        <p className="truncate px-9 pb-1.5 text-xs text-muted-foreground">
-          {consequenceSnippet(ask.question)}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 pb-2 pl-9">
+          {/* Collapsed consequence line (PR #2027 R2): the question's lead
+              sentence — what this decision DOES — readable without expansion.
+              `basis-64` is what makes the band wrap correctly: flex line
+              breaking uses the flex BASE size, so a zero-basis consequence
+              would let a 900px action bar share its line and collapse it to an
+              ellipsis. Declaring 16rem of wanted width means the actions wrap
+              below whenever they'd starve it, while still shrinking (min-w-0)
+              on a narrow window. */}
+          <p className="min-w-0 flex-1 basis-64 truncate text-xs text-muted-foreground">
+            {consequenceSnippet(ask.question)}
+          </p>
+          <InlineActionBar ask={ask} actions={actions} inline={inline} pending={pending} />
+        </div>
       )}
 
       {/* Expanded: the full question + option descriptions — the decision is
-          readable here, without opening the detail page. */}
+          readable here, without opening the detail page. Actions follow the
+          question so the expanded read order is question → options → act. */}
       {expanded && (
-        <div className="border-t border-border/60 px-9 py-2 text-sm text-muted-foreground">
-          <p className="whitespace-pre-wrap">{ask.question}</p>
-          {ask.options && ask.options.length > 0 && (
-            <ul className="mt-2 space-y-1">
-              {ask.options.map((opt, i) => (
-                <li key={`${opt.label}-${i}`} className="text-xs">
-                  <span className="font-medium text-foreground">
-                    {String.fromCharCode(65 + i)}. {opt.label}
-                  </span>
-                  {opt.description && <span className="ml-1">— {opt.description}</span>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <>
+          <div className="border-t border-border/60 px-9 py-2 text-sm text-muted-foreground">
+            <p className="whitespace-pre-wrap">{ask.question}</p>
+            {ask.options && ask.options.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {ask.options.map((opt, i) => (
+                  <li key={`${opt.label}-${i}`} className="text-xs">
+                    <span className="font-medium text-foreground">
+                      {/* This surface renders the letter, so a producer's own
+                          "B — " / "[b] " prefix would double it (mt#3253). */}
+                      {String.fromCharCode(65 + i)}. {stripOptionLetterPrefix(opt.label)}
+                    </span>
+                    {opt.description && <span className="ml-1">— {opt.description}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="px-3 pb-2 pl-9">
+            <InlineActionBar ask={ask} actions={actions} inline={inline} pending={pending} />
+          </div>
+        </>
       )}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Group subject badge — the shared work anchor for a decision group.
+// Mixed id-space (ask-groups.ts `askSubject`): `group.subject` may be an
+// `mt#N` Minsky task ref, a `gh#N` GitHub issue ref, or another
+// producer-supplied string. <EntityRef> assumes a known RoutableEntityType,
+// so only the `mt#N` case is safe to route through it — sniffed with an
+// explicit, narrow regex rather than a generic "looks like an id" heuristic.
+// Anything else (including `gh#N`) stays plain text: a mis-sniffed `gh#`
+// rendered as a broken Minsky link would be worse than not linking at all
+// (mt#3187).
+// ---------------------------------------------------------------------------
+const MT_TASK_SUBJECT_RE = /^mt#\d+$/;
+
+export function GroupSubjectBadge({ subject }: { subject: string }) {
+  if (MT_TASK_SUBJECT_RE.test(subject)) {
+    return (
+      <EntityRef type="task" id={subject} className="text-xs">
+        {subject}
+      </EntityRef>
+    );
+  }
+  return <span className="font-mono text-xs text-muted-foreground">{subject}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,18 +396,16 @@ function GroupCard({ group, actions }: { group: AskGroup; actions: InlineAskActi
   const ks = kindStyle(group.kind);
   return (
     <div className="rounded-md border border-border bg-card/60">
-      <div className="flex items-center gap-2 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
         <span
           className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${ks.badge}`}
         >
           {ks.priority}
         </span>
-        <span className="text-sm font-medium text-foreground">
+        <span className="truncate text-sm font-medium text-foreground">
           {group.asks.length} × {group.kind}
         </span>
-        {group.subject && (
-          <span className="font-mono text-xs text-muted-foreground">{group.subject}</span>
-        )}
+        {group.subject && <GroupSubjectBadge subject={group.subject} />}
         {group.standingCount > 0 && (
           <span className="rounded bg-warn-amber/30 px-1.5 py-0.5 text-xs text-foreground tabular-nums">
             {group.standingCount} standing
@@ -425,9 +516,7 @@ export function AsksPage() {
             <span
               className={cn(
                 "ml-2 rounded px-1.5 py-0.5 text-xs tabular-nums",
-                overBudget
-                  ? "bg-warn-amber/40 text-foreground"
-                  : "bg-muted text-muted-foreground"
+                overBudget ? "bg-warn-amber/40 text-foreground" : "bg-muted text-muted-foreground"
               )}
               title={`Asks open >24h. Standing budget: ${STANDING_ASK_BUDGET} (ISA-18.2 standing-alarm ceiling) — above it the QUEUE is unhealthy, independent of any single ask.`}
             >
@@ -436,63 +525,75 @@ export function AsksPage() {
           )}
         </h1>
 
-        <div className="flex items-center gap-2">
-          <select
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
             value={controls.filters.kind}
-            onChange={(e) => controls.setFilter("kind", e.target.value)}
-            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
-            aria-label="Filter by kind"
+            onValueChange={(v) => controls.setFilter("kind", v)}
           >
-            <option value="all">All kinds</option>
-            {uniqueKinds.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger aria-label="Filter by kind">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All kinds</SelectItem>
+              {uniqueKinds.map((k) => (
+                <SelectItem key={k} value={k}>
+                  {k}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-          <select
+          <Select
             value={controls.filters.requestor}
-            onChange={(e) => controls.setFilter("requestor", e.target.value)}
-            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
-            aria-label="Filter by requestor"
+            onValueChange={(v) => controls.setFilter("requestor", v)}
           >
-            <option value="all">All requestors</option>
-            {uniqueRequestors.map((r) => {
-              const label = formatRequestorOption(r);
-              return (
-                <option key={r} value={r}>
-                  {label.length > 30 ? label.slice(0, 30) + "..." : label}
-                </option>
-              );
-            })}
-          </select>
+            <SelectTrigger aria-label="Filter by requestor">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All requestors</SelectItem>
+              {uniqueRequestors.map((r) => {
+                const label = formatRequestorOption(r);
+                return (
+                  <SelectItem key={r} value={r}>
+                    {label.length > 30 ? label.slice(0, 30) + "..." : label}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
 
-          <select
+          <Select
             value={controls.filters.cohort}
-            onChange={(e) => controls.setFilter("cohort", e.target.value)}
-            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
-            aria-label="Filter by cohort"
+            onValueChange={(v) => controls.setFilter("cohort", v)}
           >
-            <option value="all">All cohorts</option>
-            {uniqueCohorts.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger aria-label="Filter by cohort">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All cohorts</SelectItem>
+              {uniqueCohorts.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-          <select
+          <Select
             value={groupSort}
-            onChange={(e) => setGroupSort(e.target.value as `${SortKey}_${SortDir}`)}
-            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
-            aria-label="Sort order"
+            onValueChange={(v) => setGroupSort(v as `${SortKey}_${SortDir}`)}
           >
-            <option value="priority_asc">Needs me first</option>
-            <option value="age_asc">Oldest first</option>
-            <option value="age_desc">Newest first</option>
-            <option value="kind_asc">Kind (A-Z)</option>
-          </select>
+            <SelectTrigger aria-label="Sort order">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="priority_asc">Needs me first</SelectItem>
+              <SelectItem value="age_asc">Oldest first</SelectItem>
+              <SelectItem value="age_desc">Newest first</SelectItem>
+              <SelectItem value="kind_asc">Kind (A-Z)</SelectItem>
+            </SelectContent>
+          </Select>
 
           {controls.hasActiveFilters && (
             <Button variant="ghost" size="sm" onClick={controls.clearFilters} className="text-xs">

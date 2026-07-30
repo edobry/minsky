@@ -26,6 +26,13 @@ import {
   type ChangesetItem,
   type ChangesetsListResponse,
 } from "../widgets/Changesets";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 
 // ---------------------------------------------------------------------------
 // Fetcher
@@ -166,35 +173,41 @@ export function ChangesetsPage() {
         </h1>
 
         <div className="flex items-center gap-2">
-          <select
+          <Select
             value={controls.filters.reviewState}
-            onChange={(e) => controls.setFilter("reviewState", e.target.value)}
-            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
-            aria-label="Filter by review state"
+            onValueChange={(v) => controls.setFilter("reviewState", v)}
           >
-            <option value="all">All review states</option>
-            {uniqueReviewStates.map((s) => (
-              <option key={s} value={s}>
-                {s.charAt(0).toUpperCase() + s.slice(1)}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger aria-label="Filter by review state">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All review states</SelectItem>
+              {uniqueReviewStates.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-          <select
+          <Select
             value={controls.filters.age}
-            onChange={(e) => controls.setFilter("age", e.target.value)}
-            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
-            aria-label="Filter by age"
+            onValueChange={(v) => controls.setFilter("age", v)}
           >
-            <option value="all">Any age</option>
-            <option value="24h">Active in last 24h</option>
-            <option value="7d">Active in last 7d</option>
-          </select>
+            <SelectTrigger aria-label="Filter by age">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any age</SelectItem>
+              <SelectItem value="24h">Active in last 24h</SelectItem>
+              <SelectItem value="7d">Active in last 7d</SelectItem>
+            </SelectContent>
+          </Select>
 
-          <select
+          <Select
             value={`${controls.sortKey}_${controls.sortDir}`}
-            onChange={(e) => {
-              const [newKey, newDir] = e.target.value.split("_") as [SortKey, SortDir];
+            onValueChange={(v) => {
+              const [newKey, newDir] = v.split("_") as [SortKey, SortDir];
               if (newKey === controls.sortKey && newDir === controls.sortDir) return;
               const afterFirstCall: SortDir =
                 newKey !== controls.sortKey
@@ -207,13 +220,16 @@ export function ChangesetsPage() {
                 controls.setSort(newKey);
               }
             }}
-            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
-            aria-label="Sort order"
           >
-            <option value="age_desc">Newest first</option>
-            <option value="age_asc">Oldest first</option>
-            <option value="attention_asc">Attention required</option>
-          </select>
+            <SelectTrigger aria-label="Sort order">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="age_desc">Newest first</SelectItem>
+              <SelectItem value="age_asc">Oldest first</SelectItem>
+              <SelectItem value="attention_asc">Attention required</SelectItem>
+            </SelectContent>
+          </Select>
 
           {controls.hasActiveFilters && (
             <Button variant="ghost" size="sm" onClick={controls.clearFilters} className="text-xs">

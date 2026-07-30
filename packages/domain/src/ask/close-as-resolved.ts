@@ -120,6 +120,20 @@ async function closeByCurrentState(
   return { kind: "cancelled", askId: ask.id };
 }
 
+/**
+ * Re-exported from `@minsky/shared/ask-closure` (mt#3239) so existing Node callers
+ * (`src/adapters/shared/commands/asks.ts`, `packages/domain/src/ask/index.ts`) keep working
+ * unchanged. The predicate itself moved to a browser-safe module because this file also imports
+ * `@minsky/shared/logger` (for `closeAskAsResolved`'s best-effort error logging below) — and an
+ * ES module's top-level body, including every import, is evaluated in full regardless of which
+ * export a consumer actually uses. The cockpit ask page imported `isAutomatedClosureResponder`
+ * from here, which pulled the logger's `process.env` reads into the browser bundle and crashed
+ * the page (`Can't find variable: process`). The cockpit page now imports the predicate directly
+ * from `@minsky/shared/ask-closure` instead of through this file. See that module's doc comment
+ * for the full incident writeup and the mt#3215 behavior this predicate preserves.
+ */
+export { isAutomatedClosureResponder } from "@minsky/shared/ask-closure";
+
 export async function closeAskAsResolved(
   repo: AskRepository,
   askId: string,

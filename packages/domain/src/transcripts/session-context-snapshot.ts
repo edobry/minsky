@@ -20,6 +20,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transcript-attachments-schema";
 import type { AgentSessionId } from "./transcript-source";
+import { markAbandonedRewindBranches } from "./rewind-detection";
 import type {
   ContextElement,
   SessionContextSnapshot,
@@ -140,13 +141,32 @@ export function turnLineToBlock(
   if (!tsStr) return null;
 
   const parentUuid = typeof l.parentUuid === "string" ? l.parentUuid : undefined;
+  // mt#3323: the line's OWN node id — the other half of the parentUuid edge.
+  // Read defensively and emitted only when present, so a line without it
+  // produces a block identical to before.
+  const uuid = typeof l.uuid === "string" ? l.uuid : undefined;
   const kind = rawJsonlType === "assistant" ? assistantContentKind(l.message) : undefined;
+
+  // mt#3260: both are read defensively and emitted only when actually present,
+  // so a line without them produces a byte-identical block to before.
+  // `isCompactSummary` is a TOP-LEVEL boolean on a `user` line; `model` lives
+  // on the assistant line's inner message.
+  const isCompactSummary = l.isCompactSummary === true ? true : undefined;
+  const message = l.message as Record<string, unknown> | undefined;
+  const model = typeof message?.["model"] === "string" ? (message["model"] as string) : undefined;
+  // mt#3322: same defensive/additive shape — `isMeta` is a TOP-LEVEL boolean on
+  // a `user` line marking harness-generated (not operator-typed) content.
+  const isMeta = l.isMeta === true ? true : undefined;
 
   return {
     id: turnBlockId(agentSessionId, turnIndex),
     type: mapTurnTypeToBlockType(rawJsonlType, kind),
     source: "observed",
     content: l.message ?? l,
+    ...(isCompactSummary ? { isCompactSummary } : {}),
+    ...(isMeta ? { isMeta } : {}),
+    ...(model ? { model } : {}),
+    uuid,
     parentUuid,
     timestamp: tsStr,
     turnIndex,
@@ -218,10 +238,17 @@ export async function assembleSessionContextSnapshot(
   // 4. Sort by timestamp ascending so the merged stream is chronological.
   blocks.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
+  // 5. Mark superseded (rewound) operator-prompt branches (mt#3323). This only
+  //    SETS `isAbandonedBranch` — no block is removed and no `turnIndex` is
+  //    rewritten, because `SemanticEvent.turnIndex` is index-identical with
+  //    this array's (`event-schema.ts`) and the session film joins on it.
+  //    Returns the same array reference when there is no rewind to mark.
+  const markedBlocks = markAbandonedRewindBranches(blocks);
+
   return {
     agentSessionId,
     harness: typeof harness === "string" ? harness : "unknown",
-    blocks,
+    blocks: markedBlocks,
     assembledAt: new Date().toISOString(),
   };
 }

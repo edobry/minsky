@@ -1,12 +1,42 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { EmbeddingsHealthTracker, type EmbeddingsHealthSummary } from "./embeddings-health-tracker";
-import { NoopEventEmitter } from "../events/emitter";
+import {
+  NoopEventEmitter,
+  type EventEmitterWithTryEmit,
+  type SystemEventInput,
+} from "../events/emitter";
+
+/**
+ * Fake emitter whose `tryEmit` reports a REAL persistence failure (like
+ * `DrizzleEventEmitter.tryEmit` returning `false` on a caught DB error) —
+ * distinct from a builder that throws before an emitter is even resolved.
+ * Used by the PR #2284 R2 regression test below.
+ */
+class FailThenSucceedEmitter implements EventEmitterWithTryEmit {
+  readonly emitted: SystemEventInput[] = [];
+  callCount = 0;
+
+  async emit(event: SystemEventInput): Promise<void> {
+    await this.tryEmit(event);
+  }
+
+  async tryEmit(event: SystemEventInput): Promise<boolean> {
+    this.callCount++;
+    if (this.callCount === 1) {
+      return false; // simulates a caught-and-swallowed DB insert failure
+    }
+    this.emitted.push(event);
+    return true;
+  }
+}
 
 const PROVIDER = "openai";
 const QUOTA_CODE = "insufficient_quota";
 const QUOTA_MSG = "You exceeded your current quota";
+const QUOTA_MSG_AGAIN = "quota exhausted again";
 const RATE_CODE = "rate_limit";
 const RATE_MSG = "429 rate limited";
+const DEGRADED_EVENT_TYPE = "embeddings.provider_degraded";
 
 describe("EmbeddingsHealthTracker", () => {
   beforeEach(() => {
@@ -96,7 +126,7 @@ describe("EmbeddingsHealthTracker", () => {
     await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
 
     expect(emitter.emitted).toHaveLength(1);
-    expect(emitter.emitted[0].eventType).toBe("embeddings.provider_degraded");
+    expect(emitter.emitted[0].eventType).toBe(DEGRADED_EVENT_TYPE);
     expect(emitter.emitted[0].payload).toMatchObject({
       provider: PROVIDER,
       errorCode: QUOTA_CODE,
@@ -111,7 +141,7 @@ describe("EmbeddingsHealthTracker", () => {
     tracker.setEventEmitter(emitter);
 
     await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
-    await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted again");
+    await tracker.recordError(PROVIDER, QUOTA_CODE, QUOTA_MSG_AGAIN);
 
     expect(emitter.emitted).toHaveLength(1);
   });
@@ -125,7 +155,7 @@ describe("EmbeddingsHealthTracker", () => {
     expect(emitter.emitted).toHaveLength(1);
 
     tracker.recordRecovery();
-    await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted again");
+    await tracker.recordError(PROVIDER, QUOTA_CODE, QUOTA_MSG_AGAIN);
     expect(emitter.emitted).toHaveLength(2);
   });
 
@@ -149,5 +179,171 @@ describe("EmbeddingsHealthTracker", () => {
       await tracker.recordError(PROVIDER, RATE_CODE, `error ${i}`);
     }
     expect(tracker.getSummary().errorCountLastHour).toBeLessThanOrEqual(100);
+  });
+});
+
+/**
+ * Regression tests for mt#2568: emitDegradationEvent per-call event-emitter
+ * fallback.
+ *
+ * Pre-fix bug: emitDegradationEvent had `if (!this.eventEmitter) return;`,
+ * and emittedForCurrentDegradation latches to true BEFORE that check runs —
+ * so whenever the one-shot setEventEmitter() startup wiring in
+ * start-command.ts hadn't fired yet (e.g. on proxy/staleness-respawned
+ * servers, mirroring the mt#2562/mt#2567 presence write-path race), the
+ * embeddings.provider_degraded event for that degradation cycle was lost
+ * PERMANENTLY — no retry, even after the wiring eventually completed.
+ *
+ * Fix: build the emitter per-call via a registered fallback builder when
+ * this.eventEmitter is not pre-set — mirrors the buildAskRepository /
+ * getPresenceClaimRepo per-call fallback pattern from mt#2567.
+ * setEventEmitter() becomes a warm-up fast-path only.
+ */
+describe("emitDegradationEvent per-call event-emitter fallback (mt#2568 regression)", () => {
+  beforeEach(() => {
+    EmbeddingsHealthTracker.resetForTest();
+  });
+
+  test("REGRESSION: emits via per-call builder when setEventEmitter was never called", async () => {
+    // This test reproduces the mt#2568 bug:
+    // - Pre-fix code: `if (!this.eventEmitter) return;` — emitted stays empty.
+    // - Post-fix code: per-call fallback builds an emitter from the
+    //   registered builder → the event is emitted even though the one-shot
+    //   setter never fired.
+    const emitter = new NoopEventEmitter();
+    let builderCallCount = 0;
+
+    EmbeddingsHealthTracker.registerEventEmitterBuilder(async () => {
+      builderCallCount++;
+      return emitter;
+    });
+
+    // CRITICAL: do NOT call tracker.setEventEmitter(...) — this simulates
+    // the one-shot startup wiring in start-command.ts never completing
+    // before the first embeddings-provider error, the exact mt#2568
+    // failure scenario.
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
+
+    expect(builderCallCount).toBeGreaterThanOrEqual(1);
+    expect(emitter.emitted).toHaveLength(1);
+    expect(emitter.emitted[0].eventType).toBe(DEGRADED_EVENT_TYPE);
+    expect(emitter.emitted[0].payload).toMatchObject({
+      provider: PROVIDER,
+      errorCode: QUOTA_CODE,
+      status: "exhausted",
+    });
+  });
+
+  test("fast-path: uses pre-set emitter without going through the builder", async () => {
+    const emitter = new NoopEventEmitter();
+    let builderCallCount = 0;
+
+    EmbeddingsHealthTracker.registerEventEmitterBuilder(async () => {
+      builderCallCount++;
+      return emitter;
+    });
+
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    tracker.setEventEmitter(emitter);
+
+    await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
+
+    expect(emitter.emitted).toHaveLength(1);
+    // The fast-path emitter was used directly — the fallback builder was
+    // never invoked.
+    expect(builderCallCount).toBe(0);
+  });
+
+  test("no-ops gracefully when neither a fast-path emitter nor a builder is registered", async () => {
+    const tracker = EmbeddingsHealthTracker.getInstance();
+
+    await expect(
+      tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted")
+    ).resolves.toBeUndefined();
+    expect(tracker.getSummary().status).toBe("exhausted");
+  });
+
+  test("no-ops gracefully when the builder throws", async () => {
+    EmbeddingsHealthTracker.registerEventEmitterBuilder(async () => {
+      throw new Error("container has no persistence provider");
+    });
+
+    const tracker = EmbeddingsHealthTracker.getInstance();
+
+    await expect(
+      tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted")
+    ).resolves.toBeUndefined();
+    expect(tracker.getSummary().status).toBe("exhausted");
+  });
+
+  test("REGRESSION (PR #2284 R1): a transient builder failure does not permanently latch the degradation cycle -- the next call retries and succeeds", async () => {
+    // R1 finding: emittedForCurrentDegradation previously latched to true
+    // BEFORE the emit was confirmed, so a builder that fails on its FIRST
+    // invocation (transient — container momentarily unavailable) would
+    // permanently drop this degradation cycle's event even once the builder
+    // started succeeding on a later call. Fixed: the latch only sets on a
+    // confirmed successful emit.
+    const emitter = new NoopEventEmitter();
+    let callCount = 0;
+
+    EmbeddingsHealthTracker.registerEventEmitterBuilder(async () => {
+      callCount++;
+      if (callCount === 1) {
+        throw new Error("transient: container has no persistence provider yet");
+      }
+      return emitter;
+    });
+
+    const tracker = EmbeddingsHealthTracker.getInstance();
+
+    // First call: builder throws — no-ops, but must NOT latch.
+    await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
+    expect(emitter.emitted).toHaveLength(0);
+
+    // Second call, same degradation cycle (status already "exhausted"):
+    // the builder now succeeds — this call must retry and emit.
+    await tracker.recordError(PROVIDER, QUOTA_CODE, QUOTA_MSG_AGAIN);
+    expect(callCount).toBe(2);
+    expect(emitter.emitted).toHaveLength(1);
+    expect(emitter.emitted[0].eventType).toBe(DEGRADED_EVENT_TYPE);
+  });
+
+  test("REGRESSION (PR #2284 R2): a real tryEmit persistence failure (DB insert failed) does not latch either -- retries on the next call", async () => {
+    // R2 finding: emitDegradationEvent's R1 fix wrapped emitter.emit() in
+    // try/catch, but EventEmitter.emit()'s documented contract is "always
+    // resolves, never rejects" EVEN when the underlying DB write fails --
+    // so that try/catch could never observe a real insert failure, and the
+    // latch still flipped to true. This test exercises tryEmit's boolean
+    // failure signal directly (no builder involved at all -- the emitter
+    // resolves fine, its OWN persistence attempt is what fails first).
+    const emitter = new FailThenSucceedEmitter();
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    tracker.setEventEmitter(emitter);
+
+    // First call: tryEmit signals failure (false) -- must NOT latch.
+    await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
+    expect(emitter.emitted).toHaveLength(0);
+    expect(emitter.callCount).toBe(1);
+
+    // Second call, same degradation cycle: tryEmit now succeeds -- must
+    // retry and actually persist the event.
+    await tracker.recordError(PROVIDER, QUOTA_CODE, QUOTA_MSG_AGAIN);
+    expect(emitter.callCount).toBe(2);
+    expect(emitter.emitted).toHaveLength(1);
+    expect(emitter.emitted[0].eventType).toBe(DEGRADED_EVENT_TYPE);
+  });
+
+  test("resetForTest clears a registered builder", async () => {
+    const emitter = new NoopEventEmitter();
+    EmbeddingsHealthTracker.registerEventEmitterBuilder(async () => emitter);
+
+    EmbeddingsHealthTracker.resetForTest();
+
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
+
+    // Builder was cleared by resetForTest — nothing to fall back to.
+    expect(emitter.emitted).toHaveLength(0);
   });
 });

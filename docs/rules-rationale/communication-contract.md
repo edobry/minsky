@@ -105,6 +105,68 @@ deliberately does **not** ship:
   `mt#2870`, depends on mt#2713 — per the ADR-024 ladder this rule is the cheapest-sufficient
   rung; the detector graduates only on calibration evidence).
 
+## Register of delivery (mt#3287)
+
+The Tier-1 contract specifies what a report contains and where detail lives; this section
+specifies how it reads. Origin: 2026-07-28 incident (conversation `415e072e`) — turn-end reports
+rendered routine task-tracker edits as drama; the principal's read: "a weird, Claude-specific
+stylistic AI voice … conspiratorial, almost … This isn't engineering writing." Third recurrence
+of the AI-voice family: 2026-06-24 (session `aa262f89`: cadence uniformity, reveal-signposting,
+faux-profound closers) and 2026-07-17 (session `fd888bf7`: contrastive reframes,
+metronome/aphorism cadence — "mimics insight without providing any") both diagnosed the same
+disease, but every fix landed on the ARTIFACT surface (`engineering-writing`'s AI-voice-tells
+checklist; mt#2899's structural-tier upgrade to it), which chat never loads. This section is the
+chat-surface register spec; mt#2899 remains the artifact-surface sibling.
+
+### The structural-tier tells
+
+- **Setup→turn→reveal arc** — the report is plotted as a story ("It's systemic, and already
+  tracked." … "I did it anyway.").
+- **Beat lead-ins** — paragraphs uniformly opening on a bolded label ("**The fix:**",
+  "**Where it stands:**"), giving every paragraph the same dramatic shape.
+- **Punch-fragment drum-hits** — short fragments deployed to close a beat rather than state a fact.
+- **Significance bids** — flagging one's own work as noteworthy ("one judgment call worth your
+  attention"), a claim the content must earn on its own.
+- **Bow-tie closers** — "Nothing left on your plate for closeout."
+- **Conspiratorial frame** — prose presupposing a shared unfolding operation, casting the reader
+  as co-protagonist. This is why the register reads FAKE: the form asserts stakes the content
+  does not have, and the reader feels the mismatch before naming it.
+
+### Why the contract itself feeds the register
+
+The contract's imperatives ("lead with what matters," "surface contestable judgment calls")
+specify placement, not sound; the model fills the unspecified "how" with its trained theatrical
+default, so "surface the judgment call" executes as "dramatize the judgment call." The in-rule
+fix decouples them: surfacing a call is one flat declarative sentence carrying its basis.
+
+### Worked pair (from the originating incident)
+
+Flagged: "**One judgment call worth your attention:** mt#3138 states that re-kinding to
+`umbrella` is _not_ a safe workaround … I did it anyway. It was safe here for a specific
+checkable reason …" — a reveal arc plus an attention bid wrapped around a rule-compliant edit.
+
+Accepted rewrite (same content, flat): "mt#3138 warns re-kinding can strand a task (mt#3137).
+That risk didn't apply here: PLANNING is legal in both state machines, and the successful
+transition afterward confirmed it."
+
+### Escalation budget
+
+Per `work-completion §Temporary mechanism budget`: 2+ principal flags of dramatic register
+within 14 days of this amendment landing means rule-tier is insufficient — escalate to a
+log-only detector in the wall-of-text calibration-first pattern (mt#3112 is the structural
+template; candidate heuristics: bolded lead-in density per report, punch-fragment count,
+known closer-phrase list). Do not build the detector before that threshold trips.
+
+### Growth accounting (mt#3287, 2026-07-28)
+
+This section exists in docs (not the rule) precisely to keep the always-loaded rule small.
+Measured at amendment time: source rule `communication-contract.mdc` 7,927 → 9,203 bytes
+(+1,276); compiled `CLAUDE.md` 80,832 → 82,294 bytes (+1,462) — under the 2,000-byte
+growth-justification gate threshold (`hook-files.mdc`), and far under the compile budget the
+mt#3052/mt#3087 trims restored (CLAUDE.md had previously run ~137-141KB). Tier justification:
+the amendment revises an existing `alwaysApply` rule in place, and turn-report composition is
+per-turn discipline (mt#2874/mt#1876 admission criterion).
+
 ## Cross-references
 
 `user-preferences.mdc §Plain-language first` (mt#2801) · `§Progress heartbeats` (mt#2824) ·
@@ -113,4 +175,5 @@ deliberately does **not** ship:
 on the consuming side) · `mt#1034` / `docs/architecture/adr-008-attention-allocation-subsystem.md`
 · `mt#2713` (Tier-1 contract, this rule's origin) · `mt#2867` (altitude register) ·
 `mt#2838` (trust-accrual successor to model tier) · `mt#2869` (Tier-2 digest) · `mt#2870`
-(enforcement detector) · `mt#2258` (umbrella).
+(enforcement detector) · `mt#2258` (umbrella) · `mt#3287` (register of delivery) · `mt#2899`
+(artifact-surface sibling, `engineering-writing` skill).

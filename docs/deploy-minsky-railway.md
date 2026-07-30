@@ -31,6 +31,15 @@ The build flags are deliberately identical across all three `bun build` sites (`
 4. **Auth token**: `openssl rand -hex 32` — this becomes `MINSKY_MCP_AUTH_TOKEN`. Distribute only to trusted service consumers.
 5. **Supabase Postgres URL**: the same connection string Minsky uses locally. Copy from `~/.config/minsky/config.yaml` (the `persistence.postgres.connectionString` field) or your local env.
 
+> **Getting a Railway dashboard URL: use `railway open --print`, not a hand-composed URL
+> (mt#3142).** `railway open --print` prints the dashboard URL for the linked project/service
+> without opening a browser — use it whenever a doc, ask, or runbook needs to send an operator to
+> the Railway console. A hand-composed `https://railway.com/project/<id>` **returns 404**: the
+> working URL requires an `?environmentId=<id>` query parameter that a bare project-id URL omits.
+> This bit an operator-facing ask during the 2026-07-23/24 reviewer incident (mt#3142) — the link
+> was constructed by hand instead of obtained from the CLI, and the ask shipped with a dead link,
+> costing a principal round-trip during an active outage.
+
 ## First deploy
 
 ```bash
@@ -203,6 +212,116 @@ GraphQL mutation (see `services/reviewer/DEPLOY.md` for a full worked example ag
 
 **Critical ordering gotcha (from `feedback_railway_config.md`):** if `source.rootDirectory` needs to be set, set it via JSON patch BEFORE creating the deployment trigger. Trigger creation fires an immediate build using whatever rootDirectory is currently on the service; missing config → build from the wrong directory → service crashes. For Minsky at repo root, `rootDirectory` defaults to `/` and no config is needed.
 
+## Standing deployment triggers vs `sourceImage` (mt#3142)
+
+A Railway service can hold `source.image` (an explicit image-source deploy) **and** a standing
+native GitHub deployment trigger **at the same time** — the two are independent objects on the
+service, and the trigger deploys on every push to its configured branch **independently of the
+declared source**. Declaring `source.image` (in Pulumi or the dashboard) does not disconnect,
+disable, or supersede a trigger that was registered earlier — it only changes what an _explicit_
+deploy resolves to. If the trigger is still registered, a push to the branch fires its own build,
+and if no dockerfile path is pinned for that build, Railway falls back to auto-detecting a
+Dockerfile from the repo — which is not necessarily the one the target service is supposed to run.
+
+This was the mechanism behind the 2026-07-23/24 reviewer wrong-image incident (mt#3142): the
+reviewer service (`minsky-reviewer-webhook`) had `source.image` pointing at
+`ghcr.io/edobry/minsky-reviewer:latest`, but a standing GitHub deployment trigger predating the
+image-source migration was still registered on the service. Pushes to `main` kept firing that
+trigger, which built the repo-root `Dockerfile` (the Minsky MCP server image, not the reviewer's)
+and deployed it onto the reviewer's host — so the reviewer intermittently served the wrong
+application even though its declared source was correct. `GET /health` returned 200 throughout,
+because the wrong application also serves a generic healthy response; only a reviewer-specific
+signal (e.g. `POST /retrigger` reachability, or the health body's `service` field, see the
+"Continuous monitoring" section above) could tell the two states apart.
+
+### Setting `sourceRepo: null` does not delete the trigger
+
+Setting `source.sourceRepo: null` on the Pulumi `Service` resource does **not** cascade-delete the
+standing trigger object. The trigger has its own lifecycle, independent of the `Service`
+resource's `sourceRepo`/`sourceImage` fields, and survives a Pulumi apply that clears them.
+Disconnecting the repo source through `infra/index.ts` is necessary but not sufficient to stop
+trigger-fired builds — the trigger itself has to be removed separately.
+
+### Pulumi's generated Railway SDK cannot see or manage the trigger, or `dockerfilePath`
+
+The generated Railway SDK Pulumi uses exposes no resource for the
+deployment-trigger object at all. (That SDK lives at `infra/sdks/railway/` **on a working
+machine only** — `infra/.gitignore` ignores `/sdks/`, so the path is NOT present at HEAD and a
+fresh checkout will not have it. Regenerate it with `pulumi install`, which builds the SDK from
+the `packages: railway:` declaration in `infra/Pulumi.yaml`. Gitignoring the generated SDK and
+regenerating on demand is Pulumi's own documented Local Packages guidance — see mt#2449.)
+Its full resource set is: `customDomain`, `environment`,
+`project`, `provider`, `service`, `serviceDomain`, `sharedVariable`, `tcpProxy`, `variable`,
+`variableCollection` — there is no `deploymentTrigger` resource. The `Service` resource's field
+set is: `configPath`, `cronSchedule`, `name`, `projectId`, `regions`, `rootDirectory`,
+`sourceImage`, `sourceImageRegistryUsername`, `sourceImageRegistryPassword`, `sourceRepo`,
+`sourceRepoBranch`, `volume` — there is no `dockerfilePath` field either.
+
+**Consequence:** because the provider has no `dockerfilePath` field, a Pulumi-managed `Service`
+update silently **drops** a dockerfile path that was set out-of-band (e.g. via `railway.json` or
+the dashboard) — Pulumi has no field to preserve, so it doesn't know one existed. This is the same
+failure class as mt#2352 ("Railway config-as-code does NOT field-merge `dockerfilePath`"), reached
+by a different path: mt#2352 hit it through `railway.json`, this incident hit it through Pulumi.
+
+Because Pulumi cannot represent or manage the trigger object, removing a standing trigger is
+out-of-band of `infra/index.ts`. Railway documents disconnecting the GitHub source from the
+**dashboard** (Settings → Source) as the supported way to make a service a pure image runner:
+
+- <https://docs.railway.com/deployments/github-autodeploys>
+- <https://docs.railway.com/services>
+
+### Belt-and-suspenders: `RAILWAY_DOCKERFILE_PATH`
+
+The live reviewer service also has the service variable
+`RAILWAY_DOCKERFILE_PATH=services/reviewer/Dockerfile` set. Railway documents this env var as a
+build-time override that pins the Dockerfile path for a build even when it falls back to
+auto-detection — so if a standing trigger ever fires again, the resulting build should resolve to
+the reviewer's own Dockerfile instead of the repo root. This is **vendor-documented and set, but
+has never actually been exercised by a real trigger-fired repo build** — treat it as
+strong-evidence, not live-verified, unless and until a trigger-fired build is observed picking it
+up.
+
+As of 2026-07-28 the reviewer deploy pipeline is confirmed working end-to-end through its intended
+path: `.github/workflows/deploy-reviewer.yml` deploys the reviewer on merge using a per-project
+`RAILWAY_REVIEWER_TOKEN` (mt#3251), and the deployed image digest matches
+`ghcr.io/edobry/minsky-reviewer:latest` with `/health` returning the reviewer's own identity. The
+`RAILWAY_DOCKERFILE_PATH` variable above remains a defense-in-depth measure against a
+trigger-fired build, not evidence that one has occurred.
+
+### Sequencing rule: apply the new state and verify it live before removing the old pin
+
+The incident above generalizes into a rule for the next source migration on any service: **apply
+the new source state and verify it live BEFORE removing the old pin.** A config that PINS build
+behavior — a `dockerfilePath`, a `railway.json`, a version constraint, a branch filter — must not
+be deleted until the state it is being migrated TO is live and confirmed. With the pin gone and
+the new state not yet applied, the window's behavior is the platform DEFAULT — which for a Railway
+repo-source build is the repo-ROOT Dockerfile, i.e. an entirely different application.
+
+Correct order: **apply the new state → verify it live → then remove the old pin.**
+
+"Verify it live" means reading the platform's own record of the service, not inferring from the
+declaration you just applied. Applying config and observing the intended runtime state are two
+different facts. Concretely, for a Railway source migration:
+
+```bash
+railway status --json | jq '.environments.edges[0].node.serviceInstances.edges[]
+  | select(.node.serviceName=="<service>")
+  | {source: .node.source, commit: .node.latestDeployment.meta.commitHash}'
+```
+
+- `source` must show the NEW shape (e.g. `{repo: null, image: "ghcr.io/..."}`), not the old one.
+- `commitHash: null` on the latest deployment means it came from an IMAGE; a non-null
+  `commitHash` means a REPO build still produced it — the fastest way to tell what actually
+  shipped.
+
+Then confirm the running service is the one you expect via its `/health` body, not merely a 200
+(mt#3148) — a generic 200 is served by the wrong application too.
+
+mt#3117 deleted `services/reviewer/railway.json` in the same PR that declared the reviewer service
+image-source, while the live service was still repo-source; the next unrelated merge to `main`
+fired the standing repo trigger described above, Railway fell back to the repo-root Dockerfile,
+and the Minsky MCP Server was deployed onto the reviewer host. See mem#747 for the full analysis.
+
 ## Database migrations on deploy (mt#2505)
 
 Prod schema migrations are applied by a **single, deploy-keyed step** in
@@ -360,6 +479,50 @@ every 10 minutes via a scheduled GitHub Action:
 - **HTTP health endpoint** — alerts when `GET <service>/health` (or `/api/health`
   for cockpit) returns non-200 or times out (10s threshold). Catches the
   runtime-crash-after-green-build class (mt#2345).
+- **Service identity** (mt#3148) — asserts the health body's `service` field
+  matches the service being probed. Catches the wrong-application-deployed class
+  (mt#3142), which a status-code check structurally cannot see.
+
+### A bare-200 healthcheck is insufficient in this monorepo (mt#3148)
+
+Every deployed Minsky service is built from the **same repository**, so a
+misconfigured build can put a _different_ application on a service's host — and
+that application answers `GET /health` with `200 {"status":"ok"}` just as
+convincingly as the right one.
+
+This is not hypothetical. During mt#3142 the Minsky MCP server was deployed onto
+the reviewer's Railway host and served `/health` 200 for roughly an hour while
+every reviewer route 404'd. Railway's healthcheck reads the status code only, so
+**the one signal wired to alerting was the one signal that could not detect the
+fault.** The outage was found because a human noticed reviews weren't arriving.
+
+The rule this yields: **a verification probe must be able to fail.** Before
+treating a probe's output as evidence, establish that the broken state would
+produce a _different_ output. A probe whose output space does not separate the
+states you care about carries zero information — and is worse than no probe,
+because nobody investigates a green check.
+
+Concretely, every Minsky service emits a `service` field in its health body:
+
+| Service    | Health path   | `service` value   |
+| ---------- | ------------- | ----------------- |
+| cockpit    | `/api/health` | `minsky-cockpit`  |
+| minsky-mcp | `/health`     | `minsky-mcp`      |
+| reviewer   | `/health`     | `minsky-reviewer` |
+| site       | `/health`     | `minsky-site`     |
+
+`minsky-ops` has no application source and therefore no health endpoint.
+
+`minsky-mcp` **also** retains its pre-existing `server: "Minsky MCP Server"`
+key. That key is what mt#3142's own diagnosis read to identify the wrong app,
+so it was kept unchanged and `service` added alongside it — the assertion is
+additive, never a rename.
+
+Assert identity with `assertServiceIdentity()` from
+`packages/domain/src/deployment/health-identity.ts` rather than hand-rolling a
+string compare; it distinguishes _wrong application_ (a hard failure — the
+mt#3142 class) from _no identity field_ (weaker: the service may simply predate
+this contract).
 
 **`/health` persistence-liveness semantics (mt#2949):**
 

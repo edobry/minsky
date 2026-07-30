@@ -85,6 +85,7 @@ describe("buildProvidersListResult", () => {
         lastSuccess: true,
         isStale: false,
         error: undefined,
+        listingStatus: "ok" as const,
       },
     ];
     const result = buildProvidersListResult(providers, true, "json");

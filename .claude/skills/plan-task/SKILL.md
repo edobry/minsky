@@ -887,26 +887,44 @@ restore + the append-only convention above); memories `d77d2bd4` (problem-statem
 
 ### Step 4: Act on gate results
 
-**Output altitude (both branches).** The chat message is for the principal; the structured
-record is for the audit trail. LEAD with a plain-language account a reader who has never seen
-this skill's internals can follow — what the task is trying to do, what the investigation
-found, what (if anything) blocks it, and what should happen next — with NO gate letters or
-premise-audit labels in that lead. THEN append the structured detail (premise-audit answers,
-per-criterion results, gap report) beneath it. Per `user-preferences.mdc §Plain-language first
-in chat reports` (mt#2801; originating incident: the mt#2777 planning output that led with a
-14-row criterion table and had to be re-explained). This changes placement only — every
-premise-audit answer and criterion verdict is still produced in full.
+**Output altitude (both branches).** Chat carries a plain-language account for the principal;
+the **task record** carries the structured detail (premise-audit answers, per-criterion
+verdicts, gap report). Never inline the structured half in chat — write it to the spec via
+`mcp__minsky__tasks_spec_patch` and emit a `minsky://task/mt%23<id>` deeplink so the
+principal can open it if they want. Chat is brief plain-language prose (1-3 sentences —
+fewer on a clean pass, more on a fail) covering what the task is trying to do, what the
+investigation found, and what happens next — with NO gate letters, premise-audit labels, or
+criterion tables in the message. Each branch below specifies its own sentence count within
+that range. Per `user-preferences.mdc §Plain-language first
+in chat reports` (mt#2801) and `communication-contract.mdc §The Tier-1 turn-report contract`
+("detail lives behind a pointer, never inline"; originating incident mt#3369 R5+: a 599-word
+gate-failure report that duplicated content already written into the spec). This changes
+DESTINATION, not rigor — every premise-audit answer and criterion verdict is still produced in
+full; it lives in the spec instead of the chat scrollback.
+
+**Chat is a terminal, not GitHub — emit no raw HTML.** The paragraph above sets the
+destination; this one bounds the FORM chat may take. Chat is rendered as GitHub-flavored
+markdown by a terminal renderer that does NOT execute HTML: a `<details>`/`<summary>` block
+does not collapse, it prints its own tags as literal text directly above the content it was
+meant to hide. So a collapsible cannot be used to smuggle the structured half back into chat —
+it is not a pointer, it is the detail plus two visible tags. The same renderer means the same
+failure for every other HTML affordance, so the prohibition covers them too (`<br>`,
+`<sub>`, inline `<table>`). PR bodies and Notion pages are a different surface, where
+`<details>` does work and stays available. Incident: mt#3371 (19 collapsibles across 12
+conversations, all of them this skill's gate reports).
 
 **All gate criteria pass:**
 
-1. Report in plain language that planning found no gaps (one or two sentences on what was
-   checked and why the task is ready). Never lead with the criterion dump: the full
-   per-criterion verdicts are still produced, but they render beneath the plain-language
-   lead — or in the task record — as the audit trail.
-2. Call `mcp__minsky__tasks_status_set` to transition the task to **READY**.
+1. Write the full premise-audit answers and per-criterion verdicts to the task spec via
+   `mcp__minsky__tasks_spec_patch` — append a `## Planning Audit (READY)` section carrying
+   the checklist. This is the audit trail; chat does not carry it.
+2. Report in plain language in chat: 1-2 sentences on what was checked and why the task is
+   ready, plus a `minsky://task/mt%23<id>` deeplink so the principal can open the recorded
+   audit if they want. No criterion dump inline, no gate letters.
+3. Call `mcp__minsky__tasks_status_set` to transition the task to **READY**.
 
    **state-ops kind — no-session walk (mt#455).** For `kind: "state-ops"` tasks, SKIP
-   step 3's `/implement-task` chain-walk entirely — state-ops work runs WITHOUT a session
+   item 4 below (the `/implement-task` chain-walk) entirely — state-ops work runs WITHOUT a session
    (`session_start` refuses the kind). Instead, walk the task in main-agent context:
    (i) `tasks_status_set` READY → IN-PROGRESS (a legal direct transition for this kind);
    (ii) do the investigation / state operation; (iii) record the deliverable in the spec
@@ -914,7 +932,7 @@ premise-audit answer and criterion verdict is still produced in full.
    (iv) `tasks_status_set` → DONE — the transition is refused unless that evidence
    section is populated. Then continue the conversation's next step as usual.
 
-3. **Continue the lifecycle: invoke `/implement-task mt#X` directly** (do NOT stop and hand the next-step instruction back to the user). Per CLAUDE.md User Preferences ("Take direct action without asking: When the next step is clear, proceed immediately"), the post-READY default IS implementation. Stopping at READY with "Use `/implement-task` to begin" wording is the failure mode this step was rewritten to prevent (originating incident 2026-05-11; prior incident 2026-04-30 captured in memory `feedback_auto_mode_chains_skills_at_affirmative_tokens`, id `4b83ff51-4bc2-49f5-84be-7e4eac073125`).
+4. **Continue the lifecycle: invoke `/implement-task mt#X` directly** (do NOT stop and hand the next-step instruction back to the user). Per CLAUDE.md User Preferences ("Take direct action without asking: When the next step is clear, proceed immediately"), the post-READY default IS implementation. Stopping at READY with "Use `/implement-task` to begin" wording is the failure mode this step was rewritten to prevent (originating incident 2026-05-11; prior incident 2026-04-30 captured in memory `feedback_auto_mode_chains_skills_at_affirmative_tokens`, id `4b83ff51-4bc2-49f5-84be-7e4eac073125`).
 
    **Only halt before `/implement-task` if** one of these explicit halt conditions holds:
 
@@ -951,13 +969,12 @@ premise-audit answer and criterion verdict is still produced in full.
 
 1. Do **not** call `tasks_status_set` → READY.
 2. Task remains in PLANNING.
-3. LEAD with a plain-language summary per the Output-altitude rule above: 3–6 sentences of
-   prose covering what the task is trying to do, what the investigation found, what actually
-   blocks it, and the recommended actions — no gate letters, no premise-audit labels in this
-   lead. THEN present the structured gap report for the audit trail:
+3. **Write the structured gap report to the task spec** via `mcp__minsky__tasks_spec_patch` —
+   append a `## Gap Report (PLANNING — not yet READY)` section using the template below.
+   This is the audit trail; the gap report does NOT go in chat.
 
 ```
-## Gap Report for mt#X (PLANNING — not yet READY)
+## Gap Report (PLANNING — not yet READY)
 
 ### Blocking gaps
 - [criterion letter] <description of gap>
@@ -967,10 +984,23 @@ premise-audit answer and criterion verdict is still produced in full.
 1. <concrete action the user or agent must take>
 2. <concrete action the user or agent must take>
 
-To re-run the gate after fixes: `/plan-task mt#X`
+To re-run the gate after fixes: `/plan-task <task-id>`
 ```
 
-4. Stop. Do not attempt to patch the spec automatically unless the user explicitly asks.
+4. **If any blocking gap requires a principal-owned decision** (a scope choice, a naming
+   call, a framework selection, an architectural fork the user reserves) — route it through
+   `AskUserQuestion` (options inline) or `mcp__minsky__asks_create`, per
+   `humility.mdc §Escalation packaging`. Do NOT bury the decision as a bullet inside the
+   spec's "Required actions" — chat/spec prose is not the attention surface for a decision
+   the user has to make (originating half of the mt#3369 incident: an operator was asked to
+   "decide the fix shape" via a prose bullet and replied that they could not see what they
+   were deciding between).
+
+5. **Emit a plain-language chat message**: 2-3 sentences naming what the task is trying to
+   do, what actually blocks it (in plain words — no gate letters, no premise-audit labels),
+   and a `minsky://task/mt%23<id>` deeplink to the recorded gap report. If step 4 filed an
+   ask, cite the ask id (`[ask#N](minsky://ask/<uuid>)`) so the principal knows a decision
+   is queued for them. Then stop.
 
 **Example (h) failure.** For a task that renames a config key (e.g., `sessionDbPath` →
 `sessiondb.path`) whose spec says "Sole consumer is `~/.config/minsky/config.yaml`":

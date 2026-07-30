@@ -20,14 +20,24 @@
 // Graduating to injection is a follow-up decision made after reviewing the
 // false-positive rate accumulated in the calibration log.
 //
-// **Cadence (pinned at planning, 2026-07-15).** A silent stretch is flagged
-// when EITHER threshold is crossed, whichever comes first:
-//   - 10 minutes of wall-clock silence since the last assistant TEXT output, OR
+// **Cadence (pinned at planning, 2026-07-15; scoped by mt#3196).** A silent
+// stretch is flagged when EITHER trigger is crossed, whichever comes first:
+//   - 10 minutes of wall-clock silence since the last assistant TEXT output,
+//     AND the run is a work chain (>= MIN_CHAIN_TOOL_CALLS calls) — see below
 //   - 15 consecutive tool calls with no assistant TEXT output in between.
 // Grounding: the two originating interrupts landed at 24 and 28 minutes of
 // silence, so this cadence yields >= 2 heartbeats before either historical
 // interrupt point (RFC: Communication altitude's heartbeat-floor target of
 // ~10 minutes matches).
+//
+// **Scope (mt#3196).** The rule these thresholds implement is explicitly
+// scoped to "research/build chains where SEVERAL tool calls run back-to-back".
+// The thresholds are the TRIGGER within that scope, not the scope itself, and
+// the scope was never evaluated — so the wall-clock leg fired on runs that
+// were not chains at all (the extreme observed: 226 minutes across 2 tool
+// calls, an agent blocked on a backgrounded operation). `isToolOnlyWorkChain`
+// now gates the wall-clock leg. The tool-call leg needs no gate: 15
+// consecutive calls IS "several back-to-back" by construction.
 //
 // **Measurement (mt#3027 — WITHIN-TURN only).** Walks the just-completed
 // turn (`extractLastAssistantTurn`) line by line, tracking runs of
@@ -105,7 +115,7 @@ import {
   extractLastAssistantTurn,
   extractAssistantText,
   extractToolUseNames,
-  findRealPromptIndices,
+  resolveCompletedTurn,
   resolveParentTranscriptLines,
   resolveParentTranscriptLinesForPath,
   readLogTailText,
@@ -149,12 +159,88 @@ const CALIBRATION_LOG = ".minsky/silent-stretch-calibration.jsonl";
 export const GAP_MINUTES_THRESHOLD = 10;
 export const TOOL_CALL_THRESHOLD = 15;
 
+/**
+ * mt#3336 (ask#6448 disposition): the bare call-count leg over-fired — 9 of
+ * the 14 most recent logged fires were sub-5-minute tool bursts (15-25 calls,
+ * gaps 1.4-5.2 min), rapid rule-conformant work rather than perceived
+ * silence. The leg now fires only for a run that is EITHER genuinely long
+ * (HARD_CALL_COUNT_THRESHOLD) or call-heavy AND spanning a real wall-clock
+ * gap (TOOL_CALL_THRESHOLD + CALL_LEG_MIN_GAP_MINUTES). Grounded against the
+ * calibration log: every burst false positive fails both arms; every
+ * long-gap fire (20/12.5min, 43/11.9, 45/13.0, 54/9.3) and every long burst
+ * (34/3.3) still matches.
+ */
+export const CALL_LEG_MIN_GAP_MINUTES = 8;
+export const HARD_CALL_COUNT_THRESHOLD = 30;
+
+/**
+ * Minimum tool calls for a run to be a "tool-only work chain" at all (mt#3196).
+ *
+ * The cadence rule this detector enforces has a SCOPE condition and, within
+ * that scope, a TRIGGER. Verbatim (`user-preferences.mdc §Progress heartbeats
+ * during tool-only stretches`):
+ *
+ *   "During research/build chains where several tool calls run back-to-back
+ *    with no interstitial prose, emit a one-line status update ... at least
+ *    every 10 minutes of wall-clock time OR 15 consecutive tool calls,
+ *    whichever comes first."
+ *
+ * `GAP_MINUTES_THRESHOLD` / `TOOL_CALL_THRESHOLD` implement the trigger. This
+ * constant implements the scope condition — "several tool calls run
+ * back-to-back" — which was previously never evaluated, so the wall-clock leg
+ * fired on runs that were not work chains at all.
+ *
+ * Grounded in the observed calibration distribution (`decision-defaults.mdc
+ * §Thresholds` — observed cadence, not a round number). Every false positive
+ * in the 2026-07-24 review sat at 2-7 calls; the one unambiguous true positive
+ * that crossed ONLY via the wall-clock leg had 44. Nothing observed between 7
+ * and 44, so 8 sits in the empty band rather than adjacent to real data:
+ *
+ *   FPs: 226.1min/2, 20.9min/6, 12.2min/2, 12.1min/3, 12.1min/3, 30.6min/7
+ *   TP:  12.04min/44
+ *
+ * The 226-minute/2-call record is the canonical shape: a `session_commit` that
+ * exceeded its foreground budget and was backgrounded, leaving two tool calls
+ * either side of a long external wait. The agent was not silently working —
+ * it was blocked on something outside its control, which is not what the rule
+ * asks it to narrate.
+ *
+ * This bounds ONLY the wall-clock leg. The tool-call leg is self-scoping: 15
+ * consecutive calls IS "several ... back-to-back" by construction.
+ */
+export const MIN_CHAIN_TOOL_CALLS = 8;
+
+/**
+ * Is this run a "tool-only work chain" — the thing the cadence rule is about?
+ *
+ * Split out as its own named predicate rather than folded into the threshold
+ * expression (mt#3196 planning, framing check). This detector has now been
+ * tuned three times (mt#3027, mt#3003, mt#3196); the first two adjusted the
+ * INPUTS to the threshold check — which lines count, which run is measured,
+ * which turn is anchored — while the question "is this stretch in scope at
+ * all?" was never asked. Naming it makes the previously-missing sub-operation
+ * visible to the next reader, and gives a fourth tune somewhere obvious to go.
+ *
+ * Exported for the same reason `measureSilentStretch`, `GAP_MINUTES_THRESHOLD`
+ * and `TOOL_CALL_THRESHOLD` already are: this module's pure decision units are
+ * asserted directly by its test suite rather than only through `run()`. There
+ * is no consumer outside this file and its test — it is not a cross-module
+ * API, and the hook's external contract remains `run()`.
+ */
+export function isToolOnlyWorkChain(runToolCallCount: number): boolean {
+  return runToolCallCount >= MIN_CHAIN_TOOL_CALLS;
+}
+
 // ---------------------------------------------------------------------------
 // Measurement
 // ---------------------------------------------------------------------------
 
 export interface SilentStretchMeasurement {
-  /** true when any within-turn tool-only run crossed either cadence threshold. */
+  /**
+   * true when any within-turn tool-only run crossed a cadence trigger: the
+   * tool-call threshold on its own, or the wall-clock threshold while the run
+   * also satisfies `isToolOnlyWorkChain` (mt#3196).
+   */
   matched: boolean;
   /**
    * Minutes spanned by the FINAL (possibly still-open) tool-only run, from
@@ -223,7 +309,15 @@ export function measureSilentStretch(
   const evaluateRun = (): void => {
     if (runToolCallCount === 0) return;
     const gapMinutes = computeGapMinutes(runStartTimestamp, runLastToolTimestamp);
-    const crosses = gapMinutes >= GAP_MINUTES_THRESHOLD || runToolCallCount >= TOOL_CALL_THRESHOLD;
+    // mt#3196: the wall-clock leg is bounded by the scope predicate. The
+    // tool-call leg is self-scoping (a qualifying run IS a work chain), but
+    // since mt#3336 it is no longer bare call-count: a 15+-call run must also
+    // span a real gap, or the run must reach the hard 30-call ceiling.
+    const crossesGap = gapMinutes >= GAP_MINUTES_THRESHOLD && isToolOnlyWorkChain(runToolCallCount);
+    const crossesCallCount =
+      runToolCallCount >= HARD_CALL_COUNT_THRESHOLD ||
+      (runToolCallCount >= TOOL_CALL_THRESHOLD && gapMinutes >= CALL_LEG_MIN_GAP_MINUTES);
+    const crosses = crossesGap || crossesCallCount;
     if (!crosses) return;
     matched = true;
     // Keep the most severe matching run's stats — a `matched: true` record
@@ -289,27 +383,34 @@ function computeGapMinutes(from: string | undefined, to: string | undefined): nu
 // ---------------------------------------------------------------------------
 
 export interface TurnBoundaryTimestamps {
-  /** Timestamp of the PREVIOUS real user prompt (the turn's start boundary). */
+  /** Timestamp of the real user prompt that OPENED the measured turn. */
   turnStartTimestamp: string | undefined;
-  /** Timestamp of the CURRENT real user prompt (the turn's end boundary — the prompt that just fired this hook). */
-  currentPromptTimestamp: string | undefined;
+  /**
+   * Timestamp of the LAST line of the measured turn — its own end, not a
+   * later prompt's. Before mt#3280 this field held "the current real user
+   * prompt, the one that just fired this hook", which the transcript almost
+   * never contains at `UserPromptSubmit` time; the name asserted a boundary
+   * that was really the PREVIOUS turn's opening prompt.
+   */
+  turnEndTimestamp: string | undefined;
 }
 
 /**
- * Locate the two real-prompt boundary LINES `extractLastAssistantTurn`
- * slices BETWEEN (exclusive of both), and return their timestamps. Needed
- * because the turn-slice itself never includes the boundary prompts.
+ * Locate the timestamps bounding the turn `extractLastAssistantTurn` returns.
+ *
+ * Both boundaries come from the shared {@link resolveCompletedTurn} resolver
+ * (mt#3280) rather than being recomputed here, so this pair can never
+ * disagree with the window actually measured — the disagreement that made
+ * every `turnAnchor` in the calibration log name the wrong turn.
  */
 export function findTurnBoundaryTimestamps(lines: TranscriptLine[]): TurnBoundaryTimestamps {
-  const indices = findRealPromptIndices(lines);
-  if (indices.length < 2) {
-    return { turnStartTimestamp: undefined, currentPromptTimestamp: undefined };
+  const { turnLines, openingPromptIndex } = resolveCompletedTurn(lines);
+  if (openingPromptIndex === undefined || turnLines.length === 0) {
+    return { turnStartTimestamp: undefined, turnEndTimestamp: undefined };
   }
-  const startIdx = indices[indices.length - 2] as number;
-  const endIdx = indices[indices.length - 1] as number;
   return {
-    turnStartTimestamp: lines[startIdx]?.timestamp,
-    currentPromptTimestamp: lines[endIdx]?.timestamp,
+    turnStartTimestamp: lines[openingPromptIndex]?.timestamp,
+    turnEndTimestamp: turnLines[turnLines.length - 1]?.timestamp,
   };
 }
 
@@ -327,8 +428,8 @@ export function findTurnBoundaryTimestamps(lines: TranscriptLine[]): TurnBoundar
  * with no anchor is never treated as a dedupe candidate, so it always logs.
  */
 export function buildTurnAnchor(boundaries: TurnBoundaryTimestamps): string | undefined {
-  if (!boundaries.turnStartTimestamp || !boundaries.currentPromptTimestamp) return undefined;
-  return `${boundaries.turnStartTimestamp}::${boundaries.currentPromptTimestamp}`;
+  if (!boundaries.turnStartTimestamp || !boundaries.turnEndTimestamp) return undefined;
+  return `${boundaries.turnStartTimestamp}::${boundaries.turnEndTimestamp}`;
 }
 
 // ---------------------------------------------------------------------------

@@ -149,3 +149,10 @@ on inability to check. This mirrors every sibling `session_pr_merge` gate's post
   criterion the deny message's ladder cites for `alwaysApply: true`
 - mt#2873 — sibling trim task whose 14,995-byte baseline this gate's originating incident
   (overnight regrowth to 15,868 bytes) motivated
+
+## Task-id resolution (mt#3355)
+
+This gate resolves its task id through the shared `merge-gate-task-resolution.ts` module, which
+prefers `tool_input.task`, falls back to the `task/mt-<id>` branch in `cwd`, and WARNS rather
+than silently allowing when neither resolves. See
+[Merge-Gate Task Resolution](./merge-gate-task-resolution.md).

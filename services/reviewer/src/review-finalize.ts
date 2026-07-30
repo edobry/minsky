@@ -32,6 +32,13 @@ import { timingTokenFields } from "./token-cost";
 import { recordConvergenceMetric, type ConvergenceMetricInput } from "./metrics";
 import { countAcknowledgedFindings } from "./prior-review-summary";
 import { buildConvergenceMetricLog } from "./review-log-builders";
+import {
+  buildFindingRecordsFromBody,
+  buildFindingRecordsFromToolCalls,
+  recordFindings,
+} from "./findings";
+import { classifyOutstandingFindings, type ChangedFilesFetcherFn } from "./resolution-classifier";
+import { fetchChangedFilesSince } from "./github-client";
 import { log } from "./logger";
 import type { ReviewPostedEvent, ReviewSubmitEvent } from "./review-events";
 import type { ReviewOutput } from "./providers";
@@ -125,6 +132,16 @@ export interface FinalizeReviewSuccessInput {
   status: ReviewResult["status"];
   /** Final ReviewResult.reason. */
   reason: string;
+  /**
+   * Locator keys (mt#3295 SC#2) for findings downgraded from BLOCKING to
+   * NON-BLOCKING within this SAME round by any of the four structural
+   * recovery passes (severity-monotonicity, composition-convergence,
+   * diff-scope-bounded, refutation-aware re-assertion). Built by the caller
+   * via `buildBypassedLocatorSet` from `recoveryResult`'s downgrade-audit
+   * arrays. Output-tools path only (the prose path runs no recovery passes);
+   * absent/undefined is equivalent to an empty set.
+   */
+  bypassedFindingLocators?: ReadonlySet<string>;
 }
 
 /**
@@ -192,6 +209,7 @@ export async function finalizeReviewSuccess(
     priorReviewIngestion,
     reviewerLogin,
     emitReviewPosted,
+    outputToolsActive,
   } = ctx;
   const {
     review,
@@ -203,6 +221,7 @@ export async function finalizeReviewSuccess(
     reviewThreads,
     status,
     reason,
+    bypassedFindingLocators,
   } = input;
 
   const iterationIndex = priorReviewIngestion.iterationCount + 1;
@@ -315,6 +334,53 @@ export async function finalizeReviewSuccess(
     // mt#2287: per-review verdict distribution for the reviewer-bot cockpit widget.
     verdict: event.toLowerCase(),
   });
+
+  // mt#3295 SC#1/SC#2: persist this round's findings as structured rows, and
+  // (SC#2) resolve any still-open BLOCKING findings from EARLIER rounds once
+  // this round converges (event === APPROVE). No-op when no db is configured
+  // — mirrors persistConvergenceMetric's db-gating above. Output-tools path
+  // uses the model's own structured submit_finding calls (richer: separate
+  // summary/details); the prose path parses the posted body text (no
+  // recovery passes run there, so bypassedFindingLocators is never populated
+  // on that path).
+  if (deps.db !== undefined) {
+    const findingsCtx = {
+      prOwner: owner,
+      prRepo: repo,
+      prNumber: pr.number,
+      headSha: pr.headSha,
+      round: iterationIndex,
+    };
+    const findingRecords = outputToolsActive
+      ? buildFindingRecordsFromToolCalls(checkRunToolCalls, findingsCtx, bypassedFindingLocators)
+      : buildFindingRecordsFromBody(acknowledgedBody, findingsCtx);
+    await recordFindings(deps.db, findingRecords);
+
+    if (event === "APPROVE") {
+      // mt#3300 SC#1: classify each still-open prior BLOCKING finding as
+      // fixed-by-code-change / resolved-without-code-change by checking
+      // whether any commit since its round touched its cited file —
+      // replacing the coarse `unknown` default `resolveOutstandingFindingsOnApproval`
+      // (mt#3295) deliberately left room for. That function is NOT removed
+      // (kept for callers without diff-fetch capability); production APPROVE
+      // handling now goes through this finer-grained classifier instead.
+      const changedFilesFetcher: ChangedFilesFetcherFn =
+        deps.changedFilesFetcher ??
+        ((baseSha: string, sinceHeadSha: string) =>
+          fetchChangedFilesSince(octokit, owner, repo, baseSha, sinceHeadSha));
+      await classifyOutstandingFindings(
+        deps.db,
+        {
+          prOwner: owner,
+          prRepo: repo,
+          prNumber: pr.number,
+          approvingRound: iterationIndex,
+          approvingHeadSha: pr.headSha,
+        },
+        changedFilesFetcher
+      );
+    }
+  }
 
   // mt#2088: persist per-review timing data.
   await writeMainPathTiming(ctx);

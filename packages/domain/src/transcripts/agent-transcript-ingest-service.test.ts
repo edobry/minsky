@@ -8,14 +8,21 @@
  */
 
 import { describe, test, expect, spyOn } from "bun:test";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import {
   AgentTranscriptIngestService,
+  INGEST_QUARANTINE_THRESHOLD,
   extractModelFromNewLines,
   countAssistantLines,
 } from "./agent-transcript-ingest-service";
-import type { IngestAllResult } from "./agent-transcript-ingest-service";
+import type {
+  IngestAllResult,
+  SpawnsExtractor,
+  ToolCallProjector,
+} from "./agent-transcript-ingest-service";
+import type { SpawnsPipelineRunResult } from "./agent-spawns-pipeline";
 import { SYNTHETIC_MODEL_SENTINEL } from "../subagent/transcript-metrics";
 import { log } from "@minsky/shared/logger";
 import { getSessionsDir } from "@minsky/shared/paths";
@@ -37,6 +44,15 @@ class FakeTranscriptSource implements TranscriptSource {
   private readonly sessionsMap = new Map<string, RawTurnLine[]>();
   private readonly discoveredMap = new Map<string, DiscoveredSession>();
 
+  /**
+   * mt#3288: how many times `discoverSessions()` was walked. `ingestAll` must
+   * walk it exactly once no matter how many sessions it processes — a count
+   * that scales with the session count is the quadratic id-lookup regressing.
+   */
+  discoverSessionsCalls = 0;
+  /** mt#3288: the `jsonlPath` each `readSession` call received (undefined = none). */
+  readSessionPaths: (string | undefined)[] = [];
+
   addSession(sessionId: string, lines: RawTurnLine[], mtime?: Date): void {
     this.sessionsMap.set(sessionId, lines);
     this.discoveredMap.set(sessionId, {
@@ -49,12 +65,23 @@ class FakeTranscriptSource implements TranscriptSource {
   }
 
   async *discoverSessions(): AsyncIterable<DiscoveredSession> {
+    this.discoverSessionsCalls++;
     for (const session of this.discoveredMap.values()) {
       yield session;
     }
   }
 
-  async *readSession(agentSessionId: string): AsyncIterable<RawTurnLine> {
+  async *readSession(agentSessionId: string, jsonlPath?: string): AsyncIterable<RawTurnLine> {
+    this.readSessionPaths.push(jsonlPath);
+    // Mirrors ClaudeCodeTranscriptSource: with no path, the id can only be
+    // resolved by walking discovery. Modelling that here is what makes
+    // `discoverSessionsCalls` a real regression signal — a fake that resolved
+    // from its map for free would report one walk either way.
+    if (jsonlPath === undefined) {
+      for await (const _ of this.discoverSessions()) {
+        /* scan to resolve the id, as the real source does */
+      }
+    }
     const lines = this.sessionsMap.get(agentSessionId) ?? [];
     for (const line of lines) {
       yield line;
@@ -79,6 +106,11 @@ interface FakeRow {
   lastIngestedJsonlTimestamp: Date | null;
   ingestedAt: Date;
   model: string | null;
+  // mt#3278 — ingest-failure tracking / quarantine.
+  ingestFailureCount: number;
+  ingestLastError: string | null;
+  ingestLastFailedAt: Date | null;
+  ingestQuarantinedAt: Date | null;
 }
 
 /** Fake `minsky_session_links` row (mt#2441 — cwd_match link writer). */
@@ -187,6 +219,44 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
               lastIngestedJsonlTimestamp: values.lastIngestedJsonlTimestamp ?? null,
               ingestedAt: values.ingestedAt ?? new Date(),
               model: values.model ?? null,
+              ingestFailureCount: values.ingestFailureCount ?? 0,
+              ingestLastError: values.ingestLastError ?? null,
+              ingestLastFailedAt: values.ingestLastFailedAt ?? null,
+              ingestQuarantinedAt: values.ingestQuarantinedAt ?? null,
+            });
+            return Promise.resolve();
+          };
+
+          // mt#3278: `recordIngestFailure` upserts ONLY the failure columns —
+          // no `transcript` key — so it is duck-typed apart from the transcript
+          // upsert here, mirroring how the two are distinct statements in
+          // production. Modelling it faithfully is what makes the quarantine
+          // test a real check rather than an assertion about the fake.
+          const isFailureRecord = "ingestFailureCount" in values && !("transcript" in values);
+          const applyFailureRecord = (): Promise<void> => {
+            const existing = state.get(sid);
+            const nextCount = (existing?.ingestFailureCount ?? 0) + 1;
+            const quarantinedAt =
+              nextCount >= INGEST_QUARANTINE_THRESHOLD
+                ? (existing?.ingestQuarantinedAt ?? new Date())
+                : (existing?.ingestQuarantinedAt ?? null);
+            state.set(sid, {
+              agentSessionId: sid,
+              harness: existing?.harness ?? values.harness ?? "unknown",
+              transcript: existing?.transcript ?? [],
+              startedAt: existing?.startedAt ?? null,
+              endedAt: existing?.endedAt ?? null,
+              cwd: existing?.cwd ?? null,
+              projectDir: existing?.projectDir ?? null,
+              // Deliberately NOT advanced — a failure must never move the
+              // watermark, or the failed batch is skipped on the retry.
+              lastIngestedJsonlTimestamp: existing?.lastIngestedJsonlTimestamp ?? null,
+              ingestedAt: existing?.ingestedAt ?? new Date(),
+              model: existing?.model ?? null,
+              ingestFailureCount: nextCount,
+              ingestLastError: values.ingestLastError ?? null,
+              ingestLastFailedAt: values.ingestLastFailedAt ?? new Date(),
+              ingestQuarantinedAt: quarantinedAt,
             });
             return Promise.resolve();
           };
@@ -207,6 +277,7 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
             then: <T>(resolve: (v: void) => T, reject?: (e: unknown) => unknown) =>
               doPlainInsert().then(resolve, reject),
             onConflictDoUpdate(_opts: unknown): Promise<void> {
+              if (isFailureRecord) return applyFailureRecord();
               const existing = state.get(sid);
               if (!existing) return doPlainInsert();
 
@@ -241,6 +312,11 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
                 // the model-bearing turn can never regress an already-stored
                 // value.
                 model: existing.model ?? values.model ?? null,
+                // mt#3278: a successful upsert clears the failure record, which
+                // is what makes quarantine self-healing.
+                ingestFailureCount: 0,
+                ingestLastError: null,
+                ingestQuarantinedAt: null,
               });
               return Promise.resolve();
             },
@@ -294,11 +370,65 @@ function makeDiscovered(sessionId: string): DiscoveredSession {
 
 type FakeDbType = ReturnType<typeof makeDb>;
 
-function makeSvc(db: FakeDbType, source: FakeTranscriptSource): AgentTranscriptIngestService {
-  return new AgentTranscriptIngestService(
-    db as unknown as import("drizzle-orm/postgres-js").PostgresJsDatabase,
-    source
-  );
+/**
+ * Casts a fake DB double to the real drizzle type for constructor injection.
+ * Extracted to avoid repeating the `import("drizzle-orm/postgres-js")` type
+ * literal at every no-constructor-override composability test (flagged by
+ * `custom/no-magic-string-duplication`).
+ */
+function asPgDb(db: FakeDbType): PostgresJsDatabase {
+  return db as unknown as PostgresJsDatabase;
+}
+
+/** A zeroed `SpawnsPipelineRunResult` — nothing scanned, nothing written. */
+const NOOP_SPAWNS_RESULT: SpawnsPipelineRunResult = {
+  spawnsScanned: 0,
+  spawnsWritten: 0,
+  childLinkedFromMetadata: 0,
+  childLinkedFromHeuristic: 0,
+  childUnresolved: 0,
+  spawnsErrored: 0,
+  spawnLinksWritten: 0,
+  spawnLinksSkippedNoPromptMatch: 0,
+  spawnLinksErrored: 0,
+};
+
+/**
+ * Default spawns-extractor test double (mt#3109): a no-op that never touches
+ * `agent_spawns`. Existing `ingestSession`/`ingestAll` tests below predate the
+ * inline spawn-extraction call and assert on `agent_transcripts` /
+ * `minsky_session_links` state only — they don't need (and shouldn't need to
+ * model) `AgentSpawnsPipeline`'s full drizzle join/upsert query surface, which
+ * this file's hand-rolled `makeDb` fake doesn't support. Tests that DO care
+ * about the new call (see "agent-spawns extraction at ingest (mt#3109)"
+ * below) pass their own spy-based `spawnsExtractor` override instead.
+ */
+function makeNoopSpawnsExtractor(): SpawnsExtractor {
+  return {
+    runForSession: async () => ({ ...NOOP_SPAWNS_RESULT }),
+  };
+}
+
+/**
+ * Default tool-call-projector test double (mt#3329): a no-op that never
+ * touches `agent_tool_call_projection`, for the same reason
+ * `makeNoopSpawnsExtractor` exists above — most tests in this file predate
+ * the inline projection call and assert on `agent_transcripts` /
+ * `minsky_session_links` state only.
+ */
+function makeNoopToolCallProjector(): ToolCallProjector {
+  return {
+    runForSession: async () => ({ turnsScanned: 0, toolCallsProjected: 0, turnsErrored: 0 }),
+  };
+}
+
+function makeSvc(
+  db: FakeDbType,
+  source: FakeTranscriptSource,
+  spawnsExtractor: SpawnsExtractor = makeNoopSpawnsExtractor(),
+  toolCallProjector: ToolCallProjector = makeNoopToolCallProjector()
+): AgentTranscriptIngestService {
+  return new AgentTranscriptIngestService(asPgDb(db), source, spawnsExtractor, toolCallProjector);
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -371,6 +501,60 @@ describe("AgentTranscriptIngestService", () => {
 
       const row = state.get(SESSION_A);
       expect(row?.lastIngestedJsonlTimestamp?.toISOString()).toBe(TS3);
+    });
+
+    // mt#3131 (D2): endedAt must assert TERMINATION, not "last observed".
+    describe("endedAt semantics (mt#3131 D2)", () => {
+      test("a routine ingest (no sessionEnded) leaves endedAt null", async () => {
+        const lines = makeLines([TS1, TS2]);
+        const source = new FakeTranscriptSource();
+        source.addSession(SESSION_A, lines);
+        const state = new Map<string, FakeRow>();
+        const db = makeDb(state);
+        db._primeSession(SESSION_A);
+
+        const svc = makeSvc(db, source);
+        await svc.ingestSession(makeDiscovered(SESSION_A));
+
+        const row = state.get(SESSION_A);
+        expect(row?.endedAt).toBeNull();
+      });
+
+      test("sessionEnded: true records a real endedAt", async () => {
+        const lines = makeLines([TS1, TS2]);
+        const source = new FakeTranscriptSource();
+        source.addSession(SESSION_A, lines);
+        const state = new Map<string, FakeRow>();
+        const db = makeDb(state);
+        db._primeSession(SESSION_A);
+
+        const svc = makeSvc(db, source);
+        await svc.ingestSession(makeDiscovered(SESSION_A), { sessionEnded: true });
+
+        const row = state.get(SESSION_A);
+        expect(row?.endedAt?.toISOString()).toBe(TS2);
+      });
+
+      test("a routine poll after sessionEnded:true does not regress endedAt back to null", async () => {
+        const source = new FakeTranscriptSource();
+        source.addSession(SESSION_A, makeLines([TS1, TS2]));
+        const state = new Map<string, FakeRow>();
+        const db = makeDb(state);
+        db._primeSession(SESSION_A);
+        const svc = makeSvc(db, source);
+
+        await svc.ingestSession(makeDiscovered(SESSION_A), { sessionEnded: true });
+        expect(state.get(SESSION_A)?.endedAt?.toISOString()).toBe(TS2);
+
+        // A later incremental poll (e.g. the boot sweep re-observing the same
+        // session) picks up a NEW line but carries no termination evidence.
+        source.addSession(SESSION_A, makeLines([TS1, TS2, TS3]));
+        await svc.ingestSession(makeDiscovered(SESSION_A));
+
+        const row = state.get(SESSION_A);
+        expect(row?.endedAt?.toISOString()).toBe(TS2);
+        expect(row?.lastIngestedJsonlTimestamp?.toISOString()).toBe(TS3);
+      });
     });
 
     test("incremental: skips lines at or before high-water-mark", async () => {
@@ -806,6 +990,41 @@ describe("AgentTranscriptIngestService", () => {
   });
 
   describe("ingestAll", () => {
+    // mt#3278 AT1: a transcript carrying U+0000 must land, not fail forever.
+    // The fixture is built by JSON.parse so the escape is decoded exactly as it
+    // is when a real transcript line is read off disk — the value reaching the
+    // service is a genuine U+0000 in a JS string, not an escape.
+    test("ingests a line whose signature field carries a Postgres-unrepresentable codepoint", async () => {
+      const poisoned = JSON.parse(
+        `{"type":"assistant","uuid":"u-poison","timestamp":"${TS1}",` +
+          `"signature":"sig\\u0000end","message":{"role":"assistant","content":[]}}`
+      ) as RawTurnLine;
+      expect(JSON.stringify(poisoned).includes("u0000")).toBe(true);
+
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, [poisoned]);
+
+      const state = new Map<string, FakeRow>();
+      const svc = makeSvc(makeDb(state), source);
+      const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+      expect(result.ingested).toBe(1);
+      expect(result.error).toBeUndefined();
+
+      const stored = state.get(SESSION_A);
+      expect(stored?.transcript).toHaveLength(1);
+      // The decisive assertion: what was stored no longer carries the escape
+      // Postgres rejects, so this row is insertable. Asserting only that the
+      // line landed would pass even with the sanitizer removed, because the
+      // fake DB does not enforce Postgres's encoding rules.
+      expect(JSON.stringify(stored?.transcript).includes("u0000")).toBe(false);
+      expect((stored?.transcript?.[0] as { signature?: string })?.signature).toBe(
+        `sig${String.fromCharCode(0xfffd)}end`
+      );
+      // The watermark advanced — the session is not frozen.
+      expect(stored?.lastIngestedJsonlTimestamp).toEqual(new Date(TS1));
+    });
+
     test("sweeps all discovered sessions and returns aggregate counts", async () => {
       const source = new FakeTranscriptSource();
       source.addSession(SESSION_A, makeLines([TS1, TS2]));
@@ -821,6 +1040,116 @@ describe("AgentTranscriptIngestService", () => {
       expect(result.sessionsProcessed).toBe(2);
       expect(result.sessionsErrored).toBe(0);
       expect(result.totalIngested).toBe(3); // TS1+TS2 from A, TS3 from B
+    });
+
+    // mt#3278 AT2: a payload that cannot be stored is quarantined rather than
+    // retried forever. Two consecutive sweeps must attempt it ONCE, not twice.
+    test("quarantines a permanently-failing session instead of retrying it every sweep", async () => {
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, makeLines([TS1]));
+
+      const state = new Map<string, FakeRow>();
+      const db = makeDb(state);
+
+      // Fail every transcript upsert. The failure-record upsert (no
+      // `transcript` key) must still go through, or nothing could ever be
+      // counted — that asymmetry is the mechanism under test.
+      let attempts = 0;
+      const origInsert = db.insert.bind(db);
+      (db as Record<string, unknown>).insert = (table: unknown) => ({
+        values: (values: Partial<FakeRow> & { agentSessionId: string }) => {
+          const realChain = origInsert(table).values(values);
+          if (!("transcript" in values)) return realChain;
+          return {
+            then: realChain.then.bind(realChain),
+            onConflictDoUpdate: (): Promise<void> => {
+              attempts++;
+              return Promise.reject(new Error("unsupported Unicode escape sequence"));
+            },
+          };
+        },
+      });
+
+      const svc = makeSvc(db, source);
+
+      // Sweeps 1..3 attempt and fail, accumulating toward the threshold.
+      for (let i = 0; i < INGEST_QUARANTINE_THRESHOLD; i++) {
+        const result = await svc.ingestAll();
+        expect(result.sessionsErrored).toBe(1);
+        expect(result.sessionsQuarantined).toBe(0);
+      }
+      expect(attempts).toBe(INGEST_QUARANTINE_THRESHOLD);
+      expect(state.get(SESSION_A)?.ingestQuarantinedAt).toBeInstanceOf(Date);
+      expect(state.get(SESSION_A)?.ingestLastError).toContain("unsupported Unicode escape");
+
+      // The next sweep must NOT attempt it: the upsert count stays put, and the
+      // session is reported as quarantined rather than errored.
+      const after = await svc.ingestAll();
+      expect(attempts).toBe(INGEST_QUARANTINE_THRESHOLD);
+      expect(after.sessionsQuarantined).toBe(1);
+      expect(after.sessionsErrored).toBe(0);
+      expect(after.sessionsProcessed).toBe(1);
+    });
+
+    // mt#3278: quarantine is self-healing — once the cause is fixed, the first
+    // pass that gets through clears it with no manual step. Without this, every
+    // poisoned session would need a human to un-stick it after the fix ships.
+    test("a successful ingest clears an existing quarantine and its failure count", async () => {
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, makeLines([TS1]));
+
+      const state = new Map<string, FakeRow>();
+      state.set(SESSION_A, {
+        agentSessionId: SESSION_A,
+        harness: "claude_code",
+        transcript: [],
+        startedAt: null,
+        endedAt: null,
+        cwd: null,
+        projectDir: null,
+        lastIngestedJsonlTimestamp: null,
+        ingestedAt: new Date(),
+        model: null,
+        ingestFailureCount: INGEST_QUARANTINE_THRESHOLD,
+        ingestLastError: "unsupported Unicode escape sequence",
+        ingestLastFailedAt: new Date(),
+        // Deliberately NOT quarantined, so the ingest is attempted and can
+        // demonstrate the reset; the skip path is covered by the test above.
+        ingestQuarantinedAt: null,
+      });
+
+      const svc = makeSvc(makeDb(state), source);
+      const result = await svc.ingestAll();
+
+      expect(result.sessionsErrored).toBe(0);
+      expect(state.get(SESSION_A)?.ingestFailureCount).toBe(0);
+      expect(state.get(SESSION_A)?.ingestQuarantinedAt).toBeNull();
+      expect(state.get(SESSION_A)?.ingestLastError).toBeNull();
+    });
+
+    // mt#3288 AT1. Before the fix, `ingestSession` called
+    // `readSession(agentSessionId)` with no path, so a discovery-backed source
+    // re-walked the whole corpus once per session — K walks for K sessions, and
+    // O(K^2) file reads for the sweep. These two assertions are the regression
+    // lock: the walk count must stay at 1 regardless of K, and every
+    // `readSession` call must carry the path its `DiscoveredSession` was found
+    // at, since that is what lets a real source skip the scan.
+    test("walks discoverSessions exactly once regardless of session count, and passes each jsonlPath through", async () => {
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, makeLines([TS1]));
+      source.addSession(SESSION_B, makeLines([TS2]));
+      source.addSession(SESSION_C, makeLines([TS3]));
+
+      const svc = makeSvc(makeDb(new Map<string, FakeRow>()), source);
+      const result: IngestAllResult = await svc.ingestAll();
+
+      expect(result.sessionsProcessed).toBe(3);
+      expect(source.discoverSessionsCalls).toBe(1);
+      expect(source.readSessionPaths).toEqual([
+        `/fake/projects/proj/${SESSION_A}.jsonl`,
+        `/fake/projects/proj/${SESSION_B}.jsonl`,
+        `/fake/projects/proj/${SESSION_C}.jsonl`,
+      ]);
     });
 
     test("a session DB error is counted via the typed result and does not abort the sweep", async () => {
@@ -1006,6 +1335,146 @@ describe("AgentTranscriptIngestService", () => {
       expect(persisted).toContain("no secrets here, just output");
       expect(persisted).not.toContain("[REDACTED:");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Agent-spawns extraction at ingest (mt#3109)
+//
+// AgentSpawnsPipeline.runForSession() is called inline from ingestSession()
+// instead of via a registered sweep — see this task's spec `## Amendment
+// 2026-07-23` and the ingest-service's own "Inline agent-spawns extraction"
+// docblock section for the rationale. These tests cover the call site's
+// contract: WHEN it fires, that a failure inside it never fails the ingest,
+// and that the production default (no override) composes safely.
+// ---------------------------------------------------------------------------
+
+describe("agent-spawns extraction at ingest (mt#3109)", () => {
+  /** A spy-based SpawnsExtractor recording every `runForSession` call. */
+  function makeSpySpawnsExtractor(impl?: (agentSessionId: string) => Promise<void>): {
+    extractor: SpawnsExtractor;
+    calls: string[];
+  } {
+    const calls: string[] = [];
+    const extractor: SpawnsExtractor = {
+      async runForSession(agentSessionId: string) {
+        calls.push(agentSessionId);
+        if (impl) await impl(agentSessionId);
+        return { ...NOOP_SPAWNS_RESULT };
+      },
+    };
+    return { extractor, calls };
+  }
+
+  test("calls the spawns-extractor's runForSession with the ingested session's id when new lines are written", async () => {
+    const lines = makeLines([TS1, TS2]);
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, lines);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+    const { extractor, calls } = makeSpySpawnsExtractor();
+
+    const svc = makeSvc(db, source, extractor);
+    const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+    expect(result.error).toBeUndefined();
+    expect(calls).toEqual([SESSION_A]);
+  });
+
+  test("does NOT call the spawns-extractor on an idempotent re-ingest with no new lines", async () => {
+    const lines = makeLines([TS1]);
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, lines);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+    const { extractor, calls } = makeSpySpawnsExtractor();
+    const svc = makeSvc(db, source, extractor);
+
+    // First ingest writes the line and advances the high-water-mark.
+    await svc.ingestSession(makeDiscovered(SESSION_A));
+    expect(calls).toEqual([SESSION_A]);
+
+    // Second ingest of the SAME unchanged source is the idempotent no-op
+    // path (no new lines past the stored high-water-mark) — confirms the
+    // "reached only on new-content path" incrementality claim.
+    db._primeSession(SESSION_A);
+    const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+    expect(result.ingested).toBe(0);
+    expect(calls).toEqual([SESSION_A]); // still just the one call from the first ingest
+  });
+
+  test("a thrown/rejected runForSession call does not propagate out of ingestSession", async () => {
+    const lines = makeLines([TS1]);
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, lines);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+    const throwingExtractor: SpawnsExtractor = {
+      runForSession: async () => {
+        throw new Error("simulated spawn-extraction failure");
+      },
+    };
+
+    const svc = makeSvc(db, source, throwingExtractor);
+    const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+    // Matches the writeCwdMatchLink defensive posture: a spawn-extraction
+    // failure is logged (not asserted here) but never fails the ingest.
+    expect(result.error).toBeUndefined();
+    const row = state.get(SESSION_A);
+    expect(row?.transcript?.length).toBe(1);
+  });
+
+  test("with no constructor override, a query failure inside the real default AgentSpawnsPipeline does not propagate", async () => {
+    const lines = makeLines([TS1]);
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, lines);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+
+    // Deliberately bypass makeSvc's no-op default: construct with ONLY
+    // (db, source) so the constructor's default parameter builds a REAL
+    // AgentSpawnsPipeline bound to this fake db. That pipeline's own
+    // `runForSession` issues a `.select().from().innerJoin()...` query this
+    // hand-rolled fake doesn't implement (no `.innerJoin`) — proving the
+    // production default composes safely (AgentSpawnsPipeline's own internal
+    // try/catch logs and returns a zeroed result) even without an injected
+    // test double.
+    const svc = new AgentTranscriptIngestService(asPgDb(db), source);
+    const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+    expect(result.error).toBeUndefined();
+    const row = state.get(SESSION_A);
+    expect(row?.transcript?.length).toBe(1);
+  });
+
+  test("with no constructor override, a query failure inside the real default ToolCallProjectionPipeline does not propagate (mt#3329)", async () => {
+    const lines = makeLines([TS1]);
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, lines);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+
+    // Deliberately bypass makeSvc's no-op defaults for BOTH pipelines: pass
+    // only (db, source) so both the spawnsExtractor and toolCallProjector
+    // constructor defaults build REAL pipelines bound to this fake db.
+    // Neither pipeline's query shape matches this hand-rolled fake (no
+    // `.limit()` on the plain `.select().from().where()` chain
+    // ToolCallProjectionPipeline issues) — proving the production default
+    // composes safely (its own internal Array.isArray guard + try/catch log
+    // and return a zeroed result) even without an injected test double,
+    // exactly like the AgentSpawnsPipeline case immediately above.
+    const svc = new AgentTranscriptIngestService(asPgDb(db), source);
+    const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+    expect(result.error).toBeUndefined();
+    const row = state.get(SESSION_A);
+    expect(row?.transcript?.length).toBe(1);
   });
 });
 

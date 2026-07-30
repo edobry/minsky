@@ -39,7 +39,7 @@ import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import {
   drivenSessionsTable,
   type DrivenSessionRow,
@@ -108,7 +108,7 @@ export async function upsertDrivenSessionRecord(
     return "written";
   } catch (err) {
     log.warn(`upsertDrivenSessionRecord: failed for ${input.localId}`, {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
     });
     return "error";
   }
@@ -168,7 +168,9 @@ export async function getDrivenSessionRecord(
     const rows = Array.from(result as Iterable<RawDrivenSessionRow>);
     return rows[0] ? mapRawDrivenSessionRow(rows[0]) : null;
   } catch (err) {
-    log.warn(`getDrivenSessionRecord: failed for ${localId}`, { error: getErrorMessage(err) });
+    log.warn(`getDrivenSessionRecord: failed for ${localId}`, {
+      error: getLoggableErrorSummary(err),
+    });
     return null;
   }
 }
@@ -193,7 +195,7 @@ export async function listNonTerminalDrivenSessions(
     );
     return Array.from(result as Iterable<RawDrivenSessionRow>).map(mapRawDrivenSessionRow);
   } catch (err) {
-    log.warn(`listNonTerminalDrivenSessions: failed`, { error: getErrorMessage(err) });
+    log.warn(`listNonTerminalDrivenSessions: failed`, { error: getLoggableErrorSummary(err) });
     return [];
   }
 }

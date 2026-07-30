@@ -236,6 +236,19 @@ export const tasksSimilarParams = {
     description: "Show detailed output including scores and diagnostics",
     required: false,
   },
+  // mt#3305: same filter surface as tasks.search. These two commands are one
+  // operation behind two doors (`similarToTask` turns a task into query text and
+  // delegates to `searchByText`); a param present on one and absent on the other
+  // is exactly the drift that produced this task's defects — `all` did not exist
+  // here at all, so `tasks_similar` could not be asked to include shipped work
+  // by any argument.
+  //
+  // The DEFAULT still differs on purpose: tasks.search excludes terminal
+  // statuses (browse), tasks.similar includes them (dedupe — "does this already
+  // exist?"). See TasksSimilarCommand.execute.
+  all: TaskParameters.all,
+  status: TaskParameters.status,
+  kind: TaskParameters.kind,
   // mt#2795: declared for parity with tasks.search (the mt#2779 R1 review
   // flagged the gap). Description overrides the generic "Suppress output" —
   // this flag only silences stderr diagnostics, never the result output

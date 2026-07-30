@@ -34,6 +34,13 @@ import { getSharedPersistenceService } from "../shared-persistence";
 /** Serialisable Ask subset for the widget payload. */
 export interface AttentionAsk {
   id: string;
+  /**
+   * The ask's `ask#N` short id (ADR-029), when it has one. Absent for asks
+   * minted before the short-id backfill. Consumed by the entity linkifier's
+   * id-set so a bare `ask#3346` in prose resolves (mt#3259); the uuid `id`
+   * above stays canonical.
+   */
+  shortId?: string;
   kind: Ask["kind"];
   state: Ask["state"];
   title: string;
@@ -77,6 +84,7 @@ export interface AttentionPayload {
 function toAttentionAsk(ask: Ask): AttentionAsk {
   return {
     id: ask.id,
+    shortId: ask.shortId,
     kind: ask.kind,
     state: ask.state,
     title: ask.title,

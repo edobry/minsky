@@ -74,6 +74,22 @@ export {
   type PerTurnEmbeddingPipelineOptions,
   type PerTurnEmbeddingRunOptions,
 } from "./per-turn-embedding-pipeline";
+// Tool-call projection table writer (mt#3329): ingest-time pipeline + batched
+// full-corpus sweep for the one-time backfill.
+export {
+  ToolCallProjectionPipeline,
+  projectToolCallsForAllTranscripts,
+  fetchSessionIdPage,
+  DEFAULT_PROJECT_ALL_BATCH_SIZE,
+  type ToolCallProjectionRunResult,
+  type ProjectAllToolCallsResult,
+  type ProjectAllToolCallsOptions,
+} from "./tool-call-projection-pipeline";
+export {
+  parseToolName,
+  computeArgFingerprint,
+  type ParsedToolName,
+} from "./tool-call-projection-fields";
 // Conversation-element parser (mt#2374) — expands a SessionContextSnapshot
 // block into ordered conversational sub-elements for the cockpit renderer.
 export {
@@ -85,3 +101,44 @@ export {
   type ConversationRole,
   type ConversationTurn,
 } from "./conversation-elements";
+// Watchable-world semantic event schema v0 + transcript adapter + Gource
+// exporter (mt#3157, Phase 0 of the watchable-world program).
+export {
+  EVENT_SCHEMA_VERSION,
+  EVENT_VERBS,
+  DEFAULT_VERB_WEIGHTS,
+  weightForVerb,
+  PATH_BEARING_VERBS,
+  isPathBearingVerb,
+  EVENT_ACTOR_KINDS,
+  EVENT_OUTCOMES,
+  EVENT_REALMS,
+  type EventSchemaVersion,
+  type EventVerb,
+  type EventActorKind,
+  type EventActor,
+  type EventOutcome,
+  type EventRealm,
+  type EventTarget,
+  type SemanticEvent,
+} from "./event-schema";
+export {
+  adaptTranscriptToEvents,
+  computeAdapterCoverage,
+  extractLeadingUserTexts,
+  ADAPTER_VERSION,
+  type AdapterContext,
+  type AdapterCoverageResult,
+  type ToolResultInfo,
+} from "./event-adapter";
+export {
+  eventsToGourceLines,
+  formatGourceLog,
+  exportGourceLog,
+  assertScrubGate,
+  UnscrubbedSessionError,
+  CREDENTIAL_SCRUB_CUTOFF_ISO,
+  type GourceAction,
+  type GourceLogLine,
+  type ExportGourceLogOptions,
+} from "./gource-exporter";

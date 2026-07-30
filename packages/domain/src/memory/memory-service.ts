@@ -20,10 +20,11 @@ import { eq, and, isNull, inArray, or, lt, gte, lte, sql } from "drizzle-orm";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
 import { memoriesTable } from "../storage/schemas/memory-embeddings";
+import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
 import { MEMORY_SCOPES } from "./types";
-import { nextShortId } from "../utils/short-id";
+import { nextShortId, formatShortId, parseShortId } from "../utils/short-id";
 import type {
   MemoryRecord,
   MemoryCreateInput,
@@ -103,6 +104,42 @@ export interface MemoryServiceDeps {
   db: MemoryServiceDb;
   vectorStorage: VectorStorage;
   embeddingService: EmbeddingService;
+}
+
+// ---------------------------------------------------------------------------
+// Id-shape resolution (mt#3259)
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical UUID shape. `memories.id` is a Postgres `uuid` column, so a
+ * comparison against a non-uuid string is a CAST ERROR, not an empty result —
+ * this guard is what turns a malformed id into a clean miss.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Build the WHERE clause selecting a single memory by its id, accepting
+ * either id form (ADR-029: the uuid is canonical, the `mem#N` short id is an
+ * additional display/lookup handle).
+ *
+ * Returns `null` — explicitly, not a clause matching nothing — when the input
+ * is NEITHER form. That distinction is the point: a null return means "this
+ * string cannot name a memory," which callers render as a miss without ever
+ * issuing a query. Deliberately NOT typed as returning a clause that matches
+ * zero rows, so a future caller can't mistake "unqueryable input" for
+ * "queried and found nothing" (mem#728: an unmeasured value must not be
+ * representable as a legitimate one).
+ */
+function memoryIdWhere(id: string) {
+  const trimmed = (id ?? "").trim();
+  const parsed = parseShortId(trimmed);
+  if (parsed && parsed.prefix === "mem") {
+    // Re-format from the PARSED parts rather than reusing the raw input, so
+    // casing and stray whitespace normalize to the stored form.
+    return eq(memoriesTable.shortId, formatShortId("mem", parsed.n));
+  }
+  if (UUID_RE.test(trimmed)) return eq(memoriesTable.id, trimmed);
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -236,7 +273,12 @@ export class MemoryService implements MemoryServiceSurface {
    * `DrizzleAskRepository.create` (mt#2965) and
    * `MinskyTaskBackend.tryInsertTask` (mt#2205).
    */
-  async create(input: MemoryCreateInput): Promise<MemoryRecord> {
+  async create(rawInput: MemoryCreateInput): Promise<MemoryRecord> {
+    // mt#3278: sanitize at the service boundary, not at each of the several
+    // write sites below — a per-site fix is one refactor away from missing a
+    // path, and the whole failure mode here is a write that fails permanently
+    // and silently.
+    const input: MemoryCreateInput = sanitizeForPostgresDeep(rawInput).value;
     const MAX_RETRIES = 5;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const shortId = await this.nextMemoryShortId();
@@ -285,10 +327,31 @@ export class MemoryService implements MemoryServiceSurface {
 
   /**
    * Fetch a single memory record by ID.
+   *
+   * Accepts either the canonical UUID primary key or a `mem#N` short id
+   * (ADR-029). The short-id branch matters because `memories.id` is a
+   * Postgres `uuid` column: passing a non-uuid string straight into
+   * `eq(memoriesTable.id, ...)` does not return "not found", it raises
+   * `invalid input syntax for type uuid` and echoes the whole failing
+   * statement — which is how a `mem#N` route param surfaced as a raw driver
+   * error in the cockpit rather than a miss (mt#3259; the same split
+   * mt#3108 records on the `memory_update` surface).
+   *
+   * Note this is EXACT short-id / uuid resolution only. Unambiguous
+   * uuid-PREFIX resolution (mt#2696) lives one layer up, in the command
+   * adapter's `resolveMemoryIdInput`, which hands this method a full uuid —
+   * unchanged by this method's new branch.
+   *
    * Access tracking: bumps last_accessed_at and access_count non-blocking (fire-and-forget).
    */
   async get(id: string): Promise<MemoryRecord | null> {
-    const rows = await this.deps.db.select().from(memoriesTable).where(eq(memoriesTable.id, id));
+    const where = memoryIdWhere(id);
+    // Neither a uuid nor a `mem#N` short id — a genuine miss, not a query.
+    // Returning null here is what keeps a malformed route param from
+    // reaching the driver as a uuid cast.
+    if (!where) return null;
+
+    const rows = await this.deps.db.select().from(memoriesTable).where(where);
 
     const row = rows[0] as Record<string, unknown> | undefined;
     if (!row) return null;
@@ -361,7 +424,13 @@ export class MemoryService implements MemoryServiceSurface {
   // Update
   // -------------------------------------------------------------------------
 
-  async update(id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null> {
+  async update(id: string, rawInput: MemoryUpdateInput): Promise<MemoryRecord | null> {
+    // mt#3278 — see `create` above for why this is at the boundary.
+    const input: MemoryUpdateInput = sanitizeForPostgresDeep(rawInput).value;
+    const where = memoryIdWhere(id);
+    // Neither a uuid nor a `mem#N` short id — a miss, not a query (mt#3108).
+    if (!where) return null;
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: Record<string, any> = { updatedAt: new Date() };
 
@@ -388,11 +457,7 @@ export class MemoryService implements MemoryServiceSurface {
       updateData["associations"] = expr;
     }
 
-    const rows = await this.deps.db
-      .update(memoriesTable)
-      .set(updateData)
-      .where(eq(memoriesTable.id, id))
-      .returning();
+    const rows = await this.deps.db.update(memoriesTable).set(updateData).where(where).returning();
 
     const row = rows[0] as Record<string, unknown> | undefined;
     if (!row) return null;
@@ -412,9 +477,31 @@ export class MemoryService implements MemoryServiceSurface {
   // -------------------------------------------------------------------------
 
   async delete(id: string): Promise<void> {
-    await this.deps.db.delete(memoriesTable).where(eq(memoriesTable.id, id));
-    await this.deps.vectorStorage.delete(id).catch((err: unknown) => {
-      log.warn("[memory.delete] Failed to delete embedding", { id, err });
+    const where = memoryIdWhere(id);
+    // A malformed id deletes nothing rather than raising a uuid cast (mt#3108).
+    if (!where) return;
+
+    // Delete the row and read back WHICH row went, because the vector store is
+    // keyed by the canonical uuid — never by a `mem#N` alias. Passing the
+    // caller's raw input to `vectorStorage.delete` would silently orphan the
+    // embedding whenever a short id was used: the row deletion succeeds, the
+    // vector deletion matches nothing, and neither reports a problem
+    // (PR #2348 R1). That is the exact "a failure that looks like success"
+    // shape mem#728 describes, and it is a regression this task would have
+    // introduced — before short ids resolved here, the row deletion itself
+    // raised a cast error, so the vector delete never ran on a bad key.
+    const deleted = (await this.deps.db.delete(memoriesTable).where(where).returning()) as Record<
+      string,
+      unknown
+    >[];
+
+    const deletedId = deleted?.[0]?.["id"];
+    // Nothing matched — no embedding to remove, and no id to remove it by.
+    if (deletedId === undefined || deletedId === null) return;
+
+    const canonicalId = String(deletedId);
+    await this.deps.vectorStorage.delete(canonicalId).catch((err: unknown) => {
+      log.warn("[memory.delete] Failed to delete embedding", { id: canonicalId, err });
     });
   }
 
@@ -588,6 +675,17 @@ export class MemoryService implements MemoryServiceSurface {
     newInput: MemoryCreateInput,
     reason?: string
   ): Promise<{ old: MemoryRecord; replacement: MemoryRecord }> {
+    // Resolve the old id's shape BEFORE opening the transaction (mt#3108).
+    // Unlike update/delete this cannot return a not-found value — the
+    // signature promises a record pair — so a malformed id throws here rather
+    // than inserting the replacement and only then failing the old-row update
+    // on a uuid cast, which would roll back the insert and surface a raw SQL
+    // dump instead of naming the problem.
+    const oldWhere = memoryIdWhere(oldId);
+    if (!oldWhere) {
+      throw new Error(`Invalid memory id "${oldId}": expected a full uuid or a mem#N short id.`);
+    }
+
     const { oldRecord, newRecord } = await this.deps.db.transaction(async (tx: MemoryServiceDb) => {
       const shortId = await this.nextMemoryShortId(tx);
       // Insert new memory inside the transaction.
@@ -615,11 +713,16 @@ export class MemoryService implements MemoryServiceSurface {
       const replacement = rowToRecord(newRows[0] as Record<string, unknown>);
 
       // Read the old memory's current metadata so we can append rather than overwrite.
-      const oldRowsBefore = await tx
-        .select()
-        .from(memoriesTable)
-        .where(eq(memoriesTable.id, oldId));
+      const oldRowsBefore = await tx.select().from(memoriesTable).where(oldWhere);
       const oldBefore = oldRowsBefore[0] as Record<string, unknown> | undefined;
+      // Fail loudly and by name when the old memory does not exist. Without
+      // this the missing row surfaces further down as `rowToRecord(undefined)`
+      // reading properties of undefined — an error whose text says nothing
+      // about the actual problem (PR #2348 R1). The transaction rolls back, so
+      // the replacement inserted above is not left behind.
+      if (!oldBefore) {
+        throw new Error(`Memory not found: "${oldId}" — nothing to supersede.`);
+      }
       const existingMetadata =
         (oldBefore?.["metadata"] as Record<string, unknown> | null | undefined) ?? {};
       const mergedMetadata = {
@@ -636,7 +739,7 @@ export class MemoryService implements MemoryServiceSurface {
           metadata: mergedMetadata,
           updatedAt: new Date(),
         })
-        .where(eq(memoriesTable.id, oldId))
+        .where(oldWhere)
         .returning();
 
       return {
@@ -737,7 +840,9 @@ export class MemoryService implements MemoryServiceSurface {
    * Fetch a record by ID without triggering access tracking (internal helper).
    */
   private async getById(id: string): Promise<MemoryRecord | null> {
-    const rows = await this.deps.db.select().from(memoriesTable).where(eq(memoriesTable.id, id));
+    const where = memoryIdWhere(id);
+    if (!where) return null;
+    const rows = await this.deps.db.select().from(memoriesTable).where(where);
     const row = rows[0] as Record<string, unknown> | undefined;
     return row ? rowToRecord(row) : null;
   }

@@ -12,10 +12,13 @@ import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Prose } from "../components/Prose";
 import { CopyId } from "../components/CopyId";
+import { EntityRef } from "../components/EntityRef";
 import { useEntityIndex } from "../lib/use-entity-index";
+import { LinkifiedText } from "../lib/entity-linkifier";
 import { formatRequestor } from "../lib/entity-labels";
 import { Link } from "react-router-dom";
 import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
+import { stripOptionLetterPrefix } from "@minsky/shared/ask-option-label";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server Ask shape (no server imports on frontend)
@@ -167,7 +170,20 @@ export function composeResolvePayload(
   let payloadValue: unknown;
   if (ask.options && ask.options.length > 0) {
     const option = ask.options[letterIndex];
-    payloadValue = { option: String(option?.value ?? ""), chosen: String(option?.value ?? "") };
+    // mt#3181: fall back to `label` when `value` is absent. This surface wrote
+    // the empty selection observed on ask#5769 — `option?.value ?? ""` yields
+    // "" for an option stored without a value, so the Ask closed as answered
+    // with no record of WHICH option the operator picked. `askOptionSchema`
+    // now normalizes this at create time; the fallback covers Asks created
+    // before that fix, which are still in the store.
+    // Strict `=== undefined` check (not `??`): `??` also treats an explicitly
+    // provided `null` as nullish, which would silently discard a legitimate
+    // falsy-but-present machine value (PR #2266 R1 BLOCKING #2). `option`
+    // itself can be `undefined` when `optionLetter` is out of range — that
+    // case still falls back to `""`.
+    const optionValue =
+      option === undefined ? "" : option.value === undefined ? option.label : option.value;
+    payloadValue = { option: String(optionValue), chosen: String(optionValue) };
   } else {
     payloadValue = { approved: optionLetter === "A" };
   }
@@ -414,7 +430,7 @@ export function AskDetail({
           {ask.parentTaskId && (
             <div>
               <span className="font-medium">Task:</span>{" "}
-              <span className="font-mono">{ask.parentTaskId}</span>
+              <EntityRef type="task" id={ask.parentTaskId} />
             </div>
           )}
           {ask.windowKey && (
@@ -435,7 +451,10 @@ export function AskDetail({
             {ask.contextRefs.map((ref, i) => {
               const link = contextRefHref(ref.kind, ref.ref);
               return (
-                <div key={i} className="text-xs text-muted-foreground pl-2 border-l-2 border-border">
+                <div
+                  key={i}
+                  className="text-xs text-muted-foreground pl-2 border-l-2 border-border"
+                >
                   <span className="font-medium">{ref.kind}:</span>{" "}
                   {link ? (
                     link.external ? (
@@ -480,12 +499,19 @@ export function AskDetail({
                         {letter})
                       </span>
                       <div>
-                        {/* Plain text (not <Prose>): short inline option label/description — block Markdown breaks layout. mt#2556 */}
-                        <span className="text-foreground font-medium">{opt.label}</span>
+                        <span className="text-foreground font-medium">
+                          {/* The letter is rendered above by this surface, so a
+                              producer-supplied "B — " / "[b] " prefix would
+                              double it (mt#3253). */}
+                          <LinkifiedText
+                            text={stripOptionLetterPrefix(opt.label)}
+                            index={entityIndex}
+                          />
+                        </span>
                         {opt.description && (
                           <span className="ml-1 text-muted-foreground text-xs">
                             {" "}
-                            — {opt.description}
+                            — <LinkifiedText text={opt.description} index={entityIndex} />
                           </span>
                         )}
                       </div>
@@ -509,7 +535,8 @@ export function AskDetail({
             <div className="flex flex-wrap gap-2 pt-2">
               {Array.from({ length: optionCount }, (_, i) => {
                 const letter = letters[i] ?? "?";
-                const optLabel = ask.options?.[i]?.label ?? (i === 0 ? "Approve" : "Deny");
+                const rawLabel = ask.options?.[i]?.label ?? (i === 0 ? "Approve" : "Deny");
+                const optLabel = stripOptionLetterPrefix(rawLabel);
                 return (
                   <Button
                     key={letter}

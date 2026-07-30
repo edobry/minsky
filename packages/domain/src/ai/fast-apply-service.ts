@@ -8,6 +8,7 @@
 import type { ResolvedConfig } from "../configuration/types";
 import type { AICompletionResponse } from "./types";
 import { createCompletionService } from "./service-factory";
+import { preserveTrailingNewline } from "./edit-pattern-utils";
 
 export interface FastApplyRequest {
   filePath: string;
@@ -103,7 +104,7 @@ export async function executeFastApply(
   });
 
   return {
-    editedContent: response.content.trim(),
+    editedContent: preserveTrailingNewline(response.content, originalContent),
     mode,
     provider: targetProvider,
     response,

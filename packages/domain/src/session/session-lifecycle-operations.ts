@@ -16,6 +16,18 @@ import { rmSync, existsSync } from "node:fs";
 import { getSessionsDir } from "@minsky/shared/paths";
 import type { GitServiceInterface } from "../git/types";
 import { taskIdToBranchName } from "../tasks/task-id";
+import type { PersistenceProvider } from "../persistence/types";
+import { checkWorkspaceGitStateForDelete } from "./session-workspace-git-state-guard";
+import {
+  resolveSessionActor,
+  presenceRepositoryFromProvider,
+  type SessionActorResult,
+} from "./session-actor";
+import {
+  resolveDestructiveOverride,
+  isValidDestructiveOverride,
+  recordDestructiveOverride,
+} from "../safety/destructive-override";
 
 /**
  * Gets session details based on parameters
@@ -109,6 +121,13 @@ export async function deleteSessionImpl(
     sessionDB: SessionProviderInterface;
     gitService?: GitServiceInterface;
     fs?: { existsSync: typeof existsSync; rmSync: typeof rmSync };
+    /** mt#3021 SC2: best-effort audit-event sink for a used override. */
+    persistenceProvider?: PersistenceProvider;
+    /**
+     * mt#3105: test seam for the live-actor gate. Defaults to the real
+     * mt#3103 primitive reading presence claims via `persistenceProvider`.
+     */
+    resolveActor?: (sessionId: string) => Promise<SessionActorResult>;
   }
 ): Promise<DeleteSessionResult> {
   const { sessionId, task, repo } = params;
@@ -153,6 +172,128 @@ export async function deleteSessionImpl(
 
   // Compute the workspace dir once — used for both remote branch deletion and directory removal
   const sessionWorkspaceDir = `${getSessionsDir()}/${resolvedSessionId}`;
+
+  // mt#3021 SC2: MERGE_HEAD/uncommitted-changes guard — runs INSIDE this
+  // function (not only at the `session cleanup` command layer, which is the
+  // ONLY existing safety check and which this incident's actual deletion
+  // path bypassed entirely by calling deleteSessionImpl directly). Gates
+  // BOTH the remote-branch deletion below AND the local rmSync — unconditional
+  // with respect to any caller-supplied `force`: an agent that has already
+  // reasoned itself into "safe to force" is exactly the failure mode this
+  // guard exists to stop (see the mt#3021 spec's design decision). Only the
+  // shared destructive-override contract lifts it.
+  //
+  // Terminal-state bypass (mt#3021 R1, pulled forward from mt#3104's
+  // Layer-2 scope — see that task's spec for the note): a session whose OWN
+  // status is already MERGED or CLOSED does not need this check at all —
+  // its owning agent's work is definitionally finished, so there is no
+  // in-flight work left to protect. Without this, `applyPostMergeStateSync`
+  // (session-merge-status-sync.ts, called on every merge with `force: true`
+  // and no override reason) would hit the guard on routine post-merge
+  // cleanup whenever the workspace has ANY modified tracked file or
+  // untracked non-ignored file (hasUncommittedChanges runs a bare `git
+  // status --porcelain`, no `-uno`) — an under-deletion failure mode where
+  // the workspace silently accumulates on disk forever, which is exactly
+  // the "must not deadlock legitimate recovery" hazard the spec warns
+  // about, just triggered by routine operation instead of a genuine
+  // abandoned-session recovery. Mirrors the identical MERGED/CLOSED skip in
+  // `identifyCleanupCandidates` (session-cleanup.ts) rather than inventing
+  // a second convention.
+  const isTerminalSession =
+    sessionRecord?.status === SessionStatus.MERGED ||
+    sessionRecord?.status === SessionStatus.CLOSED;
+  if (!isTerminalSession) {
+    const guardGitService = deps.gitService ?? (await (await import("../git")).createGitService());
+    const gitState = await checkWorkspaceGitStateForDelete(
+      guardGitService,
+      sessionWorkspaceDir,
+      fsOps
+    );
+    if (gitState.blocked) {
+      const override = resolveDestructiveOverride(params.overrideReason);
+      if (!isValidDestructiveOverride(override)) {
+        return {
+          deleted: false,
+          error:
+            `${gitState.message} — refusing to delete session '${resolvedSessionId}' without ` +
+            `an explicit overrideReason.`,
+        };
+      }
+      await recordDestructiveOverride({
+        guard: "session-delete-git-state",
+        reason: override.reason,
+        details: { sessionId: resolvedSessionId, reasonCode: gitState.reasonCode },
+        persistenceProvider: deps.persistenceProvider,
+        relatedSessionId: resolvedSessionId,
+        relatedTaskId: sessionRecord?.taskId,
+      });
+    }
+
+    // mt#3105: live-ACTOR gate — the second, independently-failing axis next
+    // to the git-state guard above (AND, not OR: file-state evidence can be
+    // reasoned past — the 2026-07-21 incident's deleting agent used accurate
+    // git-state evidence as a reason TO delete; a live-actor check fails
+    // independently). Consults the mt#3103 presence primitive fresh, at the
+    // moment of the call.
+    //
+    // Verdict handling (four branches, operator ruling ask#6273 — recorded in
+    // the mt#3105 spec §Resolution and mem#749):
+    //   live                              → refuse (names actor + last activity)
+    //   inconclusive / store-unavailable  → refuse (fail closed — not knowing
+    //                                       because we could not LOOK is never
+    //                                       permission)
+    //   inconclusive / no-claim           → ABSTAIN: the git-state guard above
+    //                                       already decided. The claim
+    //                                       mechanism began 2026-07-16, so
+    //                                       claimless ≈ legacy — the routine
+    //                                       deletion population. Refusing it
+    //                                       would demand overrideReason on
+    //                                       ~99% of deletes and train reflex
+    //                                       flag-passing.
+    //   not-live                          → proceed
+    // Any OTHER inconclusive (claim-derived gray state, untagged cause) is
+    // refuse-class — abstention is opt-in on the explicit "no-claim" cause
+    // only, so future inconclusive branches default to the safe treatment.
+    //
+    // Only the shared destructive-override contract lifts a refusal; when it
+    // does, the use is recorded as its own guard.overridden audit event —
+    // separate from the git-state guard's record above, so the audit trail
+    // names each independently-tripped gate.
+    const resolveActor =
+      deps.resolveActor ??
+      ((sessionId: string) =>
+        resolveSessionActor(sessionId, {
+          getRepository: () => presenceRepositoryFromProvider(deps.persistenceProvider),
+        }));
+    const actor = await resolveActor(resolvedSessionId);
+    const livenessRefuses =
+      actor.verdict === "live" || (actor.verdict === "inconclusive" && actor.cause !== "no-claim");
+    if (livenessRefuses) {
+      const override = resolveDestructiveOverride(params.overrideReason);
+      if (!isValidDestructiveOverride(override)) {
+        return {
+          deleted: false,
+          error:
+            `Refusing to delete session '${resolvedSessionId}': ${actor.reason} — ` +
+            `pass an explicit overrideReason to delete anyway.`,
+        };
+      }
+      await recordDestructiveOverride({
+        guard: "session-delete-liveness",
+        reason: override.reason,
+        details: {
+          sessionId: resolvedSessionId,
+          verdict: actor.verdict,
+          cause: actor.cause,
+          actorId: actor.actorId,
+          lastRefreshedAt: actor.lastRefreshedAt,
+        },
+        persistenceProvider: deps.persistenceProvider,
+        relatedSessionId: resolvedSessionId,
+        relatedTaskId: sessionRecord?.taskId,
+      });
+    }
+  }
 
   // Delete the remote git branch if a git service is available
   if (deps.gitService && sessionRecord) {
@@ -304,22 +445,41 @@ export async function cleanupSessionImpl(
   params: {
     sessionId: string;
     taskId?: string;
-    force?: boolean;
     dryRun?: boolean;
+    /**
+     * mt#3021 SC2 + mt#3104: justification required to clean up a workspace
+     * with an in-progress merge / uncommitted changes (git-state guard) or a
+     * live/unknown actor (liveness gate). The former `force` flag is REMOVED
+     * (mt#3104 criterion 4, strong form): its only effect was skipping the
+     * validateSessionSafeForCleanup no-op stub, and the incident this family
+     * closes was a caller (`applyPostMergeStateSync`) passing `force: true`
+     * unconditionally — the exact "already reasoned itself into safe, passes
+     * a bare flag without pausing" failure mode the shared override contract
+     * exists to stop. This override reason is the ONLY lifter.
+     */
+    overrideReason?: string;
   },
   deps: {
     sessionDB: SessionProviderInterface;
+    gitService?: GitServiceInterface;
+    /** mt#3021 SC2: best-effort audit-event sink for a used override. */
+    persistenceProvider?: PersistenceProvider;
+    /**
+     * mt#3104: test seam for the live-actor gate. Defaults to the real
+     * mt#3103 primitive reading presence claims via `persistenceProvider`.
+     */
+    resolveActor?: (sessionId: string) => Promise<SessionActorResult>;
   }
 ): Promise<{
   sessionDeleted: boolean;
   directoriesRemoved: string[];
   errors: string[];
 }> {
-  const { sessionId, taskId, force = false, dryRun = false } = params;
+  const { sessionId, taskId, dryRun = false } = params;
   const directoriesRemoved: string[] = [];
   const errors: string[] = [];
 
-  log.debug("Starting session cleanup", { sessionId, taskId, force, dryRun });
+  log.debug("Starting session cleanup", { sessionId, taskId, dryRun });
 
   try {
     // 1. Get session record before deletion
@@ -340,12 +500,112 @@ export async function cleanupSessionImpl(
       };
     }
 
-    // 3. Safety validation (unless force flag is used)
-    if (!force) {
-      await validateSessionSafeForCleanup(sessionRecord as Session | null, sessionId, taskId);
+    // mt#3021 SC2: MERGE_HEAD/uncommitted-changes guard — unconditional with
+    // respect to `force` (see the params doc comment above). Checks every
+    // directory this call would remove; if any is blocked, refuse the whole
+    // cleanup (fail closed) rather than partially clean up.
+    //
+    // Terminal-state bypass (mt#3021 R1, pulled forward from mt#3104's
+    // Layer-2 scope): a session whose OWN status is already MERGED or
+    // CLOSED skips this check entirely — its owning agent's work is
+    // definitionally finished. Without this, `applyPostMergeStateSync`
+    // (which calls this function with `force: true` and no override reason
+    // on EVERY merge) would refuse routine post-merge cleanup whenever the
+    // workspace has any modified tracked file or untracked non-ignored
+    // file — a silent under-deletion regression (workspace dirs
+    // accumulating on disk forever) that is the opposite failure mode from
+    // the incident this guard exists to prevent. Mirrors the identical
+    // MERGED/CLOSED skip in `identifyCleanupCandidates`
+    // (session-cleanup.ts) rather than inventing a second convention.
+    const isTerminalSession =
+      sessionRecord?.status === SessionStatus.MERGED ||
+      sessionRecord?.status === SessionStatus.CLOSED;
+    if (!isTerminalSession) {
+      const guardGitService =
+        deps.gitService ?? (await (await import("../git")).createGitService());
+      for (const directory of sessionDirectories) {
+        const gitState = await checkWorkspaceGitStateForDelete(guardGitService, directory);
+        if (gitState.blocked) {
+          const override = resolveDestructiveOverride(params.overrideReason);
+          if (!isValidDestructiveOverride(override)) {
+            const msg =
+              `${gitState.message} — refusing to clean up session '${sessionId}' without ` +
+              `an explicit overrideReason.`;
+            log.warn(msg);
+            return {
+              sessionDeleted: false,
+              directoriesRemoved: [],
+              errors: [msg],
+            };
+          }
+          await recordDestructiveOverride({
+            guard: "session-cleanup-git-state",
+            reason: override.reason,
+            details: { sessionId, taskId, reasonCode: gitState.reasonCode, directory },
+            persistenceProvider: deps.persistenceProvider,
+            relatedSessionId: sessionId,
+            relatedTaskId: taskId,
+          });
+        }
+      }
+
+      // mt#3104: live-ACTOR gate — same four-branch verdict handling as the
+      // deleteSessionImpl gate above (operator ruling ask#6273; recorded in
+      // the mt#3105 spec §Resolution and mem#749): live → refuse;
+      // inconclusive/store-unavailable → refuse (fail closed);
+      // inconclusive/no-claim → abstain (the git-state loop above already
+      // decided); not-live → proceed. Any untagged inconclusive is
+      // refuse-class — abstention is opt-in on the explicit "no-claim" cause.
+      // One per-SESSION check (the actor holds the session, not a directory),
+      // after the per-directory git-state loop, before any removal. Replaces
+      // the deleted validateSessionSafeForCleanup no-op stub (mt#3104
+      // criterion 1) — and unlike the stub, it is unconditional: the removed
+      // `force` flag cannot skip it, closing the applyPostMergeStateSync
+      // blanket bypass (criterion 4; that caller's post-merge path passes
+      // through the terminal-state bypass above instead, since effect (b)
+      // sets MERGED before effect (e) triggers cleanup).
+      const resolveActor =
+        deps.resolveActor ??
+        ((id: string) =>
+          resolveSessionActor(id, {
+            getRepository: () => presenceRepositoryFromProvider(deps.persistenceProvider),
+          }));
+      const actor = await resolveActor(sessionId);
+      const livenessRefuses =
+        actor.verdict === "live" ||
+        (actor.verdict === "inconclusive" && actor.cause !== "no-claim");
+      if (livenessRefuses) {
+        const override = resolveDestructiveOverride(params.overrideReason);
+        if (!isValidDestructiveOverride(override)) {
+          const msg =
+            `Refusing to clean up session '${sessionId}': ${actor.reason} — ` +
+            `pass an explicit overrideReason to clean up anyway.`;
+          log.warn(msg);
+          return {
+            sessionDeleted: false,
+            directoriesRemoved: [],
+            errors: [msg],
+          };
+        }
+        await recordDestructiveOverride({
+          guard: "session-cleanup-liveness",
+          reason: override.reason,
+          details: {
+            sessionId,
+            taskId,
+            verdict: actor.verdict,
+            cause: actor.cause,
+            actorId: actor.actorId,
+            lastRefreshedAt: actor.lastRefreshedAt,
+          },
+          persistenceProvider: deps.persistenceProvider,
+          relatedSessionId: sessionId,
+          relatedTaskId: taskId,
+        });
+      }
     }
 
-    // 4. Remove session directories
+    // 3. Remove session directories
     for (const directory of sessionDirectories) {
       try {
         if (existsSync(directory)) {
@@ -363,7 +623,7 @@ export async function cleanupSessionImpl(
       }
     }
 
-    // 5. Remove session from database — only if all directory removals succeeded.
+    // 4. Remove session from database — only if all directory removals succeeded.
     // If any directory removal failed, preserving the DB record prevents orphan directories.
     let sessionDeleted = false;
     if (sessionRecord && errors.length === 0) {
@@ -438,25 +698,8 @@ async function getSessionDirectoriesToCleanup(
   return directories;
 }
 
-/**
- * Validate that a session is safe to clean up
- */
-async function validateSessionSafeForCleanup(
-  sessionRecord: Session | null,
-  sessionId: string,
-  taskId?: string
-): Promise<void> {
-  // For now, we'll implement basic validation
-  // Future enhancements could include:
-  // - Check if task is DONE
-  // - Check if PR is merged
-  // - Check for uncommitted changes
-
-  if (!sessionRecord) {
-    log.debug(`Session ${sessionId} not found in database, allowing cleanup`);
-    return;
-  }
-
-  // Add more validation rules here in the future
-  log.debug("Session validation passed for cleanup", { sessionId, taskId });
-}
+// NOTE (mt#3104 criterion 1): the former `validateSessionSafeForCleanup`
+// no-op stub is DELETED, not extended — its role (a real safety check on
+// cleanup) is filled by the unconditional git-state guard (mt#3021) and
+// live-actor gate (mt#3104) inside cleanupSessionImpl, which no force-style
+// flag can skip.

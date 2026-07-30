@@ -387,13 +387,88 @@ export interface SessionContextSnapshotBlock {
   content: unknown;
 
   /**
+   * True when the originating JSONL line carried a top-level
+   * `isCompactSummary: true` — Claude Code's marker for the summary it injects
+   * at a context-compaction boundary (mt#3260).
+   *
+   * Verified shape (2026-07-26, local corpus): always
+   * `{"type":"user","isCompactSummary":true}` — a top-level boolean on a
+   * `user` line, present in 37 of 1003 transcripts. Without this the summary
+   * renders as an unmarked giant user turn, which is why "where did my context
+   * go" has nowhere to show.
+   *
+   * Optional and additive: absent on every block that is not a compaction
+   * boundary, so no existing consumer changes behavior.
+   */
+  isCompactSummary?: boolean;
+
+  /**
+   * True when the originating JSONL line carried a top-level `isMeta: true` —
+   * Claude Code's marker for a line the HARNESS generated rather than the
+   * operator (mt#3322).
+   *
+   * Verified shape (2026-07-29, local corpus): a top-level boolean on a `user`
+   * line, carried by the `<local-command-caveat>` block the harness attaches
+   * to a slash-command invocation ("Caveat: The messages below were generated
+   * by the user while running local commands. DO NOT respond to these
+   * messages..." — text addressed to the MODEL, not the operator).
+   *
+   * This is the one signal that marks harness plumbing STRUCTURALLY rather
+   * than by pattern-matching the text; the render surface prefers it over its
+   * regex detector where present. Optional and additive: absent on every
+   * ordinary turn, so no existing consumer changes behavior.
+   */
+  isMeta?: boolean;
+
+  /**
+   * The assistant message's `model`, when the line carried one (mt#3260).
+   *
+   * Load-bearing case: Claude Code records a retried turn with the sentinel
+   * model `"<synthetic>"` (94 of 1003 local transcripts), which otherwise
+   * renders as an ordinary assistant turn.
+   */
+  model?: string;
+
+  /**
+   * Originating JSONL `uuid` — this line's own harness-emitted node id, the
+   * other half of the `parentUuid` edge below (mt#3323).
+   *
+   * Present on turn blocks (the `agent_transcripts.transcript` array stores the
+   * JSONL lines verbatim, uuid included). ABSENT on attachment blocks:
+   * `agent_transcript_attachments` carries a `parent_uuid` column but no
+   * `uuid` column, so an attachment can be a tree CHILD but never a tree
+   * PARENT. Consumers walking the tree must treat a missing `uuid` as "cannot
+   * have children" rather than assuming every block is addressable.
+   *
+   * Optional and additive: a consumer that never reads it is unaffected.
+   */
+  uuid?: string;
+
+  /**
+   * True when this block belongs to a superseded (rewound) operator-prompt
+   * branch — the operator re-dictated or edited a prompt, and THIS is the
+   * version the agent never received (mt#3323).
+   *
+   * Set by `markAbandonedRewindBranches` (`transcripts/rewind-detection.ts`)
+   * at snapshot-assembly time. The block is deliberately still PRESENT in the
+   * stream: `SemanticEvent.turnIndex` is index-identical with this block's
+   * `turnIndex` (see `event-schema.ts`) and the session film joins on it, so
+   * blocks are never removed or re-indexed here. Suppression is the renderer's
+   * decision.
+   *
+   * Fires ONLY on the rewind shape (2+ sibling operator prompts under one
+   * `parentUuid`), never on ordinary tree branching — a parallel tool batch
+   * forks the tree at every call site with both forks live. Optional and
+   * additive: absent on every ordinary block.
+   */
+  isAbandonedBranch?: boolean;
+
+  /**
    * Originating JSONL `parentUuid` — the harness-emitted external UUID that
    * Claude Code uses to chain lines (attachment → preceding turn/attachment,
    * turn → preceding turn). NOT a synthesized block `id` from this snapshot's
-   * namespace; downstream consumers wanting in-snapshot navigation can build
-   * a `uuid → blockId` map themselves (uuids appear on the underlying JSONL
-   * but are not exposed on the block shape yet — file a follow-up if the
-   * inspector UI needs them).
+   * namespace; pair it with the `uuid` field above to resolve edges within the
+   * snapshot.
    *
    * Renamed from `parentId` per PR #1229 reviewer feedback; the old name
    * implied resolution within the snapshot's id-namespace, which the value

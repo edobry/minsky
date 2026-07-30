@@ -30,7 +30,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-turns-schema";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 import { extractTurns } from "./turn-extractor";
 import type { RawTurnLine } from "./transcript-source";
 import type { ConversationId } from "../ids";
@@ -160,7 +160,7 @@ export async function writeTurnsForTranscript(
         `writeTurnsForTranscript: failed to upsert a chunk of ${chunk.length} turns for ` +
           `${agentSessionId} (turns ${chunk[0]?.turnIndex}-${chunk[chunk.length - 1]?.turnIndex})`,
         {
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         }
       );
     }
@@ -327,7 +327,7 @@ export async function extractTurnsForAllTranscripts(
       // error partway through" (both looked like a normal loop exit).
       result.aborted = true;
       log.error("extractTurnsForAllTranscripts: failed to load a transcript batch", {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
         cursor,
       });
       break;
@@ -367,7 +367,7 @@ export async function extractTurnsForAllTranscripts(
       } catch (err) {
         result.transcriptsErrored++;
         log.warn(`extractTurnsForAllTranscripts: failed for ${row.agentSessionId}`, {
-          error: getErrorMessage(err),
+          error: getLoggableErrorSummary(err),
         });
       }
     }

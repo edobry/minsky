@@ -47,7 +47,7 @@ import { getSessionsDir } from "@minsky/shared/paths";
 import { log } from "@minsky/shared/logger";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { minskySessionLinksTable } from "../storage/schemas/minsky-session-links-schema";
-import { getErrorMessage } from "../errors/index";
+import { getLoggableErrorSummary } from "../errors/index";
 
 /** Confidence assigned to an exact `<stateDir>/sessions/<id>` cwd match. */
 export const CWD_MATCH_EXACT_CONFIDENCE = 1.0;
@@ -135,7 +135,7 @@ export async function writeCwdMatchLink(
     return true;
   } catch (err) {
     log.warn(`writeCwdMatchLink: failed to upsert link for session ${agentSessionId}`, {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
       minskySessionId: detected.minskySessionId,
     });
     return false;
@@ -180,7 +180,7 @@ export async function backfillCwdMatchLinks(
       .from(agentTranscriptsTable);
   } catch (err) {
     log.error("backfillCwdMatchLinks: failed to load transcripts", {
-      error: getErrorMessage(err),
+      error: getLoggableErrorSummary(err),
     });
     return result;
   }
@@ -204,7 +204,7 @@ export async function backfillCwdMatchLinks(
     } catch (err) {
       result.linksErrored++;
       log.warn(`backfillCwdMatchLinks: failed for ${row.agentSessionId}`, {
-        error: getErrorMessage(err),
+        error: getLoggableErrorSummary(err),
       });
     }
   }

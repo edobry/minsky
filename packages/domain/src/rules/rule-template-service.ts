@@ -238,9 +238,7 @@ export class RuleTemplateService {
         const relativeFromMock = ruleDir.replace(/^\//, "");
         ruleDir = path.resolve(this.workspacePath, relativeFromMock);
       }
-      if (!fs.existsSync(ruleDir)) {
-        fs.mkdirSync(ruleDir, { recursive: true });
-      }
+      fs.mkdirSync(ruleDir, { recursive: true });
       // Remap rulePath too if needed
       if (rulePath.startsWith("/mock")) {
         const rel = rulePath.replace(/^\//, "");

@@ -3,9 +3,12 @@
  *
  * Extracted from the duplicated inline patterns in manifest-flow-provisioner.ts
  * and guided-wizard-provisioner.ts. Used by any operation that requires
- * App-level auth (installation lookup, PATCH /app, delivery log queries).
+ * App-level auth (installation lookup, reading `GET /app`, delivery log
+ * queries) — never a mutating call; see update.ts for why no such mutating
+ * endpoint exists.
  *
  * @see mt#2167
+ * @see mt#3218
  */
 
 import { pemToPkcs8ArrayBuffer } from "./pem-utils";

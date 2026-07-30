@@ -54,6 +54,18 @@ export interface AskFormLintCalibrationRecord {
   askId?: string;
   kind: AskKind;
   matches: Array<{ class: FormLintMatch["check"]; phrase: string }>;
+  /**
+   * True when the create call bypassed the mt#3326 hard-reject via
+   * `acknowledgeFormWarnings: true`. Since that hard-reject landed, a
+   * record can only exist for an Ask whose creation actually persisted
+   * despite violations — which means this is always `true` for records
+   * appended after mt#3326. Kept explicit (rather than inferred) so the
+   * field self-documents in isolation and survives any future decoupling
+   * of the validate-time check from this write site. Optional so pre-mt#3326
+   * records in the existing JSONL log (written when every check was
+   * advisory-only) parse without this field.
+   */
+  acknowledged?: boolean;
 }
 
 /**
@@ -101,9 +113,7 @@ export function appendAskFormLintCalibrationRecord(
   try {
     const logPath = resolve(workspacePath, ASK_FORM_LINT_CALIBRATION_LOG);
     const dir = dirname(logPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
+    mkdirSync(dir, { recursive: true });
     appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
   } catch (err: unknown) {
     log.warn("asks.create: failed to write form-lint calibration log (best-effort, swallowed)", {

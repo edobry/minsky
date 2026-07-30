@@ -13,6 +13,7 @@
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConversationSearchPanel } from "./ConversationSearchPanel";
 
@@ -23,9 +24,14 @@ function createTestQueryClient(): QueryClient {
 }
 
 function renderPanel() {
+  // MemoryRouter is required as of mt#3187: result rows now route
+  // turn.agentSessionId through <EntityRef>, which renders a react-router
+  // <Link> — that throws without a Router context ancestor.
   return render(
     <QueryClientProvider client={createTestQueryClient()}>
-      <ConversationSearchPanel />
+      <MemoryRouter>
+        <ConversationSearchPanel />
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
@@ -85,6 +91,69 @@ describe("ConversationSearchPanel (mt#2523)", () => {
     await waitFor(() => {
       expect(screen.getByText("conv-distinctive-phrase")).toBeDefined();
       expect(screen.getByText("claude --resume conv-distinctive-phrase")).toBeDefined();
+    });
+  });
+
+  test("the conversation id renders as a working link, row layout unchanged (mt#3187)", async () => {
+    global.fetch = (async (url: string) => {
+      if (url.startsWith("/api/conversations/search")) {
+        return new Response(
+          JSON.stringify({
+            results: [
+              {
+                agentSessionId: "conv-abc123",
+                turnIndex: 1,
+                userText: "the distinctive phrase we searched for",
+                assistantText: null,
+                startedAt: "2026-07-10T12:00:00.000Z",
+                score: 0.8,
+                resumeHint: "claude --resume conv-abc123",
+                sessionMetadata: {
+                  startedAt: "2026-07-10T11:00:00.000Z",
+                  model: null,
+                  messageCount: 3,
+                  relatedTaskIds: [],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (url.startsWith("/api/widget/context-inspector/data")) {
+        return new Response(
+          JSON.stringify({
+            state: "ok",
+            payload: {
+              sessions: [
+                {
+                  agentSessionId: "conv-abc123",
+                  harness: "claude-code",
+                  startedAt: null,
+                  endedAt: null,
+                  cwd: null,
+                  label: "Investigate flaky test",
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    }) as unknown as typeof fetch;
+
+    renderPanel();
+    await expandAndSearch("distinctive phrase");
+
+    await waitFor(() => {
+      const link = screen.getByText("conv-abc123").closest("a");
+      expect(link).not.toBeNull();
+      expect(link?.getAttribute("href")).toBe("/conversation/conv-abc123");
+      // children mode: exact prior text (bare id), row's single-line
+      // truncation class carried over from the pre-conversion <span>.
+      expect(link?.textContent).toBe("conv-abc123");
+      expect(link?.className).toContain("truncate");
     });
   });
 

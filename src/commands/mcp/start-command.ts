@@ -43,6 +43,7 @@ import { setHostedMode } from "@minsky/domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { EventEmitterWithTryEmit } from "@minsky/domain/events/emitter";
 import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
 import {
   isInstructionsBundleEnabled,
@@ -587,6 +588,12 @@ async function startHttpServer(
     const persistenceHealth = assessPersistenceHealth(persistence);
     res.status(persistenceHealth.healthy ? 200 : 503).json({
       status: persistenceHealth.healthy ? "ok" : "unhealthy",
+      // mt#3148: `service` is the uniform, assertable identity key every
+      // Minsky service emits. `server` is retained UNCHANGED alongside it —
+      // mt#3142's own diagnosis read `server` to identify the wrong app on the
+      // reviewer host, and mem#704's probe recipe still cites it. Renaming
+      // would break the diagnostic path this field exists to strengthen.
+      service: "minsky-mcp",
       server: "Minsky MCP Server",
       transport: "http",
       timestamp: new Date().toISOString(),
@@ -1091,30 +1098,60 @@ export function wireSubagentDispatchTrackerWithRetry(
 }
 
 /**
+ * Build an EventEmitter for the EmbeddingsHealthTracker from the container's
+ * persistence provider, or null when persistence is unavailable (mt#2568).
+ *
+ * Shared by the eager one-shot wiring attempt (`wireEmbeddingsHealthTracker`
+ * below) and the per-call fallback builder registered with
+ * `EmbeddingsHealthTracker.registerEventEmitterBuilder` at the call site —
+ * so a degradation event that races the eager attempt still resolves the
+ * SAME construction path on demand instead of being lost.
+ */
+async function buildEmbeddingsEventEmitter(
+  container: AppContainerInterface
+): Promise<EventEmitterWithTryEmit | null> {
+  try {
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) return null;
+
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return null;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return null;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) return null;
+
+    const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
+    const { createEventEmitter } = await import("@minsky/domain/events/emitter");
+    return createEventEmitter(db);
+  } catch (err) {
+    log.debug("[mt#2568] buildEmbeddingsEventEmitter threw", {
+      error: getErrorMessage(err),
+    });
+    return null;
+  }
+}
+
+/**
  * Wire the EmbeddingsHealthTracker singleton to a production EventEmitter (mt#2147).
  *
  * Called once the DB connection is resolved. After this call, the tracker can
  * emit `embeddings.provider_degraded` events to the `system_events` table.
  * Without this wiring, the tracker still tracks health in-memory (for
  * debug_systemInfo) but cannot persist events.
+ *
+ * A single eager attempt — no retry of its own. `registerEventEmitterBuilder`
+ * (registered at the call site, mt#2568) gives the tracker a per-call
+ * fallback so a degradation that races this eager attempt still emits.
  */
 async function wireEmbeddingsHealthTracker(container: AppContainerInterface): Promise<boolean> {
   try {
-    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
-    if (!persistence) return false;
+    const emitter = await buildEmbeddingsEventEmitter(container);
+    if (!emitter) return false;
 
-    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
-    if (!(persistence instanceof PersistenceProvider)) return false;
-    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
-      return false;
-    }
-    const connection = await persistence.getDatabaseConnection();
-    if (!connection) return false;
-
-    const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
     const { EmbeddingsHealthTracker } = await import("@minsky/domain/ai/embeddings-health-tracker");
-    const { createEventEmitter } = await import("@minsky/domain/events/emitter");
-    EmbeddingsHealthTracker.getInstance().setEventEmitter(createEventEmitter(db));
+    EmbeddingsHealthTracker.getInstance().setEventEmitter(emitter);
     return true;
   } catch (err) {
     log.debug("[mt#2147] wireEmbeddingsHealthTracker threw", {
@@ -1483,9 +1520,39 @@ export function createStartCommand(
         }
 
         // mt#2265: wire the ask state-counts provider so debug.systemInfo
-        // surfaces asks count-by-state (the stuck-pipeline detector). Same
-        // fire-and-forget pattern as SubagentDispatchTracker above.
+        // surfaces asks count-by-state (the stuck-pipeline detector).
+        //
+        // mt#2568: the eager setAskStateCountsRepository() attempt below has
+        // no retry of its own — if it hasn't completed (or fails outright)
+        // by the time getAskStateCounts() is first called (e.g. a proxy/
+        // staleness-respawned server, the exact race mt#2562/mt#2567
+        // diagnosed for the presence write-path), the provider would stay
+        // permanently unavailable for the life of the process, silently
+        // defeating the stuck-pipeline detector. registerAskStateCountsBuilder
+        // gives getAskStateCounts() a per-call fallback that builds a fresh
+        // AskRepository from the container on demand (mirrors
+        // buildAskRepository / server.ts's getPresenceClaimRepo, mt#2567) so
+        // every call is correct regardless of startup-wiring timing.
+        // Registration is AWAITED (not fire-and-forget) so it is in place
+        // before server.start() — mirrors the mt#3044
+        // SubagentDispatchTracker.registerWireAttempt ordering fix.
         if (container) {
+          try {
+            const { registerAskStateCountsBuilder } = await import(
+              "@minsky/domain/ask/state-counts-provider"
+            );
+            registerAskStateCountsBuilder(async () => {
+              const { buildAskRepository } = await import("../../adapters/shared/commands/asks");
+              return buildAskRepository(container);
+            });
+          } catch (err) {
+            log.debug("[mt#2568] Could not register Ask state-counts builder", {
+              error: getErrorMessage(err),
+            });
+          }
+
+          // Eager fast-path attempt (fire-and-forget warm-up; the per-call
+          // fallback above means this is purely a perf optimization now).
           import("../../adapters/shared/commands/asks")
             .then(async ({ buildAskRepository }) => {
               const repo = await buildAskRepository(container);
@@ -1505,9 +1572,38 @@ export function createStartCommand(
         }
 
         // mt#2147: wire the EmbeddingsHealthTracker singleton so it can emit
-        // embeddings.provider_degraded events to system_events. Same fire-and-
-        // forget pattern as SubagentDispatchTracker above.
+        // embeddings.provider_degraded events to system_events.
+        //
+        // mt#2568: the eager wireEmbeddingsHealthTracker() attempt below has
+        // no retry — and emitDegradationEvent's emittedForCurrentDegradation
+        // latch means a degradation that races this wiring PERMANENTLY loses
+        // that degradation cycle's event (not just delayed), even though the
+        // wiring itself eventually succeeds. registerEventEmitterBuilder
+        // gives emitDegradationEvent a per-call fallback that builds a fresh
+        // EventEmitter from the container on demand (mirrors
+        // buildAskRepository / server.ts's getPresenceClaimRepo, mt#2567).
+        // Registration is AWAITED so it is in place before server.start() —
+        // mirrors the mt#3044 SubagentDispatchTracker.registerWireAttempt
+        // ordering fix.
         if (container) {
+          try {
+            const { EmbeddingsHealthTracker } = await import(
+              "@minsky/domain/ai/embeddings-health-tracker"
+            );
+            EmbeddingsHealthTracker.registerEventEmitterBuilder(() =>
+              buildEmbeddingsEventEmitter(container)
+            );
+          } catch (err) {
+            log.debug(
+              "[mt#2568] Could not register EmbeddingsHealthTracker event-emitter builder",
+              {
+                error: getErrorMessage(err),
+              }
+            );
+          }
+
+          // Eager fast-path attempt (fire-and-forget warm-up; the per-call
+          // fallback above means this is purely a perf optimization now).
           wireEmbeddingsHealthTracker(container)
             .then((wired) => {
               if (wired) {
