@@ -318,7 +318,9 @@ ${sections}`;
 
 function renderCommonHeader(params: GeneratePromptParams): string {
   const displayId = normalizeTaskIdForDisplay(params.taskId);
-  return `You are working in Minsky session at ${params.sessionDir}. All file paths MUST be absolute paths under this directory.
+  return `You are working in Minsky session \`${params.sessionId}\`, checked out at ${params.sessionDir}.
+
+Use the session-scoped file tools for every file operation in this session — they take this session id plus a path RELATIVE to the session root, so a path can never silently address the main workspace: \`session_read_file\` to read, \`session_search_replace\` for a targeted edit, \`session_write_file\` to create or fully rewrite. \`session_edit_file\` is fast-apply-model-based and is NOT the default; reach for it only when a single edit spans many regions. Reserve the harness-native \`Read\`/\`Edit\`/\`Write\` for MAIN-workspace files, which you should not be touching from here.
 
 Task ${displayId}: ${params.type.charAt(0).toUpperCase() + params.type.slice(1)} work
 
