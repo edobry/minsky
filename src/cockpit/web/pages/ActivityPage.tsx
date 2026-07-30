@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
+import { Checkbox } from "../components/ui/checkbox";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server SystemEvent shape
@@ -333,12 +334,10 @@ export function ActivityPage() {
                 : "Include informational / trajectory events (task status changes, merges, session starts)"
             }
           >
-            <input
-              type="checkbox"
+            <Checkbox
               checked={showInformational}
               disabled={filterType !== "all"}
-              onChange={(e) => setShowInformational(e.target.checked)}
-              className="accent-current"
+              onCheckedChange={(v) => setShowInformational(v === true)}
               aria-label="Show informational events"
             />
             Show informational

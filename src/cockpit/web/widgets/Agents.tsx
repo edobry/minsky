@@ -41,6 +41,7 @@ import { fetchAsks, type AsksListResponse } from "./AskDetail";
 import { useProject } from "../lib/project-context";
 import { AgentDrivenPeek } from "./AgentDrivenPeek";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { Checkbox } from "../components/ui/checkbox";
 
 /** Kind badge (mt#2767 Row model; "driven-session" added by mt#2752). */
 type RunKind = "dispatched-agent" | "principal-conversation" | "subagent-group" | "driven-session";
@@ -443,11 +444,9 @@ function AgentsControlBar({
           — the operator can see there IS more, and how much. */}
       {(hiddenInactiveCount > 0 || includeInactive) && (
         <label className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none ml-1">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={includeInactive}
-            onChange={(e) => onIncludeInactive(e.target.checked)}
-            className="accent-primary"
+            onCheckedChange={(v) => onIncludeInactive(v === true)}
             aria-label={
               includeInactive
                 ? "Hide workspaces inactive past the activity window"

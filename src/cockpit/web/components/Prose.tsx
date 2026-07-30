@@ -31,6 +31,7 @@ import { cn } from "../lib/utils";
 import { rehypeEntityLinks, type EntityIndex } from "../lib/entity-linkifier";
 import { minskyUriToPath, type RoutableEntityType } from "../lib/entity-codec";
 import { EntityRef } from "./EntityRef";
+import { Check } from "lucide-react";
 
 /**
  * URL transform that admits the `minsky://` deeplink scheme (mt#2797).
@@ -187,6 +188,52 @@ const COMPONENTS: Components = {
     <th className="border border-border/60 px-2 py-1 text-left font-semibold">{children}</th>
   ),
   td: ({ children }) => <td className="border border-border/60 px-2 py-1 align-top">{children}</td>,
+  /**
+   * GFM task-list checkbox (mt#3348).
+   *
+   * `remark-gfm` renders `- [ ] item` as `<input type="checkbox" disabled>`,
+   * which keeps `appearance: auto` — so the engine paints native OS chrome
+   * inside a dark-mode-first surface. Every task spec rendered on
+   * `/tasks/:id` carried these; a source grep never finds them because they
+   * are generated at render time.
+   *
+   * Deliberately NOT the Radix `Checkbox` primitive (`ui/checkbox.tsx`): these
+   * are always `disabled` and purely presentational — markdown task state is
+   * not editable from this surface, so mounting a real interactive control
+   * would advertise an affordance that does not exist.
+   *
+   * Exposed as `role="img"` with an explicit `aria-label`, NOT as
+   * `role="checkbox"` (PR #2417 R1). A checkbox role needs an accessible name,
+   * and this element has no text content and no label to point at — a nameless
+   * widget role announces "checkbox, checked" with no indication of what. It is
+   * also unfocusable and unoperable, so the widget role promised something it
+   * could never satisfy. `role="img"` + a label that states the state outright
+   * is both nameable and honest about what this is: a state icon.
+   *
+   * Overriding `input` is react-markdown's documented customization path
+   * (the `components` prop keyed by tag name), the same escape hatch the 18
+   * other entries in this map use.
+   */
+  input: ({ type, checked }) => {
+    // The only input GFM emits is the task-list checkbox. Anything else would
+    // be a native control we never asked for — render nothing rather than
+    // leak OS chrome.
+    if (type !== "checkbox") return null;
+    return (
+      <span
+        role="img"
+        aria-label={checked ? "Completed" : "Not completed"}
+        className={cn(
+          "mr-1.5 inline-flex h-3 w-3 shrink-0 translate-y-[1px] items-center justify-center rounded-sm border align-text-top",
+          checked
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-border bg-background"
+        )}
+      >
+        {checked ? <Check className="h-2.5 w-2.5" aria-hidden="true" /> : null}
+      </span>
+    );
+  },
   hr: () => <hr className="my-3 border-border" />,
 };
 
