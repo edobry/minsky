@@ -729,6 +729,20 @@ interface SupersededGroup {
   prompts: SupersededPrompt[];
 }
 
+/**
+ * A marker's React identity.
+ *
+ * Keyed on the first abandoned prompt's block id, NOT on `anchorIndex`: the
+ * index is positional and shifts whenever `allBlocks` changes shape — a
+ * re-fetched snapshot carrying earlier blocks, or live-tail appends ahead of a
+ * trailing group. A shifting key remounts the marker and silently discards the
+ * operator's expanded state, which is the one thing they opened it to read
+ * (PR #2449 R1). Block ids are stable per session.
+ */
+function supersededMarkerKey(group: SupersededGroup): string {
+  return `superseded-${group.prompts[0]?.blockId ?? `anchor-${group.anchorIndex}`}`;
+}
+
 /** The prompt's text, recovered by running the abandoned block through the same
  * block→turn transform the live blocks take. */
 function supersededPromptText(block: SessionContextSnapshotBlock): string {
@@ -821,6 +835,10 @@ function buildTurnNodes({
   expandSignal: ExpandSignal;
 }): ReactNode[] {
   const nodes: ReactNode[] = [];
+  // With no rendered turn there is no window to be outside OF, so `0` here
+  // means "drop nothing" — every anchor is >= 0, the skip loop below is a
+  // no-op, and the trailing flush emits every group. Stated explicitly because
+  // the value looks like a position and is not one (PR #2449 R1).
   const firstRendered = preparedTurns[0];
   const windowStart =
     firstRendered === undefined ? 0 : (blockIndexById.get(firstRendered.blockId) ?? 0);
@@ -831,9 +849,7 @@ function buildTurnNodes({
   }
 
   const pushGroup = (group: SupersededGroup) => {
-    nodes.push(
-      <SupersededPromptMarker key={`superseded-${group.anchorIndex}`} prompts={group.prompts} />
-    );
+    nodes.push(<SupersededPromptMarker key={supersededMarkerKey(group)} prompts={group.prompts} />);
   };
 
   preparedTurns.forEach((turn, i) => {
@@ -1058,6 +1074,24 @@ function ConversationThread({
   }, [extraBlocksLen]);
 
   if (visibleTurns.length === 0) {
+    // A transcript can be ALL superseded prompts — the operator rewrote every
+    // message before the agent answered any of them. Returning the bare
+    // empty-state here would silently discard the only content the session
+    // has, which is the exact failure this marker exists to prevent (PR #2449
+    // R1). The markers render on their own instead.
+    if (supersededGroups.length > 0) {
+      return (
+        <div className={cn("flex flex-col gap-3", className)}>
+          <p className="text-sm text-muted-foreground">
+            Every message in this session was superseded — the operator rewrote each one before the
+            agent received it.
+          </p>
+          {supersededGroups.map((group) => (
+            <SupersededPromptMarker key={supersededMarkerKey(group)} prompts={group.prompts} />
+          ))}
+        </div>
+      );
+    }
     return (
       <p className={cn("text-sm text-muted-foreground", className)}>
         This session has no conversational turns to display.

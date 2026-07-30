@@ -317,6 +317,55 @@ describe("ConversationView — rewound branches", () => {
     expect(screen.getByTestId("superseded-prompt-text").textContent).toContain("ABANDONED TAIL");
   });
 
+  test("renders the markers when EVERY message was superseded", () => {
+    // No live turn survives, so the thread's empty-state would otherwise claim
+    // "no conversational turns to display" and drop the only content the
+    // session has — silently discarding superseded prompts is the exact
+    // failure this marker exists to prevent (PR #2449 R1).
+    renderCV(
+      snapshotOf([
+        turnBlock(0, "user", "FIRST ABANDONED", { isAbandonedBranch: true }),
+        turnBlock(1, "user", "SECOND ABANDONED", { isAbandonedBranch: true }),
+      ])
+    );
+
+    expect(screen.queryByText(/no conversational turns to display/)).toBeNull();
+    const marker = screen.getByTestId("superseded-prompt-marker");
+    expandMarker(marker);
+    const revealed = screen.getByTestId("superseded-prompt-text");
+    expect(revealed.textContent).toContain("FIRST ABANDONED");
+    expect(revealed.textContent).toContain("SECOND ABANDONED");
+  });
+
+  test("keeps a marker expanded when block indices shift underneath it", () => {
+    // The marker's React key must not be positional. Prepending here is a
+    // synthetic stand-in for the real mechanism — `allBlocks` is
+    // `[...snapshot.blocks, ...extraBlocks]`, so a base snapshot that grows
+    // shifts the index of every live-tail block after it — not a claim that
+    // transcripts prepend. Under a positional key the marker remounts and the
+    // operator's expanded state is silently lost (PR #2449 R1).
+    const tail = [
+      turnBlock(0, "assistant", "go ahead"),
+      turnBlock(1, "user", "SUPERSEDED DRAFT", { isAbandonedBranch: true }),
+      turnBlock(2, "user", "LIVE DRAFT"),
+    ];
+
+    const { rerender } = renderCV(snapshotOf(tail));
+    expandMarker(screen.getByTestId("superseded-prompt-marker"));
+    expect(screen.getByTestId("superseded-prompt-text").textContent).toContain("SUPERSEDED DRAFT");
+
+    rerender(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <ConversationView
+          snapshot={snapshotOf([turnBlock(9, "assistant", "an earlier turn arrived"), ...tail])}
+        />
+      </QueryClientProvider>
+    );
+
+    // Still expanded: the marker kept its identity across the index shift.
+    expect(screen.getByTestId("superseded-prompt-text").textContent).toContain("SUPERSEDED DRAFT");
+  });
+
   test("a conversation with no rewind renders no marker and drops nothing", () => {
     renderCV(
       snapshotOf([
