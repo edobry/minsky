@@ -251,7 +251,6 @@ This rule ensures that all generated code symbols (variable names, function name
     *   String literals explicitly provided by the user.
     *   String literals or comments where non-ASCII characters are part of the intended textual content.
     *   Existing code symbols in the codebase that deliberately and verifiably use non-ASCII characters (the AI should mirror existing conventions if explicitly told to do so for specific symbols, but not introduce new ones).
-Created after an incident where non-ASCII characters were inadvertently introduced into code.
 
 ## Architecture
 
@@ -905,9 +904,6 @@ Full detail: `docs/rules-rationale/cockpit-deeplinks.md`.
 - Max 400 lines per file (warn), 1500 (error)
 - Custom ESLint rules (`eslint-rules/`) enforce architectural patterns + deploy-boundary safety.
   Full detail, path-scoped: `eslint-custom-rules.mdc`.
-  Rules registered at `error` are enforced mechanically on every lint run — read
-  `eslint-custom-rules.mdc` for what each one checks. The two below are registered `off`, so
-  nothing enforces them; they are stated here because the text is all there is:
   - `custom/no-silent-catch` (mt#3299) — every `catch` block must rethrow, log, or carry an
     `// intentional-swallow: <reason>` comment. Registered `off` (not yet active): this repo's
     zero-tolerance ESLint warning gate (mt#1097, no override) makes `warn` unshippable with 1462

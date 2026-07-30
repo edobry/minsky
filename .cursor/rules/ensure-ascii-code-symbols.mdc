@@ -33,4 +33,3 @@ This rule ensures that all generated code symbols (variable names, function name
     *   String literals explicitly provided by the user.
     *   String literals or comments where non-ASCII characters are part of the intended textual content.
     *   Existing code symbols in the codebase that deliberately and verifiably use non-ASCII characters (the AI should mirror existing conventions if explicitly told to do so for specific symbols, but not introduce new ones).
-Created after an incident where non-ASCII characters were inadvertently introduced into code.

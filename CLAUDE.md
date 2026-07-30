@@ -138,9 +138,6 @@ Full detail: `docs/rules-rationale/cockpit-deeplinks.md`.
 - Max 400 lines per file (warn), 1500 (error)
 - Custom ESLint rules (`eslint-rules/`) enforce architectural patterns + deploy-boundary safety.
   Full detail, path-scoped: `eslint-custom-rules.mdc`.
-  Rules registered at `error` are enforced mechanically on every lint run — read
-  `eslint-custom-rules.mdc` for what each one checks. The two below are registered `off`, so
-  nothing enforces them; they are stated here because the text is all there is:
   - `custom/no-silent-catch` (mt#3299) — every `catch` block must rethrow, log, or carry an
     `// intentional-swallow: <reason>` comment. Registered `off` (not yet active): this repo's
     zero-tolerance ESLint warning gate (mt#1097, no override) makes `warn` unshippable with 1462
