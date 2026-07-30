@@ -80,7 +80,11 @@ export type OverrideClassification = "authorized_exception" | "unclassified" | "
  * `decision: "warn"`, never `allow`. See `merge-gate-task-resolution.ts`, which is the
  * only producer of these values.
  */
-export type TaskResolutionSource = "tool_input" | "branch-fallback" | "unresolved";
+export type TaskResolutionSource =
+  | "tool_input"
+  | "branch-fallback"
+  | "session-workspace-branch"
+  | "unresolved";
 
 export interface FireLogEntry {
   timestamp: string;
