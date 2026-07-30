@@ -38,6 +38,12 @@ import { parseToolName } from "./tool-name";
  * `XDG_STATE_HOME`. The 36-char id segment is what makes the match specific —
  * an ordinary directory named `sessions/` does not match unless its child is
  * also a UUID-shaped name.
+ *
+ * The id class is deliberately loose (`[0-9a-fA-F-]{36}`, matching the domain
+ * regex) rather than a canonical `8-4-4-4-12` UUID pattern: this drives a
+ * DISPLAY choice, so the cost of over-matching is one cosmetically-shortened
+ * path, while the cost of under-matching is the unreadable line this module
+ * exists to fix. Loose-and-in-sync beats strict-and-diverged here.
  */
 const SESSION_WORKSPACE_PATH_RE = /^(\/[^\s"']*\/sessions)\/([0-9a-fA-F-]{36})\/(.+)$/;
 

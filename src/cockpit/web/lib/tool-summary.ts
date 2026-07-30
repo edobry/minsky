@@ -28,6 +28,8 @@ export type ToolSummaryFn = (input: unknown, result: ToolResultInfo | undefined)
 
 const MAX_DIGEST = 80;
 const MAX_FRAGMENT = 48;
+/** Divider between a digest's arg side and its outcome side. */
+const SEPARATOR = " → ";
 
 function truncate(text: string, max: number = MAX_FRAGMENT): string {
   const t = text.trim().replace(/\s+/g, " ");
@@ -116,7 +118,7 @@ function commandSummary(input: unknown, result: ToolResultInfo | undefined): str
   const rec = record(input);
   const cmd = rec ? (str(rec.command) ?? str(rec.script)) : undefined;
   if (!cmd) return null;
-  return `${truncate(cmd, 60)} → ${genericOutcomeDigest(result)}`;
+  return `${truncate(cmd, 60)}${SEPARATOR}${genericOutcomeDigest(result)}`;
 }
 
 /**
@@ -129,6 +131,9 @@ function truncatePath(path: string, max: number): string {
   return p.length <= max ? p : `…${p.slice(-(max - 1))}`;
 }
 
+/** Floor on the path budget, so a verbose outcome digest can't squeeze the path out. */
+const MIN_PATH_BUDGET = 24;
+
 /**
  * Path digest. A path under a session workspace shows only its
  * session-relative part: the `<state-dir>/sessions/<uuid>/` prefix is ~79
@@ -136,26 +141,33 @@ function truncatePath(path: string, max: number): string {
  * first-N truncation consumed the whole line and left the filename invisible
  * (mt#3378). The session identity is not dropped — the summary line's tooltip
  * carries it, via `sessionFileTargetFor`.
+ *
+ * The path gets whatever `MAX_DIGEST` has left after the outcome digest and
+ * the separator, rather than the fixed 60 this used to spend: `MAX_DIGEST` is
+ * the real constraint on the line, and the outcome digest is short, so a fixed
+ * sub-budget threw away room the line actually had.
  */
 function pathSummary(input: unknown, result: ToolResultInfo | undefined): string | null {
   const path = toolInputPath(input);
   if (!path) return null;
   const target = parseSessionWorkspacePath(path);
-  return `${truncatePath(target?.relativePath ?? path, 60)} → ${genericOutcomeDigest(result)}`;
+  const outcome = genericOutcomeDigest(result);
+  const budget = Math.max(MIN_PATH_BUDGET, MAX_DIGEST - outcome.length - SEPARATOR.length);
+  return `${truncatePath(target?.relativePath ?? path, budget)}${SEPARATOR}${outcome}`;
 }
 
 function gitSummary(input: unknown, result: ToolResultInfo | undefined): string | null {
   const rec = record(input);
   const target = rec ? (str(rec.path) ?? str(rec.file) ?? str(rec.ref)) : undefined;
   const digest = genericOutcomeDigest(result);
-  return target ? `${truncate(target, 40)} → ${digest}` : `→ ${digest}`;
+  return target ? `${truncate(target, 40)}${SEPARATOR}${digest}` : `→ ${digest}`;
 }
 
 function querySummary(input: unknown, result: ToolResultInfo | undefined): string | null {
   const rec = record(input);
   const q = rec ? (str(rec.query) ?? str(rec.q) ?? str(rec.title) ?? str(rec.taskId)) : undefined;
   const digest = genericOutcomeDigest(result);
-  return q ? `"${truncate(q, 40)}" → ${digest}` : `→ ${digest}`;
+  return q ? `"${truncate(q, 40)}"${SEPARATOR}${digest}` : `→ ${digest}`;
 }
 
 // ── Seed registry (mt#2790 design direction: Bash/session_exec, Read/Edit/Write,
@@ -166,9 +178,11 @@ const REGISTRY: Record<string, ToolSummaryFn> = {
   Read: pathSummary,
   Write: pathSummary,
   Edit: pathSummary,
+  NotebookEdit: pathSummary,
   session_read_file: pathSummary,
   session_write_file: pathSummary,
   session_edit_file: pathSummary,
+  session_search_replace: pathSummary,
   git_diff: gitSummary,
   git_log: gitSummary,
   tasks_search: querySummary,
@@ -192,6 +206,6 @@ export function summarizeToolInvocation(
   if (specific !== null && specific !== undefined) return truncate(specific, MAX_DIGEST);
   const arg = genericArgDigest(input);
   const outcome = genericOutcomeDigest(result);
-  const generic = arg ? `${arg} → ${outcome}` : outcome;
+  const generic = arg ? `${arg}${SEPARATOR}${outcome}` : outcome;
   return truncate(generic, MAX_DIGEST);
 }

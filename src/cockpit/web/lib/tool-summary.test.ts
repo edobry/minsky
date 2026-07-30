@@ -168,4 +168,47 @@ describe("summarizeToolInvocation — session-workspace paths (mt#3378)", () => 
     expect(digest).toContain("TheActualFile.tsx");
     expect(digest).toContain("…");
   });
+
+  test("NotebookEdit routes through the path summary, not the generic digest", () => {
+    const digest = summarizeToolInvocation(
+      "NotebookEdit",
+      { notebook_path: `${SESSION_ROOT}/analysis/explore.ipynb`, new_source: "print(1)" },
+      ok
+    );
+    expect(digest).toContain("analysis/explore.ipynb");
+    expect(digest).not.toContain("print(1)");
+  });
+
+  test("session_search_replace digests its path, not its session id", () => {
+    const digest = summarizeToolInvocation(
+      "mcp__minsky__session_search_replace",
+      { sessionId: "010b0467-f007-4b2f-9d80-d5f6ed3cf4b7", path: "src/foo.ts", search: "a" },
+      ok
+    );
+    expect(digest).toContain("src/foo.ts");
+    expect(digest).not.toContain("010b0467");
+  });
+
+  test("the path budget uses the whole line, not a fixed sub-budget", () => {
+    // 70 chars of path fits under MAX_DIGEST once the short outcome is
+    // accounted for; the previous fixed 60-char sub-budget would have elided it.
+    const path = `/${"a".repeat(68)}`;
+    const digest = summarizeToolInvocation("Read", { file_path: path }, ok);
+    expect(digest).toContain(path);
+    expect(digest).not.toContain("…");
+    expect(digest.length).toBeLessThanOrEqual(80);
+  });
+
+  test("a verbose outcome still leaves the path its floor", () => {
+    const path = `${SESSION_ROOT}/${"deep/".repeat(10)}Named.tsx`;
+    const digest = summarizeToolInvocation(
+      "Read",
+      { file_path: path },
+      {
+        content: "x\n".repeat(500),
+        isError: false,
+      }
+    );
+    expect(digest).toContain("Named.tsx");
+  });
 });
