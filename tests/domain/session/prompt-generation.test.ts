@@ -1,4 +1,6 @@
 import { describe, it, expect } from "bun:test";
+import { dirname, basename } from "path";
+import { extractMinskySessionIdFromPrompt } from "@minsky/domain/transcripts/spawn-link-writer";
 import {
   generateSubagentPrompt,
   PROMPT_WATERMARK,
@@ -67,9 +69,35 @@ describe("generateSubagentPrompt", () => {
       expect(result.prompt).toContain("Add a new feature to do X.");
     });
 
-    it("includes absolute path requirement", () => {
+    it("prescribes the session-scoped file tools, not absolute paths (mt#593)", () => {
       const result = generateSubagentPrompt(baseParams);
-      expect(result.prompt).toContain("All file paths MUST be absolute paths under this directory");
+      expect(result.prompt).toContain("session_read_file");
+      expect(result.prompt).toContain("session_search_replace");
+      expect(result.prompt).toContain("session_write_file");
+      // The fast-apply tool must be named as the non-default, not omitted —
+      // omitting it invites a subagent to pick it as "the session edit tool".
+      expect(result.prompt).toContain("session_edit_file");
+      expect(result.prompt).toContain("NOT the default");
+      expect(result.prompt).not.toContain("MUST be absolute");
+    });
+
+    it("names the session id, so file tools can be addressed by it", () => {
+      const result = generateSubagentPrompt(baseParams);
+      expect(result.prompt).toContain(baseParams.sessionId);
+    });
+
+    it("keeps the session dir extractable for spawn-link writing (mt#593 regression)", () => {
+      // `extractMinskySessionIdFromPrompt` recovers the Minsky session id by
+      // matching `<sessionsDir>/<id>` in the dispatch prompt — the spawn-link
+      // writer depends on it. The existing extraction tests use hand-written
+      // prompt FIXTURES, so a change to the real header (as mt#593 made) could
+      // break extraction without failing any of them. Assert against the
+      // genuine generated prompt instead.
+      const sessionsDir = dirname(baseParams.sessionDir);
+      const result = generateSubagentPrompt(baseParams);
+      expect(extractMinskySessionIdFromPrompt(result.prompt, sessionsDir)).toBe(
+        basename(baseParams.sessionDir)
+      );
     });
   });
 
