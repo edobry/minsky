@@ -60,12 +60,22 @@ export interface ToolCallProjectionRunResult {
   toolCallsProjected: number;
   /** Turns whose projection failed (query or insert error) — logged, not thrown. */
   turnsErrored: number;
+  /**
+   * Turns skipped because `tool_calls` was non-null but NOT a jsonb array —
+   * the double-encoded-string shape (mt#3360). Counted separately from
+   * `turnsErrored` because this is a KNOWN, non-throwing shape mismatch
+   * (equivalent to a `jsonb_typeof(tool_calls) <> 'array'` filter, applied
+   * here in TS rather than SQL since the value is already in memory), not a
+   * query/insert failure.
+   */
+  skippedNonArray: number;
 }
 
 const emptyRunResult = (): ToolCallProjectionRunResult => ({
   turnsScanned: 0,
   toolCallsProjected: 0,
   turnsErrored: 0,
+  skippedNonArray: 0,
 });
 
 // ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -119,6 +129,17 @@ export class ToolCallProjectionPipeline {
     result.turnsScanned = rows.length;
 
     for (const row of rows) {
+      // mt#3360: a handful of Apr-2026-ingested rows store `tool_calls` as a
+      // jsonb STRING (double-encoded JSON of an otherwise-valid array) rather
+      // than a jsonb array — a pre-mt#2381 write-path artifact (see
+      // turn-writer.ts's comment). Detecting the shape here, before calling
+      // projectTurn, lets this loop count it explicitly as
+      // `skippedNonArray` instead of silently folding it into "0 blocks
+      // written" (which is indistinguishable from a genuinely-empty turn).
+      if (row.toolCalls !== null && row.toolCalls !== undefined && !Array.isArray(row.toolCalls)) {
+        result.skippedNonArray++;
+        continue;
+      }
       try {
         const written = await this.projectTurn(
           agentSessionId,
@@ -204,6 +225,8 @@ export interface ProjectAllToolCallsResult {
   sessionsErrored: number;
   turnsScanned: number;
   toolCallsProjected: number;
+  /** Aggregate of every session's `ToolCallProjectionRunResult.skippedNonArray` (mt#3360). */
+  skippedNonArray: number;
 }
 
 /** Default page size — mirrors turn-writer.ts's DEFAULT_EXTRACT_ALL_BATCH_SIZE. */
@@ -274,6 +297,7 @@ export async function projectToolCallsForAllTranscripts(
     sessionsErrored: 0,
     turnsScanned: 0,
     toolCallsProjected: 0,
+    skippedNonArray: 0,
   };
 
   let cursor: string | null = options.afterId ?? null;
@@ -301,6 +325,7 @@ export async function projectToolCallsForAllTranscripts(
         const sessionResult = await pipeline.runForSession(row.agentSessionId);
         result.turnsScanned += sessionResult.turnsScanned;
         result.toolCallsProjected += sessionResult.toolCallsProjected;
+        result.skippedNonArray += sessionResult.skippedNonArray;
         if (sessionResult.turnsErrored > 0) {
           result.sessionsErrored++;
         } else {

@@ -239,6 +239,44 @@ describe("ToolCallProjectionPipeline", () => {
     expect(store.size).toBe(0);
   });
 
+  test("mt#3360: a string-typed (double-encoded) tool_calls row is skipped and counted, not thrown", async () => {
+    // Simulates the Apr-2026 ingest artifact: `tool_calls` is a jsonb STRING
+    // (double-encoded JSON of an otherwise-valid tool_use array), not a jsonb
+    // array. `runForSession`'s query doesn't call jsonb_array_length (that's
+    // the script-level bug this task also fixes), so this never throws — but
+    // pre-mt#3360 it silently contributed 0 rows indistinguishable from a
+    // genuinely-empty turn. Post-fix it must be counted in skippedNonArray.
+    const turnRows: FakeTurnRow[] = [
+      {
+        turnIndex: 0,
+        toolCalls: JSON.stringify([{ type: "tool_use", name: "Bash", input: {} }]),
+        startedAt: null,
+        endedAt: new Date(TS1),
+      },
+      {
+        turnIndex: 1,
+        toolCalls: [{ type: "tool_use", name: "Bash", input: {} }],
+        startedAt: null,
+        endedAt: new Date(TS1),
+      },
+    ];
+    const store = new Map<string, FakeProjectionRow>();
+    const db = makeDb(turnRows, store);
+    const pipeline = new ToolCallProjectionPipeline(asDb(db));
+
+    const result = await pipeline.runForSession(SESSION_A);
+
+    expect(result.turnsErrored).toBe(0);
+    expect(result.skippedNonArray).toBe(1);
+    // Only turn 1's real array is projected; turn 0's string is skipped, not
+    // silently folded into "0 blocks written".
+    expect(result.toolCallsProjected).toBe(1);
+    expect(store.size).toBe(1);
+    expect(
+      store.get(projectionKey({ agentSessionId: SESSION_A, turnIndex: 0, ordinal: 0 }))
+    ).toBeUndefined();
+  });
+
   test("a malformed block (no name) is skipped without throwing", async () => {
     const turnRows: FakeTurnRow[] = [
       {
