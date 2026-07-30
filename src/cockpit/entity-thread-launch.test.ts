@@ -8,12 +8,22 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { EventEmitter } from "events";
+import { PassThrough } from "stream";
 
+import {
+  DrivenSessionRegistry,
+  sendDrivenSessionInput,
+  DRIVEN_OPERATOR_INPUT_EVENT_TYPE,
+  type ProcessLike,
+  type SpawnFn,
+} from "./driven-session-host";
 import {
   askToEntitySeed,
   buildEntityThreadSeedPrompt,
   createEntityThreadReplyRecorder,
   extractAssistantTextFromEvent,
+  startEntityThreadSession,
   type EntitySeedContext,
 } from "./entity-thread-launch";
 
@@ -267,5 +277,99 @@ describe("createEntityThreadReplyRecorder", () => {
   test("onSwap is a no-op — the thread is keyed by localId and survives the swap", () => {
     const recorder = createEntityThreadReplyRecorder(capturingDb().db as never, "t");
     expect(() => recorder.onSwap()).not.toThrow();
+  });
+});
+
+/**
+ * mt#3388 — the seed prompt is HOST-authored and must not be attributed to the
+ * operator.
+ *
+ * mt#3372 made `sendDrivenSessionInput` append a `minsky_operator_input` frame
+ * on every send unless the caller opts out. The seed prompt is the whole
+ * scoping instruction; echoed, the conversation view renders it as a wall of
+ * text the principal appears to have typed.
+ */
+describe("seed prompt attribution", () => {
+  /** Minimal ProcessLike double — captures stdin, emits nothing. */
+  class FakeProcess extends EventEmitter implements ProcessLike {
+    readonly pid = 4242;
+    readonly stdout = new PassThrough();
+    readonly stderr = new PassThrough();
+    readonly stdin = new PassThrough();
+    kill(): boolean {
+      return true;
+    }
+  }
+
+  function fakeSpawn(): SpawnFn {
+    return () => new FakeProcess();
+  }
+
+  function seed(): EntitySeedContext {
+    return {
+      entityType: "ask",
+      entityId: "seed-attribution-test",
+      title: "ask#1",
+      body: "Approve the thing?",
+    };
+  }
+
+  test("a seeded spawn appends NO operator-input frame", () => {
+    const registry = new DrivenSessionRegistry();
+    const session = startEntityThreadSession({
+      seed: seed(),
+      cwd: "/tmp/x",
+      spawnFn: fakeSpawn(),
+      registry,
+    });
+
+    expect(session.spawned).toBe(true);
+    expect(session.seeded).toBe(true);
+
+    const operatorFrames = session.record.eventLog.filter(
+      (e) => e.payload["type"] === DRIVEN_OPERATOR_INPUT_EVENT_TYPE
+    );
+    expect(operatorFrames).toHaveLength(0);
+  });
+
+  test("the seed text specifically never appears as operator-attributed content", () => {
+    // Stronger than the count above: even a future change that appends some
+    // other operator frame must not put the SEED's words in the operator's
+    // mouth.
+    const registry = new DrivenSessionRegistry();
+    const session = startEntityThreadSession({
+      seed: seed(),
+      cwd: "/tmp/x",
+      spawnFn: fakeSpawn(),
+      registry,
+    });
+
+    const operatorText = session.record.eventLog
+      .filter((e) => e.payload["type"] === DRIVEN_OPERATOR_INPUT_EVENT_TYPE)
+      .map((e) => String(e.payload["text"] ?? ""))
+      .join("\n");
+    expect(operatorText).not.toContain("Investigate before answering");
+    expect(operatorText).not.toContain("Approve the thing?");
+  });
+
+  test("an operator message on the SAME session DOES append exactly one frame", () => {
+    // The contrast that makes the assertions above meaningful: the opt-out is
+    // scoped to the seed, not a blanket disabling of operator attribution.
+    // Without this, a bug that suppressed every echo would pass the tests above.
+    const registry = new DrivenSessionRegistry();
+    const session = startEntityThreadSession({
+      seed: seed(),
+      cwd: "/tmp/x",
+      spawnFn: fakeSpawn(),
+      registry,
+    });
+
+    expect(sendDrivenSessionInput(session.record, "what is this asking me?")).toBe(true);
+
+    const operatorFrames = session.record.eventLog.filter(
+      (e) => e.payload["type"] === DRIVEN_OPERATOR_INPUT_EVENT_TYPE
+    );
+    expect(operatorFrames).toHaveLength(1);
+    expect(operatorFrames[0]?.payload["text"]).toBe("what is this asking me?");
   });
 });
