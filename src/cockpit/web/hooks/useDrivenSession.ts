@@ -88,7 +88,13 @@ export interface UseDrivenSessionResult {
   resultSummary: DrivenSessionResultSummary | null;
   errorMessage: string | null;
   harnessSessionId: string | null;
-  /** Send operator input as `{"text": ...}` — a no-op if the channel isn't open. */
+  /**
+   * Send operator input as `{"text": ...}`. When the channel is not yet open —
+   * the window between a spawn POST returning and the child's first frame, or
+   * a reconnect in flight — the message is BUFFERED and flushed on open rather
+   * than dropped (mt#3375). It previously returned silently while the composer
+   * had already cleared the textarea, so the message was gone with no signal.
+   */
   sendText: (text: string) => void;
   /** Send `{"type": "stop"}` for a graceful stop — a no-op if the channel isn't open. */
   stop: () => void;
@@ -160,6 +166,13 @@ export function useDrivenSession(localId: string | null | undefined): UseDrivenS
     createInitialDrivenAccumulatorState()
   );
   const wsRef = useRef<WebSocket | null>(null);
+  /**
+   * Outbound messages accepted before the channel was open, oldest first
+   * (mt#3375). Flushed in order by `flushOutbound` on `open`. A ref, not
+   * state: queueing must not re-render, and the flush must see the latest
+   * contents rather than a render-time snapshot.
+   */
+  const outboundRef = useRef<string[]>([]);
   // mt#3038 R1 delta #9 — reconnect protocol state, entirely new (this hook
   // previously had none: any closed/error transport mapped straight to
   // "crashed"). `everLiveRef` distinguishes "never connected at all" (bound
@@ -211,6 +224,19 @@ export function useDrivenSession(localId: string | null | undefined): UseDrivenS
     const handleOpen = () => {
       neverLiveAttemptsRef.current = 0;
       setConnectionState("open");
+      // Anything the operator sent while this socket was connecting goes out
+      // now, in the order they sent it.
+      const pending = outboundRef.current;
+      outboundRef.current = [];
+      for (const text of pending) {
+        try {
+          ws.send(JSON.stringify({ text }));
+        } catch {
+          // Socket died between `open` and this write — requeue the rest so a
+          // reconnect delivers them rather than losing them here.
+          outboundRef.current.push(text);
+        }
+      }
     };
     const handleMessage = (ev: MessageEvent) => {
       // The daemon only ever sends text frames (JSON), but a WebSocket can
@@ -283,7 +309,10 @@ export function useDrivenSession(localId: string | null | undefined): UseDrivenS
 
   const sendText = useCallback((text: string) => {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      outboundRef.current.push(text);
+      return;
+    }
     ws.send(JSON.stringify({ text }));
   }, []);
 
