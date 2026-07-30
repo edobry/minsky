@@ -36,6 +36,8 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import {
   appendEntityThreadTurn,
+  entityThreadLocalId,
+  findEntityThread,
   getOrCreateEntityThread,
   listEntityThreadBlocks,
   type EntityThreadEntityType,
@@ -64,6 +66,12 @@ export interface EntityThreadRoutesOptions {
   dbOverride?: PostgresJsDatabase | null;
   /** Override session start/lookup (tests avoid spawning a real binary). */
   startSession?: typeof startEntityThreadSession;
+  /**
+   * Override entity resolution (tests). Injectable so the
+   * validate-before-write ordering below can be exercised without a live ask
+   * repository — the ordering is the thing that must not regress.
+   */
+  loadSeed?: typeof buildSeedForEntity;
 }
 
 /**
@@ -100,6 +108,7 @@ export function mountEntityThreadRoutes(
   options: EntityThreadRoutesOptions = {}
 ): void {
   const startSession = options.startSession ?? startEntityThreadSession;
+  const loadSeed = options.loadSeed ?? buildSeedForEntity;
 
   app.get("/api/entity-thread/:entityType/:entityId", async (req, res) => {
     const entityType = parseEntityType(req.params["entityType"]);
@@ -122,9 +131,23 @@ export function mountEntityThreadRoutes(
     }
 
     try {
-      const thread = await getOrCreateEntityThread(db, { entityType, entityId });
-      const blocks = await listEntityThreadBlocks(db, thread.localId);
-      res.json({ ...thread, blocks });
+      // The entity must exist before this route says anything about a thread
+      // for it — otherwise a mistyped id renders as a real (empty) thread.
+      const seed = await loadSeed(entityType, entityId);
+      if (!seed) {
+        res.status(404).json({ error: `${entityType} ${entityId} not found` });
+        return;
+      }
+
+      // Read-only: a GET never creates a thread row. The panel polls this
+      // endpoint, so creating here would mint a row for every glance at an
+      // entity — and, before the existence check above, for every mistyped id.
+      // `localId` is derived purely, so an unopened thread still has a stable
+      // address to POST against.
+      const existing = await findEntityThread(db, entityType, entityId);
+      const localId = existing?.localId ?? entityThreadLocalId(entityType, entityId);
+      const blocks = existing ? await listEntityThreadBlocks(db, localId) : [];
+      res.json({ localId, entityType, entityId, blocks });
     } catch (err) {
       log.error(`GET entity-thread failed for ${entityType}/${entityId}`, {
         error: err instanceof Error ? err.message : String(err),
@@ -157,22 +180,28 @@ export function mountEntityThreadRoutes(
     }
 
     try {
+      // Resolve the entity FIRST. Every write below is conditional on it
+      // existing: creating the thread or storing the turn before this check
+      // leaves orphan rows keyed to an entity that was never there, and no
+      // later failure path can retract them (PR #2427 R1 BLOCKING).
+      const seed = await loadSeed(entityType, entityId);
+      if (!seed) {
+        res.status(404).json({ error: `${entityType} ${entityId} not found` });
+        return;
+      }
+
       const thread = await getOrCreateEntityThread(db, { entityType, entityId });
 
       // Persist the principal's message BEFORE touching the agent. If the spawn
       // or the forward fails, the question is still in the thread — losing what
-      // the operator typed is worse than a turn with no reply yet.
+      // the operator typed is worse than a turn with no reply yet. This stays
+      // AFTER the existence check above and BEFORE the spawn below; both
+      // orderings are load-bearing.
       const turn = await appendEntityThreadTurn(db, {
         localId: thread.localId,
         role: "operator",
         content: parsed.text,
       });
-
-      const seed = await buildSeedForEntity(entityType, entityId);
-      if (!seed) {
-        res.status(404).json({ error: `${entityType} ${entityId} not found` });
-        return;
-      }
 
       let session: EntityThreadSession;
       try {
