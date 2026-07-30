@@ -802,6 +802,11 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
       "Reminds the agent to watch for bot review — advisory, no permission decision (hook-observers.mdc)",
   },
   {
+    configPath: ".claude/hooks/drive-ready-to-implementation.ts",
+    reason:
+      "Reminds the agent to walk READY -> /implement-task — advisory, no permission decision (hook-observers.mdc)",
+  },
+  {
     configPath: ".claude/hooks/stamp-pr-author-link.ts",
     reason:
       "Stamps the workspace<->conversation link at session_pr_create — recording, not enforcement (hook-observers.mdc)",

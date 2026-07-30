@@ -133,4 +133,33 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
       }
     },
   },
+  {
+    // Injection observer, not a blocking guard: `expects: "warn"` is the
+    // additionalContext-shaped expectation (canary-runner's
+    // evaluateCanaryOutcome maps "warn" to a non-empty additionalContext).
+    guardName: "drive-ready-to-implementation",
+    expects: "warn",
+    check: async () => {
+      const { decideReminder } = await import("../../.minsky/hooks/drive-ready-to-implementation");
+      const reminder = decideReminder(
+        {
+          session_id: "canary",
+          cwd: "/",
+          hook_event_name: "PostToolUse",
+          tool_name: "mcp__minsky__tasks_status_set",
+          tool_input: { taskId: "mt#0000", status: "READY" },
+          tool_result: {
+            success: true,
+            taskId: "mt#0000",
+            previousStatus: "PLANNING",
+            newStatus: "READY",
+            changed: true,
+          },
+        },
+        // Injected so the canary never shells out to the CLI (mt#0000 does not exist).
+        { readTaskKind: () => "implementation" }
+      );
+      return typeof reminder === "string" && reminder.length > 0;
+    },
+  },
 ];
