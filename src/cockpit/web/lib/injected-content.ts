@@ -74,22 +74,7 @@ export type InjectedContentKind =
   | "local-command-output"
   | "local-command-caveat";
 
-/** One detected injected span: a muted collapsed header + its full content. */
-export interface InjectedSpan {
-  kind: InjectedContentKind;
-  /** One-line muted header label, e.g. "command: /model". */
-  label: string;
-  /** Full content of the span, rendered on expand (harness wrapper tags stripped). */
-  content: string;
-}
-
-/** One segment of a turn's text after injected-content classification. */
-export type TextSegment =
-  | { type: "prose"; text: string }
-  | { type: "injected"; span: InjectedSpan };
-
-/**
- * Defensive bound on how many wrapper blocks one turn-start run may consume.
+/** Defensive bound on how many wrapper blocks one turn-start run may consume.
  * The harness emits at most four (`command-name` / `command-message` /
  * `command-args` / `skill-format`); the cap keeps a pathological input from
  * driving an unbounded scan. Every iteration consumes at least one character,
@@ -121,10 +106,49 @@ const NEXT_BOUNDARY_RE = new RegExp(
   "i"
 );
 
+/** One detected injected span: a muted collapsed header + its full content. */
+export interface InjectedSpan {
+  kind: InjectedContentKind;
+  /** One-line muted header label, e.g. "command: /model". */
+  label: string;
+  /** Full content of the span, rendered on expand (harness wrapper tags stripped). */
+  content: string;
+}
+
+/** One segment of a turn's text after injected-content classification. */
+export type TextSegment =
+  | { type: "prose"; text: string }
+  | { type: "injected"; span: InjectedSpan };
+
+/**
+ * The generic noun for each injected kind — the vocabulary of harness origins,
+ * in ONE place (mt#3374).
+ *
+ * Two surfaces name these: the collapsed span's own header (built below, which
+ * appends the specific command or skill name where it has one), and the turn's
+ * origin label (`./turn-origin.ts`, which wants the bare noun). PR #2442 R1
+ * caught them drifting — a caveat span read `harness caveat` while its turn
+ * header read `command caveat`, two names for one thing. Deriving both from
+ * here is what makes that drift impossible rather than merely fixed.
+ */
+export const INJECTED_KIND_NOUN: Record<InjectedContentKind, string> = {
+  command: "command",
+  "skill-body": "skill body",
+  "system-reminder": "system reminder",
+  "local-command-output": "command output",
+  "local-command-caveat": "harness caveat",
+};
+
 /** Per-tag presentation for a local-command block. */
 const LOCAL_COMMAND_PRESENTATION: Record<string, { kind: InjectedContentKind; label: string }> = {
-  "local-command-stdout": { kind: "local-command-output", label: "command output" },
-  "local-command-caveat": { kind: "local-command-caveat", label: "harness caveat" },
+  "local-command-stdout": {
+    kind: "local-command-output",
+    label: INJECTED_KIND_NOUN["local-command-output"],
+  },
+  "local-command-caveat": {
+    kind: "local-command-caveat",
+    label: INJECTED_KIND_NOUN["local-command-caveat"],
+  },
 };
 
 function skillNameFromPath(path: string): string {

@@ -78,6 +78,7 @@ import {
   type InjectedSpan,
 } from "../lib/injected-content";
 import { formatLocalTime, turnSeparator, type TurnSeparator } from "../lib/conversation-timeline";
+import { classifyTurnOrigin } from "../lib/turn-origin";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -584,6 +585,14 @@ const ROLE_STYLES: Record<ConversationTurn["role"], { accent: string; label: str
   other: { accent: "border-l-border", label: "other" },
 };
 
+/**
+ * Accent for a harness-authored turn (mt#3374). Deliberately NOT the `user`
+ * emerald: that accent is the operator's own voice in this thread, and reusing
+ * it for content they did not write is the visual half of the same
+ * misattribution the label fix addresses.
+ */
+const HARNESS_ACCENT = "border-l-border";
+
 function TurnView({
   turn,
   entityIndex,
@@ -594,6 +603,13 @@ function TurnView({
   expandSignal: ExpandSignal;
 }) {
   const roleStyle = ROLE_STYLES[turn.role];
+  // A `user`-role turn may be the operator's message OR harness plumbing the
+  // harness injected under that role (skill body, command wrapper, tool
+  // result). Label it by who actually wrote it (mt#3374); a null origin means
+  // no signal, so the role-derived styling stands.
+  const origin = classifyTurnOrigin(turn);
+  const label = origin?.kind === "harness" ? origin.label : roleStyle.label;
+  const accent = origin?.kind === "harness" ? HARNESS_ACCENT : roleStyle.accent;
   const outcome = turnOutcome(turn);
   const isRetry = turn.model === SYNTHETIC_MODEL;
 
@@ -622,9 +638,11 @@ function TurnView({
 
   // A turn with no renderable elements (e.g. an empty pairing) is skipped by the caller.
   return (
-    <div className={cn("flex flex-col gap-2 border-l-2 pl-3", roleStyle.accent)}>
+    <div className={cn("flex flex-col gap-2 border-l-2 pl-3", accent)}>
       <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-        <span className="font-semibold">{roleStyle.label}</span>
+        <span className="font-semibold" data-testid="turn-role-label">
+          {label}
+        </span>
         {turn.isSpawnBoundary && (
           <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium normal-case text-violet-300">
             → subagent{turn.spawnAgentKind ? ` (${turn.spawnAgentKind})` : ""}
