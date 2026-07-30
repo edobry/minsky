@@ -277,16 +277,31 @@ jobs:
         run: bun src/cli.ts persistence migrate --execute
 
       - name: Verify agent_transcripts table exists
-        # Belt-and-suspenders: if migrations silently no-op, the test below
-        # would fail with a confusing driver error instead of a clear one.
-        env:
-          PGUSER: minsky_test
-          PGPASSWORD: minsky_test
-          PGHOST: localhost
-          PGDATABASE: minsky_integration
+        # Belt-and-suspenders: if migrations silently no-op, the test below would
+        # fail with a confusing driver error instead of a clear one.
+        #
+        # Done in bun rather than `psql` (PR #2416 R2). `psql` IS present on
+        # today's ubuntu-latest — this step ran green with `count 0 (1 row)` in
+        # run 30564350726 before this change — but the runner image shipping a
+        # postgres client is not a contract, and this repo already has a real
+        # Postgres driver in the lockfile. `cold-start-migrate.yml` still uses
+        # `psql` for its equivalent assertion; the divergence is deliberate, and
+        # if that one ever breaks on a runner-image change, this is the pattern
+        # to move it to.
         run: |
-          psql -c "SELECT COUNT(*) FROM agent_transcripts;" \
-            || { echo "::error::agent_transcripts missing after migrate"; exit 1; }
+          bun -e '
+            const postgres = (await import("postgres")).default;
+            const sql = postgres(process.env.INTEGRATION_POSTGRES_URL, { max: 1 });
+            try {
+              const [row] = await sql`SELECT count(*)::int AS n FROM agent_transcripts`;
+              console.log(`agent_transcripts present, ${row.n} rows`);
+            } catch (err) {
+              console.error("::error::agent_transcripts missing after migrate:", err.message);
+              process.exit(1);
+            } finally {
+              await sql.end({ timeout: 5 });
+            }
+          '
 
       - name: Run Postgres-backed integration tests
         env:
