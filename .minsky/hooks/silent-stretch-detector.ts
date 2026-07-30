@@ -12,10 +12,12 @@
 // discipline layer — a rule bullet requiring the agent to narrate — lives in
 // `.minsky/rules/user-preferences.mdc`).
 //
-// **Calibration-first (mt#2263 detector ladder / ADR-024).** v1 logs matches
-// to JSONL and injects NOTHING — `additionalContext` is never emitted here.
-// Graduating to injection is a follow-up decision made after reviewing the
-// false-positive rate accumulated in the calibration log.
+// **Calibration-first (mt#2263 detector ladder / ADR-024), now GRADUATED.**
+// v1 logged matches to JSONL and injected nothing. As of mt#3399 the detector
+// is LIVE: it still writes every calibration record, and additionally emits
+// `additionalContext` so the agent is reminded to narrate. The calibration log
+// keeps accumulating precisely so the next review can measure the live FP rate
+// — graduating a detector must not end its measurement.
 //
 // **Cadence (pinned at planning, 2026-07-15; scoped by mt#3196).** A silent
 // stretch is flagged when EITHER trigger is crossed, whichever comes first:
@@ -124,15 +126,38 @@ import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
-// Calibration gate — v1 is log-only, no injection
+// Calibration gate — GRADUATED to injection (mt#3399)
 // ---------------------------------------------------------------------------
 
 /**
- * When false (v1/calibration mode), the hook logs matches to JSONL and
- * injects NO additionalContext. Flip to true only after reviewing the FP
- * rate from the calibration log (mt#2263 ladder).
+ * When false, the hook logs matches to JSONL and injects NO additionalContext.
+ * When true it does both.
+ *
+ * Flipped to `true` on 2026-07-30 per the ask#6536 disposition
+ * (`74d76d30-def1-4378-8b64-c2b7e4860c22`, closed; operator chose "Prioritize
+ * dedup, then flip both"), on two independently verified conditions:
+ *
+ *   1. **The false-positive rate is low post-tune.** mt#3336 implemented
+ *      ask#6448's approved tune (`CALL_LEG_MIN_GAP_MINUTES`,
+ *      `HARD_CALL_COUNT_THRESHOLD` below), which removed the sub-5-minute
+ *      tool-burst class. Re-classifying the 10 fires logged since against the
+ *      CURRENT thresholds: 4 fail both arms and would no longer fire; the
+ *      remaining 6 each clear either the hard call ceiling or the
+ *      call-count-plus-gap arm, and match the cadence rule as written.
+ *   2. **Injection does not stack a second warning.** Every `UserPromptSubmit`
+ *      guard runs in-process through the single `dispatch-userpromptsubmit.ts`
+ *      entry, and `dispatcher.ts` concatenates each guard's
+ *      `additionalContext` into ONE block. This detector shares that event
+ *      with the already-live `ask-routing-deferral` and `wall-of-text`, so
+ *      flipping it lengthens an existing block rather than creating a new one.
+ *      (`untaken-action` is a `Stop` guard and DOES produce a separate block —
+ *      it stays held; see mt#3394 and mt#3292.)
+ *
+ * Do not read this flag as "the detector is finished." The calibration log
+ * keeps recording, and the live FP rate is what the next `/calibration-review`
+ * pass measures.
  */
-export const INJECTION_ENABLED = false;
+export const INJECTION_ENABLED = true;
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -576,10 +601,9 @@ export function run(
   };
 
   if (INJECTION_ENABLED) {
-    // v1 never reaches here — kept structurally symmetric with sibling
-    // calibration-first detectors (e.g. causal-premise-detector.ts) so
-    // flipping the flag later is a one-line change plus a reminder-text
-    // helper, not a restructure.
+    // Live since mt#3399. Note the ordering: `outcome.calibration` above is set
+    // unconditionally and BEFORE this branch, so a graduated detector keeps
+    // feeding the calibration log that measures it.
     outcome.additionalContext = buildInjectionReminder(measurement);
   }
 
