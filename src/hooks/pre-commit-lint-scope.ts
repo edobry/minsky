@@ -117,17 +117,25 @@ export function selectLintableStagedFiles(stagedFiles: readonly string[]): strin
  * file would otherwise block the commit with a warning about its own exclusion.
  */
 export function buildScopedLintCommand(baseCommand: string, files: readonly string[]): string {
-  const quoted = files.map((file) => `'${file.replace(/'/g, "'\\''")}'`).join(" ");
   const tokens = baseCommand.split(/\s+/).filter(Boolean);
   const targetIndex = tokens.indexOf(".");
-  const scoped =
+  const withoutTarget =
     targetIndex === -1
-      ? `${baseCommand} ${quoted}`
-      : [...tokens.slice(0, targetIndex), quoted, ...tokens.slice(targetIndex + 1)].join(" ");
+      ? tokens
+      : [...tokens.slice(0, targetIndex), ...tokens.slice(targetIndex + 1)];
 
-  const extraFlags = ["--no-warn-ignored", "--no-error-on-unmatched-pattern"]
-    .filter((flag) => !baseCommand.includes(flag))
-    .join(" ");
+  // Dedup against the command's own TOKENS, never a substring scan of the
+  // assembled string: a staged file whose name contained the flag text would
+  // make a substring scan skip a flag we require, which is a worse failure
+  // than emitting it twice (PR #2450 R1).
+  const extraFlags = ["--no-warn-ignored", "--no-error-on-unmatched-pattern"].filter(
+    (flag) => !withoutTarget.includes(flag)
+  );
 
-  return extraFlags ? `${scoped} ${extraFlags}` : scoped;
+  const quoted = files.map((file) => `'${file.replace(/'/g, "'\\''")}'`);
+
+  // `--` terminates option parsing, so a staged path beginning with `-` is
+  // treated as a file rather than an unknown flag (PR #2450 R1). Flags MUST
+  // precede it — anything after `--` is a positional argument.
+  return [...withoutTarget, ...extraFlags, "--", ...quoted].join(" ");
 }

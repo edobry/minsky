@@ -587,7 +587,12 @@ export class PreCommitHook {
         lintableFiles
       );
 
+      // Print the command as well as the count: the staged file list is the
+      // only thing that varies run to run now, so losing it would make a
+      // failing run harder to reproduce by hand than it was pre-mt#3404
+      // (PR #2450 R1, non-blocking).
       log.cli(`📋 Linting ${lintableFiles.length} staged file(s)`);
+      log.cli(`📋 Using lint command: ${lintJsonCommand}`);
 
       // Execute the lint command and get JSON output
       // ESLint exits with non-zero when there are errors/warnings, but still produces valid JSON

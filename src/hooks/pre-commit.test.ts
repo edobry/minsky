@@ -27,6 +27,9 @@ import { selectLintableStagedFiles, buildScopedLintCommand } from "./pre-commit-
 
 /** The default command `ProjectConfigReader.getLintJsonCommand` returns. */
 const DEFAULT_LINT_COMMAND = "eslint . --format json";
+
+/** The flag that keeps an ignored-but-staged file from tripping the zero-warning gate. */
+const NO_WARN_IGNORED = "--no-warn-ignored";
 import type { RecordPreCommitFireLogInput } from "./pre-commit-fire-log";
 import { NUL_BYTE_CHECK_OVERRIDE_ENV } from "./nul-byte-detector";
 import { MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV } from "./migration-journal-check";
@@ -217,28 +220,49 @@ describe("selectLintableStagedFiles (mt#3404 — staged-file scoping)", () => {
 });
 
 describe("buildScopedLintCommand (mt#3404 — staged-file scoping)", () => {
-  test("replaces the bare `.` target in place, preserving surrounding flags", () => {
+  test("drops the bare `.` target, preserves surrounding flags, and puts files after `--`", () => {
     const cmd = buildScopedLintCommand(DEFAULT_LINT_COMMAND, ["src/a.ts", "src/b.ts"]);
     expect(cmd).toBe(
-      "eslint 'src/a.ts' 'src/b.ts' --format json --no-warn-ignored --no-error-on-unmatched-pattern"
+      "eslint --format json --no-warn-ignored --no-error-on-unmatched-pattern -- 'src/a.ts' 'src/b.ts'"
     );
   });
 
-  test("appends the file list when the command has no `.` target to replace", () => {
+  test("appends the file list when the command has no `.` target to drop", () => {
     const cmd = buildScopedLintCommand("eslint --format json --max-warnings=0", ["src/a.ts"]);
     expect(cmd).toBe(
-      "eslint --format json --max-warnings=0 'src/a.ts' --no-warn-ignored --no-error-on-unmatched-pattern"
+      "eslint --format json --max-warnings=0 --no-warn-ignored --no-error-on-unmatched-pattern -- 'src/a.ts'"
     );
+  });
+
+  test("a path beginning with `-` lands after `--`, so it is parsed as a file and not a flag", () => {
+    const cmd = buildScopedLintCommand(DEFAULT_LINT_COMMAND, ["-weird-name.ts"]);
+    const [, positional] = cmd.split(" -- ");
+    expect(positional).toBe("'-weird-name.ts'");
+  });
+
+  test("every flag precedes the `--` separator, since anything after it is positional", () => {
+    const cmd = buildScopedLintCommand(DEFAULT_LINT_COMMAND, ["src/a.ts"]);
+    const [flagsPart, positional] = cmd.split(" -- ");
+    expect(flagsPart).toContain(NO_WARN_IGNORED);
+    expect(flagsPart).toContain("--no-error-on-unmatched-pattern");
+    expect(positional).not.toContain("--no-");
+  });
+
+  test("a file NAMED like a flag does not suppress the real flag — it is quoted after `--`", () => {
+    const cmd = buildScopedLintCommand(DEFAULT_LINT_COMMAND, ["--no-warn-ignored.ts"]);
+    const [flagsPart, positional] = cmd.split(" -- ");
+    expect(flagsPart).toContain(NO_WARN_IGNORED);
+    expect(positional).toBe("'--no-warn-ignored.ts'");
   });
 
   test("always emits --no-warn-ignored: an ignored-but-staged file would otherwise warn and trip the zero-warning gate", () => {
     expect(buildScopedLintCommand(DEFAULT_LINT_COMMAND, ["dist/gen.ts"])).toContain(
-      "--no-warn-ignored"
+      NO_WARN_IGNORED
     );
   });
 
   test("does not duplicate flags the configured command already carries", () => {
-    const cmd = buildScopedLintCommand(`${DEFAULT_LINT_COMMAND} --no-warn-ignored`, ["a.ts"]);
+    const cmd = buildScopedLintCommand(`${DEFAULT_LINT_COMMAND} ${NO_WARN_IGNORED}`, ["a.ts"]);
     expect(cmd.match(/--no-warn-ignored/g)).toHaveLength(1);
   });
 
