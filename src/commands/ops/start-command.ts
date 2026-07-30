@@ -37,9 +37,16 @@
  * @see mt#2101 — this implementation task
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { Command } from "commander";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { log } from "@minsky/shared/logger";
+import {
+  fetchRepoSourceSnapshot,
+  checkCallsitesInSnapshot,
+  type SnapshotFetchResult,
+} from "./adoption-sweeper-callsite-check";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -283,6 +290,65 @@ export async function checkCallsites(
 }
 
 // ---------------------------------------------------------------------------
+// Callsite-checker router (mt#3351) — local git grep vs. GitHub-API tarball
+// ---------------------------------------------------------------------------
+
+/** A resolved callsite checker for the current tick: check one pattern, get one outcome. */
+export type CallsiteChecker = (pattern: string) => Promise<CallsiteCheckResult>;
+
+export interface ResolveCallsiteCheckerDeps {
+  execAsyncFn: ExecAsyncFn;
+  safeShellQuoteFn: (s: string) => string;
+  workspaceRoot: string;
+  /** Test seam: force the local-repo-present/absent routing decision. */
+  hasLocalRepoOverride?: boolean;
+  /** Test seam: override the GitHub-API tarball-fetch step entirely. */
+  fetchRepoSourceSnapshotFn?: () => Promise<SnapshotFetchResult>;
+}
+
+/**
+ * Resolve, ONCE per tick, which callsite-check mechanism this run uses:
+ *
+ * - **Local git grep** (the existing fast path) when a `.git` directory is
+ *   present at `workspaceRoot` — laptop runs, tests, any checkout with a
+ *   real repo.
+ * - **GitHub-API tarball snapshot** (mt#3351) when `.git` is absent — the
+ *   minsky-ops container, whose image excludes `.git` by design
+ *   (`.dockerignore`). The tarball is fetched and extracted EXACTLY ONCE
+ *   here; the returned checker closure reuses the same in-memory snapshot
+ *   for every subsequent pattern check this tick (positive control + every
+ *   per-signal check), so the container path costs exactly one network
+ *   fetch per run regardless of how many signals are checked.
+ *
+ * A tarball-fetch failure (auth, rate limit, network, parse error) does
+ * NOT throw here — it resolves to a checker that always returns
+ * `{ status: "unavailable", reason }`, so the caller's existing
+ * hard-abort-on-unavailable handling (mt#3328) applies uniformly to both
+ * mechanisms without the caller needing to know which one is active.
+ */
+export async function resolveCallsiteChecker(
+  deps: ResolveCallsiteCheckerDeps
+): Promise<CallsiteChecker> {
+  const hasLocalRepo = deps.hasLocalRepoOverride ?? existsSync(join(deps.workspaceRoot, ".git"));
+
+  if (hasLocalRepo) {
+    return (pattern: string) =>
+      checkCallsites(deps.execAsyncFn, deps.workspaceRoot, pattern, deps.safeShellQuoteFn);
+  }
+
+  const fetchSnapshot = deps.fetchRepoSourceSnapshotFn ?? (() => fetchRepoSourceSnapshot());
+  const result = await fetchSnapshot();
+
+  if (result.status === "unavailable") {
+    const reason = result.reason;
+    return async () => ({ status: "unavailable", reason });
+  }
+
+  const snapshot = result.snapshot;
+  return (pattern: string) => Promise.resolve(checkCallsitesInSnapshot(snapshot, pattern));
+}
+
+// ---------------------------------------------------------------------------
 // Positive control (canary) for the callsite check
 // ---------------------------------------------------------------------------
 
@@ -304,29 +370,33 @@ export const ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME = "adoptionSweeperPos
  * Canary target for the positive control. Never remove the call in
  * `runPositiveControlCheck` below — it is what gives this name a real
  * production callsite for the grep to find.
+ *
+ * Exported (mt#3351 review) so a test can assert
+ * `adoptionSweeperPositiveControlCanary.name === ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME`
+ * — the coupling between this function's literal name and the exported
+ * string constant is inherently manual (the whole point is that the
+ * constant's VALUE textually matches a real, grep-able identifier), so this
+ * export exists purely to let a test catch drift if the two are ever
+ * renamed out of sync, rather than a test having to re-hardcode the name
+ * as a THIRD, independently-driftable copy of the same string.
  */
-function adoptionSweeperPositiveControlCanary(): void {
+export function adoptionSweeperPositiveControlCanary(): void {
   // Intentionally empty: exists only to be grepped by name.
 }
 
 /**
- * Run the positive-control callsite check: grep for a signal known to
- * always be adopted (the canary above). A healthy result is
- * `{ status: "found", count > 0 }`; anything else means the callsite-check
- * mechanism itself cannot be trusted this tick (mt#3328).
+ * Run the positive-control callsite check: check for a signal known to
+ * always be adopted (the canary above) via whichever `CallsiteChecker` this
+ * tick resolved (local git grep or the mt#3351 GitHub-API tarball
+ * snapshot). A healthy result is `{ status: "found", count > 0 }`; anything
+ * else means the callsite-check mechanism itself cannot be trusted this
+ * tick (mt#3328) — regardless of which mechanism is active.
  */
 async function runPositiveControlCheck(
-  execAsyncFn: ExecAsyncFn,
-  safeShellQuoteFn: (s: string) => string,
-  workspaceRoot: string
+  callsiteChecker: CallsiteChecker
 ): Promise<CallsiteCheckResult> {
   adoptionSweeperPositiveControlCanary(); // ensure the canary has a real callsite
-  return checkCallsites(
-    execAsyncFn,
-    workspaceRoot,
-    ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME,
-    safeShellQuoteFn
-  );
+  return callsiteChecker(ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME);
 }
 
 // ---------------------------------------------------------------------------
@@ -358,23 +428,40 @@ async function runPositiveControlCheck(
  *     names starting with `MINSKY_`, which this family deliberately is not,
  *     for consistency with its existing siblings.
  *
- * ## Container blindness fix (mt#3328)
+ * ## Container blindness fix (mt#3328) + container-compatible check (mt#3351)
  *
  * The callsite check (`git grep`) used to append `2>/dev/null || true` to
  * the shell command, which converted EVERY non-zero exit — including "not a
  * git repository" (the Railway image's `.dockerignore` excludes `.git`) —
  * into a successful, empty-stdout result indistinguishable from a genuine
  * zero-match. This tick now distinguishes three outcomes for every callsite
- * check via `checkCallsites`: callsites found, genuinely zero callsites, and
- * check-could-not-run. The last is hard-skipped (no task filed, ever) and
- * tracked separately so a degraded run surfaces as a loop error rather than
- * a clean tick. A positive control (a self-referential canary signal
- * guaranteed to have >0 callsites) runs first each tick to fail fast if the
- * check mechanism itself is broken.
+ * check: callsites found, genuinely zero callsites, and check-could-not-run.
+ * The last is hard-skipped (no task filed, ever) and tracked separately so a
+ * degraded run surfaces as a loop error rather than a clean tick. A positive
+ * control (a self-referential canary signal guaranteed to have >0
+ * callsites) runs first each tick to fail fast if the check mechanism
+ * itself is broken.
+ *
+ * mt#3328 made that failure SAFE but did not make the check WORK inside the
+ * container (no `.git` there at all, so `git grep` can never succeed).
+ * mt#3351 closes that gap: `resolveCallsiteChecker` picks, once per tick,
+ * between local `git grep` (when `.git` is present) and a GitHub-API
+ * tarball-fetch-and-scan (when it is absent) — see
+ * `./adoption-sweeper-callsite-check.ts` for the API-path implementation
+ * and its rationale. Both mechanisms report through the same
+ * `CallsiteCheckResult` three-outcome contract, so the positive control and
+ * hard-abort logic below apply identically regardless of which is active.
  */
 export async function adoptionSweeperTick(
   container: AppContainerInterface,
-  deps?: { execAsyncFn?: ExecAsyncFn; executeOverride?: boolean }
+  deps?: {
+    execAsyncFn?: ExecAsyncFn;
+    executeOverride?: boolean;
+    /** Test seam: force the local-repo-present/absent routing decision (mt#3351). */
+    hasLocalRepoOverride?: boolean;
+    /** Test seam: override the GitHub-API tarball-fetch step entirely (mt#3351). */
+    fetchRepoSourceSnapshotFn?: () => Promise<SnapshotFetchResult>;
+  }
 ): Promise<void> {
   const lookbackDays = parsePositiveIntEnv("ADOPTION_SWEEPER_LOOKBACK_DAYS", 14);
   const taskService = container.get("taskService");
@@ -408,16 +495,25 @@ export async function adoptionSweeperTick(
 
   const workspaceRoot = taskService.getWorkspacePath();
 
+  // Resolve, ONCE per tick, which callsite-check mechanism this run uses
+  // (mt#3351): local git grep when `.git` is present (laptop/CI checkouts),
+  // or a single GitHub-API tarball fetch reused for every pattern check
+  // this tick when it is absent (the minsky-ops container). See
+  // `resolveCallsiteChecker`'s doc comment for the full rationale.
+  const callsiteChecker = await resolveCallsiteChecker({
+    execAsyncFn,
+    safeShellQuoteFn: safeShellQuote,
+    workspaceRoot,
+    hasLocalRepoOverride: deps?.hasLocalRepoOverride,
+    fetchRepoSourceSnapshotFn: deps?.fetchRepoSourceSnapshotFn,
+  });
+
   // Positive control (mt#3328): a known-adopted canary signal must resolve
   // to callsites > 0, or the callsite-check mechanism itself is considered
   // unavailable this tick — hard-skip everything rather than trust "zero
   // callsites" results that might really mean "the check never ran."
   let callsiteCheckUnavailableCount = 0;
-  const positiveControlResult = await runPositiveControlCheck(
-    execAsyncFn,
-    safeShellQuote,
-    workspaceRoot
-  );
+  const positiveControlResult = await runPositiveControlCheck(callsiteChecker);
   const positiveControlHealthy =
     positiveControlResult.status === "found" && positiveControlResult.count > 0;
 
@@ -518,17 +614,14 @@ export async function adoptionSweeperTick(
 
           for (const signal of signals) {
             try {
-              // Count production callsites via git grep. checkCallsites
-              // distinguishes found / zero / unavailable (mt#3328) — a
-              // check that could not run is hard-skipped, never treated as
-              // "zero callsites."
+              // Count production callsites via whichever checker this tick
+              // resolved (local git grep or the mt#3351 GitHub-API tarball
+              // snapshot). Either way, checkCallsites/checkCallsitesInSnapshot
+              // distinguish found / zero / unavailable (mt#3328) — a check
+              // that could not run is hard-skipped, never treated as "zero
+              // callsites."
               const pattern = buildGrepPattern(signal);
-              const checkResult = await checkCallsites(
-                execAsyncFn,
-                workspaceRoot,
-                pattern,
-                safeShellQuote
-              );
+              const checkResult = await callsiteChecker(pattern);
 
               if (checkResult.status === "unavailable") {
                 callsiteCheckUnavailableCount++;
