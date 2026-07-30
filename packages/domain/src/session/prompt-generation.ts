@@ -505,7 +505,7 @@ function renderSessionExecNote(taskId: string): string {
   return `
 ## Running commands in the session
 
-Use \`mcp__minsky__session_exec(task: "${displayId}", command: "<cmd>")\` to run shell commands inside the session workspace (e.g., \`bun test\`, \`bun run format:check\`, \`git status\`). The session directory is resolved automatically — never use \`git -C <path>\` or shell \`cd\` workarounds.`;
+Use \`mcp__minsky__session_exec(task: "${displayId}", command: "<cmd>")\` to run shell commands inside the session workspace (e.g., \`bun test\`, \`git status\`). The session directory is resolved automatically — never use \`git -C <path>\` or shell \`cd\` workarounds.`;
 }
 
 interface SkillSectionPlan {

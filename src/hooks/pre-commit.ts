@@ -57,6 +57,11 @@ import {
   classifyOverride as classifyPreCommitOverride,
 } from "./pre-commit-fire-log";
 import type { RecordPreCommitFireLogInput } from "./pre-commit-fire-log";
+import {
+  selectLintableStagedFiles,
+  buildScopedLintCommand,
+  evaluateLintSummary,
+} from "./pre-commit-lint-scope";
 
 /**
  * Env var that, when truthy (`1`, `true`, `yes`), skips a size-budget-exceeded
@@ -555,11 +560,34 @@ export class PreCommitHook {
     log.cli("🔍 Running ESLint with strict quality gates...");
 
     try {
+      // mt#3404: lint the STAGED files, not the whole repo. `eslint .` sweeps
+      // ~3,000 files; on a loaded host (load avg 85 on 16 cores) that measured
+      // 287s wall against this step's 120s timeout, and six commits were denied
+      // at the timeout boundary within one hour on 2026-07-30. CI's
+      // `lint:strict` (.github/workflows/ci.yml) remains the authoritative
+      // full-repo gate — the same commit-time-scoping trade mt#2716/mt#2932
+      // already made for the test step, with the same CI backstop.
+      const stagedResult = await execGitWithTimeout(
+        "diff",
+        "diff --cached --name-only --diff-filter=ACM",
+        { workdir: this.projectRoot, timeout: 5000 }
+      );
+      const stagedFiles = stagedResult.stdout.toString().trim().split("\n").filter(Boolean);
+      const lintableFiles = selectLintableStagedFiles(stagedFiles);
+
+      if (lintableFiles.length === 0) {
+        log.cli("✅ No lintable staged files — skipping ESLint.");
+        return { success: true, message: "No lintable staged files to check", exitCode: 0 };
+      }
+
       // Use ProjectConfigReader for consistent config loading
       const configReader = new ProjectConfigReader(this.projectRoot);
-      const lintJsonCommand = await configReader.getLintJsonCommand();
+      const lintJsonCommand = buildScopedLintCommand(
+        await configReader.getLintJsonCommand(),
+        lintableFiles
+      );
 
-      log.cli(`📋 Using lint command: ${lintJsonCommand}`);
+      log.cli(`📋 Linting ${lintableFiles.length} staged file(s)`);
 
       // Execute the lint command and get JSON output
       // ESLint exits with non-zero when there are errors/warnings, but still produces valid JSON
@@ -568,14 +596,21 @@ export class PreCommitHook {
       try {
         const result = await execAsync(lintJsonCommand, {
           cwd: this.projectRoot,
-          // Full-repo eslint wall time has grown to ~29s (measured 2026-06-13,
-          // mt#1859 session) — the former 30s timeout fired on any loaded run,
-          // blocking every commit with a bare "Command failed". 120s gives
-          // repo-growth headroom; a hung eslint still gets killed.
-          timeout: 120000,
-          // The --format json payload is ~850KB and grows with file count;
-          // the 1MB exec default truncate-kills the process at the boundary.
-          maxBuffer: 64 * 1024 * 1024,
+          // History: 30s (original) -> 120s (mt#1859, 2026-06-13, sized for a
+          // full-repo sweep then measuring ~29s) -> 60s here. mt#3404 removed
+          // the full-repo sweep, so the budget no longer has to cover ~3,000
+          // files. What it MUST still cover is ESLint's fixed startup cost —
+          // flat-config load plus 46 custom rules — measured at ~2.2s CPU but
+          // ~11s WALL on a host at load avg 85, because the process is starved
+          // rather than slow. 60s leaves room for that floor plus a large
+          // staged set, while still killing a genuinely hung run in half the
+          // time the full-repo budget took.
+          timeout: 60000,
+          // The full-repo --format json payload was ~850KB; a staged-file run
+          // is far smaller, but keep real headroom — a big staged set with many
+          // findings is still sizable, and the 1MB exec default
+          // truncate-KILLS the process at the boundary rather than truncating.
+          maxBuffer: 16 * 1024 * 1024,
         });
         stdout = result.stdout.toString();
         stderr = result.stderr.toString();
@@ -610,71 +645,9 @@ export class PreCommitHook {
         lintResults = [];
       }
 
-      // Calculate totals
-      const summary = this.calculateESLintSummary(lintResults);
-
-      // Log the current state
-      log.cli("📊 ESLint Results:");
-      log.cli(`   Errors: ${summary.errorCount}`);
-      log.cli(`   Warnings: ${summary.warningCount}`);
-
-      // STRICT ENFORCEMENT: Block if ANY errors found
-      if (summary.errorCount > 0) {
-        log.cli("");
-        log.cli("❌ ❌ ❌ LINTER ERRORS DETECTED! COMMIT BLOCKED! ❌ ❌ ❌");
-        log.cli("");
-        log.cli(
-          `🚫 Found ${summary.errorCount} linter error(s). ALL errors must be fixed before committing.`
-        );
-        log.cli("💡 Run 'bun run lint --fix' to auto-fix many issues.");
-        log.cli("🔧 Review and manually fix any remaining errors.");
-        log.cli("");
-        log.cli("Run 'bun run lint' to see detailed error information.");
-        return {
-          success: false,
-          message: `ESLint found ${summary.errorCount} error(s)`,
-          exitCode: 1,
-        };
-      }
-
-      // WARNING THRESHOLD: zero tolerance — any new warning blocks the commit.
-      // mt#1097 ratcheted this to 0 after fixing all pre-existing warnings and
-      // adding CI-level enforcement (`bun run lint:strict`) so GitHub-UI merges
-      // can't bypass the gate. If a warning category legitimately needs an
-      // exception, add a line/file-level waiver with a specific justification.
-      const MAX_LINT_WARNINGS = 0;
-      if (summary.warningCount > MAX_LINT_WARNINGS) {
-        log.cli("");
-        log.cli("⚠️ ⚠️ ⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️ ⚠️ ⚠️");
-        log.cli("");
-        log.cli(
-          `🚫 Found ${summary.warningCount} warnings. Maximum allowed: ${MAX_LINT_WARNINGS}.`
-        );
-        log.cli("💡 Please address warnings to improve code quality.");
-        log.cli(`🎯 Target: Reduce warnings below ${MAX_LINT_WARNINGS} threshold.`);
-        log.cli("");
-        log.cli("Run 'bun run lint' to see detailed warning information.");
-        return {
-          success: false,
-          message: `ESLint found ${summary.warningCount} warnings (over ${MAX_LINT_WARNINGS} threshold)`,
-          exitCode: 1,
-        };
-      }
-
-      // Success case
-      if (summary.warningCount === 0) {
-        log.cli("✅ Perfect! Zero errors and zero warnings detected.");
-      } else {
-        log.cli(
-          `✅ Quality gate passed: ${summary.warningCount} warnings (under ${MAX_LINT_WARNINGS} threshold).`
-        );
-      }
-
-      return {
-        success: true,
-        message: "ESLint validation passed",
-        exitCode: 0,
-      };
+      // Reporting + threshold enforcement live in ./pre-commit-lint-scope
+      // (mt#3404) so this file stays under its max-lines ceiling.
+      return evaluateLintSummary(this.calculateESLintSummary(lintResults));
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       log.error(`❌ ESLint validation failed: ${errorMsg}`);

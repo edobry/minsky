@@ -23,6 +23,10 @@
 
 import { describe, test, expect } from "bun:test";
 import { runInstrumentedStep, type HookResult } from "./pre-commit";
+import { selectLintableStagedFiles, buildScopedLintCommand } from "./pre-commit-lint-scope";
+
+/** The default command `ProjectConfigReader.getLintJsonCommand` returns. */
+const DEFAULT_LINT_COMMAND = "eslint . --format json";
 import type { RecordPreCommitFireLogInput } from "./pre-commit-fire-log";
 import { NUL_BYTE_CHECK_OVERRIDE_ENV } from "./nul-byte-detector";
 import { MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV } from "./migration-journal-check";
@@ -178,5 +182,74 @@ describe("runInstrumentedStep (mt#2597 R1 — override attribution)", () => {
       { recordFireLog: spy.fn, now }
     );
     expect(spy.records[0]?.durationMs).toBe(250);
+  });
+});
+
+describe("selectLintableStagedFiles (mt#3404 — staged-file scoping)", () => {
+  test("keeps only extensions ESLint is configured to lint", () => {
+    expect(
+      selectLintableStagedFiles([
+        "src/a.ts",
+        "src/b.tsx",
+        "scripts/c.js",
+        "web/d.jsx",
+        "e.mjs",
+        "f.cjs",
+        "docs/g.md",
+        "package.json",
+        "h.yaml",
+        "Dockerfile",
+      ])
+    ).toEqual(["src/a.ts", "src/b.tsx", "scripts/c.js", "web/d.jsx", "e.mjs", "f.cjs"]);
+  });
+
+  test("a docs-only staged set yields no files, so the step can skip spawning ESLint entirely", () => {
+    expect(selectLintableStagedFiles(["README.md", "docs/x.md", "cfg.yml"])).toEqual([]);
+  });
+
+  test("an empty staged set yields an empty list", () => {
+    expect(selectLintableStagedFiles([])).toEqual([]);
+  });
+
+  test("does not match an extension appearing mid-path rather than as a suffix", () => {
+    expect(selectLintableStagedFiles(["src/.ts.backup", "notes.md"])).toEqual([]);
+  });
+});
+
+describe("buildScopedLintCommand (mt#3404 — staged-file scoping)", () => {
+  test("replaces the bare `.` target in place, preserving surrounding flags", () => {
+    const cmd = buildScopedLintCommand(DEFAULT_LINT_COMMAND, ["src/a.ts", "src/b.ts"]);
+    expect(cmd).toBe(
+      "eslint 'src/a.ts' 'src/b.ts' --format json --no-warn-ignored --no-error-on-unmatched-pattern"
+    );
+  });
+
+  test("appends the file list when the command has no `.` target to replace", () => {
+    const cmd = buildScopedLintCommand("eslint --format json --max-warnings=0", ["src/a.ts"]);
+    expect(cmd).toBe(
+      "eslint --format json --max-warnings=0 'src/a.ts' --no-warn-ignored --no-error-on-unmatched-pattern"
+    );
+  });
+
+  test("always emits --no-warn-ignored: an ignored-but-staged file would otherwise warn and trip the zero-warning gate", () => {
+    expect(buildScopedLintCommand(DEFAULT_LINT_COMMAND, ["dist/gen.ts"])).toContain(
+      "--no-warn-ignored"
+    );
+  });
+
+  test("does not duplicate flags the configured command already carries", () => {
+    const cmd = buildScopedLintCommand(`${DEFAULT_LINT_COMMAND} --no-warn-ignored`, ["a.ts"]);
+    expect(cmd.match(/--no-warn-ignored/g)).toHaveLength(1);
+  });
+
+  test("shell-quotes paths containing spaces so they survive as one argument", () => {
+    expect(buildScopedLintCommand(DEFAULT_LINT_COMMAND, ["src/my dir/a.ts"])).toContain(
+      "'src/my dir/a.ts'"
+    );
+  });
+
+  test("escapes an embedded single quote rather than terminating the quoted argument", () => {
+    const cmd = buildScopedLintCommand(DEFAULT_LINT_COMMAND, ["src/it's.ts"]);
+    expect(cmd).toContain("'src/it'\\''s.ts'");
   });
 });
