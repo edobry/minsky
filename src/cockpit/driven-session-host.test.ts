@@ -110,6 +110,8 @@ const SKIP_PERMISSIONS_FLAG = "--dangerously-skip-permissions";
 const PARSE_ERROR_TYPE = "minsky_parse_error";
 const BYPASS_PERMISSIONS_MODE = "bypassPermissions";
 const RESUME_HARNESS_SESSION_ID = "harness-resume-1";
+const MCP_CONFIG_FLAG = "--mcp-config";
+const STRICT_MCP_CONFIG_FLAG = "--strict-mcp-config";
 
 // ---------------------------------------------------------------------------
 // 1. Spawns with the documented flags
@@ -118,7 +120,9 @@ const RESUME_HARNESS_SESSION_ID = "harness-resume-1";
 describe("startDrivenSession — spawns with the documented flags", () => {
   test("default (bypassPermissions) argv matches the documented headless invocation", () => {
     const { spawnFn, calls } = makeFakeSpawnFn();
-    startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
+    // mcpConfig: null keeps this assertion scoped to the permission-mode flags —
+    // the mt#3377 default would otherwise inject a machine-dependent binary path.
+    startDrivenSession({ cwd: SCRATCH_CWD, spawnFn, mcpConfig: null });
 
     expect(calls.length).toBe(1);
     const call = first(calls);
@@ -138,7 +142,7 @@ describe("startDrivenSession — spawns with the documented flags", () => {
 
   test("permissionMode 'default' omits --dangerously-skip-permissions", () => {
     const { spawnFn, calls } = makeFakeSpawnFn();
-    startDrivenSession({ cwd: SCRATCH_CWD, permissionMode: "default", spawnFn });
+    startDrivenSession({ cwd: SCRATCH_CWD, permissionMode: "default", spawnFn, mcpConfig: null });
 
     const call = first(calls);
     expect(call.args).not.toContain(SKIP_PERMISSIONS_FLAG);
@@ -151,6 +155,44 @@ describe("startDrivenSession — spawns with the documented flags", () => {
       "--verbose",
       "--include-partial-messages",
     ]);
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#3377 — a driven session must be provisioned with the minsky MCP server.
+  // Before this, the child resolved MCP servers against its cwd (a session
+  // workspace, which carries no .mcp.json) and booted with ZERO servers.
+  // -------------------------------------------------------------------------
+
+  test("mt#3377: production default provisions the minsky MCP server", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
+
+    const call = first(calls);
+    const configIndex = call.args.indexOf(MCP_CONFIG_FLAG);
+    expect(configIndex).toBeGreaterThanOrEqual(0);
+
+    const parsed = JSON.parse(call.args[configIndex + 1] as string);
+    expect(Object.keys(parsed.mcpServers)).toEqual(["minsky"]);
+    // The server's --repo is the workspace the agent actually works in, so its
+    // repo-scoped tools don't resolve against the operator's main checkout.
+    expect(parsed.mcpServers.minsky.args).toContain(SCRATCH_CWD);
+  });
+
+  test("mt#3377: --strict-mcp-config pins the server set to exactly what we declare", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    startDrivenSession({ cwd: SCRATCH_CWD, spawnFn });
+
+    // Without this the child ALSO loads the operator's ambient claude.ai
+    // connectors and plugin servers, making the tool surface machine-dependent.
+    expect(first(calls).args).toContain(STRICT_MCP_CONFIG_FLAG);
+  });
+
+  test("mt#3377: an explicit null spawns with no MCP config at all", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    startDrivenSession({ cwd: SCRATCH_CWD, spawnFn, mcpConfig: null });
+
+    expect(first(calls).args).not.toContain(MCP_CONFIG_FLAG);
+    expect(first(calls).args).not.toContain(STRICT_MCP_CONFIG_FLAG);
   });
 
   test("buildDrivenSessionArgs is the same function argv is derived from (no drift)", () => {
@@ -655,6 +697,46 @@ describe("resumeDrivenSession — replaces the dead record for the SAME localId"
     expect(resumeCall).toBeDefined();
     expect(resumeCall?.args.slice(0, 3)).toEqual(["-p", "--resume", RESUME_HARNESS_SESSION_ID]);
     expect(resumeCall?.options.cwd).toBe(SCRATCH_CWD);
+  });
+
+  test("mt#3377: a resume re-provisions the MCP config rather than dropping it", () => {
+    // The conversation is durable and the actuator is disposable — so a resume
+    // that forgot the servers would silently strip the whole MCP tool surface
+    // at the first daemon restart, mid-conversation.
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const registry = new DrivenSessionRegistry();
+    const { record: original } = startDrivenSession({ cwd: SCRATCH_CWD, spawnFn, registry });
+    const originalProc = original.proc as unknown as FakeClaudeProcess;
+    originalProc.emitLine({
+      type: "system",
+      subtype: "init",
+      session_id: RESUME_HARNESS_SESSION_ID,
+    });
+    originalProc.exit(1, null);
+
+    resumeDrivenSession({
+      previous: {
+        localId: original.localId,
+        cwd: original.cwd,
+        permissionMode: original.permissionMode,
+        harnessSessionId: RESUME_HARNESS_SESSION_ID,
+        taskId: original.taskId,
+        minskySessionId: original.minskySessionId,
+        startedAt: original.startedAt,
+        actuatorGeneration: original.actuatorGeneration,
+      },
+      spawnFn,
+      registry,
+    });
+
+    const resumeArgs = calls[1]?.args ?? [];
+    const configIndex = resumeArgs.indexOf(MCP_CONFIG_FLAG);
+    expect(configIndex).toBeGreaterThanOrEqual(0);
+    expect(resumeArgs).toContain(STRICT_MCP_CONFIG_FLAG);
+
+    const parsed = JSON.parse(resumeArgs[configIndex + 1] as string);
+    expect(Object.keys(parsed.mcpServers)).toEqual(["minsky"]);
+    expect(parsed.mcpServers.minsky.args).toContain(SCRATCH_CWD);
   });
 
   // mt#3040 preservation (interaction fix) — the originally-selected model

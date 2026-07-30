@@ -48,6 +48,7 @@ import { spawn as nodeSpawn } from "child_process";
 import { randomUUID } from "crypto";
 import { PassThrough } from "stream";
 import { log } from "@minsky/shared/logger";
+import { buildDrivenSessionMcpConfig, mcpConfigArgs } from "./driven-session-mcp-config";
 
 // ---------------------------------------------------------------------------
 // Injectable process abstraction (mirrors mt#2749's fsMod/TailerLike pattern
@@ -139,7 +140,11 @@ export const CLAUDE_BINARY = "claude";
  * output; `--verbose` for the full event stream; `--include-partial-messages`
  * for token deltas (`stream_event`).
  */
-export function buildDrivenSessionArgs(permissionMode: PermissionMode, model?: string): string[] {
+export function buildDrivenSessionArgs(
+  permissionMode: PermissionMode,
+  model?: string,
+  mcpConfig?: string | null
+): string[] {
   return [
     "-p",
     "--input-format",
@@ -151,6 +156,10 @@ export function buildDrivenSessionArgs(permissionMode: PermissionMode, model?: s
     // mt#3040: principal-selected model (a resolved dispatch alias, e.g. "fable").
     // Omitted → the genuine claude binary resolves its own default.
     ...(model ? ["--model", model] : []),
+    // mt#3377: provision the minsky MCP server explicitly. Without this the
+    // child resolves MCP servers against its cwd (a session workspace), which
+    // carries none — see ./driven-session-mcp-config.ts.
+    ...mcpConfigArgs(mcpConfig),
     ...permissionModeArgs(permissionMode),
   ];
 }
@@ -167,7 +176,8 @@ export function buildDrivenSessionArgs(permissionMode: PermissionMode, model?: s
 export function buildResumeSessionArgs(
   permissionMode: PermissionMode,
   harnessSessionId: string,
-  model?: string | null
+  model?: string | null,
+  mcpConfig?: string | null
 ): string[] {
   return [
     "-p",
@@ -182,6 +192,10 @@ export function buildResumeSessionArgs(
     // mt#3040 preservation: a resume must keep the ORIGINALLY-selected model
     // rather than silently falling back to the CLI's default.
     ...(model ? ["--model", model] : []),
+    // mt#3377: a resumed actuator needs the same server set as a fresh spawn —
+    // the conversation is durable, the process is disposable, and a resume
+    // that silently dropped the MCP servers would degrade mid-conversation.
+    ...mcpConfigArgs(mcpConfig),
     ...permissionModeArgs(permissionMode),
   ];
 }
@@ -686,6 +700,14 @@ export interface StartDrivenSessionOptions {
   /** Override the registry (test seam — hermetic instance per test). */
   registry?: DrivenSessionRegistry;
   /**
+   * The `--mcp-config` payload for the child (mt#3377). Omitted → synthesized
+   * from `cwd` by `buildDrivenSessionMcpConfig`, which is what production
+   * wants. Pass `null` to spawn with NO MCP config at all (the pre-mt#3377
+   * behavior); pass a string to override the server set. Tests pass `null` so
+   * argv assertions stay independent of the host machine's binary path.
+   */
+  mcpConfig?: string | null;
+  /**
    * Use THIS id instead of generating one (mt#3243).
    *
    * `localId` is the persisted row's primary key and the registry's handle, so
@@ -729,7 +751,11 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
   const command = opts.command ?? CLAUDE_BINARY;
   const spawnFn = opts.spawnFn ?? prodSpawnFn;
   const registry = opts.registry ?? drivenSessionRegistry;
-  const argv = buildDrivenSessionArgs(permissionMode, opts.model);
+  // mt#3377: `undefined` means "production default"; an explicit `null` means
+  // "no MCP config" — so the two are deliberately NOT collapsed with `??`.
+  const mcpConfig =
+    opts.mcpConfig === undefined ? buildDrivenSessionMcpConfig(opts.cwd) : opts.mcpConfig;
+  const argv = buildDrivenSessionArgs(permissionMode, opts.model, mcpConfig);
 
   log.info(
     `[driven-session] spawning ${command} ${argv.join(" ")} ` +
@@ -921,6 +947,8 @@ export interface ResumeDrivenSessionOptions {
   env?: NodeJS.ProcessEnv;
   /** Override the registry (test seam — hermetic instance per test). */
   registry?: DrivenSessionRegistry;
+  /** See `StartDrivenSessionOptions.mcpConfig` — same contract for the respawn (mt#3377). */
+  mcpConfig?: string | null;
   /** Skip the interruption-notice injection (test seam only — production always injects). */
   skipInterruptionNotice?: boolean;
 }
@@ -949,10 +977,16 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
   const command = opts.command ?? CLAUDE_BINARY;
   const spawnFn = opts.spawnFn ?? prodSpawnFn;
   const registry = opts.registry ?? drivenSessionRegistry;
+  // mt#3377: same undefined-vs-null contract as startDrivenSession — a resume
+  // must re-provision the servers, or the conversation would silently lose its
+  // whole MCP tool surface at the first daemon restart.
+  const mcpConfig =
+    opts.mcpConfig === undefined ? buildDrivenSessionMcpConfig(previous.cwd) : opts.mcpConfig;
   const argv = buildResumeSessionArgs(
     previous.permissionMode,
     previous.harnessSessionId,
-    previous.model
+    previous.model,
+    mcpConfig
   );
 
   log.info(
