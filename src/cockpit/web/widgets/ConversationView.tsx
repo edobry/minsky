@@ -616,9 +616,7 @@ function TurnView({
   // A compaction summary is not a turn the operator wrote — it replaces the
   // body entirely with a labeled boundary rather than rendering as prose.
   if (turn.isCompactSummary) {
-    return (
-      <CompactionBoundary turn={turn} entityIndex={entityIndex} expandSignal={expandSignal} />
-    );
+    return <CompactionBoundary turn={turn} entityIndex={entityIndex} expandSignal={expandSignal} />;
   }
 
   const rendered = turn.elements
@@ -710,6 +708,188 @@ function TurnSeparatorRow({ separator }: { separator: TurnSeparator }) {
   );
 }
 
+/** One operator prompt the operator rewrote before the agent ever saw it. */
+interface SupersededPrompt {
+  /** The abandoned block's id — a stable React key. */
+  blockId: string;
+  /** The prompt as the operator originally typed it. */
+  text: string;
+}
+
+/**
+ * A run of superseded prompts, positioned by the live block that replaced them.
+ *
+ * `anchorIndex` is an index into `allBlocks`, not into the rendered turns: the
+ * turn stream is filtered and windowed downstream, so an index into it would
+ * not survive. Every downstream stage preserves ORDER, which is all the render
+ * needs to interleave markers back into position.
+ */
+interface SupersededGroup {
+  anchorIndex: number;
+  prompts: SupersededPrompt[];
+}
+
+/**
+ * A marker's React identity.
+ *
+ * Keyed on the first abandoned prompt's block id, NOT on `anchorIndex`: the
+ * index is positional and shifts whenever `allBlocks` changes shape — a
+ * re-fetched snapshot carrying earlier blocks, or live-tail appends ahead of a
+ * trailing group. A shifting key remounts the marker and silently discards the
+ * operator's expanded state, which is the one thing they opened it to read
+ * (PR #2449 R1). Block ids are stable per session.
+ */
+function supersededMarkerKey(group: SupersededGroup): string {
+  return `superseded-${group.prompts[0]?.blockId ?? `anchor-${group.anchorIndex}`}`;
+}
+
+/** The prompt's text, recovered by running the abandoned block through the same
+ * block→turn transform the live blocks take. */
+function supersededPromptText(block: SessionContextSnapshotBlock): string {
+  const elements = snapshotBlocksToConversation([block])[0]?.elements ?? [];
+  return elements
+    .filter((e): e is Extract<ConversationElement, { kind: "text" }> => e.kind === "text")
+    .map((e) => e.text.trim())
+    .filter((t) => t.length > 0)
+    .join("\n\n");
+}
+
+/**
+ * An inline marker for a rewind, at the point in the thread where it happened.
+ *
+ * mt#3323 shipped this as one global tally at the top of the view, which
+ * reports that a rewind occurred but not WHERE — in the originating
+ * conversation the two rewinds are ~700 turns apart and the view said "2".
+ *
+ * Collapsed by default: a superseded prompt is not part of the conversation the
+ * agent had, so it must not compete with real turns. Expandable because the
+ * abandoned draft is sometimes the one worth reading — in the originating
+ * incident it read BETTER than the live version, which the dictation pipeline
+ * had mangled (mem#759).
+ */
+function SupersededPromptMarker({ prompts }: { prompts: SupersededPrompt[] }) {
+  const [open, setOpen] = useState(false);
+  const count =
+    prompts.length === 1 ? "1 superseded message" : `${prompts.length} superseded messages`;
+
+  return (
+    <div data-testid="superseded-prompt-marker" className="flex flex-col gap-1 py-1">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex items-center gap-2 self-start text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground"
+      >
+        <span aria-hidden className="text-[9px]">
+          {open ? "▼" : "▶"}
+        </span>
+        <span>
+          {count} — the operator rewrote {prompts.length === 1 ? "this prompt" : "these prompts"};
+          the agent never received {prompts.length === 1 ? "it" : "them"}.
+        </span>
+      </button>
+      {open && (
+        <div
+          data-testid="superseded-prompt-text"
+          className="ml-3 flex flex-col gap-2 border-l-2 border-dashed border-border pl-3"
+        >
+          {/* Labeled on the content itself, not only on the toggle: an expanded
+              block scrolled away from its own marker must still say what it is. */}
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground/60">
+            superseded — the agent never received this
+          </p>
+          {prompts.map((p) => (
+            <p
+              key={p.blockId}
+              className="whitespace-pre-wrap text-xs italic text-muted-foreground/80"
+            >
+              {p.text.length > 0 ? p.text : "(no text recorded for this prompt)"}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Interleave the rewind markers back into the rendered turn stream.
+ *
+ * A group is emitted immediately before the first rendered turn at or after its
+ * anchor. Groups anchored BEFORE the window are dropped rather than floated to
+ * the top: a positional marker's whole claim is "the rewind happened HERE", so
+ * showing one detached from its position would reintroduce the defect this
+ * replaces. "Show older" brings them back with their surroundings.
+ */
+function buildTurnNodes({
+  preparedTurns,
+  supersededGroups,
+  blockIndexById,
+  entityIndex,
+  expandSignal,
+}: {
+  preparedTurns: PreparedTurn[];
+  supersededGroups: SupersededGroup[];
+  blockIndexById: Map<string, number>;
+  entityIndex: EntityIndex;
+  expandSignal: ExpandSignal;
+}): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  // With no rendered turn there is no window to be outside OF, so `0` here
+  // means "drop nothing" — every anchor is >= 0, the skip loop below is a
+  // no-op, and the trailing flush emits every group. Stated explicitly because
+  // the value looks like a position and is not one (PR #2449 R1).
+  const firstRendered = preparedTurns[0];
+  const windowStart =
+    firstRendered === undefined ? 0 : (blockIndexById.get(firstRendered.blockId) ?? 0);
+
+  let next = 0;
+  while (next < supersededGroups.length && supersededGroups[next]!.anchorIndex < windowStart) {
+    next++;
+  }
+
+  const pushGroup = (group: SupersededGroup) => {
+    nodes.push(<SupersededPromptMarker key={supersededMarkerKey(group)} prompts={group.prompts} />);
+  };
+
+  preparedTurns.forEach((turn, i) => {
+    // A turn whose block is not in the index (live-tail races) sorts last
+    // rather than swallowing every pending marker.
+    const turnIndex = blockIndexById.get(turn.blockId) ?? Number.MAX_SAFE_INTEGER;
+
+    // The day/gap separator goes FIRST, so the marker stays adjacent to the
+    // prompt that replaced it. A rewind that straddles a day boundary would
+    // otherwise render as marker → "Thu, Jul 30" → prompt, reading as though
+    // the marker belonged to the turn before the boundary.
+    const separator = turnSeparator(preparedTurns[i - 1]?.timestamp, turn.timestamp);
+    if (separator) {
+      nodes.push(<TurnSeparatorRow key={`${turn.blockId}-sep`} separator={separator} />);
+    }
+
+    while (next < supersededGroups.length && supersededGroups[next]!.anchorIndex <= turnIndex) {
+      pushGroup(supersededGroups[next]!);
+      next++;
+    }
+    nodes.push(
+      <TurnView
+        key={turn.blockId}
+        turn={turn}
+        entityIndex={entityIndex}
+        expandSignal={expandSignal}
+      />
+    );
+  });
+
+  // A rewind with no live block after it — the operator rewound and has not yet
+  // sent the replacement.
+  while (next < supersededGroups.length) {
+    pushGroup(supersededGroups[next]!);
+    next++;
+  }
+
+  return nodes;
+}
+
 function ConversationThread({
   snapshot,
   extraBlocks,
@@ -751,20 +931,49 @@ function ConversationThread({
    * The blocks are marked upstream by `markAbandonedRewindBranches` at snapshot
    * assembly and are still PRESENT in `snapshot.blocks` (the session film joins
    * on `turnIndex`, so nothing may be removed there). Suppression is this
-   * surface's decision, and the count below keeps it visible rather than
+   * surface's decision, and the markers below keep it visible rather than
    * silent.
+   *
+   * Grouped BY POSITION rather than counted (mt#3361): each run of abandoned
+   * prompts is anchored to the index of the live block that replaced it, so the
+   * render can put a marker where the rewind actually happened instead of one
+   * tally at the top of the view.
    */
-  const { renderableBlocks, rewoundBlockCount } = useMemo(() => {
-    const kept = allBlocks.filter((b) => b.isAbandonedBranch !== true);
-    // Count operator PROMPTS, not blocks. A superseded prompt drags along both
-    // its attachment blocks and — when the operator rewound after the agent had
-    // already started working — the tool-result lines from the abandoned
-    // attempt. `rawJsonlType === "user"` matches those tool results too, so it
-    // would overstate a rewind that superseded 2 prompts (PR #2419 R1).
-    const rewoundPrompts = allBlocks.filter(
-      (b) => b.isAbandonedBranch === true && isOperatorPrompt(b)
-    ).length;
-    return { renderableBlocks: kept, rewoundBlockCount: rewoundPrompts };
+  const { renderableBlocks, supersededGroups, blockIndexById } = useMemo(() => {
+    const kept: SessionContextSnapshotBlock[] = [];
+    const groups: SupersededGroup[] = [];
+    const indexById = new Map<string, number>();
+    let pending: SupersededPrompt[] = [];
+
+    allBlocks.forEach((block, index) => {
+      if (block.isAbandonedBranch === true) {
+        // Collect operator PROMPTS, not blocks. A superseded prompt drags along
+        // both its attachment blocks and — when the operator rewound after the
+        // agent had already started working — the tool-result lines from the
+        // abandoned attempt. `rawJsonlType === "user"` matches those tool
+        // results too, so counting blocks would overstate a rewind that
+        // superseded 2 prompts (PR #2419 R1).
+        if (isOperatorPrompt(block)) {
+          pending.push({ blockId: block.id, text: supersededPromptText(block) });
+        }
+        return;
+      }
+
+      indexById.set(block.id, index);
+      kept.push(block);
+      if (pending.length > 0) {
+        groups.push({ anchorIndex: index, prompts: pending });
+        pending = [];
+      }
+    });
+
+    // A rewind at the very end of the transcript has no live block to anchor
+    // to; `allBlocks.length` sorts it after every rendered turn.
+    if (pending.length > 0) {
+      groups.push({ anchorIndex: allBlocks.length, prompts: pending });
+    }
+
+    return { renderableBlocks: kept, supersededGroups: groups, blockIndexById: indexById };
   }, [allBlocks]);
 
   const turns = useMemo(() => snapshotBlocksToConversation(renderableBlocks), [renderableBlocks]);
@@ -865,6 +1074,24 @@ function ConversationThread({
   }, [extraBlocksLen]);
 
   if (visibleTurns.length === 0) {
+    // A transcript can be ALL superseded prompts — the operator rewrote every
+    // message before the agent answered any of them. Returning the bare
+    // empty-state here would silently discard the only content the session
+    // has, which is the exact failure this marker exists to prevent (PR #2449
+    // R1). The markers render on their own instead.
+    if (supersededGroups.length > 0) {
+      return (
+        <div className={cn("flex flex-col gap-3", className)}>
+          <p className="text-sm text-muted-foreground">
+            Every message in this session was superseded — the operator rewrote each one before the
+            agent received it.
+          </p>
+          {supersededGroups.map((group) => (
+            <SupersededPromptMarker key={supersededMarkerKey(group)} prompts={group.prompts} />
+          ))}
+        </div>
+      );
+    }
     return (
       <p className={cn("text-sm text-muted-foreground", className)}>
         This session has no conversational turns to display.
@@ -890,16 +1117,6 @@ function ConversationThread({
           Collapse all
         </button>
       </div>
-      {rewoundBlockCount > 0 && (
-        <p
-          data-testid="rewound-branch-notice"
-          className="text-center text-[11px] text-muted-foreground/70"
-        >
-          {rewoundBlockCount === 1
-            ? "1 superseded message hidden — the operator rewrote this prompt; the agent never received the earlier version."
-            : `${rewoundBlockCount} superseded messages hidden — the operator rewrote these prompts; the agent never received the earlier versions.`}
-        </p>
-      )}
       {hiddenCount > 0 && !showAll && (
         <div className="flex items-center justify-center gap-3 py-1">
           <button
@@ -918,21 +1135,12 @@ function ConversationThread({
           </button>
         </div>
       )}
-      {preparedTurns.flatMap((turn, i) => {
-        const separator = turnSeparator(preparedTurns[i - 1]?.timestamp, turn.timestamp);
-        const nodes: ReactNode[] = [];
-        if (separator) {
-          nodes.push(<TurnSeparatorRow key={`${turn.blockId}-sep`} separator={separator} />);
-        }
-        nodes.push(
-          <TurnView
-            key={turn.blockId}
-            turn={turn}
-            entityIndex={entityIndex}
-            expandSignal={expandSignal}
-          />
-        );
-        return nodes;
+      {buildTurnNodes({
+        preparedTurns,
+        supersededGroups,
+        blockIndexById,
+        entityIndex,
+        expandSignal,
       })}
       {/* `scroll-mb-8` is load-bearing (mt#3344), not spacing: both
           `scrollIntoView({block:"end"})` calls above align THIS sentinel's
