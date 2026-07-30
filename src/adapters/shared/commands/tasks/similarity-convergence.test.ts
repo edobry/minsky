@@ -18,6 +18,8 @@
 import { describe, test, expect } from "bun:test";
 import { TasksSimilarCommand, TasksSearchCommand } from "./similarity-commands";
 import { tasksSimilarParams, tasksSearchParams } from "./task-parameters";
+import { TaskSimilarityService } from "@minsky/domain/tasks/task-similarity-service";
+import { ALL_PROJECTS } from "@minsky/domain/project/scope";
 import type { CommandExecutionContext, InferParams } from "../../command-registry";
 
 const ctx = { interface: "test", format: "cli" } as CommandExecutionContext;
@@ -136,5 +138,59 @@ describe("tasks.similar / tasks.search default status behaviour (mt#3305)", () =
       ctx
     );
     expect(calls[0]?.filters?.status).toBe("TODO");
+  });
+});
+
+describe("threshold applies only to distance-scored backends (mt#3305, PR #2434 R1)", () => {
+  const ITEMS = [
+    { id: "mt#a", score: 0.1 },
+    { id: "mt#b", score: 0.5 },
+    { id: "mt#c", score: 0.9 },
+  ];
+
+  /** Service with the search backend stubbed, so we control the reported backend name. */
+  function serviceReporting(backend: string) {
+    const svc = new TaskSimilarityService(
+      {} as never,
+      {} as never,
+      async () => null,
+      async () => [],
+      async () => ({ content: "" }) as never,
+      {}
+    );
+    (svc as unknown as { searchService: unknown }).searchService = {
+      search: async () => ({
+        items: ITEMS,
+        backend,
+        degraded: backend !== "embeddings",
+        degradedReason: backend !== "embeddings" ? "stubbed" : undefined,
+      }),
+    };
+    return svc;
+  }
+
+  test("embeddings backend: threshold filters, because its score is a cosine DISTANCE", async () => {
+    const svc = serviceReporting("embeddings");
+    const res = await svc.searchByText("q", 10, 0.5, undefined, ALL_PROJECTS);
+    expect(res.results.map((r) => r.id)).toEqual(["mt#a", "mt#b"]);
+  });
+
+  test("lexical backend: threshold is NOT applied — its score is a similarity, so `<=` would invert", async () => {
+    // lexical-backend.ts computes Jaccard SIMILARITY and sorts descending, so
+    // higher is better and on a different scale. Applying a cosine-distance
+    // threshold there would keep the WORST matches and drop the best, silently,
+    // on the degraded path where a caller is least likely to notice.
+    const svc = serviceReporting("lexical");
+    const res = await svc.searchByText("q", 10, 0.5, undefined, ALL_PROJECTS);
+    expect(res.results.map((r) => r.id)).toEqual(["mt#a", "mt#b", "mt#c"]);
+    expect(res.degraded).toBe(true);
+  });
+
+  test("no threshold: every backend returns everything", async () => {
+    for (const backend of ["embeddings", "lexical"]) {
+      const svc = serviceReporting(backend);
+      const res = await svc.searchByText("q", 10, undefined, undefined, ALL_PROJECTS);
+      expect(res.results).toHaveLength(3);
+    }
   });
 });

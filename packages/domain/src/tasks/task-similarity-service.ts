@@ -12,6 +12,16 @@ import { first } from "@minsky/shared/array-safety";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { ALL_PROJECTS, isAllProjects, type ProjectScope } from "../project/scope";
 
+/**
+ * The one backend whose `score` is a DISTANCE (lower is closer) — cosine
+ * distance from the vector index. `lexical` scores Jaccard SIMILARITY sorted
+ * descending (higher is better) and `ai` is its own thing, so a
+ * distance-oriented predicate is only meaningful against this one (mt#3305,
+ * PR #2434 R1). Kept as a named constant rather than a bare string so the
+ * coupling to `EmbeddingsSimilarityBackend.name` is greppable from both sides.
+ */
+const DISTANCE_SCORED_BACKEND = "embeddings";
+
 export interface TaskSimilarityServiceConfig {
   similarityThreshold?: number;
   vectorLimit?: number;
@@ -125,11 +135,36 @@ export class TaskSimilarityService {
    *
    * `threshold` was declared on three signatures and applied by none — accepted
    * at the boundary and dropped, so `--threshold 0.1` and `--threshold 0.95`
-   * returned identical result sets. Scores here are DISTANCES (lower is closer,
-   * matching the parameter's own description), so the predicate is `<=`.
+   * returned identical result sets.
+   *
+   * Applied ONLY to distance-scored backends (PR #2434 R1). The parameter is
+   * documented as "distance threshold (lower is closer)", which is the
+   * embeddings backend's cosine distance. The LEXICAL fallback scores the
+   * opposite way — `lexical-backend.ts` computes Jaccard SIMILARITY and sorts
+   * descending, so higher is better — and on a different scale (0..1 overlap vs
+   * 0..2 cosine distance). Applying `score <= threshold` there would keep the
+   * WORST matches and drop the best, silently, on the degraded path where the
+   * caller is least likely to notice.
+   *
+   * Reinterpreting the number against the other scale would be worse than
+   * skipping: a threshold tuned for cosine distance has no meaningful Jaccard
+   * equivalent, so the filter is not applied and the existing degraded warning
+   * (surfaced by both commands) is what tells the caller they are on the
+   * fallback path.
    */
-  private applyThreshold<T extends { score: number }>(items: T[], threshold?: number): T[] {
+  private applyThreshold<T extends { score: number }>(
+    items: T[],
+    threshold: number | undefined,
+    backend: string
+  ): T[] {
     if (threshold === undefined) return items;
+    if (backend !== DISTANCE_SCORED_BACKEND) {
+      log.debug("tasks search: threshold not applied — backend is not distance-scored (mt#3305)", {
+        backend,
+        threshold,
+      });
+      return items;
+    }
     return items.filter((i) => i.score <= threshold);
   }
 
@@ -196,7 +231,7 @@ export class TaskSimilarityService {
         limit,
       });
       return {
-        results: this.applyThreshold(response.items, threshold).map((i) => ({
+        results: this.applyThreshold(response.items, threshold, response.backend).map((i) => ({
           id: i.id,
           score: i.score,
           metadata: i.metadata,
@@ -314,7 +349,7 @@ export class TaskSimilarityService {
     });
 
     return {
-      results: this.applyThreshold(survivors, threshold)
+      results: this.applyThreshold(survivors, threshold, response.backend)
         .slice(0, limit)
         .map((i) => ({
           id: i.id,
