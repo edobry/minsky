@@ -39,6 +39,16 @@ export type ToolResultElement = Extract<ConversationElement, { kind: "tool-resul
 /** View-level "expand all / collapse all" broadcast — see `ToolInvocation`/`InjectedContentBlock`. */
 export type ExpandSignal = { epoch: number; open: boolean } | undefined;
 
+/**
+ * Display nouns for a tool result (mt#3374). Exported because the turn-origin
+ * classifier (`../lib/turn-origin.ts`) labels a pure tool-result turn with the
+ * same word this block header uses — the vocabulary lives once so the turn
+ * header and the block it describes cannot drift apart, the same failure
+ * PR #2442 R1 caught in the injected-span nouns.
+ */
+export const TOOL_RESULT_NOUN = "tool result";
+export const TOOL_ERROR_NOUN = "tool error";
+
 /** One conversational sub-element after tool-invocation pairing — the unit `ElementView` renders. */
 export type PreparedElement =
   | { kind: "text"; text: string }
@@ -281,7 +291,7 @@ export function ToolResult({
     >
       <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
         <span aria-hidden>{element.isError ? "⚠" : "↩"}</span>
-        <span className="font-medium">{element.isError ? "tool error" : "tool result"}</span>
+        <span className="font-medium">{element.isError ? TOOL_ERROR_NOUN : TOOL_RESULT_NOUN}</span>
         {callName && <span className="font-mono text-muted-foreground/70">{callName}</span>}
       </div>
       {/* Content-type dispatch (mt#2552): JSON payloads → JsonView (a Tier-3

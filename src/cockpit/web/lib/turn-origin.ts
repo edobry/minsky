@@ -29,8 +29,8 @@
  * @see ./injected-content.ts — the span-level classifier this consumes
  * @see ../widgets/ConversationView.tsx — the consumer (turn label + accent)
  */
-import type { InjectedContentKind } from "./injected-content";
-import type { PreparedElement } from "../components/ConversationElementRenderers";
+import { INJECTED_KIND_NOUN } from "./injected-content";
+import { TOOL_RESULT_NOUN, type PreparedElement } from "../components/ConversationElementRenderers";
 
 /**
  * A turn's author. `null` from {@link classifyTurnOrigin} means "no origin
@@ -38,22 +38,6 @@ import type { PreparedElement } from "../components/ConversationElementRenderers
  * guessing.
  */
 export type TurnOrigin = { kind: "operator" } | { kind: "harness"; label: string };
-
-/**
- * Display label per injected-span kind. Deliberately lower-case and spaced —
- * the turn header renders uppercase via CSS, so these read as vocabulary, not
- * as identifiers.
- */
-const LABEL_BY_INJECTED_KIND: Record<InjectedContentKind, string> = {
-  command: "command",
-  "skill-body": "skill body",
-  "system-reminder": "system reminder",
-  "local-command-output": "command output",
-  "local-command-caveat": "command caveat",
-};
-
-/** Label for tool-result content, which is role-`user` but has no injected span. */
-const TOOL_RESULT_LABEL = "tool result";
 
 /**
  * Label for a turn that mixes several harness origins. Rare (the harness
@@ -67,14 +51,14 @@ const MIXED_HARNESS_LABEL = "harness";
 function harnessLabelOf(element: PreparedElement): string | null {
   switch (element.kind) {
     case "injected":
-      return LABEL_BY_INJECTED_KIND[element.span.kind];
+      return INJECTED_KIND_NOUN[element.span.kind];
     case "command-invocation":
       // The merged command element (mt#3322) folds the wrapper, its captured
       // output, and the caveat into one — all three are the same origin.
-      return LABEL_BY_INJECTED_KIND.command;
+      return INJECTED_KIND_NOUN.command;
     case "tool-invocation":
     case "tool-result-orphan":
-      return TOOL_RESULT_LABEL;
+      return TOOL_RESULT_NOUN;
     default:
       return null;
   }

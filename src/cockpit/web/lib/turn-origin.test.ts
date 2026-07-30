@@ -8,7 +8,7 @@
 import { describe, test, expect } from "bun:test";
 import { classifyTurnOrigin } from "./turn-origin";
 import type { PreparedElement } from "../components/ConversationElementRenderers";
-import type { InjectedContentKind } from "./injected-content";
+import { INJECTED_KIND_NOUN, type InjectedContentKind } from "./injected-content";
 
 function injected(kind: InjectedContentKind): PreparedElement {
   return { kind: "injected", span: { kind, label: `${kind}: x`, content: "…" } };
@@ -56,9 +56,21 @@ describe("classifyTurnOrigin — per-origin harness labels", () => {
     ["skill-body", "skill body"],
     ["system-reminder", "system reminder"],
     ["local-command-output", "command output"],
-    ["local-command-caveat", "command caveat"],
+    ["local-command-caveat", "harness caveat"],
   ] as const)("a %s turn is labeled %s", (kind, label) => {
     expect(classifyTurnOrigin(userTurn([injected(kind)]))).toEqual({ kind: "harness", label });
+  });
+
+  test("every injected kind's turn label is the span's own noun — no second vocabulary", () => {
+    // PR #2442 R1: a hand-maintained parallel label map drifted (`command
+    // caveat` vs the span's `harness caveat`). Both now read one source; this
+    // fails if a future kind is added to one and not the other.
+    for (const kind of Object.keys(INJECTED_KIND_NOUN) as InjectedContentKind[]) {
+      expect(classifyTurnOrigin(userTurn([injected(kind)]))).toEqual({
+        kind: "harness",
+        label: INJECTED_KIND_NOUN[kind],
+      });
+    }
   });
 
   test("a pure tool-result turn is labeled tool result, not user", () => {
