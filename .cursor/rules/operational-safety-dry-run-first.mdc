@@ -65,23 +65,6 @@ drift since the dry-run — the scope-match check above, enforced in code) and *
 still applies to the operation as a whole. Mechanics:
 `docs/rules-rationale/operational-safety-dry-run-first.md §Sanctioned primitives`.
 
-## Examples
-
-// AVOID: applying by default
-```
-minsky persistence migrate
-# applies immediately
-```
-
-// PREFER: safe default with explicit execution
-```
-# preview
-minsky persistence migrate --dry-run
-
-# apply (must be explicit)
-minsky persistence migrate --execute
-```
-
 ## Cross-References
 - See `persistence.migrate` behavior and other commands using `--execute` semantics.
 - `tasks_bulk-edit` / `refs_status` (mt#2819) — the sanctioned bulk-mutation + set-diff primitives.
