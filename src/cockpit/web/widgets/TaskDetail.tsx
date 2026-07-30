@@ -21,7 +21,13 @@ import { useEntityIndex } from "../lib/use-entity-index";
 import { useStartDrivenSession } from "../hooks/useStartDrivenSession";
 import { statusStyle } from "../lib/status-colors";
 import { DISPATCH_MODELS, DEFAULT_DISPATCH_MODEL_ID } from "@minsky/domain/ai/dispatch-models";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the /api/tasks/:id response shape
@@ -57,13 +63,18 @@ export interface TaskDetailPayload {
 }
 
 export interface TaskAction {
-  kind: "plan" | "start" | "resume" | "view-pr";
+  kind: "plan" | "start" | "resume" | "view-pr" | "drive";
   sessionId?: string;
+  /** Driven-session local id — set on "drive" (mt#3400). */
+  drivenSessionId?: string;
   prNumber?: number;
   note?: string;
 }
 
-const ACTION_KINDS = new Set(["plan", "start", "resume", "view-pr"]);
+// Must list EVERY kind the server can emit: `isTaskAction` gates the whole
+// payload, so a kind missing here fails `isTaskDetailPayload` and drops the
+// entire task page into ErrorState — not just the one unrecognized action.
+const ACTION_KINDS = new Set(["plan", "start", "resume", "view-pr", "drive"]);
 
 function isTaskAction(v: unknown): v is TaskAction {
   if (typeof v !== "object" || v === null) return false;
@@ -229,6 +240,29 @@ function TaskActionControl({ taskId, action }: { taskId: string; action: TaskAct
           title="Spawns a driven claude session (bypassPermissions) in the task's isolated workspace clone"
           note={action.note}
         />
+      );
+    case "drive":
+      if (!action.drivenSessionId) return null;
+      // mt#3400 — the one-hop return to a live driven session. Rendered
+      // `default` (not `outline` like its siblings) because when this action is
+      // present it IS the primary: the operator has work in flight here.
+      //
+      // Copy says "drive view", not "session": this control sits directly
+      // beside the workspace action labeled "Open session", and two adjacent
+      // buttons reading "Return to session" / "Open session" for two DIFFERENT
+      // destinations is the ambiguity PR #2448 R1 flagged. "Drive view" is the
+      // vocabulary the existing RunDetail banner already uses for this surface,
+      // so this aligns with shipped copy rather than coining a new term.
+      return (
+        <Button asChild size="sm" className="h-7 px-2.5 text-xs">
+          <Link
+            to={`/driven/${encodeURIComponent(action.drivenSessionId)}`}
+            aria-label={`Return to the live drive view for ${taskId}`}
+            title="Return to the driven session already running for this task"
+          >
+            Return to drive view
+          </Link>
+        </Button>
       );
     case "resume":
       if (!action.sessionId) return null;

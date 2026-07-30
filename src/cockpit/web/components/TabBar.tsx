@@ -37,6 +37,7 @@ import {
   GitPullRequest,
   AlertCircle,
   ChevronsRight,
+  MessageSquare,
 } from "lucide-react";
 import { useTabs, type EntityTab, type EntityTabKind } from "../lib/tabs";
 import { useEntityLabel } from "../lib/entity-labels";
@@ -50,6 +51,11 @@ const KIND_ICONS: Record<EntityTabKind, React.ComponentType<{ className?: string
   ask: CircleHelp,
   memory: Brain,
   changeset: GitPullRequest,
+  // mt#3400 — the drive view is where the operator TYPES to the agent, so it
+  // reads as a conversation rather than as another `Bot` (the passive
+  // observed-conversation kind). Retires with the kind itself; see
+  // `lib/tabs.tsx`'s `EntityTabKind` docblock.
+  driven: MessageSquare,
 };
 
 const FALLBACK_ICON: React.ComponentType<{ className?: string }> = Bot;
