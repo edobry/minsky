@@ -47,7 +47,11 @@ export type EntityThreadPanelEntityType = "ask";
 
 export interface EntityThreadResponse {
   localId: string;
-  entityType: string;
+  /** Narrowed to the kinds this panel mounts for — the server rejects any
+   * other value with a 400, so a wider type here would only be honest about
+   * the wire format at the cost of every consumer re-narrowing it (PR #2437
+   * R1 non-blocking). */
+  entityType: EntityThreadPanelEntityType;
   entityId: string;
   blocks: SessionContextSnapshotBlock[];
 }
@@ -106,6 +110,19 @@ export function deriveComposerState(
   return last?.type === "user-prompt" ? "streaming" : "awaiting-input";
 }
 
+/**
+ * The poll cadence, or `false` to stop polling.
+ *
+ * Polling PAUSES while a send is in flight (PR #2437 R1 BLOCKING): a poll
+ * started before the send can resolve AFTER it and overwrite the
+ * freshly-invalidated list with a pre-send snapshot, making the operator's own
+ * message flicker out. Exported so the decision is directly testable rather
+ * than buried in a query option.
+ */
+export function derivePollInterval(sendPending: boolean): number | false {
+  return sendPending ? false : POLL_INTERVAL_MS;
+}
+
 export interface EntityThreadPanelProps {
   entityType: EntityThreadPanelEntityType;
   entityId: string;
@@ -116,18 +133,20 @@ export function EntityThreadPanel({ entityType, entityId, className }: EntityThr
   const queryClient = useQueryClient();
   const queryKey = ["entity-thread", entityType, entityId];
 
-  const query = useQuery({
-    queryKey,
-    queryFn: () => fetchEntityThread(entityType, entityId),
-    refetchInterval: POLL_INTERVAL_MS,
-  });
-
+  // Declared before the query below, which reads `isPending` to pause polling.
   const sendMutation = useMutation({
     mutationFn: (text: string) => postEntityThreadMessage(entityType, entityId, text),
     // Invalidate rather than write the returned turn into the cache by hand:
     // the server assigns `seq` and the agent's reply lands asynchronously, so
     // a refetch is the only view that reflects both.
     onSettled: () => queryClient.invalidateQueries({ queryKey }),
+  });
+
+  const query = useQuery({
+    queryKey,
+    queryFn: () => fetchEntityThread(entityType, entityId),
+    // See `derivePollInterval` for why this pauses mid-send.
+    refetchInterval: derivePollInterval(sendMutation.isPending),
   });
 
   const blocks = query.data?.blocks;
@@ -144,10 +163,13 @@ export function EntityThreadPanel({ entityType, entityId, className }: EntityThr
             // reasoning recorded in `DrivenSessionThread`.
             harness: "claude_code",
             blocks: blocks ?? [],
-            // Every block carries its own timestamp from the store; this
-            // snapshot-level field is required by the type and not read by any
-            // renderer on this path.
-            assembledAt: new Date(0).toISOString(),
+            // Stamped when this memo recomputes — i.e. when the blocks it
+            // wraps actually changed, which IS when the snapshot was
+            // assembled. Truthful, and avoids handing a time-based consumer
+            // an epoch date that would read as 1970 (PR #2437 R1
+            // non-blocking). Per-turn times come from each block's own
+            // `timestamp`.
+            assembledAt: new Date().toISOString(),
           }
         : null,
     [localId, blocks]
@@ -175,7 +197,7 @@ export function EntityThreadPanel({ entityType, entityId, className }: EntityThr
 
       {sendMutation.isError ? (
         <ErrorState
-          prefix="Failed to send"
+          prefix="Failed to send — your message is still in the box; press Send to retry"
           error={sendMutation.error}
           className="mt-2"
         />
@@ -183,7 +205,11 @@ export function EntityThreadPanel({ entityType, entityId, className }: EntityThr
 
       <DrivenSessionComposer
         interactionState={composerState}
-        onSend={(text) => sendMutation.mutate(text)}
+        // `mutateAsync` (not `mutate`) so the composer can await delivery and
+        // keep the operator's draft if it fails — see its `onSend` contract.
+        // The composer catches the rejection; `sendMutation.isError` above is
+        // what surfaces it.
+        onSend={(text) => sendMutation.mutateAsync(text)}
         ariaLabel={`Ask a question about this ${entityType}`}
         idlePlaceholder="Ask a question about this…"
         className="mt-3"

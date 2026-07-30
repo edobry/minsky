@@ -7,12 +7,12 @@
  * Run via: bun run test:components
  */
 import { describe, test, expect, afterEach, mock } from "bun:test";
-import { render, cleanup, waitFor, screen } from "@testing-library/react";
+import { render, cleanup, waitFor, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
-import { EntityThreadPanel, deriveComposerState } from "./EntityThreadPanel";
+import { EntityThreadPanel, deriveComposerState, derivePollInterval } from "./EntityThreadPanel";
 
 const originalFetch = global.fetch;
 
@@ -88,6 +88,91 @@ describe("deriveComposerState", () => {
 
   test("an empty thread accepts input", () => {
     expect(deriveComposerState([], false)).toBe("awaiting-input");
+  });
+});
+
+describe("derivePollInterval", () => {
+  test("polls on a cadence when idle", () => {
+    expect(derivePollInterval(false)).toBeGreaterThan(0);
+  });
+
+  test("pauses polling while a send is in flight", () => {
+    // A poll started before the send can resolve AFTER it and overwrite the
+    // freshly-invalidated list with a pre-send snapshot — the operator's own
+    // message would flicker out (PR #2437 R1 BLOCKING).
+    expect(derivePollInterval(true)).toBe(false);
+  });
+});
+
+describe("EntityThreadPanel — a failed send must not destroy the draft", () => {
+  test("keeps the typed message in the box when the send fails, and names the retry", async () => {
+    // The server-side route deliberately persists the operator's message
+    // before touching the agent so a failure never loses it. The client must
+    // not undo that guarantee by clearing the textarea on a failed POST
+    // (PR #2437 R1 BLOCKING).
+    global.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/message") && init?.method === "POST") {
+        return jsonResponse({ error: "agent unreachable" }, false, 502);
+      }
+      if (url.includes("/api/entity-thread/")) {
+        return jsonResponse({
+          localId: THREAD_LOCAL_ID,
+          entityType: "ask",
+          entityId: ENTITY_ID,
+          blocks: [],
+        });
+      }
+      return jsonResponse({ state: "degraded", reason: "not mocked" });
+    }) as unknown as typeof fetch;
+
+    renderPanel();
+
+    const input = (await waitFor(() =>
+      screen.getByLabelText(/Ask a question about this ask/i)
+    )) as HTMLTextAreaElement;
+
+    fireEvent.change(input, { target: { value: "what is this asking me?" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to send/i)).toBeDefined();
+    });
+
+    // The draft is still there — pressing Send again IS the retry path.
+    expect(input.value).toBe("what is this asking me?");
+    expect(screen.getByText(/still in the box/i)).toBeDefined();
+  });
+
+  test("clears the box once the send succeeds", async () => {
+    global.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/message") && init?.method === "POST") {
+        return jsonResponse({ localId: THREAD_LOCAL_ID, seeded: true, delivered: true });
+      }
+      if (url.includes("/api/entity-thread/")) {
+        return jsonResponse({
+          localId: THREAD_LOCAL_ID,
+          entityType: "ask",
+          entityId: ENTITY_ID,
+          blocks: [],
+        });
+      }
+      return jsonResponse({ state: "degraded", reason: "not mocked" });
+    }) as unknown as typeof fetch;
+
+    renderPanel();
+
+    const input = (await waitFor(() =>
+      screen.getByLabelText(/Ask a question about this ask/i)
+    )) as HTMLTextAreaElement;
+
+    fireEvent.change(input, { target: { value: "a question" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(input.value).toBe("");
+    });
   });
 });
 

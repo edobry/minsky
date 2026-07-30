@@ -15,7 +15,16 @@ import type { DrivenSessionInteractionState } from "../lib/driven-session-accumu
 
 export interface DrivenSessionComposerProps {
   interactionState: DrivenSessionInteractionState;
-  onSend: (text: string) => void;
+  /**
+   * Deliver the operator's text.
+   *
+   * May return a promise. When it does, the input is cleared only AFTER that
+   * promise resolves, and the text is PRESERVED if it rejects — a failed send
+   * that also wipes what the operator typed leaves them with no retry path
+   * and nothing to retry from (PR #2437 R1 BLOCKING). A caller that returns
+   * `void` keeps the original clear-immediately behavior.
+   */
+  onSend: (text: string) => void | Promise<unknown>;
   /**
    * Stop the in-flight turn. OPTIONAL: when omitted the Stop button is not
    * rendered at all. A host that has nothing to stop — the entity discussion
@@ -59,7 +68,8 @@ export function DrivenSessionComposer({
   idlePlaceholder,
 }: DrivenSessionComposerProps) {
   const [text, setText] = useState(initialText ?? "");
-  const inputDisabled = interactionState !== "awaiting-input";
+  const [sending, setSending] = useState(false);
+  const inputDisabled = interactionState !== "awaiting-input" || sending;
   const canSend = !inputDisabled && text.trim().length > 0;
   const canStop = interactionState !== "exited";
   const placeholder =
@@ -70,7 +80,23 @@ export function DrivenSessionComposer({
   function submit(): void {
     const trimmed = text.trim();
     if (!trimmed || inputDisabled) return;
-    onSend(trimmed);
+    const result = onSend(trimmed);
+    if (result && typeof (result as Promise<unknown>).then === "function") {
+      // Await the caller's delivery before destroying the operator's draft.
+      setSending(true);
+      void (result as Promise<unknown>).then(
+        () => {
+          setSending(false);
+          setText("");
+        },
+        () => {
+          // Keep the text exactly as typed: the host surfaces the error, and
+          // pressing Send again IS the retry.
+          setSending(false);
+        }
+      );
+      return;
+    }
     setText("");
   }
 
