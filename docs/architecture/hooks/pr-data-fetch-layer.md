@@ -139,7 +139,7 @@ share this crash class.
 
 `require-review-before-merge.ts` also stopped being the one gate of the four
 that exited silently on `deriveRepoFromGit` failure — it now emits the same
-`⚠️ [require-review] Could not derive owner/repo...` shape the other three
+`⚠️ [require-review-before-merge] Could not derive owner/repo...` shape the other three
 gates already used, so a genuine repo-derivation failure is never invisible
 regardless of which gate hits it.
 

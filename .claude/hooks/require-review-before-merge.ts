@@ -1149,7 +1149,7 @@ async function main(): Promise<void> {
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         additionalContext:
-          "⚠️ [require-review] Could not derive owner/repo from git remote — review-gate check skipped.",
+          "⚠️ [require-review-before-merge] Could not derive owner/repo from git remote — review-gate check skipped.",
       },
     });
     return recordAndExit("warn");
