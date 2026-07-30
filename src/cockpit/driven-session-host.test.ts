@@ -17,6 +17,7 @@ import { readFileSync } from "fs";
 import {
   startDrivenSession,
   sendDrivenSessionInput,
+  DRIVEN_OPERATOR_INPUT_EVENT_TYPE,
   stopDrivenSession,
   buildDrivenSessionArgs,
   buildResumeSessionArgs,
@@ -452,6 +453,64 @@ describe("sendDrivenSessionInput", () => {
     const ok = sendDrivenSessionInput(record, "too late");
     expect(ok).toBe(false);
     expect(readStdinWrites(proc)).toBe("");
+  });
+
+  // mt#3372 — the child never echoes stdin back, so the operator's own turn
+  // only reaches the view if the host appends it to the event log itself.
+  test("appends exactly one operator-input event to the replayable log", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const before = record.eventLog.length;
+
+    expect(sendDrivenSessionInput(record, "what changed in the last hour?")).toBe(true);
+
+    const appended = record.eventLog.slice(before);
+    expect(appended).toHaveLength(1);
+    expect(appended[0]?.payload["type"]).toBe(DRIVEN_OPERATOR_INPUT_EVENT_TYPE);
+    expect(appended[0]?.payload["text"]).toBe("what changed in the last hour?");
+    expect(typeof appended[0]?.payload["timestamp"]).toBe("string");
+  });
+
+  test("broadcasts the operator-input event to live subscribers", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const seen: Record<string, unknown>[] = [];
+    record.subscribers.add({ onEvent: (event) => seen.push(event.payload), onSwap: () => {} });
+
+    sendDrivenSessionInput(record, "first");
+    sendDrivenSessionInput(record, "second");
+
+    const operatorFrames = seen.filter((p) => p["type"] === DRIVEN_OPERATOR_INPUT_EVENT_TYPE);
+    expect(operatorFrames.map((p) => p["text"])).toEqual(["first", "second"]);
+  });
+
+  test("appends nothing when the session has already exited", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+    proc.exit(0, null);
+    const before = record.eventLog.length;
+
+    sendDrivenSessionInput(record, "too late");
+
+    expect(record.eventLog.length).toBe(before);
+  });
+
+  test("echo:false delivers the text without attributing it to the operator", () => {
+    // The resume path sends a host-authored interruption notice through this
+    // same function; echoing it would put words in the operator's mouth.
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+
+    expect(sendDrivenSessionInput(record, "a system notice", { echo: false })).toBe(true);
+
+    expect(JSON.parse(readStdinWrites(proc).trim()).message.content[0].text).toBe(
+      "a system notice"
+    );
+    expect(
+      record.eventLog.filter((e) => e.payload["type"] === DRIVEN_OPERATOR_INPUT_EVENT_TYPE)
+    ).toHaveLength(0);
   });
 });
 

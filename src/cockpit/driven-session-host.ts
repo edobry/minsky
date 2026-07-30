@@ -441,6 +441,20 @@ export interface DrivenSessionSubscriber {
  * growth on a long-lived multi-turn session. */
 const MAX_EVENT_LOG = 2000;
 
+/**
+ * Synthetic frame type for an operator turn sent through the composer
+ * (mt#3372). Minsky-namespaced like the other host-synthesized frames
+ * (`minsky_exit` / `minsky_error` / `minsky_unrecoverable`) so it can never
+ * collide with an upstream stream-json type.
+ *
+ * The frontend reducer matches this literal in
+ * `web/lib/driven-session-accumulator.ts` rather than importing it: that module
+ * is deliberately dependency-free so it bundles into the browser, and this one
+ * pulls in node child-process machinery. Same hand-kept-in-sync arrangement the
+ * existing `minsky_*` frame types already use.
+ */
+export const DRIVEN_OPERATOR_INPUT_EVENT_TYPE = "minsky_operator_input";
+
 export interface DrivenSessionRecord {
   /**
    * Design decision: the spec's SC5 says the registry is "keyed by the init
@@ -990,7 +1004,8 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
   wireChildProcess(proc, record, registry, command, opts);
 
   if (!opts.skipInterruptionNotice) {
-    sendDrivenSessionInput(record, INTERRUPTION_NOTICE_TEXT);
+    // Host-authored, not operator-authored — no operator-input echo (mt#3372).
+    sendDrivenSessionInput(record, INTERRUPTION_NOTICE_TEXT, { echo: false });
   }
 
   return { record };
@@ -1080,8 +1095,38 @@ export function buildReconnectingDrivenSessionRecord(
  * user-message object"); this mirrors the Messages API content-block shape.
  * If the live-verification pass (main-agent, real `claude`) finds the real
  * binary expects a different shape, adjust ONLY this function.
+ *
+ * On a successful write the text is ALSO appended to the record's event log as
+ * a synthetic {@link DRIVEN_OPERATOR_INPUT_EVENT_TYPE} frame (mt#3372). The
+ * child never echoes stdin back: the Agent SDK's documented streaming-OUTPUT
+ * taxonomy is system / assistant / result / stream_event, and a direct probe of
+ * the installed binary (2026-07-30) confirmed no frame carries the message that
+ * was sent in. Without this append the operator's own turns are invisible in
+ * the driven conversation view — the ONLY `user`-typed frames on the channel
+ * are harness-origin ones (tool results, injected skill bodies), so the view
+ * showed everything except what the operator actually wrote.
+ *
+ * The frame is deliberately its OWN type rather than a forged stream-json
+ * `user` payload, so operator-authored content stays structurally
+ * distinguishable from harness-origin `user` frames (mt#3374 keys on that
+ * distinction rather than re-deriving it from the text).
+ *
+ * Appending here also makes {@link isDrivenSessionMidTurn} report true for the
+ * window between the operator pressing send and the child's first response
+ * frame — correct, not incidental: a turn IS in flight, so the cockpit-tray
+ * restart gate should defer exactly as it does mid-stream.
+ *
+ * `echo: false` suppresses the append for text this function delivers on the
+ * SYSTEM's behalf rather than the operator's — currently the resume-time
+ * interruption notice. Echoing that would attribute a host-authored message to
+ * the operator, which is the same false-attribution class mt#3372 exists to
+ * fix, just pointed the other way.
  */
-export function sendDrivenSessionInput(record: DrivenSessionRecord, text: string): boolean {
+export function sendDrivenSessionInput(
+  record: DrivenSessionRecord,
+  text: string,
+  opts: { echo?: boolean } = {}
+): boolean {
   if (isTerminalStatus(record.status)) return false;
   const line = JSON.stringify({
     type: "user",
@@ -1092,12 +1137,19 @@ export function sendDrivenSessionInput(record: DrivenSessionRecord, text: string
   });
   try {
     record.proc.stdin.write(`${line}\n`);
-    return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error(`[driven-session] failed to write input for ${record.localId}: ${message}`);
     return false;
   }
+  if (opts.echo !== false) {
+    appendEvent(record, {
+      type: DRIVEN_OPERATOR_INPUT_EVENT_TYPE,
+      text,
+      timestamp: new Date().toISOString(),
+    });
+  }
+  return true;
 }
 
 /**
