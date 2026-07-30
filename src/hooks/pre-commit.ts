@@ -568,11 +568,20 @@ export class PreCommitHook {
       try {
         const result = await execAsync(lintJsonCommand, {
           cwd: this.projectRoot,
-          // Full-repo eslint wall time has grown to ~29s (measured 2026-06-13,
-          // mt#1859 session) — the former 30s timeout fired on any loaded run,
-          // blocking every commit with a bare "Command failed". 120s gives
-          // repo-growth headroom; a hung eslint still gets killed.
-          timeout: 120000,
+          // Full-repo eslint wall time keeps outgrowing this bound. It was
+          // ~29s in mt#1859 (2026-06-13), which is why 30s became 120s. As of
+          // mt#3354 (2026-07-30) a run inside a session workspace was still
+          // going at 636s when the measuring harness killed it, so 120s now
+          // fails every commit with a bare "Command failed" — the same symptom
+          // 120s was meant to cure, one repo-growth cycle later. 600s restores
+          // headroom; a genuinely hung eslint still gets killed.
+          //
+          // The wall time itself is the real problem and is NOT fixed here:
+          // 2981 files, type-aware, no --cache, re-linted from scratch on every
+          // commit. Worth its own task (caching, or scoping to staged files
+          // with the full sweep left to the pre-push and CI gates, both of
+          // which already run it).
+          timeout: 600_000,
           // The --format json payload is ~850KB and grows with file count;
           // the 1MB exec default truncate-kills the process at the boundary.
           maxBuffer: 64 * 1024 * 1024,
@@ -1877,12 +1886,24 @@ export class PreCommitHook {
     try {
       await execAsync("bunx lint-staged", {
         cwd: this.projectRoot,
-        timeout: 30000,
+        // Grounded in a measurement, not a round number (`decision-defaults.mdc
+        // §Thresholds`): a 4-file stage set measured 42.7s cold, already past
+        // the former 30s bound, which killed the step and failed three
+        // consecutive commits while prettier and ESLint were independently
+        // verified clean. lint-staged pays a `bunx` resolve plus a git
+        // stash/restore cycle before touching a file, so that floor is mostly
+        // fixed cost; 240s leaves ~5x headroom instead of sitting just above it.
+        // (Inlined rather than named: this file is at its 1500-code-line cap,
+        // so a `const` would not fit. Comments are free.)
+        timeout: 240_000,
       });
       log.cli("✅ Code formatting completed.");
       return { success: true, message: "Code formatting passed", exitCode: 0 };
     } catch (error) {
-      log.cli("❌ Code formatting failed! Please check for syntax errors.");
+      // Report what happened rather than naming a cause this catch cannot
+      // know: "check for syntax errors" sent readers hunting through files
+      // prettier called clean, when the real failure was this step's timeout.
+      log.cli(`❌ Code formatting failed: ${(error as Error)?.message ?? error}`);
       return { success: false, message: "Code formatting failed", exitCode: 1 };
     }
   }
