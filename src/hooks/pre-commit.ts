@@ -578,9 +578,10 @@ export class PreCommitHook {
           //
           // The wall time itself is the real problem and is NOT fixed here:
           // 2981 files, type-aware, no --cache, re-linted from scratch on every
-          // commit. Worth its own task (caching, or scoping to staged files
+          // commit. Tracked as mt#3412 (caching, or scoping to staged files
           // with the full sweep left to the pre-push and CI gates, both of
-          // which already run it).
+          // which already run it). Raising this number a third time is not a
+          // fix — the trend only goes one way.
           timeout: 600_000,
           // The --format json payload is ~850KB and grows with file count;
           // the 1MB exec default truncate-kills the process at the boundary.
