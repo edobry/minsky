@@ -1,8 +1,8 @@
 /**
  * Anthropic Model Fetcher
  *
- * Provides static model definitions for Anthropic models since they don't have a public models API.
- * Validates API connectivity and returns predefined model specifications.
+ * Fetches Claude model definitions from Anthropic's `GET /v1/models` endpoint
+ * and enriches them with static capability/cost metadata.
  */
 
 import { ModelFetcher, CachedProviderModel, ModelFetchConfig, ModelFetchError } from "../types";
@@ -16,7 +16,6 @@ export class AnthropicModelFetcher implements ModelFetcher {
   readonly provider = "anthropic";
 
   private readonly defaultBaseURL = "https://api.anthropic.com/v1";
-  private readonly testEndpoint = "/messages";
 
   /**
    * Fetch models from Anthropic's /v1/models API endpoint
@@ -95,12 +94,24 @@ export class AnthropicModelFetcher implements ModelFetcher {
   }
 
   /**
-   * Validate API connectivity by attempting a minimal request
+   * Validate API connectivity by listing models.
+   *
+   * Probes the SAME endpoint `fetchModels` is about to call (`GET /v1/models`,
+   * GA — no beta header). This is deliberate: the previous implementation POSTed
+   * a real completion to `/v1/messages` with a hardcoded `claude-3-haiku-20240307`
+   * and accepted only HTTP 200 or 400. That model was retired, so the probe got a
+   * 404 (`not_found_error`), returned false, and the caller surfaced the generic
+   * "Failed to connect to provider: anthropic" — while the API was fully reachable
+   * and completions kept working. The whole model registry sat empty and stale
+   * from 2026-07-10 on account of a dead string constant (mt#3337).
+   *
+   * Probing the listing endpoint has no model-id coupling, so it cannot rot the
+   * same way when a model is retired, and it costs no tokens.
    */
   async validateConnection(config: ModelFetchConfig): Promise<boolean> {
     try {
       const baseURL = config.baseURL || this.defaultBaseURL;
-      const url = `${baseURL}${this.testEndpoint}`;
+      const url = `${baseURL}/models`;
 
       const controller = new AbortController();
       const timeoutId = setTimeout(
@@ -109,32 +120,22 @@ export class AnthropicModelFetcher implements ModelFetcher {
       );
 
       try {
-        // Make a minimal request to test connectivity
         const response = await fetch(url, {
-          method: "POST",
+          method: "GET",
           headers: {
             "x-api-key": config.apiKey,
-            "Content-Type": "application/json",
             "anthropic-version": "2023-06-01",
           },
-          body: JSON.stringify({
-            model: "claude-3-haiku-20240307",
-            max_tokens: 1,
-            messages: [
-              {
-                role: "user",
-                content: "test",
-              },
-            ],
-          }),
           signal: controller.signal,
         });
 
-        clearTimeout(timeoutId);
-
-        // We expect this to return 200 (success) or sometimes 400 (bad request due to minimal content)
-        // Both indicate the API is accessible and the key is valid
-        return response.status === 200 || response.status === 400;
+        if (!response.ok) {
+          log.debug("Anthropic connection validation got a non-OK response", {
+            status: response.status,
+            statusText: response.statusText,
+          });
+        }
+        return response.ok;
       } finally {
         clearTimeout(timeoutId);
       }
@@ -310,7 +311,11 @@ export class AnthropicModelFetcher implements ModelFetcher {
   }
 
   /**
-   * Test if a specific model is currently available by making a minimal API call
+   * Test if a specific model is currently available by making a minimal API call.
+   *
+   * Unlike `validateConnection`, this legitimately POSTs to `/messages`: it is
+   * probing ONE named model's availability, and the id comes from the caller
+   * rather than a hardcoded constant, so it cannot rot when a model is retired.
    */
   private async testModelAvailability(
     model: CachedProviderModel,
@@ -318,7 +323,7 @@ export class AnthropicModelFetcher implements ModelFetcher {
   ): Promise<boolean> {
     try {
       const baseURL = config.baseURL || this.defaultBaseURL;
-      const url = `${baseURL}${this.testEndpoint}`;
+      const url = `${baseURL}/messages`;
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
