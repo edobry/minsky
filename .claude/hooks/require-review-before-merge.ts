@@ -16,9 +16,11 @@ import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 import {
   makeRecordAndExit,
+  type MergeGateFireLogContext,
   type MergeGateOverrideFields,
   type RecordAndExit,
 } from "./merge-gate-fire-log";
+import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
 import { classifyOverride } from "./fire-log";
 import {
   deriveRepoFromGit,
@@ -1101,11 +1103,33 @@ async function main(): Promise<void> {
   // is active in the same invocation the last one tracked wins (a rare
   // multi-override case — still records a real, non-misleading override
   // signal, just not a full enumeration of every escape hatch consulted).
-  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
+  const fireLogContext: MergeGateFireLogContext = {};
+  const recordAndExit: RecordAndExit = makeRecordAndExit(
+    GUARD_NAME,
+    startMs,
+    input,
+    undefined,
+    fireLogContext
+  );
   let overrideFields: MergeGateOverrideFields | undefined;
 
-  const task = (input.tool_input.task as string | undefined) ?? "";
-  if (!task) return recordAndExit("allow");
+  // mt#3355: `session_pr_merge` takes EITHER `task` or `sessionId`, both optional. Reading
+  // `tool_input.task` alone and exiting `allow` when empty meant a `sessionId`-invoked
+  // merge bypassed THIS gate — the one requiring a `minsky-reviewer[bot]` approval before
+  // any PR can land — with no warning at all. Resolve through the shared resolver, record
+  // which source produced the id, and WARN rather than allow when neither does.
+  const resolution = resolveMergeGateTaskId(input);
+  fireLogContext.taskResolutionSource = resolution.source;
+  const task = resolution.taskId;
+  if (!task) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
+      },
+    });
+    return recordAndExit("warn");
+  }
 
   // mt#2617 absorbed scope (mt#2653 item 5): derive owner/repo from the git
   // remote instead of hardcoding "edobry/minsky" (was hardcoded in 6 places
@@ -1125,7 +1149,7 @@ async function main(): Promise<void> {
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         additionalContext:
-          "⚠️ [require-review] Could not derive owner/repo from git remote — review-gate check skipped.",
+          "⚠️ [require-review-before-merge] Could not derive owner/repo from git remote — review-gate check skipped.",
       },
     });
     return recordAndExit("warn");

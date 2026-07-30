@@ -41,6 +41,8 @@ import { dirname, resolve } from "node:path";
 import { execWithPath, findRepoRoot, readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
+import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
+import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
 import { classifyOverride } from "./fire-log";
 import {
   deriveRepoFromGit as deriveRepoFromGitImpl,
@@ -978,10 +980,32 @@ if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
   // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
   // once per invocation regardless of which exit fires below.
-  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
+  const fireLogContext: MergeGateFireLogContext = {};
+  const recordAndExit: RecordAndExit = makeRecordAndExit(
+    GUARD_NAME,
+    startMs,
+    input,
+    undefined,
+    fireLogContext
+  );
 
-  const task = (input.tool_input.task as string | undefined) ?? "";
-  if (!task) recordAndExit("allow");
+  // mt#3355: `session_pr_merge` takes EITHER `task` or `sessionId`, both optional. This
+  // used to read `tool_input.task` alone and exit `allow` when it was empty, so every
+  // `sessionId`-invoked merge silently skipped the whole gate (11.6% of recorded
+  // invocations). Resolve through the shared resolver, record which source produced the
+  // id, and WARN rather than allow when neither does.
+  const resolution = resolveMergeGateTaskId(input);
+  fireLogContext.taskResolutionSource = resolution.source;
+  const task = resolution.taskId;
+  if (!task) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
+      },
+    });
+    recordAndExit("warn");
+  }
 
   // Derive owner/repo from the git remote so the hook works on forks and
   // non-edobry/minsky remotes. Fail-open with a warning if derivation fails.

@@ -1,0 +1,112 @@
+{
+  "_provenance": {
+    "task": "mt#3355",
+    "capturedAt": "2026-07-30",
+    "how": "File lists (filename + status) and titles were read from the live GitHub API on 2026-07-30 via mcp__github__pull_request_read (methods `get_files` and `get`) against edobry/minsky, and are recorded here VERBATIM. These are the three merges mt#3355's Success Criterion 5 names — all merged 2026-07-26, all inside the 36 silently-unevaluated set.",
+    "why": "Success Criterion 5 asks what the fixed execution-evidence gate WOULD have decided for these three PRs. Replaying real inputs through the pure `checkExecutionEvidence` core answers that without a network call at test time.",
+    "_bodyScope": "The `body` field below is NOT the PR's full text. What the gate reads a body for is exactly one question — does `hasExecutionEvidence` find an `Execution evidence:` marker — and that question was answered against the REAL bodies when this fixture was captured; the answer is recorded per PR as `realBodyHasEvidenceMarker`. The stand-in strings here reproduce that property and nothing else, and the test asserts each verdict under BOTH a marker-free and a marker-bearing body so the file-list trigger's contribution is isolated rather than assumed. This is a deliberate, narrower claim than the captured file lists carry — see the test's own comment. Do NOT read the stand-in as a transcription of the real body.",
+    "recapture": "mcp__github__pull_request_read(method: 'get_files' | 'get', owner: 'edobry', repo: 'minsky', pullNumber: N). If a status changes from `modified` to `added` (or vice versa) that is a real change in what the gate would decide — update `expectedBlocked` with it, not just the file list."
+  },
+  "prs": [
+    {
+      "number": 2324,
+      "task": "mt#3228",
+      "title": "feat(mt#3228): Bidirectional Telegram principal channel — talk to the swarm from a phone",
+      "realBodyHasEvidenceMarker": false,
+      "realBodyNote": "Carries a `## Verification` section, not the literal `Execution evidence:` marker the mt#1459 gate matches.",
+      "expectedBlocked": true,
+      "expectedReason": "7 newly ADDED *.test.ts files plus 2 newly ADDED scripts/*.ts operational scripts, no evidence marker, no [unverified-tests] title prefix.",
+      "files": [
+        { "filename": "docs/principal-channel.md", "status": "added" },
+        { "filename": "packages/domain/src/notify/principal-channel.test.ts", "status": "added" },
+        { "filename": "packages/domain/src/notify/principal-channel.ts", "status": "added" },
+        { "filename": "packages/domain/src/notify/principal-inbound.test.ts", "status": "added" },
+        { "filename": "packages/domain/src/notify/principal-inbound.ts", "status": "added" },
+        { "filename": "packages/domain/src/notify/telegram-transport.test.ts", "status": "added" },
+        { "filename": "packages/domain/src/notify/telegram-transport.ts", "status": "added" },
+        {
+          "filename": "packages/domain/src/storage/migrations/pg/0072_lively_donald_blake.sql",
+          "status": "added"
+        },
+        {
+          "filename": "packages/domain/src/storage/migrations/pg/0073_complete_black_knight.sql",
+          "status": "added"
+        },
+        {
+          "filename": "packages/domain/src/storage/migrations/pg/0074_funny_sprite.sql",
+          "status": "added"
+        },
+        {
+          "filename": "packages/domain/src/storage/migrations/pg/meta/0072_snapshot.json",
+          "status": "added"
+        },
+        {
+          "filename": "packages/domain/src/storage/migrations/pg/meta/0073_snapshot.json",
+          "status": "added"
+        },
+        {
+          "filename": "packages/domain/src/storage/migrations/pg/meta/0074_snapshot.json",
+          "status": "added"
+        },
+        { "filename": "scripts/principal-channel/peek-inbound.ts", "status": "added" },
+        { "filename": "scripts/principal-channel/verify-send.ts", "status": "added" },
+        { "filename": "src/adapters/shared/commands/principal.ts", "status": "added" },
+        { "filename": "src/cockpit/principal-channel-actuator.test.ts", "status": "added" },
+        { "filename": "src/cockpit/principal-channel-actuator.ts", "status": "added" },
+        { "filename": "src/cockpit/principal-channel-launch.test.ts", "status": "added" },
+        { "filename": "src/cockpit/principal-channel-launch.ts", "status": "added" },
+        { "filename": "src/cockpit/principal-channel-poller.test.ts", "status": "added" },
+        { "filename": "src/cockpit/principal-channel-poller.ts", "status": "added" },
+        {
+          "filename": "packages/domain/src/configuration/sources/environment.ts",
+          "status": "modified"
+        },
+        { "filename": "packages/domain/src/events/category.test.ts", "status": "modified" },
+        { "filename": "packages/domain/src/schemas/command-registry.ts", "status": "modified" },
+        {
+          "filename": "packages/domain/src/storage/migrations/pg/meta/_journal.json",
+          "status": "modified"
+        },
+        {
+          "filename": "packages/domain/src/storage/schemas/system-events-schema.ts",
+          "status": "modified"
+        },
+        { "filename": "scripts/reviewer-alerts/lib.ts", "status": "modified" },
+        { "filename": "services/reviewer/src/alert-sink.test.ts", "status": "modified" },
+        { "filename": "services/reviewer/src/alert-sink.ts", "status": "modified" },
+        { "filename": "src/adapters/shared/command-registry.ts", "status": "modified" },
+        { "filename": "src/adapters/shared/commands/index.ts", "status": "modified" },
+        { "filename": "src/commands/cockpit/start-command.ts", "status": "modified" },
+        { "filename": "src/generated/completion-manifest.json", "status": "modified" }
+      ]
+    },
+    {
+      "number": 2329,
+      "task": "mt#3234",
+      "title": "fix(mt#3234): Wait for the channel conversation to report ready before writing input",
+      "realBodyHasEvidenceMarker": false,
+      "realBodyNote": "Verdict is body-INDEPENDENT for this PR — with zero added files the trigger set never fires, so the body is never consulted. The test proves that rather than assuming it.",
+      "expectedBlocked": false,
+      "expectedReason": "Every file is `modified`; findNewTestFiles and findNewOperationalScripts both filter on status === 'added', so neither trigger fires. That a bugfix modifying an EXISTING test file falls outside the trigger set is a real gap — it belongs to mt#3244, not to mt#3355.",
+      "files": [
+        { "filename": "src/cockpit/principal-channel-actuator.test.ts", "status": "modified" },
+        { "filename": "src/cockpit/principal-channel-actuator.ts", "status": "modified" },
+        { "filename": "src/cockpit/principal-channel-poller.ts", "status": "modified" }
+      ]
+    },
+    {
+      "number": 2330,
+      "task": "mt#3238",
+      "title": "fix(mt#3238): Write input before waiting for ready — mt#3234's gate was a deadlock",
+      "realBodyHasEvidenceMarker": false,
+      "realBodyNote": "Carries `## Verification` and a `### Live round-trip (Acceptance Test 3) — captured output` section with real pasted output, but not the literal `Execution evidence:` marker the gate matches. A human reads that as evidence; the gate reads nothing.",
+      "expectedBlocked": true,
+      "expectedReason": "1 newly ADDED scripts/*.ts operational script (scripts/principal-channel/verify-conversation.ts), no evidence marker, no [unverified-tests] title prefix.",
+      "files": [
+        { "filename": "scripts/principal-channel/verify-conversation.ts", "status": "added" },
+        { "filename": "src/cockpit/principal-channel-actuator.test.ts", "status": "modified" },
+        { "filename": "src/cockpit/principal-channel-actuator.ts", "status": "modified" }
+      ]
+    }
+  ]
+}
