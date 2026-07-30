@@ -14,6 +14,18 @@
  * summing `jsonb_array_length(tool_calls)` over turns with no existing
  * projection row for that (session, turn).
  *
+ * Robustness (mt#3360): the pending-count query guards `jsonb_array_length`
+ * with a `jsonb_typeof(tool_calls) = 'array'` filter — some Apr-2026-ingested
+ * rows store `tool_calls` as a jsonb STRING (double-encoded JSON), and
+ * `jsonb_array_length` THROWS on a scalar, killing the whole query with no
+ * useful error message (verified live 2026-07-30: the failure surfaced as
+ * `Failed query: ...\nparams: ` with an EMPTY message — the real Postgres
+ * error, "cannot get array length of a scalar", was sitting unprinted in
+ * `err.cause`; see the top-level `.catch()` fix below). A separate,
+ * `skippedNonArray` count reports how many non-null, non-array rows exist so
+ * the operator can see the repair (`scripts/repair-double-encoded-tool-calls.ts`)
+ * is the fix, not a script bug.
+ *
  * Batched/bounded/resumable (mirrors `scripts/backfill-agent-transcript-turns.ts`
  * / mt#2457's precedent): drives `projectToolCallsForAllTranscripts`'s
  * keyset-paginated session-id batching instead of an unbounded full-corpus
@@ -140,9 +152,21 @@ async function bootstrapDb(): Promise<PostgresJsDatabase> {
  * actual), not the full per-turn block count, so it matches the number of
  * rows `--execute` will actually need to write/repair.
  */
-async function countPendingProjectionRows(
+export interface PendingProjectionCounts {
+  pendingTurns: number;
+  pendingRows: number;
+  /**
+   * Turns with a non-null `tool_calls` that is NOT a jsonb array (mt#3360) —
+   * excluded from `pendingTurns`/`pendingRows` (they can't be measured via
+   * `jsonb_array_length`, which throws on a scalar) and reported separately
+   * so the count isn't silently short.
+   */
+  skippedNonArray: number;
+}
+
+export async function countPendingProjectionRows(
   db: PostgresJsDatabase
-): Promise<{ pendingRows: number; pendingTurns: number }> {
+): Promise<PendingProjectionCounts> {
   const rows = (await db.execute(sql`
     SELECT
       count(*)::int AS pending_turns,
@@ -154,11 +178,21 @@ async function countPendingProjectionRows(
       GROUP BY agent_session_id, turn_index
     ) p ON p.agent_session_id = t.agent_session_id AND p.turn_index = t.turn_index
     WHERE t.tool_calls IS NOT NULL
+      AND jsonb_typeof(t.tool_calls) = 'array'
       AND jsonb_array_length(t.tool_calls) > COALESCE(p.projected_count, 0)
   `)) as Array<Record<string, unknown>>;
   const pendingTurns = Number(rows?.[0]?.pending_turns ?? 0);
   const pendingRows = Number(rows?.[0]?.pending_rows ?? 0);
-  return { pendingTurns, pendingRows };
+
+  const skippedRows = (await db.execute(sql`
+    SELECT count(*)::int AS skipped_non_array
+    FROM agent_transcript_turns
+    WHERE tool_calls IS NOT NULL
+      AND jsonb_typeof(tool_calls) <> 'array'
+  `)) as Array<Record<string, unknown>>;
+  const skippedNonArray = Number(skippedRows?.[0]?.skipped_non_array ?? 0);
+
+  return { pendingTurns, pendingRows, skippedNonArray };
 }
 
 interface ReconciliationResult {
@@ -300,6 +334,7 @@ async function main(): Promise<void> {
   );
   console.log(`  pending turns (no projection yet):  ${before.pendingTurns}`);
   console.log(`  pending projection rows to write:   ${before.pendingRows}`);
+  console.log(`  skipped (non-array tool_calls):     ${before.skippedNonArray}`);
 
   if (!execute) {
     console.log("  (dry-run only — re-run with --execute to apply the batched backfill)");
@@ -308,6 +343,7 @@ async function main(): Promise<void> {
         mode: "dry-run",
         pendingTurns: before.pendingTurns,
         pendingRows: before.pendingRows,
+        skippedNonArray: before.skippedNonArray,
       })
     );
     process.exit(0);
@@ -331,7 +367,7 @@ async function main(): Promise<void> {
         `    batch ${batchCount}: sessionsScanned=${partial.sessionsScanned} ` +
           `sessionsProcessed=${partial.sessionsProcessed} sessionsErrored=${partial.sessionsErrored} ` +
           `turnsScanned=${partial.turnsScanned} toolCallsProjected=${partial.toolCallsProjected} ` +
-          `lastId=${lastId}`
+          `skippedNonArray=${partial.skippedNonArray} lastId=${lastId}`
       );
     },
   });
@@ -340,6 +376,7 @@ async function main(): Promise<void> {
 
   const after = await countPendingProjectionRows(db);
   console.log(`  pending projection rows (after):    ${after.pendingRows}`);
+  console.log(`  skipped (non-array tool_calls, after): ${after.skippedNonArray}`);
 
   let reconciliation: ReconciliationResult | undefined;
   if (verifySample > 0) {
@@ -359,6 +396,8 @@ async function main(): Promise<void> {
       mode: "execute",
       pendingRowsBefore: before.pendingRows,
       pendingRowsAfter: after.pendingRows,
+      skippedNonArrayBefore: before.skippedNonArray,
+      skippedNonArrayAfter: after.skippedNonArray,
       ...result,
       reconciliation,
     })
@@ -368,9 +407,29 @@ async function main(): Promise<void> {
   process.exit(failed ? 1 : 0);
 }
 
-main().catch((err) => {
-  console.error(
-    `backfill-agent-tool-call-projection failed: ${err instanceof Error ? err.message : String(err)}`
-  );
-  process.exit(1);
-});
+// mt#3360: guard the entry point (mirrors backfill-ask-short-ids.ts /
+// backfill-session-short-ids.ts's precedent) — without this, IMPORTING this
+// module's testable exports (e.g. countPendingProjectionRows, from this
+// script's own test file) would also kick off main()'s real DB bootstrap +
+// process.exit() as a side effect of the import.
+if (import.meta.main) {
+  main().catch((err) => {
+    // mt#3360: drizzle-orm's postgres-js driver wraps a failed query in a
+    // `DrizzleQueryError` whose OWN `.message` is just "Failed query: <sql>\n
+    // params: <params>" — the underlying Postgres error (e.g. "cannot get
+    // array length of a scalar") lives on `.cause`, and printing only
+    // `err.message` (as this catch previously did) surfaced the query text
+    // with an effectively empty error, costing real diagnosis time. Print
+    // both.
+    const message = err instanceof Error ? err.message : String(err);
+    const cause = (err as { cause?: unknown } | undefined)?.cause;
+    const causeMessage =
+      cause instanceof Error ? cause.message : cause !== undefined ? String(cause) : undefined;
+    console.error(
+      `backfill-agent-tool-call-projection failed: ${message}${
+        causeMessage ? `\n  caused by: ${causeMessage}` : ""
+      }`
+    );
+    process.exit(1);
+  });
+}

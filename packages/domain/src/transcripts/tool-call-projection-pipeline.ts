@@ -60,12 +60,22 @@ export interface ToolCallProjectionRunResult {
   toolCallsProjected: number;
   /** Turns whose projection failed (query or insert error) — logged, not thrown. */
   turnsErrored: number;
+  /**
+   * Turns skipped because `tool_calls` was non-null but NOT a jsonb array —
+   * the double-encoded-string shape (mt#3360). Counted separately from
+   * `turnsErrored` because this is a KNOWN, non-throwing shape mismatch
+   * (equivalent to a `jsonb_typeof(tool_calls) <> 'array'` filter, applied
+   * here in TS rather than SQL since the value is already in memory), not a
+   * query/insert failure.
+   */
+  skippedNonArray: number;
 }
 
 const emptyRunResult = (): ToolCallProjectionRunResult => ({
   turnsScanned: 0,
   toolCallsProjected: 0,
   turnsErrored: 0,
+  skippedNonArray: 0,
 });
 
 // ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -81,6 +91,16 @@ export class ToolCallProjectionPipeline {
   async runForSession(agentSessionId: string): Promise<ToolCallProjectionRunResult> {
     const result = emptyRunResult();
 
+    // mt#3360: filter on jsonb_typeof(tool_calls) = 'array' at the SQL level
+    // (mirrors the same guard in scripts/backfill-agent-tool-call-projection.ts's
+    // countPendingProjectionRows) rather than relying solely on an in-memory
+    // Array.isArray check downstream — a handful of Apr-2026-ingested rows
+    // store `tool_calls` as a jsonb STRING (double-encoded JSON of an
+    // otherwise-valid array), a pre-mt#2381 write-path artifact (see
+    // turn-writer.ts's comment). This query never called jsonb_array_length
+    // so it never THREW on those rows, but it also never distinguished them
+    // from a genuinely-empty turn; the separate skipped-count query below
+    // makes that visible.
     let rows: TurnRow[];
     try {
       rows = await this.db
@@ -94,7 +114,8 @@ export class ToolCallProjectionPipeline {
         .where(
           and(
             eq(agentTranscriptTurnsTable.agentSessionId, agentSessionId),
-            sql`${agentTranscriptTurnsTable.toolCalls} IS NOT NULL`
+            sql`${agentTranscriptTurnsTable.toolCalls} IS NOT NULL`,
+            sql`jsonb_typeof(${agentTranscriptTurnsTable.toolCalls}) = 'array'`
           )
         );
     } catch (err) {
@@ -117,6 +138,7 @@ export class ToolCallProjectionPipeline {
     }
 
     result.turnsScanned = rows.length;
+    result.skippedNonArray = await this.countSkippedNonArray(agentSessionId);
 
     for (const row of rows) {
       try {
@@ -138,6 +160,37 @@ export class ToolCallProjectionPipeline {
     }
 
     return result;
+  }
+
+  /**
+   * Count turns for this session with a non-null `tool_calls` that is NOT a
+   * jsonb array (mt#3360) — the double-encoded-string shape. A SEPARATE
+   * query rather than counting in-loop, because `runForSession`'s main
+   * SELECT above now filters `jsonb_typeof(tool_calls) = 'array'` and so
+   * never fetches these rows in the first place; this is the only way to
+   * still report how many exist. Fails open (returns 0, logs) rather than
+   * letting a diagnostic-only count crash the projection sweep.
+   */
+  private async countSkippedNonArray(agentSessionId: string): Promise<number> {
+    try {
+      const rows = await this.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(agentTranscriptTurnsTable)
+        .where(
+          and(
+            eq(agentTranscriptTurnsTable.agentSessionId, agentSessionId),
+            sql`${agentTranscriptTurnsTable.toolCalls} IS NOT NULL`,
+            sql`jsonb_typeof(${agentTranscriptTurnsTable.toolCalls}) <> 'array'`
+          )
+        );
+      return Number((rows as Array<{ n: number }>)?.[0]?.n ?? 0);
+    } catch (err) {
+      log.warn(
+        `ToolCallProjectionPipeline: failed to count skipped-non-array turns for session ${agentSessionId}`,
+        { error: getLoggableErrorSummary(err) }
+      );
+      return 0;
+    }
   }
 
   /**
@@ -204,6 +257,8 @@ export interface ProjectAllToolCallsResult {
   sessionsErrored: number;
   turnsScanned: number;
   toolCallsProjected: number;
+  /** Aggregate of every session's `ToolCallProjectionRunResult.skippedNonArray` (mt#3360). */
+  skippedNonArray: number;
 }
 
 /** Default page size — mirrors turn-writer.ts's DEFAULT_EXTRACT_ALL_BATCH_SIZE. */
@@ -274,6 +329,7 @@ export async function projectToolCallsForAllTranscripts(
     sessionsErrored: 0,
     turnsScanned: 0,
     toolCallsProjected: 0,
+    skippedNonArray: 0,
   };
 
   let cursor: string | null = options.afterId ?? null;
@@ -301,6 +357,7 @@ export async function projectToolCallsForAllTranscripts(
         const sessionResult = await pipeline.runForSession(row.agentSessionId);
         result.turnsScanned += sessionResult.turnsScanned;
         result.toolCallsProjected += sessionResult.toolCallsProjected;
+        result.skippedNonArray += sessionResult.skippedNonArray;
         if (sessionResult.turnsErrored > 0) {
           result.sessionsErrored++;
         } else {
