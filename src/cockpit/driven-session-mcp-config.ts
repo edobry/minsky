@@ -144,3 +144,42 @@ export function mcpConfigArgs(mcpConfig: string | null | undefined): string[] {
   if (!mcpConfig) return [];
   return ["--mcp-config", mcpConfig, "--strict-mcp-config"];
 }
+
+/**
+ * Render spawn argv for a log line with the `--mcp-config` payload collapsed.
+ *
+ * The config is an inline JSON blob carrying absolute local paths, and the
+ * spawn log fires on every start AND every resume — logging it verbatim bloats
+ * the daemon log and writes machine-local paths into it for no diagnostic gain.
+ *
+ * What a reader actually needs from that log line is which servers the child
+ * was given, so the value collapses to `<config: minsky>` rather than being
+ * dropped: flag presence stays visible (the thing you check when a driven
+ * session has no tools), and the server set stays greppable. Falls back to
+ * `<config: unparseable>` rather than echoing a malformed payload.
+ */
+export function redactMcpConfigForLog(argv: readonly string[]): string {
+  const rendered: string[] = [];
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i] as string;
+    rendered.push(arg);
+
+    if (arg === "--mcp-config" && i + 1 < argv.length) {
+      rendered.push(summarizeConfigForLog(argv[i + 1] as string));
+      i++; // the payload is consumed by the summary above
+    }
+  }
+
+  return rendered.join(" ");
+}
+
+function summarizeConfigForLog(config: string): string {
+  try {
+    const parsed = JSON.parse(config) as { mcpServers?: Record<string, unknown> };
+    const names = Object.keys(parsed.mcpServers ?? {});
+    return names.length > 0 ? `<config: ${names.join(",")}>` : "<config: none>";
+  } catch {
+    return "<config: unparseable>";
+  }
+}

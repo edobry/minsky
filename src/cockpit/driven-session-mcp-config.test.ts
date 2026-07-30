@@ -11,6 +11,7 @@ import {
   DRIVEN_SESSION_MCP_SERVER_NAME,
   buildDrivenSessionMcpConfig,
   mcpConfigArgs,
+  redactMcpConfigForLog,
   resolveMinskyInvocation,
 } from "./driven-session-mcp-config";
 
@@ -18,6 +19,7 @@ const WORKSPACE = "/Users/example/.local/state/minsky/sessions/abc-123";
 const MINSKY_BIN = "/Users/example/.bun/bin/minsky";
 const BUN_BIN = "/opt/homebrew/bin/bun";
 const CLI_ENTRY = "/repo/src/cli.ts";
+const EMPTY_SERVER_CONFIG = '{"mcpServers":{}}';
 
 describe("resolveMinskyInvocation", () => {
   test("uses the running executable when it IS the minsky binary", () => {
@@ -104,9 +106,9 @@ describe("buildDrivenSessionMcpConfig", () => {
 
 describe("mcpConfigArgs", () => {
   test("pairs the config with --strict-mcp-config", () => {
-    expect(mcpConfigArgs('{"mcpServers":{}}')).toEqual([
+    expect(mcpConfigArgs(EMPTY_SERVER_CONFIG)).toEqual([
       "--mcp-config",
-      '{"mcpServers":{}}',
+      EMPTY_SERVER_CONFIG,
       "--strict-mcp-config",
     ]);
   });
@@ -119,5 +121,51 @@ describe("mcpConfigArgs", () => {
   test("emits nothing for an empty string rather than a dangling flag", () => {
     // A bare `--mcp-config` with no value would make the child fail to start.
     expect(mcpConfigArgs("")).toEqual([]);
+  });
+});
+
+describe("redactMcpConfigForLog", () => {
+  const config = buildDrivenSessionMcpConfig(WORKSPACE, {
+    command: MINSKY_BIN,
+    prefixArgs: [],
+  });
+
+  test("collapses the payload to its server names", () => {
+    const line = redactMcpConfigForLog(["-p", ...mcpConfigArgs(config)]);
+
+    // The spawn log fires on every start and resume; the raw JSON carries
+    // absolute local paths and no diagnostic value.
+    expect(line).not.toContain(WORKSPACE);
+    expect(line).not.toContain("mcpServers");
+    expect(line).toContain("<config: minsky>");
+  });
+
+  test("keeps flag presence and the surrounding argv intact", () => {
+    // Flag presence is exactly what a reader checks when a driven session has
+    // no tools, so redaction must not remove it.
+    const line = redactMcpConfigForLog(["-p", ...mcpConfigArgs(config), "--verbose"]);
+
+    expect(line).toBe("-p --mcp-config <config: minsky> --strict-mcp-config --verbose");
+  });
+
+  test("leaves argv without the flag untouched", () => {
+    expect(redactMcpConfigForLog(["-p", "--verbose"])).toBe("-p --verbose");
+  });
+
+  test("does not echo a malformed payload", () => {
+    const line = redactMcpConfigForLog(["--mcp-config", "{not json", "--strict-mcp-config"]);
+
+    expect(line).not.toContain("{not json");
+    expect(line).toContain("<config: unparseable>");
+  });
+
+  test("reports an empty server map distinctly", () => {
+    expect(redactMcpConfigForLog(["--mcp-config", EMPTY_SERVER_CONFIG])).toBe(
+      "--mcp-config <config: none>"
+    );
+  });
+
+  test("does not drop a trailing flag that has no value", () => {
+    expect(redactMcpConfigForLog(["-p", "--mcp-config"])).toBe("-p --mcp-config");
   });
 });

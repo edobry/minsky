@@ -48,7 +48,11 @@ import { spawn as nodeSpawn } from "child_process";
 import { randomUUID } from "crypto";
 import { PassThrough } from "stream";
 import { log } from "@minsky/shared/logger";
-import { buildDrivenSessionMcpConfig, mcpConfigArgs } from "./driven-session-mcp-config";
+import {
+  buildDrivenSessionMcpConfig,
+  mcpConfigArgs,
+  redactMcpConfigForLog,
+} from "./driven-session-mcp-config";
 
 // ---------------------------------------------------------------------------
 // Injectable process abstraction (mirrors mt#2749's fsMod/TailerLike pattern
@@ -786,7 +790,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
   const argv = buildDrivenSessionArgs(permissionMode, opts.model, mcpConfig);
 
   log.info(
-    `[driven-session] spawning ${command} ${argv.join(" ")} ` +
+    `[driven-session] spawning ${command} ${redactMcpConfigForLog(argv)} ` +
       `(cwd=${opts.cwd}, permissionMode=${permissionMode})`
   );
 
@@ -1018,7 +1022,7 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
   );
 
   log.info(
-    `[driven-session] resuming ${command} ${argv.join(" ")} (localId=${previous.localId}, ` +
+    `[driven-session] resuming ${command} ${redactMcpConfigForLog(argv)} (localId=${previous.localId}, ` +
       `harnessSessionId=${previous.harnessSessionId}, generation=${previous.actuatorGeneration + 1}, cwd=${previous.cwd})`
   );
 
