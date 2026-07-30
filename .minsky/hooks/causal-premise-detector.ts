@@ -302,7 +302,7 @@ export function detectCausalPremise(
     matched: true,
     matchedPhrases,
     hadSameTurnVerification,
-    transcriptExcerpt: buildTranscriptExcerpt(filteredText, matchedPhrases[0] ?? ""),
+    transcriptExcerpt: buildTranscriptExcerpt(assistantText, filteredText, matchedPhrases[0] ?? ""),
   };
 }
 
@@ -361,18 +361,28 @@ const EXCERPT_CONTEXT_CHARS = 80;
 /**
  * Slice out the text around the first matched phrase.
  *
+ * Located in the ELIDED text (that is where the match was found) but sliced from
+ * the RAW text at the same offsets — `elideMarkdownContexts` blanks with
+ * same-length whitespace specifically so positions stay aligned, which its own
+ * comment calls out as being for "accurate snippet extraction" (PR #2420 R1).
+ *
+ * Slicing the elided text instead would blank out the code fences, backticks and
+ * blockquote markers — i.e. exactly the evidence a reviewer needs to judge
+ * whether the phrase was QUOTED rather than asserted. That judgment is the whole
+ * purpose of the excerpt, so the raw text is what gets stored.
+ *
  * Returns "" when the phrase is absent or empty rather than defaulting to the
  * head of the text — an empty needle makes `indexOf` return 0, which would
  * silently log the first 80 characters of an unrelated passage as if it were
  * the match's context.
  */
-function buildTranscriptExcerpt(text: string, firstPhrase: string): string {
+function buildTranscriptExcerpt(rawText: string, elidedText: string, firstPhrase: string): string {
   if (!firstPhrase) return "";
-  const idx = text.indexOf(firstPhrase);
+  const idx = elidedText.indexOf(firstPhrase);
   if (idx < 0) return "";
   const start = Math.max(0, idx - EXCERPT_CONTEXT_CHARS);
-  const end = Math.min(text.length, idx + firstPhrase.length + EXCERPT_CONTEXT_CHARS);
-  return text.slice(start, end);
+  const end = Math.min(rawText.length, idx + firstPhrase.length + EXCERPT_CONTEXT_CHARS);
+  return rawText.slice(start, end);
 }
 
 // ---------------------------------------------------------------------------

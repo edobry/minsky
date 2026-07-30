@@ -796,39 +796,46 @@ export function parseCalibrationRecord(
   line: string,
   kind: CalibrationLogEntry["kind"]
 ): CalibrationRecord | null {
-  const record = parseCalibrationRecordCore(line, kind);
-  if (record === null) return record;
+  let raw: Record<string, unknown>;
   try {
-    const raw = JSON.parse(line) as Record<string, unknown>;
-    const suppressionReasons = parseSuppressionReasons(raw);
-    const detectorFields = parseDetectorFields(raw, record);
-    return {
-      ...record,
-      ...(suppressionReasons === undefined ? {} : { suppressionReasons }),
-      ...(detectorFields === undefined ? {} : { detectorFields }),
-    };
+    raw = JSON.parse(line) as Record<string, unknown>;
   } catch {
-    // The core parse already succeeded, so the line IS valid JSON; this catch
-    // exists only so a shared-field failure can never lose a record the
-    // per-kind parser accepted.
-    return record;
+    return null;
   }
+  const record = parseCalibrationRecordCore(raw, kind);
+  if (record === null) return null;
+  const suppressionReasons = parseSuppressionReasons(raw);
+  const detectorFields = parseDetectorFields(raw, record);
+  return {
+    ...record,
+    ...(suppressionReasons === undefined ? {} : { suppressionReasons }),
+    ...(detectorFields === undefined ? {} : { detectorFields }),
+  };
 }
 
 function parseCalibrationRecordCore(
-  line: string,
+  raw: Record<string, unknown>,
   kind: CalibrationLogEntry["kind"]
 ): CalibrationRecord | null {
   try {
-    const raw = JSON.parse(line) as Record<string, unknown>;
     if (kind === "causal-premise") {
-      // Shape: { timestamp, session_id?, matchedPhrases: string[], hadSameTurnVerification: boolean }
+      // Shape: { timestamp, session_id?, matchedPhrases: string[], hadSameTurnVerification: boolean,
+      //          transcript_excerpt? }
       if (!Array.isArray(raw["matchedPhrases"])) return null;
       return {
         timestamp: String(raw["timestamp"] ?? ""),
         session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
         matchedPhrases: (raw["matchedPhrases"] as unknown[]).map(String),
         hadSameTurnVerification: Boolean(raw["hadSameTurnVerification"]),
+        // Read explicitly rather than leaving it to the detectorFields
+        // passthrough (mt#3289 PR #2420 R1): the field is declared on
+        // CausalPremiseRecord and the retrospective-trigger branch reads its own
+        // copy the same way, so a reader comparing the two branches would
+        // otherwise see the type promise a field the parser never populates —
+        // and every consumer keying on `transcript_excerpt` would miss it,
+        // finding it nested one level down instead.
+        transcript_excerpt:
+          raw["transcript_excerpt"] !== undefined ? String(raw["transcript_excerpt"]) : undefined,
       } satisfies CausalPremiseRecord;
     }
 

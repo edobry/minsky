@@ -112,6 +112,22 @@ This explains why the result set was empty.`;
       const result = detectCausalPremise("", []);
       expect(result.transcriptExcerpt).toBe("");
     });
+
+    test("slices RAW text, so quote and code markers survive into the excerpt", () => {
+      // PR #2420 R1: matching runs on elided text, but the excerpt must come from
+      // the RAW text at the same offsets. Slicing the elided copy would blank the
+      // backticks/fences/blockquote markers — the very evidence a reviewer needs
+      // to decide whether the phrase was QUOTED rather than asserted, which is
+      // the excerpt's entire purpose.
+      const text =
+        "We ran `bun test --preload` first. The root cause is the encoding step in the resolver.";
+      const result = detectCausalPremise(text, []);
+
+      expect(result.matched).toBe(true);
+      expect(result.transcriptExcerpt).toContain("`bun test --preload`");
+      // The elided form would have replaced the span with spaces of equal length.
+      expect(result.transcriptExcerpt).not.toContain("                    ");
+    });
   });
 
   describe("R3 replay: 'reviewer shares author identity so APPROVE is blocked'", () => {

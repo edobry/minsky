@@ -440,6 +440,29 @@ describe("parseCalibrationRecord", () => {
     expect(result.detectorFields).toBeUndefined();
   });
 
+  test("reads causal-premise transcript_excerpt into the typed field (PR #2420 R1)", () => {
+    // The field is declared on CausalPremiseRecord, so the parser must populate
+    // it directly. Leaving it to the detectorFields passthrough would nest it one
+    // level down, where every consumer keying on `transcript_excerpt` misses it —
+    // and would contradict the retrospective-trigger branch, which reads its own
+    // copy explicitly.
+    const excerpt = "and formed a theory. The root cause is the encoding step. Not confirmed.";
+    const line = JSON.stringify({
+      timestamp: "2026-07-30T00:00:00Z",
+      session_id: "test-session",
+      matchedPhrases: ["The root cause is"],
+      hadSameTurnVerification: false,
+      transcript_excerpt: excerpt,
+    });
+    const result = parseCalibrationRecord(line, "causal-premise");
+    expect(result).not.toBeNull();
+    // Narrow on `hadSameTurnVerification`, not `matchedPhrases` — the latter is
+    // shared with BuildClaimInjectionRecord, which has no transcript_excerpt.
+    if (!result || !("hadSameTurnVerification" in result)) throw new Error("wrong type");
+    expect(result.transcript_excerpt).toBe(excerpt);
+    expect(result.detectorFields).toBeUndefined();
+  });
+
   test("parses a code-mechanism-assertion record (mt#2486, registered mt#2619)", () => {
     const line = JSON.stringify({
       timestamp: "2026-06-01T00:00:00Z",
@@ -1717,7 +1740,6 @@ describe("readAllCalibrationLogsAsFireLogEntries", () => {
 // ---------------------------------------------------------------------------
 // computeReviewDueLogs — the three-condition review-due matrix (mt#2896)
 // ---------------------------------------------------------------------------
-
 // ---------------------------------------------------------------------------
 // computeLogResult — firstRecordTimestamp population (mt#2896)
 // ---------------------------------------------------------------------------
