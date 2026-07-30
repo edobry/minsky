@@ -139,6 +139,19 @@ describe("tasks.similar / tasks.search default status behaviour (mt#3305)", () =
     );
     expect(calls[0]?.filters?.status).toBe("TODO");
   });
+
+  test("--status is honoured even alongside --all, which is a no-op here (PR #2434 R1)", async () => {
+    // tasks.search guards its status filter with `!all` because there `--all`
+    // does real work (suppressing the default statusExclude). tasks.similar has
+    // no default exclusion, so the same guard would let a no-op flag silently
+    // cancel a filter the caller explicitly asked for.
+    const { cmd, calls } = captureSimilarCall();
+    await cmd.execute(
+      { taskId: "mt#1", status: "TODO", all: true } as InferParams<typeof tasksSimilarParams>,
+      ctx
+    );
+    expect(calls[0]?.filters?.status).toBe("TODO");
+  });
 });
 
 describe("threshold applies only to distance-scored backends (mt#3305, PR #2434 R1)", () => {

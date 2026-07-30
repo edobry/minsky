@@ -157,6 +157,13 @@ export class TasksSimilarCommand extends BaseTaskCommand<typeof tasksSimilarPara
     // exists for surface parity (a param must not be live on one door and absent
     // on the other) and is a no-op here, because including everything is already
     // what this command does.
+    //
+    // `--status` is honoured REGARDLESS of `--all` (PR #2434 R1, non-blocking).
+    // tasks.search guards its status filter with `!showAll` because there `--all`
+    // has real work to do — it suppresses the default `statusExclude`. Here it has
+    // none, so copying that guard would let a no-op flag silently cancel a filter
+    // the caller explicitly asked for. Passing both is contradictory; narrowing to
+    // the requested status is the readable resolution.
     const filters: Record<string, unknown> = {};
     if (params.backend) {
       filters.backend = params.backend;
@@ -164,7 +171,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<typeof tasksSimilarPara
     if (params.kind) {
       filters.kind = params.kind;
     }
-    if (params.status && !params.all) {
+    if (params.status) {
       filters.status = params.status;
     }
 
