@@ -52,6 +52,7 @@ export const KNOWN_OVERRIDE_ENV_VARS: ReadonlySet<string> = new Set([
   // to unclassified for gates fire-log-instrumented in this same landing.
   "MINSKY_ALLOW_NESTED_FORK",
   "MINSKY_SKIP_AT_COVERAGE",
+  "MINSKY_SKIP_SC_COVERAGE",
   "MINSKY_SKIP_SIZE_JUSTIFICATION",
   "MINSKY_SKIP_USABILITY_CLAIM_CHECK",
   "MINSKY_AUTO_MIGRATE",

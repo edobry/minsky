@@ -46,6 +46,8 @@ import type { ToolHookInput } from "./types";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
+import { computeFenceInternalLines, collectHeadingSections } from "./markdown-sections";
+import { runScCoverageCalibration, SC_COVERAGE_CALIBRATION_LOG } from "./success-criteria-coverage";
 import { classifyOverride } from "./fire-log";
 import {
   deriveRepoFromGit as deriveRepoFromGitImpl,
@@ -627,66 +629,6 @@ export function isExecutableAcceptanceTest(text: string, taskKind?: string): boo
  */
 const ACCEPTANCE_TESTS_HEADING_LINE_PATTERN = /^ {0,3}#{1,6}\s+.*\bacceptance tests?\b/i;
 
-/**
- * Matches a fenced-code-block delimiter line (opening or closing): backtick OR tilde
- * fence, 3+ markers, up to 3 leading spaces per CommonMark. Mirrors the fence-marker
- * regex in `elision.ts`'s `elideQuotedContexts` — see that constant's sibling doc
- * comment above for why this is a per-line predicate rather than a reuse of the
- * whole-string elision transform itself.
- */
-const FENCE_DELIMITER_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
-
-/**
- * Computes, for each line index in `lines`, whether that line sits INSIDE a fenced
- * code block — between an opening delimiter and its matching close. Delimiter lines
- * themselves are never marked fence-internal (irrelevant either way: a fence marker
- * never matches a heading pattern), only the lines BETWEEN them are. Single forward
- * pass over the whole document, O(n) — correct as long as fences are balanced, which a
- * well-formed PR body's Markdown always is.
- */
-function computeFenceInternalLines(lines: string[]): boolean[] {
-  const result: boolean[] = new Array(lines.length).fill(false);
-  let inFence = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line !== undefined && FENCE_DELIMITER_PATTERN.test(line)) {
-      inFence = !inFence;
-      continue;
-    }
-    result[i] = inFence;
-  }
-  return result;
-}
-
-/**
- * Collects the content of every section in `lines` whose heading line matches
- * `isHeadingLine`, from just after the heading up to (not including) the next Markdown
- * heading of any level, or end-of-string. Extracted so `extractExecutionEvidenceText`'s
- * two scan passes (Execution evidence + mt#3316's acceptance-tests widening) share one
- * boundary implementation. `fenceInternal[i]` (from `computeFenceInternalLines`) gates
- * BOTH the heading-candidacy check and the next-heading stop condition, so a
- * heading-like line inside a fence is neither treated as a new section start nor as the
- * boundary that ends collection.
- */
-function collectHeadingSections(
-  lines: string[],
-  fenceInternal: boolean[],
-  isHeadingLine: (line: string) => boolean
-): string[] {
-  const collected: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line === undefined || fenceInternal[i] || !isHeadingLine(line)) continue;
-    for (let j = i + 1; j < lines.length; j++) {
-      const nextLine = lines[j];
-      if (nextLine === undefined) break;
-      if (!fenceInternal[j] && /^ {0,3}#{1,6}\s/.test(nextLine)) break;
-      collected.push(nextLine);
-    }
-  }
-  return collected;
-}
-
 export function extractExecutionEvidenceText(prBody: string): string {
   const strippedBody = prBody.replace(/<!--[\s\S]*?-->/g, "");
   const headingPattern =
@@ -845,10 +787,11 @@ export function isAtCoverageSkipped(): boolean {
  */
 export function appendAtCoverageCalibration(
   record: Record<string, unknown>,
-  repoRootDir: string
+  repoRootDir: string,
+  logRelPath: string = AT_COVERAGE_CALIBRATION_LOG
 ): void {
   try {
-    const logPath = resolve(repoRootDir, AT_COVERAGE_CALIBRATION_LOG);
+    const logPath = resolve(repoRootDir, logRelPath);
     const dir = dirname(logPath);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
@@ -909,6 +852,12 @@ export interface AtCoverageCalibrationRunResult {
   ranCheck: boolean;
   /** A WARN string to surface via `additionalContext`, if any executable AT is unaddressed. */
   warning?: string;
+  /**
+   * mt#3350: the spec markdown this run already fetched, so the sibling success-criteria
+   * surface can reuse it instead of shelling `minsky tasks spec get` a second time per merge.
+   * Present whenever the fetch succeeded, independent of the AT verdict.
+   */
+  specContent?: string;
 }
 
 /**
@@ -929,16 +878,17 @@ export function runAtCoverageCalibration(
 
   const specFetch = fetchTaskSpecForAtCoverage(task, cwd, exec);
   if (!specFetch.ok || typeof specFetch.content !== "string") return { ranCheck: false };
+  const specContent = specFetch.content;
 
   let coverage: AtCoverageResult;
   try {
     coverage = checkAcceptanceTestCoverage(specFetch.content, specFetch.kind, prBody);
   } catch {
-    return { ranCheck: false };
+    return { ranCheck: false, specContent };
   }
 
   if (!coverage.applicable || coverage.unaddressedAts.length === 0) {
-    return { ranCheck: true };
+    return { ranCheck: true, specContent };
   }
 
   const unaddressedList = coverage.unaddressedAts
@@ -971,7 +921,7 @@ export function runAtCoverageCalibration(
     `Merge is NOT blocked by this — it is a calibration signal only. Override: set ` +
     `${AT_COVERAGE_SKIP_ENV_VAR}=1 to skip this check.`;
 
-  return { ranCheck: true, warning };
+  return { ranCheck: true, warning, specContent };
 }
 
 // ---------------------------------------------------------------------------
@@ -1066,6 +1016,29 @@ if (import.meta.main) {
   );
   if (atCoverage.warning) {
     allWarnings.push(atCoverage.warning);
+  }
+
+  // mt#3350: the `## Success Criteria` sibling of the mt#3033 AT cross-reference. A THIRD
+  // independent, log-only surface — it never touches `result.blocked` and never denies. Reuses
+  // the spec markdown the AT run already fetched, so this adds no CLI call per merge.
+  if (atCoverage.specContent !== undefined) {
+    const scCoverage = runScCoverageCalibration(
+      task,
+      context.prNumber,
+      atCoverage.specContent,
+      prBody,
+      extractExecutionEvidenceText(prBody)
+    );
+    if (scCoverage.calibrationRecord) {
+      appendAtCoverageCalibration(
+        scCoverage.calibrationRecord,
+        findRepoRoot(input.cwd),
+        SC_COVERAGE_CALIBRATION_LOG
+      );
+    }
+    if (scCoverage.warning) {
+      allWarnings.push(scCoverage.warning);
+    }
   }
   // mt#3084: MINSKY_SKIP_AT_COVERAGE is a documented escape hatch
   // (`isAtCoverageSkipped`, consulted inside `runAtCoverageCalibration`) —

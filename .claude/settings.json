@@ -255,6 +255,18 @@
         ]
       },
       {
+        "_comment": "mt#3350 success-criteria injection. Surfaces the bound task's `## Success Criteria` verbatim at PR-creation time, so they are confronted at the moment of shipping rather than recalled from having written them (mem#736 R2; the prose tier for this class — /implement-task §7 item 5 — has a measured 14x recurrence across 13 PRs). Matcher is session_pr_create ALONE, deliberately: the two PreToolUse blocks above that mention the tool are multi-tool matchers that also cover session_commit, and injecting the criteria on every commit would be noise that trains the reader to skip them. Not migrated into the dispatcher/GUARD_REGISTRY for the same reason recorded on the dispatch-intent gate above — session_pr_create is not among the tool names that already spawn the dispatcher. Timeout=20: one `minsky tasks spec get` CLI call (budgeted 15s internally) plus process spawn; matched to the sibling stamp-pr-author-link.ts registration on the same tool rather than invented. Fail-open and silent — no task id, no spec, or no criteria section all exit 0 with no output.",
+        "matcher": "mcp__minsky__session_pr_create",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/inject-success-criteria.ts",
+            "timeout": 20,
+            "statusMessage": "Surfacing the task's success criteria..."
+          }
+        ]
+      },
+      {
         "_comment": "mt#3161 run-state writer — records the in-flight tool call (name + start time) so elapsed time is renderable, which the mt#3130 vocabulary makes mandatory rather than optional. matcher '*' fires on EVERY tool. No statusMessage: this runs on every tool call and a per-call status line would be pure UI noise. Budget: the hook's own forward is capped at 500ms internally; timeout 5 covers process spawn.",
         "matcher": "*",
         "hooks": [

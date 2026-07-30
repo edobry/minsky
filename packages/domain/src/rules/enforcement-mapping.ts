@@ -441,6 +441,14 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
         configPath: ".claude/hooks/require-execution-evidence-before-merge.ts",
         portability: "harness-trapped",
       },
+      {
+        type: "claude-code-hook",
+        name: "PreToolUse[session_pr_create]: inject-success-criteria.ts",
+        description:
+          "Surfaces the bound task's '## Success Criteria' verbatim at PR-creation time, so they are confronted at the moment of shipping rather than recalled from having written them (mt#3350; mem#736 R2). Paired with the merge-time success-criteria cross-reference inside require-execution-evidence-before-merge.ts, which warns when a mechanically-executable criterion's output is absent from the 'Execution evidence:' block and carries no '[scN-deferred: mt#NNNN]' marker. Both halves are log-only per the mt#2263 calibration ladder; MINSKY_SKIP_SC_COVERAGE is the documented override for the merge-time half. Exists because the prose tier for this class (/implement-task §7 item 5) has a measured 14x recurrence across 13 PRs.",
+        configPath: ".claude/hooks/inject-success-criteria.ts",
+        portability: "harness-trapped",
+      },
     ],
   },
 
