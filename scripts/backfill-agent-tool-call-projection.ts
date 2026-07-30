@@ -124,8 +124,21 @@ async function bootstrapDb(): Promise<PostgresJsDatabase> {
 
 /**
  * Dry-run headline number: PROJECTION ROWS (not turns) that --execute would
- * write — the sum of tool_use-block counts across turns that have no
- * existing projection row for their (session, turn) pair.
+ * write.
+ *
+ * Compares each turn's expected block count (`jsonb_array_length(tool_calls)`)
+ * against its ACTUAL projected row count (a LEFT JOIN aggregate, not an
+ * existence check) — a turn counts as pending whenever those two numbers
+ * differ, which covers BOTH the zero-projected case (a turn ingested before
+ * this task's writer existed) AND the partially-projected case (e.g. an
+ * earlier interrupted backfill run left some, but not all, of a turn's
+ * tool_use blocks written). An earlier version of this query used
+ * `NOT EXISTS (... projection row for this turn ...)`, which only detects the
+ * zero-projected case — a partially-projected turn already has at least one
+ * row, so `NOT EXISTS` is false for it and the deficit silently disappears
+ * from the count. `pending_rows` reports the actual DEFICIT (expected minus
+ * actual), not the full per-turn block count, so it matches the number of
+ * rows `--execute` will actually need to write/repair.
  */
 async function countPendingProjectionRows(
   db: PostgresJsDatabase
@@ -133,13 +146,15 @@ async function countPendingProjectionRows(
   const rows = (await db.execute(sql`
     SELECT
       count(*)::int AS pending_turns,
-      COALESCE(sum(jsonb_array_length(t.tool_calls)), 0)::int AS pending_rows
+      COALESCE(sum(jsonb_array_length(t.tool_calls) - COALESCE(p.projected_count, 0)), 0)::int AS pending_rows
     FROM agent_transcript_turns t
+    LEFT JOIN (
+      SELECT agent_session_id, turn_index, count(*)::int AS projected_count
+      FROM agent_tool_call_projection
+      GROUP BY agent_session_id, turn_index
+    ) p ON p.agent_session_id = t.agent_session_id AND p.turn_index = t.turn_index
     WHERE t.tool_calls IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1 FROM agent_tool_call_projection p
-        WHERE p.agent_session_id = t.agent_session_id AND p.turn_index = t.turn_index
-      )
+      AND jsonb_array_length(t.tool_calls) > COALESCE(p.projected_count, 0)
   `)) as Array<Record<string, unknown>>;
   const pendingTurns = Number(rows?.[0]?.pending_turns ?? 0);
   const pendingRows = Number(rows?.[0]?.pending_rows ?? 0);
