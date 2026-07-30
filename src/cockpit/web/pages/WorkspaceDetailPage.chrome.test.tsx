@@ -41,7 +41,7 @@ function createTestQueryClient(): QueryClient {
   return new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
 }
 
-function mockFetches() {
+function mockFetches(driven: { sessionId: string; status: string } | null = null) {
   globalThis.fetch = mock((url: string) => {
     const pathname = typeof url === "string" ? new URL(url, "http://localhost").pathname : "";
 
@@ -70,7 +70,7 @@ function mockFetches() {
             pr: null,
             conversation: null,
             conversations: [],
-            driven: null,
+            driven,
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
@@ -123,5 +123,35 @@ describe("mt#3344 — pinned run-detail chrome on the workspace host (SC6)", () 
     // mt#3344 does not add one.
     expect(queryByTestId("conversation-presence-value")).toBeNull();
     expect(queryByTestId("conversation-presence-activity")).toBeNull();
+  });
+});
+
+describe("mt#3400 — the driven banner is pinned with the chrome", () => {
+  test("the return-to-drive-view banner lives INSIDE the pinned container", async () => {
+    mockFetches({ sessionId: "ds-abc123", status: "running" });
+    const { getByTestId, getByLabelText } = renderWorkspaceDetailPage();
+
+    const chrome = await waitFor(() => getByTestId("run-detail-chrome"));
+    const banner = await waitFor(() => getByLabelText("Open driven session (running)"));
+
+    // Containment IS the fix. mt#3344 pinned the chrome but left this banner a
+    // following sibling, so on the Conversation tab it scrolled out of view the
+    // moment the transcript reached its live edge — removing the only route
+    // back to the interactive drive view from exactly the surface an operator
+    // reading the conversation is looking at.
+    expect(chrome.contains(banner)).toBe(true);
+    expect(banner.getAttribute("href")).toBe("/driven/ds-abc123");
+  });
+
+  test("no driven session → no banner, and the chrome keeps its geometry", async () => {
+    mockFetches(null);
+    const { getByTestId, queryByLabelText } = renderWorkspaceDetailPage();
+
+    const chrome = await waitFor(() => getByTestId("run-detail-chrome"));
+    expect(queryByLabelText(/^Open driven session/)).toBeNull();
+    // The no-banner case must be untouched by this change: spacing comes from
+    // the banner's own `mb-2`, never from padding added to the container.
+    expect(chrome.className).toContain("pt-4");
+    expect(chrome.className).not.toContain("pb-2");
   });
 });

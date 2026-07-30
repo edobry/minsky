@@ -90,6 +90,29 @@ describe("matchEntityRoute", () => {
     expect(matchEntityRoute("/conversation/abc/def")).toBeNull();
   });
 
+  describe("driven-session route (mt#3400)", () => {
+    test("/driven/:id matches and carries the driven kind", () => {
+      const tab = matchEntityRoute("/driven/ds-abc123");
+      expect(tab?.kind).toBe("driven");
+      expect(tab?.entityId).toBe("ds-abc123");
+      expect(tab?.path).toBe("/driven/ds-abc123");
+    });
+
+    test("a percent-encoded driven id decodes into entityId but keeps the encoded path", () => {
+      const tab = matchEntityRoute("/driven/foo%20bar");
+      expect(tab?.entityId).toBe("foo bar");
+      expect(tab?.path).toBe("/driven/foo%20bar");
+    });
+
+    test("the /driven list-less base route does not match", () => {
+      expect(matchEntityRoute("/driven")).toBeNull();
+    });
+
+    test("a nested path under a driven session does not match", () => {
+      expect(matchEntityRoute("/driven/abc/def")).toBeNull();
+    });
+  });
+
   describe("run-detail tab sub-routes (mt#2768)", () => {
     test("/agents/:id/conversation matches and normalizes to the base entity path", () => {
       const tab = matchEntityRoute("/agents/abc123/conversation");
@@ -142,6 +165,13 @@ describe("isAcceptedTabKind (loadTabs kind filter)", () => {
     expect(isAcceptedTabKind("ask")).toBe(true);
     expect(isAcceptedTabKind("memory")).toBe(true);
     expect(isAcceptedTabKind("changeset")).toBe(true);
+  });
+
+  // mt#3400 — this is the leg that makes a driven tab SURVIVE a reload. The
+  // filter runs at load, so a kind missing here is dropped from the restored
+  // set: the tab would work for the session and silently vanish on refresh.
+  test("accepts the driven kind so a driven tab survives a reload", () => {
+    expect(isAcceptedTabKind("driven")).toBe(true);
   });
 
   test("rejects unknown kinds so stale tabs are dropped", () => {
