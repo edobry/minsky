@@ -12,6 +12,7 @@ import type { DefaultModelCacheService } from "./model-cache";
 import type { ModelFetchConfig } from "./model-cache/types";
 import { handleRefreshError } from "./error-utils";
 import { log } from "@minsky/shared/logger";
+import { hasImplementedFetcher } from "./provider-registry";
 
 export interface ProviderValidationResult {
   name: string;
@@ -198,6 +199,30 @@ export interface ProviderStatusInfo {
   lastSuccess: boolean | null;
   isStale: boolean;
   error: string | undefined;
+  /**
+   * Why the model listing is in the state it is (mt#3337).
+   *
+   * `modelCount: 0` on its own is ambiguous — it reads identically whether the
+   * provider has no credentials, has no fetcher implementation, or has a working
+   * key whose listing call is broken. That ambiguity is not academic: the
+   * Anthropic listing was broken for ~3 weeks while completions worked fine, and
+   * a reader taking `modelCount: 0` at face value would conclude the provider was
+   * unusable. This field names the actual case.
+   *
+   * - `ok` — listing fetched successfully.
+   * - `listing-failed` — credentials present and a fetcher exists, but the last
+   *   fetch failed. **Completions may still work**; see `error` for the reason.
+   * - `listing-unsupported` — no fetcher is implemented for this provider, so
+   *   listing was never possible. Distinct from a failure.
+   * - `not-configured` — no provider config resolved (no credentials).
+   * - `never-attempted` — configured with a fetcher, but no fetch has run yet.
+   */
+  listingStatus:
+    | "ok"
+    | "listing-failed"
+    | "listing-unsupported"
+    | "not-configured"
+    | "never-attempted";
 }
 
 /**
@@ -225,10 +250,36 @@ export async function getProviderStatuses(
       lastSuccess: providerMetadata?.lastFetchSuccessful ?? null,
       isStale,
       error: providerMetadata?.lastError,
+      listingStatus: deriveListingStatus(
+        providerName,
+        !!providerConfig,
+        providerMetadata?.lastFetchSuccessful
+      ),
     });
   }
 
   return providers;
+}
+
+/**
+ * Classify why a provider's model listing is in its current state (mt#3337).
+ *
+ * Ordering is deliberate: "no fetcher implemented" is checked before the
+ * success/failure of any fetch, because a provider with no fetcher can never
+ * have attempted one — reporting it as a failure (as the old
+ * `"No fetcher registered for provider: google"` error did) conflates an
+ * unimplemented capability with a broken one.
+ */
+export function deriveListingStatus(
+  providerName: string,
+  configured: boolean,
+  lastFetchSuccessful: boolean | undefined
+): ProviderStatusInfo["listingStatus"] {
+  if (!configured) return "not-configured";
+  if (!hasImplementedFetcher(providerName)) return "listing-unsupported";
+  if (lastFetchSuccessful === true) return "ok";
+  if (lastFetchSuccessful === false) return "listing-failed";
+  return "never-attempted";
 }
 
 /**
