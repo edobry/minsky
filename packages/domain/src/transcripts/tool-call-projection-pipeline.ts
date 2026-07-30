@@ -14,7 +14,12 @@
  * duplication (all four funnel through `ingestSession`).
  * `projectToolCallsForAllTranscripts` drives the same per-session logic in a
  * batched, resumable sweep for the one-time backfill
- * (`scripts/backfill-agent-tool-call-projection.ts`).
+ * (`scripts/backfill-agent-tool-call-projection.ts`), which can walk either
+ * the FULL keyset (`fetchSessionIdPage`, ascending by id) or, via
+ * `--pending-only`, ONLY the sessions with an outstanding deficit
+ * (`fetchPendingSessionIdPage`, mt#3395) — the latter repairs the scattered
+ * holes a killed batched run leaves behind without re-touching already
+ * fully-projected sessions.
  *
  * Idempotent: upserts on (agent_session_id, turn_index, ordinal).
  *
@@ -305,6 +310,69 @@ export async function fetchSessionIdPage(
     ? await query.where(gt(agentTranscriptsTable.agentSessionId, afterId as ConversationId))
     : await query;
   return rows;
+}
+
+/**
+ * Fetch one page of PENDING session ids — sessions whose expected projection
+ * row count (`sum(jsonb_array_length(tool_calls))` over their array-typed
+ * turns) exceeds their actual stored row count in
+ * `agent_tool_call_projection` (mt#3395). Session-grain sibling of
+ * `scripts/backfill-agent-tool-call-projection.ts`'s
+ * `countPendingProjectionRows`: SAME guarded shape (jsonb_typeof(...) =
+ * 'array' before jsonb_array_length; only the LENGTH of `tool_calls` is
+ * touched, never its content, so no extra detoasting beyond what
+ * `jsonb_array_length` itself requires) grouped by `agent_session_id` alone
+ * instead of `(agent_session_id, turn_index)` — target SELECTION only needs
+ * a per-session yes/no, not a per-turn deficit count.
+ *
+ * A killed batched sweep leaves scattered holes (some sessions committed,
+ * others — typically the largest, slowest ones — lost mid-batch); resuming
+ * with `--after-id` skips past them, and resuming without it re-walks the
+ * whole completed prefix. This anti-join selects ONLY the holey sessions
+ * directly, so `--pending-only` repairs them without re-touching the ~73%
+ * of the corpus that already completed.
+ *
+ * Drop-in for `ProjectAllToolCallsOptions.fetchPage` — identical signature to
+ * `fetchSessionIdPage` above, so the existing batched / resumable /
+ * checkpointed sweep engine in `projectToolCallsForAllTranscripts` (and its
+ * per-session processing via `ToolCallProjectionPipeline.runForSession`,
+ * using the same pure helpers) needs NO changes to drive `--pending-only`
+ * mode — only the id SOURCE changes.
+ *
+ * Keyset-paginated ascending by `agent_session_id`, scoped to `> afterId` in
+ * BOTH source CTEs (not just the final result) so each page's aggregation
+ * only scans the remaining id range rather than re-aggregating the whole
+ * corpus on every batch call.
+ */
+export async function fetchPendingSessionIdPage(
+  db: PostgresJsDatabase,
+  afterId: string | null,
+  batchSize: number
+): Promise<Array<{ agentSessionId: string }>> {
+  const rows = (await db.execute(sql`
+    WITH expected AS (
+      SELECT agent_session_id, sum(jsonb_array_length(tool_calls))::int AS expected_rows
+      FROM agent_transcript_turns
+      WHERE tool_calls IS NOT NULL
+        AND jsonb_typeof(tool_calls) = 'array'
+        ${afterId ? sql`AND agent_session_id > ${afterId}` : sql``}
+      GROUP BY agent_session_id
+    ),
+    actual AS (
+      SELECT agent_session_id, count(*)::int AS actual_rows
+      FROM agent_tool_call_projection
+      ${afterId ? sql`WHERE agent_session_id > ${afterId}` : sql``}
+      GROUP BY agent_session_id
+    )
+    SELECT e.agent_session_id AS agent_session_id
+    FROM expected e
+    LEFT JOIN actual a ON a.agent_session_id = e.agent_session_id
+    WHERE e.expected_rows > COALESCE(a.actual_rows, 0)
+    ORDER BY e.agent_session_id ASC
+    LIMIT ${batchSize}
+  `)) as Array<{ agent_session_id: string }>;
+
+  return rows.map((r) => ({ agentSessionId: r.agent_session_id }));
 }
 
 /**

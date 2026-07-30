@@ -35,6 +35,18 @@
  * (agent_session_id, turn_index, ordinal); re-running (including a resumed
  * partial run) never duplicates rows.
  *
+ * `--pending-only` mode (mt#3395): a killed run of the FULL keyset walk
+ * leaves scattered holes — some sessions in the in-flight batch commit,
+ * others (systematically the LARGE ones — they're slowest) are lost.
+ * Resuming with `--after-id` skips past the holes entirely; resuming
+ * without it re-walks (and re-upserts, harmlessly but slowly) the whole
+ * completed prefix just to reach them. `--execute --pending-only` instead
+ * selects target sessions via the pending anti-join
+ * (`fetchPendingSessionIdPage` — per-session expected row count vs actual
+ * projected count) and repairs ONLY the holey sessions, using the exact same
+ * per-session processing (`ToolCallProjectionPipeline.runForSession`) and
+ * batch checkpoint logging as the full-keyset path.
+ *
  * Sampled reconciliation (task spec AT2): after --execute (or standalone via
  * --verify-sample-only), --verify-sample=N (default 20; 0 disables) samples
  * N sessions that have projection rows, independently re-derives the
@@ -44,15 +56,24 @@
  * correct, not merely that the code agrees with itself in one process run),
  * and reports any mismatch.
  *
+ * mt#3395: the sample-selection query previously combined
+ * `SELECT DISTINCT agent_session_id ... ORDER BY random()` — invalid
+ * Postgres ("for SELECT DISTINCT, ORDER BY expressions must appear in
+ * select list"), so `--verify-sample-only` crashed before ever running.
+ * Fixed by wrapping the DISTINCT in a subquery and applying `ORDER BY
+ * random()` at the outer (non-DISTINCT) level.
+ *
  * Usage:
  *   bun scripts/backfill-agent-tool-call-projection.ts                        # dry-run (count only)
- *   bun scripts/backfill-agent-tool-call-projection.ts --execute              # apply, batched
+ *   bun scripts/backfill-agent-tool-call-projection.ts --execute              # apply, batched (full keyset)
+ *   bun scripts/backfill-agent-tool-call-projection.ts --execute --pending-only    # apply, holey sessions only
  *   bun scripts/backfill-agent-tool-call-projection.ts --execute --batch-size=50
  *   bun scripts/backfill-agent-tool-call-projection.ts --execute --after-id=<uuid>   # resume
  *   bun scripts/backfill-agent-tool-call-projection.ts --verify-sample-only         # reconciliation only, no writes
  *   bun scripts/backfill-agent-tool-call-projection.ts --execute --verify-sample=50
  *
- * @see mt#3329 — this task; spec §Scope (backfill script, dry-run first), AT2
+ * @see mt#3329 — original task; spec §Scope (backfill script, dry-run first), AT2
+ * @see mt#3395 — --pending-only mode + reconciliation SQL fix
  * @see packages/domain/src/transcripts/tool-call-projection-pipeline.ts
  * @see scripts/backfill-agent-transcript-turns.ts — mt#2457 precedent this mirrors
  */
@@ -75,11 +96,14 @@ interface Args {
   batchSize?: number;
   verifySample: number;
   verifySampleOnly: boolean;
+  /** mt#3395: select target sessions via the pending anti-join instead of the full keyset walk. */
+  pendingOnly: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
   const execute = argv.includes("--execute");
   const verifySampleOnly = argv.includes("--verify-sample-only");
+  const pendingOnly = argv.includes("--pending-only");
   const afterIdArg = argv.find((a) => a.startsWith("--after-id="));
   const afterId = afterIdArg ? afterIdArg.slice("--after-id=".length) : undefined;
   const batchSizeArg = argv.find((a) => a.startsWith("--batch-size="));
@@ -94,7 +118,7 @@ function parseArgs(argv: string[]): Args {
   if (!Number.isFinite(verifySample) || verifySample < 0) {
     throw new Error(`--verify-sample must be a non-negative number, got: ${verifySampleArg}`);
   }
-  return { execute, afterId, batchSize, verifySample, verifySampleOnly };
+  return { execute, afterId, batchSize, verifySample, verifySampleOnly, pendingOnly };
 }
 
 async function bootstrapDb(): Promise<PostgresJsDatabase> {
@@ -195,7 +219,7 @@ export async function countPendingProjectionRows(
   return { pendingTurns, pendingRows, skippedNonArray };
 }
 
-interface ReconciliationResult {
+export interface ReconciliationResult {
   sessionsSampled: number;
   sessionsMatched: number;
   sessionsMismatched: number;
@@ -208,8 +232,10 @@ interface ReconciliationResult {
  * tool_use stream directly from `agent_transcript_turns.tool_calls` (using
  * the SAME pure helpers the pipeline uses), and compare against the STORED
  * `agent_tool_call_projection` rows for that session.
+ *
+ * Exported for unit testing (mt#3395).
  */
-async function runSampleReconciliation(
+export async function runSampleReconciliation(
   db: PostgresJsDatabase,
   sampleSize: number
 ): Promise<ReconciliationResult> {
@@ -225,9 +251,18 @@ async function runSampleReconciliation(
     "@minsky/domain/transcripts/tool-call-projection-fields"
   );
 
+  // mt#3395: `SELECT DISTINCT agent_session_id ... ORDER BY random()` is
+  // invalid Postgres — "for SELECT DISTINCT, ORDER BY expressions must
+  // appear in select list" (random() is not in the select list, and
+  // DISTINCT constrains what ORDER BY may reference). Wrapping the DISTINCT
+  // in a subquery and applying ORDER BY random() at the OUTER (non-DISTINCT)
+  // level sidesteps that restriction entirely.
   const sampledSessions = (await db.execute(sql`
-    SELECT DISTINCT agent_session_id
-    FROM agent_tool_call_projection
+    SELECT agent_session_id
+    FROM (
+      SELECT DISTINCT agent_session_id
+      FROM agent_tool_call_projection
+    ) s
     ORDER BY random()
     LIMIT ${sampleSize}
   `)) as Array<{ agent_session_id: string }>;
@@ -313,7 +348,7 @@ async function runSampleReconciliation(
 }
 
 async function main(): Promise<void> {
-  const { execute, afterId, batchSize, verifySample, verifySampleOnly } = parseArgs(
+  const { execute, afterId, batchSize, verifySample, verifySampleOnly, pendingOnly } = parseArgs(
     process.argv.slice(2)
   );
 
@@ -330,7 +365,7 @@ async function main(): Promise<void> {
   console.log(
     `backfill-agent-tool-call-projection ${execute ? "(EXECUTE)" : "(dry-run)"}${
       afterId ? ` --after-id=${afterId}` : ""
-    }`
+    }${pendingOnly ? " --pending-only" : ""}`
   );
   console.log(`  pending turns (no projection yet):  ${before.pendingTurns}`);
   console.log(`  pending projection rows to write:   ${before.pendingRows}`);
@@ -350,10 +385,11 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `  running batched projection sweep (batchSize=${batchSize ?? DEFAULT_BATCH_SIZE})...`
+    `  running batched projection sweep (batchSize=${batchSize ?? DEFAULT_BATCH_SIZE}` +
+      `${pendingOnly ? ", pending-only" : ", full keyset"})...`
   );
 
-  const { projectToolCallsForAllTranscripts } = await import(
+  const { projectToolCallsForAllTranscripts, fetchPendingSessionIdPage } = await import(
     "@minsky/domain/transcripts/tool-call-projection-pipeline"
   );
 
@@ -361,6 +397,11 @@ async function main(): Promise<void> {
   const result: ProjectAllToolCallsResult = await projectToolCallsForAllTranscripts(db, {
     batchSize,
     afterId,
+    // mt#3395: --pending-only swaps the id SOURCE to the pending anti-join
+    // (fetchPendingSessionIdPage) instead of the default full-keyset walk
+    // (fetchSessionIdPage) — per-session processing and batch checkpoint
+    // logging below are unchanged either way.
+    fetchPage: pendingOnly ? fetchPendingSessionIdPage : undefined,
     onBatchComplete: (partial, lastId) => {
       batchCount++;
       console.log(
