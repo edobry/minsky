@@ -230,7 +230,16 @@ export function startEntityThreadSession(
   // seed prompt IS the scoping. Send it before the session is handed back so a
   // caller can never forward the principal's first question to an unseeded
   // child.
-  const seeded = sendDrivenSessionInput(result.record, buildEntityThreadSeedPrompt(opts.seed));
+  //
+  // `echo: false` (mt#3388): this text is HOST-authored, not the operator's.
+  // Without it, mt#3372's operator-input echo appends the whole seed prompt to
+  // the event log as a `minsky_operator_input` frame, and the conversation view
+  // renders the entire scoping prompt as something the principal typed. The
+  // resume-time interruption notice opts out for exactly the same reason — see
+  // `sendDrivenSessionInput`'s own docblock on false attribution.
+  const seeded = sendDrivenSessionInput(result.record, buildEntityThreadSeedPrompt(opts.seed), {
+    echo: false,
+  });
   if (!seeded) {
     log.warn(`startEntityThreadSession: spawned ${localId} but the seed prompt was not accepted`);
   }
