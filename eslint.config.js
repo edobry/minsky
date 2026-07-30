@@ -123,6 +123,16 @@ const COCKPIT_NODE_IMPORT_GUARD_OPTIONS = {
     // has ONE authority shared with the minting side, rather than a second
     // hand-rolled regex in the web bundle that could drift from it.
     "@minsky/domain/utils/short-id",
+    // mt#3323: same "zero imports at ANY hop" bar as short-id above —
+    // rewind-detection.ts's ONLY import is `import type { ... }` from
+    // ../context/types, which erases at compile time, so it contributes no
+    // runtime import edge whatsoever. ConversationView imports
+    // `isOperatorPrompt` from it so "which user line is an operator prompt
+    // vs. a tool result" has ONE authority shared with the detection side —
+    // the render surface previously approximated it as
+    // `rawJsonlType === "user"`, which silently miscounted tool results
+    // (PR #2419 R1 BLOCKING).
+    "@minsky/domain/transcripts/rewind-detection",
   ],
 };
 

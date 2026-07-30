@@ -47,6 +47,7 @@ import {
   type ConversationRole,
   type ConversationTurn,
 } from "@minsky/domain/transcripts/conversation-elements";
+import { isOperatorPrompt } from "@minsky/domain/transcripts/rewind-detection";
 import type {
   SessionContextSnapshot,
   SessionContextSnapshotBlock,
@@ -720,7 +721,35 @@ function ConversationThread({
     [snapshot.blocks, extraBlocks]
   );
 
-  const turns = useMemo(() => snapshotBlocksToConversation(allBlocks), [allBlocks]);
+  /**
+   * Hide superseded (rewound) operator prompts (mt#3323).
+   *
+   * When the operator re-dictates or edits a prompt, the harness leaves the
+   * superseded message in the transcript as a sibling branch. Rendering it as
+   * an ordinary turn shows prose the agent never received — and in the
+   * originating incident the superseded version read BETTER than the live one,
+   * so the view was actively misleading.
+   *
+   * The blocks are marked upstream by `markAbandonedRewindBranches` at snapshot
+   * assembly and are still PRESENT in `snapshot.blocks` (the session film joins
+   * on `turnIndex`, so nothing may be removed there). Suppression is this
+   * surface's decision, and the count below keeps it visible rather than
+   * silent.
+   */
+  const { renderableBlocks, rewoundBlockCount } = useMemo(() => {
+    const kept = allBlocks.filter((b) => b.isAbandonedBranch !== true);
+    // Count operator PROMPTS, not blocks. A superseded prompt drags along both
+    // its attachment blocks and — when the operator rewound after the agent had
+    // already started working — the tool-result lines from the abandoned
+    // attempt. `rawJsonlType === "user"` matches those tool results too, so it
+    // would overstate a rewind that superseded 2 prompts (PR #2419 R1).
+    const rewoundPrompts = allBlocks.filter(
+      (b) => b.isAbandonedBranch === true && isOperatorPrompt(b)
+    ).length;
+    return { renderableBlocks: kept, rewoundBlockCount: rewoundPrompts };
+  }, [allBlocks]);
+
+  const turns = useMemo(() => snapshotBlocksToConversation(renderableBlocks), [renderableBlocks]);
 
   // Map every tool_use id → tool name so a tool-result can name the call it answers.
   // Computed over ALL turns (not the window): a windowed tool-result may answer
@@ -843,6 +872,16 @@ function ConversationThread({
           Collapse all
         </button>
       </div>
+      {rewoundBlockCount > 0 && (
+        <p
+          data-testid="rewound-branch-notice"
+          className="text-center text-[11px] text-muted-foreground/70"
+        >
+          {rewoundBlockCount === 1
+            ? "1 superseded message hidden — the operator rewrote this prompt; the agent never received the earlier version."
+            : `${rewoundBlockCount} superseded messages hidden — the operator rewrote these prompts; the agent never received the earlier versions.`}
+        </p>
+      )}
       {hiddenCount > 0 && !showAll && (
         <div className="flex items-center justify-center gap-3 py-1">
           <button
