@@ -8,7 +8,11 @@
  * and the init-link observer are injected fakes too — no session_start
  * machinery, no Postgres.
  */
-import { describe, test, expect, afterEach } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- mt#3397: the host preflights its spawn cwd against the REAL filesystem, so a route that spawns needs a real directory as its cwd — there is no fs to inject through the code path under test. A per-run mkdtemp dir keeps the "fixed mock path" race the rule guards against from applying. */
+import { describe, test, expect, afterEach, afterAll } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { EventEmitter } from "events";
 import { PassThrough } from "stream";
 import type { Server } from "http";
@@ -121,7 +125,19 @@ async function post(url: string, body: unknown): Promise<{ status: number; body:
 
 const TASK_ID = "mt#9999";
 const WORKSPACE_ID = "bbbbbbbb-0000-0000-0000-000000000002";
-const SESSION_DIR = `/state/minsky/sessions/${WORKSPACE_ID}`;
+// mt#3397 — the host preflights the spawn cwd, so every directory a route
+// actually spawns into has to exist. A made-up path here would not fail the
+// tests loudly; it would quietly divert them into the missing-cwd branch and
+// leave them asserting against a record that never spawned.
+const TEST_DIR_ROOT = mkdtempSync(join(tmpdir(), "driven-session-routes-"));
+function realDir(name: string): string {
+  const dir = join(TEST_DIR_ROOT, name);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+const SESSION_DIR = realDir(WORKSPACE_ID);
+const SCRATCH_CWD = realDir("scratch-checkout");
+const EXPLICIT_CWD = realDir("explicit");
 const HARNESS_ID = "aaaaaaaa-0000-0000-0000-000000000001";
 
 function fakeResolver(): (taskId: string) => Promise<ResolvedTaskWorkspace> {
@@ -164,7 +180,7 @@ describe("POST /api/driven-session — body validation", () => {
 
 describe("POST /api/driven-session — model selection (mt#3040)", () => {
   test("threads a valid model into the spawn argv as --model <alias>", async () => {
-    const h = await makeHarness({ scratchCwd: "/repo/checkout" });
+    const h = await makeHarness({ scratchCwd: SCRATCH_CWD });
     const res = await post(h.url, { model: "fable" });
     expect(res.status).toBe(201);
     const args = first(h.calls).args;
@@ -174,14 +190,14 @@ describe("POST /api/driven-session — model selection (mt#3040)", () => {
   });
 
   test("omits --model when no model is provided", async () => {
-    const h = await makeHarness({ scratchCwd: "/repo/checkout" });
+    const h = await makeHarness({ scratchCwd: SCRATCH_CWD });
     const res = await post(h.url, {});
     expect(res.status).toBe(201);
     expect(first(h.calls).args).not.toContain("--model");
   });
 
   test("rejects an unknown model id with 400 and does not spawn", async () => {
-    const h = await makeHarness({ scratchCwd: "/repo/checkout" });
+    const h = await makeHarness({ scratchCwd: SCRATCH_CWD });
     const res = await post(h.url, { model: "gpt-4o" });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("model");
@@ -195,13 +211,13 @@ describe("POST /api/driven-session — model selection (mt#3040)", () => {
 
 describe("POST /api/driven-session — scratch (empty body)", () => {
   test("spawns in the scratch cwd with no task binding", async () => {
-    const h = await makeHarness({ scratchCwd: "/repo/checkout" });
+    const h = await makeHarness({ scratchCwd: SCRATCH_CWD });
     const res = await post(h.url, {});
     expect(res.status).toBe(201);
-    expect(res.body.cwd).toBe("/repo/checkout");
+    expect(res.body.cwd).toBe(SCRATCH_CWD);
     expect(res.body.taskId).toBeNull();
     expect(res.body.minskySessionId).toBeNull();
-    expect(first(h.calls).options.cwd).toBe("/repo/checkout");
+    expect(first(h.calls).options.cwd).toBe(SCRATCH_CWD);
   });
 });
 
@@ -212,9 +228,9 @@ describe("POST /api/driven-session — scratch (empty body)", () => {
 describe("POST /api/driven-session — explicit cwd", () => {
   test("spawns in the given cwd, response carries null task binding", async () => {
     const h = await makeHarness();
-    const res = await post(h.url, { cwd: "/tmp/explicit" });
+    const res = await post(h.url, { cwd: EXPLICIT_CWD });
     expect(res.status).toBe(201);
-    expect(res.body.cwd).toBe("/tmp/explicit");
+    expect(res.body.cwd).toBe(EXPLICIT_CWD);
     expect(res.body.taskId).toBeNull();
     expect(typeof res.body.sessionId).toBe("string");
   });
@@ -279,7 +295,7 @@ describe("GET /api/driven-session", () => {
   test("list rows carry task binding for task-bound sessions", async () => {
     const h = await makeHarness({ resolveTaskWorkspace: fakeResolver() });
     await post(h.url, { taskId: TASK_ID });
-    await post(h.url, { cwd: "/tmp/scratchy" });
+    await post(h.url, { cwd: realDir("scratchy") });
 
     const res = await fetch(`${h.url}/api/driven-session`);
     expect(res.status).toBe(200);
@@ -290,13 +306,13 @@ describe("GET /api/driven-session", () => {
     expect(bound).toBeDefined();
     expect(bound.minskySessionId).toBe(WORKSPACE_ID);
 
-    const scratch = body.sessions.find((s) => s.cwd === "/tmp/scratchy");
+    const scratch = body.sessions.find((s) => s.cwd === realDir("scratchy"));
     expect(scratch.taskId).toBeNull();
   });
 
   test("list rows carry the SAME shape as the POST response, argv included (PR #1943 R2)", async () => {
     const h = await makeHarness();
-    const created = await post(h.url, { cwd: "/tmp/shape-check" });
+    const created = await post(h.url, { cwd: realDir("shape-check") });
 
     const res = await fetch(`${h.url}/api/driven-session`);
     const body = (await res.json()) as { sessions: any[] };
@@ -323,7 +339,7 @@ describe("GET /api/driven-session/turn-active", () => {
 
   test("reports active: false while every session is idle between turns", async () => {
     const h = await makeHarness();
-    const created = await post(h.url, { cwd: "/tmp/idle" });
+    const created = await post(h.url, { cwd: realDir("idle") });
     first(h.calls).proc.emitLine({ type: "result", subtype: "success", total_cost_usd: 0.01 });
 
     const res = await fetch(`${h.url}/api/driven-session/turn-active`);
@@ -334,7 +350,7 @@ describe("GET /api/driven-session/turn-active", () => {
 
   test("reports active: true with the session id once a turn is streaming", async () => {
     const h = await makeHarness();
-    const created = await post(h.url, { cwd: "/tmp/active" });
+    const created = await post(h.url, { cwd: realDir("active") });
     first(h.calls).proc.emitLine({ type: "assistant", message: { content: [] } });
 
     const res = await fetch(`${h.url}/api/driven-session/turn-active`);
@@ -346,8 +362,8 @@ describe("GET /api/driven-session/turn-active", () => {
 
   test("one active + one idle session: reports true, lists only the active one", async () => {
     const h = await makeHarness();
-    const idle = await post(h.url, { cwd: "/tmp/idle-2" });
-    const active = await post(h.url, { cwd: "/tmp/active-2" });
+    const idle = await post(h.url, { cwd: realDir("idle-2") });
+    const active = await post(h.url, { cwd: realDir("active-2") });
     h.calls[0]?.proc.emitLine({ type: "result", subtype: "success", total_cost_usd: 0.01 });
     h.calls[1]?.proc.emitLine({ type: "assistant", message: { content: [] } });
 
@@ -357,4 +373,10 @@ describe("GET /api/driven-session/turn-active", () => {
     expect(body.activeSessionIds).toEqual([active.body.sessionId]);
     expect(body.activeSessionIds).not.toContain(idle.body.sessionId);
   });
+});
+
+// PR #2452 R1 (non-blocking): remove the per-run temp dir so repeated runs do
+// not accumulate orphaned directories under the system temp root.
+afterAll(() => {
+  rmSync(TEST_DIR_ROOT, { recursive: true, force: true });
 });

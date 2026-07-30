@@ -6,8 +6,12 @@
  * conversation CONTINUITY, since that is the actuator's whole reason to exist.
  */
 
-import { describe, expect, test } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- mt#3397: the host preflights its spawn cwd against the REAL filesystem, so the actuator's cwd fixture has to be a real directory — there is no fs to inject through the code path under test. A per-run mkdtemp dir keeps the "fixed mock path" race the rule guards against from applying. */
+import { describe, expect, test, afterAll } from "bun:test";
 import { EventEmitter } from "events";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { PassThrough } from "stream";
 import {
   DrivenSessionRegistry,
@@ -23,7 +27,9 @@ import {
   type DrivenSessionActuatorOptions,
 } from "./principal-channel-actuator";
 
-const CWD = "/tmp/channel";
+// mt#3397 — the host preflights the spawn cwd, so this has to be a REAL
+// directory or every spawn below would take the missing-cwd branch instead.
+const CWD = mkdtempSync(join(tmpdir(), "principal-channel-"));
 const BLOCKED_Q = "what is blocked?";
 
 class FakeClaudeProcess extends EventEmitter implements ProcessLike {
@@ -607,4 +613,10 @@ describe("awaitSessionReady outcomes (PR #2330 R1)", () => {
     const { actuator } = makeActuator({ neverReady: true, readyTimeoutMs: 100 });
     await expect(actuator.converse(BLOCKED_Q)).rejects.toThrow(/did not finish starting within/);
   });
+});
+
+// PR #2452 R1 (non-blocking): remove the per-run temp dir so repeated runs do
+// not accumulate orphaned directories under the system temp root.
+afterAll(() => {
+  rmSync(CWD, { recursive: true, force: true });
 });

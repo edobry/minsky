@@ -41,6 +41,8 @@ import {
   drivenSessionRegistry,
   resumeDrivenSession,
   buildReconnectingDrivenSessionRecord,
+  missingCwdReason,
+  probeSpawnCwdAsync,
   type DrivenSessionRecord,
   type DrivenSessionCostSummary,
   type DrivenSessionRegistry,
@@ -476,7 +478,22 @@ export async function loadPersistedDrivenSessions(
     const registry = deps.registry ?? drivenSessionRegistry;
 
     for (const row of rows) {
-      const resumable = row.harnessSessionId !== null;
+      // Two independent reasons a persisted row can never be resumed. The
+      // first shipped with mt#3038; the second (mt#3397) was named in the
+      // `unrecoverable` docblock from the start but checked by nothing, so a
+      // row whose workspace had been deleted stayed `reconnecting` and
+      // re-crashed on every resume attempt, forever.
+      const noTranscript = row.harnessSessionId === null;
+      // Async probe (PR #2452 R1): this loop runs over every non-terminal row at
+      // daemon boot, so a synchronous stat here would hold the event loop for as
+      // long as the slowest workspace path takes to answer.
+      const cwdGone = (await probeSpawnCwdAsync(row.cwd)) === "missing";
+      const unrecoverableReason = noTranscript
+        ? "spawn-died-before-init — no harness session id was ever linked; there is no transcript to resume"
+        : cwdGone
+          ? missingCwdReason(row.cwd)
+          : null;
+      const resumable = unrecoverableReason === null;
       const record = buildReconnectingDrivenSessionRecord({
         localId: row.localId,
         harnessSessionId: row.harnessSessionId,
@@ -485,9 +502,7 @@ export async function loadPersistedDrivenSessions(
         taskId: row.taskId,
         minskySessionId: row.minskySessionId,
         status: resumable ? "reconnecting" : "unrecoverable",
-        unrecoverableReason: resumable
-          ? null
-          : "spawn-died-before-init — no harness session id was ever linked; there is no transcript to resume",
+        unrecoverableReason,
         actuatorGeneration: row.actuatorGeneration,
         startedAt: row.startedAt.toISOString(),
       });
@@ -508,11 +523,20 @@ export async function loadPersistedDrivenSessions(
       // resume?" — which depends on a staleness policy nobody has decided
       // (spec §Scope). Guessing a timeout here would silently reap
       // conversations the principal may still want.
+      //
+      // mt#3397 extends this to the deleted-cwd verdict, which meets the same
+      // bar for a different reason: it is an OBSERVED FACT about the
+      // filesystem, not a policy judgment, and a Minsky workspace path is a
+      // session id — once deleted, nothing recreates that exact directory. The
+      // precision that makes this safe lives in `probeSpawnCwd`, which returns
+      // "missing" ONLY on a definitive ENOENT/ENOTDIR; a permission or I/O
+      // error reads as "unknown" and leaves the row `reconnecting` rather than
+      // retiring a conversation over a transient fault.
       if (!resumable) {
         await persistUnrecoverableVerdict(
           db,
           row,
-          record.unrecoverableReason ?? "spawn-died-before-init",
+          record.unrecoverableReason ?? "unrecoverable",
           deps
         );
       }
@@ -559,6 +583,10 @@ export interface OrchestrateDrivenSessionResumeDeps {
   /** Test seam — overrides the orphan-cleanup kill call itself (bypasses `killIfIdentityMatches`
    * entirely; asserts call args instead of shelling out to a fake `ps`). */
   killOrphan?: typeof killIfIdentityMatches;
+  /** Write back a terminal verdict this resume attempt determined (mt#3397 —
+   * the deleted-cwd case). Test seam; same contract as the boot-reconciliation
+   * dep of the same name. */
+  persistTerminalVerdict?: LoadPersistedDrivenSessionsDeps["persistTerminalVerdict"];
 }
 
 /**
@@ -599,6 +627,20 @@ export async function orchestrateDrivenSessionResume(
   }
   if (row.status === "unrecoverable") {
     return { outcome: "unrecoverable", reason: row.unrecoverableReason ?? "unrecoverable" };
+  }
+  // mt#3397 — the workspace this conversation ran in is gone, so there is
+  // nothing to resume INTO. Checked here, before the resume lock and the
+  // orphan-cleanup kill, because both are wasted work for a session that
+  // cannot come back; `resumeDrivenSession` carries the same preflight as the
+  // chokepoint for its other callers. The verdict is written back so the next
+  // attempt short-circuits on the `row.status` check just above rather than
+  // re-probing the filesystem forever.
+  if ((await probeSpawnCwdAsync(row.cwd)) === "missing") {
+    const reason = missingCwdReason(row.cwd);
+    await persistUnrecoverableVerdict(db, row, reason, {
+      persistTerminalVerdict: deps.persistTerminalVerdict,
+    });
+    return { outcome: "unrecoverable", reason };
   }
 
   const withResumeLock =
