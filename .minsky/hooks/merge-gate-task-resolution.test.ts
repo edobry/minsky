@@ -31,7 +31,7 @@
 
 import { describe, test, expect, spyOn, beforeAll, afterAll } from "bun:test";
 // eslint-disable-next-line custom/no-real-fs-in-tests -- real-subprocess integration test by design (see module comment): the spawned gate processes read a real git repo and write a real fire log, neither of which a mock fs can provide. Same justification as merge-gates-git-path-regression.test.ts.
-import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 // eslint-disable-next-line custom/no-real-fs-in-tests -- same justification: a real OS temp dir, not a mock path, is required for the real subprocess spawns below
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -57,6 +57,9 @@ const DID_NOT_EVALUATE = "did NOT evaluate";
 const TASK_BRANCH = "task/mt-9999";
 const EXPECTED_BRANCH_TASK_ID = "mt#9999";
 
+/** The env var `sessionsRoot()` reads first — pinned per-test so the real state dir is never touched. */
+const STATE_DIR_ENV = "MINSKY_STATE_DIR";
+
 // ---------------------------------------------------------------------------
 // Captured payload fixture (provenance lives in the JSON itself)
 // ---------------------------------------------------------------------------
@@ -70,6 +73,8 @@ const CAPTURED: CapturedPayloads = JSON.parse(
   // eslint-disable-next-line custom/no-real-fs-in-tests -- the captured-payload fixture is a real checked-in file; reading a mock of it would defeat the entire point of capturing it (mem#705)
   readFileSync(join(HOOKS_DIR, "fixtures", "session-pr-merge-payloads.json"), "utf-8")
 ) as CapturedPayloads;
+
+const CAPTURED_SESSION_ID = CAPTURED.sessionIdInvoked.toolInput["sessionId"] as string;
 
 /** Build a `ToolHookInput` around a captured `tool_input`, varying only `cwd`. */
 function hookInput(toolInput: Record<string, unknown>, cwd: string): ToolHookInput {
@@ -88,6 +93,10 @@ function hookInput(toolInput: Record<string, unknown>, cwd: string): ToolHookInp
 let taskBranchRepo: string;
 let mainBranchRepo: string;
 let nonGitDir: string;
+/** A fake `MINSKY_STATE_DIR` whose `sessions/<CAPTURED sessionId>` is a task-branch repo. */
+let stateDirWithSession: string;
+/** A fake `MINSKY_STATE_DIR` containing no session workspaces at all. */
+let emptyStateDir: string;
 
 function git(cwd: string, ...args: string[]): void {
   const r = Bun.spawnSync(["git", ...args], { cwd });
@@ -111,14 +120,39 @@ beforeAll(() => {
   mainBranchRepo = initRepo("main");
 
   nonGitDir = mkdtempSync(join(tmpdir(), "mt3355-nogit-"));
+
+  // mt#3380: the `sessionId` channel resolves `<state>/sessions/<id>`, so the fixture must be
+  // a REAL repo at exactly that path — the same `git rev-parse` the cwd fallback runs.
+  stateDirWithSession = mkdtempSync(join(tmpdir(), "mt3380-state-"));
+  const sessionWorkspace = join(stateDirWithSession, "sessions", CAPTURED_SESSION_ID);
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- a real dir is the point: the channel reads a real branch
+  mkdirSync(sessionWorkspace, { recursive: true });
+  git(sessionWorkspace, "init", "-q", "-b", TASK_BRANCH);
+  git(sessionWorkspace, "config", "user.email", "test@example.com");
+  git(sessionWorkspace, "config", "user.name", "Test");
+  git(sessionWorkspace, "commit", "-q", "--allow-empty", "-m", "init");
+
+  emptyStateDir = mkdtempSync(join(tmpdir(), "mt3380-empty-"));
 });
 
 afterAll(() => {
-  for (const d of [taskBranchRepo, mainBranchRepo, nonGitDir]) {
+  for (const d of [taskBranchRepo, mainBranchRepo, nonGitDir, stateDirWithSession, emptyStateDir]) {
     // eslint-disable-next-line custom/no-real-fs-in-tests -- cleanup of the real dirs created above
     if (d) rmSync(d, { recursive: true, force: true });
   }
 });
+
+/** Run `fn` with `MINSKY_STATE_DIR` pinned, restoring the ambient value afterwards. */
+function withStateDir<T>(stateDir: string, fn: () => T): T {
+  const previous = process.env[STATE_DIR_ENV];
+  process.env[STATE_DIR_ENV] = stateDir;
+  try {
+    return fn();
+  } finally {
+    if (previous === undefined) delete process.env[STATE_DIR_ENV];
+    else process.env[STATE_DIR_ENV] = previous;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Unit — resolveMergeGateTaskId
@@ -142,9 +176,9 @@ describe("resolveMergeGateTaskId", () => {
     expect(result.taskId).toBe(EXPECTED_BRANCH_TASK_ID);
   });
 
-  test("reports 'unresolved' when tool_input.task is absent and cwd is on main", () => {
-    const result = resolveMergeGateTaskId(
-      hookInput(CAPTURED.sessionIdInvoked.toolInput, mainBranchRepo)
+  test("reports 'unresolved' when tool_input.task is absent, cwd is on main, and no session workspace exists", () => {
+    const result = withStateDir(emptyStateDir, () =>
+      resolveMergeGateTaskId(hookInput(CAPTURED.sessionIdInvoked.toolInput, mainBranchRepo))
     );
     expect(result.source).toBe("unresolved");
     expect(result.taskId).toBeNull();
@@ -164,6 +198,46 @@ describe("resolveMergeGateTaskId", () => {
 
   test("ignores a whitespace-only tool_input.task and falls through to the branch", () => {
     const result = resolveMergeGateTaskId(hookInput({ task: "   " }, taskBranchRepo));
+    expect(result.source).toBe("branch-fallback");
+    expect(result.taskId).toBe(EXPECTED_BRANCH_TASK_ID);
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#3380 — the `sessionId` channel (AT1 / AT2 / AT3)
+  // -------------------------------------------------------------------------
+
+  test("AT1: resolves from the sessionId's workspace branch when cwd is on main", () => {
+    const result = withStateDir(stateDirWithSession, () =>
+      resolveMergeGateTaskId(hookInput(CAPTURED.sessionIdInvoked.toolInput, mainBranchRepo))
+    );
+    expect(result.source).toBe("session-workspace-branch");
+    expect(result.taskId).toBe(EXPECTED_BRANCH_TASK_ID);
+  });
+
+  test("AT2: tool_input.task still wins when both selectors are present", () => {
+    const result = withStateDir(stateDirWithSession, () =>
+      resolveMergeGateTaskId(
+        hookInput({ task: "mt#0000", sessionId: CAPTURED_SESSION_ID }, mainBranchRepo)
+      )
+    );
+    expect(result.source).toBe("tool_input");
+    expect(result.taskId).toBe("mt#0000");
+  });
+
+  test("AT3: reports 'unresolved' rather than throwing when the sessionId names no workspace", () => {
+    const result = withStateDir(stateDirWithSession, () =>
+      resolveMergeGateTaskId(
+        hookInput({ sessionId: "00000000-0000-4000-8000-00000000dead" }, mainBranchRepo)
+      )
+    );
+    expect(result.source).toBe("unresolved");
+    expect(result.taskId).toBeNull();
+  });
+
+  test("the cwd branch still takes precedence over the sessionId workspace", () => {
+    const result = withStateDir(stateDirWithSession, () =>
+      resolveMergeGateTaskId(hookInput(CAPTURED.sessionIdInvoked.toolInput, taskBranchRepo))
+    );
     expect(result.source).toBe("branch-fallback");
     expect(result.taskId).toBe(EXPECTED_BRANCH_TASK_ID);
   });
