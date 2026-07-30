@@ -206,3 +206,36 @@ describe("Prose — entity-reference label channel (mt#3174)", () => {
     expect(anchor?.hasAttribute("data-state")).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// GFM task-list checkboxes (mt#3348)
+//
+// remark-gfm renders `- [ ] item` as `<input type="checkbox" disabled>`, which
+// keeps `appearance: auto` and paints native OS chrome. These are generated at
+// render time, so no source grep finds them — this is the check that does.
+// ---------------------------------------------------------------------------
+
+describe("Prose — GFM task-list checkboxes (mt#3348)", () => {
+  const TASK_LIST = ["- [ ] unchecked item", "- [x] checked item"].join("\n");
+
+  test("renders NO native checkbox input for task-list items", () => {
+    const { container } = renderProse(<Prose>{TASK_LIST}</Prose>);
+    expect(container.querySelectorAll('input[type="checkbox"]').length).toBe(0);
+    expect(container.querySelectorAll("input").length).toBe(0);
+  });
+
+  test("checked and unchecked stay distinguishable, and both are non-interactive", () => {
+    const { container } = renderProse(<Prose>{TASK_LIST}</Prose>);
+    const boxes = [...container.querySelectorAll('[role="checkbox"]')];
+    expect(boxes.length).toBe(2);
+    expect(boxes.map((b) => b.getAttribute("aria-checked"))).toEqual(["false", "true"]);
+    // Markdown task state is not editable from this surface.
+    expect(boxes.every((b) => b.getAttribute("aria-disabled") === "true")).toBe(true);
+  });
+
+  test("an ordinary bullet list renders no checkbox indicator (negative control)", () => {
+    const { container } = renderProse(<Prose>{"- plain item\n- another item"}</Prose>);
+    expect(container.querySelectorAll('[role="checkbox"]').length).toBe(0);
+    expect(container.querySelectorAll("input").length).toBe(0);
+  });
+});

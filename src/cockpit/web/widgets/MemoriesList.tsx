@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
+import { Checkbox } from "../components/ui/checkbox";
 
 interface MemoriesListPayload {
   records: MemoryRecord[];
@@ -148,10 +149,9 @@ function FilterBar({
       />
 
       <label className="flex items-center gap-1 text-muted-foreground cursor-pointer">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={filter.excludeSuperseded}
-          onChange={(e) => onChange({ ...filter, excludeSuperseded: e.target.checked })}
+          onCheckedChange={(v) => onChange({ ...filter, excludeSuperseded: v === true })}
           className="h-3 w-3"
         />
         Hide superseded
