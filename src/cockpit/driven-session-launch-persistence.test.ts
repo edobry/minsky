@@ -12,8 +12,12 @@
  * @see mt#3038
  */
 
+/* eslint-disable custom/no-real-fs-in-tests -- mt#3397: the boot classifier and resume orchestration probe the REAL filesystem to decide whether a workspace still exists, so a row's cwd fixture has to be a real directory — there is no fs to inject through the code path under test. A per-run mkdtemp dir keeps the "fixed mock path" race the rule guards against from applying. */
 import { describe, test, expect } from "bun:test";
 import { EventEmitter } from "events";
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { PassThrough } from "stream";
 
 import {
@@ -42,10 +46,17 @@ const FAKE_DB = {
   __marker: "fake-db",
 } as unknown as import("drizzle-orm/postgres-js").PostgresJsDatabase;
 
+// mt#3397 — a resumable row's cwd must be a REAL directory: the boot classifier
+// and the resume orchestration both probe it, and a made-up path now (correctly)
+// classifies the row unrecoverable. MISSING_CWD is the never-created sibling
+// used by the tests that assert that classification.
+const TEST_WORKSPACE_ROOT = mkdtempSync(join(tmpdir(), "driven-session-launch-"));
+const MISSING_CWD = join(TEST_WORKSPACE_ROOT, "deleted-workspace");
+
 const BASE_ROW: DrivenSessionRow = {
   localId: "local-1",
   harnessSessionId: "harness-1",
-  cwd: "/tmp/workdir",
+  cwd: TEST_WORKSPACE_ROOT,
   permissionMode: "bypassPermissions",
   taskId: "mt#3038",
   minskySessionId: "session-1",
@@ -71,7 +82,7 @@ describe("createDrivenSessionPersistObserver", () => {
     });
 
     const { record } = startDrivenSession({
-      cwd: "/tmp/x",
+      cwd: TEST_WORKSPACE_ROOT,
       spawnFn: () => new FakeClaudeProcess(),
     });
 
@@ -82,7 +93,7 @@ describe("createDrivenSessionPersistObserver", () => {
     expect(upsertCalls.length).toBe(1);
     const call = upsertCalls[0] as Record<string, unknown>;
     expect(call.localId).toBe(record.localId);
-    expect(call.cwd).toBe("/tmp/x");
+    expect(call.cwd).toBe(TEST_WORKSPACE_ROOT);
     expect(call.status).toBe("spawned");
     expect(call.pidCmdline).toContain("claude");
   });
@@ -99,7 +110,7 @@ describe("createDrivenSessionPersistObserver", () => {
       },
     });
     startDrivenSession({
-      cwd: "/tmp/x",
+      cwd: TEST_WORKSPACE_ROOT,
       model: "fable",
       spawnFn: () => new FakeClaudeProcess(),
       onStateChange: observer,
@@ -119,7 +130,7 @@ describe("createDrivenSessionPersistObserver", () => {
       },
     });
     startDrivenSession({
-      cwd: "/tmp/x",
+      cwd: TEST_WORKSPACE_ROOT,
       spawnFn: () => new FakeClaudeProcess(),
       onStateChange: observer,
     });
@@ -130,7 +141,7 @@ describe("createDrivenSessionPersistObserver", () => {
   test("logs and no-ops (never throws) when persistence is unavailable", async () => {
     const observer = createDrivenSessionPersistObserver({ getDb: async () => null });
     const { record } = startDrivenSession({
-      cwd: "/tmp/x",
+      cwd: TEST_WORKSPACE_ROOT,
       spawnFn: () => new FakeClaudeProcess(),
     });
     expect(() => observer(record)).not.toThrow();
@@ -145,7 +156,7 @@ describe("createDrivenSessionPersistObserver", () => {
       },
     });
     const { record } = startDrivenSession({
-      cwd: "/tmp/x",
+      cwd: TEST_WORKSPACE_ROOT,
       spawnFn: () => new FakeClaudeProcess(),
     });
     expect(() => observer(record)).not.toThrow();
@@ -460,5 +471,116 @@ describe("orchestrateDrivenSessionResume", () => {
       },
     });
     expect(outcome.outcome).toBe("resumed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Deleted-workspace classification (mt#3397)
+// ---------------------------------------------------------------------------
+
+describe("deleted workspace cwd (mt#3397)", () => {
+  const DELETED_ROW = { ...BASE_ROW, cwd: MISSING_CWD };
+
+  // Acceptance test 3.
+  test("boot reconciliation classifies a linked row with a deleted cwd as unrecoverable", async () => {
+    const registry = new DrivenSessionRegistry();
+
+    await loadPersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      // harnessSessionId is NON-null — under the pre-mt#3397 classifier this row
+      // was "reconnecting", and every resume of it crashed.
+      listNonTerminal: async () => [DELETED_ROW],
+      registry,
+      persistTerminalVerdict: async () => "written",
+    });
+
+    const record = registry.get("local-1");
+    expect(record?.status).toBe("unrecoverable");
+    expect(record?.unrecoverableReason).toContain(MISSING_CWD);
+    expect(record?.unrecoverableReason).toContain("deleted cwd");
+  });
+
+  // Acceptance test 2.
+  test("boot reconciliation PERSISTS the deleted-cwd verdict so it is not re-derived forever", async () => {
+    const persisted: { status: string; reason: string | null }[] = [];
+
+    await loadPersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [DELETED_ROW],
+      registry: new DrivenSessionRegistry(),
+      persistTerminalVerdict: async (_db, input) => {
+        persisted.push({
+          status: input.status,
+          reason: input.unrecoverableReason ?? null,
+        });
+        return "written";
+      },
+    });
+
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]?.status).toBe("unrecoverable");
+    expect(persisted[0]?.reason).toContain(MISSING_CWD);
+  });
+
+  test("orchestrateDrivenSessionResume refuses the resume and never spawns", async () => {
+    const spawns: string[] = [];
+
+    const outcome = await orchestrateDrivenSessionResume("local-1", {
+      getDb: async () => FAKE_DB,
+      getPersisted: async () => DELETED_ROW,
+      persistTerminalVerdict: async () => "written",
+      spawnFn: (command) => {
+        spawns.push(command);
+        return new FakeClaudeProcess();
+      },
+      registry: new DrivenSessionRegistry(),
+    });
+
+    expect(outcome.outcome).toBe("unrecoverable");
+    expect(outcome.outcome === "unrecoverable" && outcome.reason).toContain(MISSING_CWD);
+    expect(spawns).toHaveLength(0);
+  });
+
+  test("orchestrateDrivenSessionResume writes the verdict back, and never takes the resume lock", async () => {
+    const persisted: string[] = [];
+    let lockTaken = false;
+
+    await orchestrateDrivenSessionResume("local-1", {
+      getDb: async () => FAKE_DB,
+      getPersisted: async () => DELETED_ROW,
+      persistTerminalVerdict: async (_db, input) => {
+        persisted.push(input.unrecoverableReason ?? "");
+        return "written";
+      },
+      // Refusing BEFORE the lock is the point: a session that cannot come back
+      // must not serialize other daemons behind a lock to find that out.
+      withResumeLock: async () => {
+        lockTaken = true;
+        return { acquired: false };
+      },
+      registry: new DrivenSessionRegistry(),
+    });
+
+    expect(lockTaken).toBe(false);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]).toContain(MISSING_CWD);
+  });
+
+  test("a row whose cwd still exists is unaffected — it resumes as before", async () => {
+    const spawns: string[] = [];
+
+    const outcome = await orchestrateDrivenSessionResume("local-1", {
+      getDb: async () => FAKE_DB,
+      getPersisted: async () => BASE_ROW,
+      withResumeLock: async (_db, _key, fn) => ({ acquired: true, result: await fn() }),
+      spawnFn: (command) => {
+        spawns.push(command);
+        return new FakeClaudeProcess();
+      },
+      registry: new DrivenSessionRegistry(),
+    });
+
+    expect(outcome.outcome).toBe("resumed");
+    expect(spawns).toHaveLength(1);
   });
 });

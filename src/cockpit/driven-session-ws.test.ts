@@ -12,19 +12,33 @@
  * verification only — see the PR body's "## Live verification" section).
  */
 import { describe, test, expect, afterEach } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- mt#3397: the host preflights its spawn cwd against the REAL filesystem, so a cwd fixture has to be a real directory — there is no fs to inject through the code path under test. A per-run mkdtemp dir keeps the "fixed mock path" race the rule guards against from applying. */
+import { mkdtempSync } from "fs";
 import { createServer } from "http";
+import { tmpdir } from "os";
+import { join } from "path";
 import type { Server } from "http";
 import { EventEmitter } from "events";
 import { PassThrough } from "stream";
 import WebSocket from "ws";
 import { createCockpitServer } from "./server";
 import { attachDrivenSessionWebSocket } from "./driven-session-ws";
-import { DrivenSessionRegistry, type ProcessLike, type SpawnFn } from "./driven-session-host";
+import {
+  DrivenSessionRegistry,
+  buildReconnectingDrivenSessionRecord,
+  type ProcessLike,
+  type SpawnFn,
+} from "./driven-session-host";
 import { buildAllowedHosts, COCKPIT_COOKIE_NAME } from "./auth";
 import type { orchestrateDrivenSessionResume } from "./driven-session-launch";
 
 const TEST_TOKEN = "test-driven-session-ws-token";
 const DRIVEN_SESSION_PATH = "/api/driven-session";
+// mt#3397 — the host preflights the spawn cwd, so these end-to-end POSTs need a
+// cwd that actually exists or they'd all take the missing-cwd branch instead of
+// spawning the fake child.
+const SCRATCH_CWD = mkdtempSync(join(tmpdir(), "driven-session-ws-"));
+const UNRECOVERABLE_EVENT_TYPE = "minsky_unrecoverable";
 
 // ---------------------------------------------------------------------------
 // Fake process double (mirrors driven-session-host.test.ts's FakeClaudeProcess)
@@ -192,7 +206,7 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
     const s = await startTestServer(registry, spawnFn);
     closeList.push(s.close);
 
-    const { status, json } = await s.postJson(DRIVEN_SESSION_PATH, { cwd: "/tmp/scratch" });
+    const { status, json } = await s.postJson(DRIVEN_SESSION_PATH, { cwd: SCRATCH_CWD });
     expect(status).toBe(201);
     const sessionId = (json as { sessionId: string }).sessionId;
     expect(typeof sessionId).toBe("string");
@@ -254,7 +268,7 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
     const s = await startTestServer(registry, spawnFn);
     closeList.push(s.close);
 
-    const { json } = await s.postJson(DRIVEN_SESSION_PATH, { cwd: "/tmp/scratch" });
+    const { json } = await s.postJson(DRIVEN_SESSION_PATH, { cwd: SCRATCH_CWD });
     const sessionId = (json as { sessionId: string }).sessionId;
 
     // No Authorization header, no cookie.
@@ -272,7 +286,7 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
     const s = await startTestServer(registry, spawnFn);
     closeList.push(s.close);
 
-    const { json } = await s.postJson(DRIVEN_SESSION_PATH, { cwd: "/tmp/scratch" });
+    const { json } = await s.postJson(DRIVEN_SESSION_PATH, { cwd: SCRATCH_CWD });
     const sessionId = (json as { sessionId: string }).sessionId;
 
     const ws = new WebSocket(s.wsUrl(`/api/driven-session/${sessionId}/ws`), {
@@ -296,7 +310,7 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
     const s = await startTestServer(registry, spawnFn);
     closeList.push(s.close);
 
-    const { json } = await s.postJson(DRIVEN_SESSION_PATH, { cwd: "/tmp/scratch" });
+    const { json } = await s.postJson(DRIVEN_SESSION_PATH, { cwd: SCRATCH_CWD });
     const sessionId = (json as { sessionId: string }).sessionId;
 
     const ws = new WebSocket(s.wsUrl(`/api/driven-session/${sessionId}/ws`), {
@@ -321,7 +335,7 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
     const s = await startTestServer(registry, spawnFn);
     closeList.push(s.close);
 
-    const { json } = await s.postJson(DRIVEN_SESSION_PATH, { cwd: "/tmp/scratch" });
+    const { json } = await s.postJson(DRIVEN_SESSION_PATH, { cwd: SCRATCH_CWD });
     const sessionId = (json as { sessionId: string }).sessionId;
 
     const sameOrigin = s.wsUrl("").replace(/^ws:/, "http:");
@@ -375,12 +389,53 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
     const outcome = await waitForWsOutcome(ws);
     expect(outcome).toBe("opened");
 
-    await waitUntil(() => messages.some((m) => m.type === "minsky_unrecoverable"));
-    const event = messages.find((m) => m.type === "minsky_unrecoverable");
+    await waitUntil(() => messages.some((m) => m.type === UNRECOVERABLE_EVENT_TYPE));
+    const event = messages.find((m) => m.type === UNRECOVERABLE_EVENT_TYPE);
     expect(event?.reason).toBe("deleted cwd");
 
     const record = registry.get("never-in-memory");
     expect(record?.status).toBe("unrecoverable");
+  });
+
+  // mt#3397 — the host now emits a REAL minsky_unrecoverable event when a spawn
+  // races a workspace deletion, so the replayed log can already contain one.
+  // The synthetic frame must not double it up.
+  test("does not duplicate the unrecoverable frame when the replayed log already carries one", async () => {
+    const registry = new DrivenSessionRegistry();
+    const reason = "deleted cwd — the workspace directory /tmp/gone no longer exists";
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: "already-emitted",
+      harnessSessionId: "harness-already-emitted",
+      cwd: "/tmp/gone",
+      permissionMode: "bypassPermissions",
+      taskId: null,
+      minskySessionId: null,
+      status: "unrecoverable",
+      unrecoverableReason: reason,
+      actuatorGeneration: 1,
+      startedAt: new Date().toISOString(),
+    });
+    record.eventLog.push({
+      seq: 0,
+      receivedAt: new Date().toISOString(),
+      payload: { type: UNRECOVERABLE_EVENT_TYPE, reason },
+    });
+    registry.register(record);
+
+    const { spawnFn } = makeFakeSpawnFn();
+    const s = await startTestServer(registry, spawnFn);
+    closeList.push(s.close);
+
+    const ws = new WebSocket(s.wsUrl(`/api/driven-session/already-emitted/ws`), {
+      headers: { Authorization: `Bearer ${TEST_TOKEN}` },
+    });
+    socketList.push(ws);
+    const messages = collectMessages(ws);
+
+    expect(await waitForWsOutcome(ws)).toBe("opened");
+    await waitUntil(() => messages.some((m) => m.type === UNRECOVERABLE_EVENT_TYPE));
+
+    expect(messages.filter((m) => m.type === UNRECOVERABLE_EVENT_TYPE)).toHaveLength(1);
   });
 
   test("acceptance test 2: exit/crash surfaces a minsky_exit terminal event and updates the registry", async () => {
@@ -389,7 +444,7 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
     const s = await startTestServer(registry, spawnFn);
     closeList.push(s.close);
 
-    const { json } = await s.postJson(DRIVEN_SESSION_PATH, { cwd: "/tmp/scratch" });
+    const { json } = await s.postJson(DRIVEN_SESSION_PATH, { cwd: SCRATCH_CWD });
     const sessionId = (json as { sessionId: string }).sessionId;
     const proc = first(procs);
 
@@ -435,7 +490,7 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
     const res = await fetch(`http://127.0.0.1:${addr.port}${DRIVEN_SESSION_PATH}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/tmp/scratch" }),
+      body: JSON.stringify({ cwd: SCRATCH_CWD }),
     });
     // isPublicDeployment skips mutation-auth too (see server-security.test.ts),
     // so a 404 here specifically confirms the route itself was never mounted

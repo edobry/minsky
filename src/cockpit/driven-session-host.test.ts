@@ -13,7 +13,9 @@
 import { describe, test, expect } from "bun:test";
 import { EventEmitter } from "events";
 import { PassThrough } from "stream";
-import { readFileSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   startDrivenSession,
   sendDrivenSessionInput,
@@ -30,6 +32,7 @@ import {
   NewlineSplitter,
   DrivenSessionRegistry,
   CLAUDE_BINARY,
+  probeSpawnCwd,
   type ProcessLike,
   type SpawnFn,
   type SpawnOptions,
@@ -106,7 +109,15 @@ function first<T>(arr: T[]): T {
   return item;
 }
 
-const SCRATCH_CWD = "/tmp/scratch-workspace";
+// mt#3397 — the host preflights the spawn cwd, so a test cwd has to be a REAL
+// directory: a made-up path would silently divert every spawn assertion below
+// into the missing-cwd branch. One temp dir per run serves as both the scratch
+// workspace and the generic working directory; MISSING_CWD is its deliberately
+// never-created sibling, for the tests that DO exercise that branch.
+const TEST_WORKSPACE_ROOT = mkdtempSync(join(tmpdir(), "driven-session-host-"));
+const SCRATCH_CWD = TEST_WORKSPACE_ROOT;
+const TEST_CWD = TEST_WORKSPACE_ROOT;
+const MISSING_CWD = join(TEST_WORKSPACE_ROOT, "deleted-workspace");
 const SKIP_PERMISSIONS_FLAG = "--dangerously-skip-permissions";
 const PARSE_ERROR_TYPE = "minsky_parse_error";
 const BYPASS_PERMISSIONS_MODE = "bypassPermissions";
@@ -214,7 +225,7 @@ describe("startDrivenSession — spawns with the documented flags", () => {
 
   test("a custom command override is honored (test seam)", () => {
     const { spawnFn, calls } = makeFakeSpawnFn();
-    startDrivenSession({ cwd: "/tmp/x", command: "/fake/bin/claude", spawnFn });
+    startDrivenSession({ cwd: TEST_CWD, command: "/fake/bin/claude", spawnFn });
     expect(first(calls).command).toBe("/fake/bin/claude");
   });
 
@@ -258,7 +269,7 @@ describe("stream-json parsing", () => {
   test("init/assistant/stream_event/result events are all forwarded and the init event links the harness session id", () => {
     const registry = new DrivenSessionRegistry();
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", registry, spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, registry, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
 
     proc.emitLine({ type: "system", subtype: "init", session_id: "harness-abc-123", tools: [] });
@@ -277,7 +288,7 @@ describe("stream-json parsing", () => {
 
   test("an unrecognized event type is tolerated (defensive parsing) and still forwarded", () => {
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
 
     proc.emitLine({ type: "some_future_event_type_not_yet_documented", weird: true });
@@ -290,7 +301,7 @@ describe("stream-json parsing", () => {
 
   test("a malformed line does not crash the parser loop — subsequent valid lines still arrive", () => {
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
 
     proc.emitRaw("not json at all\n");
@@ -411,7 +422,7 @@ describe("extractResultSummary", () => {
 describe("cost history + onResultSummary observer (mt#2753)", () => {
   test("each result event appends to record.costHistory with an incrementing turnIndex", () => {
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
 
     proc.emitLine({ type: "result", subtype: "success", total_cost_usd: 0.01 });
@@ -428,7 +439,7 @@ describe("cost history + onResultSummary observer (mt#2753)", () => {
     const { spawnFn } = makeFakeSpawnFn();
     const calls: Array<{ record: DrivenSessionRecord; summary: DrivenSessionCostSummary }> = [];
     const { record } = startDrivenSession({
-      cwd: "/tmp/x",
+      cwd: TEST_CWD,
       spawnFn,
       onResultSummary: (rec, summary) => calls.push({ record: rec, summary }),
     });
@@ -445,7 +456,7 @@ describe("cost history + onResultSummary observer (mt#2753)", () => {
   test("a throwing onResultSummary observer does not disturb the event loop", () => {
     const { spawnFn } = makeFakeSpawnFn();
     const { record } = startDrivenSession({
-      cwd: "/tmp/x",
+      cwd: TEST_CWD,
       spawnFn,
       onResultSummary: () => {
         throw new Error("boom");
@@ -473,7 +484,7 @@ describe("cost history + onResultSummary observer (mt#2753)", () => {
 describe("sendDrivenSessionInput", () => {
   test("writes a stream-json user-message line to the fake's stdin", () => {
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
 
     const ok = sendDrivenSessionInput(record, "hello, driven session");
@@ -488,7 +499,7 @@ describe("sendDrivenSessionInput", () => {
 
   test("returns false and does not write once the session has exited", () => {
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
     proc.exit(0, null);
 
@@ -501,7 +512,7 @@ describe("sendDrivenSessionInput", () => {
   // only reaches the view if the host appends it to the event log itself.
   test("appends exactly one operator-input event to the replayable log", () => {
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const before = record.eventLog.length;
 
     expect(sendDrivenSessionInput(record, "what changed in the last hour?")).toBe(true);
@@ -515,7 +526,7 @@ describe("sendDrivenSessionInput", () => {
 
   test("broadcasts the operator-input event to live subscribers", () => {
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const seen: Record<string, unknown>[] = [];
     record.subscribers.add({ onEvent: (event) => seen.push(event.payload), onSwap: () => {} });
 
@@ -536,7 +547,7 @@ describe("sendDrivenSessionInput", () => {
 
   test("appends nothing when the session has already exited", () => {
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
     proc.exit(0, null);
     const before = record.eventLog.length;
@@ -550,7 +561,7 @@ describe("sendDrivenSessionInput", () => {
     // The resume path sends a host-authored interruption notice through this
     // same function; echoing it would put words in the operator's mouth.
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
 
     expect(sendDrivenSessionInput(record, "a system notice", { echo: false })).toBe(true);
@@ -571,7 +582,7 @@ describe("sendDrivenSessionInput", () => {
     const record = buildReconnectingDrivenSessionRecord({
       localId: "reconnecting-local-id",
       harnessSessionId: "harness-id",
-      cwd: "/tmp/x",
+      cwd: TEST_CWD,
       permissionMode: "bypassPermissions",
       taskId: null,
       minskySessionId: null,
@@ -593,7 +604,7 @@ describe("sendDrivenSessionInput", () => {
 describe("registry lifecycle transitions", () => {
   test("clean exit (code 0) transitions status to 'exited'", () => {
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
 
     proc.exit(0, null);
@@ -607,7 +618,7 @@ describe("registry lifecycle transitions", () => {
 
   test("nonzero exit code with no stop requested transitions status to 'crashed'", () => {
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
 
     proc.emitStderr("--dangerously-skip-permissions is not allowed by managed policy\n");
@@ -622,7 +633,7 @@ describe("registry lifecycle transitions", () => {
 
   test("a spawn-level error (e.g. ENOENT) transitions status to 'crashed' with a readable message", () => {
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
 
     proc.emit("error", new Error("spawn claude ENOENT"));
@@ -636,7 +647,7 @@ describe("registry lifecycle transitions", () => {
 
   test("stopDrivenSession closes stdin and a subsequent exit classifies as 'exited', not 'crashed'", () => {
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
 
     stopDrivenSession(record, { graceMs: 50 });
@@ -651,7 +662,7 @@ describe("registry lifecycle transitions", () => {
 
   test("stopDrivenSession is idempotent on an already-exited record", () => {
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
     proc.exit(0, null);
 
@@ -667,7 +678,7 @@ describe("registry lifecycle transitions", () => {
 describe("nested MCP tool-use event does not deadlock the host", () => {
   test("a tool_use/tool_result pair mid-stream is just forwarded like any other event", () => {
     const { spawnFn } = makeFakeSpawnFn();
-    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
     const proc = record.proc as unknown as FakeClaudeProcess;
 
     proc.emitLine({ type: "system", subtype: "init", session_id: "harness-nested-1" });
@@ -1121,5 +1132,191 @@ describe("isDrivenSessionMidTurn (mt#3048)", () => {
       startedAt: new Date().toISOString(),
     });
     expect(isDrivenSessionMidTurn(record)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. Spawn-cwd preflight (mt#3397)
+// ---------------------------------------------------------------------------
+
+describe("probeSpawnCwd (mt#3397)", () => {
+  test("an existing directory is 'present'", () => {
+    expect(probeSpawnCwd(TEST_WORKSPACE_ROOT)).toBe("present");
+  });
+
+  test("a path that does not exist is 'missing'", () => {
+    expect(probeSpawnCwd(MISSING_CWD)).toBe("missing");
+  });
+
+  test("a path that exists but is a FILE is 'missing' — spawn needs a directory", () => {
+    const filePath = join(TEST_WORKSPACE_ROOT, "not-a-directory.txt");
+    writeFileSync(filePath, "x");
+    expect(probeSpawnCwd(filePath)).toBe("missing");
+  });
+});
+
+describe("startDrivenSession — missing cwd (mt#3397)", () => {
+  test("does not spawn, and returns a terminal unrecoverable record naming the path", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const registry = new DrivenSessionRegistry();
+
+    const { record } = startDrivenSession({ cwd: MISSING_CWD, spawnFn, registry });
+
+    // The whole point: no child process is created at all.
+    expect(calls.length).toBe(0);
+    expect(record.status).toBe("unrecoverable");
+    expect(record.unrecoverableReason).toContain(MISSING_CWD);
+    // The operator must not be sent looking at their PATH for a cwd problem.
+    expect(record.unrecoverableReason).not.toContain(CLAUDE_BINARY);
+    expect(record.pid).toBeUndefined();
+    // Registered under its own id, so the route can hand back a real session.
+    expect(registry.get(record.localId)).toBe(record);
+  });
+
+  test("notifies the state-change observer, which is what persists the verdict", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const observed: DrivenSessionRecord[] = [];
+
+    startDrivenSession({
+      cwd: MISSING_CWD,
+      spawnFn,
+      registry: new DrivenSessionRegistry(),
+      onStateChange: (record) => observed.push(record),
+    });
+
+    expect(observed.length).toBe(1);
+    expect(first(observed).status).toBe("unrecoverable");
+  });
+});
+
+describe("resumeDrivenSession — missing cwd (mt#3397, acceptance test 1)", () => {
+  test("does not spawn; replaces the record with a terminal unrecoverable one", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const registry = new DrivenSessionRegistry();
+    const { record: original } = startDrivenSession({
+      cwd: TEST_CWD,
+      spawnFn,
+      registry,
+      mcpConfig: null,
+    });
+    registry.linkHarnessId(original, RESUME_HARNESS_SESSION_ID);
+    const spawnsBeforeResume = calls.length;
+
+    const { record } = resumeDrivenSession({
+      previous: {
+        localId: original.localId,
+        // The workspace was deleted out from under the conversation.
+        cwd: MISSING_CWD,
+        permissionMode: BYPASS_PERMISSIONS_MODE,
+        harnessSessionId: RESUME_HARNESS_SESSION_ID,
+        taskId: null,
+        minskySessionId: null,
+        startedAt: original.startedAt,
+        actuatorGeneration: original.actuatorGeneration,
+      },
+      spawnFn,
+      registry,
+      mcpConfig: null,
+    });
+
+    expect(calls.length).toBe(spawnsBeforeResume);
+    expect(record.status).toBe("unrecoverable");
+    expect(record.unrecoverableReason).toContain(MISSING_CWD);
+    // Same conversation, same actuator count — nothing new was started.
+    expect(record.localId).toBe(original.localId);
+    expect(record.harnessSessionId).toBe(RESUME_HARNESS_SESSION_ID);
+    expect(record.actuatorGeneration).toBe(original.actuatorGeneration);
+    expect(registry.get(original.localId)).toBe(record);
+  });
+
+  test("swaps existing subscribers so an open socket redials onto the terminal state", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const registry = new DrivenSessionRegistry();
+    const { record: original } = startDrivenSession({
+      cwd: TEST_CWD,
+      spawnFn,
+      registry,
+      mcpConfig: null,
+    });
+    let swapped = 0;
+    const subscriber: DrivenSessionSubscriber = {
+      onEvent: () => undefined,
+      onSwap: () => {
+        swapped += 1;
+      },
+    };
+    original.subscribers.add(subscriber);
+
+    resumeDrivenSession({
+      previous: {
+        localId: original.localId,
+        cwd: MISSING_CWD,
+        permissionMode: BYPASS_PERMISSIONS_MODE,
+        harnessSessionId: RESUME_HARNESS_SESSION_ID,
+        taskId: null,
+        minskySessionId: null,
+        startedAt: original.startedAt,
+        actuatorGeneration: 0,
+      },
+      spawnFn,
+      registry,
+      mcpConfig: null,
+    });
+
+    expect(swapped).toBe(1);
+  });
+});
+
+describe("spawn ENOENT disambiguation (mt#3397, acceptance test 4)", () => {
+  /** Build the exact error Node raises for both ENOENT causes. */
+  function enoentError(command: string): NodeJS.ErrnoException {
+    const err: NodeJS.ErrnoException = new Error(
+      `spawn ${command} ENOENT: no such file or directory, posix_spawn '${command}'`
+    );
+    err.code = "ENOENT";
+    return err;
+  }
+
+  test("with the cwd intact, an ENOENT reports a PATH problem — not a cwd one", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const registry = new DrivenSessionRegistry();
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn, registry, mcpConfig: null });
+
+    first(calls).proc.emit("error", enoentError(CLAUDE_BINARY));
+
+    expect(record.status).toBe("crashed");
+    expect(record.crashError).toContain("PATH");
+    expect(record.crashError).toContain(CLAUDE_BINARY);
+    expect(record.unrecoverableReason).toBeNull();
+  });
+
+  test("when the cwd vanished mid-spawn, the same ENOENT is unrecoverable, not crashed", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const registry = new DrivenSessionRegistry();
+    // Preflight passes, then the directory disappears before the spawn lands.
+    const raceCwd = mkdtempSync(join(tmpdir(), "driven-session-race-"));
+    const { record } = startDrivenSession({ cwd: raceCwd, spawnFn, registry, mcpConfig: null });
+    rmSync(raceCwd, { recursive: true, force: true });
+
+    first(calls).proc.emit("error", enoentError(CLAUDE_BINARY));
+
+    expect(record.status).toBe("unrecoverable");
+    expect(record.unrecoverableReason).toContain(raceCwd);
+    // And the client is told in the vocabulary it renders read-only with.
+    const terminal = record.eventLog.at(-1);
+    expect(terminal?.payload["type"]).toBe("minsky_unrecoverable");
+    expect(terminal?.payload["reason"]).toContain(raceCwd);
+  });
+
+  test("a non-ENOENT spawn error is untouched by the disambiguation", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const registry = new DrivenSessionRegistry();
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn, registry, mcpConfig: null });
+
+    first(calls).proc.emit("error", new Error("EACCES: permission denied"));
+
+    expect(record.status).toBe("crashed");
+    expect(record.crashError).toContain("EACCES");
+    expect(record.crashError).not.toContain("PATH");
   });
 });
