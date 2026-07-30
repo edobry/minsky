@@ -88,6 +88,16 @@ function snapshotWithBlocks(blocks: SessionContextSnapshotBlock[]): SessionConte
   };
 }
 
+/**
+ * The rendered per-turn origin labels, in document order (mt#3374). Replaces
+ * counting `"user"` labels as a proxy for "how many turn bubbles rendered" —
+ * that proxy silently stopped being a turn count once harness turns started
+ * carrying their own labels, and it asserted the misattribution besides.
+ */
+function turnLabels(): string[] {
+  return screen.getAllByTestId("turn-role-label").map((el) => el.textContent ?? "");
+}
+
 describe("ConversationView — injected-content collapsing (mt#2791)", () => {
   afterEach(cleanup);
 
@@ -175,7 +185,11 @@ describe("ConversationView — injected-content collapsing (mt#2791)", () => {
       ])
     );
 
-    expect(screen.getByText("system reminder")).toBeDefined();
+    // Two elements now carry this text: the collapsed block's own header, and
+    // the turn's origin label (mt#3374) — the turn is harness-authored, so it
+    // no longer claims to be the operator's.
+    expect(screen.getAllByText("system reminder").length).toBeGreaterThanOrEqual(1);
+    expect(turnLabels()).toEqual(["system reminder"]);
     expect(screen.queryByText(/Background context injected/)).toBeNull();
   });
 
@@ -348,7 +362,10 @@ describe("ConversationView — slash-command invocation rendering (mt#3322)", ()
     // Two USER turns render: the merged command invocation, and the real
     // message. Before mt#3322 this was four (three raw-XML bubbles + prose).
     // Counted via the per-turn role label, which is what marks a turn bubble.
-    expect(screen.getAllByText("user")).toHaveLength(2);
+    // mt#3374: the labels are now per-ORIGIN, so the command turn says
+    // `command` and only the operator's own message says `user` — counting
+    // `user` labels would silently stop being a turn count.
+    expect(turnLabels()).toEqual(["command", "user"]);
 
     expect(screen.getByText(prose)).toBeDefined();
   });
@@ -373,7 +390,7 @@ describe("ConversationView — slash-command invocation rendering (mt#3322)", ()
     expect(screen.getByText("/cost")).toBeDefined();
     expect(screen.getByText("Set model to Fable 5 for this session only")).toBeDefined();
     expect(screen.getByText("Total cost: $1.23")).toBeDefined();
-    expect(screen.getAllByText("user")).toHaveLength(2);
+    expect(turnLabels()).toEqual(["command", "command"]);
   });
 
   test("a command with no output of its own does not steal a later command's output", () => {
@@ -398,7 +415,7 @@ describe("ConversationView — slash-command invocation rendering (mt#3322)", ()
     // The output belongs to `/cost`, so it renders after it — not between the
     // two commands, which is where a stolen output would land.
     expect(outputAt).toBeGreaterThan(costAt);
-    expect(screen.getAllByText("user")).toHaveLength(2);
+    expect(turnLabels()).toEqual(["command", "command"]);
   });
 
   test("a turn that is not a command part ends the group (operator prose is never absorbed)", () => {
@@ -414,6 +431,9 @@ describe("ConversationView — slash-command invocation rendering (mt#3322)", ()
     // The prose turn renders in full, and the stdout beyond it is NOT pulled
     // across it into the command element.
     expect(screen.getByText(prose)).toBeDefined();
-    expect(screen.getAllByText("user")).toHaveLength(3);
+    // Three turns, and each carries its true origin: the command, the
+    // operator's interjection, and the orphaned stdout the command could not
+    // absorb across it.
+    expect(turnLabels()).toEqual(["command", "user", "command output"]);
   });
 });
