@@ -45,12 +45,25 @@ describe("DrivenSessionComposer", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  test("composer state reflects session state: input disabled while streaming, labeled accordingly", () => {
-    render(<DrivenSessionComposer interactionState="streaming" onSend={() => {}} onStop={() => {}} />);
+  test("composer accepts input while streaming — a mid-turn message queues (mt#3375)", () => {
+    // The binary queues a message written mid-turn and runs it as the next
+    // turn (probed 2026-07-30); the old whole-turn lockout was a UI
+    // restriction with no transport basis.
+    const onSend = mock((_text: string) => {});
+    render(
+      <DrivenSessionComposer interactionState="streaming" onSend={onSend} onStop={() => {}} />
+    );
     const textarea = screen.getByLabelText("Message to the driven session") as HTMLTextAreaElement;
-    expect(textarea.disabled).toBe(true);
-    expect(textarea.placeholder).toBe("Assistant is responding…");
-    expect((screen.getByText("Send") as HTMLButtonElement).disabled).toBe(true);
+
+    expect(textarea.disabled).toBe(false);
+    expect(textarea.placeholder).toBe("Assistant is responding — your message will queue");
+
+    fireEvent.change(textarea, { target: { value: "actually, check the logs first" } });
+    expect((screen.getByText("Send") as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(screen.getByText("Send"));
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend.mock.calls[0]?.[0]).toBe("actually, check the logs first");
   });
 
   test("composer state reflects session state: input and Stop both disabled once exited", () => {
