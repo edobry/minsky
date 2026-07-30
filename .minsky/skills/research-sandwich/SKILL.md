@@ -63,9 +63,11 @@ manageable.
 
 For each workstream, dispatch a fresh subagent (`Explore` or `general-purpose` for
 web+read research; `model: "sonnet"`; background). Pass the workstream's brief close to
-verbatim from the plan. Hard-won constraints (`mem#274`, `mem#308`):
+verbatim from the plan. Hard-won constraints, each glossed with the incident it came from:
 
-- **One workstream per subagent.** Do not bundle — each is one fresh attention budget.
+- **One workstream per subagent.** Do not bundle — each is one fresh attention budget
+  (`mem#308`: a subagent handed more than one concern — or more than ~6-8 files — degrades on
+  all of them rather than shedding the extras).
 - **No cross-dependencies** between workstreams (the plan enforced this; verify before
   dispatch). If two overlap on a source or claim, that is a synthesis job, not a fan-out
   dependency.
@@ -122,3 +124,12 @@ pointer in chat; do not paste the synthesis into the scroll.
 Stacks with `/draft-rfc` and `/draft-adr` (the sandwich produces the research input; those
 skills author the artifact) and `/orchestrate` (implementation coordination, once the research
 names the work). It does not call them — it hands off via the durable deliverable.
+
+## Resolving the citations
+
+Every citation above is glossed inline, so the skill is usable without resolving any of them.
+Resolve one when you want the originating incident:
+
+- `mem#NNN` is a Minsky memory record — `mcp__minsky__memory_get` with `id: "mem#274"`.
+- `<name>.mdc` is a Minsky rule — `mcp__minsky__rules_get` with the name minus the extension.
+- `mt#NNNN` is a Minsky task — `mcp__minsky__tasks_get`.
