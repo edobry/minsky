@@ -62,7 +62,7 @@
 
 import { readInput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
-import { parseTranscript, extractLastAssistantTurn } from "./transcript";
+import { parseTranscript, extractLastAssistantTurn, findCreatedResourceIds } from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -133,7 +133,48 @@ export const CONSUME_TOOL_SPECS: readonly ConsumeToolSpec[] = [
   { names: ["mcp__minsky__session_pr_edit", "session_pr_edit"], field: "body" },
   { names: ["mcp__minsky__tasks_spec_patch", "tasks_spec_patch"], field: "content" },
   { names: ["mcp__minsky__memory_create", "memory_create"], field: "content" },
+  // File writes (mt#3340). A constructed id written into SOURCE CODE is the
+  // worse surface, not a lesser one: it ships, and future readers (human and
+  // agent) take it as fact. The originating incident wrote `mt#3336` into a
+  // test file's docblock while the task that call minted was `mt#3338`.
+  { names: ["mcp__minsky__session_write_file", "session_write_file"], field: "content" },
+  { names: ["mcp__minsky__session_edit_file", "session_edit_file"], field: "content" },
+  { names: ["Write"], field: "content" },
+  { names: ["Edit"], field: "new_string" },
 ];
+
+/**
+ * Short-id families that a MINT call produces, for the consume-before-mint
+ * pass (mt#3340). `idFields` is a candidate list because the minting tools do
+ * not agree on a result-field name; extraction is BEST-EFFORT and a match
+ * never depends on it — it only enriches the record with the id actually
+ * minted.
+ */
+export interface MintFamilySpec {
+  /** Short-id prefix as it appears in written text, e.g. "mt#". */
+  prefix: string;
+  /** Minting tool names (MCP-prefixed + bare). */
+  names: readonly string[];
+  /** Result-JSON field candidates carrying the minted id. */
+  idFields: readonly string[];
+}
+
+export const MINT_FAMILY_SPECS: readonly MintFamilySpec[] = [
+  { prefix: "mt#", names: ["mcp__minsky__tasks_create", "tasks_create"], idFields: ["taskId"] },
+  {
+    prefix: "ask#",
+    names: ["mcp__minsky__asks_create", "asks_create"],
+    idFields: ["shortId", "id"],
+  },
+  {
+    prefix: "mem#",
+    names: ["mcp__minsky__memory_create", "memory_create"],
+    idFields: ["shortId", "id"],
+  },
+];
+
+/** Short-id tokens the consume-before-mint pass recognizes in written text. */
+const ID_TOKEN_RE = /\b(mt|ask|mem)#\d+\b/g;
 
 function findConsumeSpec(name: string): ConsumeToolSpec | undefined {
   return CONSUME_TOOL_SPECS.find((spec) => spec.names.includes(name));
@@ -160,28 +201,43 @@ export interface ToolUseBlock {
 export function extractToolUseBlocksByMessage(turnLines: TranscriptLine[]): ToolUseBlock[][] {
   const groups: ToolUseBlock[][] = [];
   for (const line of turnLines) {
-    // Positive assistant-line check (mirrors transcript.ts's extractAssistantText /
-    // extractToolUseNames convention) — an assistant line is identified by EITHER
-    // discriminator; only skip when NEITHER matches. Written as an explicit `isAssistantLine`
-    // boolean rather than the De Morgan-equivalent `type !== "assistant" && role !== "assistant"`
-    // continue-guard so the "OR to identify, not to exclude" intent is unambiguous at a glance
-    // (PR #2244 R1).
-    const isAssistantLine = line.type === "assistant" || line.message?.role === "assistant";
-    if (!isAssistantLine) continue;
-    const content = line.message?.content;
-    if (!Array.isArray(content)) continue;
-    const blocks: ToolUseBlock[] = [];
-    for (const block of content as Array<Record<string, unknown>>) {
-      if (block && block["type"] === "tool_use" && typeof block["name"] === "string") {
-        const rawInput = block["input"];
-        const input =
-          rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {};
-        blocks.push({ name: block["name"] as string, input });
-      }
-    }
+    const blocks = blocksForLine(line);
     if (blocks.length > 0) groups.push(blocks);
   }
   return groups;
+}
+
+/**
+ * tool_use blocks carried by ONE transcript line (empty for any line that is
+ * not an assistant message with tool_use content).
+ *
+ * Shared by `extractToolUseBlocksByMessage` (which FILTERS empty results, so
+ * its indices do not correspond to `turnLines`) and by
+ * `detectConsumeBeforeMint` (which needs index alignment WITH `turnLines`, so
+ * it maps this over every line instead). PR #2418 R1: the two were conflated,
+ * and the ordering pass indexed a filtered array as if it were the raw lines.
+ */
+function blocksForLine(line: TranscriptLine): ToolUseBlock[] {
+  // Positive assistant-line check (mirrors transcript.ts's extractAssistantText /
+  // extractToolUseNames convention) — an assistant line is identified by EITHER
+  // discriminator; only skip when NEITHER matches. Written as an explicit `isAssistantLine`
+  // boolean rather than the De Morgan-equivalent `type !== "assistant" && role !== "assistant"`
+  // continue-guard so the "OR to identify, not to exclude" intent is unambiguous at a glance
+  // (PR #2244 R1).
+  const isAssistantLine = line.type === "assistant" || line.message?.role === "assistant";
+  if (!isAssistantLine) return [];
+  const content = line.message?.content;
+  if (!Array.isArray(content)) return [];
+  const blocks: ToolUseBlock[] = [];
+  for (const block of content as Array<Record<string, unknown>>) {
+    if (block && block["type"] === "tool_use" && typeof block["name"] === "string") {
+      const rawInput = block["input"];
+      const input =
+        rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {};
+      blocks.push({ name: block["name"] as string, input });
+    }
+  }
+  return blocks;
 }
 
 export interface BatchMatch {
@@ -248,6 +304,150 @@ export function detectBatchedMintAndConsume(turnLines: TranscriptLine[]): BatchM
   return matches;
 }
 
+/**
+ * A write that referenced a short id BEFORE the call that mints one ran
+ * (mt#3340).
+ */
+export interface ConsumeBeforeMintMatch {
+  consumeTool: string;
+  consumeField: string;
+  /** The id-shaped token the write contained. */
+  writtenId: string;
+  mintTool: string;
+  /** What the later mint actually returned — best-effort, may be undefined. */
+  mintedId: string | undefined;
+  excerpt: string;
+}
+
+/**
+ * Detect a CONSUME-before-MINT ordering within one turn (mt#3340).
+ *
+ * `detectBatchedMintAndConsume` above only pairs calls inside ONE assistant
+ * message, excluding cross-message pairs on the rationale that "by the time the
+ * second message is composed, the first call's real result is already in hand."
+ * That holds only when the MINT precedes the CONSUME. Reversed — a write that
+ * names an id, then a mint that produces one — no result can be in hand,
+ * because the id does not exist yet. That ordering was entirely unguarded and
+ * is what the originating incident did.
+ *
+ * Unlike the categorical batch pass, this one is EXACT rather than
+ * co-occurrence-based, because it runs post-hoc over the transcript where the
+ * minted id is present in the later tool_result. The discriminator that keeps
+ * it precise is the prior-source check: an id the agent wrote with no prior
+ * occurrence anywhere before that write is an id it could not have read — a
+ * legitimate reference to an EXISTING entity would have a source (a tool
+ * result, the user's prompt, an earlier read).
+ *
+ * CROSS-MESSAGE ONLY (PR #2418 R1). The mint must be in a STRICTLY LATER
+ * message than the write. A mint in the SAME message is the batch pass's
+ * territory — reporting it here too would double-record one event, and within
+ * a single parallel batch the block order carries no temporal meaning anyway.
+ *
+ * ID FAMILIES: short ids only (`mt#`/`ask#`/`mem#`). Session uuids and PR
+ * numbers are deliberately out of scope — a bare `#1234` is ambiguous with
+ * issue refs, and uuids don't appear in written prose the way short ids do.
+ *
+ * @param turnLines the assistant turn, in order
+ * @param priorText serialized transcript content preceding the turn
+ */
+export function detectConsumeBeforeMint(
+  turnLines: TranscriptLine[],
+  priorText: string
+): ConsumeBeforeMintMatch[] {
+  const matches: ConsumeBeforeMintMatch[] = [];
+  const seen = new Set<string>();
+
+  // Index-ALIGNED with turnLines (one entry per line, empty where a line
+  // carries no tool_use) — NOT extractToolUseBlocksByMessage, whose filtering
+  // makes its indices unusable for "which line am I on?".
+  const blocksByLine: ToolUseBlock[][] = turnLines.map(blocksForLine);
+
+  // Text seen so far, line by line, so "did this id have a source?" is
+  // evaluated as of the moment of the write — not against the whole turn.
+  let seenSoFar = priorText;
+
+  for (let li = 0; li < turnLines.length; li++) {
+    for (const block of blocksByLine[li] ?? []) {
+      const spec = findConsumeSpec(block.name);
+      if (!spec) continue;
+      const rawValue = block.input[spec.field];
+      if (typeof rawValue !== "string" || rawValue.trim().length === 0) continue;
+
+      const tokens = rawValue.match(ID_TOKEN_RE);
+      if (!tokens) continue;
+
+      for (const token of new Set(tokens)) {
+        // A token the agent could have READ is not a construction.
+        if (seenSoFar.includes(token)) continue;
+
+        const family = MINT_FAMILY_SPECS.find((f) => token.startsWith(f.prefix));
+        if (!family) continue;
+
+        const laterMint = findLaterMint(blocksByLine, li, family);
+        if (!laterMint) continue;
+
+        const mintedId = extractMintedId(turnLines, laterMint.name, family);
+        // A write that named the id the mint actually returned is impossible to
+        // author honestly, but if it somehow matches there is nothing to warn about.
+        if (mintedId !== undefined && mintedId === token) continue;
+
+        const key = `${block.name}|${spec.field}|${token}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        matches.push({
+          consumeTool: block.name,
+          consumeField: spec.field,
+          writtenId: token,
+          mintTool: laterMint.name,
+          mintedId,
+          excerpt: rawValue.slice(0, 200),
+        });
+      }
+    }
+
+    // EVERY line becomes a source once passed — including tool_result lines,
+    // which is exactly where a legitimately-read id comes from (R1: these were
+    // skipped entirely, so an id returned earlier in the same turn looked
+    // sourceless).
+    seenSoFar += JSON.stringify(turnLines[li] ?? "");
+  }
+
+  return matches;
+}
+
+/** First mint of `family` in a STRICTLY LATER line than `afterLineIndex`. */
+function findLaterMint(
+  blocksByLine: ToolUseBlock[][],
+  afterLineIndex: number,
+  family: MintFamilySpec
+): ToolUseBlock | undefined {
+  for (let li = afterLineIndex + 1; li < blocksByLine.length; li++) {
+    for (const block of blocksByLine[li] ?? []) {
+      if (family.names.includes(block.name)) return block;
+    }
+  }
+  return undefined;
+}
+
+/** Best-effort: pull the id a minting call actually returned. */
+function extractMintedId(
+  turnLines: TranscriptLine[],
+  toolName: string,
+  family: MintFamilySpec
+): string | undefined {
+  for (const field of family.idFields) {
+    try {
+      const created = findCreatedResourceIds(turnLines, toolName, field);
+      const hit = created.find((c) => c.createdId !== undefined);
+      if (hit?.createdId) return hit.createdId;
+    } catch {
+      // Best-effort only — a match never depends on this.
+    }
+  }
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Calibration logging
 // ---------------------------------------------------------------------------
@@ -304,6 +504,39 @@ export function buildReminder(matches: BatchMatch[]): string {
   ].join("\n");
 }
 
+/**
+ * Reminder for the consume-before-mint pass (mt#3340). Distinct text from
+ * `buildReminder` because the failure is a different shape — not "you batched
+ * two calls" but "you wrote an id that did not exist yet" — and because this
+ * pass is exact, so it can name both the written token and the real id.
+ */
+export function buildConsumeBeforeMintReminder(matches: ConsumeBeforeMintMatch[]): string {
+  const lines = matches
+    .map((m) => {
+      const actual = m.mintedId ? ` — \`${m.mintTool}\` actually minted \`${m.mintedId}\`` : "";
+      return `  - \`${m.consumeTool}\`'s \`${m.consumeField}\` wrote \`${m.writtenId}\` BEFORE \`${m.mintTool}\` ran${actual}: "${m.excerpt}"`;
+    })
+    .join("\n");
+
+  return [
+    "[constructed-identifier-batch-detector] Constructed identifier written before it was minted (mt#3340).",
+    "",
+    "A write in the prior turn referenced a short id that had no source anywhere earlier in",
+    "the transcript, and a call that MINTS that kind of id ran only afterwards. The id could",
+    "not have been read — it did not exist yet.",
+    "",
+    "Matched writes:",
+    lines,
+    "",
+    "Required: mint FIRST, then write the reference using the id the minting call returned.",
+    "Writing a reference and repairing it after the fact only works if you remember to — and",
+    "in a source file the wrong id ships and is read as fact (mem#511; CLAUDE.md §Sequence",
+    "Dependent Tool Calls).",
+    "",
+    `If the id was legitimately known from outside this transcript, set ${OVERRIDE_ENV_VAR}=1.`,
+  ].join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // Dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652 Phase 2a)
 // ---------------------------------------------------------------------------
@@ -335,10 +568,12 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   if (lines.length === 0) return null;
 
   let matches: BatchMatch[];
+  let orderMatches: ConsumeBeforeMintMatch[];
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length === 0) return null;
     matches = detectBatchedMintAndConsume(turnLines);
+    orderMatches = detectConsumeBeforeMint(turnLines, priorTextFor(lines, turnLines));
   } catch (err) {
     process.stderr.write(
       `[constructed-identifier-batch-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -346,7 +581,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     return null;
   }
 
-  if (matches.length === 0) return null;
+  if (matches.length === 0 && orderMatches.length === 0) return null;
 
   const outcome: GuardOutcome = {
     calibration: {
@@ -359,21 +594,53 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
       // shared diversity-extraction reads; `phrase` is the excerpt. mintTool/
       // consumeTool/consumeField are carried as extra context for full audit
       // fidelity, not consulted by the shared sweep parser.
-      matches: matches.map((m) => ({
-        category: `${m.mintTool}+${m.consumeTool}`,
-        phrase: m.excerpt,
-        mintTool: m.mintTool,
-        consumeTool: m.consumeTool,
-        consumeField: m.consumeField,
-      })),
+      matches: [...batchRecords(matches), ...orderRecords(orderMatches)],
     },
   };
 
   if (INJECTION_ENABLED) {
-    outcome.additionalContext = buildReminder(matches);
+    const parts: string[] = [];
+    if (matches.length > 0) parts.push(buildReminder(matches));
+    if (orderMatches.length > 0) parts.push(buildConsumeBeforeMintReminder(orderMatches));
+    outcome.additionalContext = parts.join("\n\n");
   }
 
   return outcome;
+}
+
+/**
+ * Serialized transcript content preceding the turn, for the
+ * consume-before-mint pass's "did this id have a source?" check.
+ * `extractLastAssistantTurn` returns a contiguous suffix, so the prefix is
+ * everything before it.
+ */
+function priorTextFor(lines: TranscriptLine[], turnLines: TranscriptLine[]): string {
+  const prefix = lines.slice(0, Math.max(0, lines.length - turnLines.length));
+  return prefix.map((l) => JSON.stringify(l)).join("");
+}
+
+/** Calibration records for the batch pass. */
+function batchRecords(matches: BatchMatch[]): Array<Record<string, unknown>> {
+  return matches.map((m) => ({
+    category: `${m.mintTool}+${m.consumeTool}`,
+    phrase: m.excerpt,
+    mintTool: m.mintTool,
+    consumeTool: m.consumeTool,
+    consumeField: m.consumeField,
+  }));
+}
+
+/** Calibration records for the consume-before-mint pass (mt#3340). */
+function orderRecords(matches: ConsumeBeforeMintMatch[]): Array<Record<string, unknown>> {
+  return matches.map((m) => ({
+    category: `consume-before-mint:${m.consumeTool}+${m.mintTool}`,
+    phrase: m.excerpt,
+    consumeTool: m.consumeTool,
+    consumeField: m.consumeField,
+    writtenId: m.writtenId,
+    mintTool: m.mintTool,
+    mintedId: m.mintedId ?? null,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -422,12 +689,14 @@ export async function main(): Promise<void> {
   }
 
   let matches: BatchMatch[];
+  let orderMatches: ConsumeBeforeMintMatch[];
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length === 0) {
       process.exit(0);
     }
     matches = detectBatchedMintAndConsume(turnLines);
+    orderMatches = detectConsumeBeforeMint(turnLines, priorTextFor(lines, turnLines));
   } catch (err) {
     console.error(
       `[constructed-identifier-batch-detector] Detection error: ${err instanceof Error ? err.message : String(err)}`
@@ -435,7 +704,7 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (matches.length === 0) {
+  if (matches.length === 0 && orderMatches.length === 0) {
     process.exit(0);
   }
 
@@ -445,13 +714,7 @@ export async function main(): Promise<void> {
     timestamp: new Date().toISOString(),
     session_id: input.session_id,
     injection_enabled: INJECTION_ENABLED,
-    matches: matches.map((m) => ({
-      category: `${m.mintTool}+${m.consumeTool}`,
-      phrase: m.excerpt,
-      mintTool: m.mintTool,
-      consumeTool: m.consumeTool,
-      consumeField: m.consumeField,
-    })),
+    matches: [...batchRecords(matches), ...orderRecords(orderMatches)],
   });
 
   // Calibration-first: inject only when the gate is flipped on.
@@ -459,10 +722,14 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
+  const parts: string[] = [];
+  if (matches.length > 0) parts.push(buildReminder(matches));
+  if (orderMatches.length > 0) parts.push(buildConsumeBeforeMintReminder(orderMatches));
+
   const output: HookOutput = {
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",
-      additionalContext: buildReminder(matches),
+      additionalContext: parts.join("\n\n"),
     },
   };
   process.stdout.write(JSON.stringify(output));

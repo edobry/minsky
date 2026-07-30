@@ -4,7 +4,9 @@ import {
   CONSUME_TOOL_SPECS,
   extractToolUseBlocksByMessage,
   detectBatchedMintAndConsume,
+  detectConsumeBeforeMint,
   buildReminder,
+  buildConsumeBeforeMintReminder,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
   run,
@@ -427,5 +429,172 @@ describe("ToolUseBlock shape", () => {
   test("has name and input fields", () => {
     const block: ToolUseBlock = { name: TASKS_CREATE, input: { title: "x" } };
     expect(block.name).toBe(TASKS_CREATE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Consume-before-mint pass (mt#3340)
+//
+// The batch pass above only pairs calls inside ONE assistant message. These
+// cover the reversed ORDERING across messages — a write naming an id, then a
+// mint producing one — which nothing guarded before.
+// ---------------------------------------------------------------------------
+
+const SESSION_EDIT_FILE = "mcp__minsky__session_edit_file";
+const SESSION_WRITE_FILE = "mcp__minsky__session_write_file";
+
+/** Written-id fixtures — the literal appears in several cases, so it is shared
+ * (custom/no-magic-string-duplication).
+ */
+const COMMENT_WITH_WRITTEN_ID = "// tracked in mt#3336";
+const DOCBLOCK_WITH_WRITTEN_ID = "/** tracked in mt#3336. */";
+
+/** An assistant tool_use block carrying an `id`, so a tool_result can correlate. */
+function makeIdentifiedAssistantLine(
+  name: string,
+  input: Record<string, unknown>,
+  id: string
+): TranscriptLine {
+  return {
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [{ type: "tool_use", name, input, id }],
+    },
+  } as TranscriptLine;
+}
+
+/** A user-role line carrying the tool_result for `toolUseId`. */
+function makeMintResultLine(toolUseId: string, payload: unknown): TranscriptLine {
+  return {
+    type: "user",
+    message: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: toolUseId, content: JSON.stringify(payload) }],
+    },
+  } as TranscriptLine;
+}
+
+describe("detectConsumeBeforeMint (mt#3340)", () => {
+  test("AT1: a file write naming an id, then a mint that returns a different one", () => {
+    const turn = [
+      makeSingleAssistantLine(SESSION_EDIT_FILE, {
+        path: "src/x.test.tsx",
+        content: DOCBLOCK_WITH_WRITTEN_ID,
+      }),
+      makeIdentifiedAssistantLine(TASKS_CREATE, { title: "Some task" }, "tu_1"),
+      makeMintResultLine("tu_1", { taskId: "mt#3338" }),
+    ];
+
+    const matches = detectConsumeBeforeMint(turn, "");
+    expect(matches.length).toBe(1);
+    expect(matches[0]?.writtenId).toBe("mt#3336");
+    expect(matches[0]?.mintedId).toBe("mt#3338");
+    expect(matches[0]?.consumeTool).toBe(SESSION_EDIT_FILE);
+    expect(matches[0]?.mintTool).toBe(TASKS_CREATE);
+  });
+
+  test("AT2: correct order (mint, read the result, THEN reference it) does not match", () => {
+    const turn = [
+      makeIdentifiedAssistantLine(TASKS_CREATE, { title: "Some task" }, "tu_1"),
+      makeMintResultLine("tu_1", { taskId: "mt#3338" }),
+      makeSingleAssistantLine(SESSION_COMMIT, { message: "fix(mt#3338): real reference" }),
+    ];
+
+    expect(detectConsumeBeforeMint(turn, "")).toEqual([]);
+  });
+
+  test("AT3: an id-shaped token with no mint anywhere in the turn does not match", () => {
+    const turn = [
+      makeSingleAssistantLine(SESSION_WRITE_FILE, {
+        path: "docs/x.md",
+        content: "See mt#1234 for background.",
+      }),
+    ];
+
+    expect(detectConsumeBeforeMint(turn, "")).toEqual([]);
+  });
+
+  test("an id the agent could have READ earlier is not a construction", () => {
+    const turn = [
+      makeSingleAssistantLine(SESSION_EDIT_FILE, {
+        path: "src/x.ts",
+        content: "// related: mt#3336",
+      }),
+      makeIdentifiedAssistantLine(TASKS_CREATE, { title: "Some task" }, "tu_1"),
+      makeMintResultLine("tu_1", { taskId: "mt#3338" }),
+    ];
+
+    // mt#3336 appears in prior transcript content — it had a source.
+    expect(detectConsumeBeforeMint(turn, '{"taskId":"mt#3336"}')).toEqual([]);
+  });
+
+  test("a match still reports without the minted id when the result is unparseable", () => {
+    const turn = [
+      makeSingleAssistantLine(SESSION_EDIT_FILE, {
+        path: "src/x.ts",
+        content: COMMENT_WITH_WRITTEN_ID,
+      }),
+      makeSingleAssistantLine(TASKS_CREATE, { title: "Some task" }),
+    ];
+
+    const matches = detectConsumeBeforeMint(turn, "");
+    expect(matches.length).toBe(1);
+    expect(matches[0]?.writtenId).toBe("mt#3336");
+    expect(matches[0]?.mintedId).toBeUndefined();
+  });
+
+  test("the reminder names both the written token and the real id", () => {
+    const text = buildConsumeBeforeMintReminder([
+      {
+        consumeTool: SESSION_EDIT_FILE,
+        consumeField: "content",
+        writtenId: "mt#3336",
+        mintTool: TASKS_CREATE,
+        mintedId: "mt#3338",
+        excerpt: DOCBLOCK_WITH_WRITTEN_ID,
+      },
+    ]);
+    expect(text).toContain("mt#3336");
+    expect(text).toContain("mt#3338");
+    expect(text).toContain("mt#3340");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR #2418 R1 — the two blocking findings, pinned.
+// ---------------------------------------------------------------------------
+
+describe("detectConsumeBeforeMint — cross-message only (PR #2418 R1)", () => {
+  test("a mint in the SAME message as the write is the batch pass's territory, not this one", () => {
+    const turn = [
+      makeBatchedAssistantLine([
+        { name: SESSION_EDIT_FILE, input: { path: "src/x.ts", content: COMMENT_WITH_WRITTEN_ID } },
+        { name: TASKS_CREATE, input: { title: "Some task" } },
+      ]),
+    ];
+
+    // This pass stays silent...
+    expect(detectConsumeBeforeMint(turn, "")).toEqual([]);
+    // ...while the batch pass still reports the same-message pairing.
+    expect(detectBatchedMintAndConsume(turn).length).toBeGreaterThan(0);
+  });
+
+  test("an id returned by a tool_result EARLIER IN THE SAME TURN counts as a source", () => {
+    const turn = [
+      makeIdentifiedAssistantLine(TASKS_CREATE, { title: "First task" }, "tu_0"),
+      makeMintResultLine("tu_0", { taskId: "mt#3336" }),
+      // The write now references an id it genuinely read from the result above.
+      makeSingleAssistantLine(SESSION_EDIT_FILE, {
+        path: "src/x.ts",
+        content: COMMENT_WITH_WRITTEN_ID,
+      }),
+      makeIdentifiedAssistantLine(TASKS_CREATE, { title: "Second task" }, "tu_1"),
+      makeMintResultLine("tu_1", { taskId: "mt#3338" }),
+    ];
+
+    // Before the R1 fix this matched: tool_result lines were never accumulated
+    // into the prior-source text, so a genuinely-read id looked constructed.
+    expect(detectConsumeBeforeMint(turn, "")).toEqual([]);
   });
 });
