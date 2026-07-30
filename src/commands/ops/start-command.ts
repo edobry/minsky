@@ -370,8 +370,17 @@ export const ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME = "adoptionSweeperPos
  * Canary target for the positive control. Never remove the call in
  * `runPositiveControlCheck` below — it is what gives this name a real
  * production callsite for the grep to find.
+ *
+ * Exported (mt#3351 review) so a test can assert
+ * `adoptionSweeperPositiveControlCanary.name === ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME`
+ * — the coupling between this function's literal name and the exported
+ * string constant is inherently manual (the whole point is that the
+ * constant's VALUE textually matches a real, grep-able identifier), so this
+ * export exists purely to let a test catch drift if the two are ever
+ * renamed out of sync, rather than a test having to re-hardcode the name
+ * as a THIRD, independently-driftable copy of the same string.
  */
-function adoptionSweeperPositiveControlCanary(): void {
+export function adoptionSweeperPositiveControlCanary(): void {
   // Intentionally empty: exists only to be grepped by name.
 }
 

@@ -35,11 +35,14 @@
  * installation token — the same credential path `createTokenProvider`
  * already provides to `pr-watch-scheduler.ts` / `deploy-smoke-sweep.ts`),
  * extract `src/**\/*.ts` entries into an in-memory snapshot, and run the
- * EXACT SAME pattern (as a JS `RegExp`, which is a strict superset of the
- * subset of BRE/ERE metacharacters these patterns actually use — bare
- * identifiers and the occasional literal `.`) against that snapshot for
- * every signal this tick. One network fetch per run (24h cadence); every
- * subsequent per-signal check is a fast in-memory scan.
+ * EXACT SAME pattern against that snapshot for every signal this tick —
+ * translated to an equivalent JS `RegExp` via `bregToJsRegexSource`, which
+ * escapes the seven characters (`+ ? | ( ) { }`) that are literal in git's
+ * default BRE dialect but metacharacters in JS regex, so the two
+ * mechanisms agree on every pattern `buildGrepPattern` can produce (see
+ * that function's doc comment for the full dialect-parity argument). One
+ * network fetch per run (24h cadence); every subsequent per-signal check
+ * is a fast in-memory scan.
  *
  * ## Safety contract (mt#3328, preserved here)
  *
@@ -116,33 +119,79 @@ export async function fetchRepoSourceSnapshot(
 
   try {
     const token = await (deps.acquireTokenFn ?? (() => acquireInstallationToken(owner, repo)))();
-
     const boundedFetch = deps.fetchImpl ?? (await buildBoundedFetch());
-    const response = await boundedFetch(
+
+    const fetchResult = await fetchTarballWithRedirect(
+      boundedFetch,
       `https://api.github.com/repos/${owner}/${repo}/tarball/${ref}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-      }
+      token
     );
 
-    if (!response.ok) {
+    if (!fetchResult.ok) {
       return {
         status: "unavailable",
-        reason: `GitHub tarball fetch failed: ${response.status} ${response.statusText}`,
+        reason: `GitHub tarball fetch failed: ${fetchResult.status} ${fetchResult.statusText}`,
       };
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    const snapshot = extractTypeScriptSources(new Uint8Array(arrayBuffer));
+    const snapshot = extractTypeScriptSources(new Uint8Array(fetchResult.arrayBuffer));
     return { status: "ok", snapshot };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return { status: "unavailable", reason: `GitHub tarball fetch/extract failed: ${reason}` };
   }
+}
+
+type TarballFetchOutcome =
+  | { ok: true; arrayBuffer: ArrayBuffer }
+  | { ok: false; status: number; statusText: string };
+
+/**
+ * Fetch the tarball, handling GitHub's cross-origin redirect EXPLICITLY
+ * rather than relying on `fetch`'s automatic `redirect: "follow"`.
+ *
+ * `GET /repos/{owner}/{repo}/tarball/{ref}` responds with a 3xx redirect
+ * to a signed download URL on a DIFFERENT origin (typically
+ * `codeload.github.com`). Per the Fetch spec, an automatic cross-origin
+ * redirect follow strips the `Authorization` header before re-issuing the
+ * request — so trusting `fetch`'s default redirect handling risks an
+ * UNAUTHENTICATED request to the redirect target, which 404s for a
+ * private repo (mt#3351 review R1 BLOCKING). This function follows the
+ * redirect manually and re-attaches the SAME Authorization header on the
+ * follow-up request: the signed redirect URL typically embeds its own
+ * short-lived token (making the header redundant there), but resending it
+ * costs nothing and also covers the case where the redirect target still
+ * checks it.
+ */
+async function fetchTarballWithRedirect(
+  boundedFetch: typeof fetch,
+  url: string,
+  token: string
+): Promise<TarballFetchOutcome> {
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+
+  const initial = await boundedFetch(url, { headers, redirect: "manual" });
+
+  if (initial.status >= 300 && initial.status < 400) {
+    const location = initial.headers.get("location");
+    if (!location) {
+      return { ok: false, status: initial.status, statusText: "redirect with no Location header" };
+    }
+    const followUp = await boundedFetch(location, { headers });
+    if (!followUp.ok) {
+      return { ok: false, status: followUp.status, statusText: followUp.statusText };
+    }
+    return { ok: true, arrayBuffer: await followUp.arrayBuffer() };
+  }
+
+  if (!initial.ok) {
+    return { ok: false, status: initial.status, statusText: initial.statusText };
+  }
+  return { ok: true, arrayBuffer: await initial.arrayBuffer() };
 }
 
 /** Real production token acquisition: the same `createTokenProvider` path used elsewhere (mt#3351). */
@@ -267,9 +316,12 @@ function walkTarEntries(
         })();
       pendingPaxPath = null;
 
-      if (size > 0) {
-        onEntry(path, tarBuffer.subarray(dataStart, dataEnd));
-      }
+      // Extract unconditionally, including zero-length files (mt#3351
+      // review non-blocking finding): an empty `.ts` file is a real,
+      // legitimate entry — omitting it from the snapshot would silently
+      // drop it, and `subarray` on a zero-length range is well-defined
+      // (produces an empty view), so there's no reason to special-case it.
+      onEntry(path, tarBuffer.subarray(dataStart, dataEnd));
     } else {
       pendingPaxPath = null;
     }
@@ -302,6 +354,26 @@ export function extractTypeScriptSources(gzipped: Uint8Array): RepoSourceSnapsho
 // ---------------------------------------------------------------------------
 
 /**
+ * Translate a pattern built for POSIX BRE `git grep -e <pattern>` (the
+ * dialect `checkCallsites` uses — no `-E`/`-P`) into an equivalent JS
+ * `RegExp` source.
+ *
+ * BRE and JS regex diverge on seven characters: `+ ? | ( ) { }` are LITERAL
+ * in BRE unless backslash-escaped, but are METACHARACTERS in JS regex
+ * unless backslash-escaped — the opposite default (mt#3351 review
+ * non-blocking finding). `buildGrepPattern` never emits a BRE escape
+ * sequence (e.g. `\+` for "one or more") for any of its signal kinds, so a
+ * blanket escape of these seven characters is a safe, complete translation
+ * for every pattern this sweeper builds. `.` `*` `^` `$` `[` `]` `\`
+ * already mean the same thing in both dialects and pass through untouched
+ * (this is what preserves the `lifecycleState` kind's literal-`.`-as-
+ * wildcard behavior, e.g. `STATUS.DONE` also matching `STATUSXDONE`).
+ */
+function bregToJsRegexSource(pattern: string): string {
+  return pattern.replace(/[+?|(){}]/g, "\\$&");
+}
+
+/**
  * Check `pattern` (from `buildGrepPattern`) against every file in
  * `snapshot`, mirroring `git grep -l`'s semantics: count = number of files
  * containing at least one match, `zero` when no file matches.
@@ -322,7 +394,7 @@ export function checkCallsitesInSnapshot(
 ): CallsiteCheckResult {
   let regex: RegExp;
   try {
-    regex = new RegExp(pattern);
+    regex = new RegExp(bregToJsRegexSource(pattern));
   } catch (err) {
     return {
       status: "unavailable",

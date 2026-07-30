@@ -14,7 +14,12 @@ import { describe, expect, test, spyOn, mock } from "bun:test";
 import { spawn } from "child_process";
 import path from "path";
 import { gzipSync } from "node:zlib";
-import { parsePositiveIntEnv, adoptionSweeperTick } from "./start-command";
+import {
+  parsePositiveIntEnv,
+  adoptionSweeperTick,
+  adoptionSweeperPositiveControlCanary,
+  ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME,
+} from "./start-command";
 import {
   checkCallsitesInSnapshot,
   extractTypeScriptSources,
@@ -487,6 +492,20 @@ function buildTestTarGz(
   return gzipSync(concatUint8Arrays([...blocks, eofMarker]));
 }
 
+describe("adoptionSweeperPositiveControlCanary / ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME", () => {
+  test("the canary function's name and the exported signal-name constant stay in sync", () => {
+    // The coupling between this function's literal identifier and the
+    // string constant is inherently manual (mt#3351 review R1 BLOCKING) —
+    // the whole point of the canary is that the constant's VALUE textually
+    // matches a real, grep-able identifier. This test is the structural
+    // drift detector: if either is ever renamed without the other, this
+    // fails immediately instead of silently breaking the positive control.
+    expect(adoptionSweeperPositiveControlCanary.name).toBe(
+      ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME
+    );
+  });
+});
+
 /**
  * Shared fixture constants for the `checkCallsitesInSnapshot` /
  * `extractTypeScriptSources` / `fetchRepoSourceSnapshot` suites below —
@@ -520,12 +539,32 @@ describe("checkCallsitesInSnapshot", () => {
 
   test("unavailable: an invalid regex pattern is reported as unavailable, not zero", () => {
     const snapshot = snapshotOf({ "src/a.ts": SAMPLE_TS_CONTENT });
-    // Unbalanced parenthesis — throws at `new RegExp(...)` construction time.
-    const result = checkCallsitesInSnapshot(snapshot, "foo(bar");
+    // Unterminated character class — `[` means the same thing in both BRE
+    // and JS regex (untouched by the BRE-to-JS escape translation below),
+    // so this stays a genuine parse failure in both dialects, unlike a lone
+    // `(` or `+` (see the BRE-parity test below for why those are NOT
+    // invalid-pattern cases post-mt#3351).
+    const result = checkCallsitesInSnapshot(snapshot, "foo[bar");
     expect(result.status).toBe("unavailable");
     if (result.status === "unavailable") {
       expect(result.reason).toMatch(/Invalid pattern/);
     }
+  });
+
+  test("BRE parity: a literal '+' in an adoption signal's callsite is found, not silently missed", () => {
+    // mt#3351 review non-blocking finding: git's default BRE dialect treats
+    // `+ ? | ( ) { }` as literal unless backslash-escaped; JS RegExp treats
+    // them as metacharacters unless escaped — the opposite default. An
+    // UNESCAPED `new RegExp("foo+bar")` means "fo" + one-or-more "o" +
+    // "bar" — it does NOT expect any "+" character at all, so it would
+    // FAIL to find a genuine literal "foo+bar" substring. That's the
+    // DANGEROUS direction for this sweeper: a false "zero" would file a
+    // bogus duplicate adoption task even though the signal IS already
+    // adopted. Escaping `+` (this fix) finds the literal substring
+    // correctly instead.
+    const snapshot = snapshotOf({ "src/a.ts": "the callsite is foo+bar here" });
+    const result = checkCallsitesInSnapshot(snapshot, "foo+bar");
+    expect(result).toEqual({ status: "found", count: 1 });
   });
 });
 
@@ -547,7 +586,7 @@ describe("extractTypeScriptSources", () => {
 });
 
 describe("fetchRepoSourceSnapshot", () => {
-  test("success: extracts a snapshot from a fetched tarball", async () => {
+  test("success: extracts a snapshot from a direct 200 response (no redirect)", async () => {
     const tarGz = buildTestTarGz("edobry-minsky-def5678", [
       { path: "src/foo.ts", content: SAMPLE_TS_CONTENT },
     ]);
@@ -570,6 +609,58 @@ describe("fetchRepoSourceSnapshot", () => {
       expect(result.snapshot.files.get("src/foo.ts")).toBe(SAMPLE_TS_CONTENT);
     }
     expect(fetchImpl.mock.calls.length).toBe(1);
+  });
+
+  test("success: follows an explicit 302 redirect, re-attaching Authorization to the redirect target", async () => {
+    // Regression coverage for mt#3351 review R1 BLOCKING: GitHub's tarball
+    // endpoint redirects cross-origin (api.github.com -> codeload.github.com),
+    // and `fetch`'s automatic redirect-follow strips Authorization on a
+    // cross-origin hop. This asserts the manual-redirect + re-attach path
+    // actually resends the header to whatever URL the Location points at.
+    const tarGz = buildTestTarGz("edobry-minsky-abcdef1", [
+      { path: "src/foo.ts", content: SAMPLE_TS_CONTENT },
+    ]);
+    const redirectTarget =
+      "https://codeload.github.com/edobry/minsky/legacy.tar.gz/refs/heads/main";
+
+    const fetchImpl = mock(async (input: unknown, init?: { headers?: Record<string, string> }) => {
+      if (input === redirectTarget) {
+        expect(init?.headers).toMatchObject({
+          Authorization: `Bearer ${FAKE_INSTALLATION_TOKEN}`,
+        });
+        return new Response(new Uint8Array(tarGz), { status: 200, statusText: "OK" });
+      }
+      return new Response(null, {
+        status: 302,
+        statusText: "Found",
+        headers: { location: redirectTarget },
+      });
+    });
+
+    const result = await fetchRepoSourceSnapshot({
+      acquireTokenFn: async () => FAKE_INSTALLATION_TOKEN,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.snapshot.files.get("src/foo.ts")).toBe(SAMPLE_TS_CONTENT);
+    }
+    expect(fetchImpl.mock.calls.length).toBe(2);
+  });
+
+  test("unavailable: a redirect with no Location header is unavailable, never zero", async () => {
+    const fetchImpl = mock(async () => new Response(null, { status: 302, statusText: "Found" }));
+
+    const result = await fetchRepoSourceSnapshot({
+      acquireTokenFn: async () => FAKE_INSTALLATION_TOKEN,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.status).toBe("unavailable");
+    if (result.status === "unavailable") {
+      expect(result.reason).toMatch(/no Location header/);
+    }
   });
 
   test("unavailable: a non-ok response (simulated rate limit) is unavailable, never zero", async () => {
@@ -688,13 +779,14 @@ describe("adoptionSweeperTick — container path (mt#3351, no local .git)", () =
     errorSpy.mockClear();
 
     // The snapshot's own source contains the positive-control canary's name
-    // (imported from ./start-command indirectly via the real production
-    // canary function's identifier — hardcoded here to avoid importing an
-    // internal, non-exported constant) so the positive control passes; the
-    // per-task signal is absent from every file, so it resolves "zero".
+    // — via the EXPORTED `ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME`
+    // constant, not a hardcoded literal (mt#3351 review R1 BLOCKING: a
+    // hardcoded copy would silently go stale if the canary were renamed) —
+    // so the positive control passes; the per-task signal is absent from
+    // every file, so it resolves "zero".
     const fakeSnapshot: RepoSourceSnapshot = {
       files: new Map([
-        ["src/canary.ts", "function adoptionSweeperPositiveControlCanary() {}"],
+        ["src/canary.ts", `function ${ADOPTION_SWEEPER_POSITIVE_CONTROL_SIGNAL_NAME}() {}`],
         ["src/unrelated.ts", "export function totallyUnrelated() {}"],
       ]),
     };
