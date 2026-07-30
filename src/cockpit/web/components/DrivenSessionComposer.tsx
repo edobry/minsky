@@ -35,9 +35,10 @@ export interface DrivenSessionComposerProps {
   onStop?: () => void;
   className?: string;
   /**
-   * Pre-fill the composer input (mt#2986) — e.g. "/plan-task mt#X" from the
-   * TaskDetail plan action's ?compose= param. Seed only; never auto-sent —
-   * the operator reviews and presses Enter themselves.
+   * Pre-fill the composer input (mt#2986) — e.g. a draft the host wants the
+   * operator to review before sending. Seed only: this component never sends
+   * on its own. (The task-launch path no longer uses this — it sends its
+   * primed command through the channel directly, mt#3375.)
    */
   initialText?: string;
   /**
@@ -52,9 +53,15 @@ export interface DrivenSessionComposerProps {
   idlePlaceholder?: string;
 }
 
+/**
+ * Placeholder per interaction state. `streaming` is NOT a disabled state
+ * (mt#3375) — the binary queues a message written mid-turn and runs it as the
+ * next turn (probed directly, 2026-07-30), so the placeholder says what will
+ * happen rather than refusing the input.
+ */
 const PLACEHOLDER_BY_STATE: Record<DrivenSessionInteractionState, string> = {
   "awaiting-input": "Send a message…",
-  streaming: "Assistant is responding…",
+  streaming: "Assistant is responding — your message will queue",
   exited: "Session has ended.",
 };
 
@@ -69,7 +76,15 @@ export function DrivenSessionComposer({
 }: DrivenSessionComposerProps) {
   const [text, setText] = useState(initialText ?? "");
   const [sending, setSending] = useState(false);
-  const inputDisabled = interactionState !== "awaiting-input" || sending;
+  // Only a terminated session refuses input. While the assistant is streaming
+  // the composer stays open and the message queues — the transport has no
+  // turn-taking constraint, and the previous whole-turn lockout was a UI
+  // restriction with nothing behind it (mt#3375).
+  //
+  // `sending` still blocks: that is the in-flight guard for an async `onSend`
+  // host (mt#3365), preventing a double-submit while delivery is pending. It
+  // is about THIS send, not about the assistant's turn.
+  const inputDisabled = interactionState === "exited" || sending;
   const canSend = !inputDisabled && text.trim().length > 0;
   const canStop = interactionState !== "exited";
   const placeholder =
