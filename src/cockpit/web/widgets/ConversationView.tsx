@@ -916,7 +916,14 @@ function ConversationThread({
         );
         return nodes;
       })}
-      <div ref={endRef} aria-hidden />
+      {/* `scroll-mb-8` is load-bearing (mt#3344), not spacing: both
+          `scrollIntoView({block:"end"})` calls above align THIS sentinel's
+          bottom edge to the scrollport's bottom edge, which would park the
+          newest turn exactly where the tail's `sticky bottom-0` activity strip
+          floats — so the strip would cover the turn it is reporting on.
+          `scroll-margin-bottom` is honored by `scrollIntoView`, so this
+          reserves the strip's height without shifting anything in normal flow. */}
+      <div ref={endRef} aria-hidden className="scroll-mb-8" />
     </div>
   );
 }

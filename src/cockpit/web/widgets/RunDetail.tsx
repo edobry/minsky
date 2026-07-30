@@ -24,11 +24,18 @@
  *
  * The page wrappers (`pages/WorkspaceDetailPage.tsx`,
  * `pages/ConversationPage.tsx`) keep their own page-level chrome (breadcrumb
- * vs. label header) and mount `<RunDetail key={id} .../>` for the tabbed
- * body below it — remounting on `id` change resets internal tab-adjacent
- * state (e.g. the multi-conversation switcher selection) cleanly.
+ * vs. label header) and pass it in through the `chrome` slot — mounting it as
+ * a preceding SIBLING is what mt#3344 had to undo. The header and the tab strip
+ * must pin together, and two independent `sticky top-0` elements at different
+ * DOM depths overlap rather than stack; pinning the tab strip at a fixed
+ * `top-[Npx]` is not viable either, because the header's height varies (the id
+ * sub-line is conditional, the presence readout is one or two lines). One
+ * sticky container holding both is the only shape that keeps them stacked
+ * without measuring. Remounting on `id` change (`<RunDetail key={id} .../>`)
+ * still resets internal tab-adjacent state (e.g. the multi-conversation
+ * switcher selection) cleanly.
  */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
@@ -397,9 +404,27 @@ export interface RunDetailProps {
   keySpace: RunKeySpace;
   /** Forwarded to the Conversation tab's ConversationView (mt#2769 tab hygiene). */
   onConversationNotFound?: () => void;
+  /**
+   * Page-level chrome (label header, breadcrumb) rendered INSIDE the pinned
+   * container above the tab strip (mt#3344). Supplied by the page wrapper so
+   * each host keeps its own chrome while sharing one pinned region.
+   */
+  chrome?: ReactNode;
+  /**
+   * Rendered at the tail of the Conversation tab, after the transcript
+   * (mt#3344) — where the live-activity readout belongs. Only
+   * `/conversation/:id` supplies one; `/agents/:id` mounts no presence readout.
+   */
+  conversationTail?: ReactNode;
 }
 
-export function RunDetail({ id, keySpace, onConversationNotFound }: RunDetailProps) {
+export function RunDetail({
+  id,
+  keySpace,
+  onConversationNotFound,
+  chrome,
+  conversationTail,
+}: RunDetailProps) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const base = basePathFor(keySpace, id);
@@ -447,6 +472,34 @@ export function RunDetail({ id, keySpace, onConversationNotFound }: RunDetailPro
 
   return (
     <div className="flex flex-col gap-4">
+      {/* The pinned run-detail chrome (mt#3344). `sticky top-0` resolves
+          against Layout's `<main>` scroller — nothing between here and it
+          clips overflow or establishes a containing block. The negative
+          margins bleed over the page wrapper's `p-4` so transcript text cannot
+          scroll through the padding gap above the bar, and the background must
+          stay opaque for the same reason. */}
+      <div
+        className="sticky top-0 z-20 -mx-4 -mt-4 flex flex-col gap-2 border-b border-border/60 bg-background px-4 pt-4"
+        data-testid="run-detail-chrome"
+      >
+        {chrome}
+        <Tabs value={tab} onValueChange={handleTabChange}>
+          <TabsList className="h-8 gap-0.5 bg-transparent p-0 border-0">
+            {(["overview", "conversation", "context"] as const).map((t) => (
+              <TabsTrigger
+                key={t}
+                value={t}
+                className="h-8 px-3 text-xs rounded-none border-b-2 border-transparent capitalize
+                  data-[state=active]:border-primary data-[state=active]:bg-transparent
+                  data-[state=active]:text-foreground data-[state=active]:shadow-none"
+              >
+                {t}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      </div>
+
       {driven && (
         <Link
           to={`/driven/${encodeURIComponent(driven.sessionId)}`}
@@ -465,23 +518,6 @@ export function RunDetail({ id, keySpace, onConversationNotFound }: RunDetailPro
             : `Driven session ${driven.status} — open the drive view`}
         </Link>
       )}
-      <div className="border-b border-border/60">
-        <Tabs value={tab} onValueChange={handleTabChange}>
-          <TabsList className="h-8 gap-0.5 bg-transparent p-0 border-0">
-            {(["overview", "conversation", "context"] as const).map((t) => (
-              <TabsTrigger
-                key={t}
-                value={t}
-                className="h-8 px-3 text-xs rounded-none border-b-2 border-transparent capitalize
-                  data-[state=active]:border-primary data-[state=active]:bg-transparent
-                  data-[state=active]:text-foreground data-[state=active]:shadow-none"
-              >
-                {t}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-      </div>
 
       {tab === "overview" && (
         <OverviewTab
@@ -537,6 +573,7 @@ export function RunDetail({ id, keySpace, onConversationNotFound }: RunDetailPro
               No conversation linked to this workspace yet.
             </p>
           )}
+          {conversationTail}
         </div>
       )}
 
