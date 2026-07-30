@@ -46,6 +46,7 @@
 
 import { spawn as nodeSpawn } from "child_process";
 import { randomUUID } from "crypto";
+import { statSync } from "fs";
 import { PassThrough } from "stream";
 import { log } from "@minsky/shared/logger";
 import {
@@ -136,6 +137,63 @@ function permissionModeArgs(mode: PermissionMode): string[] {
 
 /** The genuine binary this host spawns. Never anything from `@anthropic-ai/*`. */
 export const CLAUDE_BINARY = "claude";
+
+// ---------------------------------------------------------------------------
+// Spawn-cwd preflight (mt#3397)
+// ---------------------------------------------------------------------------
+
+/**
+ * Verdict of {@link probeSpawnCwd}. Deliberately THREE-valued: `"unknown"` is
+ * not merged into `"missing"`, because the two carry opposite consequences —
+ * `"missing"` retires a conversation permanently, `"unknown"` must not.
+ */
+export type CwdProbeResult = "present" | "missing" | "unknown";
+
+/**
+ * Check whether a spawn cwd is a directory that exists.
+ *
+ * Why this exists: Node reports a missing `options.cwd` as an `ENOENT` naming
+ * the COMMAND — `ENOENT: no such file or directory, posix_spawn 'claude'` —
+ * indistinguishable from the binary being absent from PATH. Node documents this
+ * ("If given, but the path does not exist, the child process emits an ENOENT
+ * error and exits immediately. ENOENT is also emitted when the command does not
+ * exist") and deliberately declined to pre-validate the cwd itself
+ * (nodejs/node#11520 → doc-only PR nodejs/node#34505), leaving the check to the
+ * caller. This is that caller-side check.
+ *
+ * `"unknown"` (a permission error, an I/O error, an unresponsive network mount)
+ * fails OPEN — the caller spawns anyway and lets the real error surface. Only a
+ * definitive ENOENT/ENOTDIR, or a path that exists but is not a directory,
+ * returns `"missing"`, because `"missing"` is what marks a conversation
+ * unrecoverable FOREVER. A transiently unreadable workspace must never retire a
+ * conversation the principal may still want.
+ */
+export function probeSpawnCwd(cwd: string): CwdProbeResult {
+  try {
+    return statSync(cwd).isDirectory() ? "present" : "missing";
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return "missing";
+    return "unknown";
+  }
+}
+
+/**
+ * The `unrecoverableReason` for a session whose workspace is gone.
+ *
+ * Deliberately says the WORKSPACE is gone, not that the work is: a driven
+ * session's conversation lives in the harness's own on-disk transcript, which
+ * survives both the actuator's death and the workspace's deletion (memory
+ * mem#669 — "the process died" is NOT "the work is gone"). What is lost is the
+ * ability to RESUME in place: `claude --resume` needs the original cwd, both to
+ * run in and because the harness keys its transcript directory off that path.
+ */
+export function missingCwdReason(cwd: string): string {
+  return (
+    `deleted cwd — the workspace directory ${cwd} no longer exists, so this conversation ` +
+    `cannot be resumed in place (its transcript is unaffected)`
+  );
+}
 
 /**
  * The documented headless invocation (mt#2750 spec Context — Claude Code
@@ -789,6 +847,32 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     opts.mcpConfig === undefined ? buildDrivenSessionMcpConfig(opts.cwd) : opts.mcpConfig;
   const argv = buildDrivenSessionArgs(permissionMode, opts.model, mcpConfig);
 
+  // mt#3397 — cwd preflight. Spawning into a directory that does not exist
+  // fails with an ENOENT that NAMES THE BINARY (see probeSpawnCwd), so without
+  // this check the operator reads "Failed to start claude" and goes looking at
+  // their PATH. Terminal-and-registered rather than thrown: the caller
+  // (POST /api/driven-session, the WS resume path) still gets a record back,
+  // and the state-change observer persists the verdict like any other.
+  if (probeSpawnCwd(opts.cwd) === "missing") {
+    const reason = missingCwdReason(opts.cwd);
+    log.error(`[driven-session] not spawning ${command} — ${reason}`);
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: opts.localId ?? randomUUID(),
+      harnessSessionId: null,
+      cwd: opts.cwd,
+      permissionMode,
+      taskId: opts.taskId ?? null,
+      minskySessionId: opts.minskySessionId ?? null,
+      status: "unrecoverable",
+      unrecoverableReason: reason,
+      actuatorGeneration: 0,
+      startedAt: new Date().toISOString(),
+    });
+    registry.register(record);
+    notifyStateChange(record, opts.onStateChange);
+    return { record };
+  }
+
   log.info(
     `[driven-session] spawning ${command} ${redactMcpConfigForLog(argv)} ` +
       `(cwd=${opts.cwd}, permissionMode=${permissionMode})`
@@ -895,8 +979,27 @@ function wireChildProcess(
   });
 
   proc.on("error", (err: Error) => {
+    // mt#3397 — an ENOENT here is ambiguous by Node's own design: it means
+    // EITHER the binary is not on PATH OR the cwd does not exist, and its
+    // message names the binary in both cases. The preflight in
+    // startDrivenSession/resumeDrivenSession catches the ordinary
+    // missing-cwd case before we ever get here, so reaching this branch with a
+    // missing cwd means the directory vanished BETWEEN the preflight and the
+    // spawn — rare, but real, and still unrecoverable rather than crashed.
+    const isEnoent = (err as NodeJS.ErrnoException).code === "ENOENT";
+    if (isEnoent && probeSpawnCwd(record.cwd) === "missing") {
+      const reason = missingCwdReason(record.cwd);
+      record.status = "unrecoverable";
+      record.unrecoverableReason = reason;
+      log.error(`[driven-session] spawn failed for ${record.localId} — ${reason}`);
+      appendEvent(record, { type: "minsky_unrecoverable", reason });
+      notifyStateChange(record, opts.onStateChange);
+      return;
+    }
     record.status = "crashed";
-    record.crashError = `Failed to start ${command}: ${err.message}`;
+    record.crashError = isEnoent
+      ? `Failed to start ${command}: not found — is '${command}' on this process's PATH? (${err.message})`
+      : `Failed to start ${command}: ${err.message}`;
     log.error(`[driven-session] spawn error for ${record.localId}: ${err.message}`);
     appendEvent(record, {
       type: "minsky_error",
@@ -1021,6 +1124,32 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
     mcpConfig
   );
 
+  // mt#3397 — same cwd preflight as startDrivenSession, and the path the
+  // originating incident actually took: a workspace deleted out from under a
+  // live conversation left every resume attempt crashing with an ENOENT that
+  // named `claude`. `registry.replace` (not `register`) so the old record's
+  // subscribers get the swap signal and redial onto the terminal state; the
+  // generation is NOT incremented, because no new actuator was created.
+  if (probeSpawnCwd(previous.cwd) === "missing") {
+    const reason = missingCwdReason(previous.cwd);
+    log.error(`[driven-session] not resuming ${previous.localId} — ${reason}`);
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: previous.localId,
+      harnessSessionId: previous.harnessSessionId,
+      cwd: previous.cwd,
+      permissionMode: previous.permissionMode,
+      taskId: previous.taskId,
+      minskySessionId: previous.minskySessionId,
+      status: "unrecoverable",
+      unrecoverableReason: reason,
+      actuatorGeneration: previous.actuatorGeneration,
+      startedAt: previous.startedAt,
+    });
+    registry.replace(previous.localId, record);
+    notifyStateChange(record, opts.onStateChange);
+    return { record };
+  }
+
   log.info(
     `[driven-session] resuming ${command} ${redactMcpConfigForLog(argv)} (localId=${previous.localId}, ` +
       `harnessSessionId=${previous.harnessSessionId}, generation=${previous.actuatorGeneration + 1}, cwd=${previous.cwd})`
@@ -1104,8 +1233,12 @@ export interface ReconnectingRecordInput {
 }
 
 /**
- * Build a placeholder `DrivenSessionRecord` for a persisted row loaded at
- * daemon boot (RFC minimal-first-slice step 2) — registered into the
+ * Build a placeholder `DrivenSessionRecord` — one with no live actuator behind
+ * it. Two callers: a persisted row loaded at daemon boot (RFC
+ * minimal-first-slice step 2, the original use), and the mt#3397 cwd preflight,
+ * which produces a terminal `unrecoverable` record INSTEAD of spawning. Both
+ * want the same thing: a well-formed record whose `proc` is inert. Registered
+ * into the
  * in-memory registry as `"reconnecting"` (or `"unrecoverable"`, for a
  * persisted row already known to be unresumable) WITHOUT spawning anything.
  * The domain-layer caller (../driven-session-launch.ts) is responsible for
