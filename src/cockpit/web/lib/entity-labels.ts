@@ -168,6 +168,18 @@ export function resolveTabLabel(
       if (row?.taskId) return { primary: row.taskId, enriched: true };
       return fallback;
     }
+    case "driven": {
+      // mt#3400 — the fleet list splices driven-session rows keyed by their
+      // localId (widgets/agents.ts, "Splice driven-session registry
+      // snapshots"), which is exactly this tab's entityId, so the `agent`
+      // lookup below resolves verbatim. Without this the tab falls through to
+      // `default` and reads as a truncated spawn id — an opaque label in the
+      // one strip whose entire purpose is findability.
+      const row = sources.agentRows.find((a) => a.sessionId === tab.entityId);
+      if (row?.taskTitle) return { primary: row.taskTitle, enriched: true };
+      if (row?.taskId) return { primary: row.taskId, enriched: true };
+      return fallback;
+    }
     case "session": {
       // Conversation tabs (kind "session" pending the broader tab-kind
       // rename — see tabs.tsx): the server-derived ladder label.
@@ -263,7 +275,11 @@ export function useEntityLabel(tab: Pick<EntityTab, "kind" | "entityId" | "label
   const agentsQuery = useQuery<WidgetData, Error>({
     queryKey: ["agents"],
     queryFn: () => fetchWidgetData("agents"),
-    enabled: tab.kind === "agent",
+    // mt#3400 — driven tabs resolve out of the SAME fleet payload (see the
+    // "driven" case in `resolveTabLabel`), so the query has to be enabled for
+    // them too; enabling only "agent" would leave the resolver correct and the
+    // data permanently absent.
+    enabled: tab.kind === "agent" || tab.kind === "driven",
     staleTime: 30_000,
   });
 

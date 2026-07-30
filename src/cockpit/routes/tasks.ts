@@ -15,6 +15,50 @@ import {
   getServerSessionProvider,
 } from "../db-providers";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
+// Static, matching `widgets/agents.ts`'s use of the same registry: the host
+// module is dependency-light by design, and a deployment that never spawns a
+// driven session just reads an empty registry.
+import { drivenSessionRegistry, isTerminalStatus } from "../driven-session-host";
+
+/**
+ * Pick the driven session an operator should be returned to for a task
+ * (mt#3400), or null when none applies.
+ *
+ * Extracted as a pure function for the same reason `parseTaskMetaIds` is: the
+ * `/api/tasks/:id` route has no DI seam and `mock.module` is banned in this
+ * codebase, so the selection RULES are tested here directly and the route keeps
+ * only the registry read (see ./tasks.test.ts's header).
+ *
+ * Three rules, each load-bearing:
+ *   - Ids are compared through `normalize`, never raw. The record's `taskId` is
+ *     an opaque string recorded at launch by whichever surface launched it; the
+ *     route's comes from the URL. A raw `===` would silently never match if the
+ *     two ever disagree on display form.
+ *   - `isTerminal` excludes finished sessions so an exited/crashed/unrecoverable
+ *     record can never hijack the action — but everything non-terminal DOES
+ *     qualify, including `"reconnecting"`. That state (a record rebuilt after a
+ *     daemon restart) is exactly the one the originating incident hit, and it is
+ *     genuinely reachable: attaching to `/driven/:id` resumes it.
+ *   - Newest-started wins when a task has been driven more than once.
+ */
+export function selectLiveDrivenSession<
+  S extends string,
+  T extends { localId: string; taskId: string | null; status: S; startedAt: string },
+>(
+  records: readonly T[],
+  wantedTaskId: string,
+  normalize: (id: string) => string,
+  isTerminal: (status: S) => boolean
+): T | null {
+  const wanted = normalize(wantedTaskId);
+  const candidates = records
+    .filter(
+      (record) =>
+        record.taskId !== null && normalize(record.taskId) === wanted && !isTerminal(record.status)
+    )
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  return candidates[0] ?? null;
+}
 
 /**
  * Task-meta provider (mt#3174) — adapts `getServerTaskService()` to
@@ -266,9 +310,11 @@ export function mountTaskRoutes(app: express.Express): void {
       // than a dead-end explanation. The workspace probe degrades to
       // "no workspace" on any error rather than failing the detail read.
       interface TaskAction {
-        kind: "plan" | "start" | "resume" | "view-pr";
+        kind: "plan" | "start" | "resume" | "view-pr" | "drive";
         /** Workspace session id — set on "resume". */
         sessionId?: string;
+        /** Driven-session local id — set on "drive" (mt#3400). */
+        drivenSessionId?: string;
         /** PR number — set on "view-pr" when known. */
         prNumber?: number;
         /** Secondary explanation rendered under the control (honesty layer). */
@@ -291,6 +337,39 @@ export function mountTaskRoutes(app: express.Express): void {
         log.warn(
           `[tasks] actions workspace probe failed for ${taskId}: ${
             workspaceErr instanceof Error ? workspaceErr.message : String(workspaceErr)
+          }`
+        );
+      }
+
+      // mt#3400 — a live driven session bound to this task is the operator's
+      // actual work surface, and until this probe existed the task page could
+      // not see it: the workspace probe above answers "does a clone exist",
+      // never "is something running in it". The result was that the page's own
+      // recovery affordance ("Open session" -> /agents/:id) pointed AWAY from
+      // the live drive view, making the return path four hops. Registry read
+      // only — this route and the driven-session host share one process, so
+      // there is no HTTP round-trip and no new external dependency. Degrades to
+      // "no live driven session" on any error, matching the workspace probe's
+      // posture directly above: a task page must still render if the driven
+      // registry is unavailable.
+      let liveDriven: { drivenSessionId: string } | null = null;
+      try {
+        const { formatTaskIdForDisplay: formatForCompare } = await import(
+          "@minsky/domain/tasks/task-id-utils"
+        );
+        const newest = selectLiveDrivenSession(
+          drivenSessionRegistry.list(),
+          taskId,
+          formatForCompare,
+          isTerminalStatus
+        );
+        if (newest) {
+          liveDriven = { drivenSessionId: newest.localId };
+        }
+      } catch (drivenErr) {
+        log.warn(
+          `[tasks] driven-session probe failed for ${taskId}: ${
+            drivenErr instanceof Error ? drivenErr.message : String(drivenErr)
           }`
         );
       }
@@ -348,6 +427,18 @@ export function mountTaskRoutes(app: express.Express): void {
         // exists and isn't already the primary.
         if (resumeAction && !actions.some((a) => a.kind === "resume")) {
           actions.push(resumeAction);
+        }
+
+        // mt#3400 — a live driven session LEADS, whatever the stage-appropriate
+        // action would otherwise have been. Unshift rather than replace, so the
+        // workspace link and the stage action both stay reachable behind it.
+        //
+        // This also removes a duplicate-launch footgun on the pre-READY stages:
+        // "Plan in session" SPAWNS a new driven session, so a task already
+        // being driven previously offered launch-another as its primary
+        // control, with the live session invisible.
+        if (liveDriven) {
+          actions.unshift({ kind: "drive", drivenSessionId: liveDriven.drivenSessionId });
         }
       }
 
