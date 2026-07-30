@@ -430,13 +430,45 @@ export interface SessionContextSnapshotBlock {
   model?: string;
 
   /**
+   * Originating JSONL `uuid` — this line's own harness-emitted node id, the
+   * other half of the `parentUuid` edge below (mt#3323).
+   *
+   * Present on turn blocks (the `agent_transcripts.transcript` array stores the
+   * JSONL lines verbatim, uuid included). ABSENT on attachment blocks:
+   * `agent_transcript_attachments` carries a `parent_uuid` column but no
+   * `uuid` column, so an attachment can be a tree CHILD but never a tree
+   * PARENT. Consumers walking the tree must treat a missing `uuid` as "cannot
+   * have children" rather than assuming every block is addressable.
+   *
+   * Optional and additive: a consumer that never reads it is unaffected.
+   */
+  uuid?: string;
+
+  /**
+   * True when this block belongs to a superseded (rewound) operator-prompt
+   * branch — the operator re-dictated or edited a prompt, and THIS is the
+   * version the agent never received (mt#3323).
+   *
+   * Set by `markAbandonedRewindBranches` (`transcripts/rewind-detection.ts`)
+   * at snapshot-assembly time. The block is deliberately still PRESENT in the
+   * stream: `SemanticEvent.turnIndex` is index-identical with this block's
+   * `turnIndex` (see `event-schema.ts`) and the session film joins on it, so
+   * blocks are never removed or re-indexed here. Suppression is the renderer's
+   * decision.
+   *
+   * Fires ONLY on the rewind shape (2+ sibling operator prompts under one
+   * `parentUuid`), never on ordinary tree branching — a parallel tool batch
+   * forks the tree at every call site with both forks live. Optional and
+   * additive: absent on every ordinary block.
+   */
+  isAbandonedBranch?: boolean;
+
+  /**
    * Originating JSONL `parentUuid` — the harness-emitted external UUID that
    * Claude Code uses to chain lines (attachment → preceding turn/attachment,
    * turn → preceding turn). NOT a synthesized block `id` from this snapshot's
-   * namespace; downstream consumers wanting in-snapshot navigation can build
-   * a `uuid → blockId` map themselves (uuids appear on the underlying JSONL
-   * but are not exposed on the block shape yet — file a follow-up if the
-   * inspector UI needs them).
+   * namespace; pair it with the `uuid` field above to resolve edges within the
+   * snapshot.
    *
    * Renamed from `parentId` per PR #1229 reviewer feedback; the old name
    * implied resolution within the snapshot's id-namespace, which the value
