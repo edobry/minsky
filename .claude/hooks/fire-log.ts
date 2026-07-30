@@ -70,6 +70,18 @@ export type FireLogDecision = "allow" | "warn" | "deny";
  */
 export type OverrideClassification = "authorized_exception" | "unclassified" | "contested";
 
+/**
+ * mt#3355 — which channel produced the task id a `session_pr_merge` merge gate evaluated
+ * against. Persisted so that a gate which never evaluated the PR is distinguishable from
+ * one that evaluated it and passed: before this field, both wrote `decision: "allow"` and
+ * differed only in `durationMs`, and 11.5% of recorded merges took the silent path.
+ *
+ * `unresolved` means the gate could not identify the PR at all — always paired with
+ * `decision: "warn"`, never `allow`. See `merge-gate-task-resolution.ts`, which is the
+ * only producer of these values.
+ */
+export type TaskResolutionSource = "tool_input" | "branch-fallback" | "unresolved";
+
 export interface FireLogEntry {
   timestamp: string;
   guardName: string;
@@ -102,6 +114,11 @@ export interface FireLogEntry {
   /** Tool context — the tool this guard was invoked for (PreToolUse/PostToolUse only). */
   toolName?: string;
   sessionId?: string;
+  /**
+   * mt#3355 — see {@link TaskResolutionSource}. Present on `session_pr_merge` gates that
+   * resolve a task id; absent on every other guard, which has no such selector.
+   */
+  taskResolutionSource?: TaskResolutionSource;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +208,8 @@ export interface RecordFireLogInput {
   overrideGrantAsk?: string;
   toolName?: string;
   sessionId?: string;
+  /** mt#3355 — see {@link FireLogEntry.taskResolutionSource}. */
+  taskResolutionSource?: TaskResolutionSource;
 }
 
 /**
@@ -224,6 +243,9 @@ export function recordFireLogEntry(
       ...(input.overrideGrantAsk !== undefined ? { overrideGrantAsk: input.overrideGrantAsk } : {}),
       ...(input.toolName ? { toolName: input.toolName } : {}),
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      ...(input.taskResolutionSource !== undefined
+        ? { taskResolutionSource: input.taskResolutionSource }
+        : {}),
     };
     fs.appendFileSync(logPath, `${JSON.stringify(ev)}\n`);
   } catch (err) {

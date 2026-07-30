@@ -57,6 +57,8 @@ import { readInput, writeOutput, readHostCap, deriveBudgets } from "./types";
 import type { ToolHookInput } from "./types";
 import { deriveRepoFromGit, resolvePrBodyFromTask, fetchPrBody } from "./pr-context";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
+import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
+import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
 import { classifyOverride } from "./fire-log";
 
 /** This guard's fire-log identifier (mt#3084, evaluation-loop Phase 3). */
@@ -444,7 +446,14 @@ if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
   // mt#3084 (evaluation-loop Phase 3): fire-log every evaluation, exactly
   // once per invocation regardless of which exit fires below.
-  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
+  const fireLogContext: MergeGateFireLogContext = {};
+  const recordAndExit: RecordAndExit = makeRecordAndExit(
+    GUARD_NAME,
+    startMs,
+    input,
+    undefined,
+    fireLogContext
+  );
   const toolName = input.tool_name;
   const ghTimeoutMs = deriveGhTimeoutMs();
 
@@ -468,7 +477,23 @@ if (import.meta.main) {
   let body: string | null = null;
 
   if (toolName === "mcp__minsky__session_pr_merge") {
-    const task = (input.tool_input.task as string | undefined) ?? "";
+    // mt#3355: this branch used to read `tool_input.task` alone and pass `""` downstream.
+    // `resolvePrBodyFromTask` returns `null` on an empty task, and the `null` case below is
+    // treated as "no PR exists for this branch — legitimate, allow silently" — so a
+    // `sessionId`-invoked merge bypassed this gate through a path indistinguishable from a
+    // genuine no-PR result. Resolve first, and WARN when nothing resolves.
+    const resolution = resolveMergeGateTaskId(input);
+    fireLogContext.taskResolutionSource = resolution.source;
+    const task = resolution.taskId;
+    if (!task) {
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
+        },
+      });
+      recordAndExit("warn");
+    }
     const resolved = resolvePrBodyFromTask(repo, task, { cwd: input.cwd, timeout: ghTimeoutMs });
     // null = no PR exists for branch (legitimate; allow silently)
     if (resolved === null) recordAndExit("allow");

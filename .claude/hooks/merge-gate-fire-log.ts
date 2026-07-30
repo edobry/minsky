@@ -41,6 +41,7 @@ import {
   type FireLogDecision,
   type FireLogRecordOptions,
   type OverrideClassification,
+  type TaskResolutionSource,
 } from "./fire-log";
 
 /** The subset of `ToolHookInput` this factory needs — `tool_name`/`session_id` are
@@ -65,6 +66,21 @@ export interface MergeGateOverrideFields {
   /** mt#2989 — the authorization Ask id backing a grant-channel override, so the
    * fire-log record names the operator authorization, not just its class. */
   overrideGrantAsk?: string;
+}
+
+/**
+ * mt#3355 — a MUTABLE holder a merge gate fills in once, right after it resolves the task
+ * id, and which the `recordAndExit` closure reads at whichever exit point actually fires.
+ *
+ * Deliberately mutable rather than a per-call argument: a merge gate has many exit points
+ * downstream of task resolution, and threading the source through each one would make
+ * "forgot to pass it at exit point N" a live failure mode — which is the same shape as the
+ * bug mt#3355 exists to fix (a gate whose non-evaluation was indistinguishable from a pass).
+ * With a shared holder, every exit point after the assignment carries the source by
+ * construction, and the ones before it correctly carry nothing.
+ */
+export interface MergeGateFireLogContext {
+  taskResolutionSource?: TaskResolutionSource;
 }
 
 /** The `recordAndExit` closure shape every merge-gate hook's entry point uses. */
@@ -106,7 +122,8 @@ export function makeRecordAndExit(
   guardName: string,
   startMs: number,
   input: MergeGateHookInput,
-  recordOptions?: FireLogRecordOptions
+  recordOptions?: FireLogRecordOptions,
+  context?: MergeGateFireLogContext
 ): RecordAndExit {
   return (decision, overrideFields) => {
     recordFireLogEntry(
@@ -117,6 +134,11 @@ export function makeRecordAndExit(
         durationMs: Date.now() - startMs,
         toolName: input.tool_name,
         sessionId: input.session_id,
+        // mt#3355: read at EXIT time, not closure-construction time — the gate assigns
+        // this after it resolves the task id, which happens after this factory runs.
+        ...(context?.taskResolutionSource !== undefined
+          ? { taskResolutionSource: context.taskResolutionSource }
+          : {}),
         // Reviewer R2 BLOCKING (verified false positive, mt#3084): spreading an
         // `undefined` value into an object literal is a JS-spec no-op ({...undefined}
         // === {}), NOT a runtime throw — confirmed empirically (`bun -e`) before this
