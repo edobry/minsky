@@ -520,6 +520,28 @@ describe("sendDrivenSessionInput", () => {
       record.eventLog.filter((e) => e.payload["type"] === DRIVEN_OPERATOR_INPUT_EVENT_TYPE)
     ).toHaveLength(0);
   });
+
+  test("refuses a reconnecting placeholder rather than rendering a phantom turn", () => {
+    // PR #2433 R1. A `reconnecting` record is non-terminal but its proc is the
+    // dead placeholder, whose stdin is an inert PassThrough — the write lands
+    // nowhere. Echoing there would show the operator a turn that was never
+    // delivered, which is worse than the pre-existing silent loss.
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: "reconnecting-local-id",
+      harnessSessionId: "harness-id",
+      cwd: "/tmp/x",
+      permissionMode: "bypassPermissions",
+      taskId: null,
+      minskySessionId: null,
+      status: "reconnecting",
+      unrecoverableReason: null,
+      actuatorGeneration: 1,
+      startedAt: new Date().toISOString(),
+    });
+
+    expect(sendDrivenSessionInput(record, "into the void")).toBe(false);
+    expect(record.eventLog).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

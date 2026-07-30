@@ -42,13 +42,21 @@ const TURN_TIMEOUT_MS = 90_000;
 const POLL_MS = 250;
 
 function resolveClaudeBinary(): string | null {
-  const candidates = [
-    join(process.env["HOME"] ?? "", ".bun/bin/claude"),
-    join(process.env["HOME"] ?? "", ".local/bin/claude"),
-    "/usr/local/bin/claude",
-    "/opt/homebrew/bin/claude",
+  // PATH first — a fixed candidate list silently skips any install location we
+  // did not think of, which on this script's skip-on-absent contract reads as
+  // "no binary" rather than "looked in the wrong places" (PR #2433 R1).
+  const pathEntries = (process.env["PATH"] ?? "").split(":").filter(Boolean);
+  const fallbacks = [
+    join(process.env["HOME"] ?? "", ".bun/bin"),
+    join(process.env["HOME"] ?? "", ".local/bin"),
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
   ];
-  return candidates.find((p) => existsSync(p)) ?? null;
+  for (const dir of [...pathEntries, ...fallbacks]) {
+    const candidate = join(dir, "claude");
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
 }
 
 async function waitFor(

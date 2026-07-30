@@ -615,6 +615,20 @@ export function isTerminalStatus(status: DrivenSessionStatus): boolean {
 }
 
 /**
+ * True when `record` has a REAL child process behind it — the precondition for
+ * any write that claims delivery.
+ *
+ * Broader than `!isTerminalStatus`: a `"reconnecting"` record is non-terminal
+ * but its `proc` is {@link createDeadProcessPlaceholder}'s stub, whose stdin is
+ * an inert `PassThrough` that never receives real data (mt#3038 R1 delta #6 —
+ * lazy-resume-only, nothing is spawned until an attach). A write there
+ * succeeds at the stream level and goes nowhere.
+ */
+export function hasLiveActuator(record: DrivenSessionRecord): boolean {
+  return !isTerminalStatus(record.status) && record.status !== "reconnecting";
+}
+
+/**
  * True when `record` has an actively in-flight turn (mt#3048, RFC
  * "Conversation-first drive" Phase 1 slice 6) — its latest observed event is
  * not yet a terminal `result`/`minsky_exit` event. This is the daemon-side
@@ -1121,13 +1135,29 @@ export function buildReconnectingDrivenSessionRecord(
  * interruption notice. Echoing that would attribute a host-authored message to
  * the operator, which is the same false-attribution class mt#3372 exists to
  * fix, just pointed the other way.
+ *
+ * Two consequences of routing the echo through `appendEvent` worth stating
+ * outright, since both are behavior changes rather than bookkeeping:
+ *
+ *   - **A `spawned` record flips to `running` on the operator's first send**,
+ *     one event earlier than before (previously only the child's own first
+ *     stdout frame could do it). `running` here means "this session is
+ *     active", which it is — the operator just handed it a turn. It does NOT
+ *     assert the child has spoken; nothing keys on that distinction.
+ *   - **The guard is {@link hasLiveActuator}, not `isTerminalStatus`.** A
+ *     `"reconnecting"` record is non-terminal but has no child behind it, so
+ *     the write would land in an inert `PassThrough` and vanish. Before this
+ *     change that silent loss returned `true`; now it returns `false`, and no
+ *     phantom operator turn is rendered for a message that was never
+ *     delivered. (Callers already branch on the return: the principal-channel
+ *     actuator surfaces the failure to the sender.)
  */
 export function sendDrivenSessionInput(
   record: DrivenSessionRecord,
   text: string,
   opts: { echo?: boolean } = {}
 ): boolean {
-  if (isTerminalStatus(record.status)) return false;
+  if (!hasLiveActuator(record)) return false;
   const line = JSON.stringify({
     type: "user",
     message: {
