@@ -18,13 +18,17 @@
  */
 import { useEffect, useId, useMemo, useState } from "react";
 import { cn } from "../lib/utils";
-import type { ConversationElement, ConversationRole } from "@minsky/domain/transcripts/conversation-elements";
+import type {
+  ConversationElement,
+  ConversationRole,
+} from "@minsky/domain/transcripts/conversation-elements";
 import type { EntityIndex } from "../lib/entity-linkifier";
 import { Prose } from "./Prose";
 import { ToolPayload } from "./ToolPayload";
 import { friendlyToolName, parseToolName } from "../lib/tool-name";
 import { toolIconFor } from "../lib/tool-icon";
 import { summarizeToolInvocation } from "../lib/tool-summary";
+import { sessionFileTargetFor } from "../lib/session-path";
 import type { InjectedSpan } from "../lib/injected-content";
 
 // ── Shared element types ─────────────────────────────────────────────────────
@@ -150,7 +154,19 @@ export function ToolInvocation({
 
   const parsed = useMemo(() => parseToolName(call.name), [call.name]);
   const Icon = toolIconFor(parsed);
-  const label = friendlyToolName(call.name);
+  // A native file tool acting on a session workspace reveals that only through
+  // its absolute path (mt#3378) — mark it in the label, and keep the session
+  // identity in the tooltip rather than spending the line on a raw UUID.
+  const sessionTarget = useMemo(
+    () => sessionFileTargetFor(call.name, call.input),
+    [call.name, call.input]
+  );
+  const label = `${friendlyToolName(call.name)}${
+    sessionTarget?.labelAsSession ? " · session file" : ""
+  }`;
+  const nameTooltip = sessionTarget
+    ? `${call.name}\n${sessionTarget.absolutePath}\nsession ${sessionTarget.sessionId}`
+    : call.name;
   const digest = useMemo(
     () =>
       summarizeToolInvocation(
@@ -179,7 +195,7 @@ export function ToolInvocation({
           className={cn("h-3.5 w-3.5 shrink-0", isError ? "text-destructive" : "text-sky-500/80")}
         />
         <span
-          title={call.name}
+          title={nameTooltip}
           className={cn(
             "shrink-0 font-mono font-medium",
             isError ? "text-destructive" : "text-sky-300"

@@ -893,6 +893,23 @@ in chat reports\` (mt#2801; originating incident: the mt#2777 planning output th
 14-row criterion table and had to be re-explained). This changes placement only — every
 premise-audit answer and criterion verdict is still produced in full.
 
+**Chat is a terminal, not GitHub — emit no raw HTML.** Chat output is rendered as
+GitHub-flavored markdown by a terminal renderer that does NOT execute HTML: a
+\`<details>\`/\`<summary>\` block does not collapse, it prints its own tags as literal text
+directly above the content it was meant to hide. Do not reach for a collapsible to reconcile the
+plain-language lead with a long audit trail — that reconciliation already has an answer, and the
+collapsible is an end-run around it. The audit trail's home is the **task record**: write the
+premise-audit answers and per-criterion verdicts into the spec via \`tasks_spec_patch\` (under
+\`## Planning finding\`) and point at it with a deeplink — \`[mt#NNNN](minsky://task/mt%23NNNN)\`,
+with the \`#\` percent-encoded as \`%23\` in the URI and left bare in the label, per
+\`cockpit-deeplinks.mdc\` — realizing \`communication-contract.mdc\`'s "detail lives behind a
+pointer, never inline". Only detail short enough to belong in chat on its own renders there, as
+an ordinary markdown section beneath the lead. The same renderer means the same failure for every
+other HTML affordance, so the prohibition covers them too (\`<br>\`, \`<sub>\`, inline
+\`<table>\`); PR bodies and Notion pages are a different surface, where \`<details>\` does
+work and stays available. Incident: mt#3371 (19 collapsibles across 12 conversations, all of them
+this skill's gate reports).
+
 **All gate criteria pass:**
 
 1. Report in plain language that planning found no gaps (one or two sentences on what was
