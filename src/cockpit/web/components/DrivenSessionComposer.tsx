@@ -16,7 +16,14 @@ import type { DrivenSessionInteractionState } from "../lib/driven-session-accumu
 export interface DrivenSessionComposerProps {
   interactionState: DrivenSessionInteractionState;
   onSend: (text: string) => void;
-  onStop: () => void;
+  /**
+   * Stop the in-flight turn. OPTIONAL: when omitted the Stop button is not
+   * rendered at all. A host that has nothing to stop — the entity discussion
+   * thread (mt#3365), which talks to its agent over REST and has no
+   * interrupt channel — would otherwise ship a permanently dead control,
+   * which is worse than no control.
+   */
+  onStop?: () => void;
   className?: string;
   /**
    * Pre-fill the composer input (mt#2986) — e.g. "/plan-task mt#X" from the
@@ -24,6 +31,16 @@ export interface DrivenSessionComposerProps {
    * the operator reviews and presses Enter themselves.
    */
   initialText?: string;
+  /**
+   * Accessible label for the input. Defaults to the driven-session wording
+   * this component was built for; a different host passes its own so a
+   * screen reader is not told it is addressing a "driven session" when it is
+   * addressing something else (mt#3365).
+   */
+  ariaLabel?: string;
+  /** Placeholder shown when the composer is accepting input. Defaults to the
+   * driven-session wording, for the same reason as `ariaLabel`. */
+  idlePlaceholder?: string;
 }
 
 const PLACEHOLDER_BY_STATE: Record<DrivenSessionInteractionState, string> = {
@@ -38,11 +55,17 @@ export function DrivenSessionComposer({
   onStop,
   className,
   initialText,
+  ariaLabel,
+  idlePlaceholder,
 }: DrivenSessionComposerProps) {
   const [text, setText] = useState(initialText ?? "");
   const inputDisabled = interactionState !== "awaiting-input";
   const canSend = !inputDisabled && text.trim().length > 0;
   const canStop = interactionState !== "exited";
+  const placeholder =
+    interactionState === "awaiting-input" && idlePlaceholder
+      ? idlePlaceholder
+      : PLACEHOLDER_BY_STATE[interactionState];
 
   function submit(): void {
     const trimmed = text.trim();
@@ -71,18 +94,20 @@ export function DrivenSessionComposer({
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
         disabled={inputDisabled}
-        placeholder={PLACEHOLDER_BY_STATE[interactionState]}
+        placeholder={placeholder}
         rows={2}
-        aria-label="Message to the driven session"
+        aria-label={ariaLabel ?? "Message to the driven session"}
         className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
       />
       <div className="flex flex-col gap-1.5">
         <Button type="submit" size="sm" disabled={!canSend}>
           Send
         </Button>
-        <Button type="button" size="sm" variant="outline" disabled={!canStop} onClick={onStop}>
-          Stop
-        </Button>
+        {onStop ? (
+          <Button type="button" size="sm" variant="outline" disabled={!canStop} onClick={onStop}>
+            Stop
+          </Button>
+        ) : null}
       </div>
     </form>
   );
