@@ -37,11 +37,16 @@
  * entry shows an error chip for this visit and is excluded from persistence,
  * so it does not resurrect as a dead tab on the next reload.
  *
- * Presence chrome (mt#3261): the header carries mt#3130's single always-visible
- * Presence value plus its Activity sub-line, read from
- * `GET /api/conversation/:id/presence`. It sits ABOVE the tab body deliberately
- * — mt#3130 placement decision (1) puts the rolled-up "what is it doing right
- * now" answer in the chrome and per-turn history in the body.
+ * Presence chrome (mt#3261, split by mt#3344): the header carries mt#3130's
+ * single always-visible Presence VALUE, read from
+ * `GET /api/conversation/:id/presence`, and passes it into `RunDetail`'s
+ * pinned `chrome` slot so it stays on screen at any scroll depth. mt#3130
+ * placement decision (1) put the Activity sub-line there too; mt#3344 narrows
+ * that — Activity now renders at the transcript's tail via `conversationTail`,
+ * because an operator reading "Running <tool>" is following the live edge at
+ * the bottom of the transcript, not the page chrome at the top. The presence
+ * VALUE stays in the chrome: it is a property of the conversation, not of the
+ * transcript, and must be readable from the Overview and Context tabs too.
  */
 import { useParams, useLocation } from "react-router-dom";
 import { useCallback } from "react";
@@ -51,7 +56,10 @@ import {
   fetchConversationOverview,
   type ConversationOverviewPayload,
 } from "../widgets/RunDetail";
-import { ConversationPresenceChip } from "../components/ConversationPresenceChip";
+import {
+  ConversationPresenceChip,
+  ConversationActivityLine,
+} from "../components/ConversationPresenceChip";
 import { useTabs } from "../lib/tabs";
 import type { ConversationId } from "@minsky/domain/ids";
 
@@ -93,18 +101,26 @@ export function ConversationPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 p-4">
-      <div className="flex flex-col gap-0.5">
-        <h1 className="truncate text-lg font-semibold" title={label}>
-          {label}
-        </h1>
-        {showIdSubline && (
-          <span className="font-mono text-xs text-muted-foreground" title={id}>
-            {id}
-          </span>
-        )}
-        <ConversationPresenceChip conversationId={id} />
-      </div>
-      <RunDetail key={id} id={id} keySpace="conversation" onConversationNotFound={handleNotFound} />
+      <RunDetail
+        key={id}
+        id={id}
+        keySpace="conversation"
+        onConversationNotFound={handleNotFound}
+        chrome={
+          <div className="flex flex-col gap-0.5">
+            <h1 className="truncate text-lg font-semibold" title={label}>
+              {label}
+            </h1>
+            {showIdSubline && (
+              <span className="font-mono text-xs text-muted-foreground" title={id}>
+                {id}
+              </span>
+            )}
+            <ConversationPresenceChip conversationId={id} />
+          </div>
+        }
+        conversationTail={<ConversationActivityLine conversationId={id} />}
+      />
     </div>
   );
 }

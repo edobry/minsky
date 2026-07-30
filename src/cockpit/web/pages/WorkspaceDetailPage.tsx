@@ -5,7 +5,9 @@
  * Thin page wrapper: breadcrumb chrome + the shared tabbed `RunDetail` body
  * (mt#2768 — Overview/Conversation/Context tabs on one shared detail
  * surface). `RunDetail` owns all data-fetching and tab-state; this page only
- * supplies the workspace-keyed `id` and page-level chrome.
+ * supplies the workspace-keyed `id` and page-level chrome. The breadcrumb goes
+ * IN through `RunDetail`'s `chrome` slot rather than beside it (mt#3344), so it
+ * pins together with the tab strip while the transcript scrolls.
  *
  * Distinct from /conversation/:id (ConversationPage), which is keyed by the
  * harness agentSessionId and lands on the Conversation tab by default.
@@ -38,20 +40,24 @@ export function WorkspaceDetailPage() {
 
   return (
     <div className="p-4 w-full max-w-4xl flex flex-col gap-6">
-      {/* Breadcrumb */}
-      <nav
-        className="flex items-center gap-1.5 text-xs text-muted-foreground"
-        aria-label="Breadcrumb"
-      >
-        <Link to="/agents" className="hover:text-foreground transition-colors">
-          Agents
-        </Link>
-        <span aria-hidden="true">/</span>
-        <CopyId type="session" id={sessionId} displayId={shortId} />
-      </nav>
-
       {sessionId ? (
-        <RunDetail key={sessionId} id={sessionId} keySpace="workspace" />
+        <RunDetail
+          key={sessionId}
+          id={sessionId}
+          keySpace="workspace"
+          chrome={
+            <nav
+              className="flex items-center gap-1.5 text-xs text-muted-foreground"
+              aria-label="Breadcrumb"
+            >
+              <Link to="/agents" className="hover:text-foreground transition-colors">
+                Agents
+              </Link>
+              <span aria-hidden="true">/</span>
+              <CopyId type="session" id={sessionId} displayId={shortId} />
+            </nav>
+          }
+        />
       ) : (
         <p className="text-sm text-muted-foreground">No workspace ID in URL.</p>
       )}
