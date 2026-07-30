@@ -199,8 +199,13 @@ async function applyRepair(
     const chunk = candidates.slice(i, i + CHUNK_SIZE);
     if (chunk.length === 0) continue;
 
+    // `agent_transcript_turns.agent_session_id` is `text`, not `uuid`
+    // (packages/domain/src/storage/schemas/agent-transcript-turns-schema.ts;
+    // migration 0027_agent_transcripts.sql declares it `text`) — but cast
+    // explicitly anyway so the VALUES list's column type is never left to
+    // driver-dependent parameter-type inference.
     const valuesSql = sql.join(
-      chunk.map((c) => sql`(${c.agentSessionId}, ${c.turnIndex}::int)`),
+      chunk.map((c) => sql`(${c.agentSessionId}::text, ${c.turnIndex}::int)`),
       sql`, `
     );
 

@@ -112,22 +112,34 @@ function asDb(db: unknown): PostgresJsDatabase {
 
 /**
  * Minimal fake mimicking drizzle's fluent surface for
- * ToolCallProjectionPipeline.runForSession's TWO queries:
+ * ToolCallProjectionPipeline.runForSession's THREE queries:
  *   (1) select({turnIndex, toolCalls, startedAt, endedAt}).from(turns).where(...)
- *   (2) insert(projection).values(...).onConflictDoUpdate(...)
+ *       — production filters `jsonb_typeof(tool_calls) = 'array'` (mt#3360),
+ *       so `turnRows` here should already be shaped as what THAT filter would
+ *       let through (i.e. tests feed only array/null tool_calls, not string).
+ *   (2) select({n: count(*)}).from(turns).where(...) — countSkippedNonArray
+ *       (mt#3360) — `skippedNonArrayCount` is the canned answer.
+ *   (3) insert(projection).values(...).onConflictDoUpdate(...)
  *
  * The where-clause condition is intentionally NOT introspected (matching
  * agent-spawns-pipeline.test.ts's precedent) — each test scopes turnRows to
  * exactly one session, so the fake can return them unconditionally.
  */
-function makeDb(turnRows: FakeTurnRow[], projectionStore: Map<string, FakeProjectionRow>) {
+function makeDb(
+  turnRows: FakeTurnRow[],
+  projectionStore: Map<string, FakeProjectionRow>,
+  skippedNonArrayCount = 0
+) {
   return {
     select(fields?: Record<string, unknown>) {
       const isTurnsQuery = !!fields && "toolCalls" in fields;
+      const isSkippedCountQuery = !!fields && "n" in fields;
       return {
         from: (_table: unknown) => ({
-          where: (_cond: unknown): Promise<FakeTurnRow[]> => {
-            return Promise.resolve(isTurnsQuery ? turnRows : []);
+          where: (_cond: unknown): Promise<unknown[]> => {
+            if (isTurnsQuery) return Promise.resolve(turnRows);
+            if (isSkippedCountQuery) return Promise.resolve([{ n: skippedNonArrayCount }]);
+            return Promise.resolve([]);
           },
         }),
       };
@@ -239,20 +251,17 @@ describe("ToolCallProjectionPipeline", () => {
     expect(store.size).toBe(0);
   });
 
-  test("mt#3360: a string-typed (double-encoded) tool_calls row is skipped and counted, not thrown", async () => {
+  test("mt#3360: string-typed (double-encoded) tool_calls turns are excluded from the main query and reported via a separate skipped count", async () => {
     // Simulates the Apr-2026 ingest artifact: `tool_calls` is a jsonb STRING
     // (double-encoded JSON of an otherwise-valid tool_use array), not a jsonb
-    // array. `runForSession`'s query doesn't call jsonb_array_length (that's
-    // the script-level bug this task also fixes), so this never throws — but
-    // pre-mt#3360 it silently contributed 0 rows indistinguishable from a
-    // genuinely-empty turn. Post-fix it must be counted in skippedNonArray.
+    // array. Production's main query now filters
+    // `jsonb_typeof(tool_calls) = 'array'`, so a string-typed row is never
+    // FETCHED by it (unlike this fixture's turnRows, which therefore only
+    // contains the one genuine array turn) — the separate
+    // countSkippedNonArray query is how the pipeline still learns "1 turn
+    // was excluded", instead of that turn silently contributing 0 rows
+    // indistinguishable from a genuinely-empty turn.
     const turnRows: FakeTurnRow[] = [
-      {
-        turnIndex: 0,
-        toolCalls: JSON.stringify([{ type: "tool_use", name: "Bash", input: {} }]),
-        startedAt: null,
-        endedAt: new Date(TS1),
-      },
       {
         turnIndex: 1,
         toolCalls: [{ type: "tool_use", name: "Bash", input: {} }],
@@ -261,20 +270,71 @@ describe("ToolCallProjectionPipeline", () => {
       },
     ];
     const store = new Map<string, FakeProjectionRow>();
-    const db = makeDb(turnRows, store);
+    const db = makeDb(turnRows, store, /* skippedNonArrayCount */ 1);
     const pipeline = new ToolCallProjectionPipeline(asDb(db));
 
     const result = await pipeline.runForSession(SESSION_A);
 
     expect(result.turnsErrored).toBe(0);
     expect(result.skippedNonArray).toBe(1);
-    // Only turn 1's real array is projected; turn 0's string is skipped, not
-    // silently folded into "0 blocks written".
+    // Only turn 1's real array is projected; the double-encoded turn was
+    // never returned by the (now-filtered) main query at all.
     expect(result.toolCallsProjected).toBe(1);
     expect(store.size).toBe(1);
     expect(
       store.get(projectionKey({ agentSessionId: SESSION_A, turnIndex: 0, ordinal: 0 }))
     ).toBeUndefined();
+  });
+
+  test("mt#3360: a failing skipped-count query degrades to 0 rather than crashing the session", async () => {
+    const turnRows: FakeTurnRow[] = [
+      {
+        turnIndex: 0,
+        toolCalls: [{ type: "tool_use", name: "Bash", input: {} }],
+        startedAt: null,
+        endedAt: new Date(TS1),
+      },
+    ];
+    const store = new Map<string, FakeProjectionRow>();
+    const throwingDb = {
+      select(fields?: Record<string, unknown>) {
+        const isTurnsQuery = !!fields && "toolCalls" in fields;
+        const isSkippedCountQuery = !!fields && "n" in fields;
+        return {
+          from: (_table: unknown) => ({
+            where: (_cond: unknown): Promise<unknown[]> => {
+              if (isTurnsQuery) return Promise.resolve(turnRows);
+              if (isSkippedCountQuery) throw new Error("simulated skipped-count query failure");
+              return Promise.resolve([]);
+            },
+          }),
+        };
+      },
+      insert(_table: unknown) {
+        return {
+          values(values: FakeProjectionRow | FakeProjectionRow[]) {
+            const rows = Array.isArray(values) ? values : [values];
+            return {
+              onConflictDoUpdate(_opts: unknown): Promise<void> {
+                for (const row of rows) {
+                  store.set(projectionKey(row), { ...row });
+                }
+                return Promise.resolve();
+              },
+            };
+          },
+        };
+      },
+    };
+    const pipeline = new ToolCallProjectionPipeline(asDb(throwingDb));
+
+    const result = await pipeline.runForSession(SESSION_A);
+
+    expect(result.skippedNonArray).toBe(0);
+    // The main projection still succeeds — a diagnostic-only count failure
+    // must not take down the real work.
+    expect(result.toolCallsProjected).toBe(1);
+    expect(result.turnsErrored).toBe(0);
   });
 
   test("a malformed block (no name) is skipped without throwing", async () => {
