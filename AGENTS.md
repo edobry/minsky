@@ -4,32 +4,7 @@
 
 ## Build & Test
 
-Always use `bun` instead of `node` when running JavaScript/TypeScript in the project. Bun is the preferred runtime.
-
-Examples:
-- Use `bun install` instead of `npm install`
-- Use `bun run` instead of `node`
-- Use `bun test` instead of `jest` or `mocha`
-- Use `bun build` instead of other build tools
-
-When writing documentation, commands, or implementation code, always prefer Bun's API and CLI over Node.js equivalents. The project is specifically designed to leverage Bun's performance and capabilities.
-
-In package.json scripts, ensure all commands use bun:
-```json
-"scripts": {
-  "start": "bun run src/index.ts",
-  "dev": "bun --watch src/index.ts",
-  "build": "bun build src/index.ts --outdir dist",
-  "test": "bun test"
-}
-```
-
-When creating new files, use the bun shebang:
-```typescript
-#!/usr/bin/env bun
-```
-
-This rule applies to all code, documentation, and configuration files in the project.
+Always use `bun`, never `node`/`npm`/`npx`, when running JavaScript/TypeScript in this project — in code, documentation, and configuration alike. Prefer Bun's API and CLI over the Node.js equivalent (`bun install`, `bun run`, `bun test`, `bun build`), and give new executable files the `#!/usr/bin/env bun` shebang.
 
 # Test Execution and Verification
 
@@ -276,25 +251,6 @@ This rule ensures that all generated code symbols (variable names, function name
     *   String literals explicitly provided by the user.
     *   String literals or comments where non-ASCII characters are part of the intended textual content.
     *   Existing code symbols in the codebase that deliberately and verifiably use non-ASCII characters (the AI should mirror existing conventions if explicitly told to do so for specific symbols, but not introduce new ones).
-4.  **Verification**: Before outputting code, the AI should internally verify that generated symbols adhere to this rule.
-5.  **Application**: This rule `alwaysApply: true` because it is a fundamental requirement for code integrity and predictability from the AI.
-
-## Rationale
-To maintain code clarity, prevent compilation or interpretation issues across different environments, and ensure predictable behavior from the AI code generation. This rule was created after an incident where non-ASCII characters were inadvertently introduced into code.
-
-## Examples
-
-// AVOID
-function 안녕하세요() { // Korean in function name
-  let π = 3.14; // Greek letter in variable name
-  const OPTION_Ä = "value"; // Accented character in constant
-}
-
-// PREFER
-function helloWorld() {
-  let pi = 3.14;
-  const OPTION_A = "value";
-}
 
 ## Architecture
 
@@ -781,23 +737,6 @@ drift since the dry-run — the scope-match check above, enforced in code) and *
 still applies to the operation as a whole. Mechanics:
 `docs/rules-rationale/operational-safety-dry-run-first.md §Sanctioned primitives`.
 
-## Examples
-
-// AVOID: applying by default
-```
-minsky persistence migrate
-# applies immediately
-```
-
-// PREFER: safe default with explicit execution
-```
-# preview
-minsky persistence migrate --dry-run
-
-# apply (must be explicit)
-minsky persistence migrate --execute
-```
-
 ## Cross-References
 - See `persistence.migrate` behavior and other commands using `--execute` semantics.
 - `tasks_bulk-edit` / `refs_status` (mt#2819) — the sanctioned bulk-mutation + set-diff primitives.
@@ -965,20 +904,6 @@ Full detail: `docs/rules-rationale/cockpit-deeplinks.md`.
 - Max 400 lines per file (warn), 1500 (error)
 - Custom ESLint rules (`eslint-rules/`) enforce architectural patterns + deploy-boundary safety.
   Full detail, path-scoped: `eslint-custom-rules.mdc`.
-  - `custom/no-unregistered-minsky-env-var` (mt#1788) — in `src/`/`.claude/hooks/` (scoped; see
-    rule), every `process.env.MINSKY_*` read must be registered in
-    `environmentMappings`/`HOOK_ONLY_ENV_VARS`.
-  - `custom/no-hand-rolled-command-params` (mt#2779) — command execute handlers derive param
-    types from `InferParams<typeof <map>>`, never hand-rolled `*Params`.
-  - `custom/no-entity-id-param-drift` (mt#2780) — command params maps must declare the family's
-    canonical entity-id name, not the alias alone.
-  - `custom/require-hook-domain-bootstrap` (mt#3046; widened mt#3178) — `.minsky/hooks/**` and
-    `scripts/**` files reaching persistence must bootstrap first: hooks import
-    `ensureHookDomainBootstrap`; scripts may instead use a static `import "reflect-metadata"`.
-  - `custom/no-direct-service-construction` (mt#911; DI-fallback-shape check added mt#2642) —
-    bans `<identifier> ?? create<PascalCase>(...)` / `<identifier>?.<prop> ?? new
-    <PascalCase>(...)` (ADR-026) across `src/` and `packages/domain/src/`, plus the original
-    named-list check in the adapter layer.
   - `custom/no-silent-catch` (mt#3299) — every `catch` block must rethrow, log, or carry an
     `// intentional-swallow: <reason>` comment. Registered `off` (not yet active): this repo's
     zero-tolerance ESLint warning gate (mt#1097, no override) makes `warn` unshippable with 1462
