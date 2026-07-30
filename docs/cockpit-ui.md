@@ -127,6 +127,19 @@ operator's own credentials + the operator's own machine.
   control, not a required per-launch choice — leaving it untouched reproduces
   the previous behavior exactly. Reach for a stronger tier when the task
   warrants it (the originating case: "this one needs Fable").
+- **MCP tools (mt#3377)** — a driven session is provisioned with the `minsky`
+  MCP server explicitly, via `--mcp-config` plus `--strict-mcp-config`, so the
+  agent has the `mcp__minsky__*` toolset rather than shelling out to the CLI.
+  This is required because the child's working directory is a workspace clone,
+  and Claude Code resolves MCP servers per-project: the operator's `.mcp.json`
+  lives in the main checkout and is gitignored, so a clone inherits none of it.
+  The server set is deliberately just `minsky` — `github`/`supabase` carry their
+  own credential paths, so granting them is a separate decision — and
+  `--strict-mcp-config` keeps the surface from varying with whichever claude.ai
+  connectors and plugins the operator happens to have configured. Each session
+  costs one additional `minsky mcp start` process (~57 MB RSS, measured
+  2026-07-30); if concurrent driven sessions routinely exceed ~4, revisit
+  against the hosted-HTTP server option (mt#2141).
 
 ### Reading the run list
 
