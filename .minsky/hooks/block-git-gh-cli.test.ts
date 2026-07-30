@@ -11,6 +11,7 @@ import {
   splitOnShellOperators,
   stripEnvVarAssignments,
   toolContextFromName,
+  classifyAgentTypeObservation,
   findGhApiMethod,
   findGhApiEndpoint,
   findGhApiField,
@@ -18,6 +19,8 @@ import {
   stripSurroundingQuotes,
   SESSION_EXEC_TOOL_NAME,
 } from "./block-git-gh-cli";
+import reviewerAgent from "../agents/reviewer/agent";
+import auditorAgent from "../agents/auditor/agent";
 
 // ---------------------------------------------------------------------------
 // Helpers: injectable runGit implementations for carve-out tests
@@ -58,6 +61,84 @@ describe("toolContextFromName", () => {
     expect(toolContextFromName("Edit")).toBe("bash");
     expect(toolContextFromName("")).toBe("bash");
     expect(toolContextFromName("mcp__minsky__session_commit")).toBe("bash");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// classifyAgentTypeObservation (mt#3381)
+// ---------------------------------------------------------------------------
+
+describe("classifyAgentTypeObservation", () => {
+  it("reports 'present' when the payload carries an agent_type", () => {
+    expect(classifyAgentTypeObservation({ agent_id: "a1", agent_type: "reviewer" })).toBe(
+      "present"
+    );
+  });
+
+  it("distinguishes a subagent missing the field from a main-thread call", () => {
+    // This is the whole point of the three-way split: only the first of these
+    // is evidence that the field does not reach a PreToolUse hook. A bare
+    // missing string would conflate them and prove nothing.
+    expect(classifyAgentTypeObservation({ agent_id: "a1" })).toBe("absent-in-subagent");
+    expect(classifyAgentTypeObservation({})).toBe("not-a-subagent");
+  });
+
+  it("treats an empty-string agent_type as absent, not present", () => {
+    // An empty string would record as "the field arrived" while carrying no
+    // agent identity — which would read as evidence the check is buildable.
+    expect(classifyAgentTypeObservation({ agent_id: "a1", agent_type: "" })).toBe(
+      "absent-in-subagent"
+    );
+  });
+
+  it("reports 'present' even without an agent_id, so a surprise shape is not discarded", () => {
+    expect(classifyAgentTypeObservation({ agent_type: "Explore" })).toBe("present");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Redirect targets must be reachable by the restricted agents (mt#3381)
+// ---------------------------------------------------------------------------
+
+describe("read-only git redirects are reachable by the restricted agents", () => {
+  // These two agents hold `Bash` specifically so they can run read-only git
+  // commands (`.minsky/agents/reviewer/prompt.md` says so in as many words),
+  // and this guard denies exactly those. If a denial names a tool the agent's
+  // grant omits, the agent has no legal path to PR history at all — which is
+  // the defect this task exists to close.
+  const AGENT_GRANTS: ReadonlyArray<{ name: string; tools: readonly string[] }> = [
+    { name: "reviewer", tools: reviewerAgent.tools ?? [] },
+    { name: "auditor", tools: auditorAgent.tools ?? [] },
+  ];
+
+  const READ_ONLY_GIT_COMMANDS = ["git log", "git diff", "git status"] as const;
+
+  for (const { name, tools } of AGENT_GRANTS) {
+    for (const command of READ_ONLY_GIT_COMMANDS) {
+      it(`${name}: the denial for \`${command}\` names a tool ${name} actually holds`, () => {
+        const [parsed] = parseCommands(command);
+        if (!parsed) throw new Error(`parseCommands produced nothing for \`${command}\``);
+        const reason = checkDenial(parsed, "bash");
+
+        // Precondition: the guard still denies it. If it stops denying, this
+        // test must be revisited rather than silently passing.
+        expect(reason).toBeTruthy();
+
+        const named = [...(reason as string).matchAll(/mcp__[a-z0-9_]+/g)].map((m) => m[0]);
+        expect(named.length).toBeGreaterThan(0);
+        expect(named.some((tool) => tools.includes(tool))).toBe(true);
+      });
+    }
+  }
+
+  it("does NOT hand these agents a mutation tool to satisfy the redirect", () => {
+    // The fix must not be "give them session_exec" — the Chinese-wall guarantee
+    // rests on those tools being structurally absent.
+    for (const { tools } of AGENT_GRANTS) {
+      expect(tools).not.toContain(SESSION_EXEC_TOOL_NAME);
+      expect(tools).not.toContain("mcp__minsky__session_write_file");
+      expect(tools).not.toContain("mcp__minsky__session_edit_file");
+    }
   });
 });
 
