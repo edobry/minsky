@@ -425,8 +425,26 @@ export async function createTaskSimilarityService(
   // mt#2939: forward the caller-resolved projectScope (if any) into the live
   // tasks-table read — this is what closes the cross-project leak on both the
   // fast-path (similarToTask / no-filter searchByText) and filtered-path callers.
+  //
+  // mt#3305: `all: true` is load-bearing, not cosmetic. Every consumer of this
+  // function inside TaskSimilarityService is a LIVENESS / SCOPE cross-check —
+  // `applyProjectScope`'s id-set, `searchByText`'s `taskById` map, and the
+  // lexical backend's candidate list — none of which wants status filtering.
+  // Without it, `listTasks` applies its own default (hide DONE/CLOSED, see
+  // task-filters.ts `shouldIncludeTaskStatus`), so a terminal task's vector match
+  // resolved to `undefined` in `taskById` and was discarded by the
+  // `if (!task) return false` branch whose comment says "orphaned embedding" —
+  // i.e. shipped tasks were dropped as if they had no live row at all.
+  //
+  // That single default caused both observed defects: `tasks_similar` returned 0
+  // for any task whose neighbourhood was terminal (measured: mt#3271's ten nearest
+  // neighbours are all DONE/CLOSED, so it returned nothing while SQL showed them at
+  // distance 0.12-0.18), and `tasks_search --all` appeared to do nothing, because
+  // dropping `statusExclude` cannot help a task that never entered the map. Status
+  // filtering now happens ONLY where it is written down — `passes()` below and the
+  // per-command defaults — instead of being inherited from a listing default.
   const searchTasks = async (opts: { text?: string; projectScope?: ProjectScope }) =>
-    taskService.listTasks({ projectScope: opts?.projectScope });
+    taskService.listTasks({ projectScope: opts?.projectScope, all: true });
   const getTaskSpecContent = async (id: string) => taskService.getTaskSpecContent(id);
 
   const service = new TaskSimilarityService(
