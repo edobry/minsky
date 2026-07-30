@@ -74,6 +74,22 @@ export {
   type PerTurnEmbeddingPipelineOptions,
   type PerTurnEmbeddingRunOptions,
 } from "./per-turn-embedding-pipeline";
+// Tool-call projection table writer (mt#3329): ingest-time pipeline + batched
+// full-corpus sweep for the one-time backfill.
+export {
+  ToolCallProjectionPipeline,
+  projectToolCallsForAllTranscripts,
+  fetchSessionIdPage,
+  DEFAULT_PROJECT_ALL_BATCH_SIZE,
+  type ToolCallProjectionRunResult,
+  type ProjectAllToolCallsResult,
+  type ProjectAllToolCallsOptions,
+} from "./tool-call-projection-pipeline";
+export {
+  parseToolName,
+  computeArgFingerprint,
+  type ParsedToolName,
+} from "./tool-call-projection-fields";
 // Conversation-element parser (mt#2374) — expands a SessionContextSnapshot
 // block into ordered conversational sub-elements for the cockpit renderer.
 export {
