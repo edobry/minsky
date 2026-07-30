@@ -13,7 +13,14 @@
 import { describe, expect, test, spyOn, mock } from "bun:test";
 import { spawn } from "child_process";
 import path from "path";
+import { gzipSync } from "node:zlib";
 import { parsePositiveIntEnv, adoptionSweeperTick } from "./start-command";
+import {
+  checkCallsitesInSnapshot,
+  extractTypeScriptSources,
+  fetchRepoSourceSnapshot,
+  type RepoSourceSnapshot,
+} from "./adoption-sweeper-callsite-check";
 import { log } from "@minsky/shared/logger";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
@@ -253,20 +260,33 @@ function makeFakeContainer(taskService: Record<string, unknown>): AppContainerIn
 /** Repo root, resolved from this test file's location (src/commands/ops/). */
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 
+/**
+ * Shared log-event-name constant (used by both the mt#3328 and mt#3351
+ * describe blocks below) — extracted to satisfy
+ * `custom/no-magic-string-duplication`.
+ */
+const CALLSITE_CHECK_UNAVAILABLE_EVENT = "adoption_sweeper.callsite_check_unavailable";
+
 describe("adoptionSweeperTick", () => {
-  test("grep failure (simulated missing repo) hard-skips: distinct log event, no task creation, tick rejects", async () => {
+  test("local git-grep command failure hard-skips: distinct log event, no task creation, tick rejects", async () => {
     const createTaskSpy = mock(() => ({ id: "mt#unused", title: "unused", status: "TODO" }));
     const taskService = {
-      getWorkspacePath: () => "/nonexistent/repo/path/for/mt-3328-test",
+      // REPO_ROOT has a real `.git`, so the mt#3351 router selects the local
+      // git-grep path (not the GitHub-API path) — this test exercises a git
+      // grep INVOCATION failure (corrupted repo, git binary crash, timeout,
+      // etc.), distinct from the "no .git at all" container scenario, which
+      // is covered by the "container path (no local .git)" describe block
+      // below.
+      getWorkspacePath: () => REPO_ROOT,
       listTasks: mock(() => []),
       getTaskSpecContent: mock(() => ({ content: "" })),
       createTaskFromTitleAndSpec: createTaskSpy,
     };
     const container = makeFakeContainer(taskService);
 
-    // Simulates the container-blindness scenario: git grep can never run
-    // (no .git — e.g. the Railway image, per mt#3328) so every invocation
-    // rejects with a non-1 exit code.
+    // Simulates a git-grep command failure on a real repo: every invocation
+    // rejects with a non-1 exit code (the mt#3328 "check could not run"
+    // outcome).
     const execAsyncFn = mock(() => {
       const notARepoError = "fatal: not a git repository (or any of the parent directories): .git";
       const err = Object.assign(new Error(notARepoError), {
@@ -287,7 +307,7 @@ describe("adoptionSweeperTick", () => {
       // Distinct structured log event fired for the positive-control failure
       // (never converted into a silent "zero callsites" outcome).
       const unavailableCalls = errorSpy.mock.calls.filter(
-        (call) => call[0] === "adoption_sweeper.callsite_check_unavailable"
+        (call) => call[0] === CALLSITE_CHECK_UNAVAILABLE_EVENT
       );
       expect(unavailableCalls.length).toBeGreaterThan(0);
       expect(unavailableCalls[0]?.[1]).toMatchObject({ source: "positive_control" });
@@ -343,7 +363,7 @@ describe("adoptionSweeperTick", () => {
       await adoptionSweeperTick(container, { executeOverride: true });
 
       const unavailableCalls = errorSpy.mock.calls.filter(
-        (call) => call[0] === "adoption_sweeper.callsite_check_unavailable"
+        (call) => call[0] === CALLSITE_CHECK_UNAVAILABLE_EVENT
       );
       expect(unavailableCalls.length).toBe(0);
 
@@ -397,4 +417,310 @@ describe("adoptionSweeperTick", () => {
       infoSpy.mockRestore();
     }
   }, 30_000);
+});
+
+// ---------------------------------------------------------------------------
+// Unit tests: mt#3351 — container-compatible callsite check (GitHub API)
+// ---------------------------------------------------------------------------
+
+// Built with plain `Uint8Array` rather than `Buffer.alloc`/`Buffer.concat`:
+// `src/types/node.d.ts` (a legacy fallback ambient declaration scoped to the
+// root tsconfig project this test file compiles under) only declares
+// `Buffer.from(...)`, not the static `alloc`/`concat` helpers — a
+// pre-existing gap, not something to "fix" as part of this task.
+const textEncoder = new TextEncoder();
+
+/** Write `text`'s ASCII/UTF-8 bytes into `target` at `offset`, truncating at `target`'s end. */
+function writeField(target: Uint8Array, text: string, offset: number): void {
+  const bytes = textEncoder.encode(text);
+  target.set(bytes.subarray(0, Math.min(bytes.length, target.length - offset)), offset);
+}
+
+function concatUint8Arrays(parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((sum, p) => sum + p.length, 0);
+  const result = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    result.set(part, offset);
+    offset += part.length;
+  }
+  return result;
+}
+
+/**
+ * Build a minimal valid ustar tar entry (single 512-byte header + padded
+ * content) for `path`/`content`. No `prefix` field usage — test paths here
+ * are all well under the 100-byte `name` field limit.
+ */
+function buildTarEntry(entryPath: string, content: string): Uint8Array {
+  const header = new Uint8Array(512); // zero-filled
+  writeField(header, entryPath, 0);
+  writeField(header, "0000644\0", 100); // mode
+  writeField(header, "0000000\0", 108); // uid
+  writeField(header, "0000000\0", 116); // gid
+  const contentBytes = textEncoder.encode(content);
+  const sizeOctal = `${contentBytes.length.toString(8).padStart(11, "0")}\0`;
+  writeField(header, sizeOctal, 124); // size
+  writeField(header, "00000000000\0", 136); // mtime
+  header[156] = "0".charCodeAt(0); // typeflag: regular file
+  writeField(header, "ustar\0", 257); // magic
+  writeField(header, "00", 263); // version
+
+  // chksum: sum of all header bytes with the chksum field itself treated as
+  // ASCII spaces, then written back as 6 octal digits + NUL + space.
+  writeField(header, "        ", 148);
+  let checksum = 0;
+  for (let i = 0; i < 512; i++) checksum += header[i] ?? 0;
+  writeField(header, `${checksum.toString(8).padStart(6, "0")}\0 `, 148);
+
+  const paddingLength = (512 - (contentBytes.length % 512)) % 512;
+  return concatUint8Arrays([header, contentBytes, new Uint8Array(paddingLength)]);
+}
+
+/** Build a `.tar.gz` buffer wrapping every entry under a `<topLevelDir>/` prefix, GitHub-tarball-style. */
+function buildTestTarGz(
+  topLevelDir: string,
+  entries: Array<{ path: string; content: string }>
+): Uint8Array {
+  const blocks = entries.map((e) => buildTarEntry(`${topLevelDir}/${e.path}`, e.content));
+  const eofMarker = new Uint8Array(1024); // two zero blocks
+  return gzipSync(concatUint8Arrays([...blocks, eofMarker]));
+}
+
+/**
+ * Shared fixture constants for the `checkCallsitesInSnapshot` /
+ * `extractTypeScriptSources` / `fetchRepoSourceSnapshot` suites below —
+ * extracted to satisfy `custom/no-magic-string-duplication`.
+ */
+const SAMPLE_TS_CONTENT = "export function foo() {}";
+const NESTED_TS_PATH = "src/nested/bar.ts";
+const FAKE_INSTALLATION_TOKEN = "fake-installation-token";
+
+describe("checkCallsitesInSnapshot", () => {
+  function snapshotOf(files: Record<string, string>): RepoSourceSnapshot {
+    return { files: new Map(Object.entries(files)) };
+  }
+
+  test("found: returns the count of matching files", () => {
+    const snapshot = snapshotOf({
+      "src/a.ts": "export function myAdoptedThing() {}",
+      "src/b.ts": "import { myAdoptedThing } from './a';\nmyAdoptedThing();",
+      "src/c.ts": "export function unrelated() {}",
+    });
+
+    const result = checkCallsitesInSnapshot(snapshot, "myAdoptedThing");
+    expect(result).toEqual({ status: "found", count: 2 });
+  });
+
+  test("zero: returns zero when no file matches", () => {
+    const snapshot = snapshotOf({ "src/a.ts": "export function somethingElse() {}" });
+    const result = checkCallsitesInSnapshot(snapshot, "definitelyNotPresentSymbol");
+    expect(result).toEqual({ status: "zero" });
+  });
+
+  test("unavailable: an invalid regex pattern is reported as unavailable, not zero", () => {
+    const snapshot = snapshotOf({ "src/a.ts": SAMPLE_TS_CONTENT });
+    // Unbalanced parenthesis — throws at `new RegExp(...)` construction time.
+    const result = checkCallsitesInSnapshot(snapshot, "foo(bar");
+    expect(result.status).toBe("unavailable");
+    if (result.status === "unavailable") {
+      expect(result.reason).toMatch(/Invalid pattern/);
+    }
+  });
+});
+
+describe("extractTypeScriptSources", () => {
+  test("extracts only src/**/*.ts entries and strips the top-level <owner>-<repo>-<sha>/ prefix", () => {
+    const tarGz = buildTestTarGz("edobry-minsky-abc1234", [
+      { path: "src/foo.ts", content: SAMPLE_TS_CONTENT },
+      { path: NESTED_TS_PATH, content: "export function bar() {}" },
+      { path: "docs/readme.md", content: "# not typescript" },
+      { path: "src/notes.txt", content: "not a .ts file" },
+    ]);
+
+    const snapshot = extractTypeScriptSources(new Uint8Array(tarGz));
+
+    expect(Array.from(snapshot.files.keys()).sort()).toEqual(["src/foo.ts", NESTED_TS_PATH]);
+    expect(snapshot.files.get("src/foo.ts")).toBe(SAMPLE_TS_CONTENT);
+    expect(snapshot.files.get(NESTED_TS_PATH)).toBe("export function bar() {}");
+  });
+});
+
+describe("fetchRepoSourceSnapshot", () => {
+  test("success: extracts a snapshot from a fetched tarball", async () => {
+    const tarGz = buildTestTarGz("edobry-minsky-def5678", [
+      { path: "src/foo.ts", content: SAMPLE_TS_CONTENT },
+    ]);
+
+    const fetchImpl = mock(
+      async () =>
+        new Response(new Uint8Array(tarGz), {
+          status: 200,
+          statusText: "OK",
+        })
+    );
+
+    const result = await fetchRepoSourceSnapshot({
+      acquireTokenFn: async () => FAKE_INSTALLATION_TOKEN,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.snapshot.files.get("src/foo.ts")).toBe(SAMPLE_TS_CONTENT);
+    }
+    expect(fetchImpl.mock.calls.length).toBe(1);
+  });
+
+  test("unavailable: a non-ok response (simulated rate limit) is unavailable, never zero", async () => {
+    const fetchImpl = mock(
+      async () =>
+        new Response("rate limit exceeded", {
+          status: 403,
+          statusText: "Forbidden",
+        })
+    );
+
+    const result = await fetchRepoSourceSnapshot({
+      acquireTokenFn: async () => FAKE_INSTALLATION_TOKEN,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.status).toBe("unavailable");
+    if (result.status === "unavailable") {
+      expect(result.reason).toMatch(/403/);
+    }
+  });
+
+  test("unavailable: a thrown network error is unavailable, never zero", async () => {
+    const fetchImpl = mock(async () => {
+      throw new Error("getaddrinfo ENOTFOUND api.github.com");
+    });
+
+    const result = await fetchRepoSourceSnapshot({
+      acquireTokenFn: async () => FAKE_INSTALLATION_TOKEN,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.status).toBe("unavailable");
+    if (result.status === "unavailable") {
+      expect(result.reason).toMatch(/ENOTFOUND/);
+    }
+  });
+
+  test("unavailable: a token-acquisition failure is unavailable, never zero", async () => {
+    const result = await fetchRepoSourceSnapshot({
+      acquireTokenFn: async () => {
+        throw new Error("GitHub App private key is not configured");
+      },
+    });
+
+    expect(result.status).toBe("unavailable");
+    if (result.status === "unavailable") {
+      expect(result.reason).toMatch(/private key is not configured/);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3351 — adoptionSweeperTick routed through the container (no local .git) path
+// ---------------------------------------------------------------------------
+
+describe("adoptionSweeperTick — container path (mt#3351, no local .git)", () => {
+  test("API-path unavailable (simulated 403 rate-limit) hard-skips: no task filed, tick rejects", async () => {
+    const createTaskSpy = mock(() => ({ id: "mt#unused", title: "unused", status: "TODO" }));
+    const taskService = {
+      getWorkspacePath: () => REPO_ROOT,
+      listTasks: mock(() => []),
+      getTaskSpecContent: mock(() => ({ content: "" })),
+      createTaskFromTitleAndSpec: createTaskSpy,
+    };
+    const container = makeFakeContainer(taskService);
+
+    const errorSpy = spyOn(log, "error");
+    errorSpy.mockClear();
+
+    try {
+      await expect(
+        adoptionSweeperTick(container, {
+          hasLocalRepoOverride: false, // force the container (API) path
+          fetchRepoSourceSnapshotFn: async () => ({
+            status: "unavailable",
+            reason: "GitHub tarball fetch failed: 403 Forbidden (rate limit exceeded)",
+          }),
+        })
+      ).rejects.toThrow(/callsite check unavailable/);
+
+      const unavailableCalls = errorSpy.mock.calls.filter(
+        (call) => call[0] === CALLSITE_CHECK_UNAVAILABLE_EVENT
+      );
+      expect(unavailableCalls.length).toBeGreaterThan(0);
+      expect(unavailableCalls[0]?.[1]).toMatchObject({ source: "positive_control" });
+
+      // Never files a task when the check could not run.
+      expect(createTaskSpy.mock.calls.length).toBe(0);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  test("API-path snapshot containing the canary + a zero-callsite signal completes normally (dry-run)", async () => {
+    const runSuffix = Date.now();
+    const signalName = `mt3351TestOnlyContainerPathCanarySymbol_${runSuffix}`;
+    const specText = ["## Summary", "", `export function ${signalName}() {}`, ""].join("\n");
+
+    const createTaskSpy = mock(() => ({ id: "mt#unused", title: "unused", status: "TODO" }));
+    const taskService = {
+      getWorkspacePath: () => REPO_ROOT,
+      listTasks: mock((opts?: { status?: string }) =>
+        opts && opts.status === "DONE"
+          ? [{ id: "mt#67890", title: "Fake done task 3", status: "DONE" }]
+          : []
+      ),
+      getTaskSpecContent: mock(() => ({ content: specText })),
+      createTaskFromTitleAndSpec: createTaskSpy,
+    };
+    const container = makeFakeContainer(taskService);
+
+    const infoSpy = spyOn(log, "info");
+    const errorSpy = spyOn(log, "error");
+    infoSpy.mockClear();
+    errorSpy.mockClear();
+
+    // The snapshot's own source contains the positive-control canary's name
+    // (imported from ./start-command indirectly via the real production
+    // canary function's identifier — hardcoded here to avoid importing an
+    // internal, non-exported constant) so the positive control passes; the
+    // per-task signal is absent from every file, so it resolves "zero".
+    const fakeSnapshot: RepoSourceSnapshot = {
+      files: new Map([
+        ["src/canary.ts", "function adoptionSweeperPositiveControlCanary() {}"],
+        ["src/unrelated.ts", "export function totallyUnrelated() {}"],
+      ]),
+    };
+
+    try {
+      await adoptionSweeperTick(container, {
+        hasLocalRepoOverride: false,
+        fetchRepoSourceSnapshotFn: async () => ({ status: "ok", snapshot: fakeSnapshot }),
+      });
+
+      const unavailableCalls = errorSpy.mock.calls.filter(
+        (call) => call[0] === CALLSITE_CHECK_UNAVAILABLE_EVENT
+      );
+      expect(unavailableCalls.length).toBe(0);
+
+      const proposedCalls = infoSpy.mock.calls.filter(
+        (call) => call[0] === "adoption_sweeper.dry_run_proposed_filing"
+      );
+      expect(proposedCalls.length).toBe(1);
+      expect(proposedCalls[0]?.[1]).toMatchObject({
+        parentTaskId: "mt#67890",
+        signalName,
+      });
+    } finally {
+      infoSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
 });
