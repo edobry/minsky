@@ -8,6 +8,7 @@
  */
 
 import { describe, test, expect, spyOn } from "bun:test";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import {
@@ -16,7 +17,11 @@ import {
   extractModelFromNewLines,
   countAssistantLines,
 } from "./agent-transcript-ingest-service";
-import type { IngestAllResult, SpawnsExtractor } from "./agent-transcript-ingest-service";
+import type {
+  IngestAllResult,
+  SpawnsExtractor,
+  ToolCallProjector,
+} from "./agent-transcript-ingest-service";
 import type { SpawnsPipelineRunResult } from "./agent-spawns-pipeline";
 import { SYNTHETIC_MODEL_SENTINEL } from "../subagent/transcript-metrics";
 import { log } from "@minsky/shared/logger";
@@ -365,6 +370,16 @@ function makeDiscovered(sessionId: string): DiscoveredSession {
 
 type FakeDbType = ReturnType<typeof makeDb>;
 
+/**
+ * Casts a fake DB double to the real drizzle type for constructor injection.
+ * Extracted to avoid repeating the `import("drizzle-orm/postgres-js")` type
+ * literal at every no-constructor-override composability test (flagged by
+ * `custom/no-magic-string-duplication`).
+ */
+function asPgDb(db: FakeDbType): PostgresJsDatabase {
+  return db as unknown as PostgresJsDatabase;
+}
+
 /** A zeroed `SpawnsPipelineRunResult` — nothing scanned, nothing written. */
 const NOOP_SPAWNS_RESULT: SpawnsPipelineRunResult = {
   spawnsScanned: 0,
@@ -394,16 +409,26 @@ function makeNoopSpawnsExtractor(): SpawnsExtractor {
   };
 }
 
+/**
+ * Default tool-call-projector test double (mt#3329): a no-op that never
+ * touches `agent_tool_call_projection`, for the same reason
+ * `makeNoopSpawnsExtractor` exists above — most tests in this file predate
+ * the inline projection call and assert on `agent_transcripts` /
+ * `minsky_session_links` state only.
+ */
+function makeNoopToolCallProjector(): ToolCallProjector {
+  return {
+    runForSession: async () => ({ turnsScanned: 0, toolCallsProjected: 0, turnsErrored: 0 }),
+  };
+}
+
 function makeSvc(
   db: FakeDbType,
   source: FakeTranscriptSource,
-  spawnsExtractor: SpawnsExtractor = makeNoopSpawnsExtractor()
+  spawnsExtractor: SpawnsExtractor = makeNoopSpawnsExtractor(),
+  toolCallProjector: ToolCallProjector = makeNoopToolCallProjector()
 ): AgentTranscriptIngestService {
-  return new AgentTranscriptIngestService(
-    db as unknown as import("drizzle-orm/postgres-js").PostgresJsDatabase,
-    source,
-    spawnsExtractor
-  );
+  return new AgentTranscriptIngestService(asPgDb(db), source, spawnsExtractor, toolCallProjector);
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -1419,10 +1444,32 @@ describe("agent-spawns extraction at ingest (mt#3109)", () => {
     // production default composes safely (AgentSpawnsPipeline's own internal
     // try/catch logs and returns a zeroed result) even without an injected
     // test double.
-    const svc = new AgentTranscriptIngestService(
-      db as unknown as import("drizzle-orm/postgres-js").PostgresJsDatabase,
-      source
-    );
+    const svc = new AgentTranscriptIngestService(asPgDb(db), source);
+    const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+    expect(result.error).toBeUndefined();
+    const row = state.get(SESSION_A);
+    expect(row?.transcript?.length).toBe(1);
+  });
+
+  test("with no constructor override, a query failure inside the real default ToolCallProjectionPipeline does not propagate (mt#3329)", async () => {
+    const lines = makeLines([TS1]);
+    const source = new FakeTranscriptSource();
+    source.addSession(SESSION_A, lines);
+    const state = new Map<string, FakeRow>();
+    const db = makeDb(state);
+    db._primeSession(SESSION_A);
+
+    // Deliberately bypass makeSvc's no-op defaults for BOTH pipelines: pass
+    // only (db, source) so both the spawnsExtractor and toolCallProjector
+    // constructor defaults build REAL pipelines bound to this fake db.
+    // Neither pipeline's query shape matches this hand-rolled fake (no
+    // `.limit()` on the plain `.select().from().where()` chain
+    // ToolCallProjectionPipeline issues) — proving the production default
+    // composes safely (its own internal Array.isArray guard + try/catch log
+    // and return a zeroed result) even without an injected test double,
+    // exactly like the AgentSpawnsPipeline case immediately above.
+    const svc = new AgentTranscriptIngestService(asPgDb(db), source);
     const result = await svc.ingestSession(makeDiscovered(SESSION_A));
 
     expect(result.error).toBeUndefined();

@@ -58,6 +58,10 @@ import { writeTurnsForTranscript } from "./turn-writer";
 import { writeCwdMatchLink } from "./session-link-writer";
 import { AgentSpawnsPipeline } from "./agent-spawns-pipeline";
 import type { SpawnsPipelineRunResult } from "./agent-spawns-pipeline";
+import {
+  ToolCallProjectionPipeline,
+  type ToolCallProjectionRunResult,
+} from "./tool-call-projection-pipeline";
 import { scrubValueDeep, type RedactionHit } from "./credential-scrubber";
 import { sanitizeForPostgres, sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import type { ConversationId } from "../ids";
@@ -181,6 +185,16 @@ export interface SpawnsExtractor {
 }
 
 /**
+ * Narrow seam for the per-session tool-call projection call `ingestSession`
+ * makes inline (mt#3329) — same rationale as `SpawnsExtractor` above: a test
+ * double only needs this one method, not `ToolCallProjectionPipeline`'s full
+ * drizzle select+insert+onConflictDoUpdate query surface.
+ */
+export interface ToolCallProjector {
+  runForSession(agentSessionId: string): Promise<ToolCallProjectionRunResult>;
+}
+
+/**
  * Resolve a project uuid for a transcript from its recovered `cwd`, using the
  * same slug resolver the CLI/stdio MCP supplier uses for tasks/sessions/memories/
  * asks (ADR-021, mt#2416). Returns null (never throws) when `cwd` is absent, the
@@ -216,7 +230,13 @@ export class AgentTranscriptIngestService {
      * `AgentSpawnsPipeline` bound to `db`. Override only from tests — see this
      * class's docblock's "Inline agent-spawns extraction" section.
      */
-    private readonly spawnsExtractor: SpawnsExtractor = new AgentSpawnsPipeline(db)
+    private readonly spawnsExtractor: SpawnsExtractor = new AgentSpawnsPipeline(db),
+    /**
+     * Tool-call projection dependency (mt#3329), defaulting to a real
+     * `ToolCallProjectionPipeline` bound to `db`. Override only from tests —
+     * mirrors `spawnsExtractor` immediately above.
+     */
+    private readonly toolCallProjector: ToolCallProjector = new ToolCallProjectionPipeline(db)
   ) {}
 
   /**
@@ -754,6 +774,27 @@ export class AgentTranscriptIngestService {
       await this.spawnsExtractor.runForSession(agentSessionId);
     } catch (err) {
       log.warn(`Failed to extract agent spawns for session ${agentSessionId}`, {
+        error: getLoggableErrorSummary(err),
+      });
+    }
+
+    // ── 4e. Project tool calls for this session inline (mt#3329) ────────────
+    // ToolCallProjectionPipeline.runForSession() scans ONLY this session's
+    // non-null tool_calls turns (already materialized by writeTurnsForTranscript
+    // at step 4b above) and upserts one row per tool_use block into
+    // agent_tool_call_projection — the cheap, ordered read surface the EngProd
+    // miner (mt#3330) and mt#1120's supervision analysis both need, so neither
+    // consumer has to scan the raw tool_calls jsonb. Reached only on THIS path
+    // (never the idempotent-no-op early return at step 2), matching step 4d's
+    // incremental-by-construction rationale. Idempotent (upserts on
+    // (agent_session_id, turn_index, ordinal)) and already defensive
+    // internally — `runForSession` catches its own query/insert failures, logs,
+    // and returns a zeroed result rather than throwing — so this try/catch is a
+    // last-resort backstop only, matching the step 4d posture immediately above.
+    try {
+      await this.toolCallProjector.runForSession(agentSessionId);
+    } catch (err) {
+      log.warn(`Failed to project tool calls for session ${agentSessionId}`, {
         error: getLoggableErrorSummary(err),
       });
     }

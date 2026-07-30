@@ -57,6 +57,7 @@ export default {
     "./packages/domain/src/storage/schemas/agent-transcripts-schema.ts",
     "./packages/domain/src/storage/schemas/agent-transcript-turns-schema.ts",
     "./packages/domain/src/storage/schemas/agent-spawns-schema.ts",
+    "./packages/domain/src/storage/schemas/agent-tool-call-projection-schema.ts",
     "./packages/domain/src/storage/schemas/minsky-session-links-schema.ts",
     "./packages/domain/src/storage/schemas/driven-session-cost-schema.ts",
     "./packages/domain/src/storage/schemas/driven-sessions-schema.ts",
