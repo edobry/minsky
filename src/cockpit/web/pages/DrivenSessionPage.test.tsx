@@ -105,6 +105,20 @@ function renderPage(id: string) {
   );
 }
 
+/** Same, with a query string on the route — used for the `?compose=` cases. */
+function renderPageWithQuery(id: string, query: string) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <MemoryRouter initialEntries={[`/driven/${id}?${query}`]}>
+      <QueryClientProvider client={client}>
+        <Routes>
+          <Route path="/driven/:id" element={<DrivenSessionPage />} />
+        </Routes>
+      </QueryClientProvider>
+    </MemoryRouter>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -246,5 +260,58 @@ describe("DrivenSessionPage (mt#2751)", () => {
     expect(screen.getByText("working...")).toBeDefined();
     // And explicitly NOT the never-opened connection-failure error.
     expect(screen.queryByText(/Could not connect to the driven session channel/)).toBeNull();
+  });
+});
+
+describe("DrivenSessionPage — launch prefill auto-send (mt#3375)", () => {
+  test("sends the primed command without a click, once the channel opens", async () => {
+    renderPageWithQuery("driven-prefill-1", `compose=${encodeURIComponent("/plan-task mt#3375")}`);
+    await waitFor(() => expect(StubWebSocket.instances).toHaveLength(1));
+    const ws = firstWs();
+
+    // Nothing on the wire before open — the navigate fires before the child's
+    // first frame, which is exactly the window the old seed-only behavior
+    // existed to avoid.
+    expect(ws.sent).toHaveLength(0);
+
+    ws.simulateOpen();
+
+    await waitFor(() => expect(ws.sent).toHaveLength(1));
+    expect(JSON.parse(ws.sent[0] as string).text).toBe("/plan-task mt#3375");
+  });
+
+  test("leaves the composer empty — the command was sent, not staged", async () => {
+    renderPageWithQuery("driven-prefill-2", `compose=${encodeURIComponent("/plan-task mt#3375")}`);
+    await waitFor(() => expect(StubWebSocket.instances).toHaveLength(1));
+    firstWs().simulateOpen();
+
+    const textarea = (await screen.findByLabelText(
+      "Message to the driven session"
+    )) as HTMLTextAreaElement;
+    expect(textarea.value).toBe("");
+  });
+
+  test("sends exactly once, not on every re-render", async () => {
+    renderPageWithQuery("driven-prefill-3", `compose=${encodeURIComponent("hello")}`);
+    await waitFor(() => expect(StubWebSocket.instances).toHaveLength(1));
+    const ws = firstWs();
+    ws.simulateOpen();
+    await waitFor(() => expect(ws.sent).toHaveLength(1));
+
+    // Any frame re-renders the page; the send must not repeat.
+    ws.simulateMessage({ type: "system", subtype: "init", session_id: "harness-1" });
+    ws.simulateMessage({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } });
+
+    await waitFor(() => expect(screen.getByText("hi")).toBeDefined());
+    expect(ws.sent).toHaveLength(1);
+  });
+
+  test("sends nothing when the route carries no compose param", async () => {
+    renderPage("driven-prefill-4");
+    await waitFor(() => expect(StubWebSocket.instances).toHaveLength(1));
+    const ws = firstWs();
+    ws.simulateOpen();
+
+    expect(ws.sent).toHaveLength(0);
   });
 });

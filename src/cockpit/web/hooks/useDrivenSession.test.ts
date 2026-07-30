@@ -329,3 +329,79 @@ describe("useDrivenSession — reconnect protocol (mt#3038)", () => {
     await waitFor(() => expect(result.current.status).toBe("live"));
   });
 });
+
+describe("useDrivenSession — outbound queue (mt#3375)", () => {
+  test("a send issued before the channel opens is delivered on open, not dropped", () => {
+    const { result } = renderHook(() => useDrivenSession("local-1"));
+    const ws = firstWs();
+    expect(ws.readyState).toBe(StubWebSocket.CONNECTING);
+
+    act(() => result.current.sendText("sent while connecting"));
+    // Nothing on the wire yet — but it is held, not discarded.
+    expect(ws.sent).toHaveLength(0);
+
+    act(() => ws.simulateOpen());
+    expect(ws.sent.map((s) => JSON.parse(s).text)).toEqual(["sent while connecting"]);
+  });
+
+  test("queued messages flush in the order they were sent", () => {
+    const { result } = renderHook(() => useDrivenSession("local-1"));
+    const ws = firstWs();
+
+    act(() => {
+      result.current.sendText("first");
+      result.current.sendText("second");
+      result.current.sendText("third");
+    });
+    act(() => ws.simulateOpen());
+
+    expect(ws.sent.map((s) => JSON.parse(s).text)).toEqual(["first", "second", "third"]);
+  });
+
+  test("an already-open channel sends straight through, nothing queued", () => {
+    const { result } = renderHook(() => useDrivenSession("local-1"));
+    const ws = firstWs();
+    act(() => ws.simulateOpen());
+
+    act(() => result.current.sendText("immediate"));
+
+    expect(ws.sent.map((s) => JSON.parse(s).text)).toEqual(["immediate"]);
+  });
+
+  test("a message sent during a reconnect survives to the NEW socket", () => {
+    // The actuator-swap path closes the socket and redials the same localId.
+    // A message typed in that window used to vanish.
+    const { result } = renderHook(() => useDrivenSession("local-1"));
+    const first = firstWs();
+    act(() => first.simulateOpen());
+    act(() => first.simulateCodedClose(4001));
+
+    act(() => result.current.sendText("typed mid-reconnect"));
+
+    return waitFor(() => {
+      const next = nthWs(1);
+      act(() => next.simulateOpen());
+      expect(next.sent.map((s) => JSON.parse(s).text)).toEqual(["typed mid-reconnect"]);
+    });
+  });
+
+  test("a message queued for one session never reaches a DIFFERENT session", () => {
+    // PR #2444 R1. The queue survived a localId switch, so text typed into
+    // conversation A would be flushed onto conversation B's socket — the
+    // operator's message landing somewhere they were not addressing.
+    const { result, rerender } = renderHook(({ id }) => useDrivenSession(id), {
+      initialProps: { id: "session-a" },
+    });
+    const wsA = firstWs();
+
+    act(() => result.current.sendText("meant for session A"));
+    expect(wsA.sent).toHaveLength(0);
+
+    // Switch to a different session before A's channel ever opened.
+    rerender({ id: "session-b" });
+    const wsB = nthWs(1);
+    act(() => wsB.simulateOpen());
+
+    expect(wsB.sent).toHaveLength(0);
+  });
+});
