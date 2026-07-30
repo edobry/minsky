@@ -13,9 +13,9 @@
  */
 
 /* eslint-disable custom/no-real-fs-in-tests -- mt#3397: the boot classifier and resume orchestration probe the REAL filesystem to decide whether a workspace still exists, so a row's cwd fixture has to be a real directory — there is no fs to inject through the code path under test. A per-run mkdtemp dir keeps the "fixed mock path" race the rule guards against from applying. */
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, afterAll } from "bun:test";
 import { EventEmitter } from "events";
-import { mkdtempSync } from "fs";
+import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { PassThrough } from "stream";
@@ -583,4 +583,10 @@ describe("deleted workspace cwd (mt#3397)", () => {
     expect(outcome.outcome).toBe("resumed");
     expect(spawns).toHaveLength(1);
   });
+});
+
+// PR #2452 R1 (non-blocking): remove the per-run temp dir so repeated runs do
+// not accumulate orphaned directories under the system temp root.
+afterAll(() => {
+  rmSync(TEST_WORKSPACE_ROOT, { recursive: true, force: true });
 });

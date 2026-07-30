@@ -42,7 +42,7 @@ import {
   resumeDrivenSession,
   buildReconnectingDrivenSessionRecord,
   missingCwdReason,
-  probeSpawnCwd,
+  probeSpawnCwdAsync,
   type DrivenSessionRecord,
   type DrivenSessionCostSummary,
   type DrivenSessionRegistry,
@@ -484,7 +484,10 @@ export async function loadPersistedDrivenSessions(
       // row whose workspace had been deleted stayed `reconnecting` and
       // re-crashed on every resume attempt, forever.
       const noTranscript = row.harnessSessionId === null;
-      const cwdGone = probeSpawnCwd(row.cwd) === "missing";
+      // Async probe (PR #2452 R1): this loop runs over every non-terminal row at
+      // daemon boot, so a synchronous stat here would hold the event loop for as
+      // long as the slowest workspace path takes to answer.
+      const cwdGone = (await probeSpawnCwdAsync(row.cwd)) === "missing";
       const unrecoverableReason = noTranscript
         ? "spawn-died-before-init — no harness session id was ever linked; there is no transcript to resume"
         : cwdGone
@@ -632,7 +635,7 @@ export async function orchestrateDrivenSessionResume(
   // chokepoint for its other callers. The verdict is written back so the next
   // attempt short-circuits on the `row.status` check just above rather than
   // re-probing the filesystem forever.
-  if (probeSpawnCwd(row.cwd) === "missing") {
+  if ((await probeSpawnCwdAsync(row.cwd)) === "missing") {
     const reason = missingCwdReason(row.cwd);
     await persistUnrecoverableVerdict(db, row, reason, {
       persistTerminalVerdict: deps.persistTerminalVerdict,

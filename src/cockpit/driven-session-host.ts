@@ -47,6 +47,7 @@
 import { spawn as nodeSpawn } from "child_process";
 import { randomUUID } from "crypto";
 import { statSync } from "fs";
+import { stat } from "fs/promises";
 import { PassThrough } from "stream";
 import { log } from "@minsky/shared/logger";
 import {
@@ -170,12 +171,54 @@ export type CwdProbeResult = "present" | "missing" | "unknown";
  */
 export function probeSpawnCwd(cwd: string): CwdProbeResult {
   try {
-    return statSync(cwd).isDirectory() ? "present" : "missing";
+    return classifyCwdStat(statSync(cwd).isDirectory());
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR") return "missing";
-    return "unknown";
+    return classifyCwdProbeError(err, cwd);
   }
+}
+
+/**
+ * Async twin of {@link probeSpawnCwd}, for callers that are already async.
+ *
+ * PR #2452 R1 (BLOCKING): boot reconciliation probes every non-terminal row, so
+ * a synchronous `statSync` there can stall the daemon's event loop for as long
+ * as the slowest path takes to answer — unbounded on an unresponsive network
+ * mount. The two spawn paths keep the sync probe deliberately: they are
+ * synchronous by contract (`startDrivenSession` hands the caller a session id
+ * without awaiting the child) and they are about to block on `spawn` anyway, so
+ * making them async would ripple through four call sites to remove a stat that
+ * immediately precedes a process launch. The loops get this one instead.
+ */
+export async function probeSpawnCwdAsync(cwd: string): Promise<CwdProbeResult> {
+  try {
+    const stats = await stat(cwd);
+    return classifyCwdStat(stats.isDirectory());
+  } catch (err) {
+    return classifyCwdProbeError(err, cwd);
+  }
+}
+
+function classifyCwdStat(isDirectory: boolean): CwdProbeResult {
+  return isDirectory ? "present" : "missing";
+}
+
+/**
+ * Shared error classification for both probes.
+ *
+ * The `"unknown"` branch logs at WARN (PR #2452 R1): failing open is the right
+ * behavior, but doing it silently means an operator seeing a session stuck in
+ * `reconnecting` has no way to find out that the probe could not read the
+ * workspace. The errno is the diagnostic — EACCES reads very differently from
+ * EIO or a hung mount's ETIMEDOUT.
+ */
+function classifyCwdProbeError(err: unknown, cwd: string): CwdProbeResult {
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code === "ENOENT" || code === "ENOTDIR") return "missing";
+  log.warn(
+    `[driven-session] could not determine whether ${cwd} exists (${code ?? "no errno"}) — ` +
+      `treating it as possibly-present so the conversation is not retired on a transient fault`
+  );
+  return "unknown";
 }
 
 /**

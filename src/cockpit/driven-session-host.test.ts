@@ -10,7 +10,7 @@
  * "## Live verification" section).
  */
 /* eslint-disable custom/no-real-fs-in-tests -- the "no Agent SDK" test's contract IS reading this module's OWN real source file to statically verify its import statements; there is nothing to inject here */
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, afterAll } from "bun:test";
 import { EventEmitter } from "events";
 import { PassThrough } from "stream";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
@@ -33,6 +33,7 @@ import {
   DrivenSessionRegistry,
   CLAUDE_BINARY,
   probeSpawnCwd,
+  probeSpawnCwdAsync,
   type ProcessLike,
   type SpawnFn,
   type SpawnOptions,
@@ -1319,4 +1320,33 @@ describe("spawn ENOENT disambiguation (mt#3397, acceptance test 4)", () => {
     expect(record.crashError).toContain("EACCES");
     expect(record.crashError).not.toContain("PATH");
   });
+});
+
+// PR #2452 R1 (BLOCKING): the boot-reconciliation and resume loops probe
+// asynchronously so a slow or unresponsive workspace path cannot hold the
+// daemon's event loop. The two verdicts must agree, or the same workspace would
+// classify differently depending on which caller asked.
+describe("probeSpawnCwdAsync (mt#3397, PR #2452 R1)", () => {
+  test("agrees with the sync probe on an existing directory", async () => {
+    expect(await probeSpawnCwdAsync(TEST_WORKSPACE_ROOT)).toBe("present");
+    expect(await probeSpawnCwdAsync(TEST_WORKSPACE_ROOT)).toBe(probeSpawnCwd(TEST_WORKSPACE_ROOT));
+  });
+
+  test("agrees with the sync probe on a path that does not exist", async () => {
+    expect(await probeSpawnCwdAsync(MISSING_CWD)).toBe("missing");
+    expect(await probeSpawnCwdAsync(MISSING_CWD)).toBe(probeSpawnCwd(MISSING_CWD));
+  });
+
+  test("agrees with the sync probe on a path that is a file, not a directory", async () => {
+    const filePath = join(TEST_WORKSPACE_ROOT, "async-not-a-directory.txt");
+    writeFileSync(filePath, "x");
+    expect(await probeSpawnCwdAsync(filePath)).toBe("missing");
+    expect(await probeSpawnCwdAsync(filePath)).toBe(probeSpawnCwd(filePath));
+  });
+});
+
+// PR #2452 R1 (non-blocking): remove the per-run temp dir so repeated runs do
+// not accumulate orphaned directories under the system temp root.
+afterAll(() => {
+  rmSync(TEST_WORKSPACE_ROOT, { recursive: true, force: true });
 });

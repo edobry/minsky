@@ -9,8 +9,8 @@
  * machinery, no Postgres.
  */
 /* eslint-disable custom/no-real-fs-in-tests -- mt#3397: the host preflights its spawn cwd against the REAL filesystem, so a route that spawns needs a real directory as its cwd — there is no fs to inject through the code path under test. A per-run mkdtemp dir keeps the "fixed mock path" race the rule guards against from applying. */
-import { describe, test, expect, afterEach } from "bun:test";
-import { mkdirSync, mkdtempSync } from "fs";
+import { describe, test, expect, afterEach, afterAll } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { EventEmitter } from "events";
@@ -373,4 +373,10 @@ describe("GET /api/driven-session/turn-active", () => {
     expect(body.activeSessionIds).toEqual([active.body.sessionId]);
     expect(body.activeSessionIds).not.toContain(idle.body.sessionId);
   });
+});
+
+// PR #2452 R1 (non-blocking): remove the per-run temp dir so repeated runs do
+// not accumulate orphaned directories under the system temp root.
+afterAll(() => {
+  rmSync(TEST_DIR_ROOT, { recursive: true, force: true });
 });

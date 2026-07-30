@@ -8,9 +8,9 @@
  */
 
 /* eslint-disable custom/no-real-fs-in-tests -- mt#3397: the host preflights its spawn cwd against the REAL filesystem, so these launches need a real directory as their cwd — there is no fs to inject through the code path under test. A per-run mkdtemp dir keeps the "fixed mock path" race the rule guards against from applying. */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, afterAll } from "bun:test";
 import { EventEmitter } from "events";
-import { mkdtempSync } from "fs";
+import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { PassThrough } from "stream";
@@ -380,4 +380,10 @@ describe("seed prompt attribution", () => {
     expect(operatorFrames).toHaveLength(1);
     expect(operatorFrames[0]?.payload["text"]).toBe("what is this asking me?");
   });
+});
+
+// PR #2452 R1 (non-blocking): remove the per-run temp dir so repeated runs do
+// not accumulate orphaned directories under the system temp root.
+afterAll(() => {
+  rmSync(TEST_CWD, { recursive: true, force: true });
 });

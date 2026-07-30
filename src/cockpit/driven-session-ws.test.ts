@@ -11,9 +11,9 @@
  * binary. That live spawn is explicitly out of scope (main-agent
  * verification only — see the PR body's "## Live verification" section).
  */
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterEach, afterAll } from "bun:test";
 /* eslint-disable custom/no-real-fs-in-tests -- mt#3397: the host preflights its spawn cwd against the REAL filesystem, so a cwd fixture has to be a real directory — there is no fs to inject through the code path under test. A per-run mkdtemp dir keeps the "fixed mock path" race the rule guards against from applying. */
-import { mkdtempSync } from "fs";
+import { mkdtempSync, rmSync } from "fs";
 import { createServer } from "http";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -497,4 +497,10 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
     // — not merely that auth blocked it.
     expect(res.status).toBe(404);
   });
+});
+
+// PR #2452 R1 (non-blocking): remove the per-run temp dir so repeated runs do
+// not accumulate orphaned directories under the system temp root.
+afterAll(() => {
+  rmSync(SCRATCH_CWD, { recursive: true, force: true });
 });
