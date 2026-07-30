@@ -201,28 +201,43 @@ export interface ToolUseBlock {
 export function extractToolUseBlocksByMessage(turnLines: TranscriptLine[]): ToolUseBlock[][] {
   const groups: ToolUseBlock[][] = [];
   for (const line of turnLines) {
-    // Positive assistant-line check (mirrors transcript.ts's extractAssistantText /
-    // extractToolUseNames convention) — an assistant line is identified by EITHER
-    // discriminator; only skip when NEITHER matches. Written as an explicit `isAssistantLine`
-    // boolean rather than the De Morgan-equivalent `type !== "assistant" && role !== "assistant"`
-    // continue-guard so the "OR to identify, not to exclude" intent is unambiguous at a glance
-    // (PR #2244 R1).
-    const isAssistantLine = line.type === "assistant" || line.message?.role === "assistant";
-    if (!isAssistantLine) continue;
-    const content = line.message?.content;
-    if (!Array.isArray(content)) continue;
-    const blocks: ToolUseBlock[] = [];
-    for (const block of content as Array<Record<string, unknown>>) {
-      if (block && block["type"] === "tool_use" && typeof block["name"] === "string") {
-        const rawInput = block["input"];
-        const input =
-          rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {};
-        blocks.push({ name: block["name"] as string, input });
-      }
-    }
+    const blocks = blocksForLine(line);
     if (blocks.length > 0) groups.push(blocks);
   }
   return groups;
+}
+
+/**
+ * tool_use blocks carried by ONE transcript line (empty for any line that is
+ * not an assistant message with tool_use content).
+ *
+ * Shared by `extractToolUseBlocksByMessage` (which FILTERS empty results, so
+ * its indices do not correspond to `turnLines`) and by
+ * `detectConsumeBeforeMint` (which needs index alignment WITH `turnLines`, so
+ * it maps this over every line instead). PR #2418 R1: the two were conflated,
+ * and the ordering pass indexed a filtered array as if it were the raw lines.
+ */
+function blocksForLine(line: TranscriptLine): ToolUseBlock[] {
+  // Positive assistant-line check (mirrors transcript.ts's extractAssistantText /
+  // extractToolUseNames convention) — an assistant line is identified by EITHER
+  // discriminator; only skip when NEITHER matches. Written as an explicit `isAssistantLine`
+  // boolean rather than the De Morgan-equivalent `type !== "assistant" && role !== "assistant"`
+  // continue-guard so the "OR to identify, not to exclude" intent is unambiguous at a glance
+  // (PR #2244 R1).
+  const isAssistantLine = line.type === "assistant" || line.message?.role === "assistant";
+  if (!isAssistantLine) return [];
+  const content = line.message?.content;
+  if (!Array.isArray(content)) return [];
+  const blocks: ToolUseBlock[] = [];
+  for (const block of content as Array<Record<string, unknown>>) {
+    if (block && block["type"] === "tool_use" && typeof block["name"] === "string") {
+      const rawInput = block["input"];
+      const input =
+        rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {};
+      blocks.push({ name: block["name"] as string, input });
+    }
+  }
+  return blocks;
 }
 
 export interface BatchMatch {
@@ -318,10 +333,19 @@ export interface ConsumeBeforeMintMatch {
  * Unlike the categorical batch pass, this one is EXACT rather than
  * co-occurrence-based, because it runs post-hoc over the transcript where the
  * minted id is present in the later tool_result. The discriminator that keeps
- * it precise is `hasPriorSource`: an id the agent wrote with no prior
+ * it precise is the prior-source check: an id the agent wrote with no prior
  * occurrence anywhere before that write is an id it could not have read — a
  * legitimate reference to an EXISTING entity would have a source (a tool
  * result, the user's prompt, an earlier read).
+ *
+ * CROSS-MESSAGE ONLY (PR #2418 R1). The mint must be in a STRICTLY LATER
+ * message than the write. A mint in the SAME message is the batch pass's
+ * territory — reporting it here too would double-record one event, and within
+ * a single parallel batch the block order carries no temporal meaning anyway.
+ *
+ * ID FAMILIES: short ids only (`mt#`/`ask#`/`mem#`). Session uuids and PR
+ * numbers are deliberately out of scope — a bare `#1234` is ambiguous with
+ * issue refs, and uuids don't appear in written prose the way short ids do.
  *
  * @param turnLines the assistant turn, in order
  * @param priorText serialized transcript content preceding the turn
@@ -330,18 +354,20 @@ export function detectConsumeBeforeMint(
   turnLines: TranscriptLine[],
   priorText: string
 ): ConsumeBeforeMintMatch[] {
-  const groups = extractToolUseBlocksByMessage(turnLines);
   const matches: ConsumeBeforeMintMatch[] = [];
   const seen = new Set<string>();
 
-  // Text seen so far, message by message, so "did this id have a source?" is
+  // Index-ALIGNED with turnLines (one entry per line, empty where a line
+  // carries no tool_use) — NOT extractToolUseBlocksByMessage, whose filtering
+  // makes its indices unusable for "which line am I on?".
+  const blocksByLine: ToolUseBlock[][] = turnLines.map(blocksForLine);
+
+  // Text seen so far, line by line, so "did this id have a source?" is
   // evaluated as of the moment of the write — not against the whole turn.
   let seenSoFar = priorText;
 
-  for (let gi = 0; gi < groups.length; gi++) {
-    const blocks = groups[gi] ?? [];
-
-    for (const block of blocks) {
+  for (let li = 0; li < turnLines.length; li++) {
+    for (const block of blocksByLine[li] ?? []) {
       const spec = findConsumeSpec(block.name);
       if (!spec) continue;
       const rawValue = block.input[spec.field];
@@ -357,8 +383,7 @@ export function detectConsumeBeforeMint(
         const family = MINT_FAMILY_SPECS.find((f) => token.startsWith(f.prefix));
         if (!family) continue;
 
-        // Is there a mint of this family LATER in the same turn?
-        const laterMint = findLaterMint(groups, gi, family);
+        const laterMint = findLaterMint(blocksByLine, li, family);
         if (!laterMint) continue;
 
         const mintedId = extractMintedId(turnLines, laterMint.name, family);
@@ -381,19 +406,24 @@ export function detectConsumeBeforeMint(
       }
     }
 
-    seenSoFar += JSON.stringify(turnLines[gi] ?? "");
+    // EVERY line becomes a source once passed — including tool_result lines,
+    // which is exactly where a legitimately-read id comes from (R1: these were
+    // skipped entirely, so an id returned earlier in the same turn looked
+    // sourceless).
+    seenSoFar += JSON.stringify(turnLines[li] ?? "");
   }
 
   return matches;
 }
 
+/** First mint of `family` in a STRICTLY LATER line than `afterLineIndex`. */
 function findLaterMint(
-  groups: ToolUseBlock[][],
-  afterIndex: number,
+  blocksByLine: ToolUseBlock[][],
+  afterLineIndex: number,
   family: MintFamilySpec
 ): ToolUseBlock | undefined {
-  for (let gi = afterIndex; gi < groups.length; gi++) {
-    for (const block of groups[gi] ?? []) {
+  for (let li = afterLineIndex + 1; li < blocksByLine.length; li++) {
+    for (const block of blocksByLine[li] ?? []) {
       if (family.names.includes(block.name)) return block;
     }
   }
