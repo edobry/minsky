@@ -21,6 +21,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Search, Copy, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { EntityRef } from "../components/EntityRef";
+import { Checkbox } from "../components/ui/checkbox";
 
 // ---------------------------------------------------------------------------
 // Client-side mirror of the server response shape. The server type
@@ -251,11 +252,7 @@ export function ConversationSearchPanel() {
               aria-label="To date"
             />
             <label className="flex items-center gap-1 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={semantic}
-                onChange={(e) => setSemantic(e.target.checked)}
-              />
+              <Checkbox checked={semantic} onCheckedChange={(v) => setSemantic(v === true)} />
               Semantic
             </label>
             <Button type="submit" size="sm" className="h-6 text-xs px-2" disabled={!query.trim()}>

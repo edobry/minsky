@@ -206,3 +206,42 @@ describe("Prose — entity-reference label channel (mt#3174)", () => {
     expect(anchor?.hasAttribute("data-state")).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// GFM task-list checkboxes (mt#3348)
+//
+// remark-gfm renders `- [ ] item` as `<input type="checkbox" disabled>`, which
+// keeps `appearance: auto` and paints native OS chrome. These are generated at
+// render time, so no source grep finds them — this is the check that does.
+// ---------------------------------------------------------------------------
+
+describe("Prose — GFM task-list checkboxes (mt#3348)", () => {
+  const TASK_LIST = ["- [ ] unchecked item", "- [x] checked item"].join("\n");
+
+  test("renders NO native checkbox input for task-list items", () => {
+    const { container } = renderProse(<Prose>{TASK_LIST}</Prose>);
+    expect(container.querySelectorAll('input[type="checkbox"]').length).toBe(0);
+    expect(container.querySelectorAll("input").length).toBe(0);
+  });
+
+  test("checked and unchecked stay distinguishable, and each carries a name", () => {
+    const { container } = renderProse(<Prose>{TASK_LIST}</Prose>);
+    const boxes = [...container.querySelectorAll('[role="img"]')];
+    expect(boxes.length).toBe(2);
+    // The name states the state outright, in document order.
+    expect(boxes.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Not completed",
+      "Completed",
+    ]);
+    // Regression guard for PR #2417 R1: a widget role with no accessible name
+    // announces "checkbox, checked" with no indication of what. There must be
+    // no nameless checkbox role left.
+    expect(container.querySelectorAll('[role="checkbox"]').length).toBe(0);
+  });
+
+  test("an ordinary bullet list renders no checkbox indicator (negative control)", () => {
+    const { container } = renderProse(<Prose>{"- plain item\n- another item"}</Prose>);
+    expect(container.querySelectorAll('[role="img"]').length).toBe(0);
+    expect(container.querySelectorAll("input").length).toBe(0);
+  });
+});
