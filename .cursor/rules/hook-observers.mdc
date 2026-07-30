@@ -14,6 +14,7 @@ decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture
 
 - **Skill/agent/rule staleness** — stale skill/agent/rule baseline. `MINSKY_SKIP_SKILL_STALENESS`.
 - **Drive-PR-to-convergence** — reminds wait-for-review. none.
+- **Drive-READY-to-implementation** — READY-handoff sibling of the above (mt#3373): on `tasks_status_set` → READY, injects "invoke `/implement-task` now; the principal is not the next actor", the three legitimate halts, and the forbidden turn-closers. Fires ONLY on a real transition INTO READY (a no-op re-set is silent) and skips `state-ops` kind, whose `/plan-task` Step 4 branch walks READY → IN-PROGRESS in main-agent context instead; the kind read is a `minsky tasks get` CLI call that fails open toward firing. `MINSKY_SKIP_READY_CHAIN_WALK`.
 - **Substrate-bypass** — unencoded commitments/retro-prose/DB-bypass, + log-only post-merge instr. `MINSKY_ACK_SUBSTRATE_BYPASS`.
 - **Retrospective-trigger** — reminds `/retrospective`; Stop sibling `turn-end-retro-scan`. `MINSKY_ACK_RETROSPECTIVE_TRIGGER`.
 - **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21; same-turn-read/dedup suppression legs mt#3113. Relay (subagent-report/preamble) SURFACES with cue-(g) guidance rather than suppressing — mt#3113's suppression reversed by mt#3152 (mem#706: second-hand is the reason to check, not to stay quiet); still recorded as `relayReasons`. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
