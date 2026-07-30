@@ -887,9 +887,11 @@ restore + the append-only convention above); memories \`d77d2bd4\` (problem-stat
 the **task record** carries the structured detail (premise-audit answers, per-criterion
 verdicts, gap report). Never inline the structured half in chat — write it to the spec via
 \`mcp__minsky__tasks_spec_patch\` and emit a \`minsky://task/mt%23<id>\` deeplink so the
-principal can open it if they want. Chat is 2-3 sentences of what the task is trying to do,
-what the investigation found, and what happens next — with NO gate letters, premise-audit
-labels, or criterion tables in the message. Per \`user-preferences.mdc §Plain-language first
+principal can open it if they want. Chat is brief plain-language prose (1-3 sentences —
+fewer on a clean pass, more on a fail) covering what the task is trying to do, what the
+investigation found, and what happens next — with NO gate letters, premise-audit labels, or
+criterion tables in the message. Each branch below specifies its own sentence count within
+that range. Per \`user-preferences.mdc §Plain-language first
 in chat reports\` (mt#2801) and \`communication-contract.mdc §The Tier-1 turn-report contract\`
 ("detail lives behind a pointer, never inline"; originating incident mt#3369 R5+: a 599-word
 gate-failure report that duplicated content already written into the spec). This changes
@@ -907,7 +909,7 @@ full; it lives in the spec instead of the chat scrollback.
 3. Call \`mcp__minsky__tasks_status_set\` to transition the task to **READY**.
 
    **state-ops kind — no-session walk (mt#455).** For \`kind: "state-ops"\` tasks, SKIP
-   step 4's \`/implement-task\` chain-walk entirely — state-ops work runs WITHOUT a session
+   item 4 below (the \`/implement-task\` chain-walk) entirely — state-ops work runs WITHOUT a session
    (\`session_start\` refuses the kind). Instead, walk the task in main-agent context:
    (i) \`tasks_status_set\` READY → IN-PROGRESS (a legal direct transition for this kind);
    (ii) do the investigation / state operation; (iii) record the deliverable in the spec
