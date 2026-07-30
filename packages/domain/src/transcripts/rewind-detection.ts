@@ -63,14 +63,26 @@ function carriesToolResult(block: SessionContextSnapshotBlock): boolean {
   );
 }
 
-/** An operator-authored prompt — a `user` line that is not a tool result. */
-function isOperatorPrompt(block: SessionContextSnapshotBlock): boolean {
+/**
+ * An operator-authored prompt — a `user` line that is not a tool result.
+ *
+ * Exported because the render surface needs the SAME definition: `rawJsonlType
+ * === "user"` alone also matches tool-result lines, so counting on it would
+ * report a rewind that superseded 2 prompts as having superseded many more
+ * (PR #2419 R1 BLOCKING).
+ */
+export function isOperatorPrompt(block: SessionContextSnapshotBlock): boolean {
   return block.rawJsonlType === "user" && !carriesToolResult(block);
 }
 
 /**
  * Collect every block reachable from `rootUuid` by following `parentUuid`
  * edges, including the root's own block.
+ *
+ * Each block is collected EXACTLY ONCE: a uuid-bearing child is collected when
+ * it is dequeued (not when it is seen as a child), while a uuid-less child —
+ * an attachment, which has `parent_uuid` but no `uuid` column and so can never
+ * be a parent — is collected inline because it will never be dequeued.
  *
  * Cycle-safe: a `visited` set bounds the walk, so an adversarial or corrupted
  * `parentUuid` cycle terminates instead of looping forever.
@@ -93,12 +105,13 @@ function collectSubtree(
     if (block !== undefined) collected.push(block);
 
     for (const child of childrenByParent.get(uuid) ?? []) {
-      collected.push(child);
-      // Only blocks that carry their own uuid can have children of their own.
-      // Attachment rows have `parent_uuid` but no `uuid` column, so an
-      // attachment chain deeper than one hop is not reachable here — a known,
-      // deliberate limitation rather than a silent gap (mt#3323).
-      if (child.uuid !== undefined && !visited.has(child.uuid)) queue.push(child.uuid);
+      if (child.uuid === undefined) {
+        // Attachment chains deeper than one hop are unreachable — a known,
+        // deliberate limitation rather than a silent gap (mt#3323).
+        collected.push(child);
+      } else if (!visited.has(child.uuid)) {
+        queue.push(child.uuid);
+      }
     }
   }
 

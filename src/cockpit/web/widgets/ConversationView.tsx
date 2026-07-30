@@ -47,6 +47,7 @@ import {
   type ConversationRole,
   type ConversationTurn,
 } from "@minsky/domain/transcripts/conversation-elements";
+import { isOperatorPrompt } from "@minsky/domain/transcripts/rewind-detection";
 import type {
   SessionContextSnapshot,
   SessionContextSnapshotBlock,
@@ -737,11 +738,13 @@ function ConversationThread({
    */
   const { renderableBlocks, rewoundBlockCount } = useMemo(() => {
     const kept = allBlocks.filter((b) => b.isAbandonedBranch !== true);
-    // Count PROMPTS, not blocks: a superseded prompt drags its attachment
-    // blocks (deferred-tool catalogs and the like) with it, and "4 superseded
-    // messages" would overstate a rewind that replaced 2.
+    // Count operator PROMPTS, not blocks. A superseded prompt drags along both
+    // its attachment blocks and — when the operator rewound after the agent had
+    // already started working — the tool-result lines from the abandoned
+    // attempt. `rawJsonlType === "user"` matches those tool results too, so it
+    // would overstate a rewind that superseded 2 prompts (PR #2419 R1).
     const rewoundPrompts = allBlocks.filter(
-      (b) => b.isAbandonedBranch === true && b.rawJsonlType === "user"
+      (b) => b.isAbandonedBranch === true && isOperatorPrompt(b)
     ).length;
     return { renderableBlocks: kept, rewoundBlockCount: rewoundPrompts };
   }, [allBlocks]);

@@ -145,4 +145,38 @@ describe("ConversationView — rewound branches", () => {
     expect(screen.getByText(/just one prompt/)).toBeTruthy();
     expect(screen.getByText(/just one answer/)).toBeTruthy();
   });
+
+  test("does not count tool-result lines from an abandoned attempt as superseded messages", () => {
+    // The operator rewound AFTER the agent started working, so the abandoned
+    // branch carries a tool_result — which is a `user` JSONL line. Counting on
+    // rawJsonlType alone would report 2 superseded messages instead of 1
+    // (PR #2419 R1 BLOCKING).
+    const abandonedToolResult: SessionContextSnapshotBlock = {
+      id: "block-tool-result",
+      type: "user-prompt",
+      source: "observed",
+      content: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "A", content: "ok" }],
+      },
+      timestamp: new Date(Date.UTC(2026, 6, 29, 16, 0, 2)).toISOString(),
+      rawJsonlType: "user",
+      isAbandonedBranch: true,
+    };
+
+    renderCV(
+      snapshotOf([
+        turnBlock(0, "assistant", "go ahead"),
+        turnBlock(1, "user", "SUPERSEDED DRAFT", { isAbandonedBranch: true }),
+        abandonedToolResult,
+        turnBlock(3, "user", "LIVE DRAFT"),
+        turnBlock(4, "assistant", "answering the live one"),
+      ])
+    );
+
+    expect(screen.getByTestId("rewound-branch-notice").textContent).toContain(
+      "1 superseded message hidden"
+    );
+    expect(screen.queryByText(/SUPERSEDED DRAFT/)).toBeNull();
+  });
 });

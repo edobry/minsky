@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { markAbandonedRewindBranches } from "./rewind-detection";
+import { markAbandonedRewindBranches, isOperatorPrompt } from "./rewind-detection";
 import type { SessionContextSnapshotBlock } from "../context/types";
 
 let clock = 0;
@@ -209,5 +209,51 @@ describe("markAbandonedRewindBranches", () => {
     expect(result).toHaveLength(blocks.length);
     expect(result.map((b) => b.turnIndex)).toEqual([0, 1, 2, 3]);
     expect(result.map((b) => b.id)).toEqual(blocks.map((b) => b.id));
+  });
+
+  test("a rewind AFTER the agent started working marks the whole abandoned attempt", () => {
+    // Both siblings have assistant descendants, so the assistant-descendant
+    // rule cannot discriminate and the latest-by-timestamp fallback applies.
+    // The abandoned attempt carries a tool_use + tool_result of its own.
+    const blocks = [
+      block("root", undefined, "assistant", text("go ahead"), "2026-07-29T16:00:00.000Z"),
+      block("rewound", "root", "user", prompt("first draft"), "2026-07-29T16:00:10.000Z"),
+      block("abandonedCall", "rewound", "assistant", toolUse("A"), "2026-07-29T16:00:11.000Z"),
+      block(
+        "abandonedResult",
+        "abandonedCall",
+        "user",
+        toolResult("A"),
+        "2026-07-29T16:00:12.000Z"
+      ),
+      block("live", "root", "user", prompt("second draft"), "2026-07-29T16:00:20.000Z"),
+      block("liveReply", "live", "assistant", text("answering"), "2026-07-29T16:00:21.000Z"),
+    ];
+
+    const result = markAbandonedRewindBranches(blocks);
+
+    expect(marked(result).sort()).toEqual(["abandonedCall", "abandonedResult", "rewound"]);
+
+    // The render surface counts PROMPTS: of the three marked blocks only one is
+    // an operator prompt — the tool result must not inflate the count.
+    const markedPrompts = result.filter((b) => b.isAbandonedBranch === true && isOperatorPrompt(b));
+    expect(markedPrompts.map((b) => b.uuid)).toEqual(["rewound"]);
+  });
+
+  test("each block is marked exactly once — no duplicate subtree entries", () => {
+    const blocks = [
+      block("root", undefined, "assistant", text("go")),
+      block("rewound", "root", "user", prompt("first")),
+      block("kid", "rewound", "assistant", text("partial")),
+      block("grandkid", "kid", "user", prompt("deeper")),
+      block("live", "root", "user", prompt("second")),
+      block("liveReply", "live", "assistant", text("answer")),
+    ];
+
+    const result = markAbandonedRewindBranches(blocks);
+    const markedIds = marked(result);
+
+    expect(markedIds).toHaveLength(new Set(markedIds).size);
+    expect(markedIds.sort()).toEqual(["grandkid", "kid", "rewound"]);
   });
 });
