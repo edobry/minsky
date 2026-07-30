@@ -1,0 +1,112 @@
+// Shared task-id resolution for `session_pr_merge` PreToolUse merge gates — mt#3355.
+//
+// `session_pr_merge` accepts TWO optional selectors, `task` and `sessionId`. Five merge
+// gates read only `tool_input.task` and exited `allow` the moment it was empty, so a merge
+// invoked by `sessionId` — a documented, first-class way to call the tool — bypassed all of
+// them at once, emitting no warning. Measured over 316-318 recorded invocations per gate:
+// 36 real merges (11.4-11.6%) were evaluated by no gate at all. An `allow` from a gate that
+// evaluated the PR and an `allow` from a gate that never fetched it were byte-identical in
+// the fire log except for `durationMs`.
+//
+// This module lifts the resolver that `block-subagent-merge-without-grant.ts` already had
+// (its doc comment recorded the binding constraint quoted below) into one place, and adds
+// the piece none of the gates had: a report of WHICH source produced the id, so a
+// non-evaluation is distinguishable from a clean pass.
+//
+// **DB-free by construction.** The branch fallback parses `git rev-parse --abbrev-ref HEAD`
+// rather than looking the session up by id, deliberately NOT the DB-backed lookup
+// `record-subagent-invocation.ts` uses — that would violate the hooks' self-containment
+// invariant (`.minsky/hooks/SPEC.md`). At merge time `cwd` is typically the session
+// workspace, whose branch is `task/mt-NNNN`, so the fallback covers the common shape of the
+// currently-silent case.
+//
+// **What the fallback does NOT cover, and why the source is reported.** A `session_pr_merge`
+// invoked from the MAIN workspace with a `sessionId` selector — the `/merge-coordination`
+// main-agent pattern — sits on branch `main`, fails the branch regex, and resolves to
+// `unresolved`. Those merges are correctly warned about rather than silently allowed, but
+// they are NOT recovered into a full check. The fire log records neither `cwd` nor
+// `tool_input`, so the split between recovered and merely-warned merges could not be
+// measured before this module existed; `TaskIdResolutionSource` is what makes it
+// measurable (mt#3355 Success Criterion 6), rather than leaving the recovery rate as an
+// untested assumption — mt#3350 depends on that signal to know its calibration sample is
+// complete.
+//
+// Dependency-free per `.minsky/hooks/SPEC.md`'s invariant: only the sibling `./types`.
+//
+// @see mt#3355 — this task
+// @see .minsky/hooks/block-subagent-merge-without-grant.ts — the resolver's original home
+// @see .minsky/hooks/fire-log.ts — `FireLogEntry.taskResolutionSource`, where the source lands
+// @see .minsky/hooks/merge-gate-fire-log.ts — `MergeGateFireLogContext`, how gates report it
+
+import { execSync } from "./types";
+import type { ToolHookInput } from "./types";
+import type { TaskResolutionSource } from "./fire-log";
+
+/**
+ * Which channel produced the task id for this merge-gate invocation.
+ *
+ * - `tool_input` — the caller passed `task` directly (the common form).
+ * - `branch-fallback` — `task` was absent; the id came from the `task/mt-<id>` branch
+ *   checked out in `cwd`.
+ * - `unresolved` — neither source yielded an id. The gate cannot evaluate the PR, and
+ *   MUST say so rather than exiting `allow`.
+ *
+ * Aliased from `fire-log.ts`'s persisted-schema type rather than redeclared: these values
+ * are written to the fire log verbatim, so a second declaration could drift from the one
+ * readers of the log actually parse.
+ */
+export type TaskIdResolutionSource = TaskResolutionSource;
+
+export interface TaskIdResolution {
+  /** The resolved task id (e.g. `mt#3355`), or `null` when `source` is `unresolved`. */
+  taskId: string | null;
+  source: TaskIdResolutionSource;
+}
+
+/** Matches a session workspace's branch, the `task/mt-<id>` convention `session_start` creates. */
+const TASK_BRANCH_PATTERN = /^task\/mt[-#](\d+)$/;
+
+/**
+ * Resolve the task id for a `session_pr_merge` invocation, reporting its source.
+ *
+ * Never throws: a nonexistent `cwd`, a non-git directory, or any other spawn-level failure
+ * resolves to `unresolved` rather than propagating. A gate's job on `unresolved` is to WARN
+ * (see this module's header) — swallowing the failure into a bare `allow` is the defect this
+ * function exists to remove, so callers must not reintroduce it.
+ */
+export function resolveMergeGateTaskId(input: ToolHookInput): TaskIdResolution {
+  const fromToolInput = input.tool_input?.["task"];
+  if (typeof fromToolInput === "string" && fromToolInput.trim().length > 0) {
+    return { taskId: fromToolInput.trim(), source: "tool_input" };
+  }
+
+  const cwd = input.cwd;
+  if (!cwd) return { taskId: null, source: "unresolved" };
+
+  try {
+    const result = execSync(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd, timeout: 3000 });
+    if (result.exitCode !== 0) return { taskId: null, source: "unresolved" };
+
+    const match = result.stdout.trim().match(TASK_BRANCH_PATTERN);
+    if (!match) return { taskId: null, source: "unresolved" };
+    return { taskId: `mt#${match[1]}`, source: "branch-fallback" };
+  } catch {
+    return { taskId: null, source: "unresolved" };
+  }
+}
+
+/**
+ * The operator-visible warning a gate emits when no task id is resolvable.
+ *
+ * Every gate emits the SAME text (parameterized by guard name) on purpose: the point of
+ * mt#3355 is that a non-evaluation is legible as such wherever it appears, and five gates
+ * each phrasing it differently would put that legibility back in the reader's head.
+ */
+export function unresolvedTaskWarning(guardName: string): string {
+  return (
+    `[${guardName}] Could not resolve a task id for this merge — \`tool_input.task\` is absent ` +
+    `and \`cwd\` is not on a \`task/mt-<id>\` branch. This gate did NOT evaluate the pull ` +
+    `request; this is NOT a clean pass. Re-invoke \`session_pr_merge\` with \`task: "mt#<id>"\`, ` +
+    `or run it from the session workspace, to get an actual check.`
+  );
+}

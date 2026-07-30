@@ -121,3 +121,10 @@ rebuild/reinstall acknowledgment itself, or `MINSKY_SKIP_USABILITY_CLAIM_CHECK=1
   config-as-code build-resolution changes — this pair's class)
 - mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration contract)
 - mt#2976 — target-aware extension: the cockpit-tray local-app deploy surface + reinstall reminder
+
+## Task-id resolution (mt#3355)
+
+This gate resolves its task id through the shared `merge-gate-task-resolution.ts` module, which
+prefers `tool_input.task`, falls back to the `task/mt-<id>` branch in `cwd`, and WARNS rather
+than silently allowing when neither resolves. See
+[Merge-Gate Task Resolution](./merge-gate-task-resolution.md).

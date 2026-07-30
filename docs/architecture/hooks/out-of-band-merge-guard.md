@@ -123,3 +123,10 @@ complement — it catches contract-propagation gaps at task-planning time. This 
 merge-time complement; both fire independently. mt#1626's gate has a coverage hole when a
 task doesn't go through `/plan-task` (mt#1681 was planned via main agent and bypassed it).
 This hook catches the class at the actual decision point regardless of the planning path.
+
+## Task-id resolution (mt#3355)
+
+This gate resolves its task id through the shared `merge-gate-task-resolution.ts` module, which
+prefers `tool_input.task`, falls back to the `task/mt-<id>` branch in `cwd`, and WARNS rather
+than silently allowing when neither resolves. See
+[Merge-Gate Task Resolution](./merge-gate-task-resolution.md).

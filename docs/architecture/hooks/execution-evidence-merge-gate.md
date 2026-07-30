@@ -38,3 +38,10 @@ error.
 - mt#3059 — tracked graduation from log-only WARN to blocking deny
 - mt#2542 — root incident motivating both the original gate and this extension
 - `/prepare-pr` §1b, `/implement-task` §7a — the paired preventive-phase skill steps
+
+## Task-id resolution (mt#3355)
+
+This gate resolves its task id through the shared `merge-gate-task-resolution.ts` module, which
+prefers `tool_input.task`, falls back to the `task/mt-<id>` branch in `cwd`, and WARNS rather
+than silently allowing when neither resolves. See
+[Merge-Gate Task Resolution](./merge-gate-task-resolution.md).
