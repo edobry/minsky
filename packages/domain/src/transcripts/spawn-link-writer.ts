@@ -17,7 +17,9 @@
  * The signal is the spawn PROMPT text itself: `session_generate_prompt`
  * (`packages/domain/src/session/prompt-generation.ts`'s `renderCommonHeader`)
  * always embeds the literal absolute workspace directory in its opening line
- * ("You are working in Minsky session at `<sessionDir>`."), and that prompt
+ * ("You are working in Minsky session `<sessionId>`, checked out at
+ * `<sessionDir>`." — mt#593 reworded this header; extraction keys on the
+ * `<stateDir>/sessions/<id>` path it still embeds, not on the sentence), and that prompt
  * text is preserved verbatim as the `input.prompt` field on the Agent tool
  * call captured in the PARENT's own `tool_calls` JSONB. `AgentSpawnsPipeline`
  * (mt#1327, `agent-spawns-pipeline.ts`) already loads that JSONB and resolves

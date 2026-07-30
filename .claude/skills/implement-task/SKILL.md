@@ -4,8 +4,8 @@ name: implement-task
 description: >-
   Full implementation lifecycle for a Minsky task: read spec, plan, code, test,
   verify, commit, create PR, and drive to merge. All work happens in session
-  workspaces with absolute paths. Use when implementing a task, starting
-  development, or beginning work in a session.
+  workspaces via the session-scoped file tools. Use when implementing a task,
+  starting development, or beginning work in a session.
 user-invocable: true
 ---
 
@@ -102,10 +102,10 @@ may not have loaded it yet (it only loads the spec on-demand if `## Scope` parsi
 it):
 
 ```
-ToolSearch(query: "select:mcp__minsky__session_start,mcp__minsky__session_exec,mcp__minsky__session_edit_file,mcp__minsky__session_write_file,mcp__minsky__validate_typecheck,mcp__minsky__validate_lint,mcp__minsky__session_commit,mcp__minsky__session_update,mcp__minsky__session_pr_create,mcp__minsky__session_pr_wait-for-review,mcp__minsky__session_pr_checks,mcp__minsky__session_pr_merge,mcp__minsky__session_pr_get,mcp__minsky__forge_check_runs_list,mcp__minsky__deployment_wait-for-latest,mcp__minsky__tasks_spec_get,mcp__minsky__tasks_spec_patch,mcp__minsky__tasks_status_set", max_results: 30)
+ToolSearch(query: "select:mcp__minsky__session_start,mcp__minsky__session_exec,mcp__minsky__session_read_file,mcp__minsky__session_search_replace,mcp__minsky__session_write_file,mcp__minsky__validate_typecheck,mcp__minsky__validate_lint,mcp__minsky__session_commit,mcp__minsky__session_update,mcp__minsky__session_pr_create,mcp__minsky__session_pr_wait-for-review,mcp__minsky__session_pr_checks,mcp__minsky__session_pr_merge,mcp__minsky__session_pr_get,mcp__minsky__forge_check_runs_list,mcp__minsky__deployment_wait-for-latest,mcp__minsky__tasks_spec_get,mcp__minsky__tasks_spec_patch,mcp__minsky__tasks_status_set", max_results: 30)
 ```
 
-(`max_results` set above the current 18-tool count with headroom — if this list grows, bump
+(`max_results` set above the current 19-tool count with headroom — if this list grows, bump
 `max_results` in step so a future addition can't silently truncate the returned set below what
 was requested.)
 
@@ -177,7 +177,15 @@ Call `mcp__minsky__session_start` with the task ID. This:
 - Creates an isolated session workspace
 - Sets task status to IN-PROGRESS
 
-All subsequent file operations must use absolute paths under the session directory returned by `session_start`.
+All subsequent file operations go through the session-scoped file tools, which take the `sessionId` returned by `session_start` plus a path RELATIVE to the session root:
+
+| Operation | Tool |
+| --- | --- |
+| Read a session file | `mcp__minsky__session_read_file` |
+| Targeted edit | `mcp__minsky__session_search_replace` |
+| Create or fully rewrite | `mcp__minsky__session_write_file` |
+
+A session id plus a relative path cannot silently address the MAIN workspace the way an absolute path can — that is the point of the split. `mcp__minsky__session_edit_file` is fast-apply-model-based and carries three documented failure modes in its own description; it is NOT the default, and is for edits spanning many regions. The harness-native `Read`/`Edit`/`Write` remain correct for MAIN-workspace files.
 
 ### 4. Understand architectural context
 
@@ -203,7 +211,7 @@ Before writing any code:
 - Commit regularly with `mcp__minsky__session_commit`:
   - Use meaningful messages referencing the task ID
   - Group related changes in logical commits
-- All file edits must use absolute paths under the session directory
+- All file edits go through the session-scoped tools (`session_search_replace` for a targeted edit, `session_write_file` for a create/rewrite) — session id plus a relative path, per §3
 - **Run commands in the session** using `mcp__minsky__session_exec(task: "mt#<id>", command: "<cmd>")` — e.g., `bun test`, `bun run format:check`, `git status`. Never use `git -C <path>` or shell `cd` workarounds.
 
 ### 7. Verify implementation
@@ -648,7 +656,7 @@ deferring` — do not silently downgrade to "the deploy succeeded" as the comple
 
 These constraints apply throughout implementation:
 
-- **Absolute paths only.** Every file operation must use the full session path (e.g., `/Users/edobry/.local/state/minsky/sessions/<id>/src/...`). Relative paths may resolve against the main workspace.
+- **Session-scoped file tools only.** Every file operation in the session goes through `session_read_file` / `session_search_replace` / `session_write_file`, addressed by `sessionId` + a session-relative path. Do not reach for the harness-native `Read`/`Edit`/`Write` with an absolute session path: an absolute path can silently resolve against the main workspace, and a bare relative path certainly will.
 - **Never edit main workspace.** All changes happen in the session. If a bug is found in the main project, create a separate task for it.
 - **Never manually set DONE.** Task status flows: TODO → IN-PROGRESS → IN-REVIEW → DONE. DONE is only set after PR merge, never manually from a session.
 - **No work without a session.** Implementation work requires an active session for isolation and traceability.

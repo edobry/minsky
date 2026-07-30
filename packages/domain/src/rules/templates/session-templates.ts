@@ -138,10 +138,12 @@ When task implementation is complete:
 - Session workspaces are completely separate from main workspace
 - Changes in main workspace don't affect session workspace
 
-**Use absolute paths**:
-- Get full session path: ${helpers.command("session.dir")}
-- Store this path for easy navigation
-- Avoid relative path assumptions
+**Address session files by session id, not by path**:
+- Use the session-scoped file tools — \`session_read_file\`, \`session_search_replace\`,
+  \`session_write_file\` — which take the session id plus a session-RELATIVE path
+- \`session_edit_file\` is fast-apply-model-based and is not the default
+- The session directory (${helpers.command("session.dir")}) is still what shell commands run in,
+  but you should not be assembling file paths out of it by hand
 
 ### Git Management
 
