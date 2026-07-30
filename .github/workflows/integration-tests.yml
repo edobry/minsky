@@ -201,7 +201,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --no-progress
 
-      - name: Run Supabase pool-saturation integration test
+      - name: Run Supabase integration tests (pool saturation + fill-if-null)
         env:
           RUN_INTEGRATION_TESTS: "1"
           SUPABASE_INTEGRATION_BRANCH_URL: ${{ secrets.SUPABASE_INTEGRATION_BRANCH_URL }}
