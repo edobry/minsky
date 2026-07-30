@@ -1773,11 +1773,7 @@ describe("runAtCoverageCalibration — never emits deny, only warns/logs", () =>
     expect(result.warning).toContain("AT3");
     expect(result.warning).toContain("CALIBRATION");
     // Structural guarantee: the result shape has no field resembling a deny/block signal.
-    // `specContent` joined the shape in mt#3350 — the spec markdown this run already fetched,
-    // handed to the sibling success-criteria surface so it need not re-shell the CLI. It is
-    // an input echo, not a decision field; the two assertions below are what actually pin the
-    // no-deny guarantee, and they are unchanged.
-    expect(Object.keys(result).sort()).toEqual(["ranCheck", "specContent", "warning"]);
+    expect(Object.keys(result).sort()).toEqual(["ranCheck", "warning"]);
     expect(JSON.stringify(result)).not.toContain("permissionDecision");
     expect(JSON.stringify(result).toLowerCase()).not.toContain('"blocked"');
 

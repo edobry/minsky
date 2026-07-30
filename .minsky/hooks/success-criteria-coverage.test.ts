@@ -183,6 +183,22 @@ describe("AT1/AT2: an executable criterion must be addressed by the evidence blo
     expect(result.ranCheck).toBe(false);
     expect(result.warning).toBeUndefined();
   });
+
+  test("the AT override does NOT silence this surface (PR #2432 R2)", () => {
+    // The two surfaces have separate documented overrides, so setting one must not disable the
+    // other. The first wiring coupled them: the entry point read the spec back out of the AT
+    // calibration's result, and `MINSKY_SKIP_AT_COVERAGE=1` returned early with no spec — so
+    // the acceptance-test override silently disabled success-criteria coverage too. The entry
+    // point now fetches the spec itself and drives both surfaces from it; this pins the half of
+    // that guarantee a unit test can hold.
+    const prBody = "no evidence here";
+    const result = runScCoverageCalibration(TASK_ID, PR_NUMBER, SPEC_WITH_EXECUTABLE, prBody, "", {
+      MINSKY_SKIP_AT_COVERAGE: "1",
+    });
+    expect(result.ranCheck).toBe(true);
+    expect(result.warning).toBeDefined();
+    expect(result.warning).toContain("SC1");
+  });
 });
 
 // ---------------------------------------------------------------------------

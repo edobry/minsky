@@ -863,43 +863,38 @@ export interface AtCoverageCalibrationRunResult {
   ranCheck: boolean;
   /** A WARN string to surface via `additionalContext`, if any executable AT is unaddressed. */
   warning?: string;
-  /**
-   * mt#3350: the spec markdown this run already fetched, so the sibling success-criteria
-   * surface can reuse it instead of shelling `minsky tasks spec get` a second time per merge.
-   * Present whenever the fetch succeeded, independent of the AT verdict.
-   */
-  specContent?: string;
 }
 
 /**
- * Runs the full AT-coverage calibration surface for one merge attempt: fetch spec, parse
- * ATs, classify, check coverage, log on a would-be-block, and return a WARN string (never
- * a deny). Fully guarded — this function must never throw and must never, by itself,
- * cause the hook process to exit non-zero or emit `permissionDecision: "deny"`.
+ * AT-coverage calibration against an ALREADY-FETCHED spec.
+ *
+ * Split out from {@link runAtCoverageCalibration} by PR #2432 R2. The entry point fetches the
+ * spec once and drives BOTH calibration surfaces from it, so the acceptance-test and
+ * success-criteria checks are genuinely independent: each honors only its own override. The
+ * previous shape had the entry point read the spec back out of this function's result, which
+ * silently coupled them — `MINSKY_SKIP_AT_COVERAGE=1` returned early with no spec, so it
+ * disabled the success-criteria surface too, contradicting the separate
+ * `MINSKY_SKIP_SC_COVERAGE` override those two are documented to have.
  */
-export function runAtCoverageCalibration(
+export function runAtCoverageCalibrationWithSpec(
   task: string,
   prNumber: number,
   prBody: string,
-  cwd: string,
-  repoRootDir: string,
-  exec: ExecFn = execWithPath
+  specFetch: TaskSpecFetchResult,
+  repoRootDir: string
 ): AtCoverageCalibrationRunResult {
   if (isAtCoverageSkipped()) return { ranCheck: false };
-
-  const specFetch = fetchTaskSpecForAtCoverage(task, cwd, exec);
   if (!specFetch.ok || typeof specFetch.content !== "string") return { ranCheck: false };
-  const specContent = specFetch.content;
 
   let coverage: AtCoverageResult;
   try {
     coverage = checkAcceptanceTestCoverage(specFetch.content, specFetch.kind, prBody);
   } catch {
-    return { ranCheck: false, specContent };
+    return { ranCheck: false };
   }
 
   if (!coverage.applicable || coverage.unaddressedAts.length === 0) {
-    return { ranCheck: true, specContent };
+    return { ranCheck: true };
   }
 
   const unaddressedList = coverage.unaddressedAts
@@ -932,7 +927,26 @@ export function runAtCoverageCalibration(
     `Merge is NOT blocked by this — it is a calibration signal only. Override: set ` +
     `${AT_COVERAGE_SKIP_ENV_VAR}=1 to skip this check.`;
 
-  return { ranCheck: true, warning, specContent };
+  return { ranCheck: true, warning };
+}
+
+/**
+ * Runs the full AT-coverage calibration surface for one merge attempt: fetch spec, parse
+ * ATs, classify, check coverage, log on a would-be-block, and return a WARN string (never
+ * a deny). Fully guarded — this function must never throw and must never, by itself,
+ * cause the hook process to exit non-zero or emit `permissionDecision: "deny"`.
+ */
+export function runAtCoverageCalibration(
+  task: string,
+  prNumber: number,
+  prBody: string,
+  cwd: string,
+  repoRootDir: string,
+  exec: ExecFn = execWithPath
+): AtCoverageCalibrationRunResult {
+  if (isAtCoverageSkipped()) return { ranCheck: false };
+  const specFetch = fetchTaskSpecForAtCoverage(task, cwd, exec);
+  return runAtCoverageCalibrationWithSpec(task, prNumber, prBody, specFetch, repoRootDir);
 }
 
 // ---------------------------------------------------------------------------
@@ -1015,35 +1029,41 @@ if (import.meta.main) {
   // Combine top-level warnings (e.g. fetchPrFiles warning) with check-level warnings
   const allWarnings = [...topLevelWarnings, ...result.warnings];
 
-  // mt#3033: additive, calibration-first AT-cross-reference check. Runs regardless of
-  // the file-pattern trigger's outcome above — it is a SEPARATE, log-only signal, never
-  // a deny, and never suppresses or alters `result.blocked` in any way.
-  const atCoverage = runAtCoverageCalibration(
+  // mt#3033 / mt#3350: TWO additive, calibration-first cross-reference checks, driven from ONE
+  // spec fetch. Both run regardless of the file-pattern trigger's outcome above — they are
+  // SEPARATE, log-only signals, never a deny, and neither suppresses or alters
+  // `result.blocked` in any way.
+  //
+  // The fetch is deliberately OUTSIDE both surfaces (PR #2432 R2). Reading the spec back out of
+  // the AT result coupled them: `MINSKY_SKIP_AT_COVERAGE=1` returned early with no spec, which
+  // silently disabled the success-criteria surface too, despite the two having separate
+  // documented overrides.
+  const repoRootDir = findRepoRoot(input.cwd);
+  const specFetch = fetchTaskSpecForAtCoverage(task, input.cwd);
+
+  const atCoverage = runAtCoverageCalibrationWithSpec(
     task,
     context.prNumber,
     prBody,
-    input.cwd,
-    findRepoRoot(input.cwd)
+    specFetch,
+    repoRootDir
   );
   if (atCoverage.warning) {
     allWarnings.push(atCoverage.warning);
   }
 
-  // mt#3350: the `## Success Criteria` sibling of the mt#3033 AT cross-reference. A THIRD
-  // independent, log-only surface — it never touches `result.blocked` and never denies. Reuses
-  // the spec markdown the AT run already fetched, so this adds no CLI call per merge.
-  if (atCoverage.specContent !== undefined) {
+  if (specFetch.ok && typeof specFetch.content === "string") {
     const scCoverage = runScCoverageCalibration(
       task,
       context.prNumber,
-      atCoverage.specContent,
+      specFetch.content,
       prBody,
       extractExecutionEvidenceText(prBody)
     );
     if (scCoverage.calibrationRecord) {
       appendCalibrationRecord(
         scCoverage.calibrationRecord,
-        findRepoRoot(input.cwd),
+        repoRootDir,
         SC_COVERAGE_CALIBRATION_LOG
       );
     }
