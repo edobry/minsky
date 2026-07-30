@@ -43,6 +43,8 @@ import type { ToolHookInput } from "./types";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
+import { computeFenceInternalLines, collectHeadingSections } from "./markdown-sections";
+import { runScCoverageCalibration, SC_COVERAGE_CALIBRATION_LOG } from "./success-criteria-coverage";
 import { classifyOverride } from "./fire-log";
 import {
   deriveRepoFromGit as deriveRepoFromGitImpl,
@@ -624,66 +626,6 @@ export function isExecutableAcceptanceTest(text: string, taskKind?: string): boo
  */
 const ACCEPTANCE_TESTS_HEADING_LINE_PATTERN = /^ {0,3}#{1,6}\s+.*\bacceptance tests?\b/i;
 
-/**
- * Matches a fenced-code-block delimiter line (opening or closing): backtick OR tilde
- * fence, 3+ markers, up to 3 leading spaces per CommonMark. Mirrors the fence-marker
- * regex in `elision.ts`'s `elideQuotedContexts` — see that constant's sibling doc
- * comment above for why this is a per-line predicate rather than a reuse of the
- * whole-string elision transform itself.
- */
-const FENCE_DELIMITER_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
-
-/**
- * Computes, for each line index in `lines`, whether that line sits INSIDE a fenced
- * code block — between an opening delimiter and its matching close. Delimiter lines
- * themselves are never marked fence-internal (irrelevant either way: a fence marker
- * never matches a heading pattern), only the lines BETWEEN them are. Single forward
- * pass over the whole document, O(n) — correct as long as fences are balanced, which a
- * well-formed PR body's Markdown always is.
- */
-function computeFenceInternalLines(lines: string[]): boolean[] {
-  const result: boolean[] = new Array(lines.length).fill(false);
-  let inFence = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line !== undefined && FENCE_DELIMITER_PATTERN.test(line)) {
-      inFence = !inFence;
-      continue;
-    }
-    result[i] = inFence;
-  }
-  return result;
-}
-
-/**
- * Collects the content of every section in `lines` whose heading line matches
- * `isHeadingLine`, from just after the heading up to (not including) the next Markdown
- * heading of any level, or end-of-string. Extracted so `extractExecutionEvidenceText`'s
- * two scan passes (Execution evidence + mt#3316's acceptance-tests widening) share one
- * boundary implementation. `fenceInternal[i]` (from `computeFenceInternalLines`) gates
- * BOTH the heading-candidacy check and the next-heading stop condition, so a
- * heading-like line inside a fence is neither treated as a new section start nor as the
- * boundary that ends collection.
- */
-function collectHeadingSections(
-  lines: string[],
-  fenceInternal: boolean[],
-  isHeadingLine: (line: string) => boolean
-): string[] {
-  const collected: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line === undefined || fenceInternal[i] || !isHeadingLine(line)) continue;
-    for (let j = i + 1; j < lines.length; j++) {
-      const nextLine = lines[j];
-      if (nextLine === undefined) break;
-      if (!fenceInternal[j] && /^ {0,3}#{1,6}\s/.test(nextLine)) break;
-      collected.push(nextLine);
-    }
-  }
-  return collected;
-}
-
 export function extractExecutionEvidenceText(prBody: string): string {
   const strippedBody = prBody.replace(/<!--[\s\S]*?-->/g, "");
   const headingPattern =
@@ -837,25 +779,40 @@ export function isAtCoverageSkipped(): boolean {
 }
 
 /**
- * Appends one AT-coverage calibration record. Fail-safe: never throws — a calibration-log
- * write failure must never affect the (log-only) merge decision.
+ * Appends one calibration record to `logRelPath` under `repoRootDir`. Fail-safe: never throws —
+ * a calibration-log write failure must never affect the (log-only) merge decision.
+ *
+ * The log path is REQUIRED, deliberately (PR #2432 R1). An earlier shape gave it a default of
+ * `AT_COVERAGE_CALIBRATION_LOG`, which meant any caller that forgot the argument silently wrote
+ * its records into the acceptance-test log — corrupting BOTH corpora at once, and in a way no
+ * test would notice because the write still succeeds. For a mechanism whose entire deliverable
+ * is a trustworthy measurement, that default is not a convenience worth its failure mode.
  */
-export function appendAtCoverageCalibration(
+export function appendCalibrationRecord(
   record: Record<string, unknown>,
-  repoRootDir: string
+  repoRootDir: string,
+  logRelPath: string
 ): void {
   try {
-    const logPath = resolve(repoRootDir, AT_COVERAGE_CALIBRATION_LOG);
+    const logPath = resolve(repoRootDir, logRelPath);
     const dir = dirname(logPath);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
   } catch (err) {
     process.stderr.write(
-      `[execution-evidence-at-coverage] Failed to write calibration log: ${
+      `[execution-evidence-calibration] Failed to write ${logRelPath}: ${
         err instanceof Error ? err.message : String(err)
       }\n`
     );
   }
+}
+
+/** Appends an acceptance-test calibration record. Thin wrapper naming its own log. */
+export function appendAtCoverageCalibration(
+  record: Record<string, unknown>,
+  repoRootDir: string
+): void {
+  appendCalibrationRecord(record, repoRootDir, AT_COVERAGE_CALIBRATION_LOG);
 }
 
 /** Result of fetching a task's spec for the AT-coverage check. */
@@ -909,22 +866,24 @@ export interface AtCoverageCalibrationRunResult {
 }
 
 /**
- * Runs the full AT-coverage calibration surface for one merge attempt: fetch spec, parse
- * ATs, classify, check coverage, log on a would-be-block, and return a WARN string (never
- * a deny). Fully guarded — this function must never throw and must never, by itself,
- * cause the hook process to exit non-zero or emit `permissionDecision: "deny"`.
+ * AT-coverage calibration against an ALREADY-FETCHED spec.
+ *
+ * Split out from {@link runAtCoverageCalibration} by PR #2432 R2. The entry point fetches the
+ * spec once and drives BOTH calibration surfaces from it, so the acceptance-test and
+ * success-criteria checks are genuinely independent: each honors only its own override. The
+ * previous shape had the entry point read the spec back out of this function's result, which
+ * silently coupled them — `MINSKY_SKIP_AT_COVERAGE=1` returned early with no spec, so it
+ * disabled the success-criteria surface too, contradicting the separate
+ * `MINSKY_SKIP_SC_COVERAGE` override those two are documented to have.
  */
-export function runAtCoverageCalibration(
+export function runAtCoverageCalibrationWithSpec(
   task: string,
   prNumber: number,
   prBody: string,
-  cwd: string,
-  repoRootDir: string,
-  exec: ExecFn = execWithPath
+  specFetch: TaskSpecFetchResult,
+  repoRootDir: string
 ): AtCoverageCalibrationRunResult {
   if (isAtCoverageSkipped()) return { ranCheck: false };
-
-  const specFetch = fetchTaskSpecForAtCoverage(task, cwd, exec);
   if (!specFetch.ok || typeof specFetch.content !== "string") return { ranCheck: false };
 
   let coverage: AtCoverageResult;
@@ -969,6 +928,25 @@ export function runAtCoverageCalibration(
     `${AT_COVERAGE_SKIP_ENV_VAR}=1 to skip this check.`;
 
   return { ranCheck: true, warning };
+}
+
+/**
+ * Runs the full AT-coverage calibration surface for one merge attempt: fetch spec, parse
+ * ATs, classify, check coverage, log on a would-be-block, and return a WARN string (never
+ * a deny). Fully guarded — this function must never throw and must never, by itself,
+ * cause the hook process to exit non-zero or emit `permissionDecision: "deny"`.
+ */
+export function runAtCoverageCalibration(
+  task: string,
+  prNumber: number,
+  prBody: string,
+  cwd: string,
+  repoRootDir: string,
+  exec: ExecFn = execWithPath
+): AtCoverageCalibrationRunResult {
+  if (isAtCoverageSkipped()) return { ranCheck: false };
+  const specFetch = fetchTaskSpecForAtCoverage(task, cwd, exec);
+  return runAtCoverageCalibrationWithSpec(task, prNumber, prBody, specFetch, repoRootDir);
 }
 
 // ---------------------------------------------------------------------------
@@ -1051,18 +1029,47 @@ if (import.meta.main) {
   // Combine top-level warnings (e.g. fetchPrFiles warning) with check-level warnings
   const allWarnings = [...topLevelWarnings, ...result.warnings];
 
-  // mt#3033: additive, calibration-first AT-cross-reference check. Runs regardless of
-  // the file-pattern trigger's outcome above — it is a SEPARATE, log-only signal, never
-  // a deny, and never suppresses or alters `result.blocked` in any way.
-  const atCoverage = runAtCoverageCalibration(
+  // mt#3033 / mt#3350: TWO additive, calibration-first cross-reference checks, driven from ONE
+  // spec fetch. Both run regardless of the file-pattern trigger's outcome above — they are
+  // SEPARATE, log-only signals, never a deny, and neither suppresses or alters
+  // `result.blocked` in any way.
+  //
+  // The fetch is deliberately OUTSIDE both surfaces (PR #2432 R2). Reading the spec back out of
+  // the AT result coupled them: `MINSKY_SKIP_AT_COVERAGE=1` returned early with no spec, which
+  // silently disabled the success-criteria surface too, despite the two having separate
+  // documented overrides.
+  const repoRootDir = findRepoRoot(input.cwd);
+  const specFetch = fetchTaskSpecForAtCoverage(task, input.cwd);
+
+  const atCoverage = runAtCoverageCalibrationWithSpec(
     task,
     context.prNumber,
     prBody,
-    input.cwd,
-    findRepoRoot(input.cwd)
+    specFetch,
+    repoRootDir
   );
   if (atCoverage.warning) {
     allWarnings.push(atCoverage.warning);
+  }
+
+  if (specFetch.ok && typeof specFetch.content === "string") {
+    const scCoverage = runScCoverageCalibration(
+      task,
+      context.prNumber,
+      specFetch.content,
+      prBody,
+      extractExecutionEvidenceText(prBody)
+    );
+    if (scCoverage.calibrationRecord) {
+      appendCalibrationRecord(
+        scCoverage.calibrationRecord,
+        repoRootDir,
+        SC_COVERAGE_CALIBRATION_LOG
+      );
+    }
+    if (scCoverage.warning) {
+      allWarnings.push(scCoverage.warning);
+    }
   }
   // mt#3084: MINSKY_SKIP_AT_COVERAGE is a documented escape hatch
   // (`isAtCoverageSkipped`, consulted inside `runAtCoverageCalibration`) —
