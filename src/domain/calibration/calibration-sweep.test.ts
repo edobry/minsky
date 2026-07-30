@@ -372,7 +372,95 @@ describe("parseCalibrationRecord", () => {
     const result = parseCalibrationRecord(line, "pre-narration");
     expect(result).not.toBeNull();
     if (!result || !("matches" in result)) throw new Error("wrong type");
-    expect(result.matches).toEqual([{ family: "merged", phrase: "PR #123 merged" }]);
+    // mt#3289: `expectedTool` / `hadMatchingTool` used to be DROPPED here. They
+    // now ride through as per-match `detectorFields` — this assertion previously
+    // pinned the dropping behaviour, and pinning it is what let the same class of
+    // loss go unnoticed for `untaken-action`'s `final_message_tail`.
+    expect(result.matches).toEqual([
+      {
+        family: "merged",
+        phrase: "PR #123 merged",
+        detectorFields: { expectedTool: "session_pr_merge", hadMatchingTool: false },
+      },
+    ]);
+  });
+
+  test("preserves untaken-action's final_message_tail as detectorFields (mt#3289)", () => {
+    // The regression this task exists for: every untaken-action record has
+    // carried `final_message_tail` since the first one, and the shared fallback
+    // branch dropped it — so two consecutive calibration reviews reported the
+    // fires unclassifiable while the evidence sat on disk.
+    const tail = "Say the word and I'll take mt#3108 next.";
+    const line = JSON.stringify({
+      source: "live",
+      channel: "stop",
+      timestamp: "2026-07-26T19:33:00Z",
+      session_id: "ab777a65",
+      stop_hook_active: false,
+      matches: [{ family: "taking-forward", phrase: "Say the word" }],
+      final_message_tail: tail,
+      suppressedByAskRoutingDeferral: false,
+    });
+
+    const result = parseCalibrationRecord(line, "untaken-action");
+    expect(result).not.toBeNull();
+    if (!result) throw new Error("wrong type");
+    expect(result.detectorFields).toEqual({
+      source: "live",
+      channel: "stop",
+      stop_hook_active: false,
+      final_message_tail: tail,
+      suppressedByAskRoutingDeferral: false,
+    });
+  });
+
+  test("omits detectorFields entirely when the record has no unconsumed keys (mt#3289)", () => {
+    // Back-compat: a record whose every key the per-kind branch already names
+    // must parse exactly as it did before the passthrough was added.
+    const line = makeRetroRecord([{ family: "R1", phrase: "I should have caught this" }]);
+    const result = parseCalibrationRecord(line, RETRO_KIND);
+    expect(result).not.toBeNull();
+    if (!result) throw new Error("wrong type");
+    expect(result.detectorFields).toBeUndefined();
+  });
+
+  test("does not duplicate suppressionReasons into detectorFields (mt#3289)", () => {
+    // mt#3197 gives suppressionReasons its own typed field; reporting it in both
+    // places would double-render it in every review.
+    const line = JSON.stringify({
+      timestamp: "2026-07-01T00:00:00Z",
+      session_id: "test-session",
+      matches: [{ family: "R1", phrase: "p" }],
+      suppressionReasons: ["same-turn-read"],
+    });
+    const result = parseCalibrationRecord(line, RETRO_KIND);
+    expect(result).not.toBeNull();
+    if (!result) throw new Error("wrong type");
+    expect(result.suppressionReasons).toEqual(["same-turn-read"]);
+    expect(result.detectorFields).toBeUndefined();
+  });
+
+  test("reads causal-premise transcript_excerpt into the typed field (PR #2420 R1)", () => {
+    // The field is declared on CausalPremiseRecord, so the parser must populate
+    // it directly. Leaving it to the detectorFields passthrough would nest it one
+    // level down, where every consumer keying on `transcript_excerpt` misses it —
+    // and would contradict the retrospective-trigger branch, which reads its own
+    // copy explicitly.
+    const excerpt = "and formed a theory. The root cause is the encoding step. Not confirmed.";
+    const line = JSON.stringify({
+      timestamp: "2026-07-30T00:00:00Z",
+      session_id: "test-session",
+      matchedPhrases: ["The root cause is"],
+      hadSameTurnVerification: false,
+      transcript_excerpt: excerpt,
+    });
+    const result = parseCalibrationRecord(line, "causal-premise");
+    expect(result).not.toBeNull();
+    // Narrow on `hadSameTurnVerification`, not `matchedPhrases` — the latter is
+    // shared with BuildClaimInjectionRecord, which has no transcript_excerpt.
+    if (!result || !("hadSameTurnVerification" in result)) throw new Error("wrong type");
+    expect(result.transcript_excerpt).toBe(excerpt);
+    expect(result.detectorFields).toBeUndefined();
   });
 
   test("parses a code-mechanism-assertion record (mt#2486, registered mt#2619)", () => {
@@ -1652,7 +1740,6 @@ describe("readAllCalibrationLogsAsFireLogEntries", () => {
 // ---------------------------------------------------------------------------
 // computeReviewDueLogs — the three-condition review-due matrix (mt#2896)
 // ---------------------------------------------------------------------------
-
 // ---------------------------------------------------------------------------
 // computeLogResult — firstRecordTimestamp population (mt#2896)
 // ---------------------------------------------------------------------------

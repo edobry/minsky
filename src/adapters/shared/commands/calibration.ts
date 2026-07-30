@@ -38,6 +38,7 @@ import {
   selectAckablePaths,
   UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
   type CalibrationLogResult,
+  type CalibrationRecord,
   type ReviewDueLog,
   type WatermarkStore,
 } from "../../../domain/calibration/calibration-sweep";
@@ -47,6 +48,78 @@ import {
 // ---------------------------------------------------------------------------
 
 const WATERMARK_STORE_PATH = ".minsky/calibration-review-watermarks.json";
+
+// ---------------------------------------------------------------------------
+// Per-record context rendering (mt#3289)
+// ---------------------------------------------------------------------------
+
+/** Indent for context lines nested under a record's summary line. */
+const RECORD_CONTEXT_INDENT = "      ";
+
+/** Longest detector-specific string rendered under a record. */
+const CONTEXT_PREVIEW_CHARS = 300;
+
+/**
+ * Values at or below this length ride on one shared line instead of their own.
+ */
+const CONTEXT_INLINE_CHARS = 60;
+
+function previewText(value: string): string {
+  return value.length <= CONTEXT_PREVIEW_CHARS
+    ? value
+    : `${value.slice(0, CONTEXT_PREVIEW_CHARS)}...`;
+}
+
+/**
+ * Render detector-specific fields the shared fallback branch used to drop.
+ *
+ * The long-string case is the reason this exists: `untaken-action`'s
+ * `final_message_tail` is the only field that makes its fires classifiable, and
+ * it sat on disk in every record since the first while two consecutive
+ * calibration reviews reported "unclassifiable" — because nothing downstream
+ * printed it. Short scalars ride along on one line since they are the
+ * suppression/channel context needed to read the excerpt correctly.
+ */
+function formatDetectorFields(fields: Record<string, unknown>, indent: string): string[] {
+  const lines: string[] = [];
+  const inline: string[] = [];
+  for (const [key, value] of Object.entries(fields)) {
+    if (typeof value === "string" && value.length > CONTEXT_INLINE_CHARS) {
+      lines.push(`${indent}${key}: ${JSON.stringify(previewText(value))}`);
+    } else {
+      inline.push(`${key}=${JSON.stringify(value)}`);
+    }
+  }
+  if (inline.length > 0) lines.unshift(`${indent}${inline.join(" ")}`);
+  return lines;
+}
+
+/**
+ * Context lines rendered beneath a record's summary line (mt#3289).
+ *
+ * The acceptance bar is that a reviewer can compute an FP rate for a fresh
+ * batch without opening transcripts or detector source. That needs the
+ * surrounding text PRINTED, not merely parsed.
+ */
+function buildRecordContextLines(rec: CalibrationRecord): string[] {
+  const lines: string[] = [];
+  if ("transcript_excerpt" in rec && rec.transcript_excerpt) {
+    lines.push(
+      `${RECORD_CONTEXT_INDENT}excerpt: ${JSON.stringify(previewText(rec.transcript_excerpt))}`
+    );
+  }
+  if (rec.detectorFields) {
+    lines.push(...formatDetectorFields(rec.detectorFields, RECORD_CONTEXT_INDENT));
+  }
+  if ("matches" in rec) {
+    for (const m of rec.matches) {
+      if (m.detectorFields) {
+        lines.push(...formatDetectorFields(m.detectorFields, `${RECORD_CONTEXT_INDENT}  `));
+      }
+    }
+  }
+  return lines;
+}
 
 // ---------------------------------------------------------------------------
 // Filesystem helpers (isolated here so the pure logic stays testable)
@@ -167,6 +240,7 @@ function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]
               .join(", ")}`
           );
         }
+        lines.push(...buildRecordContextLines(rec));
       }
       if (r.newRecords.length > 5) {
         lines.push(`    ... and ${r.newRecords.length - 5} more`);
