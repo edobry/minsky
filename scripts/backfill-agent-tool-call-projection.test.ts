@@ -16,7 +16,11 @@
 
 import { describe, it, expect, mock } from "bun:test";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { countPendingProjectionRows } from "./backfill-agent-tool-call-projection";
+import { computeArgFingerprint } from "@minsky/domain/transcripts/tool-call-projection-fields";
+import {
+  countPendingProjectionRows,
+  runSampleReconciliation,
+} from "./backfill-agent-tool-call-projection";
 
 function makeFakeDb(responses: Array<Array<Record<string, unknown>>>) {
   let call = 0;
@@ -68,5 +72,134 @@ describe("countPendingProjectionRows (mt#3360)", () => {
 
     expect(result.pendingRows).toBe(0);
     expect(result.skippedNonArray).toBe(1948);
+  });
+});
+
+/**
+ * Recursively render the LITERAL text of a drizzle `SQL` template object —
+ * i.e. join every `StringChunk` segment, skipping interpolated params
+ * entirely — to assert on the query's structural SHAPE without needing a
+ * real Postgres connection. Verified empirically (see this file's
+ * `describe("runSampleReconciliation's sample-selection query shape ...")`
+ * below) against the exact `sql\`...${n}\`` shape this script builds.
+ */
+function renderLiteralSql(chunk: unknown, depth = 0): string {
+  if (depth > 25 || chunk === null || chunk === undefined || typeof chunk !== "object") return "";
+  const c = chunk as Record<string, unknown>;
+  if (Array.isArray(c.queryChunks)) {
+    return (c.queryChunks as unknown[]).map((sub) => renderLiteralSql(sub, depth + 1)).join("");
+  }
+  if (Array.isArray(c.value) && (c.value as unknown[]).every((v) => typeof v === "string")) {
+    return (c.value as string[]).join("");
+  }
+  return ""; // interpolated param (e.g. sampleSize) — opaque, not literal text
+}
+
+describe("runSampleReconciliation (mt#3395)", () => {
+  it(
+    "regression: the sample-selection query wraps SELECT DISTINCT in a subquery so " +
+      "ORDER BY random() applies OUTSIDE it (was invalid Postgres: " +
+      '"for SELECT DISTINCT, ORDER BY expressions must appear in select list")',
+    async () => {
+      const { db, calls } = makeFakeDb([[]]); // empty sample -> exactly one query issued
+
+      await runSampleReconciliation(db, 5);
+
+      expect(calls.length).toBe(1);
+      const literalSql = renderLiteralSql(calls[0]);
+
+      // Outer SELECT (the one ORDER BY random() attaches to) does NOT carry
+      // DISTINCT — it selects from a subquery aliased `s`.
+      expect(literalSql).toMatch(/SELECT\s+agent_session_id\s*\n\s*FROM\s*\(/i);
+      // The DISTINCT lives only in the INNER subquery.
+      expect(literalSql).toMatch(/SELECT DISTINCT agent_session_id/i);
+      // ORDER BY random() is applied to the subquery's result (aliased `s`),
+      // i.e. OUTSIDE the DISTINCT — the shape that sidesteps the Postgres
+      // restriction.
+      expect(literalSql).toMatch(/\)\s*s\s*\n\s*ORDER BY random\(\)/i);
+    }
+  );
+
+  it("reports a match when the stored projection rows agree with an independent re-derivation from tool_calls", async () => {
+    const sessionId = "match-session";
+    const input = { path: "/foo" };
+    const fingerprint = computeArgFingerprint(input);
+
+    const { db } = makeFakeDb([
+      [{ agent_session_id: sessionId }], // sample-selection query
+      [{ turn_index: 0, tool_calls: [{ type: "tool_use", name: "Bash", input }] }], // turnRows
+      [
+        {
+          turn_index: 0,
+          ordinal: 0,
+          tool_name: "Bash",
+          server: null,
+          arg_fingerprint: fingerprint,
+        },
+      ], // actualRows
+    ]);
+
+    const result = await runSampleReconciliation(db, 1);
+
+    expect(result.sessionsSampled).toBe(1);
+    expect(result.sessionsMatched).toBe(1);
+    expect(result.sessionsMismatched).toBe(0);
+    expect(result.mismatchDetails).toEqual([]);
+  });
+
+  it("reports a simulated mismatch (row-count divergence) with the session id and a diagnostic detail", async () => {
+    const sessionId = "mismatch-session";
+
+    const { db } = makeFakeDb([
+      [{ agent_session_id: sessionId }], // sample-selection query
+      [{ turn_index: 0, tool_calls: [{ type: "tool_use", name: "Bash", input: {} }] }], // turnRows: 1 expected block
+      [], // actualRows: simulated missing row -> row-count mismatch
+    ]);
+
+    const result = await runSampleReconciliation(db, 1);
+
+    expect(result.sessionsSampled).toBe(1);
+    expect(result.sessionsMatched).toBe(0);
+    expect(result.sessionsMismatched).toBe(1);
+    expect(result.mismatchDetails).toHaveLength(1);
+    expect(result.mismatchDetails[0]).toContain(sessionId);
+    expect(result.mismatchDetails[0]).toContain("row count mismatch");
+  });
+
+  it("reports a simulated mismatch (field divergence) when a stored row's fingerprint disagrees with the re-derivation", async () => {
+    const sessionId = "fingerprint-mismatch-session";
+
+    const { db } = makeFakeDb([
+      [{ agent_session_id: sessionId }],
+      [{ turn_index: 0, tool_calls: [{ type: "tool_use", name: "Bash", input: { a: 1 } }] }],
+      [
+        {
+          turn_index: 0,
+          ordinal: 0,
+          tool_name: "Bash",
+          server: null,
+          arg_fingerprint: "deadbeefdeadbeef", // deliberately wrong
+        },
+      ],
+    ]);
+
+    const result = await runSampleReconciliation(db, 1);
+
+    expect(result.sessionsMismatched).toBe(1);
+    expect(result.mismatchDetails[0]).toContain("divergence at index 0");
+  });
+
+  it("sampleSize=0 short-circuits without issuing any query", async () => {
+    const { db, calls } = makeFakeDb([]);
+
+    const result = await runSampleReconciliation(db, 0);
+
+    expect(calls.length).toBe(0);
+    expect(result).toEqual({
+      sessionsSampled: 0,
+      sessionsMatched: 0,
+      sessionsMismatched: 0,
+      mismatchDetails: [],
+    });
   });
 });

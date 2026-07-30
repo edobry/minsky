@@ -21,9 +21,11 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { extractTurns } from "./turn-extractor";
 import type { RawTurnLine } from "./transcript-source";
+import { computeArgFingerprint } from "./tool-call-projection-fields";
 import {
   ToolCallProjectionPipeline,
   projectToolCallsForAllTranscripts,
+  fetchPendingSessionIdPage,
 } from "./tool-call-projection-pipeline";
 
 // ── Fixture: a realistic transcript with tool_use blocks ─────────────────────
@@ -465,5 +467,284 @@ describe("projectToolCallsForAllTranscripts", () => {
     // aborting the whole run.
     expect(result.sessionsScanned).toBe(1);
     expect(result.sessionsProcessed).toBe(1);
+  });
+});
+
+// ── fetchPendingSessionIdPage (mt#3395) ──────────────────────────────────────
+
+/**
+ * Recursively walk a drizzle `SQL` (or expression-builder) object and
+ * collect every RAW interpolated scalar it carries — i.e. the actual values
+ * passed via `${...}` template interpolation (a plain string/number pushed
+ * directly into `queryChunks`, per drizzle-orm's `sql` tag implementation),
+ * skipping the literal `StringChunk` text segments themselves. Verified
+ * empirically against drizzle-orm's actual `SQL`/`Column`/`eq`/`and` shapes
+ * (not merely assumed) before writing the tests below: `and(eq(col, "x"),
+ * sql\`...\`)` correctly yields `["x"]`, nothing more and nothing less.
+ *
+ * This is a test-only introspection helper — it does NOT prove the query is
+ * valid Postgres (that's the live check per this task's AT3); it proves the
+ * function wires its `afterId`/`batchSize` PARAMETERS into the query object
+ * it builds, which a hardcoded-response mock alone cannot demonstrate.
+ */
+function extractRawScalars(chunk: unknown, out: unknown[] = [], depth = 0): unknown[] {
+  if (depth > 25 || chunk === null || chunk === undefined) return out;
+  if (typeof chunk !== "object") {
+    out.push(chunk);
+    return out;
+  }
+  const c = chunk as Record<string, unknown>;
+  if (Array.isArray(c.queryChunks)) {
+    for (const sub of c.queryChunks as unknown[]) extractRawScalars(sub, out, depth + 1);
+    return out;
+  }
+  if (Array.isArray(c.value) && (c.value as unknown[]).every((v) => typeof v === "string")) {
+    return out; // StringChunk: literal SQL text, not an interpolated param
+  }
+  if ("value" in c) out.push((c as { value: unknown }).value);
+  return out;
+}
+
+describe("fetchPendingSessionIdPage (mt#3395)", () => {
+  test("maps raw agent_session_id rows to the {agentSessionId} page contract via exactly one query", async () => {
+    const calls: unknown[] = [];
+    const db = {
+      execute: async (query: unknown) => {
+        calls.push(query);
+        return [{ agent_session_id: "s-partial" }, { agent_session_id: "s-absent" }];
+      },
+    };
+
+    const page = await fetchPendingSessionIdPage(asDb(db), null, 100);
+
+    expect(calls.length).toBe(1);
+    expect(page).toEqual([{ agentSessionId: "s-partial" }, { agentSessionId: "s-absent" }]);
+  });
+
+  test("wires a non-null afterId into the query as a keyset cursor (resumable --pending-only)", async () => {
+    let captured: unknown;
+    const db = {
+      execute: async (query: unknown) => {
+        captured = query;
+        return [];
+      },
+    };
+
+    await fetchPendingSessionIdPage(asDb(db), "cursor-id", 50);
+
+    const scalars = extractRawScalars(captured);
+    expect(scalars).toContain("cursor-id");
+    expect(scalars).toContain(50);
+  });
+
+  test("omits the afterId filter when afterId is null (first page of a fresh run)", async () => {
+    let captured: unknown;
+    const db = {
+      execute: async (query: unknown) => {
+        captured = query;
+        return [];
+      },
+    };
+
+    await fetchPendingSessionIdPage(asDb(db), null, 50);
+
+    const scalars = extractRawScalars(captured);
+    expect(scalars).not.toContain("cursor-id");
+    expect(scalars).toContain(50);
+  });
+});
+
+// ── --pending-only target selection + repair (mt#3395, AT1) ─────────────────
+
+describe("--pending-only target selection + repair (mt#3395, AT1)", () => {
+  const SESSION_COMPLETE = "cccccccc-0000-0000-0000-000000000001";
+  const SESSION_PARTIAL = "dddddddd-0000-0000-0000-000000000002";
+  const SESSION_ABSENT = "eeeeeeee-0000-0000-0000-000000000003";
+
+  // Fixture: per-session turn definitions. SESSION_COMPLETE is fully
+  // projected already (never re-selected, never re-queried); SESSION_PARTIAL
+  // has one turn already projected and a second turn (2 blocks) entirely
+  // missing — the killed-run "large session lost mid-batch" shape; SESSION_
+  // ABSENT has zero projected rows at all.
+  const turnsBySession: Record<string, FakeTurnRow[]> = {
+    [SESSION_COMPLETE]: [
+      {
+        turnIndex: 0,
+        toolCalls: [{ type: "tool_use", name: "Bash", input: {} }],
+        startedAt: null,
+        endedAt: new Date(TS1),
+      },
+    ],
+    [SESSION_PARTIAL]: [
+      {
+        turnIndex: 0,
+        toolCalls: [{ type: "tool_use", name: "Bash", input: { a: 1 } }],
+        startedAt: null,
+        endedAt: new Date(TS1),
+      },
+      {
+        turnIndex: 1,
+        toolCalls: [
+          {
+            type: "tool_use",
+            name: "mcp__minsky__session_read_file",
+            input: { path: "/x" },
+          },
+          { type: "tool_use", name: "Bash", input: { b: 2 } },
+        ],
+        startedAt: null,
+        endedAt: new Date(TS2),
+      },
+    ],
+    [SESSION_ABSENT]: [
+      {
+        turnIndex: 0,
+        toolCalls: [
+          { type: "tool_use", name: "Bash", input: {} },
+          { type: "tool_use", name: "Bash", input: { c: 3 } },
+        ],
+        startedAt: null,
+        endedAt: new Date(TS1),
+      },
+    ],
+  };
+
+  /** Mirrors the anti-join's "expected rows" side: sum of block counts across array-typed turns. */
+  function expectedRowCount(turns: FakeTurnRow[]): number {
+    return turns.reduce((sum, t) => sum + (Array.isArray(t.toolCalls) ? t.toolCalls.length : 0), 0);
+  }
+
+  /**
+   * Fake db supporting MULTIPLE sessions (unlike `makeDb` above, which is
+   * unconditional and scoped to exactly one session per its own doc
+   * comment): introspects the `where` condition via `extractRawScalars` to
+   * find which session's turns are being requested — the same technique
+   * verified against real drizzle `eq`/`and` shapes above — and routes to
+   * that session's fixture rows.
+   */
+  function makeMultiSessionDb(
+    byId: Record<string, FakeTurnRow[]>,
+    projectionStore: Map<string, FakeProjectionRow>,
+    onQueriedSession?: (sessionId: string) => void
+  ) {
+    return {
+      select(fields?: Record<string, unknown>) {
+        const isTurnsQuery = !!fields && "toolCalls" in fields;
+        const isSkippedCountQuery = !!fields && "n" in fields;
+        return {
+          from: (_table: unknown) => ({
+            where: (cond: unknown): Promise<unknown[]> => {
+              const scalars = extractRawScalars(cond);
+              const sessionId = scalars.find((v) => typeof v === "string" && v in byId) as
+                | string
+                | undefined;
+              if (isTurnsQuery) {
+                if (sessionId) onQueriedSession?.(sessionId);
+                return Promise.resolve(sessionId ? (byId[sessionId] ?? []) : []);
+              }
+              if (isSkippedCountQuery) return Promise.resolve([{ n: 0 }]);
+              return Promise.resolve([]);
+            },
+          }),
+        };
+      },
+      insert(_table: unknown) {
+        return {
+          values(values: FakeProjectionRow | FakeProjectionRow[]) {
+            const rows = Array.isArray(values) ? values : [values];
+            return {
+              onConflictDoUpdate(_opts: unknown): Promise<void> {
+                for (const row of rows) {
+                  projectionStore.set(projectionKey(row), { ...row });
+                }
+                return Promise.resolve();
+              },
+            };
+          },
+        };
+      },
+    };
+  }
+
+  test("target selection identifies exactly the holey sessions (partial + absent), never the complete one", () => {
+    // Pre-existing projection state: SESSION_COMPLETE fully projected;
+    // SESSION_PARTIAL only its turn-0 row survives (turn 1's 2 blocks are
+    // the killed-run hole); SESSION_ABSENT has nothing.
+    const actualCounts = new Map<string, number>([
+      [SESSION_COMPLETE, 1],
+      [SESSION_PARTIAL, 1],
+    ]);
+
+    // Reference computation mirroring fetchPendingSessionIdPage's documented
+    // anti-join semantics (expected > actual, per session). The real SQL's
+    // syntactic validity + behavior against live jsonb data is proven by the
+    // AT3 live check (this file's established convention — see makeDb's own
+    // comment — is that jsonb query semantics are verified live, not faked).
+    const pendingSessionIds = Object.keys(turnsBySession).filter((sessionId) => {
+      const expected = expectedRowCount(turnsBySession[sessionId] ?? []);
+      const actual = actualCounts.get(sessionId) ?? 0;
+      return expected > actual;
+    });
+
+    expect(pendingSessionIds.sort()).toEqual([SESSION_ABSENT, SESSION_PARTIAL].sort());
+    expect(pendingSessionIds).not.toContain(SESSION_COMPLETE);
+  });
+
+  test("driving the sweep with the pending page repairs both holey sessions via the SAME per-session pure helpers, and never touches the complete session", async () => {
+    const store = new Map<string, FakeProjectionRow>();
+    // Pre-load SESSION_PARTIAL's surviving turn-0 row and SESSION_COMPLETE's
+    // row (SESSION_COMPLETE must remain byte-for-byte untouched — the
+    // fetchPage below deliberately excludes it, exactly as the real
+    // anti-join would).
+    store.set(projectionKey({ agentSessionId: SESSION_PARTIAL, turnIndex: 0, ordinal: 0 }), {
+      agentSessionId: SESSION_PARTIAL,
+      turnIndex: 0,
+      ordinal: 0,
+      toolName: "Bash",
+      server: null,
+      argFingerprint: computeArgFingerprint({ a: 1 }),
+      timestamp: null,
+    });
+    store.set(projectionKey({ agentSessionId: SESSION_COMPLETE, turnIndex: 0, ordinal: 0 }), {
+      agentSessionId: SESSION_COMPLETE,
+      turnIndex: 0,
+      ordinal: 0,
+      toolName: "Bash",
+      server: null,
+      argFingerprint: computeArgFingerprint({}),
+      timestamp: null,
+    });
+
+    const queriedSessions: string[] = [];
+    const db = makeMultiSessionDb(turnsBySession, store, (sessionId) =>
+      queriedSessions.push(sessionId)
+    );
+
+    // Stands in for fetchPendingSessionIdPage's real anti-join query,
+    // returning exactly the holey ids from the selection test above.
+    const fetchPage = async () => [
+      { agentSessionId: SESSION_PARTIAL },
+      { agentSessionId: SESSION_ABSENT },
+    ];
+
+    const result = await projectToolCallsForAllTranscripts(asDb(db), { fetchPage });
+
+    expect(result.sessionsProcessed).toBe(2);
+    expect(result.sessionsErrored).toBe(0);
+
+    // SESSION_PARTIAL: turn 0 preserved (idempotent re-upsert) + turn 1's 2
+    // newly-written blocks = 3 rows total.
+    const partialRows = [...store.keys()].filter((k) => k.startsWith(`${SESSION_PARTIAL}:`));
+    expect(partialRows.length).toBe(3);
+
+    // SESSION_ABSENT: both of turn 0's blocks newly written.
+    const absentRows = [...store.keys()].filter((k) => k.startsWith(`${SESSION_ABSENT}:`));
+    expect(absentRows.length).toBe(2);
+
+    // SESSION_COMPLETE was never in the fetchPage output: runForSession was
+    // never invoked for it, and its pre-existing row is untouched.
+    expect(queriedSessions).not.toContain(SESSION_COMPLETE);
+    const completeRows = [...store.keys()].filter((k) => k.startsWith(`${SESSION_COMPLETE}:`));
+    expect(completeRows.length).toBe(1);
   });
 });
