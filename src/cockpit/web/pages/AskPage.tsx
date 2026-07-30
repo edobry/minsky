@@ -50,6 +50,7 @@ import { ErrorState } from "../components/ErrorState";
 import { CopyId } from "../components/CopyId";
 import { useState } from "react";
 import { useTabs } from "../lib/tabs";
+import { EntityThreadPanel } from "../widgets/EntityThreadPanel";
 
 /** Human phrasing for a terminal state. Terminal-vs-open classification itself
  * comes from the domain state machine's `isTerminal` (the single source of
@@ -191,6 +192,11 @@ export function AskPage() {
       ) : (
         <LoadingState message="Loading ask…" />
       )}
+
+      {/* mt#3365 — the discussion thread renders for BOTH open and terminal
+          asks: "what was this asking me?" is a question the principal is at
+          least as likely to have about one already closed. */}
+      {ask ? <EntityThreadPanel entityType="ask" entityId={ask.id} className="mt-6" /> : null}
     </div>
   );
 }
