@@ -200,9 +200,15 @@ const COMPONENTS: Components = {
    * Deliberately NOT the Radix `Checkbox` primitive (`ui/checkbox.tsx`): these
    * are always `disabled` and purely presentational — markdown task state is
    * not editable from this surface, so mounting a real interactive control
-   * would advertise an affordance that does not exist. A span carrying
-   * `role="checkbox"` + `aria-checked` + `aria-disabled` keeps the semantics
-   * for assistive tech without the affordance.
+   * would advertise an affordance that does not exist.
+   *
+   * Exposed as `role="img"` with an explicit `aria-label`, NOT as
+   * `role="checkbox"` (PR #2417 R1). A checkbox role needs an accessible name,
+   * and this element has no text content and no label to point at — a nameless
+   * widget role announces "checkbox, checked" with no indication of what. It is
+   * also unfocusable and unoperable, so the widget role promised something it
+   * could never satisfy. `role="img"` + a label that states the state outright
+   * is both nameable and honest about what this is: a state icon.
    *
    * Overriding `input` is react-markdown's documented customization path
    * (the `components` prop keyed by tag name), the same escape hatch the 18
@@ -215,9 +221,8 @@ const COMPONENTS: Components = {
     if (type !== "checkbox") return null;
     return (
       <span
-        role="checkbox"
-        aria-checked={checked === true}
-        aria-disabled="true"
+        role="img"
+        aria-label={checked ? "Completed" : "Not completed"}
         className={cn(
           "mr-1.5 inline-flex h-3 w-3 shrink-0 translate-y-[1px] items-center justify-center rounded-sm border align-text-top",
           checked

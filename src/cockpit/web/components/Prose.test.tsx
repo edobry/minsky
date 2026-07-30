@@ -224,18 +224,24 @@ describe("Prose — GFM task-list checkboxes (mt#3348)", () => {
     expect(container.querySelectorAll("input").length).toBe(0);
   });
 
-  test("checked and unchecked stay distinguishable, and both are non-interactive", () => {
+  test("checked and unchecked stay distinguishable, and each carries a name", () => {
     const { container } = renderProse(<Prose>{TASK_LIST}</Prose>);
-    const boxes = [...container.querySelectorAll('[role="checkbox"]')];
+    const boxes = [...container.querySelectorAll('[role="img"]')];
     expect(boxes.length).toBe(2);
-    expect(boxes.map((b) => b.getAttribute("aria-checked"))).toEqual(["false", "true"]);
-    // Markdown task state is not editable from this surface.
-    expect(boxes.every((b) => b.getAttribute("aria-disabled") === "true")).toBe(true);
+    // The name states the state outright, in document order.
+    expect(boxes.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Not completed",
+      "Completed",
+    ]);
+    // Regression guard for PR #2417 R1: a widget role with no accessible name
+    // announces "checkbox, checked" with no indication of what. There must be
+    // no nameless checkbox role left.
+    expect(container.querySelectorAll('[role="checkbox"]').length).toBe(0);
   });
 
   test("an ordinary bullet list renders no checkbox indicator (negative control)", () => {
     const { container } = renderProse(<Prose>{"- plain item\n- another item"}</Prose>);
-    expect(container.querySelectorAll('[role="checkbox"]').length).toBe(0);
+    expect(container.querySelectorAll('[role="img"]').length).toBe(0);
     expect(container.querySelectorAll("input").length).toBe(0);
   });
 });
