@@ -117,6 +117,22 @@ export interface FireLogEntry {
   overrideGrantAsk?: string;
   /** Tool context — the tool this guard was invoked for (PreToolUse/PostToolUse only). */
   toolName?: string;
+  /**
+   * mt#3381 — whether the PreToolUse payload carried `agent_type`, and its value.
+   *
+   * Recorded to settle an empirical question no in-repo code has ever answered:
+   * the vendor documents `agent_type` on subagent hook calls, but nothing here
+   * has observed it (see `ClaudeHookInput.agent_type`). A guard that wants to
+   * check "does the caller actually hold the tool I'm redirecting it to?" needs
+   * this field; whether it can be built at all depends on the answer.
+   *
+   * `agentTypeObserved` distinguishes the three states a single optional string
+   * cannot: fired in a subagent WITH the field, fired in a subagent WITHOUT it
+   * (the field is missing → the check is unbuildable), or fired on the main
+   * thread (where its absence is expected and says nothing).
+   */
+  agentType?: string;
+  agentTypeObserved?: "present" | "absent-in-subagent" | "not-a-subagent";
   sessionId?: string;
   /**
    * mt#3355 — see {@link TaskResolutionSource}. Present on `session_pr_merge` gates that
@@ -211,6 +227,10 @@ export interface RecordFireLogInput {
   /** mt#2989 — see {@link FireLogEntry.overrideGrantAsk}. */
   overrideGrantAsk?: string;
   toolName?: string;
+  /** mt#3381 — see {@link FireLogEntry.agentType}. */
+  agentType?: string;
+  /** mt#3381 — see {@link FireLogEntry.agentTypeObserved}. */
+  agentTypeObserved?: "present" | "absent-in-subagent" | "not-a-subagent";
   sessionId?: string;
   /** mt#3355 — see {@link FireLogEntry.taskResolutionSource}. */
   taskResolutionSource?: TaskResolutionSource;
@@ -246,6 +266,10 @@ export function recordFireLogEntry(
       ...(input.overrideSource !== undefined ? { overrideSource: input.overrideSource } : {}),
       ...(input.overrideGrantAsk !== undefined ? { overrideGrantAsk: input.overrideGrantAsk } : {}),
       ...(input.toolName ? { toolName: input.toolName } : {}),
+      ...(input.agentType ? { agentType: input.agentType } : {}),
+      ...(input.agentTypeObserved !== undefined
+        ? { agentTypeObserved: input.agentTypeObserved }
+        : {}),
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       ...(input.taskResolutionSource !== undefined
         ? { taskResolutionSource: input.taskResolutionSource }

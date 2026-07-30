@@ -17,6 +17,7 @@
  * @see ../hooks/useDrivenSession.ts — the single WS connection this page owns
  * @see ../widgets/ConversationView.tsx — the `drivenSessionId`/`drivenBlocks` variant
  */
+import { useEffect, useRef } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { ConversationView } from "../widgets/ConversationView";
 import { useDrivenSession } from "../hooks/useDrivenSession";
@@ -26,11 +27,26 @@ import { ErrorState } from "../components/ErrorState";
 
 export function DrivenSessionPage() {
   const { id } = useParams<{ id: string }>();
-  // ?compose= pre-fills the composer (mt#2986 plan action) — seed only, never auto-sent.
+  // ?compose= carries the command the launch action primed (mt#2986's plan
+  // button). It is SENT, not seeded (mt#3375): the operator already chose the
+  // action by clicking "Plan in session", so a second click to confirm adds a
+  // step and no information.
   const [searchParams] = useSearchParams();
   const composePrefill = searchParams.get("compose") ?? undefined;
   // Hooks must run unconditionally — the hook itself no-ops on a falsy id.
   const driven = useDrivenSession(id);
+
+  // Exactly once per mount. `sendText` buffers until the channel opens, so
+  // this does not need to wait for a connection — which is the whole reason
+  // the old seed-only behavior existed (the navigate fires before the child's
+  // first frame, and the pre-mt#3375 send would have been dropped).
+  const autoSentRef = useRef(false);
+  const { sendText } = driven;
+  useEffect(() => {
+    if (autoSentRef.current || !id || !composePrefill) return;
+    autoSentRef.current = true;
+    sendText(composePrefill);
+  }, [id, composePrefill, sendText]);
 
   if (!id) {
     return (
@@ -80,7 +96,6 @@ export function DrivenSessionPage() {
         interactionState={driven.interactionState}
         onSend={driven.sendText}
         onStop={driven.stop}
-        initialText={composePrefill}
       />
     </div>
   );

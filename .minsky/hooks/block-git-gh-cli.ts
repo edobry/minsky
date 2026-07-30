@@ -54,6 +54,29 @@ export function toolContextFromName(toolName: string): HookTool {
   return toolName === SESSION_EXEC_TOOL_NAME ? "session_exec" : "bash";
 }
 
+/**
+ * Classify what this fire observed about `agent_type` (mt#3381).
+ *
+ * This guard denies a CLI command and names an `mcp__*` replacement, but has no
+ * way to know whether the caller actually holds that replacement — the
+ * PreToolUse payload carries no tool inventory. `agent_type` is the one field
+ * that could close the gap for subagents (it maps to an agent definition whose
+ * declared grant is knowable), and the vendor documents it — but nothing in this
+ * repo has ever observed it. Rather than build on an unverified field or guess,
+ * record what each fire actually saw and let ordinary subagent traffic answer it.
+ *
+ * The three-way split is the point: a bare missing string cannot distinguish
+ * "the field does not exist" from "this simply was not a subagent call", and
+ * only the first of those is evidence.
+ */
+export function classifyAgentTypeObservation(input: {
+  agent_id?: string;
+  agent_type?: string;
+}): "present" | "absent-in-subagent" | "not-a-subagent" {
+  if (input.agent_type) return "present";
+  return input.agent_id ? "absent-in-subagent" : "not-a-subagent";
+}
+
 // ---------------------------------------------------------------------------
 // Denial table types
 // ---------------------------------------------------------------------------
@@ -213,7 +236,12 @@ export const gitDenials: DenialRule[] = [
   {
     match: (args) => args[0] === "status",
     reason:
-      "Use `mcp__minsky__session_exec(task, 'git status')` inside a session, or avoid the call if context is available from diff/log tools.",
+      // mt#3381: `mcp__minsky__git_status` is named FIRST because it is the only
+      // read-only option here. Redirecting solely to `session_exec` dead-ends
+      // every caller whose grant deliberately omits it — the reviewer and
+      // auditor agents omit it precisely because it can mutate, so telling them
+      // to use it is advice they cannot take and must not be given.
+      "Use `mcp__minsky__git_status` (read-only), or `mcp__minsky__session_exec(task, 'git status')` inside a session, or avoid the call if context is available from diff/log tools.",
     // On session_exec itself, `git status` is the recommended path — don't block.
     allowedInSessionExec: true,
   },
@@ -710,6 +738,12 @@ if (import.meta.main) {
       decision,
       durationMs: Date.now() - startMs,
       toolName: input.tool_name,
+      // mt#3381: settle whether `agent_type` reaches a PreToolUse hook in
+      // production. Recorded on every fire, allow or deny — a denial that
+      // dead-ends a subagent is the case of interest, but the allow path is
+      // where most subagent traffic shows up.
+      agentType: input.agent_type,
+      agentTypeObserved: classifyAgentTypeObservation(input),
       sessionId: input.session_id,
     });
     process.exit(0);

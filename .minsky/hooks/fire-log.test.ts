@@ -138,6 +138,48 @@ describe("recordFireLogEntry", () => {
     expect(entries[0]?.sessionId).toBe("sess-9");
   });
 
+  test("mt#3381: agentType / agentTypeObserved reach the WRITTEN record", () => {
+    // The record is assembled field-by-field rather than spread, so a field
+    // added to the input type alone typechecks clean and silently writes
+    // nothing. This asserts the write-through, not the call.
+    const fs = makeInMemoryFs();
+    recordFireLogEntry(
+      {
+        guardName: "block-git-gh-cli",
+        event: "PreToolUse",
+        decision: "deny",
+        durationMs: 2,
+        agentType: "reviewer",
+        agentTypeObserved: "present",
+      },
+      { logPath: LOG_PATH, fs }
+    );
+
+    const entries = readFireLogEntries({ logPath: LOG_PATH, fs });
+    expect(entries[0]?.agentType).toBe("reviewer");
+    expect(entries[0]?.agentTypeObserved).toBe("present");
+  });
+
+  test("mt#3381: records the absent-in-subagent observation, which carries no agentType", () => {
+    // The load-bearing case: this is the value that would prove the check
+    // cannot be built, so it must survive the write with no agentType beside it.
+    const fs = makeInMemoryFs();
+    recordFireLogEntry(
+      {
+        guardName: "block-git-gh-cli",
+        event: "PreToolUse",
+        decision: "deny",
+        durationMs: 2,
+        agentTypeObserved: "absent-in-subagent",
+      },
+      { logPath: LOG_PATH, fs }
+    );
+
+    const entries = readFireLogEntries({ logPath: LOG_PATH, fs });
+    expect(entries[0]?.agentTypeObserved).toBe("absent-in-subagent");
+    expect(entries[0]?.agentType).toBeUndefined();
+  });
+
   test("NEVER throws even when the fs seam throws on every call (fail-open) -- guarded operation still completes", () => {
     const brokenFs: FireLogFsDeps = {
       existsSync: () => {
