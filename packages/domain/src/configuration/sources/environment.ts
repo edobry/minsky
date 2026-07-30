@@ -263,6 +263,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_ACK_PRE_NARRATION", // .claude/hooks/pre-narration-detector.ts (mt#2197) — override for pre-narrated/fabricated-outcome warning injection
   "MINSKY_SKIP_SESSION_PATH_CHECK", // .claude/hooks/check-guessed-session-path.ts (mt#2195) — override for guessed/nonexistent session-path guard
   "MINSKY_SKIP_BRIDGE_RETIREMENT", // .claude/hooks/bridge-memory-retirement.ts (mt#2062) — suppress bridge-memory retirement reminder
+  "MINSKY_SKIP_READY_CHAIN_WALK", // .claude/hooks/drive-ready-to-implementation.ts (mt#3373) — suppress the READY -> /implement-task chain-walk reminder
   "MINSKY_COCKPIT_PREVIEW", // src/cockpit/server.ts (mt#2096) — preview-mode guard disabling mutation endpoints
   "MINSKY_FORCE_BYPASS", // .claude/hooks/block-subagent-bypass-merge.ts (mt#1869) — override for bypass-merge block
   "MINSKY_SKIP_TIME_INJECTION", // .claude/hooks/inject-current-time.ts (mt#2181) — skip current-time injection
