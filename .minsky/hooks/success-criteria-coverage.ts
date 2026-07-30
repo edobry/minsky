@@ -110,10 +110,41 @@ export function parseSuccessCriteria(specContent: string): SuccessCriterionItem[
 }
 
 /**
- * Shapes that make a criterion mechanically executable — it names a command AND an expected
- * result, so the criterion is its own check.
+ * Command shapes — the "shell-runnable check" half of the contract.
  *
- * **The default here is INVERTED relative to the AT classifier, deliberately.**
+ * Includes a BARE command verb, not only a backticked one: mt#3347's real criterion read
+ * "a repo-wide grep for `<select` under `src/cockpit/web` … returns zero hits", where the
+ * backticks wrap the search STRING and the command name sits in prose.
+ */
+const COMMAND_SHAPE_PATTERNS: readonly RegExp[] = [
+  /`[^`]*\b(?:grep|rg|wc|find|ls|git\s+grep)\b[^`]*`/i,
+  /\b(?:grep|ripgrep|rg|wc\s+-l|find|git\s+grep)\b/i,
+  /^\s*\$\s+\S/m,
+];
+
+/**
+ * Expected-result shapes — the other half. A criterion naming a command with no expected
+ * outcome is not self-settling: you can run it, but nothing says what answer passes.
+ */
+const EXPECTED_RESULT_PATTERNS: readonly RegExp[] = [
+  /\breturns?\s+(?:zero|no|\d+)\s+(?:hits|matches|results|lines|rows|files)\b/i,
+  /\bthe\s+count\s+is\s+\d+\b/i,
+  /\b(?:zero|0)\s+(?:hits|matches|occurrences|results)\b/i,
+  /\bexit(?:s|\s+code)?\s+0\b/i,
+  /\bis\s+empty\b/i,
+];
+
+/**
+ * True when a criterion embeds a runnable check AND an expected result.
+ *
+ * **Both halves are REQUIRED (PR #2432 R1).** An earlier shape treated the two families as
+ * alternatives, so a bare `$ bun test` line — a command with no stated expected outcome —
+ * classified as executable. That contradicts the contract this check rests on: the point is
+ * that such a criterion IS ITS OWN CHECK, and a command with no expected result cannot settle
+ * anything by running it. The reviewer flagged the `$ <cmd>` case; the backticked-command
+ * pattern had exactly the same gap, so both are fixed together rather than one instance.
+ *
+ * **The default is NON-executable, inverted from the AT classifier.**
  * `isExecutableAcceptanceTest` treats everything as executable and SUBTRACTS findings-shaped
  * text, which is right for an `## Acceptance Tests` list — those are behavioral by
  * construction. A `## Success Criteria` list is the opposite: mostly judgment-shaped prose
@@ -122,31 +153,15 @@ export function parseSuccessCriteria(specContent: string): SuccessCriterionItem[
  * bury the real signal in warnings nobody can act on — the mem#719 failure mode, where a
  * detector's unmatchable output trains readers to discount its correct output too.
  *
- * So: a positive match is REQUIRED. Under-flagging is the safe direction while this ships
- * log-only; the calibration log is how the pattern set gets widened on evidence.
- */
-const EXECUTABLE_CRITERION_PATTERNS: readonly RegExp[] = [
-  // A shell command in backticks or a fence: grep / rg / wc / find / ls / test.
-  /`[^`]*\b(?:grep|rg|wc|find|ls|git\s+grep)\b[^`]*`/i,
-  // A transcript-style prompt line.
-  /^\s*\$\s+\S/m,
-  // An explicit expected count, the shape mt#3347's missed criterion used.
-  /\breturns?\s+(?:zero|no|\d+)\s+(?:hits|matches|results|lines|rows)\b/i,
-  /\bthe\s+count\s+is\s+\d+\b/i,
-  /\b(?:zero|0)\s+(?:hits|matches|occurrences)\b/i,
-];
-
-/**
- * True when a criterion embeds a runnable check plus an expected result.
- *
- * Empty/whitespace-only text is never executable. Everything else must positively match one
- * of {@link EXECUTABLE_CRITERION_PATTERNS} — see that constant for why the default is
- * non-executable rather than executable.
+ * Under-flagging is the safe direction while this ships log-only; the calibration log is how
+ * the pattern set gets widened on evidence.
  */
 export function isExecutableSuccessCriterion(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  return EXECUTABLE_CRITERION_PATTERNS.some((p) => p.test(trimmed));
+  const hasCommand = COMMAND_SHAPE_PATTERNS.some((p) => p.test(trimmed));
+  const hasExpectedResult = EXPECTED_RESULT_PATTERNS.some((p) => p.test(trimmed));
+  return hasCommand && hasExpectedResult;
 }
 
 /**

@@ -54,17 +54,25 @@ merge, and it shares `markdown-sections.ts`'s fence-aware scanning rather than r
 ### The classifier default is INVERTED, deliberately
 
 `isExecutableAcceptanceTest` treats every AT as executable and SUBTRACTS findings-shaped text.
-`isExecutableSuccessCriterion` does the opposite: it requires a POSITIVE match against a
-command-plus-expected-result shape (a backticked `grep`/`rg`/`wc`/`find`, a `$ <cmd>` line,
-"returns zero hits" / "returns N hits" / "the count is N").
+`isExecutableSuccessCriterion` does the opposite: it requires a POSITIVE match, and requires
+**both halves** — a command shape (a backticked or bare `grep`/`rg`/`wc`/`find`, a `$ <cmd>`
+line) AND an expected-result shape ("returns zero hits", "the count is N", "exit code 0",
+"is empty").
 
-The asymmetry is the point. An `## Acceptance Tests` list is behavioral by construction; a
-`## Success Criteria` list is mostly judgment prose ("the control renders with cockpit surface
-tokens"), with the executable ones a sharp minority. Inheriting the AT default would flag
-nearly every criterion and bury the real signal — the mem#719 failure mode, where a detector's
-unmatchable output trains readers to discount its correct output too. Under-flagging is the
-safe direction while this ships log-only; the calibration log is how the pattern set widens on
-evidence.
+The conjunction is load-bearing (PR #2432 R1). The first implementation treated the two
+families as alternatives, so a bare `$ bun test` — a command with no stated expected outcome —
+classified as executable. That contradicts the premise: the point is that such a criterion IS
+ITS OWN CHECK, and a command with no expected result cannot settle anything by being run. The
+reviewer flagged the `$ <cmd>` case; the backticked-command shape had the same gap and was
+fixed with it.
+
+The inversion itself is the other half of the design. An `## Acceptance Tests` list is
+behavioral by construction; a `## Success Criteria` list is mostly judgment prose ("the control
+renders with cockpit surface tokens"), with the executable ones a sharp minority. Inheriting
+the AT default would flag nearly every criterion and bury the real signal — the mem#719 failure
+mode, where a detector's unmatchable output trains readers to discount its correct output too.
+Under-flagging is the safe direction while this ships log-only; the calibration log is how the
+pattern set widens on evidence.
 
 ### What counts as addressing a criterion
 

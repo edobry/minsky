@@ -779,13 +779,19 @@ export function isAtCoverageSkipped(): boolean {
 }
 
 /**
- * Appends one AT-coverage calibration record. Fail-safe: never throws — a calibration-log
- * write failure must never affect the (log-only) merge decision.
+ * Appends one calibration record to `logRelPath` under `repoRootDir`. Fail-safe: never throws —
+ * a calibration-log write failure must never affect the (log-only) merge decision.
+ *
+ * The log path is REQUIRED, deliberately (PR #2432 R1). An earlier shape gave it a default of
+ * `AT_COVERAGE_CALIBRATION_LOG`, which meant any caller that forgot the argument silently wrote
+ * its records into the acceptance-test log — corrupting BOTH corpora at once, and in a way no
+ * test would notice because the write still succeeds. For a mechanism whose entire deliverable
+ * is a trustworthy measurement, that default is not a convenience worth its failure mode.
  */
-export function appendAtCoverageCalibration(
+export function appendCalibrationRecord(
   record: Record<string, unknown>,
   repoRootDir: string,
-  logRelPath: string = AT_COVERAGE_CALIBRATION_LOG
+  logRelPath: string
 ): void {
   try {
     const logPath = resolve(repoRootDir, logRelPath);
@@ -794,11 +800,19 @@ export function appendAtCoverageCalibration(
     appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
   } catch (err) {
     process.stderr.write(
-      `[execution-evidence-at-coverage] Failed to write calibration log: ${
+      `[execution-evidence-calibration] Failed to write ${logRelPath}: ${
         err instanceof Error ? err.message : String(err)
       }\n`
     );
   }
+}
+
+/** Appends an acceptance-test calibration record. Thin wrapper naming its own log. */
+export function appendAtCoverageCalibration(
+  record: Record<string, unknown>,
+  repoRootDir: string
+): void {
+  appendCalibrationRecord(record, repoRootDir, AT_COVERAGE_CALIBRATION_LOG);
 }
 
 /** Result of fetching a task's spec for the AT-coverage check. */
@@ -1027,7 +1041,7 @@ if (import.meta.main) {
       extractExecutionEvidenceText(prBody)
     );
     if (scCoverage.calibrationRecord) {
-      appendAtCoverageCalibration(
+      appendCalibrationRecord(
         scCoverage.calibrationRecord,
         findRepoRoot(input.cwd),
         SC_COVERAGE_CALIBRATION_LOG

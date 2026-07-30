@@ -38,7 +38,7 @@ import { buildSuccessCriteriaContext } from "./inject-success-criteria";
 const TASK_ID = "mt#3350";
 const PR_NUMBER = 4242;
 const GREP_CRITERION = "A repo-wide `grep '<select' src/cockpit/web` returns zero hits.";
-const COUNT_CRITERION = "After the sweep, the count is 0.";
+const COUNT_CRITERION = "After the sweep, `wc -l` on the report shows the count is 0.";
 const JUDGMENT_CRITERION = "The control renders with cockpit surface tokens.";
 const SECOND_JUDGMENT = "The panel elevation reads correctly in dark mode.";
 const EVIDENCE_HEADING = "Execution evidence:";
@@ -113,7 +113,20 @@ describe("AT4: judgment-shaped criteria are not classified executable", () => {
     expect(isExecutableSuccessCriterion(GREP_CRITERION)).toBe(true);
     expect(isExecutableSuccessCriterion(COUNT_CRITERION)).toBe(true);
     expect(isExecutableSuccessCriterion("Run `rg TODO src/` — returns no matches.")).toBe(true);
-    expect(isExecutableSuccessCriterion("$ bun test\nall green")).toBe(true);
+    expect(isExecutableSuccessCriterion("$ bun run verify\nexit code 0")).toBe(true);
+  });
+
+  test("a command with NO expected result is not executable (PR #2432 R1)", () => {
+    // Both halves are required. A criterion naming a command but no expected outcome is not
+    // self-settling — you can run it, but nothing says which answer passes. The reviewer
+    // flagged the `$ <cmd>` case; the backticked-command shape had the same gap, so both are
+    // asserted here rather than just the reported instance.
+    expect(isExecutableSuccessCriterion("$ bun test")).toBe(false);
+    expect(isExecutableSuccessCriterion("Run `grep -r TODO src/` before shipping.")).toBe(false);
+    // And a stated result with no command is equally unrunnable.
+    expect(isExecutableSuccessCriterion("The dashboard looks right and the count is fine.")).toBe(
+      false
+    );
   });
 });
 
