@@ -217,6 +217,45 @@ describe("read-only git redirects are reachable by the restricted agents", () =>
       expect(readOnly.length).toBeGreaterThan(0);
     });
   }
+
+  // -------------------------------------------------------------------------
+  // TOTAL rule-table enumeration (mt#3401 SC5)
+  // -------------------------------------------------------------------------
+
+  // The assertions above cover the read-only commands by name. This one walks
+  // the ENTIRE denial table, so a newly added rule cannot silently bypass the
+  // check by simply not being on any hand-written list.
+  //
+  // Every rule must either name a concrete `mcp__*` replacement, or be one of
+  // the documented cases where no single tool is the answer. That allowlist is
+  // matched on a distinctive substring of the reason and is deliberately small
+  // — a new no-tool reason has to be added here consciously, which is the
+  // review checkpoint.
+  const REASONS_WITH_NO_SINGLE_TOOL_ALTERNATIVE = [
+    // Branch checkout/management: the answer is a workflow (session state ops),
+    // not one callable tool.
+    "Branch checkout is handled by session state ops",
+    "Branch management is handled by session state ops",
+    // A constraint on HOW an allowed call must be shaped, not a redirect.
+    "must use `-f merge_method=merge`",
+  ];
+
+  it("every rule in the denial table names an mcp__ tool or a documented no-tool case", () => {
+    const allRules = [...gitDenials, ...ghDenials];
+
+    // Guard: if the tables were ever emptied or renamed, this test would pass
+    // vacuously while asserting nothing about the real guard.
+    expect(allRules.length).toBeGreaterThan(20);
+
+    const uncovered = allRules
+      .map((rule) => rule.reason)
+      .filter((reason) => !/mcp__[a-z0-9_]+/.test(reason))
+      .filter(
+        (reason) => !REASONS_WITH_NO_SINGLE_TOOL_ALTERNATIVE.some((known) => reason.includes(known))
+      );
+
+    expect(uncovered).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
