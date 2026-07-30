@@ -482,6 +482,14 @@ describe("sendDrivenSessionInput", () => {
 
     const operatorFrames = seen.filter((p) => p["type"] === DRIVEN_OPERATOR_INPUT_EVENT_TYPE);
     expect(operatorFrames.map((p) => p["text"])).toEqual(["first", "second"]);
+
+    // Same two turns must also survive in the REPLAY source (the event log a
+    // reconnecting client is replayed from), in the same order — a subscriber
+    // broadcast alone would vanish on reload.
+    const replayed = record.eventLog
+      .filter((e) => e.payload["type"] === DRIVEN_OPERATOR_INPUT_EVENT_TYPE)
+      .map((e) => e.payload["text"]);
+    expect(replayed).toEqual(["first", "second"]);
   });
 
   test("appends nothing when the session has already exited", () => {
