@@ -39,7 +39,14 @@ import { drivenSessionRegistry, isTerminalStatus } from "../driven-session-host"
  *     qualify, including `"reconnecting"`. That state (a record rebuilt after a
  *     daemon restart) is exactly the one the originating incident hit, and it is
  *     genuinely reachable: attaching to `/driven/:id` resumes it.
- *   - Newest-started wins when a task has been driven more than once.
+ *   - Newest-started wins when a task has been driven more than once. The
+ *     comparator is TOTAL: a missing or non-string `startedAt` sorts last
+ *     rather than throwing. Today's producers always supply an ISO string
+ *     (`new Date().toISOString()` on spawn, `row.startedAt.toISOString()` on
+ *     rehydration, which would itself throw on a null column before reaching
+ *     here), so this is not a reachable bug via those paths — but the function
+ *     is exported and generic over its record type, so a total comparator
+ *     costs nothing and removes the class. (PR #2448 R1.)
  */
 export function selectLiveDrivenSession<
   S extends string,
@@ -51,12 +58,17 @@ export function selectLiveDrivenSession<
   isTerminal: (status: S) => boolean
 ): T | null {
   const wanted = normalize(wantedTaskId);
+  // Sort key, not the raw field: an absent/non-string `startedAt` becomes ""
+  // and therefore sorts last under a descending compare, instead of throwing
+  // on `.localeCompare`.
+  const startedAtKey = (record: T): string =>
+    typeof record.startedAt === "string" ? record.startedAt : "";
   const candidates = records
     .filter(
       (record) =>
         record.taskId !== null && normalize(record.taskId) === wanted && !isTerminal(record.status)
     )
-    .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    .sort((a, b) => startedAtKey(b).localeCompare(startedAtKey(a)));
   return candidates[0] ?? null;
 }
 

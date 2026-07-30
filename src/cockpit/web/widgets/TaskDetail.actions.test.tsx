@@ -53,8 +53,18 @@ describe("TaskActions (mt#2986)", () => {
   // mt#3400 — the one-hop return to a live driven session.
   test("drive action → link to the driven-session view", () => {
     renderActions([{ kind: "drive", drivenSessionId: "ds-abc123" }]);
-    const link = screen.getByRole("link", { name: /Return to the live driven session/ });
+    const link = screen.getByRole("link", { name: /Return to the live drive view/ });
     expect(link.getAttribute("href")).toBe("/driven/ds-abc123");
+  });
+
+  // PR #2448 R1 — the two adjacent controls must not both read "…session".
+  test("the drive label is distinguishable from the workspace 'Open session' label", () => {
+    renderActions([
+      { kind: "drive", drivenSessionId: "ds-abc123" },
+      { kind: "resume", sessionId: "ws-999" },
+    ]);
+    expect(screen.getByText("Return to drive view")).toBeDefined();
+    expect(screen.getByText("Open session")).toBeDefined();
   });
 
   test("drive without a driven session id renders nothing (never a dead control)", () => {

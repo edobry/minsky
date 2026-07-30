@@ -246,14 +246,21 @@ function TaskActionControl({ taskId, action }: { taskId: string; action: TaskAct
       // mt#3400 — the one-hop return to a live driven session. Rendered
       // `default` (not `outline` like its siblings) because when this action is
       // present it IS the primary: the operator has work in flight here.
+      //
+      // Copy says "drive view", not "session": this control sits directly
+      // beside the workspace action labeled "Open session", and two adjacent
+      // buttons reading "Return to session" / "Open session" for two DIFFERENT
+      // destinations is the ambiguity PR #2448 R1 flagged. "Drive view" is the
+      // vocabulary the existing RunDetail banner already uses for this surface,
+      // so this aligns with shipped copy rather than coining a new term.
       return (
         <Button asChild size="sm" className="h-7 px-2.5 text-xs">
           <Link
             to={`/driven/${encodeURIComponent(action.drivenSessionId)}`}
-            aria-label={`Return to the live driven session for ${taskId}`}
+            aria-label={`Return to the live drive view for ${taskId}`}
             title="Return to the driven session already running for this task"
           >
-            Return to session
+            Return to drive view
           </Link>
         </Button>
       );

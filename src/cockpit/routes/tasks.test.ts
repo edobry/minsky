@@ -178,6 +178,36 @@ describe("selectLiveDrivenSession (mt#3400)", () => {
     expect(found?.localId).toBe("ds-live");
   });
 
+  // PR #2448 R1 — the comparator must be total. Cast at the call site because
+  // the malformed shapes below are exactly what the type system forbids and a
+  // non-TS caller could still hand over.
+  test("a record with a missing startedAt sorts last instead of throwing", () => {
+    const malformed = [
+      { localId: "ds-nostart", taskId: "mt#3400", status: "running" },
+      rec({ localId: "ds-ok", startedAt: "2026-07-30T09:00:00.000Z" }),
+    ] as unknown as Rec[];
+    const found = selectLiveDrivenSession(malformed, "mt#3400", normalize, isTerminal);
+    expect(found?.localId).toBe("ds-ok");
+  });
+
+  test("a non-string startedAt sorts last instead of throwing", () => {
+    const malformed = [
+      { localId: "ds-numeric", taskId: "mt#3400", status: "running", startedAt: 12345 },
+      rec({ localId: "ds-ok", startedAt: "2026-07-30T09:00:00.000Z" }),
+    ] as unknown as Rec[];
+    const found = selectLiveDrivenSession(malformed, "mt#3400", normalize, isTerminal);
+    expect(found?.localId).toBe("ds-ok");
+  });
+
+  test("an all-malformed candidate set still returns a record rather than throwing", () => {
+    const malformed = [
+      { localId: "ds-a", taskId: "mt#3400", status: "running" },
+      { localId: "ds-b", taskId: "mt#3400", status: "running" },
+    ] as unknown as Rec[];
+    const found = selectLiveDrivenSession(malformed, "mt#3400", normalize, isTerminal);
+    expect(found).not.toBeNull();
+  });
+
   test("does not mutate the caller's array (the registry's own list)", () => {
     const records = [
       rec({ localId: "ds-old", startedAt: "2026-07-30T09:00:00.000Z" }),

@@ -479,6 +479,14 @@ export function RunDetail({
   // the driven-session view without a new minsky:// URI type (spec SC5;
   // ADR-022 pins the URI type set).
   const driven = keySpace === "workspace" ? (workspaceQuery.data?.driven ?? null) : null;
+  // `drivenActive` answers "is it working RIGHT NOW" — it drives the amber
+  // pulse — which is deliberately NARROWER than the task page's *returnable*
+  // predicate in `routes/tasks.ts` (`!isTerminalStatus`, which also admits
+  // `reconnecting`). The two answer different questions and should not be
+  // unified: a reconnecting session IS worth returning to (attaching resumes
+  // it) but is not producing output, so pulsing amber for it would overstate
+  // liveness. Flagged as an apparent inconsistency in PR #2448 R1; recorded
+  // here so it reads as a choice rather than an oversight.
   const drivenActive =
     driven != null && (driven.status === "running" || driven.status === "spawned");
 
