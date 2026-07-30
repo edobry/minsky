@@ -11,6 +11,20 @@ export interface ClaudeHookInput {
   permission_mode?: string;
   hook_event_name: string;
   agent_id?: string;
+  /**
+   * The subagent's TYPE name (e.g. "reviewer", "Explore"), documented as present
+   * alongside `agent_id` on hook calls that fire inside a subagent
+   * (https://code.claude.com/docs/en/hooks). Optional because nothing in this
+   * repo has ever observed it: every prior `agent_type`-shaped read is actually
+   * `tool_input.subagent_type` (the PARENT's dispatch parameter, a different
+   * field on a different event), and `record-subagent-invocation.ts` documents
+   * that it cannot see a real agent type at Stop time and sends a sentinel.
+   *
+   * Treat as UNVERIFIED in production until the fire log says otherwise —
+   * `block-git-gh-cli` records its presence per fire (mt#3381) so ordinary
+   * subagent traffic answers the question without a dedicated probe.
+   */
+  agent_type?: string;
 }
 
 export interface ToolHookInput extends ClaudeHookInput {
