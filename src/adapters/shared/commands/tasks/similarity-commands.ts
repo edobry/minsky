@@ -142,6 +142,32 @@ export class TasksSimilarCommand extends BaseTaskCommand<typeof tasksSimilarPara
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
+    // mt#3305: the filter surface is identical to tasks.search; the DEFAULT is
+    // deliberately the opposite, and this is the one place that difference lives.
+    //
+    // tasks.search answers "what's out there about X?" — a browse, so it hides
+    // DONE/CLOSED by default. tasks.similar answers "does this already exist?" —
+    // a duplicate check, where an already-SHIPPED task is the single most
+    // valuable answer it can give. Excluding terminal statuses here defeats the
+    // command's entire purpose, and did: mt#3290 and mt#3352 were both filed as
+    // duplicates of tasks that were the nearest neighbour in the index but
+    // invisible because they were DONE.
+    //
+    // So no `statusExclude` is set. An explicit `--status` still narrows; `--all`
+    // exists for surface parity (a param must not be live on one door and absent
+    // on the other) and is a no-op here, because including everything is already
+    // what this command does.
+    const filters: Record<string, unknown> = {};
+    if (params.backend) {
+      filters.backend = params.backend;
+    }
+    if (params.kind) {
+      filters.kind = params.kind;
+    }
+    if (params.status && !params.all) {
+      filters.status = params.status;
+    }
+
     // ADR-021 / mt#2939: resolve project scope for this similarity query.
     const projectScope = await resolveTaskSimilarityProjectScope(
       params.allProjects,
@@ -149,7 +175,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<typeof tasksSimilarPara
     );
 
     const service = await this.createService(this.getPersistenceProvider(), this.getTaskService());
-    const response = await service.similarToTask(taskId, limit, threshold, projectScope);
+    const response = await service.similarToTask(taskId, limit, threshold, projectScope, filters);
 
     // Enhance results with task details for better usability
     const enhancedResults = await this.enhanceSearchResults(response.results, params.details);

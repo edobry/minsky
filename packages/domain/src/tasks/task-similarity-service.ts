@@ -97,25 +97,40 @@ export class TaskSimilarityService {
     taskId: string,
     limit = 10,
     threshold?: number,
-    projectScope: ProjectScope = ALL_PROJECTS
+    projectScope: ProjectScope = ALL_PROJECTS,
+    filters?: Record<string, unknown>
   ): Promise<TaskSearchResponse> {
     const task = await this.findTaskById(taskId);
     if (!task) {
       return { results: [], backend: "none", degraded: false };
     }
     const content = await this.extractTaskContent(task);
-    const response = await this.getSearchService().search({ queryText: content, limit });
-    const items = await this.applyProjectScope(response.items, projectScope);
-    return {
-      results: items.map((i) => ({
-        id: i.id,
-        score: i.score,
-        metadata: i.metadata,
-      })),
-      backend: response.backend,
-      degraded: response.degraded,
-      degradedReason: response.degradedReason,
-    };
+    // mt#3305: delegate to searchByText instead of calling the search service
+    // directly. These were always ONE operation — this method's only distinct
+    // work is turning a task into query text — but the two paths had drifted:
+    // searchByText applied status/kind/backend filters and honoured the domain
+    // filter surface, this one applied none; `threshold` was accepted here and
+    // silently dropped. Sharing the core means a parameter cannot be live on one
+    // door and dead on the other, which is how both mt#3305 defects arose.
+    //
+    // The DEFAULTS still differ, deliberately, and that difference lives in the
+    // command layer where it is visible: `tasks_search` excludes terminal
+    // statuses (it answers "what's out there?"), `tasks_similar` does not (it
+    // answers "does this already exist?" — excluding shipped work defeats it).
+    return this.searchByText(content, limit, threshold, filters, projectScope);
+  }
+
+  /**
+   * Drop results outside the caller's distance threshold (mt#3305).
+   *
+   * `threshold` was declared on three signatures and applied by none — accepted
+   * at the boundary and dropped, so `--threshold 0.1` and `--threshold 0.95`
+   * returned identical result sets. Scores here are DISTANCES (lower is closer,
+   * matching the parameter's own description), so the predicate is `<=`.
+   */
+  private applyThreshold<T extends { score: number }>(items: T[], threshold?: number): T[] {
+    if (threshold === undefined) return items;
+    return items.filter((i) => i.score <= threshold);
   }
 
   async searchByText(
@@ -181,7 +196,11 @@ export class TaskSimilarityService {
         limit,
       });
       return {
-        results: response.items.map((i) => ({ id: i.id, score: i.score, metadata: i.metadata })),
+        results: this.applyThreshold(response.items, threshold).map((i) => ({
+          id: i.id,
+          score: i.score,
+          metadata: i.metadata,
+        })),
         backend: response.backend,
         degraded: response.degraded,
         degradedReason: response.degradedReason,
@@ -295,11 +314,13 @@ export class TaskSimilarityService {
     });
 
     return {
-      results: survivors.slice(0, limit).map((i) => ({
-        id: i.id,
-        score: i.score,
-        metadata: i.metadata,
-      })),
+      results: this.applyThreshold(survivors, threshold)
+        .slice(0, limit)
+        .map((i) => ({
+          id: i.id,
+          score: i.score,
+          metadata: i.metadata,
+        })),
       backend: response.backend,
       degraded: response.degraded,
       degradedReason: response.degradedReason,

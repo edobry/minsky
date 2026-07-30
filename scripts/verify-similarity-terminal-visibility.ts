@@ -160,6 +160,57 @@ async function main(): Promise<void> {
     `\nPASS: scoped path surfaced ${scopedResults} neighbours for ${PROBE_TASK_ID}, ` +
       "including terminal-status tasks."
   );
+
+  // ---- AT2: `threshold` must actually narrow the result set.
+  // It was declared on three signatures and applied by none, so 0.1 and 0.95
+  // returned identical sets. Scores are distances (lower is closer).
+  const { resolveProjectIdentity: ri } = await import("@minsky/domain/project/identity");
+  const { resolveProjectScope: rs } = await import("@minsky/domain/project/scope-resolver");
+  const identity2 = ri({ repoPath: process.cwd() });
+  if (identity2.kind !== "resolved") {
+    console.log("\nSKIP AT2/AT3: project identity did not resolve.");
+    return;
+  }
+  const db2 = await persistence.getDatabaseConnection();
+  if (!db2) throw new Error("no database connection for AT2/AT3");
+  const scope2 = await rs(identity2, db2);
+
+  const tight = await service.similarToTask(PROBE_TASK_ID, 10, 0.1, scope2, {});
+  const loose = await service.similarToTask(PROBE_TASK_ID, 10, 0.95, scope2, {});
+  console.log("\n=== AT2: threshold ===");
+  console.log(`  threshold 0.10 -> ${tight.results.length} results`);
+  console.log(`  threshold 0.95 -> ${loose.results.length} results`);
+  if (tight.results.length === loose.results.length) {
+    throw new Error(
+      "REGRESSION (AT2): threshold 0.10 and 0.95 returned the same number of results — " +
+        "the parameter is being dropped again instead of filtering by score."
+    );
+  }
+  console.log("  PASS: threshold changes the result set.");
+
+  // ---- AT3: the status filter must actually change search results.
+  // `tasks_search --all` was inert because terminal tasks never entered the
+  // live map; with the fix, dropping statusExclude must visibly widen results.
+  const query = "elide quoted contexts and code spans so a detector does not fire on quoted text";
+  const browse = await service.searchByText(
+    query,
+    8,
+    undefined,
+    { statusExclude: ["DONE", "CLOSED"] },
+    scope2
+  );
+  const widened = await service.searchByText(query, 8, undefined, {}, scope2);
+  const ids = (r: { results: Array<{ id: string }> }) => r.results.map((x) => x.id);
+  console.log("\n=== AT3: status filter on search ===");
+  console.log(`  with statusExclude : ${ids(browse).join(", ")}`);
+  console.log(`  without            : ${ids(widened).join(", ")}`);
+  if (JSON.stringify(ids(browse)) === JSON.stringify(ids(widened))) {
+    throw new Error(
+      "REGRESSION (AT3): search returned identical results with and without statusExclude — " +
+        "the status filter is inert, which is the `--all does nothing` symptom."
+    );
+  }
+  console.log("  PASS: dropping statusExclude widens the result set.");
 }
 
 main()

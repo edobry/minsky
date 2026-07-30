@@ -1710,6 +1710,31 @@
               "description": "Show detailed output including scores and diagnostics"
             },
             {
+              "flags": ["--all"],
+              "description": "Include all tasks regardless of status"
+            },
+            {
+              "flags": ["--status"],
+              "description": "Task status",
+              "takesValue": true,
+              "values": [
+                "TODO",
+                "PLANNING",
+                "READY",
+                "IN-PROGRESS",
+                "IN-REVIEW",
+                "DONE",
+                "BLOCKED",
+                "CLOSED"
+              ]
+            },
+            {
+              "flags": ["--kind"],
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "takesValue": true,
+              "values": ["implementation", "umbrella", "state-ops"]
+            },
+            {
               "flags": ["--quiet"],
               "description": "Suppress the degraded-search warning on stderr (results are unaffected)"
             },
