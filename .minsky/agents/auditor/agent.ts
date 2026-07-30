@@ -18,6 +18,8 @@ export default defineAgent({
     "mcp__minsky__git_log",
     "mcp__minsky__git_diff",
     "mcp__minsky__git_status",
+    // mt#3401: see the reviewer agent — same missed read-only command.
+    "mcp__minsky__git_blame",
     "mcp__minsky__tasks_get",
     "mcp__minsky__tasks_spec_get",
     "mcp__github__get_file_contents",
