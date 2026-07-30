@@ -123,3 +123,49 @@ describe("genericOutcomeDigest", () => {
     expect(genericOutcomeDigest({ content: "", isError: false })).toBe("ok");
   });
 });
+
+describe("summarizeToolInvocation — session-workspace paths (mt#3378)", () => {
+  const SESSION_ROOT = "/Users/x/.local/state/minsky/sessions/010b0467-f007-4b2f-9d80-d5f6ed3cf4b7";
+  const ok = { content: "ok", isError: false };
+
+  test("a session path digests to its session-relative part, prefix dropped", () => {
+    const digest = summarizeToolInvocation(
+      "Edit",
+      { file_path: `${SESSION_ROOT}/src/cockpit/web/lib/tool-summary.ts` },
+      ok
+    );
+    expect(digest).toContain("src/cockpit/web/lib/tool-summary.ts");
+    expect(digest).not.toContain(".local/state/minsky/sessions");
+  });
+
+  test("a main-workspace path is unchanged (regression)", () => {
+    expect(
+      summarizeToolInvocation("Edit", { file_path: "/Users/x/Projects/minsky/CLAUDE.md" }, ok)
+    ).toBe("/Users/x/Projects/minsky/CLAUDE.md → ok · 2b");
+  });
+
+  test("a directory literally named `sessions` is unchanged (regression)", () => {
+    const digest = summarizeToolInvocation(
+      "Read",
+      { file_path: "/Users/x/Projects/foo/sessions/bar.ts" },
+      ok
+    );
+    expect(digest).toContain("/Users/x/Projects/foo/sessions/bar.ts");
+  });
+
+  test("an MCP session_* tool's relative path still digests to that path", () => {
+    const digest = summarizeToolInvocation(
+      "mcp__minsky__session_edit_file",
+      { sessionId: "010b0467-f007-4b2f-9d80-d5f6ed3cf4b7", path: "src/foo.ts" },
+      ok
+    );
+    expect(digest).toContain("src/foo.ts");
+  });
+
+  test("an over-long path keeps its TAIL — the filename stays visible", () => {
+    const deep = `${SESSION_ROOT}/${"nested/".repeat(12)}TheActualFile.tsx`;
+    const digest = summarizeToolInvocation("Edit", { file_path: deep }, ok);
+    expect(digest).toContain("TheActualFile.tsx");
+    expect(digest).toContain("…");
+  });
+});

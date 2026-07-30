@@ -16,6 +16,7 @@
  * broader coverage is added reactively").
  */
 import { parseToolName } from "./tool-name";
+import { parseSessionWorkspacePath, toolInputPath } from "./session-path";
 
 /** The subset of a tool-result element this registry needs. */
 export interface ToolResultInfo {
@@ -118,11 +119,29 @@ function commandSummary(input: unknown, result: ToolResultInfo | undefined): str
   return `${truncate(cmd, 60)} → ${genericOutcomeDigest(result)}`;
 }
 
+/**
+ * Truncate a path from the LEFT, keeping the tail. A path's filename is its
+ * most informative segment, so eliding the head preserves what identifies the
+ * file — the opposite of the generic first-N `truncate` used for prose.
+ */
+function truncatePath(path: string, max: number): string {
+  const p = path.trim();
+  return p.length <= max ? p : `…${p.slice(-(max - 1))}`;
+}
+
+/**
+ * Path digest. A path under a session workspace shows only its
+ * session-relative part: the `<state-dir>/sessions/<uuid>/` prefix is ~79
+ * characters of identical-across-every-call boilerplate, which under a
+ * first-N truncation consumed the whole line and left the filename invisible
+ * (mt#3378). The session identity is not dropped — the summary line's tooltip
+ * carries it, via `sessionFileTargetFor`.
+ */
 function pathSummary(input: unknown, result: ToolResultInfo | undefined): string | null {
-  const rec = record(input);
-  const path = rec ? (str(rec.file_path) ?? str(rec.path) ?? str(rec.filePath)) : undefined;
+  const path = toolInputPath(input);
   if (!path) return null;
-  return `${truncate(path, 60)} → ${genericOutcomeDigest(result)}`;
+  const target = parseSessionWorkspacePath(path);
+  return `${truncatePath(target?.relativePath ?? path, 60)} → ${genericOutcomeDigest(result)}`;
 }
 
 function gitSummary(input: unknown, result: ToolResultInfo | undefined): string | null {
