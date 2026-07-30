@@ -82,15 +82,19 @@ function firstRow(result: unknown): { uuid: string; shortId: string } | null {
  * is not coupled to the very command layer it is verifying.
  */
 async function discoverRefs(container: AppContainerInterface): Promise<DiscoveredRef[]> {
-  const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+  // Capability check, deliberately NOT `instanceof PersistenceProvider`: an
+  // instanceof can fail for a subclass or across module realms, and a false
+  // negative here degrades to SKIP — a verification that silently does not run
+  // is worse than one that fails. What this needs is a SQL connection; ask for
+  // exactly that.
   const persistence = container.has("persistence") ? container.get("persistence") : undefined;
-  if (!persistence || !(persistence instanceof PersistenceProvider)) {
+  const provider = persistence as
+    | { capabilities?: { sql?: boolean }; getDatabaseConnection?: () => Promise<unknown> }
+    | undefined;
+  if (!provider?.capabilities?.sql || typeof provider.getDatabaseConnection !== "function") {
     throw new Error("SKIP_NO_DB");
   }
-  if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
-    throw new Error("SKIP_NO_DB");
-  }
-  const connection = await persistence.getDatabaseConnection();
+  const connection = await provider.getDatabaseConnection();
   // `getDatabaseConnection` is typed loosely enough that `.execute` is not on
   // the surface; check for it rather than asserting it exists.
   if (!connection || typeof (connection as { execute?: unknown }).execute !== "function") {

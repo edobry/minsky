@@ -21,7 +21,7 @@ import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
-import { parseShortId } from "@minsky/domain/utils/short-id";
+import { parseShortId, formatShortId } from "@minsky/domain/utils/short-id";
 
 // ---------------------------------------------------------------------------
 // Ref classification
@@ -82,7 +82,13 @@ export function classifyRef(raw: string): ClassifiedRef {
   // `pr#123` is: all three are `<prefix>#<digits>`, and first match wins.
   const shortId = parseShortId(trimmed);
   const shortIdKind = shortId ? SHORT_ID_KINDS[shortId.prefix] : undefined;
-  if (shortIdKind) return { raw, kind: shortIdKind, id: trimmed };
+  // Report the CANONICAL token (`formatShortId`), not the raw casing, so
+  // `Ask#6448` and `ask#6448` produce the same `id` — matching how a uuid is
+  // lower-cased above. The resolvers normalize internally either way; this
+  // keeps the tool's OWN output stable for callers that key off `id`.
+  if (shortId && shortIdKind) {
+    return { raw, kind: shortIdKind, id: formatShortId(shortId.prefix, shortId.n) };
+  }
   if (TASK_RE.test(trimmed)) return { raw, kind: "task", id: trimmed };
   const bare = trimmed.match(BARE_NUMBER_RE);
   if (bare?.[1]) return { raw, kind: "changeset", id: bare[1] };
@@ -161,7 +167,7 @@ async function resolveUuidRef(
   base: { ref: string; kind: RefKind; id: string },
   resolvers: RefResolvers
 ): Promise<RefStatusResult> {
-  const failures: string[] = [];
+  const failures: Array<{ kind: RefKind; cause: string }> = [];
   for (const kind of UUID_KEYED_KINDS) {
     try {
       const resolved = await lookupByKind(kind, base.id, resolvers);
@@ -169,13 +175,20 @@ async function resolveUuidRef(
         return { ...base, kind, found: true, status: resolved.status, title: resolved.title };
       }
     } catch (error) {
-      failures.push(`${kind}: ${getErrorMessage(error)}`);
+      failures.push({ kind, cause: getErrorMessage(error) });
     }
   }
   // Kind stays "uuid": the ref parsed fine, it just belongs to no uuid-keyed
   // store we know of. Reporting it as an absent ASK is the mt#3354 defect.
   if (failures.length > 0) {
-    return { ...base, found: false, error: `uuid lookup failed — ${failures.join("; ")}` };
+    // The common total-failure case is one cause (the DB is down) hit three
+    // times, which would otherwise print the same sentence three times on one
+    // CLI line. Collapse when every store failed identically; keep the per-store
+    // breakdown only when the causes genuinely differ.
+    const distinct = [...new Set(failures.map((f) => f.cause))];
+    const detail =
+      distinct.length === 1 ? distinct[0] : failures.map((f) => `${f.kind}: ${f.cause}`).join("; ");
+    return { ...base, found: false, error: `uuid lookup failed — ${detail}` };
   }
   return { ...base, found: false };
 }
@@ -274,7 +287,7 @@ function buildProductionResolvers(
     },
     async getAskState(id) {
       const db = await getDb(container);
-      if (!db) throw new Error("DB unavailable for ask lookup");
+      if (!db) throw new Error("DB unavailable");
       const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
       // `getById` accepts BOTH id forms via the shared `askIdWhere`, so an
       // `ask#N` needs no extra resolution here — it only needs to be routed to
@@ -286,7 +299,7 @@ function buildProductionResolvers(
     },
     async getMemoryState(id) {
       const db = await getDb(container);
-      if (!db) throw new Error("DB unavailable for memory lookup");
+      if (!db) throw new Error("DB unavailable");
       const { getMemoryRefSummary } = await import("@minsky/domain/memory/memory-service");
       const memory = await getMemoryRefSummary(db, id);
       if (!memory) return { found: false };
@@ -296,7 +309,7 @@ function buildProductionResolvers(
     },
     async getWorkspaceState(id) {
       const db = await getDb(container);
-      if (!db) throw new Error("DB unavailable for workspace lookup");
+      if (!db) throw new Error("DB unavailable");
       const { DrizzleSessionRepository } = await import(
         "@minsky/domain/session/drizzle-session-repository"
       );

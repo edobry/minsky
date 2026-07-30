@@ -41,6 +41,14 @@ describe("classifyRef", () => {
     expect(classifyRef("MEM#775").kind).toBe("memory");
   });
 
+  test("the reported id is the canonical short-id token, not the raw casing", () => {
+    // Matches how a uuid is lower-cased, so a caller keying off `id` sees one
+    // stable form regardless of how the ref was typed (PR #2451 R1).
+    expect(classifyRef("Ask#6448").id).toBe("ask#6448");
+    expect(classifyRef("MEM#775").id).toBe("mem#775");
+    expect(classifyRef("WS#1").id).toBe("ws#1");
+  });
+
   // mt#3354 AT5: reserving the three entity prefixes must not narrow the
   // open-ended task-backend registry.
   test("a non-entity prefix still classifies as a task ref", () => {
@@ -204,6 +212,26 @@ describe("resolveRefs", () => {
     expect(result?.error).toMatch(/asks down/);
     expect(result?.error).toMatch(/memories down/);
     expect(result?.error).toMatch(/workspaces down/);
+  });
+
+  test("one shared cause across every store is reported once, not three times", async () => {
+    // The realistic total-failure case: the DB is down, so all three stores
+    // throw the SAME message. Printing it three times on one CLI line is noise
+    // (PR #2451 R1).
+    const dbDown: RefResolvers = {
+      ...resolvers,
+      getAskState: async () => {
+        throw new Error("DB unavailable");
+      },
+      getMemoryState: async () => {
+        throw new Error("DB unavailable");
+      },
+      getWorkspaceState: async () => {
+        throw new Error("DB unavailable");
+      },
+    };
+    const [result] = await resolveRefs([MEMORY_UUID], dbDown);
+    expect(result?.error).toBe("uuid lookup failed — DB unavailable");
   });
 });
 

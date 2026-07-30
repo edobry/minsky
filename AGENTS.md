@@ -776,7 +776,8 @@ Originating incident + cost: `docs/rules-rationale/operational-safety-dry-run-fi
 Prefer these over hand-rolled scripts, raw SQL, or `jq`/`comm` pipelines: **`tasks_bulk-edit`**
 (dry-run returns a per-record change set + a token; execute requires that token and ABORTS on
 drift since the dry-run — the scope-match check above, enforced in code) and **`refs_status`**
-(id-set cross-reference — task ids, PR numbers, ask uuids — in ONE call, replacing hand-rolled
+(id-set cross-reference — task ids, PR numbers, and asks / memories / workspaces by either their
+`ask#N` / `mem#N` / `ws#N` short id or their uuid — in ONE call, replacing hand-rolled
 `jq`/`comm` pipelines that have contained real bugs). The >10-record task-wrapper requirement
 still applies to the operation as a whole. Mechanics:
 `docs/rules-rationale/operational-safety-dry-run-first.md §Sanctioned primitives`.
