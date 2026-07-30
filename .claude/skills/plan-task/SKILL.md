@@ -910,10 +910,8 @@ meant to hide. So a collapsible cannot be used to smuggle the structured half ba
 it is not a pointer, it is the detail plus two visible tags. The same renderer means the same
 failure for every other HTML affordance, so the prohibition covers them too (`<br>`,
 `<sub>`, inline `<table>`). PR bodies and Notion pages are a different surface, where
-`<details>` does work and stays available. When emitting the deeplink the paragraph above
-calls for, percent-encode the task id's `#` in the URI and leave it bare in the label —
-`[mt#NNNN](minsky://task/mt%23NNNN)`, per `cockpit-deeplinks.mdc`. Incident: mt#3371
-(19 collapsibles across 12 conversations, all of them this skill's gate reports).
+`<details>` does work and stays available. Incident: mt#3371 (19 collapsibles across 12
+conversations, all of them this skill's gate reports).
 
 **All gate criteria pass:**
 
