@@ -46,7 +46,7 @@
 // @see .minsky/hooks/fire-log.ts — `FireLogEntry.taskResolutionSource`, where the source lands
 // @see .minsky/hooks/merge-gate-fire-log.ts — `MergeGateFireLogContext`, how gates report it
 
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { execSync } from "./types";
 import type { ToolHookInput } from "./types";
 import type { TaskResolutionSource } from "./fire-log";
@@ -78,7 +78,7 @@ export interface TaskIdResolution {
 const TASK_BRANCH_PATTERN = /^task\/mt[-#](\d+)$/;
 
 /**
- * Root directory session workspaces live under.
+ * Root directory session workspaces live under, or `null` when it cannot be determined.
  *
  * Mirrors the resolution order the domain layer already uses
  * (`packages/domain/src/session/dispatch-intent-writer.ts`, `src/cockpit/prod-state-cache.ts`):
@@ -86,14 +86,38 @@ const TASK_BRANCH_PATTERN = /^task\/mt[-#](\d+)$/;
  * than imported because this module may not import from the domain layer
  * (`.minsky/hooks/SPEC.md`); if the domain's order ever changes, this must change with it or
  * the `sessionId` channel silently stops resolving (and degrades to a warning, not a bad id).
+ *
+ * Returns `null` rather than a relative path when every source is unset or empty — a bare
+ * `join("", ".local", ...)` would resolve against the process cwd and read a branch from
+ * whatever repo happens to be there (PR #2431 R1, non-blocking finding).
  */
-function sessionsRoot(): string {
-  const stateDir =
-    process.env["MINSKY_STATE_DIR"] ??
-    (process.env["XDG_STATE_HOME"]
-      ? join(process.env["XDG_STATE_HOME"], "minsky")
-      : join(process.env["HOME"] ?? "", ".local", "state", "minsky"));
-  return join(stateDir, "sessions");
+function sessionsRoot(): string | null {
+  const explicit = process.env["MINSKY_STATE_DIR"];
+  if (explicit) return join(explicit, "sessions");
+
+  const xdg = process.env["XDG_STATE_HOME"];
+  if (xdg) return join(xdg, "minsky", "sessions");
+
+  const home = process.env["HOME"];
+  if (!home) return null;
+  return join(home, ".local", "state", "minsky", "sessions");
+}
+
+/**
+ * A session id safe to use as a single path segment under the sessions root.
+ *
+ * `sessionId` arrives as opaque caller-supplied text, and it is joined into a filesystem
+ * path — so `../../..`, an absolute path, or an embedded separator would escape the sessions
+ * root and make the resolver read some unrelated repository's branch. For a merge gate a
+ * CONFIDENTLY WRONG task id is worse than no id at all (the gate would evaluate the wrong
+ * PR and report a clean pass), so this fails closed: anything that is not a plain, dot-free
+ * single segment is rejected and the channel declines to resolve. Session ids minted by
+ * `session_start` are UUIDs, well inside this charset (PR #2431 R1, blocking finding).
+ */
+const SAFE_SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function isSafeSessionSegment(candidate: string): boolean {
+  return SAFE_SESSION_ID_PATTERN.test(candidate) && !candidate.includes("..");
 }
 
 /** Read `dir`'s checked-out branch and parse a task id out of it. Never throws. */
@@ -135,9 +159,18 @@ export function resolveMergeGateTaskId(input: ToolHookInput): TaskIdResolution {
   }
 
   const sessionId = input.tool_input?.["sessionId"];
-  if (typeof sessionId === "string" && sessionId.trim().length > 0) {
-    const fromSession = taskIdFromBranchAt(join(sessionsRoot(), sessionId.trim()));
-    if (fromSession) return { taskId: fromSession, source: "session-workspace-branch" };
+  if (typeof sessionId === "string") {
+    const candidate = sessionId.trim();
+    const root = sessionsRoot();
+    if (candidate.length > 0 && isSafeSessionSegment(candidate) && root) {
+      const workspace = join(root, candidate);
+      // Defense in depth: even a segment that passed the charset guard must land under the
+      // root. If it somehow does not, decline rather than read an arbitrary directory.
+      if (workspace.startsWith(`${root}${sep}`)) {
+        const fromSession = taskIdFromBranchAt(workspace);
+        if (fromSession) return { taskId: fromSession, source: "session-workspace-branch" };
+      }
+    }
   }
 
   return { taskId: null, source: "unresolved" };

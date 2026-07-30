@@ -59,6 +59,9 @@ const EXPECTED_BRANCH_TASK_ID = "mt#9999";
 
 /** The env var `sessionsRoot()` reads first — pinned per-test so the real state dir is never touched. */
 const STATE_DIR_ENV = "MINSKY_STATE_DIR";
+/** The remaining two sources `sessionsRoot()` falls through to, in order. */
+const XDG_STATE_HOME_ENV = "XDG_STATE_HOME";
+const HOME_ENV = "HOME";
 
 // ---------------------------------------------------------------------------
 // Captured payload fixture (provenance lives in the JSON itself)
@@ -240,6 +243,61 @@ describe("resolveMergeGateTaskId", () => {
     );
     expect(result.source).toBe("branch-fallback");
     expect(result.taskId).toBe(EXPECTED_BRANCH_TASK_ID);
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#3380 / PR #2431 R1 — the sessionId segment must not escape the root
+  // -------------------------------------------------------------------------
+
+  test("rejects a traversal sessionId even when the traversal would resolve to a real workspace", () => {
+    // Negative control: this path NORMALIZES to the very workspace AT1 resolves, so an
+    // unguarded `join` would return mt#9999 here. The guard must decline instead.
+    const traversal = join("..", "sessions", CAPTURED_SESSION_ID);
+    const result = withStateDir(stateDirWithSession, () =>
+      resolveMergeGateTaskId(hookInput({ sessionId: traversal }, mainBranchRepo))
+    );
+    expect(result.source).toBe("unresolved");
+    expect(result.taskId).toBeNull();
+  });
+
+  test("rejects a sessionId containing a path separator", () => {
+    const result = withStateDir(stateDirWithSession, () =>
+      resolveMergeGateTaskId(
+        hookInput({ sessionId: `subdir/${CAPTURED_SESSION_ID}` }, mainBranchRepo)
+      )
+    );
+    expect(result.source).toBe("unresolved");
+    expect(result.taskId).toBeNull();
+  });
+
+  test("rejects an absolute-path sessionId pointing at a real task-branch repo", () => {
+    const result = withStateDir(stateDirWithSession, () =>
+      resolveMergeGateTaskId(hookInput({ sessionId: taskBranchRepo }, mainBranchRepo))
+    );
+    expect(result.source).toBe("unresolved");
+    expect(result.taskId).toBeNull();
+  });
+
+  test("declines the sessionId channel when no state dir and no HOME can be resolved", () => {
+    const saved = {
+      state: process.env[STATE_DIR_ENV],
+      xdg: process.env[XDG_STATE_HOME_ENV],
+      home: process.env[HOME_ENV],
+    };
+    delete process.env[STATE_DIR_ENV];
+    delete process.env[XDG_STATE_HOME_ENV];
+    delete process.env[HOME_ENV];
+    try {
+      const result = resolveMergeGateTaskId(
+        hookInput(CAPTURED.sessionIdInvoked.toolInput, mainBranchRepo)
+      );
+      expect(result.source).toBe("unresolved");
+      expect(result.taskId).toBeNull();
+    } finally {
+      if (saved.state !== undefined) process.env[STATE_DIR_ENV] = saved.state;
+      if (saved.xdg !== undefined) process.env[XDG_STATE_HOME_ENV] = saved.xdg;
+      if (saved.home !== undefined) process.env[HOME_ENV] = saved.home;
+    }
   });
 });
 
