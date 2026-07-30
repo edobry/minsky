@@ -37,6 +37,12 @@
  * - `user` — a complete message (operator input echo, or a tool-result
  *   round-trip per mt#2750's "nested MCP tool-use" test). Always a fresh,
  *   already-complete top-level block — no accumulation needed.
+ * - `minsky_operator_input` — a synthetic frame the host appends when the
+ *   operator sends a turn through the composer (mt#3372). The child never
+ *   echoes stdin back, so this is the ONLY source of the operator's own turns;
+ *   without it the view renders everything except what the operator wrote.
+ *   Kept structurally distinct from `user` above, which on this channel only
+ *   ever carries HARNESS-origin content (tool results, injected skill bodies).
  * - `result` — terminal per-turn summary (usage/cost/duration). NOT rendered
  *   as a conversation block (no `rawJsonlType` of `user`/`assistant`, so
  *   `snapshotBlockToConversationTurn` would drop it anyway) — surfaced
@@ -458,6 +464,43 @@ export function foldDrivenSessionEvent(
         ...state,
         blocks: upsertBlock(state.blocks, block),
         turnSeq,
+        interactionState: "streaming",
+      };
+    }
+
+    case "minsky_operator_input": {
+      // The operator's own turn, synthesized by the host on send
+      // (`driven-session-host.ts`'s DRIVEN_OPERATOR_INPUT_EVENT_TYPE) because
+      // the child never echoes stdin back (mt#3372). Shaped into the same
+      // Messages-API content-block form the `user` case above receives, so the
+      // shared renderer needs no new branch.
+      //
+      // The frame carries its own `timestamp` — stamped when the host accepted
+      // the send, not when this reducer ran. That distinction matters on the
+      // replay path: a reload folds the whole event log at once, so a
+      // fold-time clock would collapse every historical turn onto the reload
+      // instant.
+      const text = typeof payload["text"] === "string" ? payload["text"] : "";
+      const turnSeq = state.turnSeq + 1;
+      const block: SessionContextSnapshotBlock = {
+        id: `driven:turn:${turnSeq}`,
+        type: "user-prompt",
+        source: "observed",
+        content: { role: "user", content: [{ type: "text", text }] },
+        timestamp:
+          typeof payload["timestamp"] === "string"
+            ? payload["timestamp"]
+            : new Date().toISOString(),
+        turnIndex: turnSeq,
+        rawJsonlType: "user",
+      };
+      return {
+        ...state,
+        blocks: upsertBlock(state.blocks, block),
+        turnSeq,
+        // The operator just handed the turn to the assistant — the composer
+        // stays closed until the terminal `result` reopens it, same as any
+        // other in-flight turn.
         interactionState: "streaming",
       };
     }
