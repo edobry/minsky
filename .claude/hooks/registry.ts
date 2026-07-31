@@ -537,14 +537,20 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-dispatch-watchdog").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
-    // mt#3485: 1800 -> 1450, and unlike every other annotation in this file
+    // mt#3485: 1800 -> 1550, and unlike every other annotation in this file
     // this one is a genuine WORST-CASE BOUND rather than a canary sample. The
-    // banner now caps enumerated dispatches at MAX_ENUMERATED_FLAGS (5, with a
-    // "+N more" elision), so its size no longer scales without limit: measured
-    // 855 at one flag and 1362 at twelve, the latter being the ceiling for any
-    // flag count. Declared above that ceiling because this guard's annotation
-    // is the one the merged budget can least afford to understate.
-    attentionCost: { denialMessageSizeChars: 1450, optionCount: 3 },
+    // banner caps enumerated dispatches at MAX_ENUMERATED_FLAGS (5, with a
+    // "+N more" elision), so its size no longer scales without limit.
+    //
+    // The bound is STRUCTURAL, not sampled (PR #2499 R1): past the cap the only
+    // remaining variation is per-field width, so saturating every field gives a
+    // true maximum. Measured at 1488 with the widest realistic values — longest
+    // agentType (`claude-code-guide`), a full-UUID sessionId, an `unknown` age
+    // string, the longest activitySource, and a 9-char taskId — flat from 6
+    // flags to 1000. Ordinary render is 866. Declared at 1550 above that
+    // measured maximum, because this guard's annotation is the one the merged
+    // budget can least afford to understate.
+    attentionCost: { denialMessageSizeChars: 1550, optionCount: 3 },
     canary: {
       input: {},
       expects: "warn",

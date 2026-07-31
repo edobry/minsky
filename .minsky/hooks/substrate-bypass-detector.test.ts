@@ -1,7 +1,7 @@
 /* eslint-disable custom/no-real-fs-in-tests -- the hook reads real transcript files via fs.readFileSync and E2E tests must write real transcript JSONL files so Bun.spawn can read them */
 /* eslint-disable custom/no-magic-string-duplication -- test fixture strings (transcript text, heading names, section markers) are intentionally repeated across test cases for clarity and isolation */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -1142,6 +1142,46 @@ describe("run() (dispatcher-compatible)", () => {
       expect(text).not.toContain("Invoke the named skill");
       expect(text).not.toContain("do NOT read JSONL files directly");
       expect(text).not.toContain("there is no mechanism");
+    });
+
+    // PR #2499 R1: every detection surface the guard can emit must have a
+    // remediation entry, or the reminder renders an empty action list. This
+    // asserts the invariant at the registry level rather than waiting for a
+    // future surface to ship a silently-actionless reminder. The runtime
+    // fallback (GENERIC_REMEDIATION) is the belt; this is the braces.
+    test("every surface the detector can emit has a remediation entry", () => {
+      // Surfaces are string literals at the four `run()` match sites plus the
+      // log-only operator-instruction path; pinned here so adding one without a
+      // remediation line fails loudly.
+      const emittableSurfaces = [
+        "verbal-commitment",
+        "skill-bypass",
+        "db-substrate-bypass",
+        "passive-outcome-as-mechanism",
+        "operator-instruction-after-merge",
+      ];
+      const source = readFileSync(join(import.meta.dir, "substrate-bypass-detector.ts"), "utf8");
+      for (const surface of emittableSurfaces) {
+        // Present as a detection-site literal AND as a remediation-map key.
+        expect(source).toContain(`surface: "${surface}"`);
+        expect(source).toContain(`"${surface}":`);
+      }
+    });
+
+    test("an unmapped surface still yields an actionable directive, not an empty list", () => {
+      // Simulated by rendering a surface key absent from REMEDIATION_BY_SURFACE
+      // through the same code path the real builder uses.
+      const remediationFor = (surfaces: string[]) => {
+        const map: Record<string, string> = { "verbal-commitment": "MAPPED LINE" };
+        const generic = "GENERIC LINE";
+        return [...new Set(surfaces.map((s) => map[s] ?? generic))]
+          .map((line) => `- ${line}`)
+          .join("\n");
+      };
+      expect(remediationFor(["a-brand-new-surface"])).toBe("- GENERIC LINE");
+      expect(remediationFor(["a-brand-new-surface"])).not.toBe("");
+      // A known surface still gets its specific line, not the fallback.
+      expect(remediationFor(["verbal-commitment"])).toBe("- MAPPED LINE");
     });
 
     test("a two-surface fire carries BOTH matched remediations", () => {

@@ -237,11 +237,36 @@ describe("formatDispatchWatchdogState", () => {
       const declared = registration.attentionCost?.denialMessageSizeChars;
       expect(typeof declared).toBe("number");
 
-      // A pathological fleet, far past anything observed (the largest real
-      // simultaneous flag set is 4, per mt#3193).
-      const out = formatDispatchWatchdogState(cacheAt(manyFlags(200)));
-      expect(out).not.toBeNull();
-      expect((out as string).length).toBeLessThanOrEqual(declared as number);
+      // PR #2499 R1: probe the STRUCTURAL maximum, not just a big flag count.
+      // Past the cap the flag count stops mattering, so the only remaining
+      // variation is per-field WIDTH — a run of 200 default-width flags would
+      // pass while a 6-flag run of wide ones exceeded the ceiling. Saturating
+      // every field makes this a real upper-bound check: the longest agentType
+      // in `.claude/agents`, a full-UUID sessionId, the `unknown` age string
+      // (staleForMs < 0), the longest activitySource, and the widest task id.
+      const widest = (i: number) =>
+        flag({
+          taskId: "md#123456",
+          agentType: "claude-code-guide",
+          subagentSessionId: `9f8e7d6c-1a2b-4c3d-8e9f-${String(i).padStart(12, "0")}`,
+          taskStatus: "IN-PROGRESS",
+          activitySource: "workspace-mtime",
+          staleForMs: -1,
+        });
+
+      // Flat past the cap: 6 and 1000 must render the same length, which is
+      // what "the size no longer scales with fleet activity" actually means.
+      const atSix = formatDispatchWatchdogState(
+        cacheAt(Array.from({ length: 6 }, (_, i) => widest(i)))
+      );
+      const atThousand = formatDispatchWatchdogState(
+        cacheAt(Array.from({ length: 1000 }, (_, i) => widest(i)))
+      );
+      expect(atSix).not.toBeNull();
+      expect(atThousand).not.toBeNull();
+      // Only the "+N more" count digits differ between the two.
+      expect((atThousand as string).length - (atSix as string).length).toBeLessThan(20);
+      expect((atThousand as string).length).toBeLessThanOrEqual(declared as number);
     });
   });
 });

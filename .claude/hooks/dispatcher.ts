@@ -473,13 +473,13 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  *     and whose absence would make the agent assert stale facts:
  *     inject-current-time 90 + inject-git-state 300 + inject-prod-state 250 +
  *     memory-search 550 = **1190**.
- *   - The five largest conditional detectors: inject-dispatch-watchdog 1450 +
+ *   - The five largest conditional detectors: inject-dispatch-watchdog 1550 +
  *     substrate-bypass 650 + pre-narration 650 + code-mechanism-assertion 600 +
- *     ask-routing-deferral 600 = **3950**.
+ *     ask-routing-deferral 600 = **4050**.
  *
- * 1190 + 3950 = 5140 chars of fragment TEXT. The budget bounds the emitted
+ * 1190 + 4050 = 5240 chars of fragment TEXT. The budget bounds the emitted
  * BLOCK, which also carries the `\n\n` separators between fragments: 9
- * fragments means 8 separators at 2 chars = 16. So 5140 + 16 = **5156**.
+ * fragments means 8 separators at 2 chars = 16. So 5240 + 16 = **5256**.
  *
  * (That separator term is not pedantry — the first draft of this constant
  * omitted it and the "measured turn is not truncated" test below failed by
@@ -490,9 +490,9 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  *
  *   1. The three heaviest guards were trimmed to the authoring standard
  *      (`.minsky/rules/guard-feedback-authoring.mdc`): dispatch-watchdog
- *      1668 -> 855 measured (and now CAPPED, so 1362 bounds any flag count),
- *      substrate-bypass 1518 -> 563, pre-narration 1029 -> 581. Their
- *      annotations came down 1800/1600/1100 -> 1450/650/650.
+ *      1668 -> 866 measured (and now CAPPED, so 1488 bounds any flag count at
+ *      any field width), substrate-bypass 1518 -> 563, pre-narration
+ *      1029 -> 581. Their annotations came down 1800/1600/1100 -> 1550/650/650.
  *   2. `inject-dispatch-watchdog` moved OUT of the always-on bucket, where the
  *      mt#3479 derivation had placed it. It is registered always-on and does
  *      run every turn, but `formatDispatchWatchdogState` returns null for both
@@ -512,14 +512,14 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  * A turn where everything always-on fires AND the five heaviest detectors all
  * fire at once therefore still fits. The budget does not bind on any realistic
  * turn; it binds on the pathological tail, where the annotated all-22 total is
- * 11140. That is the intent: bound unbounded growth as detectors graduate,
+ * 11240. That is the intent: bound unbounded growth as detectors graduate,
  * without truncating ordinary turns.
  *
  * This number should keep coming DOWN as more guard text is trimmed to the
  * authoring standard — it is sized by what the corpus currently emits, not by
  * what it ought to emit.
  */
-export const MERGED_CONTEXT_BUDGET_CHARS = 5156;
+export const MERGED_CONTEXT_BUDGET_CHARS = 5256;
 
 /** Separator between merged fragments — preserved from the pre-mt#3394 join. */
 const FRAGMENT_SEPARATOR = "\n\n";

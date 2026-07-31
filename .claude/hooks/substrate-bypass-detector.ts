@@ -693,6 +693,14 @@ interface MatchedSurface {
  * §Build vs buy`; the passive-outcome-as-mechanism surface originates in the
  * mt#2056 closeout (2026-05-23), and the detector itself in mt#2020.
  */
+/**
+ * Fallback directive for a matched surface with no `REMEDIATION_BY_SURFACE`
+ * entry (PR #2499 R1). Keeps the reminder actionable for a surface added to the
+ * detector without a map entry, instead of rendering an empty action list.
+ */
+const GENERIC_REMEDIATION =
+  "Call the canonical substrate named above instead of describing the action — saying it is not doing it.";
+
 const REMEDIATION_BY_SURFACE: Record<string, string> = {
   "verbal-commitment":
     "Call the named substrate now with the intended content — describing what you would save or file is not doing it.",
@@ -719,8 +727,17 @@ function buildReminder(surfaces: MatchedSurface[]): string {
   // a single-surface fire — instructions for surfaces the turn never tripped,
   // which is exactly what the authoring standard's quoted-evidence part
   // replaces. Deduped because two surfaces can match on the same turn.
-  const remediation = [...new Set(surfaces.map((s) => REMEDIATION_BY_SURFACE[s.surface]))]
-    .filter((line): line is string => typeof line === "string")
+  //
+  // PR #2499 R1: a surface with no REMEDIATION_BY_SURFACE entry falls back to a
+  // generic directive rather than contributing nothing. The first draft filtered
+  // unmapped surfaces out, so adding a detection surface without a map entry
+  // would have rendered "**Required next action:**" followed by NOTHING — a
+  // reminder that fires, costs its full attention budget, and asks for no
+  // action. The fallback is still actionable because the evidence line above it
+  // already names that surface's concrete `canonicalSubstrate`.
+  const remediation = [
+    ...new Set(surfaces.map((s) => REMEDIATION_BY_SURFACE[s.surface] ?? GENERIC_REMEDIATION)),
+  ]
     .map((line) => `- ${line}`)
     .join("\n");
 

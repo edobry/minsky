@@ -239,7 +239,11 @@ export function formatDispatchWatchdogState(
     // the absolute timestamp is derivable from the two — and at ~40 chars on
     // the one part of this banner that scales per dispatch, it was the most
     // expensive derivable field in the whole injection.
-    return `  - ${f.taskId} (${f.taskStatus} ${f.agentType}, session=${sidStr}): silent ${age}, source=${f.activitySource}`;
+    // PR #2499 R1: `agentType=` keeps its label. The first draft dropped it to
+    // save ~10 chars/line, but the labelled `field=value` form is what makes
+    // this line scannable, and no consumer had to be broken to save 50 chars at
+    // the cap. `lastActivityAt` stays dropped — that one is genuinely derivable.
+    return `  - ${f.taskId} (${f.taskStatus}, agentType=${f.agentType}, session=${sidStr}): silent ${age}, source=${f.activitySource}`;
   });
 
   const shown = lines.slice(0, MAX_ENUMERATED_FLAGS);
