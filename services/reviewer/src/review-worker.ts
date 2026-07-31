@@ -75,6 +75,7 @@ import {
 import type { ReviewerToolContext } from "./tools";
 import { sanitizeReviewBody, redactForLog } from "./sanitize";
 import { extractFixCommitDiff, type FixCommitLineRangeMap } from "./diff-scoper";
+import { resolveDiffScope } from "./incremental-diff-scope";
 import { submitReviewWithGuards } from "./guarded-submit";
 import { fetchAndVerifyDocImpact } from "./doc-impact-verifier";
 import { fetchAndApplyStructuralClaimVerification } from "./structural-claim-verifier";
@@ -625,63 +626,22 @@ async function runReviewBody(
   // one also arms mt#1875's severity-downgrade pass, which changes what the
   // reviewer BLOCKS on. This flag changes only how much context the round is
   // given, so the cost lever can ship without the quality-affecting one.
-  const incrementalDiffEnabled = /^(true|1|yes|on)$/i.test(
-    (process.env.REVIEWER_INCREMENTAL_DIFF_ENABLED ?? "").trim()
-  );
-  let incrementalDiffApplied = false;
-
-  if (incrementalDiffEnabled && latestPriorReviewCommitId !== undefined) {
-    const incrementalDiffFetcher = deps.incrementalDiffFetcher ?? fetchIncrementalDiffSince;
-    let incremental: Awaited<ReturnType<typeof fetchIncrementalDiffSince>>;
-    try {
-      incremental = await incrementalDiffFetcher(
-        octokit,
-        owner,
-        repo,
-        latestPriorReviewCommitId,
-        pr.headSha,
-        config.githubTimeoutMs
-      );
-    } catch (err: unknown) {
-      // fetchIncrementalDiffSince swallows its own errors; this covers an
-      // injected fetcher (or a future variant) that throws instead.
-      const message = err instanceof Error ? err.message : String(err);
-      log.warn("reviewer.incremental_diff_failed", {
-        event: "reviewer.incremental_diff_failed",
-        pr: prNumber,
-        baseSha: latestPriorReviewCommitId,
-        headSha: pr.headSha,
-        error: message,
-      });
-      incremental = undefined;
-    }
-
-    if (incremental !== undefined) {
-      promptDiff = incremental.diff;
-      promptFileEntries = incremental.fileEntries;
-      incrementalDiffApplied = true;
-      log.info("reviewer.incremental_diff_applied", {
-        event: "reviewer.incremental_diff_applied",
-        pr: prNumber,
-        baseSha: latestPriorReviewCommitId,
-        headSha: pr.headSha,
-        fullDiffChars: pr.diff.length,
-        incrementalDiffChars: incremental.diff.length,
-        fullFileCount: pr.fileEntries.length,
-        incrementalFileCount: incremental.fileEntries.length,
-      });
-    } else {
-      // Distinct event from the failure log above: this is the DESIGNED
-      // fallback (force-push made the base unreachable, comparison truncated or
-      // 5xx'd, or no new commits), not an error. AT2 asserts on this event.
-      log.info("reviewer.incremental_diff_fallback_full", {
-        event: "reviewer.incremental_diff_fallback_full",
-        pr: prNumber,
-        baseSha: latestPriorReviewCommitId,
-        headSha: pr.headSha,
-      });
-    }
-  }
+  const incrementalDiffFetcher = deps.incrementalDiffFetcher ?? fetchIncrementalDiffSince;
+  const diffScope = await resolveDiffScope({
+    enabled: /^(true|1|yes|on)$/i.test(
+      (process.env.REVIEWER_INCREMENTAL_DIFF_ENABLED ?? "").trim()
+    ),
+    priorReviewCommitId: latestPriorReviewCommitId,
+    headSha: pr.headSha,
+    fullDiff: pr.diff,
+    fullFileEntries: pr.fileEntries,
+    fetchIncremental: (baseSha, headSha) =>
+      incrementalDiffFetcher(octokit, owner, repo, baseSha, headSha, config.githubTimeoutMs),
+    prNumber,
+  });
+  promptDiff = diffScope.diff;
+  promptFileEntries = diffScope.fileEntries;
+  const incrementalDiffApplied = diffScope.source === "incremental";
 
   if (diffScopeBoundedEnabledForPrompt && priorReviewsPresentForPrompt) {
     // mt#1875's downgrade pass derives its scope map from the SAME diff the
