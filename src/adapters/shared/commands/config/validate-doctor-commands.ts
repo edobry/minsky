@@ -322,6 +322,45 @@ export const configDoctorRegistration = defineCommand({
       });
     }
 
+    // Configured provider default models vs the cached provider listing
+    // (mt#3389). Reads the already-cached listing only — no network call, so
+    // this stays within config.doctor's lightweight-diagnostic contract.
+    try {
+      const { collectConfiguredProviderModels, checkConfiguredModelsAgainstListing } = await import(
+        "./doctor-model-checks"
+      );
+      const { DefaultModelCacheService } = await import("@minsky/domain/ai/model-cache/index");
+
+      const provider = getConfigurationProvider();
+      const config = provider.getConfig();
+
+      // Short-circuit when configuration is unavailable. The Configuration
+      // Loading check above already reports that as an error; running this
+      // check anyway would either throw on `config.ai` — surfacing the same
+      // root failure a second time as an opaque "check failed" — or imply the
+      // configured models were inspected when nothing was read.
+      if (!config) {
+        diagnostics.push({
+          check: "Configured Model Validity",
+          status: "pass",
+          message:
+            "Skipped — configuration could not be loaded, so there are no configured models to " +
+            "check. See the Configuration Loading check for the underlying failure.",
+        });
+      } else {
+        const configured = collectConfiguredProviderModels(config.ai);
+        const cachedByProvider = await new DefaultModelCacheService().getAllCachedModels();
+
+        diagnostics.push(checkConfiguredModelsAgainstListing(configured, cachedByProvider));
+      }
+    } catch (e) {
+      diagnostics.push({
+        check: "Configured Model Validity",
+        status: "error",
+        message: `Configured model check failed: ${getErrorMessage(e)}`,
+      });
+    }
+
     try {
       const configDir = getUserConfigDir();
       if (!existsSync(configDir)) {
