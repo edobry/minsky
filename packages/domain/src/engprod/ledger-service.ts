@@ -41,6 +41,56 @@ export interface ShouldProposeDecision {
   reason?: string;
 }
 
+/**
+ * Pure decision function for the first dedupe stage (ledger, exact
+ * signature). Extracted from `ProposalLedgerService.shouldPropose` so the
+ * curation-gate DECISION logic is testable without a database — the only
+ * inputs are the cluster's current evidence and its (possibly absent) prior
+ * ledger row.
+ */
+export function decideShouldPropose(
+  existing: ProposalLedgerRow | null,
+  cluster: Pick<MinedCluster, "frequency">
+): ShouldProposeDecision {
+  if (!existing) return { propose: true };
+
+  switch (existing.verdict) {
+    case "accepted":
+      return { propose: false, reason: "cluster already accepted (task unblocked)" };
+    case "superseded":
+      return { propose: false, reason: "cluster superseded by an existing task" };
+    case "proposed":
+      return { propose: false, reason: "cluster already proposed and pending triage" };
+    case "suppressed":
+      // Budget-cap suppression is mechanical, not a rejection of the idea —
+      // always eligible to compete again on the next run.
+      return { propose: true };
+    case "rejected": {
+      const doubleThreshold = existing.evidenceFrequency * 2;
+      if (cluster.frequency >= doubleThreshold) return { propose: true };
+      return {
+        propose: false,
+        reason: `re-surface threshold not met (need >= ${doubleThreshold}, have ${cluster.frequency})`,
+      };
+    }
+    default:
+      return { propose: true };
+  }
+}
+
+export type ReconciliationDecision = "accepted" | "rejected" | "no-change";
+
+/**
+ * Pure decision function for ledger reconciliation ("acceptance =
+ * unblocking", spec SC3). `status` is the filed task's CURRENT status, or
+ * `undefined` if the task could not be found this run.
+ */
+export function decideReconciliation(status: string | undefined): ReconciliationDecision {
+  if (status === undefined || status === "BLOCKED") return "no-change";
+  if (status === "CLOSED") return "rejected";
+  return "accepted";
+}
+
 @injectable()
 export class ProposalLedgerService {
   constructor(private readonly db: PostgresJsDatabase) {}
@@ -61,30 +111,7 @@ export class ProposalLedgerService {
    */
   async shouldPropose(cluster: MinedCluster): Promise<ShouldProposeDecision> {
     const existing = await this.getBySignature(cluster.signature);
-    if (!existing) return { propose: true };
-
-    switch (existing.verdict) {
-      case "accepted":
-        return { propose: false, reason: "cluster already accepted (task unblocked)" };
-      case "superseded":
-        return { propose: false, reason: "cluster superseded by an existing task" };
-      case "proposed":
-        return { propose: false, reason: "cluster already proposed and pending triage" };
-      case "suppressed":
-        // Budget-cap suppression is mechanical, not a rejection of the idea —
-        // always eligible to compete again on the next run.
-        return { propose: true };
-      case "rejected": {
-        const doubleThreshold = existing.evidenceFrequency * 2;
-        if (cluster.frequency >= doubleThreshold) return { propose: true };
-        return {
-          propose: false,
-          reason: `re-surface threshold not met (need >= ${doubleThreshold}, have ${cluster.frequency})`,
-        };
-      }
-      default:
-        return { propose: true };
-    }
+    return decideShouldPropose(existing, cluster);
   }
 
   private async upsert(
@@ -200,10 +227,11 @@ export class ProposalLedgerService {
         });
         continue;
       }
-      if (status === undefined || status === "BLOCKED") continue;
+      const decision = decideReconciliation(status);
+      if (decision === "no-change") continue;
 
       const now = new Date();
-      if (status === "CLOSED") {
+      if (decision === "rejected") {
         await this.db
           .update(engprodProposalLedgerTable)
           .set({

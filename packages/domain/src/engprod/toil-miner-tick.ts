@@ -54,6 +54,25 @@ export interface ToilMinerTickDeps {
   taskService: TaskServiceInterface;
   cognitionProvider: CognitionProvider;
   taskSimilarityService: TaskSimilarityService;
+  /**
+   * Test seams (mirrors `adoptionSweeperTick`'s `deps.execAsyncFn` pattern
+   * in `start-command.ts`) — DI rather than module-mocking, per
+   * `eslint-rules/no-global-module-mocks.js`. Production callers omit all
+   * of these; only `toil-miner-tick.test.ts` supplies them, to exercise the
+   * orchestration logic (budget cap, counters, error escalation) without a
+   * real database or LLM provider.
+   */
+  ledgerService?: Pick<
+    ProposalLedgerService,
+    | "reconcileVerdicts"
+    | "shouldPropose"
+    | "recordSuppressedByBudget"
+    | "recordSuperseded"
+    | "recordProposed"
+  >;
+  mineClustersFn?: typeof mineClusters;
+  analyzeClustersFn?: typeof analyzeClusters;
+  fileProposalFn?: typeof fileProposal;
 }
 
 export interface ToilMinerTickOptions extends MineClustersOptions {
@@ -69,7 +88,16 @@ export async function toilMinerTick(
   const runId = randomUUID();
   const startedAt = new Date();
   const counters = emptyRunCounters();
-  const ledgerService = new ProposalLedgerService(deps.db);
+
+  let ledgerService: NonNullable<ToilMinerTickDeps["ledgerService"]>;
+  if (deps.ledgerService) {
+    ledgerService = deps.ledgerService;
+  } else {
+    ledgerService = new ProposalLedgerService(deps.db);
+  }
+  const mine = deps.mineClustersFn ?? mineClusters;
+  const analyze = deps.analyzeClustersFn ?? analyzeClusters;
+  const file = deps.fileProposalFn ?? fileProposal;
 
   log.info("engprod_toil_miner.run_started", {
     event: "engprod_toil_miner.run_started",
@@ -95,7 +123,7 @@ export async function toilMinerTick(
   }
 
   // Stage 1: deterministic mining.
-  const { clusters, turnsScanned } = await mineClusters(deps.db, options);
+  const { clusters, turnsScanned } = await mine(deps.db, options);
   counters.turnsScanned = turnsScanned;
   counters.clustersFound = clusters.length;
 
@@ -121,7 +149,7 @@ export async function toilMinerTick(
   counters.clustersSentToLlm = llmCandidates.length;
 
   // Stage 2: LLM cluster analysis (AI-as-API, direct provider call).
-  const analyses = await analyzeClusters(deps.cognitionProvider, llmCandidates);
+  const analyses = await analyze(deps.cognitionProvider, llmCandidates);
 
   const budgetCap = options.budgetCap ?? DEFAULT_BUDGET_CAP;
   let filedCount = 0;
@@ -152,7 +180,7 @@ export async function toilMinerTick(
     }
 
     // Second dedupe stage (task-similarity) happens inside fileProposal.
-    const result = await fileProposal(
+    const result = await file(
       {
         taskService: deps.taskService,
         taskSimilarityService: deps.taskSimilarityService,

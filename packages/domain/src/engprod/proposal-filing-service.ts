@@ -78,7 +78,8 @@ export function buildProposalSpec(cluster: MinedCluster, analysis: ClusterAnalys
 export interface ProposalFilingDeps {
   taskService: TaskServiceInterface;
   taskSimilarityService: TaskSimilarityService;
-  ledgerService: ProposalLedgerService;
+  /** Only the two write methods this stage uses — narrowed so callers (and tests) can inject a fake. */
+  ledgerService: Pick<ProposalLedgerService, "recordSuperseded" | "recordProposed">;
   similarityThreshold?: number;
 }
 
