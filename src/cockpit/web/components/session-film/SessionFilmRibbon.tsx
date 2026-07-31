@@ -131,6 +131,7 @@ import { deriveActorChanges, isWaitRow, precedingGapMs } from "../../lib/session
 import {
   computeVisibleRowRange,
   rowIndexForScrollTop,
+  scrollTopForRow,
   type ExpandedRowExtra,
 } from "../../lib/session-film-virtualization";
 import { formatDurationShort } from "../../lib/format-duration";
@@ -542,6 +543,62 @@ export function SessionFilmRibbon({
     () => computeVisibleRowRange(scrollTop, viewportHeightPx, ROW_HEIGHT_PX, batchRows.length, 6, expandedRowExtra),
     [scrollTop, viewportHeightPx, batchRows.length, expandedRowExtra]
   );
+
+  /**
+   * Follow the playhead when it moves for a reason OTHER than scrolling
+   * (mt#3466).
+   *
+   * `scrollTop` was a one-way street: the DOM scroll handler drove the playhead,
+   * and nothing ever drove scroll back. So a playhead set by a `?t=` deep link
+   * or by arrow-key stepping moved the fold and the stage while the ribbon sat
+   * wherever it already was. On a film long enough to virtualize, the playhead
+   * row was not merely un-highlighted — it was not MOUNTED, so the receipts rail
+   * and the stage disagreed about where the operator was, with nothing on screen
+   * marked current. (Measured on a ~180-row film: `scrollTop` 0, rows 0-17
+   * rendered, playhead 40, zero `aria-current`.)
+   *
+   * The guard is what keeps this from fighting the user. `scrollTopForRow` and
+   * `rowIndexForScrollTop` are exact inverses over the same expanded-row
+   * geometry, so immediately after ANY user scroll the parent's playhead was
+   * derived from this very `scrollTop` and the condition is already false — no
+   * correcting scroll, no feedback loop, and a deliberate scroll away from the
+   * playhead is left alone. It fires only when the two genuinely disagree, which
+   * is exactly the deep-link and keyboard-stepping cases.
+   *
+   * Deliberately NOT in the dependency list: `viewportHeightPx` and
+   * `expandedRowExtra`. Re-running on those would yank the ribbon back to the
+   * playhead on a window resize or a row expansion — both things the operator
+   * does while reading somewhere else.
+   */
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || batchRows.length === 0) return;
+    const viewport = el.clientHeight || viewportHeightPx;
+    const current = rowIndexForScrollTop(
+      el.scrollTop,
+      ROW_HEIGHT_PX,
+      viewport,
+      batchRows.length,
+      expandedRowExtra
+    );
+    if (current === playheadRowIndex) return;
+    el.scrollTop = scrollTopForRow(
+      playheadRowIndex,
+      ROW_HEIGHT_PX,
+      viewport,
+      range.totalHeightPx,
+      expandedRowExtra
+    );
+    // Keep the virtualizer's own window in step with the scroll we just made:
+    // assigning `scrollTop` programmatically does not always deliver a scroll
+    // event before the next paint, and `range` is computed from this state.
+    setScrollTop(el.scrollTop);
+    // `viewportHeightPx` and `expandedRowExtra` are read above but deliberately
+    // untracked — see the docblock: re-running on them would yank the ribbon
+    // back to the playhead on a resize or a row expansion. (No eslint-disable
+    // here: this config does not register react-hooks/exhaustive-deps, so
+    // referencing it is itself a lint error.)
+  }, [playheadRowIndex, batchRows.length, range.totalHeightPx]);
 
   const chapterByRow = useMemo(() => {
     const m = new Map<number, ChapterMarker>();
