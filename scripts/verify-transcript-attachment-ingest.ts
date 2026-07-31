@@ -140,6 +140,26 @@ try {
     attachmentRows.length === 1,
     `rows=${attachmentRows.length}, type=${attachmentRows[0]?.attachmentType}`
   );
+
+  // AT3 — re-ingesting the same file writes nothing new and reports no error.
+  // The §3a insert must not run a second time (the row now exists), and the
+  // attachment insert's ON CONFLICT DO NOTHING must absorb the repeat.
+  const second = await service.ingestSession(discovered);
+  const attachmentRowsAfterRerun = await db
+    .select({ attachmentType: agentTranscriptAttachmentsTable.attachmentType })
+    .from(agentTranscriptAttachmentsTable)
+    .where(eq(agentTranscriptAttachmentsTable.agentSessionId, conversationId));
+
+  check(
+    "re-ingest is a no-op",
+    second.error === undefined && second.ingested === 0,
+    `ingested=${second.ingested}, error=${second.error ? String(second.error.message).slice(0, 80) : "none"}`
+  );
+  check(
+    "re-ingest did not duplicate the attachment row",
+    attachmentRowsAfterRerun.length === 1,
+    `rows=${attachmentRowsAfterRerun.length}`
+  );
 } finally {
   // Children first: five tables carry an FK to agent_transcripts, and a full
   // ingest writes turns / spawns / tool-call projections as well as the
