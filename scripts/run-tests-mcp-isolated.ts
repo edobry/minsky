@@ -46,6 +46,12 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { toBunTestPath } from "./run-related-tests";
+import {
+  spawnWithWatchdog,
+  resolveWatchdogBudgetMs,
+  formatWatchdogTimeout,
+  WATCHDOG_BUDGETS_MS,
+} from "./spawn-with-watchdog";
 
 export const MCP_DIR = "./src/mcp";
 
@@ -179,21 +185,21 @@ if (import.meta.main) {
   let failures = 0;
   for (const file of files) {
     console.log(`\n=== ${file} ===`);
-    const proc = Bun.spawnSync(
+    // mt#3156: per-file wall-clock watchdog. Isolation means one hung file
+    // previously wedged the whole loop; now it is reaped (SIGTERM -> SIGKILL)
+    // and counted as a failure so the run continues and fails closed.
+    const budgetMs = resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.MCP_ISOLATED_PER_FILE);
+    const result = await spawnWithWatchdog(
       ["bun", "test", "--preload", "./tests/setup.ts", "--timeout=15000", toBunTestArg(file)],
-      { stdout: "pipe", stderr: "pipe" }
+      { budgetMs }
     );
-    // Decode explicitly rather than relying on .toString(): under Bun,
-    // spawnSync's stdout/stderr are Node Buffers (utf-8 .toString() is
-    // correct), but a plain Uint8Array's .toString() would yield comma-joined
-    // bytes and silently break the summary regex. TextDecoder handles both.
-    const decoder = new TextDecoder();
-    const stdout = decoder.decode(proc.stdout);
-    const stderr = decoder.decode(proc.stderr);
-    process.stdout.write(stdout);
-    process.stderr.write(stderr);
+    const stdout = result.stdout;
+    const stderr = result.stderr;
+    if (result.timedOut) {
+      console.error(`::error::${formatWatchdogTimeout(file, budgetMs, result)}`);
+    }
 
-    const verification = verifyIsolatedRun(file, stdout, stderr, proc.exitCode);
+    const verification = verifyIsolatedRun(file, stdout, stderr, result.exitCode);
     if (!verification.passed) {
       console.error(`::error::${file}: ${verification.reason}`);
       failures++;
