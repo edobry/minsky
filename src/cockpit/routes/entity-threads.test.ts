@@ -10,22 +10,53 @@ import { describe, expect, test, afterEach } from "bun:test";
 import type { Server } from "http";
 import express from "express";
 
+import {
+  ENTITY_THREAD_SUPPORTED_TYPES,
+  formatSupportedEntityTypes,
+} from "@minsky/shared/entity-thread-types";
 import { mountEntityThreadRoutes, parseEntityType, parseMessageBody } from "./entity-threads";
 
 describe("parseEntityType", () => {
-  test("accepts the ask type this task ships", () => {
+  test("accepts the ask type", () => {
     expect(parseEntityType("ask")).toBe("ask");
+  });
+
+  test("accepts the task type (mt#3366)", () => {
+    // Flipped from a rejection assertion when mt#3366 added `taskToEntitySeed`.
+    // A type is accepted ONLY once it has an adapter — otherwise every request
+    // for it 404s, which reads as "your id is wrong" rather than "not built".
+    expect(parseEntityType("task")).toBe("task");
   });
 
   test("refuses an entity type with no seed adapter yet, and names what IS supported", () => {
     // Silently accepting these would seed an agent with an empty body — an
-    // agent confidently discussing nothing. mt#3366 adds the adapters and
-    // widens this. The error names the supported set so a caller isn't left
-    // guessing whether the type, the id, or the feature is the problem.
-    const result = parseEntityType("task");
-    expect(typeof result).toBe("object");
-    expect((result as { error: string }).error).toContain("task");
-    expect((result as { error: string }).error).toContain("ask");
+    // agent confidently discussing nothing. Changeset and memory are NOT merely
+    // unbuilt: mt#3366 deliberately declined to mount them. The error names the
+    // supported set so a caller isn't left guessing whether the type, the id,
+    // or the feature is the problem.
+    for (const unsupported of ["changeset", "memory", "session"]) {
+      const result = parseEntityType(unsupported);
+      expect(typeof result).toBe("object");
+      // Asserted VERBATIM, not by substring presence (PR #2467 R1 non-blocking):
+      // the supported list's order comes from the shared declaration's array, so
+      // it is stable and worth pinning. A substring check would pass even if the
+      // message degraded to an unordered or partial list.
+      expect((result as { error: string }).error).toBe(
+        `entity threads are not yet available for '${unsupported}' — supported: ask, task`
+      );
+    }
+  });
+
+  test("every supported type is accepted, and the list drives the message", () => {
+    // Guards the drift the shared declaration exists to prevent: if a kind is
+    // added to ENTITY_THREAD_SUPPORTED_TYPES without an adapter, this still
+    // passes — but the accompanying buildSeedForEntity branch is what the
+    // route-level 404 behavior tests cover. Here the point is that validation
+    // and the advertised list cannot disagree.
+    for (const supported of ENTITY_THREAD_SUPPORTED_TYPES) {
+      expect(parseEntityType(supported)).toBe(supported);
+      expect(formatSupportedEntityTypes()).toContain(supported);
+    }
   });
 
   test("refuses an unknown type", () => {

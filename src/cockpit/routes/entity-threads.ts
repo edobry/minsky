@@ -16,11 +16,17 @@
  *
  * ## Scope boundary (mt#3364 vs its siblings)
  *
- * This module ships the ask mount only. Other entity types are REFUSED with an
- * explicit 400 rather than silently accepted, because each kind needs its own
- * seed adapter (see `askToEntitySeed`) and a thread seeded with an empty body
- * would produce an agent confidently discussing nothing. mt#3366 adds the
- * task / changeset / memory adapters and widens this check.
+ * This module ships the ask and task mounts (mt#3364, widened by mt#3366).
+ * Other entity types are REFUSED with an explicit 400 rather than silently
+ * accepted, because each kind needs its own seed adapter (see `askToEntitySeed`
+ * / `taskToEntitySeed`) and a thread seeded with an empty body would produce an
+ * agent confidently discussing nothing.
+ *
+ * Changeset and memory are deliberately NOT mounted — not merely unbuilt. A
+ * changeset already has a review surface carrying more context than a thread
+ * would, and no one has been able to state the question a memory thread
+ * answers. See mt#3366's scope note. Adding either later is one adapter plus
+ * one entry in `SUPPORTED_ENTITY_TYPES`.
  *
  * The reply STREAM to the browser is not here either — that is the panel's
  * concern (mt#3365), which consumes the existing per-session driven WebSocket.
@@ -35,6 +41,12 @@ import type express from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import {
+  ENTITY_THREAD_SUPPORTED_TYPES,
+  formatSupportedEntityTypes,
+  isEntityThreadSupportedType,
+  type EntityThreadSupportedType,
+} from "@minsky/shared/entity-thread-types";
+import {
   appendEntityThreadTurn,
   entityThreadLocalId,
   findEntityThread,
@@ -46,9 +58,14 @@ import {
   askToEntitySeed,
   createEntityThreadReplyRecorder,
   startEntityThreadSession,
+  taskToEntitySeed,
   type EntityThreadSession,
 } from "../entity-thread-launch";
-import { createCachedSqlDbGetter, getServerAskRepository } from "../db-providers";
+import {
+  createCachedSqlDbGetter,
+  getServerAskRepository,
+  getServerTaskService,
+} from "../db-providers";
 import {
   drivenSessionRegistry,
   hasLiveActuator,
@@ -79,8 +96,20 @@ function isThreadAgentLive(localId: string, registry = drivenSessionRegistry): b
  */
 const getEntityThreadDb = createCachedSqlDbGetter({ cacheNegative: false });
 
-/** Entity kinds this module can seed today. See the docblock's scope boundary. */
-const SUPPORTED_ENTITY_TYPES = new Set<EntityThreadEntityType>(["ask"]);
+/**
+ * The supported set is declared ONCE, in `@minsky/shared/entity-thread-types`,
+ * and shared with the browser panel (PR #2467 R1 BLOCKING). It used to be a
+ * local `Set` here plus a hand-written union in the panel, which could drift
+ * silently and forced a panel edit on every widening.
+ *
+ * This assertion is the compile-time bridge to the PERSISTENCE type, which lives
+ * in a Drizzle-importing module the browser cannot load. If a kind is ever added
+ * to the shared list that the store cannot persist, this line fails to compile
+ * rather than failing at the first INSERT.
+ */
+const _supportedTypesArePersistable: readonly EntityThreadEntityType[] =
+  ENTITY_THREAD_SUPPORTED_TYPES;
+void _supportedTypesArePersistable;
 
 export interface EntityThreadRoutesOptions {
   /** Override the database handle (tests). */
@@ -102,16 +131,18 @@ export interface EntityThreadRoutesOptions {
  * a bare 400 would leave a caller guessing whether the type was wrong, the id
  * was wrong, or the feature is simply not built yet for their entity.
  */
-export function parseEntityType(raw: unknown): EntityThreadEntityType | { error: string } {
+export function parseEntityType(raw: unknown): EntityThreadSupportedType | { error: string } {
   if (typeof raw !== "string" || raw.length === 0) {
     return { error: "entityType is required" };
   }
-  if (!SUPPORTED_ENTITY_TYPES.has(raw as EntityThreadEntityType)) {
+  if (!isEntityThreadSupportedType(raw)) {
+    // Order comes from the shared declaration, so this message is stable
+    // (PR #2467 R1 non-blocking) and can be asserted verbatim in tests.
     return {
-      error: `entity threads are not yet available for '${raw}' — supported: ${[...SUPPORTED_ENTITY_TYPES].join(", ")}`,
+      error: `entity threads are not yet available for '${raw}' — supported: ${formatSupportedEntityTypes()}`,
     };
   }
-  return raw as EntityThreadEntityType;
+  return raw;
 }
 
 /** Validate a POST message body. */
@@ -264,6 +295,37 @@ async function buildSeedForEntity(
   entityType: EntityThreadEntityType,
   entityId: string
 ): Promise<ReturnType<typeof askToEntitySeed> | null> {
+  if (entityType === "task") {
+    const taskService = await getServerTaskService();
+    if (!taskService) return null;
+    const task = await taskService.getTask(entityId);
+    if (!task) return null;
+    // `getTask` does not populate `spec` on every backend, so fetch the body
+    // separately and tolerate its absence — a task with no readable spec is
+    // still a real task, and `taskToEntitySeed` names the gap rather than
+    // seeding an empty body.
+    let spec: string | null = task.spec ?? null;
+    if (!spec) {
+      try {
+        spec = (await taskService.getTaskSpecContent(entityId)).content;
+      } catch (err) {
+        // Not fatal: log it rather than swallowing, then seed without the body.
+        log.warn(`entity-thread: no spec content for task ${entityId}`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return taskToEntitySeed({
+      id: task.id,
+      title: task.title ?? null,
+      status: task.status ?? null,
+      kind: task.kind ?? null,
+      parentTaskId: task.parentTaskId ?? null,
+      spec,
+      tags: task.tags ?? null,
+    });
+  }
+
   if (entityType === "ask") {
     const repo = await getServerAskRepository();
     if (!repo) return null;
