@@ -26,6 +26,24 @@ details (a task at `/tasks/:id`, a conversation at `/conversation/:id`, a worksp
 working-set strip (`TabBar`, hidden when empty; state in localStorage). The ⌘K command
 palette is mounted globally.
 
+### Keyboard shortcuts
+
+| Chord            | Action                                                                                              |
+| ---------------- | --------------------------------------------------------------------------------------------------- |
+| `⌘K`             | Open the command palette (`CommandPalette.tsx`)                                                     |
+| `⌘⇧]` / `⌘⇧[`    | Next / previous tab in **strip** order, wrapping at both ends (mt#3469)                             |
+| `⌃Tab` / `⌃⇧Tab` | Next / previous tab in **recency** order; holding `⌃` walks a frozen order, as in VS Code (mt#3469) |
+
+All of them are suppressed while focus is in a text input, textarea, select, or
+contenteditable host.
+
+**The tab shortcuts only work in the Tauri cockpit window, not in a browser tab.** Browsers
+reserve those chords for their own tab strip and never deliver them to the page, so there they
+are inert by construction — no detection or feature flag is involved. Owner:
+`components/TabKeyboardNav.tsx`; the ordering primitives it drives (`stepInOrder`,
+`mruOrderedPaths`) live in `lib/tabs.tsx`. `⌘1`–`⌘9` ordinal jumps are deliberately absent:
+they need a spatially stable strip, which the working-set model does not guarantee.
+
 Two id-spaces (mt#2398/mt#2420/mt#1919 — do not conflate; vocabulary per ADR-022 stage 1,
 mt#2686): `/agents` and `/agents/:id` are keyed by the **Minsky workspace sessionId**
 (`SessionRecord`); `/conversations` and `/conversation/:id` are keyed by the **harness

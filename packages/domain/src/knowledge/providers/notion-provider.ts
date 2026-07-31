@@ -7,7 +7,7 @@
 
 import type { KnowledgeDocument, KnowledgeSourceProvider, ListOptions } from "../types";
 import { IntelligentRetryService } from "../../ai/intelligent-retry-service";
-import { isRetryableAIError } from "../../ai/embedding-service-openai";
+import { isRetryableAIError } from "../../ai/request-resilience";
 
 // Notion API version
 const NOTION_API_VERSION = "2022-06-28";

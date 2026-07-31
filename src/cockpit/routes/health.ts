@@ -52,6 +52,13 @@ let consecutiveDegradedCount = 0;
 // `fatal: not a git repository` from non-repo cwds — on commands that never
 // touch the cockpit (mt#1428). `stdio: "pipe"` keeps the child's stderr out of
 // the parent's output either way.
+//
+// Names the DAEMON, not the bundle (mt#3241). The memo freezes this at the first
+// /api/health call, which is correct: this process runs the code it loaded at
+// start. Do NOT "fix" it to recompute per request — that reports the workspace's
+// HEAD, which this process is not executing. The web bundle is versioned
+// separately (rebuilt by mt#2297's watcher without a restart) and carries its own
+// `__BUILD_COMMIT__`; `RailFooter` renders and labels both.
 let gitCommit: string | undefined;
 function getGitCommit(): string {
   if (gitCommit === undefined) {

@@ -238,6 +238,48 @@ function rawDataToString(data: unknown): string {
 }
 
 /**
+ * Read a conversation's on-disk history and push it as one `minsky_history`
+ * frame (mt#3453).
+ *
+ * Namespaced like the host's own `minsky_exit` / `minsky_error` /
+ * `minsky_unrecoverable` synthetics, so it can never collide with an upstream
+ * stream-json `type`.
+ *
+ * Every failure path degrades to sending nothing: an unlocatable transcript, an
+ * unreadable file, or a socket that closed while the read was in flight all
+ * leave the pane exactly as it was before this feature existed. The locate
+ * failure is logged — "this conversation has no transcript" and "we could not
+ * find it" render identically, so they must be distinguishable in the log.
+ */
+async function sendReplayHistory(ws: WebSocket, conversationId: string): Promise<void> {
+  try {
+    const { locateConversationTranscript } = await import("./driven-session-launch");
+    const located = await locateConversationTranscript(conversationId);
+    if (!located) {
+      log.info(
+        `[driven-session] replay: no on-disk transcript found for ${conversationId}; opening without history`
+      );
+      return;
+    }
+
+    const { buildDrivenReplayBlocks } = await import("./driven-session-replay");
+    const blocks = await buildDrivenReplayBlocks(located.jsonlPath, conversationId);
+    if (blocks.length === 0) return;
+
+    // The socket can close during the read (an operator navigating away from a
+    // long conversation is the common case); sending on a closed socket throws.
+    if (ws.readyState !== ws.OPEN) return;
+    ws.send(JSON.stringify({ type: "minsky_history", blocks }));
+    log.info(
+      `[driven-session] replay: sent ${blocks.length} history block(s) for ${conversationId}`
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn(`[driven-session] replay failed for ${conversationId}: ${message}`);
+  }
+}
+
+/**
  * Wire a newly-upgraded WS connection to `record`: replay the buffered event
  * log (which may already include the `init` event and any turns that raced
  * ahead of the client's connect), stream new events as they arrive, and
@@ -251,6 +293,32 @@ function rawDataToString(data: unknown): string {
  *   - `{"type": "stop"}` — graceful stop (closes stdin / SIGTERM fallback).
  */
 function wireDrivenSessionSocket(ws: WebSocket, record: DrivenSessionRecord): void {
+  // mt#3453 — on-disk history, for the two cases where the in-process event log
+  // cannot supply it: an ATTACHED conversation Minsky never spawned (mt#3095),
+  // and a record rehydrated after a daemon restart (mt#3038). Both open with an
+  // empty pane otherwise, while their history sits on disk the whole time.
+  //
+  // Gated on the record's ORIGIN (`needsHistoryReplay`), not on its log being
+  // empty. That distinction is load-bearing and was found by live verification:
+  // an earlier form checked `eventLog.length === 0` and silently never fired,
+  // because the actuator begins emitting frames immediately after attach, so by
+  // the time any client connects the log is already non-empty. Origin does not
+  // change with timing.
+  //
+  // The flag is false for a fresh spawn, which is what keeps this from
+  // duplicating: a cockpit-spawned session's turns are in BOTH the log and the
+  // transcript, so replaying the file for one would render every turn twice.
+  //
+  // Fire-and-forget: the read is async and the socket must be wired
+  // synchronously (handlers below have to be attached before any client frame
+  // arrives). The history frame therefore races the first LIVE events rather
+  // than strictly preceding them — acceptable because the client seeds history
+  // into a separate slot rather than appending it, so ordering does not corrupt
+  // the block list. See `foldDrivenSessionEvent`'s `minsky_history` case.
+  if (record.needsHistoryReplay && record.harnessSessionId) {
+    void sendReplayHistory(ws, record.harnessSessionId);
+  }
+
   for (const event of record.eventLog) {
     ws.send(JSON.stringify(event.payload));
   }

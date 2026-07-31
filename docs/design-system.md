@@ -212,8 +212,8 @@ Applied in `src/cockpit/web/index.css`; `docs/brand-system.md` §7 records the c
 
 ## 6. Icon decision
 
-**Recommendation: bless Lucide for Cockpit product UI. Ban it on marketing surfaces
-(`services/site/**`).\*\*
+**APPROVED 2026-07-31 (ask#6551): Lucide is blessed for Cockpit product UI, and stays banned on
+marketing surfaces (`services/site/**`).\*\*
 
 Evidence this is already the de facto choice, not a new pick: `lucide-react` is a declared
 `package.json` dependency, already imported in 15 `src/cockpit/web/**` files, and already
@@ -228,9 +228,47 @@ dashboard in the Data-Dense-Pro family (Sentry, Linear, Grafana, PostHog) — to
 substantially Lucide-based today, where the icon set is a professional-tool convention, not an
 AI-slop tell. The anti-pattern's boundary is the surface, not the icon set in isolation.
 
-**This decision is flagged for principal veto** per [mt#2914](minsky://task/mt%232914)'s spec
-("Icon decision (child 2) carries a recommendation for principal veto"). If vetoed, budget a
-follow-up icon-set-swap task; nothing here forecloses that.
+**The veto window is closed.** [mt#2914](minsky://task/mt%232914)'s spec flagged this decision
+for principal veto ("Icon decision (child 2) carries a recommendation for principal veto"). It
+was routed as ask#6551 on 2026-07-30 and answered on 2026-07-31: _"Bless Lucide for the cockpit
+only."_ No code change was required — `lucide-react` was already the declared dependency and
+`components.json` already set `"iconLibrary": "lucide"`. Revisiting this is a new decision, not
+an open question.
+
+## 7. Token sync contract (mt#3411)
+
+`docs/brand-system.md` §2 is the **single source of truth** for brand color. It already said so
+— "OKLCH is canonical; hex is derived", "commit any refinement back to this table so all surfaces
+stay in sync" — but until mt#3411 nothing read it, so the obligation was prose and prose does not
+fail a build.
+
+The same seven values live in **three** copies, in three syntaxes, because the surfaces consume
+them differently:
+
+| Copy                                                      | Syntax                                              | Why it differs                                                         |
+| --------------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
+| `src/cockpit/web/index.css`                               | bare components — `--signal-cyan: 0.745 0.124 215;` | Tailwind/shadcn wrap them in `oklch()` at the use site                 |
+| `services/site/src/styles/global.css`                     | `--color-signal: oklch(0.745 0.124 215);`           | consumed directly                                                      |
+| the same file's `@supports not (color: oklch(...))` block | `--color-signal: #00bfd8;`                          | sRGB fallback for engines below Chrome 111 / Safari 16.4 / Firefox 113 |
+
+**The contract.** Change a brand color in `brand-system.md` §2 first, then re-derive every
+surface from it. `src/design-system/brand-token-drift.ts` enforces this: it parses the §2 table
+and asserts all three copies match, failing with the token name, the surface, and both values.
+Comparison is numeric, not textual — the surfaces legitimately write `0.56` and `0.560` for the
+same value, and a string compare would report drift constantly and be switched off within a day.
+
+**Adding a token.** Add the row to §2 AND an entry to `TOKEN_MAP` in that module. The map is
+declared rather than inferred on purpose: distinct tokens can share a value (cockpit's light-mode
+`--primary` is `0.078 0 0`, the same triple as the site's `--color-bg-base`), so matching on
+value would pair unrelated tokens and then "verify" that pairing forever. A canonical name with
+no map entry fails the check rather than being skipped.
+
+**Why a check and not a generated pipeline.** The canonical answer to one-source-many-surfaces is
+a token-transform pipeline (Style Dictionary and similar) generating per-platform output. That
+means a new dependency wired into two build systems, with three output transforms, to keep seven
+values in sync — heavier than the problem. Revisit when the shared set exceeds ~15 tokens or a
+third surface appears; at that point the manual path is the one the tooling literature warns
+about, and the check should be replaced by generation rather than extended.
 
 ## Cross-references
 

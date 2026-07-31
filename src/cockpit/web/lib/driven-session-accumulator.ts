@@ -100,6 +100,17 @@ export interface DrivenSessionResultSummary {
 export interface DrivenAccumulatorState {
   /** Ordered, append-and-in-place-update block list — feed directly to `ConversationView`'s `extraBlocks`/`drivenBlocks` seam. */
   blocks: SessionContextSnapshotBlock[];
+  /**
+   * The conversation's pre-existing on-disk history (mt#3453), sent once as a
+   * `minsky_history` frame for a session whose in-process event log is empty.
+   *
+   * Kept SEPARATE from `blocks` rather than merged on arrival: the frame is
+   * produced by an async transcript read and can land after the first live
+   * turns, so appending it would splice old history into the middle of the
+   * stream. Consumers read `allDrivenBlocks(state)`, which prepends this —
+   * making the render order independent of frame arrival order.
+   */
+  historyBlocks: SessionContextSnapshotBlock[];
   harnessSessionId: string | null;
   runStatus: DrivenSessionRunStatus;
   interactionState: DrivenSessionInteractionState;
@@ -156,9 +167,24 @@ interface ActiveTurnAccumulator {
 // Construction
 // ---------------------------------------------------------------------------
 
+/**
+ * The full block list a consumer should render: on-disk history first, then
+ * everything observed on this channel (mt#3453).
+ *
+ * The two are concatenated at READ time rather than merged on arrival so the
+ * result does not depend on when the async history frame lands. Ids cannot
+ * collide — history blocks carry a `:replay:` id namespace and live blocks a
+ * `driven:turn:` one — so a turn can never appear in both halves.
+ */
+export function allDrivenBlocks(state: DrivenAccumulatorState): SessionContextSnapshotBlock[] {
+  if (state.historyBlocks.length === 0) return state.blocks;
+  return [...state.historyBlocks, ...state.blocks];
+}
+
 export function createInitialDrivenAccumulatorState(): DrivenAccumulatorState {
   return {
     blocks: [],
+    historyBlocks: [],
     harnessSessionId: null,
     runStatus: "connecting",
     interactionState: "awaiting-input",
@@ -401,6 +427,22 @@ export function foldDrivenSessionEvent(
   const type = payload["type"];
 
   switch (type) {
+    // mt#3453 — the conversation's on-disk history, sent once by the WS channel
+    // for a record whose in-process event log is empty (an attached
+    // conversation, or one rehydrated after a daemon restart).
+    //
+    // Seeds a SEPARATE slot rather than pushing into `blocks`, which is what
+    // makes the frame order-independent: it arrives asynchronously and may land
+    // after the first live turns, and appending it then would interleave old
+    // history into the middle of the live stream. Held apart and prepended at
+    // read time, history always renders before live turns no matter when it
+    // arrives. Also idempotent — a second frame replaces rather than doubles.
+    case "minsky_history": {
+      const raw = payload["blocks"];
+      if (!Array.isArray(raw)) return state;
+      return { ...state, historyBlocks: raw as SessionContextSnapshotBlock[] };
+    }
+
     case "system": {
       if (payload["subtype"] !== "init") return state;
       const raw = payload["session_id"] ?? payload["sessionId"];

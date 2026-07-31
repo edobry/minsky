@@ -790,7 +790,7 @@ export async function orchestrateDrivenSessionAttach(
   // gets should not depend on database availability — previously an unknown id
   // during a DB outage reported `refused` (409), naming a risk that cannot
   // exist for a conversation with no transcript.
-  const locate = deps.locateConversation ?? defaultLocateConversation;
+  const locate = deps.locateConversation ?? locateConversationTranscript;
   const located = await locate(conversationId);
   if (!located) return { outcome: "no-transcript" };
   if (!located.cwd) {
@@ -881,8 +881,15 @@ export async function orchestrateDrivenSessionAttach(
   return { outcome: "attached", record: lockOutcome.result };
 }
 
-/** Production conversation locator — the observe rung's own transcript source. */
-async function defaultLocateConversation(
+/**
+ * Production conversation locator — the observe rung's own transcript source.
+ *
+ * Exported (mt#3453) so the WS channel's history replay resolves a
+ * conversation's transcript through the SAME lookup the attach path uses,
+ * rather than growing a second one that could disagree about where a
+ * conversation lives.
+ */
+export async function locateConversationTranscript(
   conversationId: string
 ): Promise<{ jsonlPath: string; cwd: string | undefined } | null> {
   const { ClaudeCodeTranscriptSource } = await import(
