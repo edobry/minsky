@@ -37,7 +37,15 @@
  * @see packages/domain/src/transcripts/conversation-elements.ts — the shared parser
  * @see mt#2370 — the session-tab frame this will eventually render into
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, useCallback } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  useCallback,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
@@ -78,7 +86,7 @@ import {
   type InjectedSpan,
 } from "../lib/injected-content";
 import { formatLocalTime, turnSeparator, type TurnSeparator } from "../lib/conversation-timeline";
-import { findScrollParent, isPinnedToBottom } from "../lib/scroll-pinning";
+import { findScrollParent, hasGrown, isPinnedToBottom } from "../lib/scroll-pinning";
 import { classifyTurnOrigin } from "../lib/turn-origin";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -1063,12 +1071,11 @@ function ConversationThread({
     }
   }, [preparedTurns.length, hiddenCount]);
 
-  // Live-tail auto-scroll: when new turns arrive from the SSE stream (mt#2232),
-  // scroll to the bottom so the operator sees them — but ONLY when the operator
-  // is already at the bottom (mt#3376). Scrolling unconditionally yanked the
-  // view out from under anyone reading back through an active session, once per
-  // arriving tool call or message. Keyed on extraBlocks.length so it fires once
-  // per new live turn, not on every render.
+  // Live-tail auto-scroll: when live content arrives (the SSE stream, mt#2232,
+  // or a driven session's WS frames), scroll to the bottom so the operator sees
+  // it — but ONLY when the operator is already at the bottom (mt#3376).
+  // Scrolling unconditionally yanked the view out from under anyone reading
+  // back through an active session, once per arriving tool call or message.
   const extraBlocksLen = extraBlocks?.length ?? 0;
   const pinnedRef = useRef(true);
   const [hasNewBelow, setHasNewBelow] = useState(false);
@@ -1092,10 +1099,17 @@ function ConversationThread({
     return () => window.removeEventListener("resize", bump);
   }, []);
 
+  // The resolved scrollport, cached for the measurement effect below so it does
+  // not re-walk the ancestor chain on every streaming delta. Written here
+  // because this effect already re-resolves on exactly the changes that can
+  // move the scrollport (content count and layout).
+  const scrollportRef = useRef<Element | null>(null);
+
   // Keep `pinnedRef` current from the scrollport itself. Sampling at append
   // time would be too late — the append is what moves the scroll.
   useEffect(() => {
     const scrollport = findScrollParent(endRef.current);
+    scrollportRef.current = scrollport;
     if (!scrollport) return;
     const onScroll = () => {
       const pinned = isPinnedToBottom(scrollport);
@@ -1120,15 +1134,57 @@ function ConversationThread({
     setHasNewBelow(false);
   }, []);
 
+  // The last state the arrival check ran against. `extraBlocks` is replaced
+  // wholesale by every accumulator fold (`upsertBlock` returns a new array in
+  // both its append and its in-place-replace branch), so its IDENTITY is an
+  // exact, O(1) "live content arrived" signal — where its LENGTH is not, since
+  // a streaming turn folds every delta into one block id.
+  const prevExtraBlocksRef = useRef(extraBlocks);
+  const prevExtraBlocksLenRef = useRef(extraBlocksLen);
+  const prevHeightRef = useRef<number | null>(null);
+
+  // Decide what to do about content that arrived (mt#3445). Runs on every
+  // render rather than on a turn count, because the case that matters most —
+  // a single assistant turn streaming for a minute — never changes the count.
+  //
+  // Two independent signals, both required:
+  //   - identity: did live content actually arrive, or did the thread just
+  //     reflow? Expanding a tool block grows the thread by hundreds of pixels
+  //     and is not "new messages below".
+  //   - height: did that arrival land BELOW the reader? A count bump answers
+  //     this for a new turn; only a measurement answers it for in-place growth.
+  //
+  // The measurement is one `scrollHeight` read in a layout effect — the same
+  // layout the frame is about to perform anyway, and cheaper than the
+  // `scrollIntoView` this effect already ran per turn before mt#3445.
   useLayoutEffect(() => {
-    if (extraBlocksLen === 0) return;
+    const contentArrived = extraBlocks !== prevExtraBlocksRef.current;
+    const countGrew = extraBlocksLen > prevExtraBlocksLenRef.current;
+    prevExtraBlocksRef.current = extraBlocks;
+    prevExtraBlocksLenRef.current = extraBlocksLen;
+
+    // Resolve on first use as well as from the effect above: this is a LAYOUT
+    // effect and that one is passive, so on the very first render the cache is
+    // still empty — and skipping the measurement there would leave the thread
+    // with no baseline until the second arrival.
+    const scrollport = scrollportRef.current ?? findScrollParent(endRef.current);
+    scrollportRef.current = scrollport;
+    if (!scrollport) return;
+
+    const height = scrollport.scrollHeight;
+    const previousHeight = prevHeightRef.current;
+    prevHeightRef.current = height;
+
+    if (!contentArrived) return;
+    if (!countGrew && !hasGrown(previousHeight, height)) return;
+
     if (pinnedRef.current) {
       endRef.current?.scrollIntoView({ block: "end" });
       return;
     }
     // Reading history: hold position and say something arrived instead.
     setHasNewBelow(true);
-  }, [extraBlocksLen]);
+  });
 
   if (visibleTurns.length === 0) {
     // A transcript can be ALL superseded prompts — the operator rewrote every

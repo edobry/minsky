@@ -86,3 +86,25 @@ export function isPinnedToBottom(
   if (scrollHeight <= clientHeight) return true;
   return scrollHeight - scrollTop - clientHeight <= threshold;
 }
+
+/**
+ * Whether a scrollport's content got TALLER between two measurements (mt#3445).
+ *
+ * The live tail's "something arrived below you" signal cannot be a turn count:
+ * a streaming turn folds every delta into ONE block, so the count holds still
+ * for the whole message while hundreds of pixels of content appear below the
+ * reader. Measured height moves in both cases, which is why it is the signal.
+ *
+ * Two cases are deliberately NOT growth:
+ *   - `previous === null` — the first measurement is a baseline. There is no
+ *     earlier height to have grown from, and reporting one would surface the
+ *     affordance on mount.
+ *   - `current <= previous` — the thread got shorter or stayed put. A window
+ *     resize that reflows the thread narrower makes it TALLER and one that
+ *     makes it wider makes it SHORTER; only the first direction can mean
+ *     content is hiding below.
+ */
+export function hasGrown(previousHeight: number | null, currentHeight: number): boolean {
+  if (previousHeight === null) return false;
+  return currentHeight > previousHeight;
+}

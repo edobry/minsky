@@ -5,7 +5,12 @@
  * directly rather than only through a rendered thread.
  */
 import { describe, test, expect } from "bun:test";
-import { findScrollParent, isPinnedToBottom, PINNED_THRESHOLD_PX } from "./scroll-pinning";
+import {
+  findScrollParent,
+  hasGrown,
+  isPinnedToBottom,
+  PINNED_THRESHOLD_PX,
+} from "./scroll-pinning";
 
 /** A minimal stand-in for the scroll geometry the helper reads. */
 function scrollport(scrollTop: number, scrollHeight: number, clientHeight: number): Element {
@@ -46,6 +51,34 @@ describe("isPinnedToBottom", () => {
     // If this ever drops to <= 32 the view would consider itself unpinned
     // immediately after its own auto-scroll (mt#3344's scroll-mb-8).
     expect(PINNED_THRESHOLD_PX).toBeGreaterThan(32);
+  });
+});
+
+describe("hasGrown (mt#3445)", () => {
+  test("a taller thread is growth", () => {
+    expect(hasGrown(701, 924)).toBe(true);
+  });
+
+  test("a shorter thread is not growth", () => {
+    // A window resize that reflows the thread wider makes it SHORTER; nothing
+    // arrived below the reader, so the affordance must stay hidden.
+    expect(hasGrown(924, 701)).toBe(false);
+  });
+
+  test("an unchanged height is not growth", () => {
+    expect(hasGrown(701, 701)).toBe(false);
+  });
+
+  test("the first measurement is a baseline, not growth", () => {
+    // Otherwise the affordance would appear on mount, before anything has
+    // streamed at all.
+    expect(hasGrown(null, 924)).toBe(false);
+  });
+
+  test("a baseline of zero still compares as a height", () => {
+    // `null` means unmeasured; 0 means measured-and-empty. Conflating them
+    // would swallow the first real growth in an empty thread.
+    expect(hasGrown(0, 1)).toBe(true);
   });
 });
 
