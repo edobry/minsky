@@ -15,6 +15,7 @@ import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
 import {
   EntityThreadPanel,
   deriveComposerState,
+  deriveOriginNotice,
   derivePollInterval,
   isThreadStranded,
   type EntityThreadPanelProps,
@@ -313,6 +314,24 @@ describe("EntityThreadPanel", () => {
       expect(screen.getByLabelText(/Ask a question about this ask/i)).toBeDefined();
     });
     expect(screen.queryByLabelText(/driven session/i)).toBeNull();
+  });
+});
+
+describe("deriveOriginNotice (mt#3367)", () => {
+  test("says the answer is grounded in the originating conversation", () => {
+    expect(deriveOriginNotice(true)).toMatch(/conversation that filed this/i);
+  });
+
+  test("says plainly when the originating conversation is unreachable", () => {
+    // The majority case (~46% reachability). The principal should know which
+    // grounding an answer has rather than assuming the richer one.
+    expect(deriveOriginNotice(false)).toMatch(/isn't reachable/i);
+  });
+
+  test("UNKNOWN says NOTHING rather than claiming the origin is missing", () => {
+    // Same discipline as `live` (mt#3402): a daemon that doesn't report the
+    // field must not be read as a negative answer.
+    expect(deriveOriginNotice(undefined)).toBeNull();
   });
 });
 
