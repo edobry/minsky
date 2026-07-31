@@ -4,7 +4,14 @@
  * refresh works"). Pure functions, no component render needed.
  */
 import { describe, test, expect } from "bun:test";
-import { basePathFor, defaultTabFor, tabFromPathname, pathForTab, RUN_TABS } from "./RunDetail";
+import {
+  basePathFor,
+  defaultTabFor,
+  tabFromPathname,
+  pathForTab,
+  runTabsFor,
+  RUN_TABS_BY_KEYSPACE,
+} from "./RunDetail";
 
 // Shared fixture base paths — hoisted to module scope (not re-declared per
 // describe block) to avoid the repo's magic-string-duplication lint rule.
@@ -63,17 +70,50 @@ describe("tabFromPathname", () => {
     expect(tabFromPathname(`${convBase}/context`, convBase, "conversation")).toBe("context");
   });
 
-  test("/agents/:id/film -> film tab (mt#3461)", () => {
-    expect(tabFromPathname(`${wsBase}/film`, wsBase, "workspace")).toBe("film");
-  });
-
   test("/conversation/:id/film -> film tab (mt#3461)", () => {
     expect(tabFromPathname(`${convBase}/film`, convBase, "conversation")).toBe("film");
+  });
+
+  test("/agents/:id/film does NOT resolve to film — the film is conversation-only (mt#3468)", () => {
+    // A stale link from the window when mt#3461 registered the film under both
+    // keyspaces. It must degrade to the workspace's default tab, not resolve to
+    // a tab the strip no longer offers (which would render a film the operator
+    // cannot navigate away from).
+    expect(tabFromPathname(`${wsBase}/film`, wsBase, "workspace")).toBe("overview");
   });
 
   test("an unrecognized suffix falls back to the default landing tab", () => {
     expect(tabFromPathname(`${wsBase}/bogus`, wsBase, "workspace")).toBe("overview");
     expect(tabFromPathname(`${convBase}/bogus`, convBase, "conversation")).toBe("conversation");
+  });
+});
+
+describe("runTabsFor — the film is conversation-only (mt#3468)", () => {
+  test("the workspace strip offers exactly the three text tabs", () => {
+    expect(runTabsFor("workspace")).toEqual(["overview", "conversation", "context"]);
+  });
+
+  test("the conversation strip offers those three plus film, film last", () => {
+    expect(runTabsFor("conversation")).toEqual(["overview", "conversation", "context", "film"]);
+  });
+
+  test("no keySpace's strip contains a tab twice", () => {
+    for (const keySpace of ["workspace", "conversation"] as const) {
+      const tabs = runTabsFor(keySpace);
+      expect(new Set(tabs).size).toBe(tabs.length);
+    }
+  });
+
+  test("every keySpace's default tab is actually in its own strip", () => {
+    // Guards the shape that would strand an operator: a default tab the strip
+    // never renders, leaving no visible control for the view they land on.
+    for (const keySpace of ["workspace", "conversation"] as const) {
+      expect(runTabsFor(keySpace)).toContain(defaultTabFor(keySpace));
+    }
+  });
+
+  test("RUN_TABS_BY_KEYSPACE covers every keySpace runTabsFor accepts", () => {
+    expect(Object.keys(RUN_TABS_BY_KEYSPACE).sort()).toEqual(["conversation", "workspace"]);
   });
 });
 
@@ -101,14 +141,16 @@ describe("pathForTab", () => {
     expect(pathForTab(convBase, "conversation", "overview")).toBe(`${convBase}/overview`);
   });
 
-  test("round-trips through tabFromPathname for every tab, both keySpaces", () => {
-    // Iterates RUN_TABS rather than a hardcoded list, so a tab added to the
-    // strip without a `tabFromPathname` case fails here instead of shipping as
-    // a tab that renders the default view (how mt#3461's `film` would have
-    // regressed).
+  test("round-trips through tabFromPathname for every tab OFFERED in that keySpace", () => {
+    // Iterates the keyspace's own tab set rather than a hardcoded list, so a tab
+    // added to the strip without a `tabFromPathname` case fails here instead of
+    // shipping as a tab that renders the default view (how mt#3461's `film`
+    // would have regressed). Per-keyspace since mt#3468 — the film is offered
+    // only in the conversation keyspace, so the workspace set must not include
+    // it, and this loop is what pins that the two stay in agreement.
     for (const keySpace of ["workspace", "conversation"] as const) {
       const base = basePathFor(keySpace, "id1");
-      for (const tab of RUN_TABS) {
+      for (const tab of runTabsFor(keySpace)) {
         const path = pathForTab(base, keySpace, tab);
         expect(tabFromPathname(path, base, keySpace)).toBe(tab);
       }

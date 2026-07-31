@@ -3,11 +3,18 @@
  * a mobile breakpoint (mt#2604).
  *
  * Section order encodes the resolved default-lens axis (mt#2370):
+ *   0. New conversation         (the create action — mt#3464)
  *   1. pinned Attention digest  (what needs you — the algedonic top slot)
  *   2. Workstreams              (the workstream-primary spine)
  *   3. divider
  *   4. Browse                   (flat entity entry points)
  *   5. footer                   (settings + running commit)
+ *
+ * Slot 0 sits ABOVE the nav landmark, not inside it, and does not displace
+ * mt#2370's pinned Attention digest: the digest is still the first NAV item,
+ * while slot 0 is an ACTION band (the Claude/ChatGPT sidebar-top "New chat"
+ * position). It is mirrored into the mobile drawer the same way
+ * `ProjectSelector` is, so the two surfaces cannot drift.
  *
  * Responsive behavior (mt#2604): the fixed-width persistent rail has no
  * mobile consideration at 240px it consumes 61% of a 390px viewport, leaving
@@ -52,6 +59,7 @@ import { useOpenAskCount } from "../hooks/useOpenAskCount";
 import { LoadingState } from "./LoadingState";
 import { ErrorState } from "./ErrorState";
 import { ProjectSelector } from "./ProjectSelector";
+import { NewConversationButton } from "./NewConversationButton";
 
 interface NavItem {
   to: string;
@@ -331,6 +339,8 @@ export function Rail() {
             (or null for a single-project deployment) so no empty bordered
             strip appears when there is nothing to select. */}
         <ProjectSelector />
+        {/* Create action (mt#3464) — mirrored into the drawer below. */}
+        <NewConversationButton />
         <RailNav pathname={pathname} />
         <RailFooter pathname={pathname} />
       </aside>
@@ -374,6 +384,12 @@ export function Rail() {
             {/* Project selector (mt#2418) — mirrors the desktop insertion
                 above so the drawer and the persistent rail never drift. */}
             <ProjectSelector />
+            {/* Create action (mt#3464) — mirrors the desktop insertion. Takes
+                no `onNavigate`, unlike the nav links below: closing the drawer
+                on click would unmount the only visible error surface a failed
+                launch has (PR #2477 R1). The pathname effect above closes the
+                drawer when a successful launch navigates. */}
+            <NewConversationButton />
             <RailNav pathname={pathname} onNavigate={() => setMobileNavOpen(false)} />
             <RailFooter pathname={pathname} onNavigate={() => setMobileNavOpen(false)} />
           </DialogPrimitive.Content>
