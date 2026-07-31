@@ -72,7 +72,7 @@ export function DrivenSessionPage() {
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 p-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Driven session</h1>
+        <h1 className="text-lg font-semibold">Drive view</h1>
         <span className="font-mono text-xs text-muted-foreground" title={id}>
           {id}
         </span>

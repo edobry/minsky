@@ -225,8 +225,8 @@ function TaskActionControl({ taskId, action }: { taskId: string; action: TaskAct
         <LaunchActionButton
           taskId={taskId}
           label="Plan in session"
-          ariaLabel={`Plan ${taskId} in a driven session`}
-          title="Spawns a driven claude session in this task's workspace, composer primed with /plan-task"
+          ariaLabel={`Plan ${taskId} in a new session`}
+          title="Starts a claude session in this task's workspace, composer primed with /plan-task"
           composePrefill={`/plan-task ${taskId}`}
           note={action.note}
         />
@@ -236,8 +236,8 @@ function TaskActionControl({ taskId, action }: { taskId: string; action: TaskAct
         <LaunchActionButton
           taskId={taskId}
           label="Start session"
-          ariaLabel={`Start driven session for ${taskId}`}
-          title="Spawns a driven claude session (bypassPermissions) in the task's isolated workspace clone"
+          ariaLabel={`Start a session for ${taskId}`}
+          title="Starts a claude session (bypassPermissions) in the task's isolated workspace clone"
           note={action.note}
         />
       );
@@ -258,7 +258,7 @@ function TaskActionControl({ taskId, action }: { taskId: string; action: TaskAct
           <Link
             to={`/driven/${encodeURIComponent(action.drivenSessionId)}`}
             aria-label={`Return to the live drive view for ${taskId}`}
-            title="Return to the driven session already running for this task"
+            title="Return to the drive view for the session already running for this task"
           >
             Return to drive view
           </Link>
@@ -322,7 +322,7 @@ function LaunchActionButton({
         <SelectTrigger
           className="h-7"
           aria-label={`Model for ${label.toLowerCase()}`}
-          title="Model the driven session runs on"
+          title="Model the session runs on"
         >
           <SelectValue />
         </SelectTrigger>

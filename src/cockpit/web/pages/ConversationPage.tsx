@@ -47,9 +47,28 @@
  * the bottom of the transcript, not the page chrome at the top. The presence
  * VALUE stays in the chrome: it is a property of the conversation, not of the
  * transcript, and must be readable from the Overview and Context tabs too.
+ *
+ * ## Two id spaces, one route (mt#3132)
+ *
+ * This route is the unified conversation surface: it serves a conversation the
+ * same way regardless of which pipeline produced it, and it accepts BOTH the
+ * harness conversation uuid and a spawn-time actuator local id. Resolution runs
+ * through `useConversationAddress` — a registry lookup, never an id-shape guess,
+ * because a default local id is uuid-shaped and would pass any shape check (see
+ * `../lib/conversation-address.ts`).
+ *
+ * An actuator that has spawned but not yet emitted its harness `init` frame has
+ * NO conversation id to resolve to — nothing to translate the local id into. So
+ * "known actuator, no conversation yet" renders as its own state rather than as
+ * a 404 or an id-space error.
+ *
+ * **This route mounts no composer, no send path, and no actuator channel** —
+ * mt#3132 Success Criterion 5, read-only by construction. Controllability stays
+ * on `/driven/:id` until mt#3095's liveness-refusal gate exists and mt#3325 can
+ * mount a composer here safely.
  */
 import { useParams, useLocation } from "react-router-dom";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   RunDetail,
@@ -64,32 +83,131 @@ import {
   ConversationActivityLine,
 } from "../components/ConversationPresenceChip";
 import { useTabs } from "../lib/tabs";
+import { useConversationAddress } from "../hooks/useConversationAddress";
+import { actuatorMayStillLink, type ActuatorSummary } from "../lib/conversation-address";
 import type { ConversationId } from "@minsky/domain/ids";
+
+/**
+ * The "known actuator, no conversation yet" body.
+ *
+ * Renders no presence readout: presence is keyed by conversation id, and there
+ * is not one yet. Querying it with the local id would return a wrong-id-space
+ * error, which is a caller mistake surfaced as if it were information about the
+ * run — the exact confusion `useConversationPresence`'s four-outcome split
+ * exists to prevent.
+ */
+function StartingConversation({ actuator }: { actuator: ActuatorSummary }) {
+  const mayStillLink = actuatorMayStillLink(actuator);
+  return (
+    <div className="rounded border border-border bg-card p-4" data-testid="conversation-starting">
+      <p className="text-sm text-foreground">
+        {mayStillLink
+          ? "Starting — this run has not produced a transcript yet."
+          : "This run ended before it produced a transcript."}
+      </p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {mayStillLink
+          ? "The view will fill in on its own once the first turn arrives."
+          : "There is nothing to read: no conversation was ever recorded for it."}
+      </p>
+    </div>
+  );
+}
 
 export function ConversationPage() {
   const { id } = useParams<{ id: string }>();
   const { pathname } = useLocation();
   const { markTabError } = useTabs();
+  const addressState = useConversationAddress(id);
+  const address = addressState.status === "resolved" ? addressState.address : null;
 
-  const handleNotFound = useCallback(() => {
-    markTabError(pathname);
-  }, [markTabError, pathname]);
+  /**
+   * Tab pruning waits for the address, but RENDERING does not (mt#3132).
+   *
+   * Blocking the whole page on the actuator-registry read would put a second
+   * request in front of every ordinary conversation load — a regression paid by
+   * the common case to serve a rare one. So the conversation path renders
+   * optimistically, exactly as before this task, and the registry arrives as a
+   * CORRECTION: if it says "actuator, no conversation yet", the body swaps to
+   * the starting state below.
+   *
+   * The one thing that must NOT run optimistically is the 404 handler, because
+   * it is destructive — it marks the tab errored and drops it from persistence.
+   * A pre-`init` actuator local id 404s here legitimately, and pruning its tab
+   * would delete a live run's tab for the crime of being young.
+   *
+   * So a reported 404 is DEFERRED rather than dropped: it is recorded, and acted
+   * on once the address settles. Simply ignoring an early 404 would lose the
+   * prune permanently — `onNotFound` fires once per fetch, so there is no second
+   * chance — and which of the two reads wins is not something this component
+   * should have to assume either way.
+   */
+  const addressResolved = addressState.status === "resolved";
+  const [sawNotFound, setSawNotFound] = useState(false);
+  const handleNotFound = useCallback(() => setSawNotFound(true), []);
+
+  useEffect(() => {
+    if (!sawNotFound || !addressResolved) return;
+    // An actuator that has not linked a conversation yet has no transcript BY
+    // CONSTRUCTION — that 404 is the expected answer, not a dead tab.
+    if (address?.kind !== "actuator-starting") markTabError(pathname);
+    setSawNotFound(false);
+  }, [sawNotFound, addressResolved, address?.kind, markTabError, pathname]);
+
+  // The conversation to READ. Differs from the URL id only for a local-id
+  // arrival that has already linked; falls back to the URL id while the address
+  // is still resolving, which is what keeps the common path unblocked.
+  const conversationId = address?.kind === "conversation" ? address.conversationId : id;
 
   // Same query key + options as `RunDetail`'s own `conversationOverviewQuery`
   // (mt#3343): TanStack Query dedupes identical keys under one QueryClient, so
   // reading the label here costs no additional network request. Mirrors
   // `WorkspaceDetailPage.tsx`'s breadcrumb-displayId pattern (mt#2967).
   const overviewQuery = useQuery<ConversationOverviewPayload, Error>({
-    queryKey: ["conversation-overview", id],
-    queryFn: () => fetchConversationOverview(id as ConversationId),
+    queryKey: ["conversation-overview", conversationId],
+    queryFn: () => fetchConversationOverview(conversationId as ConversationId),
     staleTime: 30_000,
     retry: 1,
-    enabled: Boolean(id),
+    // Skipped once the id is known to address an actuator with no conversation:
+    // there is nothing for the overview endpoint to find, and asking anyway
+    // would spend a request to be told so.
+    enabled: Boolean(conversationId) && address?.kind !== "actuator-starting",
   });
 
   if (!id) {
     return <div className="p-4 text-sm text-muted-foreground">No conversation id in the URL.</div>;
   }
+
+  // The film tab drops the prose column (mt#3461). Every other tab reads as
+  // text and wants `max-w-4xl`; the film's stage is the affect-bearing surface
+  // that mt#3226 SC 1 and mt#3258 SC 4 twice widened, and a 4xl column would
+  // squeeze it back below what those rounds fixed. The `p-4` stays either way —
+  // `RunDetail`'s sticky chrome bleeds over it with negative margins.
+  const isFilmTab =
+    tabFromPathname(pathname, basePathFor("conversation", id), "conversation") === "film";
+
+  const wrapperClass = cn(
+    "mx-auto flex w-full flex-col gap-3 p-4",
+    isFilmTab ? "max-w-none" : "max-w-4xl"
+  );
+
+  if (address?.kind === "actuator-starting") {
+    return (
+      <div className={wrapperClass}>
+        <div className="flex flex-col gap-0.5">
+          <h1 className="truncate text-lg font-semibold">Starting…</h1>
+          <span className="font-mono text-xs text-muted-foreground" title={address.localId}>
+            {address.localId}
+          </span>
+        </div>
+        <StartingConversation actuator={address.actuator} />
+      </div>
+    );
+  }
+
+  // Recomputed rather than reusing `conversationId` above: this is past the
+  // `!id` guard, so `id` has narrowed to `string` and the fallback is total.
+  const resolved = address?.kind === "conversation" ? address.conversationId : id;
 
   // Falls back to the bare id only while the query is in flight or when the
   // conversation is genuinely unresolvable (404) — the server's own tier-4
@@ -102,24 +220,13 @@ export function ConversationPage() {
   // raw id, repeating it verbatim underneath adds nothing and reads as a bug.
   const showIdSubline = label !== id;
 
-  // The film tab drops the prose column (mt#3461). Every other tab reads as
-  // text and wants `max-w-4xl`; the film's stage is the affect-bearing surface
-  // that mt#3226 SC 1 and mt#3258 SC 4 twice widened, and a 4xl column would
-  // squeeze it back below what those rounds fixed. The `p-4` stays either way —
-  // `RunDetail`'s sticky chrome bleeds over it with negative margins.
-  const isFilmTab = tabFromPathname(pathname, basePathFor("conversation", id), "conversation") === "film";
-
   return (
-    <div
-      className={cn(
-        "mx-auto flex w-full flex-col gap-3 p-4",
-        isFilmTab ? "max-w-none" : "max-w-4xl"
-      )}
-    >
+    <div className={wrapperClass}>
       <RunDetail
         key={id}
         id={id}
         keySpace="conversation"
+        resolvedConversationId={resolved}
         onConversationNotFound={handleNotFound}
         chrome={
           <div className="flex flex-col gap-0.5">
@@ -131,10 +238,10 @@ export function ConversationPage() {
                 {id}
               </span>
             )}
-            <ConversationPresenceChip conversationId={id} />
+            <ConversationPresenceChip conversationId={resolved} />
           </div>
         }
-        conversationTail={<ConversationActivityLine conversationId={id} />}
+        conversationTail={<ConversationActivityLine conversationId={resolved} />}
       />
     </div>
   );
