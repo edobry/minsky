@@ -25,7 +25,25 @@ import {
  * @see mt#1324 — Foundation schema migration
  */
 
-/** Outcome enum — exactly 6 values per mt#1005 spec */
+/**
+ * Outcome enum — 7 values (6 terminal classes per mt#1005, plus `pending`).
+ *
+ * `pending` (mt#1770) is the DISPATCH-TIME placeholder, not a classification. Before it, a row
+ * was seeded `crashed-no-output` as a "pessimistic default" — but that value reads as an
+ * OBSERVATION to every consumer, so a row that simply had not been closed yet was
+ * indistinguishable from a subagent that genuinely produced nothing.
+ *
+ * Measured harm before this shipped (2026-07-31): 6 of 19 dispatches in a 48h window carried
+ * `crashed-no-output` while their tasks had actually shipped with commits, review rounds and a
+ * merge (mt#3429, mt#3330, mt#3395, mt#3316, mt#3432, mt#3360); 145 of 179 rows had no
+ * `ended_at` at all. `tasks_dispatch-recover`'s 2-attempt auto-resume bound was being consumed
+ * by those phantom crashes — mt#2718 burned both attempts that way.
+ *
+ * `pending` is written ONLY at dispatch. The SubagentStop classifier overwrites it with a real
+ * terminal class and must never emit it — see `../../subagent/workspace-classifier`. A row still
+ * `pending` long after its dispatch means the row was never closed, which is a DIFFERENT and
+ * separately-tracked problem (mt#2292, the writer half) from a subagent that crashed.
+ */
 export const SUBAGENT_INVOCATION_OUTCOME_VALUES = [
   "completed-with-pr",
   "committed-no-pr",
@@ -33,9 +51,20 @@ export const SUBAGENT_INVOCATION_OUTCOME_VALUES = [
   "partial-uncommitted-no-handoff",
   "crashed-no-output",
   "rate-limited",
+  "pending",
 ] as const;
 
 export type SubagentInvocationOutcome = (typeof SUBAGENT_INVOCATION_OUTCOME_VALUES)[number];
+
+/**
+ * The outcome classes a CLASSIFIER may produce — everything except `pending` (mt#1770).
+ *
+ * `pending` is written only at dispatch, by the dispatcher. A classifier runs at SubagentStop,
+ * by which point an outcome HAS been observed; returning `pending` there would re-introduce
+ * exactly the ambiguity this enum member exists to remove. Enforced by the type rather than by
+ * convention, so a future edit to `classifyWorkspaceOutcome` cannot reintroduce it silently.
+ */
+export type TerminalSubagentInvocationOutcome = Exclude<SubagentInvocationOutcome, "pending">;
 
 export const subagentInvocationOutcomeEnum = pgEnum(
   "subagent_invocation_outcome",
@@ -149,7 +178,8 @@ export const subagentInvocationsTable = pgTable(
 
     /**
      * Outcome classification using the 6-class enum.
-     * Exactly the 6 values defined in SUBAGENT_INVOCATION_OUTCOME_VALUES.
+     * Exactly the 7 values defined in SUBAGENT_INVOCATION_OUTCOME_VALUES — 6 terminal classes
+     * plus the dispatch-time `pending` placeholder (mt#1770).
      */
     outcome: subagentInvocationOutcomeEnum("outcome").notNull(),
 

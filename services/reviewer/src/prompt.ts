@@ -617,7 +617,35 @@ export interface ReviewPromptInput {
    * review to respond to yet).
    */
   authorCommitsSinceLastReview?: string;
+  /**
+   * True when `diff` carries only the commits pushed since the last posted
+   * review, rather than the whole PR (mt#3471).
+   *
+   * Load-bearing, not cosmetic. Several Critic Constitution rules treat "the
+   * file is not in the diff" as verifiable evidence — the diff-vs-description
+   * exception explicitly says an in-repo path claimed by the PR description but
+   * absent from the diff "may be BLOCKING". Under a narrowed diff a file
+   * modified in an EARLIER commit is legitimately absent, so leaving this unset
+   * while narrowing would manufacture BLOCKING findings out of the narrowing
+   * itself. When true, the diff section says so and tells the model to resolve
+   * absence with `read_file` at HEAD instead of treating it as evidence.
+   */
+  incrementalScope?: boolean;
 }
+
+/**
+ * Appended to the "## Diff" heading when the diff is narrowed to the commits
+ * since the last review (mt#3471). Deliberately placed OUTSIDE the untrusted
+ * fence — it is our instruction about the data, not part of the PR content.
+ */
+export const INCREMENTAL_DIFF_SCOPE_NOTICE = ` (commits since your last review — NOT the full PR)
+
+**This diff contains only the commits pushed since your most recent review on this PR.** Code from earlier commits is already merged into the branch and is NOT reproduced here. Your prior findings are in the "Prior Reviews" section above.
+
+Two consequences, both binding:
+
+1. **A file's absence from this diff is NOT evidence it was left unmodified.** It may have been changed in an earlier commit. Any rule that treats "claimed in the description but not in the diff" as a finding — including the diff-vs-description exception — does NOT apply to this diff. Resolve such a question with \`read_file\` at HEAD; if you have no file-reading tools this round, it is a \`NEEDS VERIFICATION\` question, never BLOCKING.
+2. **"Review 100% of the diff" means 100% of what is shown here.** That is the coverage obligation for this round, and it is the correct one: you already reviewed the earlier commits. Use \`read_file\` for surrounding context whenever a change here depends on code outside it.`;
 
 export const UNTRUSTED_CONTENT_OPEN = "<<<UNTRUSTED-PR-CONTENT>>>";
 export const UNTRUSTED_CONTENT_CLOSE = "<<<END-UNTRUSTED-PR-CONTENT>>>";
@@ -676,7 +704,7 @@ ${fenceUntrusted(input.prBody || "(empty)")}
 
 ${specSection}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${authorCommitsSection}${reviewThreadsSection}
 
-## Diff
+## Diff${input.incrementalScope === true ? INCREMENTAL_DIFF_SCOPE_NOTICE : ""}
 
 ${fenceUntrusted(["```diff", input.diff, "```"].join("\n"))}
 

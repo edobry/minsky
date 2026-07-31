@@ -13,6 +13,7 @@ import {
   buildReviewThreadsSection,
   buildMigrationBaselineSection,
   buildOutOfRepoSection,
+  INCREMENTAL_DIFF_SCOPE_NOTICE,
 } from "./prompt";
 import { parseUnifiedDiff } from "@minsky/domain/utils/parse-diff";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
@@ -322,7 +323,9 @@ ${baseInput.prBody || "(empty)"}
 
 ${specSection}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${reviewThreadsSection}
 
-## Diff (chunk ${chunk.index + 1}/${chunk.totalChunks})
+## Diff (chunk ${chunk.index + 1}/${chunk.totalChunks})${
+    baseInput.incrementalScope === true ? INCREMENTAL_DIFF_SCOPE_NOTICE : ""
+  }
 
 ${chunkDiff}
 

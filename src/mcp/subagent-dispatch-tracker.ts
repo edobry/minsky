@@ -144,7 +144,13 @@ export interface SubagentDispatchCadence {
   total: number;
   /** ISO-8601 timestamp of the most recent startedAt, or null. */
   lastDispatch: string | null;
-  /** Count per outcome class. All 6 classes are always present. */
+  /**
+   * Count per outcome class. All 7 values are always present — the 6 terminal classes plus
+   * `pending` (mt#1770), which is the dispatch-time placeholder rather than a classification.
+   * The record is built by folding over `SUBAGENT_INVOCATION_OUTCOME_VALUES`, so it extends
+   * automatically with the enum; a reader summing "failures" must exclude `pending`, which
+   * means "no outcome observed yet," not a bad one.
+   */
   byOutcome: Record<SubagentInvocationOutcome, number>;
   /** Count per agentType. Only types that appear in the table. */
   byAgentType: Record<string, number>;
