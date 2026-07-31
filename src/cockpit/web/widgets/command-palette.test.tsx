@@ -16,6 +16,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TabsProvider } from "../lib/tabs";
 import { TabBar } from "../components/TabBar";
 import { CommandPalette } from "../components/CommandPalette";
+import { NewConversationProvider } from "../hooks/useNewConversation";
 
 function LocationProbe() {
   const { pathname } = useLocation();
@@ -30,9 +31,13 @@ function renderPalette() {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/"]}>
         <TabsProvider>
-          <TabBar />
-          <LocationProbe />
-          <CommandPalette />
+          {/* The palette carries actions as of mt#3464, so it now requires
+              the same provider Layout mounts around the whole shell. */}
+          <NewConversationProvider>
+            <TabBar />
+            <LocationProbe />
+            <CommandPalette />
+          </NewConversationProvider>
         </TabsProvider>
       </MemoryRouter>
     </QueryClientProvider>

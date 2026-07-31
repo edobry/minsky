@@ -13,7 +13,7 @@
 
 import type { KnowledgeDocument, KnowledgeSourceProvider, ListOptions } from "../types";
 import { IntelligentRetryService } from "../../ai/intelligent-retry-service";
-import { isRetryableGoogleDocsError } from "../../ai/embedding-service-openai";
+import { isRetryableGoogleDocsError } from "../../ai/request-resilience";
 import { createSign } from "crypto";
 
 // ---------------------------------------------------------------------------
