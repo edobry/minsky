@@ -4,7 +4,11 @@ import type { EmbeddingService } from "./embeddings/types";
 import { RateLimitError } from "./enhanced-error-types";
 import { IntelligentRetryService } from "./intelligent-retry-service";
 import { EmbeddingsHealthTracker } from "./embeddings-health-tracker";
-import { isRetryableAIError } from "./embedding-service-openai";
+import {
+  isRetryableAIError,
+  isRequestTimeoutError,
+  REQUEST_TIMEOUT_MS,
+} from "./embedding-service-openai";
 
 const GEMINI_EMBEDDING_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001";
@@ -71,13 +75,15 @@ export class GeminiEmbeddingService implements EmbeddingService {
       return result;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const errorCode = /insufficient_quota|RESOURCE_EXHAUSTED/i.test(msg)
-        ? "insufficient_quota"
-        : /circuit.breaker.is.open/i.test(msg)
-          ? "circuit_breaker_open"
-          : /429|rate.limit/i.test(msg)
-            ? "rate_limit"
-            : "unknown";
+      const errorCode = isRequestTimeoutError(err)
+        ? "timeout"
+        : /insufficient_quota|RESOURCE_EXHAUSTED/i.test(msg)
+          ? "insufficient_quota"
+          : /circuit.breaker.is.open/i.test(msg)
+            ? "circuit_breaker_open"
+            : /429|rate.limit/i.test(msg)
+              ? "rate_limit"
+              : "unknown";
       await EmbeddingsHealthTracker.getInstance().recordError("gemini", errorCode, msg);
       throw err;
     }
@@ -93,6 +99,8 @@ export class GeminiEmbeddingService implements EmbeddingService {
         content: { parts: [{ text: content }] },
         outputDimensionality: this.outputDimensionality,
       }),
+      // Same unbounded-hang defect as the OpenAI service; same bound (mt#3444).
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
     if (!res.ok) {

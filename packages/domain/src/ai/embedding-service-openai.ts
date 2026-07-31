@@ -14,7 +14,27 @@ export function isRetryableAIError(error: unknown): boolean {
   const msg = String((error as Error)?.message || "");
   if (/insufficient_quota/i.test(msg)) return false;
   if (error instanceof RateLimitError) return true;
+  if (isRequestTimeoutError(error)) return true;
   return /429|rate.limit|502|Bad Gateway|503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(msg);
+}
+
+/**
+ * Whether `error` is the rejection produced by a request that exceeded its
+ * {@link REQUEST_TIMEOUT_MS} bound.
+ *
+ * Classifies on `name`, not on the message: `AbortSignal.timeout` rejects with
+ * a `TimeoutError` whose message is the prose `"The operation timed out."`,
+ * which matches NONE of the tokens in `isRetryableAIError`'s regex (`ETIMEDOUT`
+ * does not match "timed out"). Measured against the installed runtime, not
+ * assumed. `name` is a structured contract; the message is vendor prose that
+ * can change.
+ *
+ * Deliberately does NOT match `AbortError`. That is what a caller-initiated
+ * `controller.abort()` produces — a deliberate cancellation, which must not be
+ * retried. Only the timeout bound this module sets is retryable.
+ */
+export function isRequestTimeoutError(error: unknown): boolean {
+  return String((error as Error)?.name || "") === "TimeoutError";
 }
 
 /**
@@ -56,12 +76,35 @@ const sharedRetryService = new IntelligentRetryService({
   baseDelay: 500,
 });
 
+/**
+ * Wall-clock bound on a single embeddings HTTP request (mt#3444).
+ *
+ * Grounded in measured latency rather than a round number
+ * (`decision-defaults §Thresholds`). Measured 2026-07-31 against the live
+ * endpoint over two runs (33 calls total), covering both production shapes —
+ * reproduce with `bun scripts/measure-embedding-latency.ts`:
+ *
+ *   run 1  single input             p50 193ms  p90 236ms  max 312ms
+ *          batch of 20 (~2KB each)  p50 368ms  p90 449ms  max 449ms
+ *   run 2  single input             p50 173ms  p90 452ms  max 452ms
+ *          batch of 20 (~2KB each)  p50 341ms  p90 361ms  max 361ms
+ *
+ * The batch shape is the real index path (`PerTurnEmbeddingPipeline.batchSize`
+ * defaults to 20). Slowest LEGITIMATE call observed across both runs: 452ms.
+ * The bound below is ~33x that — wide enough that a request 30x slower than the
+ * worst measured one still succeeds, tight enough that a genuine stall surfaces
+ * in seconds instead of hanging until the caller's own timeout (or forever,
+ * which is what it did before this bound existed).
+ */
+export const REQUEST_TIMEOUT_MS = 15_000;
+
 @injectable()
 export class OpenAIEmbeddingService implements EmbeddingService {
   private readonly apiKey: string;
   private readonly baseURL: string;
   private readonly model: string;
   private readonly retryService: IntelligentRetryService;
+  private readonly requestTimeoutMs: number;
 
   /**
    * `retryService` (mt#2980): optional injectable retry-config seam, following
@@ -93,12 +136,14 @@ export class OpenAIEmbeddingService implements EmbeddingService {
     apiKey: string,
     baseURL?: string,
     model?: string,
-    retryService?: IntelligentRetryService
+    retryService?: IntelligentRetryService,
+    requestTimeoutMs?: number
   ) {
     this.apiKey = apiKey;
     this.baseURL = baseURL || "https://api.openai.com/v1";
     this.model = model || "text-embedding-3-small";
     this.retryService = retryService ?? sharedRetryService;
+    this.requestTimeoutMs = requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
   }
 
   static async fromConfig(): Promise<OpenAIEmbeddingService> {
@@ -140,13 +185,19 @@ export class OpenAIEmbeddingService implements EmbeddingService {
       return result;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const errorCode = /insufficient_quota/i.test(msg)
-        ? "insufficient_quota"
-        : /circuit.breaker.is.open/i.test(msg)
-          ? "circuit_breaker_open"
-          : /429|rate.limit/i.test(msg)
-            ? "rate_limit"
-            : "unknown";
+      // `timeout` is checked FIRST and by error name: a stalled request is a
+      // distinct operational condition from an error the API returned, and it
+      // would otherwise fall through to "unknown" — the bucket that tells an
+      // operator nothing (mt#3444).
+      const errorCode = isRequestTimeoutError(err)
+        ? "timeout"
+        : /insufficient_quota/i.test(msg)
+          ? "insufficient_quota"
+          : /circuit.breaker.is.open/i.test(msg)
+            ? "circuit_breaker_open"
+            : /429|rate.limit/i.test(msg)
+              ? "rate_limit"
+              : "unknown";
       await EmbeddingsHealthTracker.getInstance().recordError("openai", errorCode, msg);
       throw err;
     }
@@ -161,6 +212,11 @@ export class OpenAIEmbeddingService implements EmbeddingService {
         Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify({ model: this.model, input: inputs }),
+      // Without this the request can hang forever: a server that accepts the
+      // connection and never responds leaves the promise pending, so the
+      // surrounding retry service never sees a rejection to retry and the
+      // circuit breaker never counts it (mt#3444).
+      signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
 
     if (!res.ok) {
