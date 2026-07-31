@@ -64,7 +64,7 @@ describe("ConversationSearchPanel (mt#2523)", () => {
     expect(screen.getByRole("button", { name: /search conversation content/i })).toBeDefined();
   });
 
-  test("a matched result surfaces the conversation id and a ready `claude --resume <id>` hint (AT#1)", async () => {
+  test("a matched result surfaces the conversation id and a directory-pinned resume hint (AT#1)", async () => {
     stubFetch(200, {
       results: [
         {

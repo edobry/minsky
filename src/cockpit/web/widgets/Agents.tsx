@@ -1446,7 +1446,8 @@ export function Agents({ variant = "card", title = "Agents" }: AgentsProps = {})
   return (
     <WidgetShell variant={variant} title={title}>
       {/* mt#2523 — content/time search over past conversations, surfacing a
-          ready `claude --resume <id>` hint. Rendered above the live run list
+          ready, directory-pinned `cd <cwd> && claude --resume <id>` hint
+          (mt#3440). Rendered above the live run list
           (not gated on its loading/error state — search hits a separate,
           user-triggered data source, not the polled agents list). */}
       <ConversationSearchPanel />

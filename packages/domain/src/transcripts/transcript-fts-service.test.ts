@@ -244,7 +244,7 @@ describe("TranscriptFtsService", () => {
       expect(results[0]?.agentSessionId).toBe("session-a");
     });
 
-    test("resumeHint (mt#2523): each result carries a ready `claude --resume <id>` hint", async () => {
+    test("resumeHint (mt#2523, mt#3440): each result carries a directory-pinned resume hint", async () => {
       const turnRows = [makeTurnRow({ agentSessionId: "session-resume-me" })];
       const db = makeFakeDb(turnRows, []);
       const svc = new TranscriptFtsService(db);
@@ -340,7 +340,7 @@ describe("TranscriptFtsService", () => {
       expect(results[0]?.sessionMetadata.messageCount).toBe(7);
     });
 
-    test("resumeHint (mt#2523): getSession results also carry the resume hint", async () => {
+    test("resumeHint (mt#2523, mt#3440): getSession results also carry the directory-pinned hint", async () => {
       const existenceRows = [makeExistenceRow("session-x")];
       const turnRows = [makeTurnRow({ agentSessionId: "session-x" })];
       const db = makeFakeDb(turnRows, [], existenceRows);

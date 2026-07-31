@@ -101,6 +101,15 @@ function shellQuote(path: string): string {
  * When `cwd` is unknown (52 of 2,061 rows at time of writing), the hint says so
  * inline rather than emitting a bare command that will silently fail from
  * wherever the operator happens to be standing.
+ *
+ * **On embedding an absolute path in a rendered string** (PR #2489 review): the
+ * path is what makes the command work — there is no directory-independent form
+ * of `claude --resume`. It is also not newly exposed by this function: the same
+ * `agent_transcripts.cwd` is already served to the same local surface by
+ * `routes/conversations.ts` (the Overview tab's `conversationMeta`) and
+ * `routes/session-film.ts`, and the cockpit binds loopback behind a token +
+ * Host-allowlist. If conversation data ever becomes multi-tenant or
+ * remotely-served, the path belongs in that review — not this one function.
  */
 export function buildResumeHint(conversationId: string, cwd?: string | null): string {
   const resume = `claude --resume ${conversationId}`;
