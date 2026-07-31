@@ -40,8 +40,39 @@ When a sibling reference needs to be a clickable link (e.g. pointing at a specif
 
 **Exception — descriptive directory mentions are not cross-references.** Stating where outputs live or where the harness discovers skills (e.g. "all skill files under `.claude/skills/`", "auto-discovered from `.claude/skills/`") is a factual description, not a sibling link; leave the literal path.
 
+## Description budget: a description is a routing key, not documentation (mt#3476)
+
+**Target ≤ 250 chars, hard cap 400**, measured on the compiled `description`. A description's
+only job is to let the router decide whether to load the skill; triggers, methodology, and
+cross-references belong in the BODY, which loads on invocation and costs nothing until then.
+
+**Why the cap binds on OTHER skills, not just yours.** The injected available-skills listing is
+charged against a shared CUMULATIVE budget: entries are emitted until it is spent, and each one
+lands only if it still fits. An over-long description does not merely cost itself — it consumes
+budget that later entries needed, and they lose their descriptions entirely. A skill listed
+name-only cannot be routed to, so it is installed, enabled, and invisible.
+
+That is not hypothetical: on 2026-07-31, thirteen skills reached a live session with no
+description while every one of them carried a full `description` on disk. The mechanism (a
+greedy fill against a budget in the [5708, 5853)-char range) is documented in mt#3487 — it is a
+model fit against observed output, not a read of the harness, so treat the exact figure as an
+estimate and the discipline as the point.
+
+Check it before committing:
+
+```bash
+bun scripts/skill-listing-budget.ts          # report: per-description lengths + listing total
+bun scripts/skill-listing-budget.ts --check  # non-zero exit when over cap or over total
+```
+
+**Vendored skills are exempt from the cap, not from the cost.** Their description is set
+upstream and a local edit is reverted on the next refetch (ADR-015), so `--check` reports them
+and does not fail on them — but they still consume the shared budget. Trimming an OWNED
+description is the only lever that frees budget for them.
+
 ## Cross-references
 
 - ADR-015 (`docs/architecture/adr-015-skill-authoring-format-policy.md`) — the decision this rule encodes
+- mt#3476 (description budget + the check) and mt#3487 (the dropped-description diagnosis)
 - mt#2251 (decision), mt#2279 (markdown-source reader — until it ships, markdown sources under `.minsky/skills/` will not compile), mt#2254 (backfill the 43 markdown-only skills), mt#1908 (vendored / installer unification), mt#2280 (two-compile-systems convergence)
 - CLAUDE.md §Generated File Edit Guard — the hook that blocks `.claude/skills/` edits
