@@ -62,6 +62,12 @@ import {
   buildScopedLintCommand,
   evaluateLintSummary,
 } from "./pre-commit-lint-scope";
+import {
+  describeSubprocessFailure,
+  ESLINT_TIMEOUT_MS,
+  FORMATTER_TIMEOUT_MS,
+  TYPECHECK_TIMEOUT_MS,
+} from "./pre-commit-subprocess-failure";
 
 /**
  * Env var that, when truthy (`1`, `true`, `yes`), skips a size-budget-exceeded
@@ -609,8 +615,10 @@ export class PreCommitHook {
           // ~11s WALL on a host at load avg 85, because the process is starved
           // rather than slow. 60s leaves room for that floor plus a large
           // staged set, while still killing a genuinely hung run in half the
-          // time the full-repo budget took.
-          timeout: 60000,
+          // time the full-repo budget took. (Value in
+          // ./pre-commit-subprocess-failure so the timeout message names the
+          // same number this enforces — mt#3406.)
+          timeout: ESLINT_TIMEOUT_MS,
           // The full-repo --format json payload was ~850KB; a staged-file run
           // is far smaller, but keep real headroom — a big staged set with many
           // findings is still sizable, and the 1MB exec default
@@ -654,11 +662,16 @@ export class PreCommitHook {
       // (mt#3404) so this file stays under its max-lines ceiling.
       return evaluateLintSummary(this.calculateESLintSummary(lintResults));
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      log.error(`❌ ESLint validation failed: ${errorMsg}`);
+      // mt#3406: a timeout and a lint failure arrive here with the same
+      // `message`; only `killed` tells them apart. See ./pre-commit-subprocess-failure.
+      const errorMsg = describeSubprocessFailure(error, {
+        step: "ESLint validation",
+        timeoutMs: ESLINT_TIMEOUT_MS,
+      });
+      log.error(`❌ ${errorMsg}`);
       return {
         success: false,
-        message: `ESLint validation failed: ${errorMsg}`,
+        message: errorMsg,
         exitCode: 1,
       };
     }
@@ -1738,7 +1751,7 @@ export class PreCommitHook {
       try {
         await execAsync(target.command, {
           cwd: this.projectRoot,
-          timeout: 60000,
+          timeout: TYPECHECK_TIMEOUT_MS,
         });
       } catch (error: unknown) {
         const err = error as { stdout?: string; stderr?: string; message?: string };
@@ -1750,11 +1763,21 @@ export class PreCommitHook {
           [err.stdout, err.stderr].filter((s) => s && s.trim().length > 0).join("\n") ||
           err.message ||
           String(error);
-        log.cli(`❌ TypeScript type errors found (${target.label})! Commit blocked.`);
+        // mt#3406: "type errors found" is a claim this catch cannot make. It
+        // was reached during mt#3406's own implementation by a tsgo child the
+        // KERNEL killed (SIGKILL, both streams empty) on a loaded host, while
+        // `validate_typecheck` reported 0 errors on the same tree minutes
+        // earlier. describeSubprocessFailure only relabels when the process
+        // demonstrably did not finish; a real type error still reads as one.
+        const label = describeSubprocessFailure(error, {
+          step: `TypeScript type check (${target.label})`,
+          timeoutMs: TYPECHECK_TIMEOUT_MS,
+        });
+        log.cli(`❌ ${label} Commit blocked.`);
         log.cli(output);
         return {
           success: false,
-          message: `TypeScript type check failed (${target.label})`,
+          message: label,
           exitCode: 1,
         };
       }
@@ -1864,7 +1887,7 @@ export class PreCommitHook {
         // fixed cost; 240s leaves ~5x headroom instead of sitting just above it.
         // (Inlined rather than named: this file is at its 1500-code-line cap,
         // so a `const` would not fit. Comments are free.)
-        timeout: 240_000,
+        timeout: FORMATTER_TIMEOUT_MS,
       });
       log.cli("✅ Code formatting completed.");
       return { success: true, message: "Code formatting passed", exitCode: 0 };
@@ -1872,8 +1895,15 @@ export class PreCommitHook {
       // Report what happened rather than naming a cause this catch cannot
       // know: "check for syntax errors" sent readers hunting through files
       // prettier called clean, when the real failure was this step's timeout.
-      log.cli(`❌ Code formatting failed: ${(error as Error)?.message ?? error}`);
-      return { success: false, message: "Code formatting failed", exitCode: 1 };
+      // mt#3406 finishes that: the underlying message alone still cannot say
+      // WHICH of the two happened, because Node words a timeout as a bare
+      // "Command failed: <cmd>". `killed` is what tells them apart.
+      const message = describeSubprocessFailure(error, {
+        step: "Code formatting",
+        timeoutMs: FORMATTER_TIMEOUT_MS,
+      });
+      log.cli(`❌ ${message}`);
+      return { success: false, message, exitCode: 1 };
     }
   }
 

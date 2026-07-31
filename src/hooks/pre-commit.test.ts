@@ -24,6 +24,12 @@
 import { describe, test, expect } from "bun:test";
 import { runInstrumentedStep, type HookResult } from "./pre-commit";
 import { selectLintableStagedFiles, buildScopedLintCommand } from "./pre-commit-lint-scope";
+import {
+  describeSubprocessFailure,
+  ESLINT_TIMEOUT_MS,
+  FORMATTER_TIMEOUT_MS,
+  TYPECHECK_TIMEOUT_MS,
+} from "./pre-commit-subprocess-failure";
 
 /** The default command `ProjectConfigReader.getLintJsonCommand` returns. */
 const DEFAULT_LINT_COMMAND = "eslint . --format json";
@@ -275,5 +281,133 @@ describe("buildScopedLintCommand (mt#3404 — staged-file scoping)", () => {
   test("escapes an embedded single quote rather than terminating the quoted argument", () => {
     const cmd = buildScopedLintCommand(DEFAULT_LINT_COMMAND, ["src/it's.ts"]);
     expect(cmd).toContain("'src/it'\\''s.ts'");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3406 — a timeout and a tool failure arrive at the same `catch` with the
+// same `message`. These pin that the two are told apart, and that the timeout
+// branch never swallows a real failure.
+// ---------------------------------------------------------------------------
+
+/** The shape Node actually produces on `execAsync` timeout — see the module docblock. */
+function timedOutRejection(command: string): Error & { killed: boolean; signal: string } {
+  const err = new Error(`Command failed: ${command}`) as Error & {
+    killed: boolean;
+    signal: string;
+  };
+  err.killed = true;
+  err.signal = "SIGTERM";
+  return err;
+}
+
+describe("describeSubprocessFailure (mt#3406 — timeout vs failure)", () => {
+  // AT1
+  test("the formatter timeout says it timed out and names the budget", () => {
+    const message = describeSubprocessFailure(timedOutRejection("bunx lint-staged"), {
+      step: "Code formatting",
+      timeoutMs: FORMATTER_TIMEOUT_MS,
+    });
+    expect(message).toContain("timed out");
+    expect(message).toContain("240s");
+    // The bare Node text alone is what sent readers hunting through their diff.
+    expect(message).not.toBe("Command failed: bunx lint-staged");
+  });
+
+  // AT2
+  test("the ESLint timeout says it timed out and names its own budget", () => {
+    const message = describeSubprocessFailure(timedOutRejection("bunx eslint --format json"), {
+      step: "ESLint validation",
+      timeoutMs: ESLINT_TIMEOUT_MS,
+    });
+    expect(message).toContain("timed out");
+    expect(message).toContain("60s");
+  });
+
+  // AT3 — the branch must not swallow a real failure.
+  test("a genuine tool failure surfaces the underlying output and is NOT called a timeout", () => {
+    const real = new Error(
+      "Command failed: bunx eslint\n/src/a.ts\n  3:1  error  Unexpected var  no-var"
+    ) as Error & { killed: boolean; code: number };
+    real.killed = false;
+    real.code = 1;
+
+    const message = describeSubprocessFailure(real, {
+      step: "ESLint validation",
+      timeoutMs: ESLINT_TIMEOUT_MS,
+    });
+    expect(message).not.toContain("timed out");
+    expect(message).toContain("Unexpected var");
+    expect(message).toContain("no-var");
+  });
+
+  test("an ETIMEDOUT errno is treated as a timeout even without `killed`", () => {
+    const err = new Error("Command failed: bunx lint-staged") as Error & { code: string };
+    err.code = "ETIMEDOUT";
+    const message = describeSubprocessFailure(err, {
+      step: "Code formatting",
+      timeoutMs: FORMATTER_TIMEOUT_MS,
+    });
+    expect(message).toContain("timed out");
+  });
+
+  // The timeout message has to tell the author what to do, not just what broke.
+  test("the timeout message names the remedy and where the budget lives", () => {
+    const message = describeSubprocessFailure(timedOutRejection("bunx lint-staged"), {
+      step: "Code formatting",
+      timeoutMs: FORMATTER_TIMEOUT_MS,
+    });
+    expect(message).toContain("Re-run");
+    expect(message).toContain("src/hooks/pre-commit.ts");
+    expect(message).toContain("not a failure in your changes");
+  });
+
+  // The shape that blocked this task's OWN commit: the kernel SIGKILLed tsgo on
+  // a loaded host and the step announced "TypeScript type errors found".
+  test("a child the KERNEL killed with no output is not reported as a failure in your code", () => {
+    const oom = new Error("Command failed: /path/to/tsgo --noEmit") as Error & {
+      killed: boolean;
+      signal: string;
+      stdout: string;
+      stderr: string;
+    };
+    oom.killed = false; // Node did not do the killing — the OOM killer did.
+    oom.signal = "SIGKILL";
+    oom.stdout = "";
+    oom.stderr = "";
+
+    const message = describeSubprocessFailure(oom, {
+      step: "TypeScript type check (root)",
+      timeoutMs: TYPECHECK_TIMEOUT_MS,
+    });
+    expect(message).toContain("SIGKILL");
+    expect(message).toContain("out of memory");
+    expect(message).toContain("not a failure in your changes");
+    expect(message).not.toContain("timed out");
+  });
+
+  test("a child that died by signal AFTER printing diagnostics still surfaces them", () => {
+    const withOutput = new Error("Command failed: tsgo --noEmit") as Error & {
+      killed: boolean;
+      signal: string;
+      stdout: string;
+    };
+    withOutput.killed = false;
+    withOutput.signal = "SIGKILL";
+    withOutput.stdout = "src/a.ts(3,1): error TS2304: Cannot find name 'foo'.";
+
+    const message = describeSubprocessFailure(withOutput, {
+      step: "TypeScript type check (root)",
+      timeoutMs: TYPECHECK_TIMEOUT_MS,
+    });
+    // Real diagnostics exist, so this is NOT relabelled as an environment problem.
+    expect(message).not.toContain("out of memory");
+    expect(message).toContain("failed:");
+  });
+
+  test("a non-Error rejection still produces a usable sentence", () => {
+    expect(describeSubprocessFailure("boom", { step: "Code formatting", timeoutMs: 1000 })).toBe(
+      "Code formatting failed: boom"
+    );
   });
 });
