@@ -105,6 +105,83 @@ deliberately does **not** ship:
   `mt#2870`, depends on mt#2713 — per the ADR-024 ladder this rule is the cheapest-sufficient
   rung; the detector graduates only on calibration evidence).
 
+## Severity transport binding (mt#3436)
+
+### The incident
+
+2026-07-31, roughly 02:30–06:28Z: the reviewer bot's OpenAI credits were exhausted, so every
+review 429'd on "no credits remaining" — a remediation only the operator could perform (an
+OpenAI-billing top-up). The agent diagnosed the failure from logs, filed the incident record
+(mt#3433), created an ask (`cb89ecf1` / ask#6575) with the billing link and clear options, and
+reported the incident at full severity in chat per `§Severity pierces the register` above. Then
+it stopped. The ask ran on DEFAULT routing — `serviceStrategy: deadline-bound`,
+`transport: inbox`, suspended into the ask-hours window — and no page went out. The operator
+found it roughly four hours later in chat scroll and said: "you should have messaged me on
+Telegram and really tried to get my attention." `mcp__minsky__principal_notify` — described in
+its own tool text as "send the principal a message on their configured channel (Telegram)" — sat
+unused in the tool list the entire time. Full incident writeup: mem#779.
+
+### Three root causes (mem#779)
+
+1. **The escalation-capability probe never ran.** The agent probed whether IT could fix the
+   billing problem (correctly: no) but never probed whether it HAD an attention channel to the
+   principal — the same "checked one channel, concluded the capability itself is missing" shape
+   `user-preferences.mdc §Probe before deferring` names for tooling generally.
+2. **Severity informed the REPORT, not the ROUTING.** `§Severity pierces the register` correctly
+   pierced the altitude register — the chat report was full-detail — but altitude and transport
+   are different axes, and `forceImmediate` was never set on the ask.
+3. **No structural binding existed.** Nothing in the rule corpus, the ask router, or form-lint
+   connected "production incident / operator-only remediation" to a transport requirement; the
+   severity-trigger list governed reporting depth only.
+
+### The ask-carries-decision / notify-carries-attention split
+
+Two Minsky primitives serve genuinely different jobs, and the incident happened because they were
+treated as substitutes for each other:
+
+- **The ask (`asks_create`) carries the DECISION.** It is durable, structured, and queryable —
+  the options, the context refs, and the eventual response all live in the task record regardless
+  of how (or whether) the principal was alerted to its existence.
+- **`principal_notify` carries the ATTENTION.** It is a one-line page to the principal's
+  configured channel (Telegram) — no decision payload, just "something needs you, here is where."
+
+A correctly-formed ask, routed on the DEFAULT service-window strategy, satisfies the first job and
+fails the second silently: the principal only discovers it by independently checking the
+inbox/scroll. For a severity-triggered, operator-only blocker, both are required —
+`forceImmediate: true` on the ask (skips the service-window suspension) PLUS a
+`principal_notify` page pointing at it (closes the discovery gap for a principal who has stepped
+away).
+
+### Dedupe carve-out
+
+The page is redundant, and should be skipped, when the principal is ALREADY actively responding
+in the same conversation. The page exists for the walked-away case — exactly the shape of the
+originating incident, a multi-hour overnight gap — not for a principal who is already present and
+engaged; paging them mid-exchange adds noise without adding attention.
+
+### Mechanical backstop (mt#3436)
+
+A rule amendment alone is advisory — nothing stops a future turn from repeating the incident. The
+`asks.create` form-lint (`packages/domain/src/ask/form-lint.ts`, the mt#3326 seam) adds a sixth,
+calibration-first check: `missing-force-immediate` fires when `kind` is `authorization.approve` or
+`stuck.unblock`, the question matches incident vocabulary
+(`outage|down|credits|failing|production|incident|429`, case-insensitive), and `forceImmediate` is
+not set. Unlike the five mt#3326 checks, this one is deliberately **advisory-only** — it is
+excluded from `validateFormLintNotViolated`'s hard-reject boundary and only warns (recorded to
+`.minsky/ask-form-lint-calibration.jsonl`) — because it has no calibration evidence yet that
+authors ignore it. It graduates to blocking only if that evidence accumulates, per the same
+calibration-first ladder the five mt#3326 checks themselves went through before they escalated.
+
+### Cross-references
+
+mt#3433 (originating incident) · mem#779 (incident memory + interim discipline) · mt#3436 (this
+structural fix: rule + form-lint backstop) · mt#1596 / mt#2719 (service-side alert-sink — the
+sibling mechanism for SERVICE-detected incidents; this section covers the AGENT-detected path) ·
+`humility.mdc §Escalation packaging` (the ask's FORM discipline; this section adds the TRANSPORT
+half) · `packages/domain/src/ask/form-lint.ts` (the mechanical backstop's
+`missing-force-immediate` check) · mt#3326 (the form-lint hard-reject precedent this check
+deliberately does NOT join).
+
 ## Register of delivery (mt#3287)
 
 The Tier-1 contract specifies what a report contains and where detail lives; this section
@@ -176,4 +253,5 @@ on the consuming side) · `mt#1034` / `docs/architecture/adr-008-attention-alloc
 · `mt#2713` (Tier-1 contract, this rule's origin) · `mt#2867` (altitude register) ·
 `mt#2838` (trust-accrual successor to model tier) · `mt#2869` (Tier-2 digest) · `mt#2870`
 (enforcement detector) · `mt#2258` (umbrella) · `mt#3287` (register of delivery) · `mt#2899`
-(artifact-surface sibling, `engineering-writing` skill).
+(artifact-surface sibling, `engineering-writing` skill) · `mt#3436` (severity transport binding) ·
+`mt#3433` (originating incident) · `mem#779` (incident memory).

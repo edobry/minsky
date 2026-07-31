@@ -837,6 +837,24 @@ export function validateAuthorizationApproveOptions(params: {
 // ---------------------------------------------------------------------------
 
 /**
+ * Filters form-lint matches down to the BLOCKING subset — everything except
+ * the calibration-first `missing-force-immediate` check (mt#3436). Shared by
+ * `validateFormLintNotViolated` (decides whether to hard-reject) and the
+ * `asks.create` execute handler (decides the calibration log's
+ * `acknowledged` field, see below) so the two can never drift on what counts
+ * as blocking. Excluded upstream in `computeFormLintMatches` itself would
+ * also hide the check from `formWarnings`/the calibration log entirely —
+ * this filters only at the decision points that need the blocking/advisory
+ * distinction, not at the point that computes matches.
+ *
+ * Exported for direct testing, matching `validateFormLintNotViolated`'s
+ * pattern above.
+ */
+export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLintMatch[] {
+  return matches.filter((m) => m.check !== "missing-force-immediate");
+}
+
+/**
  * Reject an `asks.create` call whose question/options fail any form-lint
  * check (`@minsky/domain/ask/form-lint`'s `computeFormLintMatches`), unless
  * the caller explicitly acknowledges the violations via
@@ -857,6 +875,17 @@ export function validateAuthorizationApproveOptions(params: {
  * production; leaving the other three (`internal-tool-id`, `portal-no-link`,
  * `letter-prefixed-option-label`) advisory-only would silently reproduce the
  * same containment gap for those defect classes.
+ *
+ * **A sixth check is deliberately EXCLUDED from this hard-reject
+ * (mt#3436).** `missing-force-immediate` (an operator-only-shaped ask whose
+ * question reads like a live incident, created without `forceImmediate` —
+ * see `communication-contract.mdc §Severity pierces the register` and the
+ * originating incident mt#3433 / mem#779) stays calibration-first: it warns
+ * via the calibration log only, unlike the five checks above. Unlike those
+ * five, there is no calibration evidence yet that authors ignore it — it
+ * follows the SAME calibration-first ladder the five mt#3326 checks
+ * themselves went through before escalating, and graduates to blocking only
+ * if that evidence accumulates.
  *
  * `acknowledgeFormWarnings: true` is the sanctioned override for a
  * genuinely long/complex ask (e.g. a multi-log calibration-review
@@ -886,6 +915,7 @@ export function validateFormLintNotViolated(params: {
   kind?: AskKind;
   question?: string;
   options?: Array<{ label: string }>;
+  forceImmediate?: boolean;
   acknowledgeFormWarnings?: boolean;
 }): void {
   if (params.acknowledgeFormWarnings) return;
@@ -897,13 +927,15 @@ export function validateFormLintNotViolated(params: {
     kind: params.kind,
     question: params.question,
     options: params.options,
+    forceImmediate: params.forceImmediate,
   });
-  if (matches.length === 0) return;
+  const blocking = filterBlockingFormLintMatches(matches);
+  if (blocking.length === 0) return;
 
-  const violations = matches.map((m) => `  - ${m.check}: ${m.message}`).join("\n");
-  const plural = matches.length > 1 ? "s" : "";
+  const violations = blocking.map((m) => `  - ${m.check}: ${m.message}`).join("\n");
+  const plural = blocking.length > 1 ? "s" : "";
   throw new ValidationError(
-    `asks.create: ${matches.length} form-lint violation${plural} — fix the ask and retry:\n` +
+    `asks.create: ${blocking.length} form-lint violation${plural} — fix the ask and retry:\n` +
       `${violations}\n\n` +
       `Form-lint checks are consequential at the asks_create boundary (mt#3326): the create ` +
       `is rejected rather than silently accepted with an ignorable warning. If this ask is ` +
@@ -1130,6 +1162,9 @@ export async function createAskWithFormLint(
     // buttons, so a 167-char label or one repeating the surface-rendered letter
     // is a form defect the producer should hear about.
     options: params.options,
+    // forceImmediate feeds the missing-force-immediate check (mt#3436) —
+    // calibration-first, never blocking (see validateFormLintNotViolated).
+    forceImmediate: params.forceImmediate,
   });
   return {
     ask,
@@ -1795,18 +1830,26 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // Form-lint (mt#2798; consequential at this boundary since mt#3326)
         // — humility.mdc §Escalation packaging's "Form" sub-checklist,
         // structurally checked via createAskWithFormLint above. By the time
-        // execute() runs, non-empty formLintMatches only happens when
-        // acknowledgeFormWarnings was true — the validate hook above already
-        // rejected the create otherwise. Record that override on the
-        // calibration JSONL so /calibration-review can see override
-        // frequency, not just fire counts.
+        // execute() runs, a non-empty formLintMatches means EITHER
+        // acknowledgeFormWarnings was true (the validate hook above already
+        // rejected the create otherwise) OR the only match present is the
+        // calibration-first missing-force-immediate check (mt#3436), which
+        // never blocks. Record either case on the calibration JSONL so
+        // /calibration-review can see override/fire frequency for both.
         if (formLintMatches.length > 0) {
+          // mt#3436 R1: `acknowledged` must reflect a genuine hard-reject
+          // bypass, not the raw acknowledgeFormWarnings flag — a caller can
+          // pass that flag for an unrelated reason (or defensively) on a
+          // create whose ONLY match is the advisory missing-force-immediate
+          // check, which has nothing to acknowledge. Gate on whether a
+          // BLOCKING match was actually present.
+          const hasBlockingMatch = filterBlockingFormLintMatches(formLintMatches).length > 0;
           appendAskFormLintCalibrationRecord(ctx?.workspacePath ?? process.cwd(), {
             timestamp: new Date().toISOString(),
             askId: result.id,
             kind: result.kind,
             matches: formLintMatches.map((m) => ({ class: m.check, phrase: m.message })),
-            acknowledged: Boolean(params.acknowledgeFormWarnings),
+            acknowledged: hasBlockingMatch && Boolean(params.acknowledgeFormWarnings),
           });
         }
 

@@ -111,7 +111,9 @@ describe("createAskWithFormLint — option-label checks (mt#3253)", () => {
       {
         kind: KIND_AUTHORIZATION_APPROVE,
         title: "Approve the deploy",
-        question: "Approve deploying the current main to production.",
+        // Deliberately avoids the mt#3436 incident-vocabulary pattern (this
+        // test's scope is the OPTION checks, not missing-force-immediate).
+        question: "Approve deploying the current main to the staging environment.",
       },
       { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
     );

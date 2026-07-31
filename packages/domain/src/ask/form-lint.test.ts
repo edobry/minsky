@@ -157,6 +157,91 @@ describe("computeFormLintMatches — portal-no-link check", () => {
 });
 
 // ---------------------------------------------------------------------------
+// missing-force-immediate check (mt#3436)
+// ---------------------------------------------------------------------------
+
+const CHECK_MISSING_FORCE_IMMEDIATE = "missing-force-immediate" as const;
+const STUCK_UNBLOCK: AskKind = "stuck.unblock";
+
+/** Shared incident-shaped question fixture, reused across the checks below. */
+const INCIDENT_SHAPED_QUESTION = "The service is down and returning 429 errors in production.";
+
+describe("computeFormLintMatches — missing-force-immediate check", () => {
+  test("fires for authorization.approve with incident vocabulary and no forceImmediate", () => {
+    const input: FormLintInput = {
+      kind: AUTHORIZATION_APPROVE,
+      question: INCIDENT_SHAPED_QUESTION,
+    };
+    const matches = computeFormLintMatches(input);
+    expect(matches.some((m) => m.check === CHECK_MISSING_FORCE_IMMEDIATE)).toBe(true);
+  });
+
+  test("fires for stuck.unblock with incident vocabulary and no forceImmediate", () => {
+    const input: FormLintInput = {
+      kind: STUCK_UNBLOCK,
+      question: "Multiple attempts failed; the outage is still ongoing.",
+    };
+    expect(
+      computeFormLintMatches(input).some((m) => m.check === CHECK_MISSING_FORCE_IMMEDIATE)
+    ).toBe(true);
+  });
+
+  test("does not fire when forceImmediate is true", () => {
+    const input: FormLintInput = {
+      kind: AUTHORIZATION_APPROVE,
+      question: INCIDENT_SHAPED_QUESTION,
+      forceImmediate: true,
+    };
+    expect(
+      computeFormLintMatches(input).some((m) => m.check === CHECK_MISSING_FORCE_IMMEDIATE)
+    ).toBe(false);
+  });
+
+  test("does not fire for a non-severity-transport kind, even with incident vocabulary", () => {
+    const input: FormLintInput = {
+      kind: DIRECTION_DECIDE,
+      question: INCIDENT_SHAPED_QUESTION,
+    };
+    expect(
+      computeFormLintMatches(input).some((m) => m.check === CHECK_MISSING_FORCE_IMMEDIATE)
+    ).toBe(false);
+  });
+
+  test("does not fire when no incident vocabulary is present", () => {
+    const input: FormLintInput = {
+      kind: AUTHORIZATION_APPROVE,
+      question: "Please confirm you want to proceed with the deploy.",
+    };
+    expect(
+      computeFormLintMatches(input).some((m) => m.check === CHECK_MISSING_FORCE_IMMEDIATE)
+    ).toBe(false);
+  });
+
+  test("omitting forceImmediate entirely behaves the same as explicit false", () => {
+    const withoutField = computeFormLintMatches({
+      kind: AUTHORIZATION_APPROVE,
+      question: "The reviewer is down; investigate the incident.",
+    });
+    const withFalse = computeFormLintMatches({
+      kind: AUTHORIZATION_APPROVE,
+      question: "The reviewer is down; investigate the incident.",
+      forceImmediate: false,
+    });
+    expect(withoutField.map((m) => m.check)).toEqual(withFalse.map((m) => m.check));
+  });
+
+  test("this check composes with the v1 question checks rather than replacing them", () => {
+    const checks = computeFormLintMatches({
+      kind: AUTHORIZATION_APPROVE,
+      question: "Run mcp__minsky__setup_github-app — production is down.",
+    })
+      .map((m) => m.check)
+      .sort();
+    expect(checks).toEqual([CHECK_INTERNAL_TOOL_ID, CHECK_MISSING_FORCE_IMMEDIATE].sort());
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Well-formed ask -> zero warnings
 // ---------------------------------------------------------------------------
 
@@ -227,6 +312,46 @@ describe("ask 6807fb14 regression fixtures", () => {
 
   test("ORIGINAL text is indeed over the word budget (sanity check on the fixture)", () => {
     expect(countWords(ORIGINAL_QUESTION)).toBeGreaterThan(FORM_LINT_WORD_BUDGET);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Replay: ask cb89ecf1 / ask#6575 (mt#3433 originating incident — mt#3436
+// spec Acceptance Tests AT1 and AT3)
+// ---------------------------------------------------------------------------
+
+describe("ask cb89ecf1 / ask#6575 replay (mt#3436 AT1, AT3)", () => {
+  // Verbatim question text from the originating ask, fetched via asks_get at
+  // implementation time. The ask's actual kind was authorization.approve and
+  // it was actually created with forceImmediate: false — the exact shape
+  // the 2026-07-31 incident (mt#3433 / mem#779) describes.
+  const INCIDENT_QUESTION =
+    'The reviewer bot has been failing every review since ~02:30Z tonight with "429 You have no ' +
+    "credits remaining\" from OpenAI — the account balance is empty (likely drained by today's " +
+    "7-PR day: multi-round GPT-5 reviews plus three toil-miner LLM runs). Add credits here: " +
+    "https://platform.openai.com/settings/organization/billing (Billing → Add to credit " +
+    "balance). Until then, no PR can get a bot review; PR #2456 (the miner perf fix, all 15 " +
+    "checks green) is waiting, and I can't bypass-merge from my side. Alternatives if you'd " +
+    "rather not top up now: I can switch the reviewer service to the Anthropic or Gemini " +
+    "provider (config change; review quality/format differs), or everything simply waits. " +
+    "Investigation record: mt#3433.";
+
+  test("AT1: replaying the ORIGINAL (forceImmediate: false) ask warns on missing-force-immediate", () => {
+    const matches = computeFormLintMatches({
+      kind: AUTHORIZATION_APPROVE,
+      question: INCIDENT_QUESTION,
+      forceImmediate: false,
+    });
+    expect(matches.some((m) => m.check === CHECK_MISSING_FORCE_IMMEDIATE)).toBe(true);
+  });
+
+  test("AT3: the same ask with forceImmediate: true passes lint clean on this check", () => {
+    const matches = computeFormLintMatches({
+      kind: AUTHORIZATION_APPROVE,
+      question: INCIDENT_QUESTION,
+      forceImmediate: true,
+    });
+    expect(matches.some((m) => m.check === CHECK_MISSING_FORCE_IMMEDIATE)).toBe(false);
   });
 });
 

@@ -22,10 +22,13 @@
 import { describe, expect, test } from "bun:test";
 import { ValidationError } from "@minsky/domain/errors/index";
 import { OPTION_LABEL_BUDGET } from "@minsky/shared/ask-option-label";
-import { validateFormLintNotViolated } from "./asks";
+import { filterBlockingFormLintMatches, validateFormLintNotViolated } from "./asks";
 
 const KIND_DIRECTION_DECIDE = "direction.decide" as const;
 const KIND_AUTHORIZATION_APPROVE = "authorization.approve" as const;
+
+const CHECK_INTERNAL_TOOL_ID = "internal-tool-id" as const;
+const CHECK_MISSING_FORCE_IMMEDIATE = "missing-force-immediate" as const;
 
 const WELL_FORMED_QUESTION =
   "Pick the replacement mechanism for boot-time auto-migrate. Two options below.";
@@ -110,5 +113,69 @@ describe("validateFormLintNotViolated (mt#3326)", () => {
     expect(() => validateFormLintNotViolated({ question: WELL_FORMED_QUESTION })).not.toThrow();
     expect(() => validateFormLintNotViolated({ kind: KIND_DIRECTION_DECIDE })).not.toThrow();
     expect(() => validateFormLintNotViolated({})).not.toThrow();
+  });
+
+  // -------------------------------------------------------------------------
+  // missing-force-immediate (mt#3436) — deliberately NOT part of this
+  // hard-reject boundary. Calibration-first: it warns via the calibration
+  // log (asks.ts's execute handler), never here.
+  // -------------------------------------------------------------------------
+
+  test("missing-force-immediate alone does not throw (calibration-first, not blocking)", () => {
+    expect(() =>
+      validateFormLintNotViolated({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        question: "The service is down and returning 429 errors in production.",
+        forceImmediate: false,
+      })
+    ).not.toThrow();
+  });
+
+  test("setting forceImmediate: true also does not throw (no violation at all)", () => {
+    expect(() =>
+      validateFormLintNotViolated({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        question: "The service is down and returning 429 errors in production.",
+        forceImmediate: true,
+      })
+    ).not.toThrow();
+  });
+
+  test("filterBlockingFormLintMatches drops ONLY missing-force-immediate (PR #2472 R1)", () => {
+    // Regression for the R1 finding: an `acknowledged` calibration-log field
+    // must never be computed from the raw acknowledgeFormWarnings flag
+    // alone — it has to gate on whether a BLOCKING match was actually
+    // present. This is the shared helper both validateFormLintNotViolated
+    // and the asks.create execute handler now use to decide that.
+    const onlyAdvisory = filterBlockingFormLintMatches([
+      { check: CHECK_MISSING_FORCE_IMMEDIATE, message: "m" },
+    ]);
+    expect(onlyAdvisory).toEqual([]);
+
+    const mixed = filterBlockingFormLintMatches([
+      { check: CHECK_INTERNAL_TOOL_ID, message: "m1" },
+      { check: CHECK_MISSING_FORCE_IMMEDIATE, message: "m2" },
+    ]);
+    expect(mixed.map((m) => m.check)).toEqual([CHECK_INTERNAL_TOOL_ID]);
+
+    const noMatches = filterBlockingFormLintMatches([]);
+    expect(noMatches).toEqual([]);
+  });
+
+  test("missing-force-immediate does not count toward the blocking violation total", () => {
+    // internal-tool-id (blocking) + missing-force-immediate (advisory) both
+    // fire; only the blocking one should surface in the thrown message.
+    const question =
+      "I'll run mcp__minsky__setup_github-app — production is down and returning 429s.";
+    try {
+      validateFormLintNotViolated({ kind: KIND_AUTHORIZATION_APPROVE, question });
+      throw new Error("expected validateFormLintNotViolated to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ValidationError);
+      const message = (err as Error).message;
+      expect(message).toContain(CHECK_INTERNAL_TOOL_ID);
+      expect(message).toContain("1 form-lint violation");
+      expect(message).not.toContain(CHECK_MISSING_FORCE_IMMEDIATE);
+    }
   });
 });
