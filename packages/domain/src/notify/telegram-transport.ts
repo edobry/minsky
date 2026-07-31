@@ -126,7 +126,23 @@ export interface SendMessageOptions {
 }
 
 export type TelegramSendResult =
-  | { ok: true; messageId: number }
+  | {
+      ok: true;
+      messageId: number;
+      /**
+       * Set when the formatted attempt was rejected and this delivery is the
+       * plain-text retry (mt#3465).
+       *
+       * Surfaced rather than logged here: this module has no logger by design
+       * (result unions, no side effects), and a silent fallback would make a
+       * systematically-broken converter indistinguishable from a healthy one —
+       * every message would still arrive, just never formatted. The caller
+       * logs it.
+       */
+      fellBackToPlain?: true;
+      /** Telegram's rejection of the markup, for the caller's log. */
+      parseError?: string;
+    }
   | { ok: false; status?: number; detail: string };
 
 /**
@@ -161,7 +177,8 @@ export async function sendTelegramMessage(opts: SendMessageOptions): Promise<Tel
     !attempt.ok && attempt.status === 400 && parseMode !== undefined && plainFallback !== undefined;
   if (!shouldRetryPlain) return attempt;
 
-  return postSendMessage({
+  const parseError = attempt.ok ? "" : attempt.detail;
+  const retry = await postSendMessage({
     token,
     chatId,
     text: plainFallback,
@@ -169,6 +186,11 @@ export async function sendTelegramMessage(opts: SendMessageOptions): Promise<Tel
     parseMode: undefined,
     fetchFn,
   });
+
+  // Mark the degradation so the caller can log it. Without this the fallback
+  // is invisible and a converter that started emitting bad markup would look
+  // exactly like one that works.
+  return retry.ok ? { ...retry, fellBackToPlain: true, parseError } : retry;
 }
 
 /** One `sendMessage` round-trip. Shared by the formatted attempt and its retry. */

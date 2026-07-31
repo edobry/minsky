@@ -188,8 +188,15 @@ describe("sendTelegramMessage — parse mode", () => {
       fetchFn,
     });
 
-    // Delivered, not lost — the whole point.
-    expect(result).toEqual({ ok: true, messageId: 9 });
+    // Delivered, not lost — the whole point. And FLAGGED: a silent fallback
+    // would make a systematically-broken converter look healthy, since every
+    // message would still arrive (SC3 requires the parse error be logged).
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.messageId).toBe(9);
+      expect(result.fellBackToPlain).toBe(true);
+      expect(result.parseError).toContain("400");
+    }
     expect(bodies).toHaveLength(2);
     expect(bodies[1]?.["text"]).toBe("**broken");
     expect("parse_mode" in (bodies[1] ?? {})).toBe(false);

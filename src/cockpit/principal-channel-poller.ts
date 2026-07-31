@@ -495,6 +495,15 @@ async function sendReply(
     log.error("[principal-channel] reply delivery failed", { detail: result.detail });
     return undefined;
   }
+  if (result.fellBackToPlain) {
+    // The message DID arrive, so this is not an error — but it means the
+    // converter emitted markup Telegram refused, and without a log that is
+    // invisible: every reply would keep landing, just never formatted.
+    log.warn("[principal-channel] Telegram rejected the rendered HTML; sent unstyled instead", {
+      parseError: result.parseError,
+      plainChars: plain.length,
+    });
+  }
   return result.messageId;
 }
 
