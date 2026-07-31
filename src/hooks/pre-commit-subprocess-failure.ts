@@ -17,10 +17,18 @@
  * (mt#3412 `## Context`, whose ESLint runs died "with a bare 'Command failed'
  * and no output, because the killed process never got to write its JSON").
  *
- * The discriminator Node actually gives is `killed` — true when Node itself
- * terminated the child, which is what the timeout does. This module reads that
- * field rather than pattern-matching the message text, so it stays correct if
- * the message wording changes.
+ * This module reads the fields Node actually sets rather than pattern-matching
+ * the message text, so it stays correct if the wording changes, and separates
+ * two non-failures from a real one:
+ *
+ *   - TIMEOUT — `killed: true` (Node did the killing) or an `ETIMEDOUT` errno.
+ *   - DIED BY SIGNAL — `killed: false` with a `signal` and NO output on either
+ *     stream. The kernel's OOM killer is the case that actually happens; see
+ *     `diedBySignal`, which was added after this task's own commit was blocked
+ *     by one.
+ *
+ * Anything else is a genuine failure and passes through untouched — a child
+ * that printed diagnostics before dying still has something worth showing.
  *
  * Why no override env var (mt#3406 criterion 4): the sibling pre-commit gates
  * carry `MINSKY_SKIP_*` escapes because they enforce a POLICY an author may
@@ -29,12 +37,12 @@
  * skip the check. Adding a skip here would let a real lint failure through on a
  * slow host. Deliberately absent, not overlooked.
  *
- * @see ./pre-commit.ts — the two call sites
+ * @see ./pre-commit.ts — the three call sites (formatter, ESLint, typecheck)
  * @see mt#3404, mt#3412 — the sibling work that fixed the COST; this fixes the DIAGNOSIS
  */
 
 /**
- * The two budgets this module reports on.
+ * The three budgets this module reports on.
  *
  * They live here rather than inline at the `execAsync` options because the
  * message has to name the same number the step actually enforces — two literals
