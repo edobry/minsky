@@ -4,7 +4,7 @@
  * refresh works"). Pure functions, no component render needed.
  */
 import { describe, test, expect } from "bun:test";
-import { basePathFor, defaultTabFor, tabFromPathname, pathForTab } from "./RunDetail";
+import { basePathFor, defaultTabFor, tabFromPathname, pathForTab, RUN_TABS } from "./RunDetail";
 
 // Shared fixture base paths — hoisted to module scope (not re-declared per
 // describe block) to avoid the repo's magic-string-duplication lint rule.
@@ -63,6 +63,14 @@ describe("tabFromPathname", () => {
     expect(tabFromPathname(`${convBase}/context`, convBase, "conversation")).toBe("context");
   });
 
+  test("/agents/:id/film -> film tab (mt#3461)", () => {
+    expect(tabFromPathname(`${wsBase}/film`, wsBase, "workspace")).toBe("film");
+  });
+
+  test("/conversation/:id/film -> film tab (mt#3461)", () => {
+    expect(tabFromPathname(`${convBase}/film`, convBase, "conversation")).toBe("film");
+  });
+
   test("an unrecognized suffix falls back to the default landing tab", () => {
     expect(tabFromPathname(`${wsBase}/bogus`, wsBase, "workspace")).toBe("overview");
     expect(tabFromPathname(`${convBase}/bogus`, convBase, "conversation")).toBe("conversation");
@@ -94,9 +102,13 @@ describe("pathForTab", () => {
   });
 
   test("round-trips through tabFromPathname for every tab, both keySpaces", () => {
+    // Iterates RUN_TABS rather than a hardcoded list, so a tab added to the
+    // strip without a `tabFromPathname` case fails here instead of shipping as
+    // a tab that renders the default view (how mt#3461's `film` would have
+    // regressed).
     for (const keySpace of ["workspace", "conversation"] as const) {
       const base = basePathFor(keySpace, "id1");
-      for (const tab of ["overview", "conversation", "context"] as const) {
+      for (const tab of RUN_TABS) {
         const path = pathForTab(base, keySpace, tab);
         expect(tabFromPathname(path, base, keySpace)).toBe(tab);
       }
