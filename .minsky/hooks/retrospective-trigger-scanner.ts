@@ -64,6 +64,7 @@ import {
   type NominationDeps,
 } from "../../packages/domain/src/detectors/embedding-nomination";
 import { resolveNominationDeps } from "../../packages/domain/src/detectors/embedding-nomination-factory";
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 import { flagKey, readFlagged, turnKeyFor } from "./turn-end-scan-store";
 
 // ---------------------------------------------------------------------------
@@ -478,8 +479,9 @@ export const NOMINATION_EXEMPLARS: ExemplarSet[] = [
       "That was my mistake and I should have caught it.",
       "I conflated two separate things.",
       "I asserted that without checking it first.",
-      "I used an identifier before the call that creates it had run.",
-      "I filled in a value I had never actually looked up.",
+      "I referenced an identifier that did not exist yet.",
+      "I wrote down a value I had never actually obtained.",
+      "I invented a number instead of looking it up.",
       "My earlier statement about that was incorrect.",
     ],
   },
@@ -496,7 +498,7 @@ export const NOMINATION_EXEMPLARS: ExemplarSet[] = [
     family: "R3",
     exemplars: [
       "Going forward I'll check that first.",
-      "Next time I will read the file before editing it.",
+      "Next time I will not make that assumption.",
       "From now on I'll verify the result before claiming it.",
     ],
   },
@@ -564,7 +566,23 @@ export async function detectTriggerPhrasesWithNomination(
     return { matches: rung1, nominatedFamilies: [] };
   }
 
-  const resolved = deps === undefined ? await resolveNominationDeps() : deps;
+  let resolved: NominationDeps | null;
+  if (deps === undefined) {
+    // A hook is its own entry point: it inherits neither the reflect polyfill
+    // nor the process-global configuration the CLI and MCP server set up at
+    // boot. `resolveNominationDeps` reaches the embedding factory, which needs
+    // both — without this the resolver would throw, return null, and Rung 2
+    // would degrade on EVERY turn in production while every test passed. That
+    // is the mt#3019 dead-path shape, and `domain-bootstrap`'s own docblock
+    // names the embedding-factory call as one of the three it must precede.
+    const bootstrap = await ensureHookDomainBootstrap();
+    if (!bootstrap.ok) {
+      return { matches: rung1, degradedReason: "provider-unconfigured", nominatedFamilies: [] };
+    }
+    resolved = await resolveNominationDeps();
+  } else {
+    resolved = deps;
+  }
   if (resolved === null) {
     return { matches: rung1, degradedReason: "provider-unconfigured", nominatedFamilies: [] };
   }

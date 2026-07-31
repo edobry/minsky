@@ -7,6 +7,16 @@
  * `resolveNominationDeps`; tests inject `NominationDeps` directly.
  */
 
+// The provider factory and the configuration system are tsyringe-decorated, so
+// importing this module drags in a reflect polyfill requirement. Hook processes
+// and standalone scripts that pull in a consumer of this file (e.g.
+// `retrospective-trigger-scanner`) would otherwise crash at import time with
+// "tsyringe requires a reflect polyfill" — which is how the replay harness
+// broke when the scanner first took this dependency. Importing it HERE keeps
+// the requirement with the module that creates it, rather than making every
+// downstream consumer remember.
+import "reflect-metadata";
+
 import { createEmbeddingServiceFromConfig } from "../ai/embedding-service-factory";
 import { getConfiguration } from "../configuration";
 import { isSemanticProvider, type NominationDeps } from "./embedding-nomination";

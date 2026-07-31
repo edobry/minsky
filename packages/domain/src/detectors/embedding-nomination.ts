@@ -32,8 +32,22 @@ import type { EmbeddingService } from "../ai/embeddings/types";
  */
 export const DEFAULT_NOMINATION_TIMEOUT_MS = 2000;
 
-/** Cosine floor for a segment/exemplar pair to count as a nomination. */
-export const DEFAULT_SIMILARITY_THRESHOLD = 0.82;
+/**
+ * Cosine floor for a segment/exemplar pair to count as a nomination.
+ *
+ * Measured, not chosen (`decision-defaults.mdc §Thresholds`). Against
+ * text-embedding-3-small, `scripts/verify-rung2-nomination.ts` puts the mt#3341
+ * recall fixture at 0.504 and the highest correct-ordering negative control
+ * ("I committed before pushing") at 0.406; neutral prose sits at ~0.25. This
+ * value is the midpoint of that observed band.
+ *
+ * The band is NARROW — ~0.05 either side, established against one recall
+ * fixture and four negatives. That thinness is the reason this stage only
+ * NOMINATES into an advisory reminder and is measured over real turns by
+ * `scripts/replay-retrospective-trigger-corpus.ts` before being trusted; it is
+ * not a number to treat as well-calibrated on the evidence so far.
+ */
+export const DEFAULT_SIMILARITY_THRESHOLD = 0.455;
 
 /** Upper bound on candidate segments embedded per turn, to bound batch size. */
 export const MAX_CANDIDATE_SEGMENTS = 40;
