@@ -26,11 +26,21 @@
 // @see mt#3244 — this addition; mt#1459 (the gate); mt#2263 (calibration ladder);
 //      mem#704 (the negative-control rule this applies to the TEST artifact class)
 
-import {
-  extractExecutionEvidenceText,
-  isTestFile,
-  type PrFile,
-} from "./require-execution-evidence-before-merge";
+// ## Why this module does not import the evidence hook
+//
+// `require-execution-evidence-before-merge.ts` imports THIS module to run the calibration,
+// so an import back would be an ESM cycle and would put that hook's entry point at the mercy
+// of module-evaluation order. The evidence-block text therefore flows IN as a parameter
+// (`evidenceText`) rather than being re-extracted here, and the shared pieces come from
+// dependency-free siblings. This mirrors `success-criteria-coverage.ts`'s section of the same
+// name verbatim — PR #2462 R1 caught this module violating that established pattern.
+//
+// @see .minsky/hooks/markdown-sections.ts — shared fence-aware primitives
+// @see .minsky/hooks/pr-file-predicates.ts — `isTestFile`, moved there for this reason
+
+import { computeFenceInternalLines, isMarkdownHeading } from "./markdown-sections";
+import { isTestFile } from "./pr-file-predicates";
+import type { PrFile } from "./pr-context";
 
 // ---------------------------------------------------------------------------
 // Hole 2 — the trigger set
@@ -107,10 +117,19 @@ const NEGATIVE_CONTROL_MARKER =
 export function hasNegativeControlEvidence(text: string): boolean {
   const stripped = text.replace(/<!--[\s\S]*?-->/g, "");
   const lines = stripped.split("\n");
+  // Fence-aware, per mt#3277/mt#3316: an evidence block IS a pasted shell transcript, so it
+  // legitimately contains both `# comment` lines (which look like headings) and, when a PR
+  // pastes example markdown, the marker phrase itself. Treating a fenced line as a heading
+  // truncates the content scan; treating a fenced marker as real is a false positive. Both
+  // are the exact class the sibling scanners already fixed — reuse their primitive rather
+  // than re-deriving it (PR #2462 R1).
+  const fenceInternal = computeFenceInternalLines(lines);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line === undefined) continue;
+    // A marker inside a fence is quoted text, not a record.
+    if (fenceInternal[i]) continue;
     const match = line.match(NEGATIVE_CONTROL_MARKER);
     if (!match) continue;
 
@@ -131,7 +150,9 @@ export function hasNegativeControlEvidence(text: string): boolean {
     for (let j = i + 1; j < lines.length; j++) {
       const nextLine = lines[j];
       if (nextLine === undefined) break;
-      if (/^ {0,3}#{1,6}\s/.test(nextLine)) break;
+      // Only a REAL heading ends the section — a `# revert the fix` comment inside the
+      // pasted transcript is content, not a boundary.
+      if (!fenceInternal[j] && isMarkdownHeading(nextLine)) break;
       if (nextLine.trim().length > 0) return true;
     }
   }
@@ -195,6 +216,7 @@ export function checkTestFirstEvidence(
   prFiles: PrFile[],
   prTitle: string,
   prBody: string,
+  evidenceText: string,
   specContent?: string | null
 ): TestFirstEvidenceResult {
   const modifiedTestFiles = findModifiedTestFiles(prFiles);
@@ -216,7 +238,7 @@ export function checkTestFirstEvidence(
     };
   }
 
-  const negativeControlPresent = hasNegativeControlEvidence(extractExecutionEvidenceText(prBody));
+  const negativeControlPresent = hasNegativeControlEvidence(evidenceText);
   const deferralMarker = extractNegativeControlDeferral(prBody);
   const flagged = !negativeControlPresent && deferralMarker === null;
 
@@ -301,6 +323,7 @@ export function runTestFirstCalibration(
   prFiles: PrFile[],
   prTitle: string,
   prBody: string,
+  evidenceText: string,
   specContent: string | null,
   env: NodeJS.ProcessEnv = process.env,
   now: () => Date = () => new Date()
@@ -309,7 +332,7 @@ export function runTestFirstCalibration(
     return { ranCheck: false, warning: null, calibrationRecord: null };
   }
 
-  const result = checkTestFirstEvidence(prFiles, prTitle, prBody, specContent);
+  const result = checkTestFirstEvidence(prFiles, prTitle, prBody, evidenceText, specContent);
   if (!result.flagged) {
     return { ranCheck: true, warning: null, calibrationRecord: null };
   }

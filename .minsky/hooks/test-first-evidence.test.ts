@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
-import { checkExecutionEvidence, type PrFile } from "./require-execution-evidence-before-merge";
+import {
+  checkExecutionEvidence,
+  extractExecutionEvidenceText,
+  type PrFile,
+} from "./require-execution-evidence-before-merge";
 import {
   checkTestFirstEvidence,
   findModifiedTestFiles,
@@ -32,6 +36,8 @@ const FOO_TS = "src/domain/foo.ts";
 const FOO_TEST_TS = "src/domain/foo.test.ts";
 /** The evidence-block marker the gate scans for. */
 const EVIDENCE_MARKER = "Execution evidence:";
+/** The negative-control label line, in its plain-label (colon-required) form. */
+const NC_MARKER = "Negative control:";
 
 const PR_2329_FILES: PrFile[] = [
   { filename: ACTUATOR_TEST_TS, status: "modified" },
@@ -57,6 +63,15 @@ const PR_2329_BODY = [
 ].join("\n");
 
 const NON_BUGFIX_TITLE = "feat(mt#3244): add a test-first evidence surface";
+
+/**
+ * Calls the pure core the way the hook does — extracting the evidence block and passing it
+ * IN. The module takes `evidenceText` as a parameter rather than importing the extractor,
+ * to stay out of an import cycle with the evidence hook (PR #2462 R1).
+ */
+function check(files: PrFile[], title: string, body: string, spec: string | null = null) {
+  return checkTestFirstEvidence(files, title, body, extractExecutionEvidenceText(body), spec);
+}
 
 describe("findModifiedTestFiles (hole 2 — the set findNewTestFiles excludes)", () => {
   it("returns test files whose status is `modified`", () => {
@@ -100,12 +115,7 @@ describe("specDescribesDefect", () => {
 
 describe("hasNegativeControlEvidence (hole 3 — the failing-first record)", () => {
   it("accepts a `Negative control:` label line with content", () => {
-    const text = [
-      "Negative control:",
-      "",
-      "$ bun test foo.test.ts  # fix reverted",
-      " 1 fail",
-    ].join("\n");
+    const text = [NC_MARKER, "", "$ bun test foo.test.ts  # fix reverted", " 1 fail"].join("\n");
     expect(hasNegativeControlEvidence(text)).toBe(true);
   });
 
@@ -127,6 +137,17 @@ describe("hasNegativeControlEvidence (hole 3 — the failing-first record)", () 
 
   it("rejects a negated mention", () => {
     expect(hasNegativeControlEvidence("No negative control: not applicable here")).toBe(false);
+  });
+
+  // PR #2462 R1 — the mt#3277/mt#3316 fence class, both directions.
+  it("does not count a marker that only appears inside a fenced block", () => {
+    const text = ["```", NC_MARKER, " 1 fail", "```"].join("\n");
+    expect(hasNegativeControlEvidence(text)).toBe(false);
+  });
+
+  it("does not stop at a `#` comment inside a fenced transcript", () => {
+    const text = [NC_MARKER, "", "```bash", "# revert the fix first", " 1 fail", "```"].join("\n");
+    expect(hasNegativeControlEvidence(text)).toBe(true);
   });
 });
 
@@ -154,7 +175,7 @@ describe("AT1/AT5: PR #2329 replay (modified-only bugfix)", () => {
   });
 
   it("AT1: the new surface now requires evidence for the same PR", () => {
-    const result = checkTestFirstEvidence(PR_2329_FILES, PR_2329_TITLE, PR_2329_BODY);
+    const result = check(PR_2329_FILES, PR_2329_TITLE, PR_2329_BODY);
     expect(result.bugfixShaped).toBe(true);
     expect(result.modifiedTestFiles).toEqual([ACTUATOR_TEST_TS]);
     expect(result.requiresNegativeControl).toBe(true);
@@ -163,7 +184,7 @@ describe("AT1/AT5: PR #2329 replay (modified-only bugfix)", () => {
   });
 
   it("AT4: the pure core carries no blocking verdict at all", () => {
-    const result = checkTestFirstEvidence(PR_2329_FILES, PR_2329_TITLE, PR_2329_BODY);
+    const result = check(PR_2329_FILES, PR_2329_TITLE, PR_2329_BODY);
     expect("blocked" in result).toBe(false);
   });
 });
@@ -186,7 +207,7 @@ describe("AT2: PR #2330 replay (passing runs only)", () => {
       " 8 pass",
       "```",
     ].join("\n");
-    const result = checkTestFirstEvidence(files, "fix(mt#3238): readiness gate deadlock", body);
+    const result = check(files, "fix(mt#3238): readiness gate deadlock", body);
     expect(result.flagged).toBe(true);
     expect(result.reason).toContain("negative control");
   });
@@ -225,7 +246,7 @@ describe("AT3: negative control — a compliant bugfix is NOT flagged", () => {
       " 0 fail",
       "```",
     ].join("\n");
-    const result = checkTestFirstEvidence(files, "fix(mt#1234): correct the off-by-one", body);
+    const result = check(files, "fix(mt#1234): correct the off-by-one", body);
     expect(result.requiresNegativeControl).toBe(true);
     expect(result.negativeControlPresent).toBe(true);
     expect(result.flagged).toBe(false);
@@ -234,14 +255,14 @@ describe("AT3: negative control — a compliant bugfix is NOT flagged", () => {
   it("does not flag a bugfix carrying an explicit deferral marker", () => {
     const files: PrFile[] = [{ filename: FOO_TEST_TS, status: "modified" }];
     const body = `${EVIDENCE_MARKER}\n\n 1 pass\n\n[negative-control-deferred: mt#3999]`;
-    const result = checkTestFirstEvidence(files, "fix(mt#1234): something", body);
+    const result = check(files, "fix(mt#1234): something", body);
     expect(result.flagged).toBe(false);
     expect(result.deferralMarker).toBe("mt#3999");
   });
 
   it("does not flag a non-bugfix PR that modifies a test file", () => {
     const files: PrFile[] = [{ filename: FOO_TEST_TS, status: "modified" }];
-    const result = checkTestFirstEvidence(files, NON_BUGFIX_TITLE, `${EVIDENCE_MARKER}\n\n ok`);
+    const result = check(files, NON_BUGFIX_TITLE, `${EVIDENCE_MARKER}\n\n ok`);
     expect(result.bugfixShaped).toBe(false);
     expect(result.requiresNegativeControl).toBe(false);
     expect(result.flagged).toBe(false);
@@ -249,7 +270,7 @@ describe("AT3: negative control — a compliant bugfix is NOT flagged", () => {
 
   it("does not flag a bugfix that modifies no test file", () => {
     const files: PrFile[] = [{ filename: FOO_TS, status: "modified" }];
-    const result = checkTestFirstEvidence(files, PR_2329_TITLE, `${EVIDENCE_MARKER}\n\n ok`);
+    const result = check(files, PR_2329_TITLE, `${EVIDENCE_MARKER}\n\n ok`);
     expect(result.requiresNegativeControl).toBe(false);
     expect(result.flagged).toBe(false);
   });
@@ -267,6 +288,7 @@ describe("AT4: calibration surface never denies", () => {
       PR_2329_FILES,
       PR_2329_TITLE,
       PR_2329_BODY,
+      extractExecutionEvidenceText(PR_2329_BODY),
       null
     );
     expect(run.ranCheck).toBe(true);
@@ -283,6 +305,7 @@ describe("AT4: calibration surface never denies", () => {
       [{ filename: FOO_TEST_TS, status: "modified" }],
       "fix(mt#1234): x",
       body,
+      extractExecutionEvidenceText(body),
       null
     );
     expect(run.warning).toBeNull();
