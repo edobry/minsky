@@ -57,6 +57,7 @@ import {
 import {
   askToEntitySeed,
   createEntityThreadReplyRecorder,
+  resolveOriginConversationId,
   startEntityThreadSession,
   taskToEntitySeed,
   type EntityThreadSession,
@@ -110,6 +111,23 @@ const getEntityThreadDb = createCachedSqlDbGetter({ cacheNegative: false });
 const _supportedTypesArePersistable: readonly EntityThreadEntityType[] =
   ENTITY_THREAD_SUPPORTED_TYPES;
 void _supportedTypesArePersistable;
+
+/**
+ * Entity kinds for which an originating conversation can be resolved at all
+ * (mt#3367).
+ *
+ * Only asks today: the lookup keys off `asks.parent_session_id`, and no other
+ * entity kind carries an equivalent. A task's "origin" is a different notion
+ * with different semantics — the original spec deliberately left it out of
+ * scope rather than guessing at one.
+ *
+ * Exported so the reporting decision is directly testable, and separate from
+ * `ENTITY_THREAD_SUPPORTED_TYPES` on purpose: a kind can have a thread without
+ * having an origin (that is exactly the task case).
+ */
+export function supportsOriginSeeding(entityType: EntityThreadSupportedType): boolean {
+  return entityType === "ask";
+}
 
 export interface EntityThreadRoutesOptions {
   /** Override the database handle (tests). */
@@ -185,7 +203,7 @@ export function mountEntityThreadRoutes(
     try {
       // The entity must exist before this route says anything about a thread
       // for it — otherwise a mistyped id renders as a real (empty) thread.
-      const seed = await loadSeed(entityType, entityId);
+      const seed = await loadSeed(entityType, entityId, db);
       if (!seed) {
         res.status(404).json({ error: `${entityType} ${entityId} not found` });
         return;
@@ -199,8 +217,27 @@ export function mountEntityThreadRoutes(
       const existing = await findEntityThread(db, entityType, entityId);
       const localId = existing?.localId ?? entityThreadLocalId(entityType, entityId);
       const blocks = existing ? await listEntityThreadBlocks(db, localId) : [];
-      // mt#3402: the panel cannot tell "thinking" from "dead" without this.
-      res.json({ localId, entityType, entityId, blocks, live: isThreadAgentLive(localId) });
+      res.json({
+        localId,
+        entityType,
+        entityId,
+        blocks,
+        // mt#3402: the panel cannot tell "thinking" from "dead" without this.
+        live: isThreadAgentLive(localId),
+        // mt#3367: whether the agent can reach the conversation that filed this
+        // entity. Surfaced so the principal knows which grounding an answer has
+        // — reachability is only ~46%, so "seeded" is not the safe assumption.
+        //
+        // OMITTED entirely for an entity kind that has no origin-seeding at all
+        // (PR #2493 R1 BLOCKING). Reporting `false` for a task would render "the
+        // originating conversation isn't reachable", which asserts a failed
+        // lookup that never ran — the exact species of unfounded claim this task
+        // exists to remove, just pointed at the principal instead of the agent.
+        // Absent means UNKNOWN and the panel says nothing.
+        ...(supportsOriginSeeding(entityType)
+          ? { originSeeded: seed.originConversationId !== undefined }
+          : {}),
+      });
     } catch (err) {
       log.error(`GET entity-thread failed for ${entityType}/${entityId}`, {
         error: err instanceof Error ? err.message : String(err),
@@ -237,7 +274,7 @@ export function mountEntityThreadRoutes(
       // existing: creating the thread or storing the turn before this check
       // leaves orphan rows keyed to an entity that was never there, and no
       // later failure path can retract them (PR #2427 R1 BLOCKING).
-      const seed = await loadSeed(entityType, entityId);
+      const seed = await loadSeed(entityType, entityId, db);
       if (!seed) {
         res.status(404).json({ error: `${entityType} ${entityId} not found` });
         return;
@@ -293,7 +330,8 @@ export function mountEntityThreadRoutes(
  */
 async function buildSeedForEntity(
   entityType: EntityThreadEntityType,
-  entityId: string
+  entityId: string,
+  db?: PostgresJsDatabase | null
 ): Promise<ReturnType<typeof askToEntitySeed> | null> {
   if (entityType === "task") {
     const taskService = await getServerTaskService();
@@ -331,6 +369,14 @@ async function buildSeedForEntity(
     if (!repo) return null;
     const ask = await repo.getById(entityId);
     if (!ask) return null;
+    // mt#3367 — the conversation that filed this ask, when reachable. Resolved
+    // here rather than inside the adapter so the adapter stays pure and
+    // unit-testable with no database. Degrades to null on any failure; the
+    // prompt then SAYS the origin is unavailable rather than omitting it.
+    const originConversationId = db
+      ? await resolveOriginConversationId(db, ask.parentSessionId ?? null)
+      : null;
+
     return askToEntitySeed({
       id: ask.id,
       shortId: ask.shortId ?? null,
@@ -339,6 +385,7 @@ async function buildSeedForEntity(
       kind: ask.kind ?? null,
       parentTaskId: ask.parentTaskId ?? null,
       contextRefs: (ask.contextRefs ?? null) as { kind: string; ref: string }[] | null,
+      originConversationId,
     });
   }
   // Unreachable while SUPPORTED_ENTITY_TYPES is ask-only; kept so mt#3366's
