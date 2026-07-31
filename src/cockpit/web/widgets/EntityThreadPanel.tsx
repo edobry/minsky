@@ -55,10 +55,15 @@ export interface EntityThreadResponse {
   entityId: string;
   blocks: SessionContextSnapshotBlock[];
   /**
-   * Whether an agent is actually able to answer right now (mt#3402). Optional
-   * so a response from a daemon predating this field degrades to "not live"
-   * rather than throwing — the conservative direction, since claiming a reply
-   * is coming is the failure this field exists to stop.
+   * Whether an agent is actually able to answer right now (mt#3402).
+   *
+   * Optional, and `undefined` means UNKNOWN — not `false`. A daemon predating
+   * this field simply doesn't report liveness, and collapsing that into "dead"
+   * would assert the very thing this task exists to stop asserting without
+   * evidence, just in the other direction: the panel would announce "the agent
+   * stopped before answering" about an agent that is mid-turn, and reopen the
+   * composer so a second question interleaves into a live child. Consumers
+   * must branch on `live === false`, never on falsiness (PR #2460 R1 BLOCKING).
    */
   live?: boolean;
 }
@@ -111,7 +116,7 @@ export async function postEntityThreadMessage(
 export function deriveComposerState(
   blocks: SessionContextSnapshotBlock[],
   sendPending: boolean,
-  agentLive: boolean
+  agentLive: boolean | undefined
 ): "awaiting-input" | "streaming" {
   if (sendPending) return "streaming";
   // `agentLive` is what distinguishes "the agent has the turn" from "the agent
@@ -120,7 +125,12 @@ export function deriveComposerState(
   // operator a reply was coming from a process that had exited. The composer's
   // streaming placeholder also promises "your message will queue" (mt#3375),
   // which is only true when there is a live child to queue against.
-  if (!agentLive) return "awaiting-input";
+  //
+  // Only a DEFINITE `false` reopens the composer. `undefined` means the daemon
+  // never reported liveness, which is not evidence of death — falling back to
+  // the block-derived reading keeps the pre-mt#3402 behavior rather than
+  // inventing a verdict from a signal that never arrived.
+  if (agentLive === false) return "awaiting-input";
   const last = blocks[blocks.length - 1];
   return last?.type === "user-prompt" ? "streaming" : "awaiting-input";
 }
@@ -133,13 +143,17 @@ export function deriveComposerState(
  * idle between questions, which is the normal resting state and needs no
  * notice. Only an unanswered operator turn represents a reply that will never
  * arrive unless the operator re-sends.
+ *
+ * Requires a DEFINITE `agentLive === false`. An unknown liveness (`undefined`,
+ * from a daemon that doesn't report the field) is not grounds to tell the
+ * operator their agent died.
  */
 export function isThreadStranded(
   blocks: SessionContextSnapshotBlock[],
   sendPending: boolean,
-  agentLive: boolean
+  agentLive: boolean | undefined
 ): boolean {
-  if (sendPending || agentLive) return false;
+  if (sendPending || agentLive !== false) return false;
   return blocks[blocks.length - 1]?.type === "user-prompt";
 }
 
@@ -214,7 +228,9 @@ export function EntityThreadPanel({ entityType, entityId, className }: EntityThr
   }
 
   const hasTurns = (blocks?.length ?? 0) > 0;
-  const agentLive = query.data?.live ?? false;
+  // NOT `?? false` — `undefined` is passed through as "unknown" so the
+  // helpers can distinguish it from a reported-dead agent (PR #2460 R1).
+  const agentLive = query.data?.live;
   const composerState = deriveComposerState(blocks ?? [], sendMutation.isPending, agentLive);
   const stranded = isThreadStranded(blocks ?? [], sendMutation.isPending, agentLive);
 

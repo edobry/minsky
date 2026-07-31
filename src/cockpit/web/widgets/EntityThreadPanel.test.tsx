@@ -100,6 +100,15 @@ describe("deriveComposerState", () => {
   test("an empty thread accepts input", () => {
     expect(deriveComposerState([], false, false)).toBe("awaiting-input");
   });
+
+  test("UNKNOWN liveness falls back to the block-derived reading, not to dead", () => {
+    // A daemon predating the `live` field returns `undefined` (PR #2460 R1
+    // BLOCKING). Treating that as `false` would reopen the composer against an
+    // agent that may well be mid-turn, letting a second question interleave
+    // into a live child — the mt#3402 defect inverted.
+    expect(deriveComposerState(operatorTurn, false, undefined)).toBe("streaming");
+    expect(deriveComposerState(answered, false, undefined)).toBe("awaiting-input");
+  });
 });
 
 describe("isThreadStranded", () => {
@@ -129,6 +138,10 @@ describe("isThreadStranded", () => {
 
   test("an empty thread is not stranded", () => {
     expect(isThreadStranded([], false, false)).toBe(false);
+  });
+
+  test("UNKNOWN liveness is not stranded — absence of a signal is not evidence of death", () => {
+    expect(isThreadStranded(operatorTurn, false, undefined)).toBe(false);
   });
 });
 
