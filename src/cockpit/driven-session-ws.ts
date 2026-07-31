@@ -298,12 +298,16 @@ function wireDrivenSessionSocket(ws: WebSocket, record: DrivenSessionRecord): vo
   // and a record rehydrated after a daemon restart (mt#3038). Both open with an
   // empty pane otherwise, while their history sits on disk the whole time.
   //
-  // Gated on an EMPTY eventLog, which is what makes this safe rather than
-  // duplicative: a live cockpit-spawned session's turns are in BOTH places (we
-  // observed the child's stdout, and the child wrote the same turns to its
-  // transcript), so replaying the file for such a record would render every turn
-  // twice — once from history, once from the log below. An empty log is exactly
-  // the "this process never saw this conversation" condition.
+  // Gated on the record's ORIGIN (`needsHistoryReplay`), not on its log being
+  // empty. That distinction is load-bearing and was found by live verification:
+  // an earlier form checked `eventLog.length === 0` and silently never fired,
+  // because the actuator begins emitting frames immediately after attach, so by
+  // the time any client connects the log is already non-empty. Origin does not
+  // change with timing.
+  //
+  // The flag is false for a fresh spawn, which is what keeps this from
+  // duplicating: a cockpit-spawned session's turns are in BOTH the log and the
+  // transcript, so replaying the file for one would render every turn twice.
   //
   // Fire-and-forget: the read is async and the socket must be wired
   // synchronously (handlers below have to be attached before any client frame
@@ -311,7 +315,7 @@ function wireDrivenSessionSocket(ws: WebSocket, record: DrivenSessionRecord): vo
   // than strictly preceding them — acceptable because the client seeds history
   // into a separate slot rather than appending it, so ordering does not corrupt
   // the block list. See `foldDrivenSessionEvent`'s `minsky_history` case.
-  if (record.eventLog.length === 0 && record.harnessSessionId) {
+  if (record.needsHistoryReplay && record.harnessSessionId) {
     void sendReplayHistory(ws, record.harnessSessionId);
   }
 

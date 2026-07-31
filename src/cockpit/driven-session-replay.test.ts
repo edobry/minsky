@@ -4,12 +4,19 @@
  * The tailer is injected throughout — no test reads `~/.claude/projects`, and
  * none constructs a real `JsonlTailer`.
  */
-import { describe, test, expect } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- mt#3397: the host preflights its spawn cwd against the REAL filesystem, so a record built for the gate assertions below needs a real directory. A per-run mkdtemp dir keeps the "fixed mock path" race the rule guards against from applying. */
+import { describe, test, expect, afterAll } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   buildDrivenReplayBlocks,
   MAX_REPLAY_BLOCKS,
   type ReplayTailerLike,
 } from "./driven-session-replay";
+
+const HOST_MODULE = "./driven-session-host";
+const REAL_CWD = mkdtempSync(join(tmpdir(), "driven-replay-"));
 
 const CONVERSATION = "conv-replay-1";
 const PATH = "/tmp/fake/conv-replay-1.jsonl";
@@ -138,4 +145,94 @@ describe("buildDrivenReplayBlocks (mt#3453)", () => {
   test("the default cap sits above the measured median conversation length", () => {
     expect(MAX_REPLAY_BLOCKS).toBeGreaterThan(522);
   });
+});
+
+/**
+ * The replay GATE (mt#3453) — which records get history, keyed on origin.
+ *
+ * These assert the record-shape contract the WS channel branches on. The first
+ * implementation gated on `eventLog.length === 0` and passed every unit test,
+ * because a test controls the log directly; live verification showed it never
+ * fired in production, since the actuator emits frames within milliseconds of
+ * attach and every real client connects after that. The property below is the
+ * one that survives real timing.
+ */
+describe("needsHistoryReplay gate (mt#3453)", () => {
+  test("a fresh spawn does NOT request replay — it starts the conversation", async () => {
+    const { startDrivenSession, DrivenSessionRegistry } = await import(HOST_MODULE);
+    const { EventEmitter } = await import("events");
+    const { PassThrough } = await import("stream");
+    class Fake extends EventEmitter {
+      readonly pid = 1;
+      readonly stdout = new PassThrough();
+      readonly stderr = new PassThrough();
+      readonly stdin = new PassThrough();
+      kill() {
+        return true;
+      }
+    }
+    const { record } = startDrivenSession({
+      cwd: REAL_CWD,
+      permissionMode: "default",
+      spawnFn: () => new Fake() as never,
+      registry: new DrivenSessionRegistry(),
+    });
+    expect(record.needsHistoryReplay).toBe(false);
+  });
+
+  test("a resumed/attached record DOES request replay, and keeps requesting it", async () => {
+    const { resumeDrivenSession, DrivenSessionRegistry } = await import(HOST_MODULE);
+    const { EventEmitter } = await import("events");
+    const { PassThrough } = await import("stream");
+    class Fake extends EventEmitter {
+      readonly pid = 2;
+      readonly stdout = new PassThrough();
+      readonly stderr = new PassThrough();
+      readonly stdin = new PassThrough();
+      kill() {
+        return true;
+      }
+    }
+    const { record } = resumeDrivenSession({
+      previous: {
+        localId: "actuator-x",
+        cwd: REAL_CWD,
+        permissionMode: "default",
+        harnessSessionId: "conv-x",
+        taskId: null,
+        minskySessionId: null,
+        startedAt: new Date().toISOString(),
+        actuatorGeneration: 0,
+        model: null,
+      },
+      spawnFn: () => new Fake() as never,
+      registry: new DrivenSessionRegistry(),
+    });
+
+    expect(record.needsHistoryReplay).toBe(true);
+    // The flag must NOT be a function of the log: a second client connecting
+    // after the actuator has emitted frames still needs the history.
+    record.eventLog.push({ seq: 0, receivedAt: new Date().toISOString(), payload: { type: "x" } });
+    expect(record.needsHistoryReplay).toBe(true);
+  });
+
+  test("a boot-rehydrated placeholder requests replay — its predecessor's log is gone", async () => {
+    const { buildReconnectingDrivenSessionRecord } = await import(HOST_MODULE);
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: "actuator-y",
+      harnessSessionId: "conv-y",
+      cwd: "/tmp",
+      permissionMode: "default",
+      taskId: null,
+      minskySessionId: null,
+      status: "reconnecting",
+      actuatorGeneration: 0,
+      startedAt: new Date().toISOString(),
+    });
+    expect(record.needsHistoryReplay).toBe(true);
+  });
+});
+
+afterAll(() => {
+  rmSync(REAL_CWD, { recursive: true, force: true });
 });
