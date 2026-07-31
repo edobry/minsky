@@ -308,7 +308,8 @@ jobs:
           RUN_INTEGRATION_TESTS: "1"
         run: |
           bun test --preload ./tests/setup.ts --timeout=60000 \
-            tests/integration/transcript-metadata-fill-if-null.integration.test.ts
+            tests/integration/transcript-metadata-fill-if-null.integration.test.ts \
+            tests/integration/transcript-attachment-parent-row.integration.test.ts
 
   docker-suite:
     name: Integration (Docker/testcontainer — manual only)

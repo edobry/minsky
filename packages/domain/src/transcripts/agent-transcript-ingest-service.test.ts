@@ -149,6 +149,19 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
   // read), we prime currentSid from the source session via primeSession().
   let currentSid: string | null = null;
 
+  /**
+   * mt#3482: the ORDER of writes within one ingest, as a list of kinds
+   * (`"transcript-row"` | `"attachments"` | `"transcript-upsert"`).
+   *
+   * Ordering is the whole invariant this fix turns on — the attachment insert
+   * carries an FK to `agent_transcripts`, so a parent row must precede it,
+   * while the watermark-bearing upsert must still FOLLOW it (mt#3278). The fake
+   * cannot enforce an FK, so it records the sequence and lets the tests assert
+   * on it; the constraint itself is exercised against a real Postgres in
+   * `tests/integration/transcript-attachment-parent-row.integration.test.ts`.
+   */
+  const writeOrder: string[] = [];
+
   const db = {
     /** Called by test setup to tell the fake which session is being processed. */
     _primeSession(sid: string) {
@@ -157,6 +170,9 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
 
     /** Exposed so tests can assert on written `minsky_session_links` rows. */
     _links: linkState,
+
+    /** mt#3482 — exposed so tests can assert on write ORDER within an ingest. */
+    _writeOrder: writeOrder,
 
     select(fields?: Record<string, unknown>) {
       const fieldKeys = fields ? Object.keys(fields) : [];
@@ -184,7 +200,31 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
 
     insert(_table: unknown) {
       return {
-        values(values: (Partial<FakeRow> & { agentSessionId: string }) | FakeLinkRow) {
+        values(
+          values: (Partial<FakeRow> & { agentSessionId: string }) | FakeLinkRow | readonly unknown[]
+        ) {
+          // mt#3482: the attachment insert passes an ARRAY of rows (one per
+          // attachment line) — every other table's insert here passes a single
+          // object, so the array shape identifies it unambiguously. The rows
+          // themselves aren't stored: what the tests assert is WHEN this write
+          // happened relative to the parent-row insert and the upsert.
+          if (Array.isArray(values)) {
+            // Two array-valued writers exist: the attachment insert
+            // (`onConflictDoNothing`) and the per-turn FTS upsert
+            // (`onConflictDoUpdate`, §4b). Only attachment rows carry
+            // `attachmentType`, so the row shape tells them apart — and both
+            // chain methods must exist here, or whichever one is missing throws
+            // and surfaces as a spurious ingest error.
+            const first = values[0] as Record<string, unknown> | undefined;
+            writeOrder.push(first && "attachmentType" in first ? "attachments" : "turns");
+            return {
+              then: <T>(resolve: (v: void) => T, reject?: (e: unknown) => unknown) =>
+                Promise.resolve().then(resolve, reject),
+              onConflictDoNothing: (): Promise<void> => Promise.resolve(),
+              onConflictDoUpdate: (_opts: unknown): Promise<void> => Promise.resolve(),
+            };
+          }
+
           // mt#2441: minsky_session_links writes are duck-typed by the
           // presence of `minskySessionId` + `linkType` — fields no other
           // table's insert carries. Routed to a dedicated store so a link
@@ -276,7 +316,15 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
           return {
             then: <T>(resolve: (v: void) => T, reject?: (e: unknown) => unknown) =>
               doPlainInsert().then(resolve, reject),
+            // mt#3482: §3a's parent-row insert — creates the row only when
+            // absent, mirroring `INSERT … ON CONFLICT DO NOTHING`.
+            onConflictDoNothing(): Promise<void> {
+              writeOrder.push("transcript-row");
+              if (state.has(sid)) return Promise.resolve();
+              return doPlainInsert();
+            },
             onConflictDoUpdate(_opts: unknown): Promise<void> {
+              writeOrder.push("transcript-upsert");
               if (isFailureRecord) return applyFailureRecord();
               const existing = state.get(sid);
               if (!existing) return doPlainInsert();
@@ -356,6 +404,19 @@ function makeLines(timestamps: string[], type = "user"): RawTurnLine[] {
     uuid: `uuid-${i}`,
     message: { role: type, content: `content-${i}` },
   }));
+}
+
+/**
+ * mt#3482: a line that yields an attachment ROW (see `attachment-row-builder`),
+ * so `newAttachmentRows` is non-empty and the FK-ordered write path runs.
+ */
+function makeAttachmentLine(ts: string): RawTurnLine {
+  return {
+    type: "attachment",
+    timestamp: ts,
+    uuid: `uuid-attachment-${ts}`,
+    attachment: { type: "hook_additional_context", content: "injected" },
+  } as unknown as RawTurnLine;
 }
 
 function makeDiscovered(sessionId: string): DiscoveredSession {
@@ -452,6 +513,66 @@ describe("AgentTranscriptIngestService", () => {
       const row = state.get(SESSION_A);
       expect(row).toBeDefined();
       expect((row?.transcript as RawTurnLine[]).length).toBe(2);
+    });
+
+    // ── mt#3482: the attachment insert's parent row ─────────────────────────
+    //
+    // `agent_transcript_attachments.agent_session_id` carries an FK to
+    // `agent_transcripts`. The attachment insert runs BEFORE the watermark-
+    // bearing upsert (mt#3278), so on a conversation's FIRST ingest there was
+    // no parent row to reference and the whole ingest aborted. These tests pin
+    // the ORDER; the constraint itself is exercised against a real Postgres in
+    // `tests/integration/transcript-attachment-parent-row.integration.test.ts`.
+
+    test("creates the parent transcript row before inserting attachments on first ingest", async () => {
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, [...makeLines([TS1]), makeAttachmentLine(TS1)]);
+      const state = new Map<string, FakeRow>();
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+
+      const result = await makeSvc(db, source).ingestSession(makeDiscovered(SESSION_A));
+
+      expect(result.error).toBeUndefined();
+      const parentAt = db._writeOrder.indexOf("transcript-row");
+      const attachmentsAt = db._writeOrder.indexOf("attachments");
+      const upsertAt = db._writeOrder.indexOf("transcript-upsert");
+
+      expect(attachmentsAt).toBeGreaterThanOrEqual(0);
+      // The parent row exists before the FK-bearing insert…
+      expect(parentAt).toBeGreaterThanOrEqual(0);
+      expect(attachmentsAt).toBeGreaterThan(parentAt);
+      // …and mt#3278's guarantee still holds: the watermark-bearing upsert runs
+      // AFTER the attachments, so an attachment failure aborts before the
+      // watermark can advance.
+      expect(upsertAt).toBeGreaterThan(attachmentsAt);
+    });
+
+    test("does not re-insert the parent row once the conversation exists", async () => {
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, [...makeLines([TS1]), makeAttachmentLine(TS1)]);
+      const state = new Map<string, FakeRow>();
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+      const svc = makeSvc(db, source);
+
+      await svc.ingestSession(makeDiscovered(SESSION_A));
+      const afterFirstIngest = db._writeOrder.length;
+
+      source.addSession(SESSION_A, [
+        ...makeLines([TS1]),
+        makeAttachmentLine(TS1),
+        ...makeLines([TS3]),
+        makeAttachmentLine(TS3),
+      ]);
+      const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+      expect(result.error).toBeUndefined();
+      const secondIngestWrites = db._writeOrder.slice(afterFirstIngest);
+      // The row already exists, so the §3a insert is skipped entirely — the
+      // fix costs one extra statement on first ingest, not on every poll.
+      expect(secondIngestWrites).not.toContain("transcript-row");
+      expect(secondIngestWrites).toContain("attachments");
     });
 
     test("returns 0 for empty session", async () => {
