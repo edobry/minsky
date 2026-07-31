@@ -82,15 +82,36 @@ import type {
 import type { ProjectScope } from "../../packages/domain/src/project/scope";
 
 /**
- * Overall in-process probe deadline. Successor to the CLI-era
- * STANDALONE_DUP_CLI_TIMEOUT_MS (same 8s value, same "degrade cleanly before
- * the 15s Claude Code host cap kills the hook" rationale) — now enforced as a
- * Promise race instead of a spawn-kill. Healthy-path cost is ~2.5s (config +
- * DB connect + embedding call); a hanging-DB connect fails at ~2s via the
- * mt#2982 injected connect timeout, so this deadline is a backstop for the
- * slow-but-not-hanging tail, not the primary bound.
+ * Overall in-process probe deadline, enforced as a Promise race. Successor to
+ * the CLI-era STANDALONE_DUP_CLI_TIMEOUT_MS.
+ *
+ * GROUNDED IN MEASUREMENT (mt#3358, 2026-07-30), replacing the round 8_000 it
+ * inherited from the CLI era. Six fresh-process runs of
+ * `fetchSimilarActiveTasksInProcess` — the shape the hook always runs, since a
+ * PreToolUse hook is its own short-lived process and pays full cold-boot every
+ * time (domain bootstrap, persistence connect, task service, config, embedding
+ * service, the REMOTE query-embedding call, then the vector search) — measured:
+ *
+ *     2706  3137  3480  6399  6436  6901   (ms; all succeeded)
+ *
+ * min 2.7s, median ~4.9s, max 6.9s. The old 8_000 sat at 1.16x that maximum, so
+ * ordinary run-to-run variance crossed it and the probe fail-opened — which is
+ * how two duplicate task pairs were created unchecked in a single day. 20_000 is
+ * ~2.9x the observed max.
+ *
+ * Two prior claims in this comment were WRONG and are corrected here rather than
+ * carried forward:
+ *   - "Healthy-path cost is ~2.5s" — understated; the measured median is ~4.9s.
+ *   - "the 15s Claude Code host cap" — the cap is per-hook-entry in
+ *     `.claude/settings.json`, and the `mcp__minsky__tasks_create` entry for this
+ *     guard is **30s**, not 15s. 20_000 leaves ~10s of margin beneath it, which is
+ *     what makes this raise safe; at a real 15s cap it would not have been.
+ *
+ * A hanging-DB connect still fails fast (~2s) via the mt#2982 injected connect
+ * timeout, so this deadline remains a backstop for the slow-but-not-hanging tail
+ * rather than the primary bound.
  */
-export const STANDALONE_DUP_PROBE_TIMEOUT_MS = 8_000;
+export const STANDALONE_DUP_PROBE_TIMEOUT_MS = 20_000;
 
 const TIMED_OUT = Symbol("standalone-dup-probe-timeout");
 

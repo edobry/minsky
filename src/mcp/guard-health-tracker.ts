@@ -68,6 +68,14 @@ export interface GuardHealthEvent {
   causeClass?: "infra" | "logic";
   toolName?: string;
   sessionId?: string;
+  /**
+   * mt#3358 SC3 — names the individual operation that went unchecked (for
+   * `tasks_create`, the title), so "was MY create checked?" is answerable
+   * rather than only "some create in this session wasn't". Written by
+   * `.minsky/hooks/guard-health.ts`'s `recordGuardCheckSkip`; mirrored here
+   * because these two type declarations are kept in sync by hand.
+   */
+  subject?: string;
 }
 
 // ---------------------------------------------------------------------------
