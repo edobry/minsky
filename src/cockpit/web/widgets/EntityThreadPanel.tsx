@@ -54,6 +54,13 @@ export interface EntityThreadResponse {
   entityType: EntityThreadPanelEntityType;
   entityId: string;
   blocks: SessionContextSnapshotBlock[];
+  /**
+   * Whether an agent is actually able to answer right now (mt#3402). Optional
+   * so a response from a daemon predating this field degrades to "not live"
+   * rather than throwing — the conservative direction, since claiming a reply
+   * is coming is the failure this field exists to stop.
+   */
+  live?: boolean;
 }
 
 export interface EntityThreadSendResponse {
@@ -103,11 +110,37 @@ export async function postEntityThreadMessage(
  */
 export function deriveComposerState(
   blocks: SessionContextSnapshotBlock[],
-  sendPending: boolean
+  sendPending: boolean,
+  agentLive: boolean
 ): "awaiting-input" | "streaming" {
   if (sendPending) return "streaming";
+  // `agentLive` is what distinguishes "the agent has the turn" from "the agent
+  // is gone" (mt#3402). Both look identical in the block list — an operator
+  // turn with nothing after it — so deriving from blocks ALONE told the
+  // operator a reply was coming from a process that had exited. The composer's
+  // streaming placeholder also promises "your message will queue" (mt#3375),
+  // which is only true when there is a live child to queue against.
+  if (!agentLive) return "awaiting-input";
   const last = blocks[blocks.length - 1];
   return last?.type === "user-prompt" ? "streaming" : "awaiting-input";
+}
+
+/**
+ * Has this thread stranded — an operator turn left unanswered by an agent that
+ * is no longer running? (mt#3402)
+ *
+ * Distinct from "not live": a thread whose last turn is the AGENT's is simply
+ * idle between questions, which is the normal resting state and needs no
+ * notice. Only an unanswered operator turn represents a reply that will never
+ * arrive unless the operator re-sends.
+ */
+export function isThreadStranded(
+  blocks: SessionContextSnapshotBlock[],
+  sendPending: boolean,
+  agentLive: boolean
+): boolean {
+  if (sendPending || agentLive) return false;
+  return blocks[blocks.length - 1]?.type === "user-prompt";
 }
 
 /**
@@ -181,7 +214,9 @@ export function EntityThreadPanel({ entityType, entityId, className }: EntityThr
   }
 
   const hasTurns = (blocks?.length ?? 0) > 0;
-  const composerState = deriveComposerState(blocks ?? [], sendMutation.isPending);
+  const agentLive = query.data?.live ?? false;
+  const composerState = deriveComposerState(blocks ?? [], sendMutation.isPending, agentLive);
+  const stranded = isThreadStranded(blocks ?? [], sendMutation.isPending, agentLive);
 
   return (
     <section className={className} aria-label="Discussion">
@@ -194,6 +229,12 @@ export function EntityThreadPanel({ entityType, entityId, className }: EntityThr
           No discussion yet. Ask a question about this {entityType} and an agent will look into it.
         </p>
       )}
+
+      {stranded ? (
+        <p className="text-sm text-muted-foreground mt-2">
+          The agent stopped before answering — send again to ask.
+        </p>
+      ) : null}
 
       {sendMutation.isError ? (
         <ErrorState

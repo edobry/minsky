@@ -352,6 +352,27 @@ describe("seed prompt attribution", () => {
     expect(operatorText).not.toContain("Approve the thing?");
   });
 
+  test("the spawn drives the durable-persistence observer with the thread's localId", () => {
+    // mt#3402: this callsite previously passed NO observers, so no
+    // `driven_sessions` row was ever written and the deterministic localId's
+    // restart-survival property silently never held. The observer's ARGUMENT
+    // is what matters — a row keyed by anything other than the entity's
+    // localId would not satisfy the one-row-per-entity contract.
+    const registry = new DrivenSessionRegistry();
+    const seen: string[] = [];
+    const session = startEntityThreadSession({
+      seed: seed(),
+      cwd: "/tmp/x",
+      spawnFn: fakeSpawn(),
+      registry,
+      onStateChange: (record) => seen.push(record.localId),
+    });
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(new Set(seen)).toEqual(new Set([session.localId]));
+    expect(session.localId).toBe("entity-thread:ask:seed-attribution-test");
+  });
+
   test("an operator message on the SAME session DOES append exactly one frame", () => {
     // The contrast that makes the assertions above meaningful: the opt-out is
     // scoped to the seed, not a blanket disabling of operator attribution.
