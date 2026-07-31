@@ -4,9 +4,8 @@
  * AT1 (containment): every filed task is created with status "BLOCKED" and
  * tag `engprod-proposal` — this is verified here at the call-site level
  * (the actual `tasks_available` zero-routability claim is exercised
- * end-to-end against the real TaskRoutingService/TaskService in
- * `packages/domain/src/tasks/task-routing-service.test.ts`, which already
- * asserts the `["TODO", "IN-PROGRESS"]` default filter this depends on).
+ * end-to-end against the REAL `TaskRoutingService` in `containment.test.ts`
+ * in this same directory).
  *
  * SC5 (second dedupe stage): a similarity hit tagged `engprod-proposal` is
  * skipped — only a non-proposal (human-authored) task counts as a match.
