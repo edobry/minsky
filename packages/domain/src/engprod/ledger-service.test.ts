@@ -7,8 +7,9 @@
  * actually test — is verifiable without a database.
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, spyOn } from "bun:test";
 import { decideShouldPropose, decideReconciliation, ProposalLedgerService } from "./ledger-service";
+import { log } from "@minsky/shared/logger";
 import type { ProposalLedgerRow } from "../storage/schemas/engprod-proposal-ledger-schema";
 import type { MinedCluster } from "./types";
 
@@ -104,6 +105,10 @@ function fakeCluster(signature: string): MinedCluster {
   };
 }
 
+const NON_MAXIMAL_SUBSEQUENCE = "non-maximal-subsequence";
+const CONTIGUOUS_SUBSEQUENCE_OF_SIG_PARENT =
+  "contiguous subsequence of higher-ranked cluster sig-parent";
+
 describe("ProposalLedgerService.recordSuppressedBatch (mt#3432 perf fix)", () => {
   test("does nothing on an empty entries array — no DB call at all", async () => {
     const db = makeFakeInsertDb();
@@ -117,8 +122,8 @@ describe("ProposalLedgerService.recordSuppressedBatch (mt#3432 perf fix)", () =>
     const service = new ProposalLedgerService(db as never);
     const entries = Array.from({ length: 50 }, (_, i) => ({
       cluster: fakeCluster(`sig-${i}`),
-      suppressedReason: "non-maximal-subsequence",
-      rejectionReason: "contiguous subsequence of higher-ranked cluster sig-parent",
+      suppressedReason: NON_MAXIMAL_SUBSEQUENCE,
+      rejectionReason: CONTIGUOUS_SUBSEQUENCE_OF_SIG_PARENT,
     }));
 
     await service.recordSuppressedBatch(entries);
@@ -128,8 +133,8 @@ describe("ProposalLedgerService.recordSuppressedBatch (mt#3432 perf fix)", () =>
     expect(db.calls[0]?.values[0]).toMatchObject({
       clusterSignature: "sig-0",
       verdict: "suppressed",
-      suppressedReason: "non-maximal-subsequence",
-      rejectionReason: "contiguous subsequence of higher-ranked cluster sig-parent",
+      suppressedReason: NON_MAXIMAL_SUBSEQUENCE,
+      rejectionReason: CONTIGUOUS_SUBSEQUENCE_OF_SIG_PARENT,
     });
   });
 
@@ -151,6 +156,90 @@ describe("ProposalLedgerService.recordSuppressedBatch (mt#3432 perf fix)", () =>
     expect(db.calls[1]?.values).toHaveLength(500);
     expect(db.calls[2]?.values).toHaveLength(200);
   });
+
+  /** Fake db whose bulk upsert REJECTS whenever the values it's given
+   * contain the poisoned signature — mirrors a real constraint violation /
+   * malformed-row failure on one specific cluster, at ANY chunk size
+   * (including the 1-row retry). */
+  function makePoisonedDb(poisonedSignature: string) {
+    const calls: Array<{ values: Record<string, unknown>[] }> = [];
+    return {
+      calls,
+      insert: (_table: unknown) => ({
+        values: (values: Record<string, unknown>[]) => {
+          calls.push({ values });
+          const hasPoison = values.some((v) => v.clusterSignature === poisonedSignature);
+          return {
+            onConflictDoUpdate: (_config: unknown) =>
+              hasPoison
+                ? Promise.reject(new Error(`simulated constraint violation: ${poisonedSignature}`))
+                : Promise.resolve(),
+          };
+        },
+      }),
+    };
+  }
+
+  test(
+    "mt#3432 R1: a poisoned row in a chunk does not drop the rest of the chunk — " +
+      "narrowing fallback lands every good row and logs only the poisoned signature",
+    async () => {
+      const errorSpy = spyOn(log, "error").mockImplementation(() => {});
+      const warnSpy = spyOn(log, "warn").mockImplementation(() => {});
+      try {
+        const poisonedSignature = "sig-poisoned";
+        const db = makePoisonedDb(poisonedSignature);
+        const service = new ProposalLedgerService(db as never);
+
+        const entries = Array.from({ length: 10 }, (_, i) => ({
+          cluster: fakeCluster(i === 5 ? poisonedSignature : `sig-${i}`),
+          suppressedReason: NON_MAXIMAL_SUBSEQUENCE,
+          rejectionReason: CONTIGUOUS_SUBSEQUENCE_OF_SIG_PARENT,
+        }));
+
+        // Must not throw — a lost audit row is logged, never a crashed run.
+        await service.recordSuppressedBatch(entries);
+
+        // Call 0: the full 10-row chunk (fails — contains the poison).
+        // Calls 1..10: the per-row narrowing retry, one 1-row upsert each.
+        expect(db.calls).toHaveLength(11);
+        expect(db.calls[0]?.values).toHaveLength(10);
+        for (let i = 1; i < db.calls.length; i++) {
+          expect(db.calls[i]?.values).toHaveLength(1);
+        }
+
+        // Every non-poisoned signature was individually retried (i.e. its
+        // row still landed) — the actual "doesn't drop the rest of the
+        // chunk" guarantee under test.
+        const nonPoisonedSignatures = entries
+          .filter((e) => e.cluster.signature !== poisonedSignature)
+          .map((e) => e.cluster.signature);
+        const attemptedSignatures = db.calls
+          .slice(1)
+          .map((c) => c.values[0]?.clusterSignature as string);
+        for (const sig of nonPoisonedSignatures) {
+          expect(attemptedSignatures).toContain(sig);
+        }
+        expect(attemptedSignatures).toContain(poisonedSignature);
+
+        // The poisoned signature is logged with the underlying error —
+        // structured per-cluster visibility, not a bare chunk-level count.
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+        const [eventName, payload] = errorSpy.mock.calls[0] as [string, Record<string, unknown>];
+        expect(eventName).toBe("engprod_ledger.suppressed_write_failed");
+        expect(payload.signature).toBe(poisonedSignature);
+        expect(payload.error).toBeDefined();
+
+        // The initial chunk-level failure is also logged (context for why
+        // the narrowing fallback engaged at all).
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy.mock.calls[0]?.[0]).toBe("engprod_ledger.suppressed_batch_chunk_failed");
+      } finally {
+        errorSpy.mockRestore();
+        warnSpy.mockRestore();
+      }
+    }
+  );
 });
 
 describe("decideReconciliation", () => {

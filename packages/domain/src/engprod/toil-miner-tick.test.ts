@@ -678,4 +678,45 @@ describe("toilMinerTick — mt#3432 perf fix: batched suppression writes + stage
       expect(counters.llmMs).toBeGreaterThanOrEqual(0);
     }
   );
+
+  test(
+    "mt#3432 R1: a recordSuppressedBatch rejection does not crash the tick — matches " +
+      "mt#3330's existing tick-error contract (only llmErrors / twoConsecutiveZero throw)",
+    async () => {
+      // Even with the narrowing fallback in the real ProposalLedgerService,
+      // a catastrophic failure (e.g. the DB connection itself is down) can
+      // still reject the whole recordSuppressedBatch call. toilMinerTick's
+      // call sites already wrap it in try/catch (fail-open, log-and-continue
+      // — a lost audit-trail row must never crash the run); this test proves
+      // that contract still holds with the new batched call shape.
+      const clusters: MinedCluster[] = [
+        cluster("bash-x2"),
+        { ...cluster("bash-x3"), toolSequence: ["Bash", "Bash", "Bash"], chainLength: 3 },
+      ].sort((a, b) => b.score - a.score);
+
+      const ledgerService = {
+        ...fakeLedgerService(),
+        recordSuppressedBatch: async () => {
+          throw new Error("simulated DB connection failure");
+        },
+      };
+
+      const counters = await toilMinerTick(
+        {
+          db: makeRunsDb() as never,
+          taskService: fakeTaskService() as never,
+          cognitionProvider: NOOP_COGNITION_PROVIDER as never,
+          taskSimilarityService: NOOP_SIMILARITY_SERVICE as never,
+          ledgerService,
+          mineClustersFn: async () => ({ clusters, turnsScanned: 2 }),
+          analyzeClustersFn: async () => new Map(),
+        },
+        {}
+      );
+
+      // Did not throw (the await above completed) — the ledger-write
+      // failure is swallowed per the existing contract, not propagated.
+      expect(counters.suppressedByMaximalCollapse).toBeGreaterThanOrEqual(0);
+    }
+  );
 });

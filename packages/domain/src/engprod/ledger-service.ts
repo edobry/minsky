@@ -241,10 +241,25 @@ export class ProposalLedgerService {
    * clause) — turning ~11k round-trips into a small, fixed number.
    *
    * Chunked at `CHUNK_SIZE` rows per statement to keep any single
-   * statement's parameter count and payload size bounded; a chunk
-   * failure is caught by the caller (mirrors every other ledger-write
-   * call site's fail-open discipline — a lost audit-trail row must never
-   * crash the run).
+   * statement's parameter count and payload size bounded.
+   *
+   * **Narrowing fallback on chunk failure (mt#3432 PR #2456 R1).** A single
+   * poisoned row in a 500-row multi-row `INSERT` fails the WHOLE statement
+   * — mt#3429's "never silently drop a suppressed cluster" guarantee would
+   * otherwise regress from "one bad row costs one row" (v1's per-row
+   * writes) to "one bad row costs up to 500 rows." When a chunk's bulk
+   * upsert throws, this method retries that chunk ONE ROW AT A TIME: every
+   * good row in the chunk still lands (each is its own 1-row upsert), and
+   * only the genuinely poisoned row(s) are logged and skipped — narrowed
+   * to the finest possible granularity, not bisected in log2(n) steps,
+   * since a 1-row retry is already the cheapest unit of isolation. Each
+   * row that fails even on its OWN gets a structured
+   * `engprod_ledger.suppressed_write_failed` event carrying its cluster
+   * signature and the underlying error, so a reviewer/operator can see
+   * exactly which signatures were lost — never a bare chunk-level count.
+   * The happy path (the overwhelming common case) is unaffected: the
+   * fallback only executes inside the `catch` block, so a clean chunk
+   * costs exactly the one bulk statement it always did.
    */
   async recordSuppressedBatch(
     entries: readonly {
@@ -259,50 +274,89 @@ export class ProposalLedgerService {
 
     for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
       const chunk = entries.slice(i, i + CHUNK_SIZE);
-      const values = chunk.map(({ cluster, suppressedReason, rejectionReason }) => ({
-        clusterSignature: cluster.signature,
-        verdict: "suppressed" as const,
-        rejectionReason,
-        suppressedReason,
-        toolSequence: cluster.toolSequence,
-        evidenceFrequency: cluster.frequency,
-        evidenceSessions: cluster.sessionCount,
-        evidenceChainLength: cluster.chainLength,
-        evidenceSnapshot: {
-          sampleRefs: cluster.sampleRefs,
-          score: cluster.score,
-          capturedAt: now.toISOString(),
-        },
-        filedTaskId: null,
-        everProposed: false,
-        createdAt: now,
-        updatedAt: now,
-      }));
-
-      await this.db
-        .insert(engprodProposalLedgerTable)
-        .values(values)
-        .onConflictDoUpdate({
-          target: engprodProposalLedgerTable.clusterSignature,
-          set: {
-            verdict: sql`EXCLUDED.verdict`,
-            rejectionReason: sql`EXCLUDED.rejection_reason`,
-            suppressedReason: sql`EXCLUDED.suppressed_reason`,
-            toolSequence: sql`EXCLUDED.tool_sequence`,
-            evidenceFrequency: sql`EXCLUDED.evidence_frequency`,
-            evidenceSessions: sql`EXCLUDED.evidence_sessions`,
-            evidenceChainLength: sql`EXCLUDED.evidence_chain_length`,
-            evidenceSnapshot: sql`EXCLUDED.evidence_snapshot`,
-            // Same discipline as the single-row `upsert` above: never
-            // clobber a prior filedTaskId / everProposed=true when this
-            // batch's verdict is always "suppressed" — reference the
-            // TARGET table's own current value rather than EXCLUDED's.
-            filedTaskId: sql`${engprodProposalLedgerTable.filedTaskId}`,
-            everProposed: sql`${engprodProposalLedgerTable.everProposed}`,
-            updatedAt: sql`EXCLUDED.updated_at`,
-          },
+      try {
+        await this.upsertSuppressedChunk(chunk, now);
+      } catch (err) {
+        log.warn("engprod_ledger.suppressed_batch_chunk_failed", {
+          event: "engprod_ledger.suppressed_batch_chunk_failed",
+          chunkSize: chunk.length,
+          chunkStartIndex: i,
+          error: getLoggableErrorSummary(err),
         });
+        for (const entry of chunk) {
+          try {
+            await this.upsertSuppressedChunk([entry], now);
+          } catch (rowErr) {
+            log.error("engprod_ledger.suppressed_write_failed", {
+              event: "engprod_ledger.suppressed_write_failed",
+              signature: entry.cluster.signature,
+              suppressedReason: entry.suppressedReason,
+              error: getLoggableErrorSummary(rowErr),
+            });
+          }
+        }
+      }
     }
+  }
+
+  /**
+   * Shared bulk-upsert statement used by both the happy path (a full
+   * `CHUNK_SIZE`-row chunk) and the per-row narrowing fallback (a
+   * single-entry "chunk") in `recordSuppressedBatch` above — one
+   * implementation of the `EXCLUDED.<column>` upsert shape, exercised at
+   * either granularity.
+   */
+  private async upsertSuppressedChunk(
+    chunk: readonly {
+      cluster: MinedCluster;
+      suppressedReason: string;
+      rejectionReason: string;
+    }[],
+    now: Date
+  ): Promise<void> {
+    const values = chunk.map(({ cluster, suppressedReason, rejectionReason }) => ({
+      clusterSignature: cluster.signature,
+      verdict: "suppressed" as const,
+      rejectionReason,
+      suppressedReason,
+      toolSequence: cluster.toolSequence,
+      evidenceFrequency: cluster.frequency,
+      evidenceSessions: cluster.sessionCount,
+      evidenceChainLength: cluster.chainLength,
+      evidenceSnapshot: {
+        sampleRefs: cluster.sampleRefs,
+        score: cluster.score,
+        capturedAt: now.toISOString(),
+      },
+      filedTaskId: null,
+      everProposed: false,
+      createdAt: now,
+      updatedAt: now,
+    }));
+
+    await this.db
+      .insert(engprodProposalLedgerTable)
+      .values(values)
+      .onConflictDoUpdate({
+        target: engprodProposalLedgerTable.clusterSignature,
+        set: {
+          verdict: sql`EXCLUDED.verdict`,
+          rejectionReason: sql`EXCLUDED.rejection_reason`,
+          suppressedReason: sql`EXCLUDED.suppressed_reason`,
+          toolSequence: sql`EXCLUDED.tool_sequence`,
+          evidenceFrequency: sql`EXCLUDED.evidence_frequency`,
+          evidenceSessions: sql`EXCLUDED.evidence_sessions`,
+          evidenceChainLength: sql`EXCLUDED.evidence_chain_length`,
+          evidenceSnapshot: sql`EXCLUDED.evidence_snapshot`,
+          // Same discipline as the single-row `upsert` above: never
+          // clobber a prior filedTaskId / everProposed=true when this
+          // batch's verdict is always "suppressed" — reference the
+          // TARGET table's own current value rather than EXCLUDED's.
+          filedTaskId: sql`${engprodProposalLedgerTable.filedTaskId}`,
+          everProposed: sql`${engprodProposalLedgerTable.everProposed}`,
+          updatedAt: sql`EXCLUDED.updated_at`,
+        },
+      });
   }
 
   /**
