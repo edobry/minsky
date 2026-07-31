@@ -92,7 +92,27 @@ export interface TriggerMatch {
 export const R1_PATTERNS: RegExp[] = [
   /\bI\s+owe\s+you\s+an?\s+apolog/i,
   /\bI\s+apologize\s+for\b/i,
-  /\bI\s+was\s+wrong\s+about\b/i,
+  // mt#3291: NARROWED from a bare `/\bI\s+was\s+wrong\s+about\b/i`. That pattern
+  // had ~100% phrase-match precision and ~25% DISPOSITION precision — it matched
+  // genuine self-correction language, but 4 of the 8 fires in the 2026-07-28
+  // review window were ordinary mid-investigation corrections of a FACT about
+  // the world ("your work was never gone — I was wrong about that"; "I was wrong
+  // about the push failures. They weren't timeouts."). Correcting yourself on a
+  // fact is the behavior `corrections` guidance asks for, and this detector is
+  // LIVE — it injects an "invoke /retrospective" reminder — so firing there
+  // nagged an agent for doing the right thing.
+  //
+  // The object of "wrong about" is the discriminator: a PROCESS failure is being
+  // wrong about one's own approach/reasoning, not about an observed fact. The
+  // rest of R1 already carries the process-failure load (`I conflated`,
+  // `I should have caught`, `my recommendation was incorrect`, `that was my
+  // fault`), so narrowing this one member loses no coverage of the real class.
+  // Operator disposition: ask#6247, `fix-reviewability`, 2026-07-29.
+  // The noun set is the agent's own reasoning artifacts. `architecture` and
+  // `design` are judgments the agent made, not observations it read off the
+  // system, so they belong here; "that", "one thing", "the push failures" — the
+  // four real FPs — do not.
+  /\bI\s+was\s+wrong\s+about\s+(my|the)\s+(approach|method|architecture|design|plan|recommendation|assumption|premise|diagnosis|framing)\b/i,
   /\bmy\s+recommendation\s+was\s+incorrect\b/i,
   /\bI\s+should\s+have\s+caught\b/i,
   /\bI\s+should\s+have\s+known\s+better\b/i,
@@ -147,7 +167,28 @@ export const R4_PATTERNS: RegExp[] = [
   /\bfixing\s+the\s+symptom\b[^.]*\brather\s+than\b[^.]*\bretrospective\b/i,
   /\bone[- ]off\s+(issue|mistake|failure|staleness|error)\b/i,
   /\bno\s+need\s+for\s+a\s+(full\s+)?retrospective\b/i,
-  /\bskip\b[^.]*\bretrospective\b/i,
+  // mt#3291: NARROWED from `/\bskip\b[^.]*\bretrospective\b/i`. The `[^.]*`
+  // spanned a whole sentence, so any sentence mentioning both words matched.
+  // Its one fire in the 2026-07-28 window was "My recommendation: skip the full
+  // retrospective — the structural fix exists and both occurrences were benign":
+  // an agent correctly reasoning that a retro was NOT warranted and saying so
+  // with its justification. This detector is LIVE, so it answered that with
+  // "invoke /retrospective" — inverted for this phrase, penalizing exactly the
+  // reasoning R4 exists to elicit.
+  //
+  // The discriminator is grammatical, not semantic: R4 wants the agent
+  // DECLARING it will skip ("I'll just skip the retrospective"), not
+  // RECOMMENDING a skip with reasoning ("My recommendation: skip … because …").
+  // Requiring a first-person subject ADJACENT to `skip` separates them without
+  // a justification classifier — which would have been a new unmeasured
+  // heuristic built on one observed record. "I recommend we skip the
+  // retrospective because X" also stops matching, correctly: it is the
+  // reasoned-recommendation shape, not a bare decline.
+  //
+  // The other R4 members are untouched and still catch conclusory declines with
+  // no first-person subject (no-need / doesn't-warrant / minor-enough-to-skip /
+  // one-off / symptom-rather-than-retrospective).
+  /\bI[''’]?(?:ll|\s+will)?\s+(?:just\s+)?skip\s+(?:the\s+)?(?:full\s+)?retrospective\b/i,
   /\bdoesn[''’]?t\s+warrant\s+a\s+(full\s+|proper\s+)?retrospective\b/i,
   /\bminor\s+enough\s+to\s+skip\b/i,
 ];
