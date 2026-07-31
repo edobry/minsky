@@ -212,6 +212,51 @@ session mid-turn" signal consumed by the cockpit-tray watcher's pre-restart
 gate; see `docs/architecture/cockpit.md`'s Operator endpoints table for
 detail).
 
+### `POST /api/driven-session/attach`
+
+Attach an actuator to a conversation Minsky did **not** spawn — one the
+operator started in their own terminal (mt#3095). Body: `{ "conversationId":
+"<uuid>" }`. Mutation, same auth as the spawn route above.
+
+Unlike the spawn route, this does not create a conversation; it puts an input
+channel on an existing one, resolved from its on-disk transcript under
+`~/.claude/projects/**`. On success the session behaves like any other driven
+session — same row shape, same WebSocket, same cost/link recording.
+
+| Status | Meaning                                                                                |
+| ------ | -------------------------------------------------------------------------------------- |
+| `201`  | Attached. Body is the same session summary the spawn route returns.                    |
+| `409`  | **Refused** — a writer holds (or may hold) the conversation. See below.                |
+| `423`  | Another _cockpit_ actuator won the advisory lock. A retry may succeed.                 |
+| `404`  | No on-disk transcript for that id, or one with no recoverable cwd.                     |
+| `400`  | Missing, empty, or syntactically impossible `conversationId` (rejected with zero I/O). |
+
+**Why attach can be refused.** `claude --resume` has no multi-writer safety:
+two processes resuming one conversation both succeed and both append to the
+same transcript, recording the same `parentUuid` — a silent history fork with
+no error surface. So the cockpit refuses unless the conversation is
+demonstrably idle. Liveness comes from the hook-fed presence signal
+(`GET /api/conversation/:id/presence`, mt#3201):
+
+| Presence      | Attach | Rationale                                                         |
+| ------------- | ------ | ----------------------------------------------------------------- |
+| `IDLE`        | admit  | The designed case.                                                |
+| `ENDED`       | admit  | Observed `SessionEnd`; nothing holds the file.                    |
+| `LIVE`        | refuse | A writer is mid-turn.                                             |
+| `NEEDS_INPUT` | refuse | A writer is attached and waiting on a human.                      |
+| `STALLED`     | refuse | Last seen mid-work, since quiet — a wedged writer still holds it. |
+| `UNKNOWN`     | refuse | No telemetry is not evidence of idleness.                         |
+
+A `409` body carries `{ refused: true, presence, reason, message }`, where
+`message` is operator-facing prose explaining the risk — render it rather than
+the reason code. `reason` is one of `live-writer`, `awaiting-human`,
+`possibly-wedged`, `no-telemetry`. A presence store that is unreachable refuses
+as `no-telemetry` rather than admitting.
+
+**Known gap:** an attached conversation's pane opens EMPTY and fills from its
+next turn — its prior history is on disk but the drive channel does not replay
+it yet (mt#3453).
+
 ### `GET /api/health`
 
 The cockpit daemon exposes a lightweight health endpoint at

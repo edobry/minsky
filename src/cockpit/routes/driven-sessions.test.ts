@@ -25,7 +25,11 @@ import {
   type SpawnOptions,
 } from "../driven-session-host";
 import { mountDrivenSessionRoutes } from "./driven-sessions";
-import type { ResolvedTaskWorkspace } from "../driven-session-launch";
+import type {
+  ResolvedTaskWorkspace,
+  DrivenSessionAttachOutcome,
+  OrchestrateDrivenSessionAttachDeps,
+} from "../driven-session-launch";
 
 // ---------------------------------------------------------------------------
 // Fakes (mirrors ../driven-session-host.test.ts's FakeClaudeProcess)
@@ -85,6 +89,10 @@ interface Harness {
 async function makeHarness(opts?: {
   resolveTaskWorkspace?: (taskId: string) => Promise<ResolvedTaskWorkspace>;
   scratchCwd?: string;
+  attachDrivenSession?: (
+    conversationId: string,
+    deps: OrchestrateDrivenSessionAttachDeps
+  ) => Promise<DrivenSessionAttachOutcome>;
 }): Promise<Harness> {
   const registry = new DrivenSessionRegistry();
   const { spawnFn, calls } = makeFakeSpawnFn();
@@ -97,6 +105,7 @@ async function makeHarness(opts?: {
     spawnFn,
     resolveTaskWorkspace: opts?.resolveTaskWorkspace,
     scratchCwd: opts?.scratchCwd,
+    attachDrivenSession: opts?.attachDrivenSession,
     onHarnessSessionLinked: (record) => linked.push(record),
   });
 
@@ -372,6 +381,145 @@ describe("GET /api/driven-session/turn-active", () => {
     expect(body.active).toBe(true);
     expect(body.activeSessionIds).toEqual([active.body.sessionId]);
     expect(body.activeSessionIds).not.toContain(idle.body.sessionId);
+  });
+});
+
+/**
+ * POST /api/driven-session/attach (mt#3095).
+ *
+ * The orchestration's own decisions live in
+ * ../driven-session-launch-persistence.test.ts; what this route owns — and what
+ * these tests pin — is the outcome→status-code mapping. The codes are load-bearing
+ * for a caller: 409 (the conversation has a writer) and 423 (you lost a race
+ * with another cockpit actuator) call for different UI, so collapsing them
+ * would lose the distinction.
+ */
+describe("POST /api/driven-session/attach (mt#3095)", () => {
+  // A syntactically valid conversation id — the route rejects anything that
+  // cannot be one before doing any I/O (PR #2466 R1).
+  const CONVERSATION = "3bc714e7-d40a-40b3-bcfc-c2b1c90ef8c6";
+
+  async function attachPost(url: string, body: unknown) {
+    const res = await fetch(`${url}/api/driven-session/attach`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, body: (await res.json()) as any };
+  }
+
+  test("201 with a session summary when the attach succeeds", async () => {
+    const registry = new DrivenSessionRegistry();
+    const h = await makeHarness({
+      attachDrivenSession: async (conversationId, deps) => {
+        // The route must forward its registry/spawn seams through, or a
+        // production attach would land in the wrong registry.
+        expect(deps.registry).toBeDefined();
+        const { record } = (await import("../driven-session-host")).startDrivenSession({
+          cwd: EXPLICIT_CWD,
+          permissionMode: "bypassPermissions",
+          spawnFn: () => new FakeClaudeProcess(),
+          registry,
+        });
+        record.harnessSessionId = conversationId;
+        return { outcome: "attached", record };
+      },
+    });
+
+    const res = await attachPost(h.url, { conversationId: CONVERSATION });
+    expect(res.status).toBe(201);
+    expect(res.body.harnessSessionId).toBe(CONVERSATION);
+  });
+
+  test("409 with the refusal reason and operator-facing message", async () => {
+    const h = await makeHarness({
+      attachDrivenSession: async () => ({
+        outcome: "refused",
+        reason: "live-writer",
+        message: "This conversation is being written to right now.",
+        presence: "LIVE",
+      }),
+    });
+
+    const res = await attachPost(h.url, { conversationId: CONVERSATION });
+    expect(res.status).toBe(409);
+    expect(res.body.refused).toBe(true);
+    expect(res.body.reason).toBe("live-writer");
+    expect(res.body.presence).toBe("LIVE");
+    // The message is what a caller shows the operator — it must survive the
+    // mapping, not be replaced by a generic conflict string.
+    expect(res.body.message).toContain("written to right now");
+  });
+
+  test("423 — distinct from 409 — when another cockpit actuator holds the lock", async () => {
+    const h = await makeHarness({
+      attachDrivenSession: async () => ({ outcome: "locked" }),
+    });
+    const res = await attachPost(h.url, { conversationId: CONVERSATION });
+    expect(res.status).toBe(423);
+  });
+
+  test("404 when no transcript exists for the conversation", async () => {
+    const h = await makeHarness({
+      attachDrivenSession: async () => ({ outcome: "no-transcript" }),
+    });
+    const res = await attachPost(h.url, { conversationId: CONVERSATION });
+    expect(res.status).toBe(404);
+  });
+
+  test.each([[undefined], [""], [42], [null]])(
+    "400 on a malformed conversationId (%p)",
+    async (conversationId) => {
+      let called = 0;
+      const h = await makeHarness({
+        attachDrivenSession: async () => {
+          called += 1;
+          return { outcome: "no-transcript" };
+        },
+      });
+      const res = await attachPost(h.url, { conversationId });
+      expect(res.status).toBe(400);
+      // Rejected before any orchestration runs — no lock, no spawn, no disk walk.
+      expect(called).toBe(0);
+    }
+  );
+
+  test("400 on a syntactically impossible id, with zero orchestration work", async () => {
+    let called = 0;
+    const h = await makeHarness({
+      attachDrivenSession: async () => {
+        called += 1;
+        return { outcome: "no-transcript" };
+      },
+    });
+    const res = await attachPost(h.url, { conversationId: "not-a-conversation-id" });
+    expect(res.status).toBe(400);
+    // The point of the check is avoiding a full `~/.claude/projects` walk for
+    // an id that could never have resolved.
+    expect(called).toBe(0);
+  });
+
+  test("500 when the orchestration throws, without leaking a stack to the client", async () => {
+    const h = await makeHarness({
+      attachDrivenSession: async () => {
+        throw new Error("boom");
+      },
+    });
+    const res = await attachPost(h.url, { conversationId: CONVERSATION });
+    expect(res.status).toBe(500);
+    expect(res.body.error).toContain("Failed to attach driven session");
+  });
+
+  test("the conversation id reaches the orchestration verbatim", async () => {
+    const seen: string[] = [];
+    const h = await makeHarness({
+      attachDrivenSession: async (conversationId) => {
+        seen.push(conversationId);
+        return { outcome: "no-transcript" };
+      },
+    });
+    await attachPost(h.url, { conversationId: CONVERSATION });
+    expect(seen).toEqual([CONVERSATION]);
   });
 });
 

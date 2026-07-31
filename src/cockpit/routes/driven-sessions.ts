@@ -51,9 +51,13 @@ import {
   createDrivenInitLinkObserver,
   createDrivenResultObserver,
   createDrivenSessionPersistObserver,
+  orchestrateDrivenSessionAttach as prodOrchestrateDrivenSessionAttach,
   type ResolvedTaskWorkspace,
+  type DrivenSessionAttachOutcome,
+  type OrchestrateDrivenSessionAttachDeps,
 } from "../driven-session-launch";
 import { isDispatchModelId, resolveDispatchModelArg } from "@minsky/domain/ai/dispatch-models";
+import { looksLikeConversationId } from "../conversation-id-space";
 
 /**
  * Options accepted by {@link mountDrivenSessionRoutes}. Every field here is a
@@ -71,6 +75,17 @@ export interface DrivenSessionRoutesOptions {
   command?: string;
   /** Override task→workspace resolution (tests avoid real session_start machinery). */
   resolveTaskWorkspace?: (taskId: string) => Promise<ResolvedTaskWorkspace>;
+  /**
+   * Override the attach orchestration (mt#3095). Tests inject an outcome
+   * directly rather than standing up a database, a `~/.claude` tree, and a
+   * presence row — the orchestration's own decisions are covered in
+   * ../driven-session-launch-persistence.test.ts; what this route owns is the
+   * outcome→status-code mapping.
+   */
+  attachDrivenSession?: (
+    conversationId: string,
+    deps: OrchestrateDrivenSessionAttachDeps
+  ) => Promise<DrivenSessionAttachOutcome>;
   /** Override the init-event link observer (tests capture instead of writing to Postgres). */
   onHarnessSessionLinked?: (record: DrivenSessionRecord) => void;
   /**
@@ -235,6 +250,82 @@ export function mountDrivenSessionRoutes(
       const message = err instanceof Error ? err.message : String(err);
       log.error(`[driven-session] spawn failed: ${message}`);
       res.status(500).json({ error: `Failed to start driven session: ${message}` });
+    }
+  });
+
+  /**
+   * POST /api/driven-session/attach — put an actuator on a conversation Minsky
+   * did NOT spawn (mt#3095), e.g. one the operator started in their terminal.
+   *
+   * Body: `{ conversationId }`.
+   *
+   * Status codes carry the distinction that matters to a caller deciding what
+   * to show:
+   *   - **201** attached — body is the same session summary a spawn returns, so
+   *     an attached conversation is indistinguishable downstream.
+   *   - **409** refused — a writer is (or may be) holding the conversation.
+   *     Carries `{ refused: true, presence, reason, message }`; the `message` is
+   *     operator-facing prose explaining the risk, not a status name.
+   *   - **423** locked — another COCKPIT actuator won the advisory lock. Distinct
+   *     from 409: nothing is wrong with the conversation, this caller simply
+   *     lost a race and a retry may succeed.
+   *   - **404** no transcript, or one with no recoverable cwd — nothing to
+   *     attach to.
+   *
+   * Route ordering note: this is registered BEFORE `/api/driven-session/:id/stop`
+   * but shares no shape with it (`attach` is a literal segment on a different
+   * path depth), so no `:id` capture can shadow it.
+   */
+  app.post("/api/driven-session/attach", async (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const conversationIdRaw = body["conversationId"];
+    if (typeof conversationIdRaw !== "string" || conversationIdRaw.length === 0) {
+      res.status(400).json({ error: "conversationId must be a non-empty string" });
+      return;
+    }
+    // A syntactically-impossible id can never resolve to a transcript, and
+    // finding that out otherwise costs a walk of the whole `~/.claude/projects`
+    // tree. Rejected with zero I/O, reusing the same shared predicate the
+    // presence route applies (mt#3131) so the two surfaces agree on what an id
+    // even looks like. (PR #2466 R1, non-blocking.)
+    if (!looksLikeConversationId(conversationIdRaw)) {
+      res.status(400).json({ error: `"${conversationIdRaw}" is not a valid conversation id.` });
+      return;
+    }
+
+    try {
+      const attach = opts.attachDrivenSession ?? prodOrchestrateDrivenSessionAttach;
+      const outcome = await attach(conversationIdRaw, {
+        registry,
+        spawnFn: opts.spawnFn,
+        command: opts.command,
+      });
+
+      switch (outcome.outcome) {
+        case "attached":
+          res.status(201).json(toSessionSummary(outcome.record));
+          return;
+        case "refused":
+          res.status(409).json({
+            refused: true,
+            presence: outcome.presence,
+            reason: outcome.reason,
+            message: outcome.message,
+          });
+          return;
+        case "locked":
+          res.status(423).json({
+            error: "Another cockpit actuator is attaching to this conversation right now.",
+          });
+          return;
+        case "no-transcript":
+          res.status(404).json({ error: "No on-disk transcript found for that conversation id." });
+          return;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`[driven-session] attach failed for ${conversationIdRaw}: ${message}`);
+      res.status(500).json({ error: `Failed to attach driven session: ${message}` });
     }
   });
 
