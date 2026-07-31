@@ -128,6 +128,7 @@ export class TranscriptFtsService {
           score: rankExpr,
           sessionStartedAt: agentTranscriptsTable.startedAt,
           sessionModel: agentTranscriptsTable.model,
+          sessionCwd: agentTranscriptsTable.cwd,
           relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
           relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
         })
@@ -164,7 +165,7 @@ export class TranscriptFtsService {
           relatedPrNumbers: row.relatedPrNumbers,
           parentAgentSessionId: null, // mt#1327 scope; not yet populated
         },
-        resumeHint: buildResumeHint(row.agentSessionId),
+        resumeHint: buildResumeHint(row.agentSessionId, row.sessionCwd),
       }));
     } catch (err) {
       throw new Error(`TranscriptFtsService.searchText: query failed: ${getErrorMessage(err)}`, {
@@ -223,6 +224,7 @@ export class TranscriptFtsService {
           isSpawnBoundary: agentTranscriptTurnsTable.isSpawnBoundary,
           sessionStartedAt: agentTranscriptsTable.startedAt,
           sessionModel: agentTranscriptsTable.model,
+          sessionCwd: agentTranscriptsTable.cwd,
           relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
           relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
         })
@@ -255,7 +257,7 @@ export class TranscriptFtsService {
           relatedPrNumbers: row.relatedPrNumbers,
           parentAgentSessionId: null, // mt#1327 scope
         },
-        resumeHint: buildResumeHint(row.agentSessionId),
+        resumeHint: buildResumeHint(row.agentSessionId, row.sessionCwd),
       }));
     } catch (err) {
       // Re-throw the "session not found" error as-is; wrap everything else.

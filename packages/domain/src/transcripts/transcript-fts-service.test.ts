@@ -38,6 +38,7 @@ function makeTurnRow(overrides: Partial<FakeRow> = {}): FakeRow {
     score: 0.85,
     sessionStartedAt: new Date("2025-01-01"),
     sessionModel: "claude-3-5-sonnet",
+    sessionCwd: "/Users/dev/Projects/minsky",
     relatedTaskIds: ["mt#100"],
     relatedPrNumbers: ["#42"],
     ...overrides,
@@ -249,7 +250,9 @@ describe("TranscriptFtsService", () => {
       const svc = new TranscriptFtsService(db);
 
       const results = await svc.searchText("test");
-      expect(results[0]?.resumeHint).toBe("claude --resume session-resume-me");
+      expect(results[0]?.resumeHint).toBe(
+        "cd '/Users/dev/Projects/minsky' && claude --resume session-resume-me"
+      );
     });
   });
 
@@ -344,7 +347,9 @@ describe("TranscriptFtsService", () => {
       const svc = new TranscriptFtsService(db);
 
       const results = await svc.getSession("session-x");
-      expect(results[0]?.resumeHint).toBe("claude --resume session-x");
+      expect(results[0]?.resumeHint).toBe(
+        "cd '/Users/dev/Projects/minsky' && claude --resume session-x"
+      );
     });
   });
 });

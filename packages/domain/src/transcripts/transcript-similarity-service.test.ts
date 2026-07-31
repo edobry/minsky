@@ -10,7 +10,7 @@
 
 import { describe, test, expect, beforeEach } from "bun:test";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { TranscriptSimilarityService } from "./transcript-similarity-service";
+import { TranscriptSimilarityService, buildResumeHint } from "./transcript-similarity-service";
 import type {
   TranscriptTurnResult,
   TranscriptSessionResult,
@@ -93,6 +93,7 @@ function makeTurnRow(overrides: Partial<FakeSelectResult> = {}): FakeSelectResul
     score: 0.12,
     sessionStartedAt: new Date("2025-01-01"),
     sessionModel: "claude-3-5-sonnet",
+    sessionCwd: "/Users/dev/Projects/minsky",
     relatedTaskIds: ["mt#100"],
     relatedPrNumbers: ["#42"],
     ...overrides,
@@ -139,7 +140,9 @@ describe("TranscriptSimilarityService", () => {
       const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
 
       const results = await svc.search("test query");
-      expect(results[0]?.resumeHint).toBe("claude --resume session-resume-me");
+      expect(results[0]?.resumeHint).toBe(
+        "cd '/Users/dev/Projects/minsky' && claude --resume session-resume-me"
+      );
     });
 
     test("embeds the query string via EmbeddingService", async () => {
@@ -293,5 +296,53 @@ describe("TranscriptSimilarityService", () => {
       expect(typeof result.score).toBe("number");
       expect(result.parentAgentSessionId).toBeNull();
     });
+  });
+});
+
+// ── buildResumeHint (mt#3440) ─────────────────────────────────────────────────
+
+describe("buildResumeHint (mt#3440)", () => {
+  // The defect: the hint used to be a bare `claude --resume <id>`, which fails
+  // from any directory other than the conversation's own with
+  // "No conversation found with session ID" — indistinguishable from the
+  // conversation being gone. Reproduced against the live binary in the task's
+  // Planning Audit; these tests pin the corrected shape.
+
+  test("AT1: with a known cwd, the command is runnable from anywhere", () => {
+    expect(buildResumeHint("abc-123", "/Users/dev/Projects/minsky")).toBe(
+      "cd '/Users/dev/Projects/minsky' && claude --resume abc-123"
+    );
+  });
+
+  test("AT2: with no recorded cwd, it says so instead of emitting a silently-failing command", () => {
+    const hint = buildResumeHint("abc-123", null);
+    // Must NOT be the bare command that would fail from the wrong directory
+    // without explanation.
+    expect(hint).not.toBe("claude --resume abc-123");
+    expect(hint).toContain("claude --resume abc-123");
+    expect(hint).toContain("not recorded");
+    // Still a valid single-line shell command (the explanation is a comment).
+    expect(hint).toContain("#");
+  });
+
+  test("AT2: undefined cwd is treated the same as null", () => {
+    expect(buildResumeHint("abc-123", undefined)).toBe(buildResumeHint("abc-123", null));
+    expect(buildResumeHint("abc-123")).toBe(buildResumeHint("abc-123", null));
+  });
+
+  test("AT2: an empty-string cwd degrades to the unknown form, not `cd ''`", () => {
+    expect(buildResumeHint("abc-123", "")).toBe(buildResumeHint("abc-123", null));
+  });
+
+  test("AT3: a cwd containing spaces is quoted", () => {
+    expect(buildResumeHint("abc-123", "/Users/dev/My Projects/minsky")).toBe(
+      "cd '/Users/dev/My Projects/minsky' && claude --resume abc-123"
+    );
+  });
+
+  test("AT3: a cwd containing a single quote is escaped, not left to break the command", () => {
+    expect(buildResumeHint("abc-123", "/Users/dev/it's/minsky")).toBe(
+      `cd '/Users/dev/it'\\''s/minsky' && claude --resume abc-123`
+    );
   });
 });

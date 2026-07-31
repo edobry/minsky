@@ -73,12 +73,41 @@ export interface TranscriptTurnResult {
 }
 
 /**
- * Build the ready-to-run `claude --resume <id>` hint for a harness
- * conversation id (mt#2523). Single source of truth so CLI/MCP output and
- * the cockpit search surface never drift on the exact command string.
+ * Single-quote a path for safe use in a shell command.
+ *
+ * A recorded `cwd` is arbitrary filesystem text — it can contain spaces, and in
+ * principle a quote. Wrapping in single quotes neutralises everything except a
+ * single quote itself, which is closed/escaped/reopened in the usual way.
  */
-export function buildResumeHint(conversationId: string): string {
-  return `claude --resume ${conversationId}`;
+function shellQuote(path: string): string {
+  return `'${path.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
+ * Build the ready-to-run resume hint for a harness conversation (mt#2523,
+ * corrected by mt#3440). Single source of truth so CLI/MCP output and the
+ * cockpit search surface never drift on the exact command string.
+ *
+ * **The `cd` is load-bearing, not cosmetic.** Claude Code keys its transcript
+ * directory off the working directory, so `claude --resume <id>` run anywhere
+ * other than the conversation's original `cwd` fails with
+ * `No conversation found with session ID: <id>` — which reads as "the
+ * conversation is gone" rather than "you are in the wrong directory."
+ * Reproduced against the live binary (mt#3440 `## Planning Audit`): the same id
+ * fails from `/tmp` and succeeds from its recorded cwd, same machine, same
+ * minute. The same requirement is documented at `driven-session-host.ts`'s
+ * `missingCwdReason`.
+ *
+ * When `cwd` is unknown (52 of 2,061 rows at time of writing), the hint says so
+ * inline rather than emitting a bare command that will silently fail from
+ * wherever the operator happens to be standing.
+ */
+export function buildResumeHint(conversationId: string, cwd?: string | null): string {
+  const resume = `claude --resume ${conversationId}`;
+  if (!cwd) {
+    return `${resume}  # run from the conversation's original directory (not recorded)`;
+  }
+  return `cd ${shellQuote(cwd)} && ${resume}`;
 }
 
 /**
@@ -215,6 +244,7 @@ export class TranscriptSimilarityService {
           score: distanceExpr,
           sessionStartedAt: agentTranscriptsTable.startedAt,
           sessionModel: agentTranscriptsTable.model,
+          sessionCwd: agentTranscriptsTable.cwd,
           relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
           relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
         })
@@ -249,7 +279,7 @@ export class TranscriptSimilarityService {
           relatedPrNumbers: row.relatedPrNumbers,
           parentAgentSessionId: null, // mt#1327 scope; not yet populated
         },
-        resumeHint: buildResumeHint(row.agentSessionId),
+        resumeHint: buildResumeHint(row.agentSessionId, row.sessionCwd),
       }));
     } catch (err) {
       throw new Error(`TranscriptSimilarityService.search: query failed: ${getErrorMessage(err)}`, {
@@ -342,6 +372,7 @@ export class TranscriptSimilarityService {
           score: distanceExpr,
           sessionStartedAt: agentTranscriptsTable.startedAt,
           sessionModel: agentTranscriptsTable.model,
+          sessionCwd: agentTranscriptsTable.cwd,
           relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
           relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
         })
@@ -375,7 +406,7 @@ export class TranscriptSimilarityService {
           relatedPrNumbers: row.relatedPrNumbers,
           parentAgentSessionId: null,
         },
-        resumeHint: buildResumeHint(row.agentSessionId),
+        resumeHint: buildResumeHint(row.agentSessionId, row.sessionCwd),
       }));
     } catch (err) {
       throw new Error(
