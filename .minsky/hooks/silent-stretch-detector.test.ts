@@ -451,18 +451,11 @@ describe("run() (dispatcher-compatible)", () => {
     expect(outcome?.additionalContext).toContain("silent-stretch-detector");
   });
 
-  test("graduation does not turn the detector into an every-turn nag", () => {
-    // A short chain crosses no threshold, so it must still produce nothing at
-    // all — no calibration record and no injected reminder.
-    const transcriptLines = [
-      userPromptLine(0),
-      ...toolCallChain(1, 5),
-      userPromptLine(1 + 5 * 5 + 10, "next instruction"),
-    ];
-    const outcome = run(HOOK_INPUT, makeCtx(transcriptLines), noDedupeDeps());
-    expect(outcome).toBeNull();
-  });
-
+  // The "graduation does not nag on every turn" property is already covered by
+  // the pre-existing short-chain test immediately below: `run()` returns null
+  // for a non-crossing turn, and a null outcome carries neither a calibration
+  // record nor an additionalContext. A separate mt#3399 test asserting the same
+  // thing over the same fixture was removed as redundant (PR #2457 R1).
   test("5-call short chain -> null (silent allow)", () => {
     const transcriptLines = [
       userPromptLine(0),

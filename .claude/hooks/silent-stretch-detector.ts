@@ -99,7 +99,9 @@
 // timestamps, mirroring wall-of-text-detector.ts's content-hash dedupe) adds
 // defense-in-depth on top, per the mt#3003 spec.
 //
-// @see .claude/hooks/causal-premise-detector.ts — sibling calibration-first pattern this file mirrors
+// @see .claude/hooks/causal-premise-detector.ts — the calibration-first pattern this file was built
+//      on. NOTE it is still dormant (INJECTION_ENABLED=false) while this one graduated in mt#3399,
+//      so mirror its STRUCTURE, not its flag state.
 // @see .claude/hooks/inject-dispatch-watchdog.ts — sibling silence detector (SUBAGENT side; this covers the MAIN agent's own silence)
 // @see .minsky/hooks/transcript.ts — shared turn-boundary + timestamp + anchoring/dedup helpers
 // @see mt#2263 — detector ladder (calibration before injection)
@@ -517,11 +519,12 @@ export interface RunDeps {
  * investigation that found it). Before logging, also checks the
  * `buildTurnAnchor` dedupe key (defense-in-depth per the mt#3003 spec) so a
  * turn already logged for this session — anchoring bug aside — is never
- * re-logged. Only calibration logging happens here (via the returned
- * `calibration` field, which the dispatcher forwards to
- * `logCalibrationRecord` per this guard's `calibrationLog: "silent-stretch"`
- * registration) — `additionalContext` is never set while `INJECTION_ENABLED`
- * is false.
+ * re-logged. On a match this returns BOTH a `calibration` record (which the
+ * dispatcher forwards to `logCalibrationRecord` per this guard's
+ * `calibrationLog: "silent-stretch"` registration) AND, since mt#3399 flipped
+ * `INJECTION_ENABLED`, an `additionalContext` reminder. The calibration field
+ * is set first and unconditionally, so the measurement stream survives the
+ * graduation.
  */
 export function run(
   input: ClaudeHookInput,
@@ -740,6 +743,15 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // Since mt#3399 this standalone path emits a HookOutput JSON on stdout where
+  // it previously exited silently (PR #2457 R1 flagged the behavior change).
+  // It has no registered consumer: `.claude/settings.json`'s UserPromptSubmit
+  // block contains only `dispatch-userpromptsubmit.ts` and
+  // `record-conversation-run-state.ts`, so the harness reaches this detector
+  // through the dispatcher's in-process registry, never by executing this file.
+  // main() therefore runs only when the file is invoked directly (manual
+  // debugging), and the emitted shape is the same HookOutput the dispatcher
+  // produces — so a direct invoker gets the documented contract, not a surprise.
   const reminder = buildInjectionReminder(measurement);
   const output: HookOutput = {
     hookSpecificOutput: {

@@ -1077,6 +1077,13 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       // additionalContext, so the canary fails if injection silently stops,
       // which "calibration" would not have caught (the calibration record is
       // written on both sides of the INJECTION_ENABLED branch).
+      //
+      // `expects` is a single value, so this canary cannot also assert the
+      // calibration record still appears (PR #2457 R1). That half is covered by
+      // silent-stretch-detector.test.ts's run() test, which asserts
+      // `outcome.calibration` is defined with the right toolCallCount and
+      // session_id on the same crossing fixture — so between the two, both
+      // halves of the post-graduation contract are pinned.
       expects: "warn",
     },
   },
