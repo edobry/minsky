@@ -10,6 +10,10 @@ import { describe, expect, test, afterEach } from "bun:test";
 import type { Server } from "http";
 import express from "express";
 
+import {
+  ENTITY_THREAD_SUPPORTED_TYPES,
+  formatSupportedEntityTypes,
+} from "@minsky/shared/entity-thread-types";
 import { mountEntityThreadRoutes, parseEntityType, parseMessageBody } from "./entity-threads";
 
 describe("parseEntityType", () => {
@@ -33,9 +37,25 @@ describe("parseEntityType", () => {
     for (const unsupported of ["changeset", "memory", "session"]) {
       const result = parseEntityType(unsupported);
       expect(typeof result).toBe("object");
-      expect((result as { error: string }).error).toContain(unsupported);
-      expect((result as { error: string }).error).toContain("ask");
-      expect((result as { error: string }).error).toContain("task");
+      // Asserted VERBATIM, not by substring presence (PR #2467 R1 non-blocking):
+      // the supported list's order comes from the shared declaration's array, so
+      // it is stable and worth pinning. A substring check would pass even if the
+      // message degraded to an unordered or partial list.
+      expect((result as { error: string }).error).toBe(
+        `entity threads are not yet available for '${unsupported}' — supported: ask, task`
+      );
+    }
+  });
+
+  test("every supported type is accepted, and the list drives the message", () => {
+    // Guards the drift the shared declaration exists to prevent: if a kind is
+    // added to ENTITY_THREAD_SUPPORTED_TYPES without an adapter, this still
+    // passes — but the accompanying buildSeedForEntity branch is what the
+    // route-level 404 behavior tests cover. Here the point is that validation
+    // and the advertised list cannot disagree.
+    for (const supported of ENTITY_THREAD_SUPPORTED_TYPES) {
+      expect(parseEntityType(supported)).toBe(supported);
+      expect(formatSupportedEntityTypes()).toContain(supported);
     }
   });
 

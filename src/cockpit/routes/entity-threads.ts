@@ -41,6 +41,12 @@ import type express from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import {
+  ENTITY_THREAD_SUPPORTED_TYPES,
+  formatSupportedEntityTypes,
+  isEntityThreadSupportedType,
+  type EntityThreadSupportedType,
+} from "@minsky/shared/entity-thread-types";
+import {
   appendEntityThreadTurn,
   entityThreadLocalId,
   findEntityThread,
@@ -91,13 +97,19 @@ function isThreadAgentLive(localId: string, registry = drivenSessionRegistry): b
 const getEntityThreadDb = createCachedSqlDbGetter({ cacheNegative: false });
 
 /**
- * Entity kinds this module can seed today. See the docblock's scope boundary.
+ * The supported set is declared ONCE, in `@minsky/shared/entity-thread-types`,
+ * and shared with the browser panel (PR #2467 R1 BLOCKING). It used to be a
+ * local `Set` here plus a hand-written union in the panel, which could drift
+ * silently and forced a panel edit on every widening.
  *
- * A type belongs here ONLY once `buildSeedForEntity` has an adapter for it —
- * accepting a type with no adapter would 404 every request for it, which reads
- * to a caller as "your id is wrong" rather than "this is not built yet".
+ * This assertion is the compile-time bridge to the PERSISTENCE type, which lives
+ * in a Drizzle-importing module the browser cannot load. If a kind is ever added
+ * to the shared list that the store cannot persist, this line fails to compile
+ * rather than failing at the first INSERT.
  */
-const SUPPORTED_ENTITY_TYPES = new Set<EntityThreadEntityType>(["ask", "task"]);
+const _supportedTypesArePersistable: readonly EntityThreadEntityType[] =
+  ENTITY_THREAD_SUPPORTED_TYPES;
+void _supportedTypesArePersistable;
 
 export interface EntityThreadRoutesOptions {
   /** Override the database handle (tests). */
@@ -119,16 +131,18 @@ export interface EntityThreadRoutesOptions {
  * a bare 400 would leave a caller guessing whether the type was wrong, the id
  * was wrong, or the feature is simply not built yet for their entity.
  */
-export function parseEntityType(raw: unknown): EntityThreadEntityType | { error: string } {
+export function parseEntityType(raw: unknown): EntityThreadSupportedType | { error: string } {
   if (typeof raw !== "string" || raw.length === 0) {
     return { error: "entityType is required" };
   }
-  if (!SUPPORTED_ENTITY_TYPES.has(raw as EntityThreadEntityType)) {
+  if (!isEntityThreadSupportedType(raw)) {
+    // Order comes from the shared declaration, so this message is stable
+    // (PR #2467 R1 non-blocking) and can be asserted verbatim in tests.
     return {
-      error: `entity threads are not yet available for '${raw}' — supported: ${[...SUPPORTED_ENTITY_TYPES].join(", ")}`,
+      error: `entity threads are not yet available for '${raw}' — supported: ${formatSupportedEntityTypes()}`,
     };
   }
-  return raw as EntityThreadEntityType;
+  return raw;
 }
 
 /** Validate a POST message body. */

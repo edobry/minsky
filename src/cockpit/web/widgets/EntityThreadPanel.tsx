@@ -35,6 +35,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
 import { findLatestResolveProposal, type ResolveProposal } from "../lib/resolve-proposal";
+import type { EntityThreadSupportedType } from "@minsky/shared/entity-thread-types";
 import { ConversationView } from "./ConversationView";
 import { DrivenSessionComposer } from "../components/DrivenSessionComposer";
 import { ErrorState } from "../components/ErrorState";
@@ -44,13 +45,15 @@ import { LoadingState } from "../components/LoadingState";
 const POLL_INTERVAL_MS = 3_000;
 
 /**
- * Entity kinds the thread endpoints accept today (mt#3364; widened by mt#3366).
+ * Entity kinds the thread endpoints accept.
  *
- * Kept in step with `SUPPORTED_ENTITY_TYPES` in
- * `src/cockpit/routes/entity-threads.ts` — the server rejects anything else with
- * a 400, so a wider type here would only produce mounts that fail at runtime.
+ * DERIVED from the single shared declaration, never hand-written here
+ * (PR #2467 R1 BLOCKING). A hand-written union meant widening the supported set
+ * required editing this panel — which broke mt#3366's own criterion that adding
+ * an entity kind needs no panel change — and let the panel's idea of the set
+ * drift from the server's.
  */
-export type EntityThreadPanelEntityType = "ask" | "task";
+export type EntityThreadPanelEntityType = EntityThreadSupportedType;
 
 export interface EntityThreadResponse {
   localId: string;
