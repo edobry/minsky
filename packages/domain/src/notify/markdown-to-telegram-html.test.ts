@@ -262,6 +262,60 @@ describe("markdownToTelegramHtml — robustness", () => {
     }
   });
 
+  /**
+   * PR #2505 R2 asked whether regex-based emphasis "can mis-nest or overrun,
+   * risking invalid HTML and Telegram 400s". Answering it with an argument
+   * would not settle anything — Telegram rejects unbalanced markup, and
+   * balance is the property that matters. So: assert it over the adversarial
+   * inputs, including deliberately overlapping and unterminated markers.
+   */
+  test("every adversarial marker arrangement still produces balanced tags", () => {
+    const cases = [
+      "**a *b** c*",
+      "*a **b* c**",
+      "***a**",
+      "**a***",
+      "*",
+      "**",
+      "***",
+      "****",
+      "a*b*c",
+      "**a*b**c*",
+      "~~a~~b~~",
+      "**~~a~~**",
+      "*a\nb*",
+      "**a**b**c**",
+      "[a](x)*b*",
+      "`a`*b*`c`",
+      "**[l](u)**",
+      "*[l](u)*",
+      "[*l*](u)",
+      "* * *",
+      "**  **",
+      "*x**y*",
+      "a ** b ** c",
+      "**a **b** c**",
+      "[](u)",
+      "[a](u",
+      "**a\n**b",
+      "> *q*\n> **r**",
+      "```\n**a**\n```",
+      "| *a* | **b** |\n| --- | --- |",
+    ];
+
+    for (const source of cases) {
+      const html = markdownToTelegramHtml(source);
+      for (const tag of ["b", "i", "s", "a", "code", "pre", "blockquote"]) {
+        const open = html.match(new RegExp(`<${tag}(\\s[^>]*)?>`, "g"))?.length ?? 0;
+        const close = html.match(new RegExp(`</${tag}>`, "g"))?.length ?? 0;
+        // Label the assertion with the input so a failure names the case.
+        expect(`${JSON.stringify(source)} ${tag}:${open}`).toBe(
+          `${JSON.stringify(source)} ${tag}:${close}`
+        );
+      }
+    }
+  });
+
   test("no placeholder sentinel survives into the output", () => {
     // A leaked sentinel would ship an invisible private-use character to the
     // principal's phone and mean a stash was never restored.
