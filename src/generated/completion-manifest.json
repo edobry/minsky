@@ -249,7 +249,7 @@
             },
             {
               "flags": ["--push-timeout-ms"],
-              "description": "Override the push wall-clock bound in milliseconds. Defaults to 2 minutes. On timeout, the remote branch head is verified directly before reporting an outcome.",
+              "description": "Override the push wall-clock bound in milliseconds. Defaults to 10 minutes (mt#3480: sized to clear the pre-push test gate). On timeout, the remote branch head is verified directly before reporting an outcome.",
               "takesValue": true
             },
             {
@@ -2999,7 +2999,7 @@
             },
             {
               "flags": ["--push-timeout-ms"],
-              "description": "Override the push-phase wall-clock bound in milliseconds. Defaults to 2 minutes. On timeout (mt#3177), the remote branch head is verified directly via `git ls-remote` before reporting an outcome — see the `pushConfirmedVia`/`pushUnconfirmed` result fields.",
+              "description": "Override the push-phase wall-clock bound in milliseconds. Defaults to 10 minutes (mt#3480: sized to clear the pre-push test gate). On timeout (mt#3177), the remote branch head is verified directly via `git ls-remote` before reporting an outcome — see the `pushConfirmedVia`/`pushUnconfirmed` result fields.",
               "takesValue": true
             },
             {
@@ -3190,7 +3190,7 @@
                 },
                 {
                   "flags": ["--push-timeout-ms"],
-                  "description": "Override the push-phase wall-clock bound in milliseconds for the session update this command performs before opening the PR. Defaults to 2 minutes. Raise it when pushes from this workspace are legitimately slow — see the pushTimedOut/elapsedMs fields (mt#3480).",
+                  "description": "Override the push-phase wall-clock bound in milliseconds for the session update this command performs before opening the PR. Defaults to 10 minutes (mt#3480: sized to clear the pre-push test gate). Raise it when pushes from this workspace are legitimately slow — see the pushTimedOut/elapsedMs fields (mt#3480).",
                   "takesValue": true
                 }
               ]

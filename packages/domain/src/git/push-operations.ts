@@ -263,6 +263,14 @@ export interface RemoteRefVerification {
    * NOT evidence the push failed — only that verification was inconclusive.
    */
   checkError?: string;
+  /**
+   * Set when the check was inconclusive specifically because IT ran out of
+   * time, as distinct from a network failure or a missing ref (mt#3480,
+   * PR #2506 R1). Structured rather than inferred from `checkError`'s wording,
+   * so the caller can report which phase timed out without string-matching a
+   * message that is free to change.
+   */
+  timedOut?: boolean;
 }
 
 /**
@@ -298,7 +306,11 @@ export async function verifyRemoteRefAdvanced(
       timeoutMs
     );
     if (raced.timedOut) {
-      return { confirmed: false, checkError: `ls-remote check exceeded ${timeoutMs}ms` };
+      return {
+        confirmed: false,
+        checkError: `ls-remote check exceeded ${timeoutMs}ms`,
+        timedOut: true,
+      };
     }
     const firstLine = raced.value.stdout
       .split("\n")
@@ -585,9 +597,14 @@ export async function pushWithConfirmation(
     pushUnconfirmed: true,
     elapsedMs: elapsed(),
     pushTimeoutMs,
-    // The push is what ran out of time; the remote check then ran and simply
-    // did not find the ref. Naming the phase keeps a reader from concluding the
-    // VERIFICATION was the slow part.
-    timedOutDuring: "push",
+    // Which phase actually ran out of time (PR #2506 R1 BLOCKING: this field
+    // previously advertised "remote-verify" in its type while the code could
+    // only ever emit "push" — a value no caller could observe).
+    //
+    // "remote-verify" when the ls-remote check ITSELF timed out, leaving the
+    // outcome doubly unknown; "push" when the check completed and simply did
+    // not find the ref, which is the common case and must not read as though
+    // the verification were the slow part.
+    timedOutDuring: verification?.timedOut ? "remote-verify" : "push",
   };
 }

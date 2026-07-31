@@ -456,6 +456,28 @@ describe("pushWithConfirmation", () => {
     expect(result.timedOutDuring).toBe("push");
   });
 
+  test("mt#3480: reports remote-verify when the CHECK itself times out (PR #2506 R1)", async () => {
+    // This value was advertised in the type but unreachable in code — a false
+    // affordance no caller could ever observe. Both the push AND the ls-remote
+    // check hang here, so the outcome is doubly unknown and the phase must say
+    // which one ran out of time.
+    const { deps } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3480\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [RX_PUSH, HANG],
+      [CMD_REV_PARSE_HEAD, { stdout: `${LOCAL_SHA}\n` }],
+      [RX_LS_REMOTE, HANG],
+    ]);
+
+    const result = await pushWithConfirmation({ repoPath: WORKDIR }, deps, {
+      pushTimeoutMs: 20,
+      verifyTimeoutMs: 20,
+    });
+
+    expect(result.pushUnconfirmed).toBe(true);
+    expect(result.timedOutDuring).toBe("remote-verify");
+  });
+
   test("mt#3480: a definite push error reports timing too, and names no phase", async () => {
     const { deps } = makeDeps([
       [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3480\n" }],

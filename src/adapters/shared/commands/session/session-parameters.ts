@@ -559,7 +559,7 @@ export const sessionPrCreateCommandParams = {
     schema: z.number().int().positive(),
     description:
       "Override the push-phase wall-clock bound in milliseconds for the session update this " +
-      "command performs before opening the PR. Defaults to 2 minutes. Raise it when pushes from " +
+      "command performs before opening the PR. Defaults to 10 minutes (mt#3480: sized to clear the pre-push test gate). Raise it when pushes from " +
       "this workspace are legitimately slow — see the pushTimedOut/elapsedMs fields (mt#3480).",
     required: false,
   },
