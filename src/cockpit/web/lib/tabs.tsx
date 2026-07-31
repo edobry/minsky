@@ -497,14 +497,23 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     const match = matchEntityRoute(pathname);
     if (!match) return;
     // A held MRU cycle walks a frozen order, so stamping each tab as the cycle
-    // passes THROUGH it would re-sort that order mid-cycle. Skip entirely
-    // rather than stamping: every path a cycle navigates to comes from its own
-    // snapshot, so the tab is already open and there is nothing to create.
-    // `commitTabCycle` stamps the landed tab once, on release.
-    if (cycleRef.current) return;
+    // passes THROUGH it would re-sort that order mid-cycle. Only the STAMP is
+    // suppressed, never tab creation: this effect is what guarantees an entity
+    // route always has a tab, and a navigation can land here mid-cycle without
+    // being part of the cycle at all — a rail click with Control still held, or
+    // any path taken after a `keyup` we never received (focus moved between the
+    // keydown and the release). Skipping wholesale would drop those tabs on the
+    // floor, and in the missed-keyup case would keep dropping them for as long
+    // as the stale flag survived. `commitTabCycle` stamps the landed tab once.
+    const cycle = cycleRef.current;
+    const inCycle = cycle?.paths.includes(match.path) ?? false;
+    // Landing outside the frozen order means this navigation is not a cycle
+    // step, so the cycle is over regardless of whether its keyup arrived.
+    if (cycle && !inCycle) cycleRef.current = null;
     const now = Date.now();
     setTabs((prev) => {
       const existing = prev.find((t) => t.path === match.path);
+      if (existing && inCycle) return prev;
       const next = existing
         ? prev.map((t) => (t.path === match.path ? { ...t, lastActiveAt: now } : t))
         : [...prev, { ...match, lastActiveAt: now }];
