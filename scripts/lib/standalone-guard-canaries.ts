@@ -162,4 +162,70 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
       return typeof reminder === "string" && reminder.length > 0;
     },
   },
+  {
+    // Detector, not a blocking guard: in its default `log-only` mode an
+    // uncovered action emits additionalContext rather than a denial, so the
+    // additionalContext-shaped `warn` expectation is the right one.
+    //
+    // mt#3393 added this. Until then `policy-coverage` had NEITHER half of the
+    // two-part coverage story — no canary (synthetic) and, because its records
+    // were landing outside the repo, no live receipt either. So when the
+    // coverage-receipt check flagged it, nothing could distinguish a broken
+    // detector from a dormant one, and the investigation started from the
+    // wrong hypothesis.
+    guardName: "policy-coverage",
+    expects: "warn",
+    check: async () => {
+      const { applyActionFilter } = await import(
+        "../../packages/domain/src/detectors/policy-coverage/action-filter"
+      );
+      const { decideCoverage } = await import(
+        "../../packages/domain/src/detectors/policy-coverage/coverage"
+      );
+
+      // Half 1: the action filter recognizes a preference-encoding write.
+      const filtered = applyActionFilter({
+        toolName: "Write",
+        filePath: "packages/domain/src/canary-sample.ts",
+        content: 'export const message = "Hello there, this is a user facing message string";',
+      });
+      if (!filtered.fires || !filtered.reason) return false;
+
+      const action = {
+        reason: filtered.reason,
+        detail: filtered.detail ?? "",
+        filePath: "packages/domain/src/canary-sample.ts",
+      };
+
+      // Half 2: the coverage decision separates a corpus that speaks to the
+      // action from one that does not. Both directions are asserted — a
+      // decision function stuck at one answer passes a one-sided check.
+      const covering = decideCoverage(action, {
+        entries: [
+          {
+            source: "canary-policy.mdc",
+            ref: "canary-policy.mdc",
+            content: "Every new exported function must carry a doc comment.",
+            category: "project-rule",
+          },
+        ],
+        loadedCount: 1,
+        unavailableCount: 0,
+      });
+      const silent = decideCoverage(action, {
+        entries: [
+          {
+            source: "canary-policy.mdc",
+            ref: "canary-policy.mdc",
+            content: "Session workspaces are cloned per task.",
+            category: "project-rule",
+          },
+        ],
+        loadedCount: 1,
+        unavailableCount: 0,
+      });
+
+      return covering.covered && !silent.covered;
+    },
+  },
 ];
