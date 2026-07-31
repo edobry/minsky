@@ -5,7 +5,8 @@
  * standalone `/conversations` page was retired and folded into Agents.tsx
  * per mt#2767/mt#2767's header comment). Lets an operator find a past
  * conversation by content (FTS default, semantic optional) and/or a time
- * window, then copy a ready `claude --resume <id>` command for the match.
+ * window, then copy a ready, directory-pinned `cd <cwd> && claude --resume <id>`
+ * command for the match (mt#3440).
  *
  * User-triggered (not polling) — a plain TanStack `useMutation` against
  * `GET /api/conversations/search`, fired on submit rather than on an

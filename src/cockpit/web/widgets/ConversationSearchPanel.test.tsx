@@ -64,7 +64,7 @@ describe("ConversationSearchPanel (mt#2523)", () => {
     expect(screen.getByRole("button", { name: /search conversation content/i })).toBeDefined();
   });
 
-  test("a matched result surfaces the conversation id and a ready `claude --resume <id>` hint (AT#1)", async () => {
+  test("a matched result surfaces the conversation id and a directory-pinned resume hint (AT#1)", async () => {
     stubFetch(200, {
       results: [
         {
@@ -74,7 +74,7 @@ describe("ConversationSearchPanel (mt#2523)", () => {
           assistantText: null,
           startedAt: "2026-07-10T12:00:00.000Z",
           score: 0.9,
-          resumeHint: "claude --resume conv-distinctive-phrase",
+          resumeHint: "cd '/Users/dev/Projects/minsky' && claude --resume conv-distinctive-phrase",
           sessionMetadata: {
             startedAt: "2026-07-10T11:00:00.000Z",
             model: "claude-sonnet-5",
@@ -90,7 +90,7 @@ describe("ConversationSearchPanel (mt#2523)", () => {
 
     await waitFor(() => {
       expect(screen.getByText("conv-distinctive-phrase")).toBeDefined();
-      expect(screen.getByText("claude --resume conv-distinctive-phrase")).toBeDefined();
+      expect(screen.getByText("cd '/Users/dev/Projects/minsky' && claude --resume conv-distinctive-phrase")).toBeDefined();
     });
   });
 
@@ -107,7 +107,7 @@ describe("ConversationSearchPanel (mt#2523)", () => {
                 assistantText: null,
                 startedAt: "2026-07-10T12:00:00.000Z",
                 score: 0.8,
-                resumeHint: "claude --resume conv-abc123",
+                resumeHint: "cd '/Users/dev/Projects/minsky' && claude --resume conv-abc123",
                 sessionMetadata: {
                   startedAt: "2026-07-10T11:00:00.000Z",
                   model: null,

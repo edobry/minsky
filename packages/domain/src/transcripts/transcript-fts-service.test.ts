@@ -38,6 +38,7 @@ function makeTurnRow(overrides: Partial<FakeRow> = {}): FakeRow {
     score: 0.85,
     sessionStartedAt: new Date("2025-01-01"),
     sessionModel: "claude-3-5-sonnet",
+    sessionCwd: "/Users/dev/Projects/minsky",
     relatedTaskIds: ["mt#100"],
     relatedPrNumbers: ["#42"],
     ...overrides,
@@ -243,13 +244,15 @@ describe("TranscriptFtsService", () => {
       expect(results[0]?.agentSessionId).toBe("session-a");
     });
 
-    test("resumeHint (mt#2523): each result carries a ready `claude --resume <id>` hint", async () => {
+    test("resumeHint (mt#2523, mt#3440): each result carries a directory-pinned resume hint", async () => {
       const turnRows = [makeTurnRow({ agentSessionId: "session-resume-me" })];
       const db = makeFakeDb(turnRows, []);
       const svc = new TranscriptFtsService(db);
 
       const results = await svc.searchText("test");
-      expect(results[0]?.resumeHint).toBe("claude --resume session-resume-me");
+      expect(results[0]?.resumeHint).toBe(
+        "cd '/Users/dev/Projects/minsky' && claude --resume session-resume-me"
+      );
     });
   });
 
@@ -337,14 +340,16 @@ describe("TranscriptFtsService", () => {
       expect(results[0]?.sessionMetadata.messageCount).toBe(7);
     });
 
-    test("resumeHint (mt#2523): getSession results also carry the resume hint", async () => {
+    test("resumeHint (mt#2523, mt#3440): getSession results also carry the directory-pinned hint", async () => {
       const existenceRows = [makeExistenceRow("session-x")];
       const turnRows = [makeTurnRow({ agentSessionId: "session-x" })];
       const db = makeFakeDb(turnRows, [], existenceRows);
       const svc = new TranscriptFtsService(db);
 
       const results = await svc.getSession("session-x");
-      expect(results[0]?.resumeHint).toBe("claude --resume session-x");
+      expect(results[0]?.resumeHint).toBe(
+        "cd '/Users/dev/Projects/minsky' && claude --resume session-x"
+      );
     });
   });
 });
