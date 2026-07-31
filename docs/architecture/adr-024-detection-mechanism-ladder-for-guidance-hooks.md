@@ -103,6 +103,10 @@ embedding; learned confirm) are gated by measured evidence, not dates.
 
 - RFC: _Detection-mechanism strategy for the guidance-hook family_ — Notion
   `383937f0-3cb4-819d-8024-cf7aa778773f`; task **mt#2263**; memory `d9c10ef1`.
+- **ADR-031** — the event-axis sibling of this ADR (task mt#3292): WHICH lifecycle event the same
+  family scans on, and what it reads there. This ADR decides the _mechanism_ (how a detector
+  matches) and deliberately leaves the _event_ open; ADR-031 closes it. The two are orthogonal and
+  compose: any rung of this ladder runs against whatever window ADR-031 resolves.
 - Phase tasks: **mt#2554** (Phase 1 — Rung-1 prefilter), **mt#2557** (Phase 0 — this ADR + doc-fix).
 - `docs/architecture/agent-guidance-mechanisms.md` — corrected in this change (the "strength
   ordering" + hook framework this ADR refines).
