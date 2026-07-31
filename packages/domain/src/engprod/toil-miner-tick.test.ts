@@ -33,20 +33,26 @@ function cluster(signature: string, frequency = 5): MinedCluster {
   };
 }
 
+interface FakeRunRow {
+  clustersFound: number;
+  startedAt: Date;
+  errored?: boolean;
+}
+
 /**
- * Minimal in-memory fake for the `engprod_miner_runs` table only. `insert`
- * and `select` share ONE backing array so a row written by THIS tick's own
- * run-history insert is visible to the immediately-following "last 2 runs"
- * select — matching real same-connection Postgres read-after-write
- * behavior, which the two-consecutive-zero-cluster check depends on.
+ * Minimal in-memory fake for the `engprod_miner_runs` table only. The
+ * prior-run lookup (`.limit(1)`) runs BEFORE this tick's own insert, so it
+ * only ever sees seeded `priorRuns` — matching the production code's
+ * ordering fix (mt#3330 review R1): `twoConsecutiveZero` must be known
+ * before the row carrying `errored` is written, not derived afterward.
  */
-function makeRunsDb(priorRuns: Array<{ clustersFound: number; startedAt: Date }> = []) {
-  const rows: Array<{ clustersFound: number; startedAt: Date }> = [...priorRuns];
+function makeRunsDb(priorRuns: FakeRunRow[] = []) {
+  const rows: FakeRunRow[] = [...priorRuns];
   return {
     rows,
     insert(_table: unknown) {
       return {
-        values: (row: { clustersFound: number; startedAt: Date }) => {
+        values: (row: FakeRunRow) => {
           rows.push(row);
           return Promise.resolve();
         },
@@ -191,11 +197,12 @@ describe("toilMinerTick — LLM-stage failure (AT4)", () => {
     const analyzeOutcomes = new Map<string, ClusterAnalysisOutcome>([
       ["will-fail", { error: "simulated LLM provider failure" }],
     ]);
+    const db = makeRunsDb();
 
     await expect(
       toilMinerTick(
         {
-          db: makeRunsDb() as never,
+          db: db as never,
           taskService: fakeTaskService() as never,
           cognitionProvider: NOOP_COGNITION_PROVIDER as never,
           taskSimilarityService: NOOP_SIMILARITY_SERVICE as never,
@@ -206,17 +213,23 @@ describe("toilMinerTick — LLM-stage failure (AT4)", () => {
         {}
       )
     ).rejects.toThrow(/LLM-stage error/);
+
+    // mt#3330 review R1: the persisted run-history row must agree with the
+    // thrown error — `errored` is not just a log-line claim.
+    expect(db.rows).toHaveLength(1);
+    expect(db.rows[0]?.errored).toBe(true);
   });
 });
 
 describe("toilMinerTick — two consecutive zero-cluster runs (SC6)", () => {
   test("throws when the immediately preceding run was ALSO zero-cluster", async () => {
     const priorRun = { clustersFound: 0, startedAt: new Date("2026-01-01T00:00:00Z") };
+    const db = makeRunsDb([priorRun]);
 
     await expect(
       toilMinerTick(
         {
-          db: makeRunsDb([priorRun]) as never,
+          db: db as never,
           taskService: fakeTaskService() as never,
           cognitionProvider: NOOP_COGNITION_PROVIDER as never,
           taskSimilarityService: NOOP_SIMILARITY_SERVICE as never,
@@ -227,6 +240,12 @@ describe("toilMinerTick — two consecutive zero-cluster runs (SC6)", () => {
         {}
       )
     ).rejects.toThrow(/two consecutive zero-cluster runs/);
+
+    // mt#3330 review R1: the persisted row for THIS run must also carry
+    // errored=true — the two-consecutive-zero-run error is not just thrown
+    // and logged, it must be visible in the run-history table too.
+    expect(db.rows).toHaveLength(2); // seeded priorRun + this run's new row
+    expect(db.rows[1]?.errored).toBe(true);
   });
 
   test("does NOT throw on a single zero-cluster run with no prior zero-cluster history", async () => {

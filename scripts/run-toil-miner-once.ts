@@ -53,6 +53,12 @@ async function main(): Promise<void> {
   const container = await createCliContainer();
   await container.initialize();
 
+  // mt#3330 review R1: `process.exit()` terminates synchronously — calling
+  // it from inside the `try` block below would skip the `finally` clause
+  // entirely, leaking the container's DB connection. Every exit path sets
+  // `exitCode` instead; the single `process.exit(exitCode)` call happens
+  // AFTER `container.close()` has run.
+  let exitCode = 0;
   try {
     const persistence = container.has("persistence") ? container.get("persistence") : undefined;
     const isSqlCapable =
@@ -65,22 +71,21 @@ async function main(): Promise<void> {
       console.log(
         "SKIP: engprod toil-miner requires a SQL-capable persistence provider (Postgres) — none configured."
       );
-      process.exit(0);
+    } else {
+      console.log("engprod toil-miner: running one-shot tick...");
+      await toilMinerOpsTick(container);
+      console.log(
+        "engprod toil-miner: tick completed successfully (see engprod_toil_miner.* logs above)."
+      );
     }
-
-    console.log("engprod toil-miner: running one-shot tick...");
-    await toilMinerOpsTick(container);
-    console.log(
-      "engprod toil-miner: tick completed successfully (see engprod_toil_miner.* logs above)."
-    );
-    process.exit(0);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`engprod toil-miner: tick ended in an ERROR state — ${message}`);
-    process.exit(1);
+    exitCode = 1;
   } finally {
     await container.close();
   }
+  process.exit(exitCode);
 }
 
 main();

@@ -212,8 +212,35 @@ export async function toilMinerTick(
   }
 
   const finishedAt = new Date();
-  const errored = counters.llmErrors > 0;
+  const llmStageErrored = counters.llmErrors > 0;
   let twoConsecutiveZero = false;
+
+  // Determine twoConsecutiveZero BEFORE inserting this run's row — the
+  // insert must carry the FINAL `errored` value (llmStageErrored OR
+  // twoConsecutiveZero), so the query for "was the immediately-preceding
+  // run also zero-cluster" has to happen first, against history that does
+  // NOT yet include this run (mt#3330 review R1: writing `errored` before
+  // this check meant a two-consecutive-zero-run error never made it into
+  // the persisted row, leaving the ops log and the run-history table
+  // disagreeing about whether the run was clean).
+  try {
+    const priorRun = await deps.db
+      .select({ clustersFound: engprodMinerRunsTable.clustersFound })
+      .from(engprodMinerRunsTable)
+      .orderBy(desc(engprodMinerRunsTable.startedAt))
+      .limit(1);
+    twoConsecutiveZero =
+      counters.clustersFound === 0 && priorRun.length === 1 && priorRun[0]?.clustersFound === 0;
+  } catch (err) {
+    log.error("engprod_toil_miner.run_history_error", {
+      event: "engprod_toil_miner.run_history_error",
+      runId,
+      phase: "prior_run_lookup",
+      error: getLoggableErrorSummary(err),
+    });
+  }
+
+  const errored = llmStageErrored || twoConsecutiveZero;
 
   try {
     await deps.db.insert(engprodMinerRunsTable).values({
@@ -229,20 +256,11 @@ export async function toilMinerTick(
       llmErrors: counters.llmErrors,
       errored,
     });
-
-    const priorRuns = await deps.db
-      .select({
-        clustersFound: engprodMinerRunsTable.clustersFound,
-        startedAt: engprodMinerRunsTable.startedAt,
-      })
-      .from(engprodMinerRunsTable)
-      .orderBy(desc(engprodMinerRunsTable.startedAt))
-      .limit(2);
-    twoConsecutiveZero = priorRuns.length === 2 && priorRuns.every((r) => r.clustersFound === 0);
   } catch (err) {
     log.error("engprod_toil_miner.run_history_error", {
       event: "engprod_toil_miner.run_history_error",
       runId,
+      phase: "insert",
       error: getLoggableErrorSummary(err),
     });
   }
@@ -255,7 +273,7 @@ export async function toilMinerTick(
     twoConsecutiveZero,
   });
 
-  if (errored) {
+  if (llmStageErrored) {
     throw new Error(
       `engprod_toil_miner: ${counters.llmErrors} LLM-stage error(s) this run (runId=${runId}) — see engprod_toil_miner.llm_error logs`
     );

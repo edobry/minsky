@@ -105,9 +105,12 @@ export class ProposalLedgerService {
   }
 
   /**
-   * First dedupe stage (ledger, exact signature). Does NOT touch the
-   * database — pure decision over the cluster's existing ledger row (or
-   * lack of one).
+   * First dedupe stage (ledger, exact signature). Reads the cluster's
+   * existing ledger row via `getBySignature` (one DB `select`); the actual
+   * DECISION over that row is delegated to the pure, DB-free
+   * `decideShouldPropose` function below (mt#3330 review R1 — the prior
+   * version of this comment claimed "does NOT touch the database," which
+   * was true only of the delegated decision logic, not of this method).
    */
   async shouldPropose(cluster: MinedCluster): Promise<ShouldProposeDecision> {
     const existing = await this.getBySignature(cluster.signature);
