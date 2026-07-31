@@ -1434,6 +1434,15 @@ function buildInputContent(
  *     phantom operator turn is rendered for a message that was never
  *     delivered. (Callers already branch on the return: the principal-channel
  *     actuator surfaces the failure to the sender.)
+ *   - **Content-less input now returns `false` instead of being written**
+ *     (mt#3235, flagged in PR #2483 R1). Previously blank text was written as
+ *     `[{type:"text", text:""}]`; the Messages API rejects an empty text block,
+ *     so that turn failed at the child rather than here. The websocket path
+ *     (`driven-session-ws.ts`) can reach this with an empty `text` field or an
+ *     empty raw frame, so the change is observable: `POST` to an entity thread
+ *     now reports `delivered: false` for a blank message. That is the honest
+ *     answer — it was never going to be delivered — but it IS a change, not an
+ *     invariant that always held.
  */
 export function sendDrivenSessionInput(
   record: DrivenSessionRecord,

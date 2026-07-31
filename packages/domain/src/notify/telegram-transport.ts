@@ -37,14 +37,32 @@ const TELEGRAM_API_BASE = "https://api.telegram.org";
 const MAX_ERROR_BODY = 500;
 
 /**
- * Largest attachment this channel will download and forward (mt#3235).
+ * Largest attachment this channel will forward, measured as the BASE64 PAYLOAD
+ * (mt#3235, corrected in PR #2483 R1).
  *
- * 5 MB is the Messages API's own per-image ceiling for a base64 source, so a
- * larger file cannot be forwarded regardless of what Telegram is willing to
- * serve (its `getFile` limit is 20 MB). Refusing at this boundary turns an
- * opaque downstream API error into a message the principal can act on.
+ * The Messages API states its per-image ceiling in base64-encoded bytes, not
+ * raw file bytes: "The maximum size per image is: 10 MB (base64-encoded) when
+ * using the Claude API directly. 5 MB (base64-encoded) on Amazon Bedrock and
+ * Google Cloud." (core docs, Vision → Image limits and costs, read 2026-07-31.)
+ * Base64 inflates by 4/3, so a limit enforced on raw bytes admits files ~33%
+ * over the real ceiling and fails downstream instead of here.
+ *
+ * 5 MB rather than 10 MB deliberately: it is the lowest documented ceiling
+ * across the platforms a request can be routed through, so the channel behaves
+ * the same regardless of which one is behind it. Telegram's own `getFile`
+ * limit (20 MB) is far higher and never the binding constraint.
  */
-const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const MAX_ENCODED_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
+/**
+ * The raw-byte budget that yields {@link MAX_ENCODED_ATTACHMENT_BYTES} once
+ * encoded — base64 emits 4 bytes per 3 input bytes.
+ *
+ * Used only for the two CHEAP pre-checks (Telegram's declared `file_size`, and
+ * the downloaded length) so an oversized file is refused before it is encoded.
+ * The authoritative check is still on the encoded string.
+ */
+const MAX_RAW_ATTACHMENT_BYTES = Math.floor((MAX_ENCODED_ATTACHMENT_BYTES / 4) * 3);
 
 /**
  * Injectable fetch so tests never touch the network.
@@ -438,10 +456,17 @@ export async function fetchTelegramFile(opts: {
   token: string;
   ref: InboundAttachmentRef;
   fetchFn?: FetchFn;
-  /** Refuse a file larger than this, before downloading it. */
-  maxBytes?: number;
+  /**
+   * Refuse an attachment whose BASE64 payload exceeds this. Raw-byte checks
+   * along the way are derived from it, not the other way round.
+   */
+  maxEncodedBytes?: number;
 }): Promise<TelegramFileResult> {
-  const { token, ref, fetchFn = fetch, maxBytes = MAX_ATTACHMENT_BYTES } = opts;
+  const { token, ref, fetchFn = fetch, maxEncodedBytes = MAX_ENCODED_ATTACHMENT_BYTES } = opts;
+  const maxRawBytes =
+    maxEncodedBytes === MAX_ENCODED_ATTACHMENT_BYTES
+      ? MAX_RAW_ATTACHMENT_BYTES
+      : Math.floor((maxEncodedBytes / 4) * 3);
 
   let metaResponse: Response;
   try {
@@ -469,8 +494,8 @@ export async function fetchTelegramFile(opts: {
     return { ok: false, detail: "getFile returned no file_path" };
   }
   const declaredSize = meta["file_size"];
-  if (typeof declaredSize === "number" && declaredSize > maxBytes) {
-    return { ok: false, detail: `file is ${declaredSize} bytes, over the ${maxBytes} limit` };
+  if (typeof declaredSize === "number" && declaredSize > maxRawBytes) {
+    return { ok: false, detail: oversizeDetail(declaredSize, maxRawBytes) };
   }
 
   let fileResponse: Response;
@@ -496,15 +521,33 @@ export async function fetchTelegramFile(opts: {
   }
   // Checked again after download: `file_size` is advisory and absent often
   // enough that trusting it alone would let an unbounded body through.
-  if (bytes.byteLength > maxBytes) {
-    return { ok: false, detail: `file is ${bytes.byteLength} bytes, over the ${maxBytes} limit` };
+  if (bytes.byteLength > maxRawBytes) {
+    return { ok: false, detail: oversizeDetail(bytes.byteLength, maxRawBytes) };
   }
 
-  return {
-    ok: true,
-    base64: toBase64(new Uint8Array(bytes)),
-    mediaType: ref.mediaType,
-  };
+  // The authoritative check (PR #2483 R1). The two raw-byte checks above are
+  // cheap guards derived from this one; the API's ceiling is on the ENCODED
+  // payload, and encoding is the only place its exact size is known. Padding
+  // makes the encoded length slightly exceed the 4/3 estimate for inputs whose
+  // length is not a multiple of 3, so a file can clear the raw guard and still
+  // land here.
+  const base64 = toBase64(new Uint8Array(bytes));
+  if (base64.length > maxEncodedBytes) {
+    return {
+      ok: false,
+      detail: `image is ${base64.length} bytes once base64-encoded, over the ${maxEncodedBytes} limit`,
+    };
+  }
+
+  return { ok: true, base64, mediaType: ref.mediaType };
+}
+
+/** Shared wording so the pre- and post-download refusals read identically. */
+function oversizeDetail(actualRawBytes: number, limitRawBytes: number): string {
+  return (
+    `image is ${actualRawBytes} bytes, over the ${limitRawBytes}-byte limit ` +
+    `(base64 encoding would push it past the API's encoded-payload ceiling)`
+  );
 }
 
 /**

@@ -580,7 +580,7 @@ describe("fetchTelegramFile", () => {
     const result = await fetchTelegramFile({
       token: TOKEN,
       ref: REF,
-      maxBytes: 10,
+      maxEncodedBytes: 10,
       fetchFn: async (url) => {
         if (String(url).includes("getFile")) {
           return jsonResponse({ ok: true, result: { file_path: "photos/big.jpg", file_size: 99 } });
@@ -598,7 +598,7 @@ describe("fetchTelegramFile", () => {
     const result = await fetchTelegramFile({
       token: TOKEN,
       ref: REF,
-      maxBytes: 10,
+      maxEncodedBytes: 10,
       fetchFn: async (url) =>
         String(url).includes("getFile")
           ? jsonResponse({ ok: true, result: { file_path: "photos/big.jpg" } })
@@ -607,5 +607,58 @@ describe("fetchTelegramFile", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.detail).toContain("over the");
+  });
+
+  // PR #2483 R1: the API's ceiling is on the BASE64 payload, which is 4/3 the
+  // raw size. A limit enforced on raw bytes admits files ~33% over the real
+  // ceiling, which then fail downstream instead of here.
+  test("the limit is measured on the encoded payload, not the raw bytes", async () => {
+    // 74 raw bytes clears the derived raw guard (floor(99/4*3) = 74) but
+    // encodes to 100 bytes, over the 99-byte encoded ceiling.
+    const result = await fetchTelegramFile({
+      token: TOKEN,
+      ref: REF,
+      maxEncodedBytes: 99,
+      fetchFn: async (url) =>
+        String(url).includes("getFile")
+          ? jsonResponse({ ok: true, result: { file_path: "photos/edge.jpg" } })
+          : new Response(new Uint8Array(74)),
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.detail).toContain("base64-encoded");
+  });
+
+  test("the DEFAULT budget refuses a file whose encoded form would exceed 5 MB", async () => {
+    // 4 MB raw encodes to ~5.33 MB — under a naive 5 MB raw cap, over the real
+    // encoded ceiling. This is the case the previous implementation let through.
+    const fourMegabytes = 4 * 1024 * 1024;
+    const result = await fetchTelegramFile({
+      token: TOKEN,
+      ref: REF,
+      fetchFn: async (url) =>
+        String(url).includes("getFile")
+          ? jsonResponse({
+              ok: true,
+              result: { file_path: "photos/4mb.jpg", file_size: fourMegabytes },
+            })
+          : new Response(new Uint8Array(fourMegabytes)),
+    });
+
+    expect(result.ok).toBe(false);
+  });
+
+  test("a comfortably-sized image still succeeds under the default budget", async () => {
+    // Guards against over-correcting the limit into rejecting normal photos.
+    const result = await fetchTelegramFile({
+      token: TOKEN,
+      ref: REF,
+      fetchFn: async (url) =>
+        String(url).includes("getFile")
+          ? jsonResponse({ ok: true, result: { file_path: "photos/ok.jpg", file_size: 900_000 } })
+          : new Response(new Uint8Array(900_000)),
+    });
+
+    expect(result.ok).toBe(true);
   });
 });
