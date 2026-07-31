@@ -77,6 +77,17 @@ describe("parseResolveProposal", () => {
     });
   });
 
+  test("CRLF line endings parse identically to LF", () => {
+    // PR #2465 R1 non-blocking raised this as a suspected failure. It is not:
+    // `\s*` before the required `\n` absorbs the `\r`, the lazy body capture is
+    // newline-agnostic, and JSON.parse treats a trailing `\r\n` as whitespace.
+    // Pinned as a test rather than argued, so the claim is settled either way.
+    const crlf = `\`\`\`${
+      RESOLVE_PROPOSAL_FENCE
+    }\r\n{"optionLetter": "B", "rationale": "stale"}\r\n\`\`\``;
+    expect(parseResolveProposal(crlf)).toEqual({ optionLetter: "B", rationale: "stale" });
+  });
+
   test("repeated calls are independent — the shared regex's lastIndex is reset", () => {
     // Guards the classic global-regex bug: a retained lastIndex would make every
     // other call miss the first marker in the string.

@@ -14,15 +14,16 @@
  */
 
 import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
-import { parseResolveProposal } from "@minsky/shared/resolve-proposal";
-
-export {
+import {
   RESOLVE_PROPOSAL_FENCE,
   parseResolveProposal,
   type ResolveProposal,
 } from "@minsky/shared/resolve-proposal";
 
-import type { ResolveProposal } from "@minsky/shared/resolve-proposal";
+// Re-exported so cockpit consumers have one import site for the whole contract
+// (PR #2465 R1 non-blocking: this was previously a re-export plus a duplicate
+// type-only import of the same symbol).
+export { RESOLVE_PROPOSAL_FENCE, parseResolveProposal, type ResolveProposal };
 
 /**
  * Find the most recent proposal across a thread's blocks.
