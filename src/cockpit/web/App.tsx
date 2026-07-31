@@ -449,8 +449,14 @@ export function App() {
             }
           />
           {/* Film tab (mt#3461): the session film is a lens on a conversation,
-              reached by drilling into the entity — not a top-level page. The
-              retired /session-film route redirects here. */}
+              reached by drilling into the entity — not a top-level page.
+
+              This is the ONLY path to a film (mt#3468). The former
+              /session-film page and the /agents/:id/film workspace route were
+              both deleted, not redirected: a film replays a conversation, so a
+              workspace-keyed address would name no specific one, and a
+              permanent redirect is a second address kept alive forever for a
+              one-time convenience. Old /session-film links do not resolve. */}
           <Route
             path="/conversation/:id/film"
             element={
