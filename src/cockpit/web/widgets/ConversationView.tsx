@@ -68,12 +68,16 @@ import { ErrorState } from "../components/ErrorState";
 import { useLiveTail, useConversationLiveTail } from "../hooks/useLiveTail";
 import {
   ElementView,
-  isApiErrorText,
   type ExpandSignal,
   type PreparedElement,
   type ToolCallElement,
   type ToolResultElement,
 } from "../components/ConversationElementRenderers";
+import {
+  classifyOutcome,
+  OUTCOME_TONE,
+  type ConversationOutcome,
+} from "../lib/conversation-outcome";
 import {
   classifySnapshotError,
   fetchSnapshot,
@@ -471,64 +475,34 @@ function hasRenderablePreparedElement(el: PreparedElement): boolean {
   }
 }
 
-// `isApiErrorText` is imported above from `../components/
-// ConversationElementRenderers` (mt#3262 SC 2) — `turnOutcome` below and the
-// shared `ElementView`'s text-case both need the SAME detection.
-
 /**
  * The per-turn Outcome chip's value, or `null` when none is evidenced.
  *
- * mt#3130's Outcome register has six values (`Completed` · `Interrupted` ·
- * `Errored` · `Rate-limited` · `Crashed` · `Stalled`). Two are evidenced by the
- * transcript as parsed today:
+ * The vocabulary, the precedence rules, and the `Errored`-vs-`Rate-limited`
+ * split all live in `../lib/conversation-outcome.ts` (mt#3132) — ONE
+ * terminal-condition taxonomy shared with the actuator channel's status
+ * readout, replacing the per-pipeline enums that had drifted apart. This
+ * function is now only the transcript ADAPTER: it extracts the evidence a turn
+ * carries and hands it to the shared classifier.
  *
- *  - **`Interrupted`** — a tool-result carrying `isInterruptionRejection`
- *    (`conversation-elements.ts`), i.e. the operator cancelled a pending tool
- *    call. mt#3260.
- *  - **`Errored`** — assistant text starting with the API-error prefix.
- *
- * The rest need signals that do not exist in the persisted transcript
- * (`Completed` has no terminator field; `Rate-limited`/`Crashed`/`Stalled` are
- * run-state, not transcript, facts).
- *
- * So an unremarkable turn returns `null` rather than `Completed` — deliberate,
- * not a stub. Labeling a turn `Completed` without a completion signal would
- * assert completion for turns that were actually cut off. An absent chip says
- * "nothing to report"; a wrong `Completed` chip is the falsely-confident
- * derived field this umbrella exists to remove.
+ * An unremarkable turn still yields `null` rather than `Completed` — see that
+ * module's docblock for why asserting completion without a completion signal is
+ * the falsely-confident derived field this umbrella exists to remove.
  */
-type TurnOutcome = "Interrupted" | "Errored";
-
 function elementIsInterruption(element: PreparedElement): boolean {
   if (element.kind === "tool-invocation") return element.result?.isInterruptionRejection === true;
   if (element.kind === "tool-result-orphan") return element.result.isInterruptionRejection === true;
   return false;
 }
 
-function turnOutcome(turn: PreparedTurn): TurnOutcome | null {
+function turnOutcome(turn: PreparedTurn): ConversationOutcome | null {
   if (turn.role !== "assistant") return null;
-  let errored = false;
-  for (const element of turn.elements) {
-    // Interruption WINS over error, and the precedence is load-bearing: the
-    // harness marks a cancelled tool call `isError`, but the operator
-    // cancelling is not a failure. Reporting it as `Errored` is exactly the
-    // miscount mt#3131 removed from the tallies — this keeps the RENDER
-    // consistent with those already-corrected counts.
-    if (elementIsInterruption(element)) return "Interrupted";
-    if (element.kind === "text" && isApiErrorText(element.text)) errored = true;
-  }
-  return errored ? "Errored" : null;
+  return classifyOutcome({
+    source: "transcript",
+    interrupted: turn.elements.some(elementIsInterruption),
+    texts: turn.elements.flatMap((el) => (el.kind === "text" ? [el.text] : [])),
+  });
 }
-
-/**
- * `Interrupted` is amber, never red — `docs/design-system.md`'s red-scarcity
- * rule reserves the destructive tone for genuine failures, and mt#3130 calls
- * out this exact distinction ("amber, NOT red — distinct from error").
- */
-const OUTCOME_STYLES: Record<TurnOutcome, string> = {
-  Interrupted: "bg-warn-amber/15 text-warn-amber",
-  Errored: "bg-destructive/15 text-destructive",
-};
 
 /**
  * The model value Claude Code records on a harness-generated retry turn rather
@@ -668,7 +642,7 @@ function TurnView({
           <span
             className={cn(
               "rounded px-1.5 py-0.5 text-[10px] font-medium normal-case",
-              OUTCOME_STYLES[outcome]
+              OUTCOME_TONE[outcome]
             )}
             data-testid="turn-outcome"
           >

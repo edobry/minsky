@@ -12,7 +12,7 @@ describe("DrivenSessionComposer", () => {
     const onSend = mock(() => {});
     render(<DrivenSessionComposer interactionState="awaiting-input" onSend={onSend} onStop={() => {}} />);
 
-    const textarea = screen.getByLabelText("Message to the driven session") as HTMLTextAreaElement;
+    const textarea = screen.getByLabelText("Message to this session") as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "hello there" } });
     fireEvent.click(screen.getByText("Send"));
 
@@ -24,7 +24,7 @@ describe("DrivenSessionComposer", () => {
   test("Enter (no shift) submits; Shift+Enter does not", () => {
     const onSend = mock(() => {});
     render(<DrivenSessionComposer interactionState="awaiting-input" onSend={onSend} onStop={() => {}} />);
-    const textarea = screen.getByLabelText("Message to the driven session") as HTMLTextAreaElement;
+    const textarea = screen.getByLabelText("Message to this session") as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "line one" } });
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
@@ -38,7 +38,7 @@ describe("DrivenSessionComposer", () => {
   test("empty/whitespace-only text does not send", () => {
     const onSend = mock(() => {});
     render(<DrivenSessionComposer interactionState="awaiting-input" onSend={onSend} onStop={() => {}} />);
-    const textarea = screen.getByLabelText("Message to the driven session") as HTMLTextAreaElement;
+    const textarea = screen.getByLabelText("Message to this session") as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "   " } });
     fireEvent.click(screen.getByText("Send"));
@@ -53,7 +53,7 @@ describe("DrivenSessionComposer", () => {
     render(
       <DrivenSessionComposer interactionState="streaming" onSend={onSend} onStop={() => {}} />
     );
-    const textarea = screen.getByLabelText("Message to the driven session") as HTMLTextAreaElement;
+    const textarea = screen.getByLabelText("Message to this session") as HTMLTextAreaElement;
 
     expect(textarea.disabled).toBe(false);
     expect(textarea.placeholder).toBe("Assistant is responding — your message will queue");
@@ -68,7 +68,7 @@ describe("DrivenSessionComposer", () => {
 
   test("composer state reflects session state: input and Stop both disabled once exited", () => {
     render(<DrivenSessionComposer interactionState="exited" onSend={() => {}} onStop={() => {}} />);
-    const textarea = screen.getByLabelText("Message to the driven session") as HTMLTextAreaElement;
+    const textarea = screen.getByLabelText("Message to this session") as HTMLTextAreaElement;
     expect(textarea.disabled).toBe(true);
     expect(textarea.placeholder).toBe("Session has ended.");
     expect((screen.getByText("Stop") as HTMLButtonElement).disabled).toBe(true);

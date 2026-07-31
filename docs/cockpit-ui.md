@@ -144,15 +144,49 @@ operator's own credentials + the operator's own machine.
 ### Reading the run list
 
 Driven sessions appear in the unified `/agents` run list alongside observe-only
-rows. The distinction (driven = you can type; observed = read-only) is carried
-by the amber **Driven** marker:
+rows. What the marker carries is **controllability** — whether the cockpit can
+send this conversation a turn — and it is labeled **Drivable** (amber):
 
-- A standalone **Driven**-badged row is an app-started session; opening it goes
-  to the drive view (`/driven/:id`).
-- A workspace (**Agent**) row with a small **Driven** chip has an app-started
+- A standalone **Drivable**-badged row is an app-started session; opening it
+  goes to the drive view (`/driven/:id`).
+- A workspace (**Agent**) row with a small **Drive** chip has an app-started
   session bound to it — the chip links to the drive view; the row itself still
   opens the workspace detail page.
-- iTerm/externally-started sessions never get the marker and stay observe-only.
+- iTerm/externally-started sessions never get the marker; they are readable but
+  not yet controllable.
+
+**Vocabulary (mt#3132).** The words "driven" and "observed" no longer appear in
+user-facing copy anywhere in the cockpit. They named an implementation
+distinction, not one the operator has any use for: the same conversation moves
+between those states over its life. The surfaced vocabulary is "drive view" (the
+input-capable surface) and "drivable" (a conversation the cockpit can currently
+send a turn to). Route strings, identifiers and code comments keep the old
+names — only the copy changed.
+
+### The conversation route accepts both id spaces (mt#3132)
+
+`/conversation/:id` is the read surface for every conversation, whichever
+pipeline delivered it, and it accepts **either** id:
+
+- a harness **conversation uuid**, or
+- an actuator's spawn-time **local id** — a permanently valid alias, resolved
+  internally rather than redirected, so stored links keep working.
+
+Resolution is a lookup against the registry snapshot (`GET /api/driven-session`),
+never a guess from the id's shape: a default local id is minted as
+`randomUUID()`, so it is uuid-shaped and indistinguishable from a conversation
+id by inspection, while an entity-thread local id is not uuid-shaped at all.
+
+Before the harness `init` frame an actuator has **no** conversation id — there
+is nothing to resolve the local id INTO — so the route renders a first-class
+"starting" state rather than a 404, and advances on its own when the frame
+arrives. An actuator that reached a terminal status without ever linking says so
+instead of starting forever.
+
+**The route is read-only.** No composer, send path, or actuator channel is
+reachable on it — it never opens the driven WebSocket at all. Controllability
+lives on `/driven/:id` until mt#3095's liveness-refusal gate exists and mt#3325
+can mount a composer here safely.
 
 ### Identity registration and deeplinks
 
@@ -253,9 +287,9 @@ the reason code. `reason` is one of `live-writer`, `awaiting-human`,
 `possibly-wedged`, `no-telemetry`. A presence store that is unreachable refuses
 as `no-telemetry` rather than admitting.
 
-**Known gap:** an attached conversation's pane opens EMPTY and fills from its
-next turn — its prior history is on disk but the drive channel does not replay
-it yet (mt#3453).
+**Closed (mt#3453, merged 2026-07-31):** an attached conversation's pane used to
+open EMPTY and fill from its next turn. The drive channel now replays the
+conversation's on-disk history, so the pane opens with its prior turns.
 
 ### `GET /api/health`
 

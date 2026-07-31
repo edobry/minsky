@@ -35,13 +35,13 @@ describe("TaskActions (mt#2986)", () => {
     renderActions([
       { kind: "plan", note: "Task must reach READY before a session can start — plan it first." },
     ]);
-    expect(screen.getByRole("button", { name: /Plan mt#9999 in a driven session/ })).toBeDefined();
+    expect(screen.getByRole("button", { name: /Plan mt#9999 in a new session/ })).toBeDefined();
     expect(screen.getByText(/Task must reach READY/)).toBeDefined();
   });
 
   test("start action → launch button", () => {
     renderActions([{ kind: "start" }]);
-    expect(screen.getByRole("button", { name: /Start driven session for mt#9999/ })).toBeDefined();
+    expect(screen.getByRole("button", { name: /Start a session for mt#9999/ })).toBeDefined();
   });
 
   test("resume action → link to the workspace detail page", () => {
