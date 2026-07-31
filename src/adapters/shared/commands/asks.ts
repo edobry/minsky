@@ -837,6 +837,24 @@ export function validateAuthorizationApproveOptions(params: {
 // ---------------------------------------------------------------------------
 
 /**
+ * Filters form-lint matches down to the BLOCKING subset — everything except
+ * the calibration-first `missing-force-immediate` check (mt#3436). Shared by
+ * `validateFormLintNotViolated` (decides whether to hard-reject) and the
+ * `asks.create` execute handler (decides the calibration log's
+ * `acknowledged` field, see below) so the two can never drift on what counts
+ * as blocking. Excluded upstream in `computeFormLintMatches` itself would
+ * also hide the check from `formWarnings`/the calibration log entirely —
+ * this filters only at the decision points that need the blocking/advisory
+ * distinction, not at the point that computes matches.
+ *
+ * Exported for direct testing, matching `validateFormLintNotViolated`'s
+ * pattern above.
+ */
+export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLintMatch[] {
+  return matches.filter((m) => m.check !== "missing-force-immediate");
+}
+
+/**
  * Reject an `asks.create` call whose question/options fail any form-lint
  * check (`@minsky/domain/ask/form-lint`'s `computeFormLintMatches`), unless
  * the caller explicitly acknowledges the violations via
@@ -893,24 +911,6 @@ export function validateAuthorizationApproveOptions(params: {
  * @throws {ValidationError} when form-lint matches exist and
  *   `acknowledgeFormWarnings` is not `true`
  */
-/**
- * Filters form-lint matches down to the BLOCKING subset — everything except
- * the calibration-first `missing-force-immediate` check (mt#3436). Shared by
- * `validateFormLintNotViolated` (decides whether to hard-reject) and the
- * `asks.create` execute handler (decides the calibration log's
- * `acknowledged` field, see below) so the two can never drift on what counts
- * as blocking. Excluded upstream in `computeFormLintMatches` itself would
- * also hide the check from `formWarnings`/the calibration log entirely —
- * this filters only at the decision points that need the blocking/advisory
- * distinction, not at the point that computes matches.
- *
- * Exported for direct testing, matching `validateFormLintNotViolated`'s
- * pattern above.
- */
-export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLintMatch[] {
-  return matches.filter((m) => m.check !== "missing-force-immediate");
-}
-
 export function validateFormLintNotViolated(params: {
   kind?: AskKind;
   question?: string;
