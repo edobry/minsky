@@ -5,6 +5,8 @@
  */
 
 import { DefaultTokenizationService } from "@minsky/domain/ai/tokenization/index";
+import { DefaultModelCacheService } from "@minsky/domain/ai/model-cache/index";
+import { log } from "@minsky/shared/logger";
 import type {
   GenerateResult,
   GenerateOptions,
@@ -15,59 +17,82 @@ import type {
 } from "./generate-types";
 
 /**
- * Get context window size for different models
+ * The subset of the model cache this module reads.
+ *
+ * Declared structurally so a test can supply a stub instead of standing up the
+ * real file-backed cache service.
  */
-export function getModelContextWindow(model: string): number {
-  const contextWindows: Record<string, number> = {
-    "gpt-4o": 128000,
-    "gpt-4o-mini": 128000,
-    "gpt-4": 8192,
-    "gpt-4-32k": 32768,
-    "gpt-3.5-turbo": 16385,
-    "gpt-3.5-turbo-16k": 16385,
-    "claude-3-5-sonnet": 200000,
-    "claude-3-5-sonnet-20241022": 200000,
-    "claude-3-5-haiku": 200000,
-    "claude-3-opus": 200000,
-    "claude-3-sonnet": 200000,
-    "claude-3-haiku": 200000,
-    "claude-2.1": 200000,
-    "claude-2": 100000,
-    "claude-instant-1.2": 100000,
-  };
+export interface CachedModelLimitSource {
+  getAllCachedModels(): Promise<Record<string, { id: string; contextWindow: number }[]>>;
+}
 
-  // Try exact match first
-  if (contextWindows[model]) {
-    return contextWindows[model];
+/** Rendered wherever a model's context window could not be resolved. */
+export const UNKNOWN_CONTEXT_WINDOW_LABEL = "unknown (model not in the local model cache)";
+
+/** Rendered wherever utilization is uncomputable because the window is unknown. */
+export const UNKNOWN_UTILIZATION_LABEL = "unknown (context window unavailable)";
+
+export function formatContextWindowSize(size: number | null): string {
+  return size === null ? UNKNOWN_CONTEXT_WINDOW_LABEL : `${size.toLocaleString()} tokens`;
+}
+
+/**
+ * `compact` yields a bare "unknown" for fixed-width table cells; the default
+ * long form explains itself and suits a standalone line.
+ */
+export function formatContextWindowUtilization(
+  utilization: number | null,
+  options: { compact?: boolean } = {}
+): string {
+  if (utilization !== null) {
+    return `${utilization.toFixed(1)}%`;
+  }
+  return options.compact ? "unknown" : UNKNOWN_UTILIZATION_LABEL;
+}
+
+/**
+ * Resolve a model's context window from the model cache.
+ *
+ * Returns null when the model is not cached; callers render that as unknown.
+ * Substituting a default instead is the defect this replaced — the previous
+ * hardcoded table ended in a chain of `includes()` branches that handed every
+ * unrecognized id a plausible number, so `claude-opus-5` matched none of them,
+ * fell through to a 100,000 "conservative fallback", and reported a tenth of
+ * its real 1,000,000-token window (mt#3390).
+ *
+ * Goes stale if: the cache is never populated, in which case every model reads
+ * as unknown. The cache is written by provider calls (see
+ * `refreshProviderModelsInBackground`); to populate it by hand run
+ * `minsky ai models refresh`. This function deliberately does NOT refresh —
+ * analysing a context must not make a network call as a side effect.
+ *
+ * The cache is partitioned by provider but this call site has only a bare model
+ * id, so every provider is searched. Providers are visited in sorted order so
+ * an id present under two providers resolves identically on every run.
+ */
+export async function getModelContextWindow(
+  model: string,
+  source: CachedModelLimitSource = new DefaultModelCacheService()
+): Promise<number | null> {
+  let cachedByProvider: Record<string, { id: string; contextWindow: number }[]>;
+
+  try {
+    cachedByProvider = await source.getAllCachedModels();
+  } catch (error) {
+    // An unreadable cache means the window is unknown, not that analysis
+    // failed — the rest of the report is still worth producing.
+    log.debug("Model cache unreadable; reporting context window as unknown", { model, error });
+    return null;
   }
 
-  // Try partial matches for Claude models
-  if (model.includes("claude-3.5") || model.includes("claude-3")) {
-    return 200000;
-  }
-  if (model.includes("claude-2")) {
-    return 200000;
-  }
-  if (model.includes("claude")) {
-    return 100000; // Conservative fallback for Claude
+  for (const provider of Object.keys(cachedByProvider).sort()) {
+    const match = cachedByProvider[provider]?.find((cached) => cached.id === model);
+    if (match && typeof match.contextWindow === "number") {
+      return match.contextWindow;
+    }
   }
 
-  // Try partial matches for GPT models
-  if (model.includes("gpt-4o")) {
-    return 128000;
-  }
-  if (model.includes("gpt-4") && model.includes("32k")) {
-    return 32768;
-  }
-  if (model.includes("gpt-4")) {
-    return 8192;
-  }
-  if (model.includes("gpt-3.5")) {
-    return 16385;
-  }
-
-  // Default fallback
-  return 128000;
+  return null;
 }
 
 /**
@@ -75,7 +100,9 @@ export function getModelContextWindow(model: string): number {
  */
 export async function analyzeGeneratedContext(
   result: GenerateResult,
-  options: GenerateOptions
+  options: GenerateOptions,
+  /** Test seam; production callers omit it and get the real file-backed cache. */
+  contextWindowSource?: CachedModelLimitSource
 ): Promise<AnalysisResult> {
   const tokenizationService = new DefaultTokenizationService();
   const targetModel = options.model || "gpt-4o";
@@ -100,7 +127,9 @@ export async function analyzeGeneratedContext(
   componentAnalysis.sort((a, b) => b.tokens - a.tokens);
 
   // Get model-specific context window size
-  const contextWindowSize = getModelContextWindow(targetModel);
+  const contextWindowSize = contextWindowSource
+    ? await getModelContextWindow(targetModel, contextWindowSource)
+    : await getModelContextWindow(targetModel);
 
   // Generate optimization suggestions
   const optimizations = generateContextOptimizations(
@@ -133,7 +162,10 @@ export async function analyzeGeneratedContext(
         ? Math.round((result.metadata.totalTokens || 0) / componentAnalysis.length)
         : 0,
       largestComponent: componentAnalysis[0]?.component || "none",
-      contextWindowUtilization: ((result.metadata.totalTokens || 0) / contextWindowSize) * 100,
+      contextWindowUtilization:
+        contextWindowSize === null
+          ? null
+          : ((result.metadata.totalTokens || 0) / contextWindowSize) * 100,
     },
     componentBreakdown: componentAnalysis,
     optimizations,

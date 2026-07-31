@@ -19,7 +19,8 @@ export interface AnalysisMetadata {
   model: string;
   tokenizer: TokenizerInfo;
   interface: string;
-  contextWindowSize: number;
+  /** Null when the model is absent from the model cache — render as unknown, never as a default (mt#3390). */
+  contextWindowSize: number | null;
   analysisTimestamp: string;
   generationTime: number;
 }
@@ -29,7 +30,8 @@ export interface AnalysisSummary {
   totalComponents: number;
   averageTokensPerComponent: number;
   largestComponent: string;
-  contextWindowUtilization: number;
+  /** Null when the context window is unknown, so no percentage can be computed (mt#3390). */
+  contextWindowUtilization: number | null;
 }
 
 export interface OptimizationSuggestion {

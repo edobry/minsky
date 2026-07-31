@@ -5,6 +5,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
+import { formatContextWindowSize, formatContextWindowUtilization } from "./generate-analysis";
 import type {
   GenerateOptions,
   AnalysisResult,
@@ -28,7 +29,7 @@ export function displayAnalysisResults(analysis: AnalysisResult, options: Genera
         `Tokenizer: ${analysis.metadata.tokenizer.name} (${analysis.metadata.tokenizer.encoding})`
       );
     }
-    log.cli(`Context Window: ${analysis.metadata.contextWindowSize.toLocaleString()} tokens`);
+    log.cli(`Context Window: ${formatContextWindowSize(analysis.metadata.contextWindowSize)}`);
     log.cli(`Generated: ${new Date(analysis.metadata.analysisTimestamp).toLocaleString()}`);
     log.cli("");
   }
@@ -36,7 +37,9 @@ export function displayAnalysisResults(analysis: AnalysisResult, options: Genera
   // Summary
   log.cli(`Total Tokens: ${analysis.summary.totalTokens.toLocaleString()}`);
   log.cli(`Total Components: ${analysis.summary.totalComponents}`);
-  log.cli(`Context Window Utilization: ${analysis.summary.contextWindowUtilization.toFixed(1)}%`);
+  log.cli(
+    `Context Window Utilization: ${formatContextWindowUtilization(analysis.summary.contextWindowUtilization)}`
+  );
   log.cli(`Largest Component: ${analysis.summary.largestComponent}`);
 
   // Component breakdown - always show when analyzing

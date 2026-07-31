@@ -3,6 +3,31 @@
  *
  * Hardcoded fallback model definitions used when the model cache is unavailable.
  * Also provides the background-refresh helper for the cache service.
+ *
+ * These values stay hardcoded ON PURPOSE. This catalog is what
+ * `completion-service.ts` falls back to when the model cache CANNOT be read, so
+ * sourcing it from that cache would be circular — it would be empty in exactly
+ * the situation this file exists to cover.
+ *
+ * What makes it go stale: providers retire models and ship new ones, and
+ * nothing here fails when that happens — a retired id keeps being offered and a
+ * new model's real limits are never represented. That is the same defect class
+ * as mem#769 and mt#3379.
+ *
+ * What to check when it does: compare each entry against the provider's live
+ * listing (`minsky ai models available --provider <name>`, which reads the
+ * API-backed cache). An id the listing no longer returns is retired and should
+ * be dropped; a limit that disagrees with the listing should be updated.
+ *
+ * Verification status of the current values (checked 2026-07-31, mt#3390):
+ * - anthropic — VERIFIED against the live Anthropic listing, which returns
+ *   `max_input_tokens` / `max_tokens` per model (measured in mt#3379).
+ * - openai — UNVERIFIED. The local OpenAI cache is NOT independent evidence:
+ *   its limits come from a hand-maintained table inside `openai-fetcher.ts`,
+ *   not from the API, so agreement between the two proves nothing. Fixing that
+ *   is mt#3457. Model IDS in the listing ARE API-sourced, which is how the
+ *   retired `o1-preview` entry below was identified.
+ * - google — UNVERIFIED. No local cache and no fetcher to compare against.
  */
 
 import { AIModel, AIProviderConfig } from "./types";
@@ -41,37 +66,43 @@ export function getPrimaryModels(
         maxOutputTokens: 16384,
         costPer1kTokens: { input: 0.00015, output: 0.0006 },
       },
-      {
-        id: "o1-preview",
-        provider: "openai",
-        name: "o1 Preview",
-        description: "Advanced reasoning model with step-by-step thinking",
-        capabilities: [{ name: "reasoning", supported: true, maxTokens: 128000 }],
-        contextWindow: 128000,
-        maxOutputTokens: 32768,
-        costPer1kTokens: { input: 0.015, output: 0.06 },
-      },
+      // `o1-preview` was dropped 2026-07-31: the OpenAI listing no longer
+      // returns that id, so it is retired. No replacement reasoning model is
+      // added here because this file has no verified source for one — see the
+      // openai note in the file header.
     ],
+    // costPer1kTokens is deliberately unset on these entries: the Anthropic
+    // Models API returns no pricing field of any kind (measured in mt#3379), so
+    // there is no source to refresh a price against. Carrying the retired
+    // models' old prices forward onto current models would be inventing data.
+    // Every consumer guards on the field being present.
     anthropic: [
       {
-        id: "claude-3-5-sonnet-20241022",
+        id: "claude-opus-5",
         provider: "anthropic",
-        name: "Claude 3.5 Sonnet",
-        description: "Most intelligent Claude model with enhanced capabilities",
+        name: "Claude Opus 5",
+        description: "Most capable Claude model",
         capabilities: caps,
-        contextWindow: 200000,
-        maxOutputTokens: 8192,
-        costPer1kTokens: { input: 0.003, output: 0.015 },
+        contextWindow: 1000000,
+        maxOutputTokens: 128000,
       },
       {
-        id: "claude-3-5-haiku-20241022",
+        id: "claude-sonnet-5",
         provider: "anthropic",
-        name: "Claude 3.5 Haiku",
+        name: "Claude Sonnet 5",
+        description: "Balanced Claude model for general use",
+        capabilities: caps,
+        contextWindow: 1000000,
+        maxOutputTokens: 128000,
+      },
+      {
+        id: "claude-haiku-4-5-20251001",
+        provider: "anthropic",
+        name: "Claude Haiku 4.5",
         description: "Fast and cost-effective Claude model",
         capabilities: caps?.filter((c) => c.name !== "prompt-caching"),
         contextWindow: 200000,
-        maxOutputTokens: 8192,
-        costPer1kTokens: { input: 0.001, output: 0.005 },
+        maxOutputTokens: 64000,
       },
     ],
     google: [
@@ -121,13 +152,13 @@ export function getFallbackModels(provider: string, providerConfig: AIProviderCo
     ],
     anthropic: [
       {
-        id: "claude-3-5-sonnet-20241022",
+        id: "claude-opus-5",
         provider: "anthropic",
-        name: "Claude 3.5 Sonnet",
+        name: "Claude Opus 5",
         description: "Anthropic's most capable model",
         capabilities: caps,
-        contextWindow: 200000,
-        maxOutputTokens: 8192,
+        contextWindow: 1000000,
+        maxOutputTokens: 128000,
       },
     ],
     google: [
