@@ -228,12 +228,15 @@ type ShellState = {
   mainScrollTop: number;
   maxScrollTop: number;
   rootOverflowY: string;
+  /** Rendered height of the injected probe; 0 when it is absent. */
+  probeHeight: number;
 };
 
 const READ = `(() => {
   const main = document.querySelector("main");
   if (!main) return JSON.stringify({ hasMain: false });
   const root = main.closest("div.h-screen") || document.body;
+  const probe = document.getElementById(${JSON.stringify(PROBE_ID)});
   return JSON.stringify({
     hasMain: true,
     innerHeight: window.innerHeight,
@@ -242,6 +245,7 @@ const READ = `(() => {
     mainScrollTop: Math.round(main.scrollTop),
     maxScrollTop: main.scrollHeight - main.clientHeight,
     rootOverflowY: getComputedStyle(root).overflowY,
+    probeHeight: probe ? Math.round(probe.getBoundingClientRect().height) : 0,
   });
 })()`;
 
@@ -252,13 +256,101 @@ const SCROLL_TO_BOTTOM = `(() => {
   return "ok";
 })()`;
 
-/** Is the probe's tail inside the viewport right now? */
+/**
+ * Is the probe's tail actually REACHABLE right now?
+ *
+ * Reachable means inside BOTH the scrollport and the screen, so this asserts the
+ * intersection. Either constraint alone admits a false PASS, in opposite
+ * directions:
+ *
+ *  - Window-only: `<main>` does not span the viewport (the Rail and TabBar sit
+ *    outside it), so a tail below main's clipped edge can still fall inside the
+ *    window.
+ *  - Scrollport-only: in the `min-h-0` defect `<main>` is sized to its CONTENT,
+ *    so its rect swallows the tail while the root's `overflow-hidden` clips main
+ *    itself off-screen — the tail is "inside main" and invisible to the user.
+ *    Measured: the scrollport-only form dropped this assertion from the defect's
+ *    failure set, which is what surfaced the need for both halves.
+ *
+ * The 1px slack absorbs sub-pixel rounding at fractional device scales.
+ */
 const TAIL_VISIBLE = `(() => {
+  const main = document.querySelector("main");
   const tail = document.getElementById(${JSON.stringify(`${PROBE_ID}-tail`)});
-  if (!tail) return "false";
-  const r = tail.getBoundingClientRect();
-  return String(r.top >= 0 && r.bottom <= window.innerHeight + 1);
+  if (!main || !tail) return "false";
+  const m = main.getBoundingClientRect();
+  const t = tail.getBoundingClientRect();
+  const inScrollport = t.top >= m.top - 1 && t.bottom <= m.bottom + 1;
+  const onScreen = t.top >= -1 && t.bottom <= window.innerHeight + 1;
+  return String(inScrollport && onScreen);
 })()`;
+
+/**
+ * Read the shell's geometry once it has stopped changing.
+ *
+ * A fixed `sleep()` before a geometry read is a guess about how long layout
+ * takes on this machine under this load; on a slow or contended run it samples
+ * mid-layout and reports a geometry that never actually existed — a flaky
+ * failure that looks exactly like a real one. Polling until two consecutive
+ * samples agree makes the wait a function of the observed page rather than of
+ * a hardcoded delay, and turns "layout never settled" into an explicit error
+ * instead of a silent bad measurement.
+ *
+ * `requireProbe` additionally holds out for the injected child to be rendered
+ * at its full height, so a pair of identical PRE-injection samples cannot be
+ * mistaken for a settled post-injection state.
+ */
+/**
+ * Block until the SPA has mounted its shell — i.e. `<main>` exists.
+ *
+ * The tab is opened at a URL, not at a rendered page: React has to boot and
+ * mount before there is any shell to measure. Waiting on the ELEMENT rather
+ * than on a duration is what makes this deterministic; a fixed delay that
+ * happens to be long enough on a warm machine is the flake the review flagged,
+ * and one that is too short reports "the bundle failed to boot" for a page that
+ * was merely still starting.
+ *
+ * Returns false on timeout so the caller can report it as a real failure — a
+ * shell that never mounts within the deadline IS a failure, not a skip.
+ */
+async function waitForShellMounted(ws: WebSocket): Promise<boolean> {
+  const DEADLINE_MS = 20_000;
+  const started = Date.now();
+  while (Date.now() - started < DEADLINE_MS) {
+    const present = await evaluate(ws, `String(!!document.querySelector("main"))`);
+    if (present === "true") return true;
+    await sleep(100);
+  }
+  return false;
+}
+
+async function readWhenStable(
+  ws: WebSocket,
+  what: string,
+  opts: { requireProbe: boolean }
+): Promise<ShellState> {
+  const DEADLINE_MS = 15_000;
+  const INTERVAL_MS = 100;
+  const started = Date.now();
+  let previousKey: string | null = null;
+  let last: ShellState | null = null;
+
+  while (Date.now() - started < DEADLINE_MS) {
+    const state = JSON.parse(await evaluate(ws, READ)) as ShellState;
+    last = state;
+    if (state.hasMain && (!opts.requireProbe || state.probeHeight >= PROBE_HEIGHT_PX)) {
+      const key = `${state.mainClientHeight}:${state.mainScrollHeight}:${state.mainScrollTop}:${state.probeHeight}`;
+      if (key === previousKey) return state;
+      previousKey = key;
+    }
+    await sleep(INTERVAL_MS);
+  }
+
+  throw new Error(
+    `geometry never stabilized within ${DEADLINE_MS}ms while waiting for ${what} ` +
+      `(last sample: ${last ? JSON.stringify(last) : "none"})`
+  );
+}
 
 // --- Run -----------------------------------------------------------------
 
@@ -303,21 +395,26 @@ async function checkViewport(
     deviceScaleFactor: 1,
     mobile: false,
   });
-  // One frame for the flex layout to settle after the metrics change.
-  await sleep(400);
-
-  const installed = await evaluate(ws, INSTALL_PROBE);
-  if (installed === "no-main") {
+  if (!(await waitForShellMounted(ws))) {
     failures.push(
-      `${label}: the shell never rendered a <main> — bad route, or the bundle failed to boot`
+      `${label}: the shell never rendered a <main> within 20s — bad route, or the bundle failed to boot`
     );
     return;
   }
-  await sleep(300);
 
-  const s = JSON.parse(await evaluate(ws, READ)) as ShellState;
-  if (!s.hasMain) {
-    failures.push(`${label}: <main> disappeared between installing the probe and measuring`);
+  const installed = await evaluate(ws, INSTALL_PROBE);
+  if (installed === "no-main") {
+    failures.push(`${label}: <main> disappeared between the mount check and the probe install`);
+    return;
+  }
+
+  let s: ShellState;
+  try {
+    s = await readWhenStable(ws, `${label} after the viewport change and probe install`, {
+      requireProbe: true,
+    });
+  } catch (err) {
+    failures.push(`${label}: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
 
@@ -345,10 +442,19 @@ async function checkViewport(
     );
   }
 
-  // 3. Trailing content is reachable.
+  // 3. Trailing content is reachable. Wait for the scroll to come to rest
+  //    rather than assuming a fixed interval covers it — `scrollTop` is part of
+  //    the stability key, so this returns once the position stops moving.
   await evaluate(ws, SCROLL_TO_BOTTOM);
-  await sleep(300);
-  const after = JSON.parse(await evaluate(ws, READ)) as ShellState;
+  let after: ShellState;
+  try {
+    after = await readWhenStable(ws, `${label} after scrolling <main> to the bottom`, {
+      requireProbe: true,
+    });
+  } catch (err) {
+    failures.push(`${label}: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
   const tailVisible = (await evaluate(ws, TAIL_VISIBLE)) === "true";
   if (after.mainScrollTop <= 0) {
     failures.push(
@@ -365,6 +471,12 @@ async function checkViewport(
 }
 
 try {
+  // Enable the Runtime domain before evaluating, matching the sibling script
+  // (`verify-conversation-live-tail.ts`). Chrome tolerates `Runtime.evaluate`
+  // without it today, but the domain's execution-context lifecycle is only
+  // guaranteed once enabled — leaving it off is an undeclared dependency on
+  // that leniency.
+  await cdp(ws, "Runtime.enable");
   await checkViewport("narrow (sub-md, the mt#3335 regime)", NARROW);
   await checkViewport("wide (md+, control)", WIDE);
 } catch (err) {
