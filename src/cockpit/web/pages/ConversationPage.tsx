@@ -68,7 +68,7 @@
  * mount a composer here safely.
  */
 import { useParams, useLocation } from "react-router-dom";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   RunDetail,
@@ -136,28 +136,40 @@ export function ConversationPage() {
    * A pre-`init` actuator local id 404s here legitimately, and pruning its tab
    * would delete a live run's tab for the crime of being young.
    *
-   * So a reported 404 is DEFERRED rather than dropped: it is recorded, and acted
-   * on once the address settles. Simply ignoring an early 404 would lose the
-   * prune permanently — `onNotFound` fires once per fetch, so there is no second
-   * chance — and which of the two reads wins is not something this component
-   * should have to assume either way.
+   * So a reported 404 is DEFERRED rather than dropped: it is recorded WITH THE
+   * ID IT WAS ABOUT, and acted on once the address settles. Simply ignoring an
+   * early 404 would lose the prune permanently — `onNotFound` fires once per
+   * fetch, so there is no second chance — and which of the two reads wins is not
+   * something this component should have to assume either way.
+   *
+   * Recording the id is what makes the optimistic render safe. A local-id URL
+   * that HAS linked spends its first render fetching under the local id (the
+   * fallback below), which legitimately 404s; the address then resolves and the
+   * real conversation loads fine. Pruning on that stale 404 would mark a
+   * perfectly good tab dead — observed live against a real linked actuator,
+   * where the transcript rendered correctly under an errored tab.
    */
-  const addressResolved = addressState.status === "resolved";
-  const [sawNotFound, setSawNotFound] = useState(false);
-  const handleNotFound = useCallback(() => setSawNotFound(true), []);
-
-  useEffect(() => {
-    if (!sawNotFound || !addressResolved) return;
-    // An actuator that has not linked a conversation yet has no transcript BY
-    // CONSTRUCTION — that 404 is the expected answer, not a dead tab.
-    if (address?.kind !== "actuator-starting") markTabError(pathname);
-    setSawNotFound(false);
-  }, [sawNotFound, addressResolved, address?.kind, markTabError, pathname]);
-
   // The conversation to READ. Differs from the URL id only for a local-id
   // arrival that has already linked; falls back to the URL id while the address
   // is still resolving, which is what keeps the common path unblocked.
   const conversationId = address?.kind === "conversation" ? address.conversationId : id;
+
+  const addressResolved = addressState.status === "resolved";
+  const [notFoundFor, setNotFoundFor] = useState<string | null>(null);
+  // A ref, so the callback identity stays stable across the id changing.
+  const dataIdRef = useRef(conversationId);
+  dataIdRef.current = conversationId;
+  const handleNotFound = useCallback(() => setNotFoundFor(dataIdRef.current ?? null), []);
+
+  useEffect(() => {
+    if (!notFoundFor || !addressResolved) return;
+    // An actuator that has not linked a conversation yet has no transcript BY
+    // CONSTRUCTION — that 404 is the expected answer, not a dead tab.
+    if (address?.kind === "conversation" && notFoundFor === address.conversationId) {
+      markTabError(pathname);
+    }
+    setNotFoundFor(null);
+  }, [notFoundFor, addressResolved, address, markTabError, pathname]);
 
   // Same query key + options as `RunDetail`'s own `conversationOverviewQuery`
   // (mt#3343): TanStack Query dedupes identical keys under one QueryClient, so

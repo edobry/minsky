@@ -26,6 +26,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ConversationPage } from "./ConversationPage";
 import { TabsProvider } from "../lib/tabs";
+import { TabBar } from "../components/TabBar";
 
 const CONVERSATION_UUID = "2154425b-1e39-4a6f-9f0e-6b3b1a2c4d5e";
 const LOCAL_ID = "39d94344-36ad-4a17-b8b3-d35dd8f50714";
@@ -92,6 +93,15 @@ interface StubOptions {
   transcripts?: string[];
   /** Presence payload per conversation id; absent ids get `UNKNOWN`. */
   presence?: Record<string, string>;
+  /**
+   * Delay the registry response so the page renders optimistically FIRST.
+   *
+   * Without this every stub resolves in the same microtask burst and the
+   * address is settled before the transcript fetch is ever issued — which is
+   * not the live ordering, and is why the first version of the tab-prune
+   * regression test below passed against the bug it was written for.
+   */
+  registryDelayMs?: number;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -109,7 +119,12 @@ function stubFetches(opts: StubOptions = {}) {
     const parsed = new URL(typeof url === "string" ? url : String(url), "http://localhost");
     const pathname = parsed.pathname;
 
-    if (pathname === "/api/driven-session") return Promise.resolve(json({ sessions: actuators }));
+    if (pathname === "/api/driven-session") {
+      const body = () => json({ sessions: actuators });
+      return opts.registryDelayMs
+        ? new Promise<Response>((resolve) => setTimeout(() => resolve(body()), opts.registryDelayMs))
+        : Promise.resolve(body());
+    }
 
     if (pathname === "/api/cockpit/context-inspector/snapshot") {
       const id = parsed.searchParams.get("sessionId") ?? "";
@@ -170,6 +185,23 @@ function renderAt(routeId: string) {
   );
 }
 
+/** Same, plus the tab strip — needed to observe the error chip's title. */
+function renderWithTabBar(routeId: string) {
+  const queryClient = createTestQueryClient();
+  return render(
+    <MemoryRouter initialEntries={[`/conversation/${routeId}`]}>
+      <QueryClientProvider client={queryClient}>
+        <TabsProvider>
+          <TabBar />
+          <Routes>
+            <Route path="/conversation/:id" element={<ConversationPage />} />
+          </Routes>
+        </TabsProvider>
+      </QueryClientProvider>
+    </MemoryRouter>
+  );
+}
+
 /**
  * The composer's textarea is the operator-reachable send path. Its accessible
  * name is the shared composer's own default, so this catches the component
@@ -217,6 +249,33 @@ describe("AT5 — a conversation reached before its init frame", () => {
       expect(screen.getByText(`Conversation ${CONVERSATION_UUID.slice(0, 8)}`)).toBeDefined()
     );
     expect(screen.queryByTestId("conversation-starting")).toBeNull();
+  });
+
+  test("the first-render 404 under the local id does not kill the tab", async () => {
+    // Found live, not in this suite: a linked local-id URL spends its first
+    // render fetching under the LOCAL id (the optimistic fallback), which 404s.
+    // The address then resolves and the real conversation loads — but the stale
+    // 404 was pruning the tab anyway, so a working conversation rendered under
+    // an errored, non-persisted tab. The deferred prune records WHICH id it was
+    // about, and drops it when that is not the id finally resolved to.
+    stubFetches({
+      actuators: [
+        { sessionId: LOCAL_ID, harnessSessionId: CONVERSATION_UUID, status: "running" },
+      ],
+      transcripts: [CONVERSATION_UUID],
+      // Forces the live ordering: the page renders under the local id and its
+      // transcript fetch 404s BEFORE the address resolves.
+      registryDelayMs: 40,
+    });
+    const { container } = renderWithTabBar(LOCAL_ID);
+
+    await waitFor(() =>
+      expect(screen.getByText(`Conversation ${CONVERSATION_UUID.slice(0, 8)}`)).toBeDefined()
+    );
+    // Let any deferred prune land before asserting its absence.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(container.querySelector(`[title="${LOCAL_ID} (not found)"]`)).toBeNull();
+    expect(container.querySelector(`[title="${CONVERSATION_UUID} (not found)"]`)).toBeNull();
   });
 });
 
