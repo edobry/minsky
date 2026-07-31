@@ -1073,6 +1073,25 @@ function ConversationThread({
   const pinnedRef = useRef(true);
   const [hasNewBelow, setHasNewBelow] = useState(false);
 
+  // Bumped whenever the thread's own box changes size — the signal that layout,
+  // not content, may have created or removed a scrollport. `ResizeObserver`
+  // catches in-page causes (a tool block expanding, a sibling panel opening)
+  // that a window-resize listener alone would miss; the window listener is the
+  // fallback where `ResizeObserver` is unavailable (older test DOMs).
+  const [layoutTick, setLayoutTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setLayoutTick((t) => t + 1);
+    const target = endRef.current?.parentElement;
+    if (typeof ResizeObserver === "function" && target) {
+      const observer = new ResizeObserver(bump);
+      observer.observe(target);
+      return () => observer.disconnect();
+    }
+    if (typeof window === "undefined") return;
+    window.addEventListener("resize", bump);
+    return () => window.removeEventListener("resize", bump);
+  }, []);
+
   // Keep `pinnedRef` current from the scrollport itself. Sampling at append
   // time would be too late — the append is what moves the scroll.
   useEffect(() => {
@@ -1088,9 +1107,12 @@ function ConversationThread({
     onScroll();
     scrollport.addEventListener("scroll", onScroll, { passive: true });
     return () => scrollport.removeEventListener("scroll", onScroll);
-    // Re-resolve when the rendered window changes: a thread that was too short
-    // to scroll may now have a scrollport, and vice versa.
-  }, [preparedTurns.length]);
+    // Re-resolve on turn-count changes AND on layout changes (`layoutTick`):
+    // whether an element scrolls is a LAYOUT fact, not a content-count fact.
+    // Expanding a tool block, opening a sibling panel, or resizing the window
+    // can all give a previously-unscrollable container a scrollport — or take
+    // one away — with the turn count unchanged (PR #2459 R1, non-blocking).
+  }, [preparedTurns.length, layoutTick]);
 
   const scrollToNewest = useCallback(() => {
     endRef.current?.scrollIntoView({ block: "end" });

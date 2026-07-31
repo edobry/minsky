@@ -55,4 +55,42 @@ describe("findScrollParent", () => {
     // must not throw, since it runs from an effect on every window change.
     expect(() => findScrollParent(null)).not.toThrow();
   });
+
+  /** A container styled `decl` with real overflow, holding a child sentinel. */
+  function containerWith(decl: string): { container: HTMLElement; child: HTMLElement } {
+    const container = document.createElement("div");
+    container.setAttribute("style", decl);
+    Object.defineProperty(container, "scrollHeight", { value: 2000, configurable: true });
+    Object.defineProperty(container, "clientHeight", { value: 400, configurable: true });
+    const child = document.createElement("div");
+    container.appendChild(child);
+    document.body.appendChild(container);
+    return { container, child };
+  }
+
+  test.each([
+    ["overflow-y: auto", "overflow-y: auto"],
+    ["overflow-y: scroll", "overflow-y: scroll"],
+    ["overflow: auto (shorthand)", "overflow: auto"],
+    // PR #2459 R1: the original detector checked the shorthand for `auto` only,
+    // so a container declared `overflow: scroll` could go undetected while its
+    // `auto` sibling was found.
+    ["overflow: scroll (shorthand)", "overflow: scroll"],
+  ])("detects a container declared %s", (_name, decl) => {
+    const { container, child } = containerWith(decl);
+    try {
+      expect(findScrollParent(child)).toBe(container);
+    } finally {
+      container.remove();
+    }
+  });
+
+  test("skips a container that does not scroll its overflow", () => {
+    const { container, child } = containerWith("overflow: hidden");
+    try {
+      expect(findScrollParent(child)).not.toBe(container);
+    } finally {
+      container.remove();
+    }
+  });
 });

@@ -27,9 +27,25 @@
  */
 export const PINNED_THRESHOLD_PX = 48;
 
-/** Elements that can scroll their overflow. */
+/** Values of `overflow-y` that make an element a scroll container. */
+const SCROLLING_OVERFLOW = new Set(["auto", "scroll", "overlay"]);
+
+/**
+ * Whether `style` describes an element that scrolls its own overflow.
+ *
+ * Reads the LONGHAND `overflowY`, because that is what a scrollport is defined
+ * by vertically, and because computed style resolves the `overflow` shorthand
+ * into its longhands — so `overflow: scroll` already surfaces here as
+ * `overflowY: "scroll"`.
+ *
+ * The shorthand is still checked as a fallback for environments whose CSSOM
+ * does not perform that resolution (some test DOMs). It covers `auto` AND
+ * `scroll`: the original only checked `overflow === "auto"`, which meant a
+ * container declared `overflow: scroll` could go undetected in exactly those
+ * environments while its `auto` sibling was found (PR #2459 R1).
+ */
 function scrollsOverflow(style: CSSStyleDeclaration): boolean {
-  return style.overflowY === "auto" || style.overflowY === "scroll" || style.overflow === "auto";
+  return SCROLLING_OVERFLOW.has(style.overflowY) || SCROLLING_OVERFLOW.has(style.overflow);
 }
 
 /**
