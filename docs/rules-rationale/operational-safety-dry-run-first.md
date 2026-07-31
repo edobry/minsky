@@ -26,11 +26,26 @@ round-trip (ask `f63a49d2`).
   approval. Re-execution of a consumed token is an idempotent no-op (`task.bulk_edit.executed`
   event). Raw-SQL bulk updates remain explicitly unsanctioned — this primitive exists so they are
   never necessary.
-- **`refs_status`** (CLI: `minsky refs status`) — id-set cross-reference: mixed refs (task ids, PR
-  numbers, ask uuids) resolve to their current status in ONE call, not-found explicit per ref. Use
-  this for "which of these are still active" set-diffs instead of `jq`/`comm` text pipelines (the
-  2026-07-13/14 sweeps' hand-rolled versions contained real bugs: numeric-vs-lexical `comm` sort,
-  a jq context-binding error).
+- **`refs_status`** (CLI: `minsky refs status`) — id-set cross-reference: mixed refs resolve to
+  their current status in ONE call, not-found explicit per ref. Use this for "which of these are
+  still active" set-diffs instead of `jq`/`comm` text pipelines (the 2026-07-13/14 sweeps'
+  hand-rolled versions contained real bugs: numeric-vs-lexical `comm` sort, a jq context-binding
+  error).
+
+  Accepted ref forms: task ids (`mt#123`, and any other backend prefix — the task-backend registry
+  is open-ended); PR numbers (`123`, `#123`, `PR #123`); and the three ADR-029 uuid-keyed entities
+  — asks, memories, and workspaces — by **either** their `ask#N` / `mem#N` / `ws#N` short id **or**
+  their uuid. A bare uuid is not attributable by shape (all three families use uuids), so it is
+  looked up in each store in turn and reported as the kind that actually held it; one that no store
+  holds is reported as `kind: "uuid"` rather than being misattributed. A ref whose form is
+  unparseable is reported as `kind: "unknown"` **with an explicit `error`** — deliberately
+  distinguishable from a well-formed ref that simply does not exist, which carries no error.
+
+  Until mt#3354 (2026-07-30) the short-id forms silently failed: `ask#6448` / `mem#775` / `ws#1`
+  all match the backend-qualified-task-id shape, so they were looked up in the task id-space and
+  returned a bare `found: false` — the same value an absent ref produces. Any audit or handoff that
+  fed this tool a mixed ref list read "does not exist" where the truth was "cannot parse". If you
+  find prose that routes asks or memories AROUND this tool by hand, it predates that fix.
 
 mt#2823's approved-Ask bridge binds its grants to the same dry-run token, so an operator-approved
 bulk mutation authorizes exactly the approved change set and nothing else.

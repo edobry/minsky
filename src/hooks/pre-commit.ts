@@ -1855,12 +1855,24 @@ export class PreCommitHook {
     try {
       await execAsync("bunx lint-staged", {
         cwd: this.projectRoot,
-        timeout: 30000,
+        // Grounded in a measurement, not a round number (`decision-defaults.mdc
+        // §Thresholds`): a 4-file stage set measured 42.7s cold, already past
+        // the former 30s bound, which killed the step and failed three
+        // consecutive commits while prettier and ESLint were independently
+        // verified clean. lint-staged pays a `bunx` resolve plus a git
+        // stash/restore cycle before touching a file, so that floor is mostly
+        // fixed cost; 240s leaves ~5x headroom instead of sitting just above it.
+        // (Inlined rather than named: this file is at its 1500-code-line cap,
+        // so a `const` would not fit. Comments are free.)
+        timeout: 240_000,
       });
       log.cli("✅ Code formatting completed.");
       return { success: true, message: "Code formatting passed", exitCode: 0 };
     } catch (error) {
-      log.cli("❌ Code formatting failed! Please check for syntax errors.");
+      // Report what happened rather than naming a cause this catch cannot
+      // know: "check for syntax errors" sent readers hunting through files
+      // prettier called clean, when the real failure was this step's timeout.
+      log.cli(`❌ Code formatting failed: ${(error as Error)?.message ?? error}`);
       return { success: false, message: "Code formatting failed", exitCode: 1 };
     }
   }

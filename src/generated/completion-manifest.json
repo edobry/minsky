@@ -6968,7 +6968,7 @@
       "subcommands": [
         {
           "name": "status",
-          "description": "Cross-reference mixed entity refs (task ids, PR numbers, ask uuids) to their current status in one call, with not-found explicit per ref",
+          "description": "Cross-reference mixed entity refs (task ids, PR numbers, ask/memory/workspace short ids or uuids) to their current status in one call, with not-found explicit per ref",
           "options": [
             {
               "flags": ["--repo"],
@@ -6984,7 +6984,7 @@
             {
               "name": "refs",
               "required": true,
-              "description": "Entity refs to resolve (array, or comma-separated string): task ids (mt#123), PR numbers (123 / #123 / PR #123), ask uuids"
+              "description": "Entity refs to resolve (array, or comma-separated string): task ids (mt#123), PR numbers (123 / #123 / PR #123), short ids (ask#12 / mem#34 / ws#5), and uuids for asks, memories, and workspaces"
             }
           ]
         }
