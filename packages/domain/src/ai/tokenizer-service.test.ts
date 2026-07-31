@@ -150,4 +150,50 @@ describe("DefaultTokenizerService", () => {
     // Note: We can't easily test actual tokenization without mocking the libraries
     // since gpt-tokenizer and tiktoken require setup. These would be integration tests.
   });
+
+  // -------------------------------------------------------------------------
+  // mt#3370 — real-binding tests. Everything above exercises model->tokenizer
+  // SELECTION and never loads the tokenizer library, which is why a broken
+  // subpath survived: `createGptTokenizer` imported `gpt-tokenizer/cl100k_base`,
+  // a v2 path that resolves to nothing under the declared v3, so every call
+  // threw and callers silently degraded to a ~4-chars-per-token heuristic. The
+  // whole suite passed throughout. These tests load the real library, so they
+  // fail if the subpath breaks again.
+  // -------------------------------------------------------------------------
+  describe("real gpt-tokenizer binding (mt#3370)", () => {
+    const EMBEDDING_MODEL = "text-embedding-3-small";
+
+    it("actually tokenizes with the real library, not a heuristic", async () => {
+      const tokens = await service.tokenize("hello world", EMBEDDING_MODEL, "openai");
+      expect(Array.isArray(tokens)).toBe(true);
+      expect(tokens.length).toBeGreaterThan(0);
+      expect(tokens.every((t) => typeof t === "number")).toBe(true);
+    });
+
+    it("round-trips through detokenize", async () => {
+      const text = "## Findings\n\n- `mt#2861` verdict: CLOSED\n";
+      const tokens = await service.tokenize(text, EMBEDDING_MODEL, "openai");
+      const back = await service.detokenize(tokens, EMBEDDING_MODEL, "openai");
+      expect(back).toBe(text);
+    });
+
+    it("counts dense markdown well above 4 chars/token — the assumption the fallback made", async () => {
+      // The old fallback assumed ~4 chars/token and capped input by character
+      // count. Real dense markdown measures ~2.8, so a 32,000-char cap was
+      // ~11.3k tokens against an 8,192 limit — which is how mt#2861 kept being
+      // rejected by OpenAI even after "truncation".
+      const block =
+        "## Findings\n\n- **mt#2861** — `close/subsume` verdict, see `packages/domain/src/tasks/x.ts:152`.\n";
+      let content = "";
+      while (content.length < 8000) content += block;
+      const tokens = await service.tokenize(content, EMBEDDING_MODEL, "openai");
+      const charsPerToken = content.length / tokens.length;
+      expect(charsPerToken).toBeLessThan(4);
+    });
+
+    it("o200k_base loads too — the same subpath shape", async () => {
+      const tokens = await service.tokenize("hello world", "gpt-4o", "openai");
+      expect(tokens.length).toBeGreaterThan(0);
+    });
+  });
 });
