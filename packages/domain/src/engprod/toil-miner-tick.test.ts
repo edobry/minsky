@@ -269,3 +269,218 @@ describe("toilMinerTick — two consecutive zero-cluster runs (SC6)", () => {
     expect(counters.clustersFound).toBe(0);
   });
 });
+
+describe("toilMinerTick — v2 quality pass against a live-ledger-shaped fixture (mt#3429)", () => {
+  /**
+   * Mirrors the ACTUAL live ledger state this task must respect:
+   * engprod_proposal_ledger currently holds 10 `proposed` rows
+   * (mt#3419-mt#3428) for exactly these ten name-level clusters, each
+   * already filed as a real BLOCKED task. v2's collapsing/refinement must
+   * NOT re-propose these phenomena as-is on the next run — the six
+   * non-maximal members collapse into their two families' survivors
+   * (Bash x2, session_exec x2), and ALL FOUR surviving maximal clusters
+   * are deliberately built with diverse (low-concentration) fingerprints
+   * — the real corpus shape for "any two Bash calls in a row," which
+   * carries no repeated-command signal — so every one of the ten lands
+   * suppressed (either non-maximal-subsequence or low-distinctiveness)
+   * and ZERO new proposals are filed for this run.
+   */
+  function nameCluster(
+    toolSequence: string[],
+    frequency: number,
+    sessionCount: number
+  ): MinedCluster {
+    const chainLength = toolSequence.length;
+    // Diverse (low-concentration) fingerprints: every occurrence's
+    // fingerprint sequence is unique, so the top group covers exactly one
+    // occurrence — mirrors "the same tool, unrelated commands."
+    const topGroupFrequency = 1;
+    return {
+      signature: `${toolSequence.join("-")}-sig`,
+      toolSequence,
+      frequency,
+      sessionCount,
+      chainLength,
+      score: frequency * sessionCount * chainLength,
+      sampleRefs: [],
+      fingerprintProfile: {
+        sequence: toolSequence.map((_, i) => `fp:unique-${i}`),
+        frequency: topGroupFrequency,
+        sessionCount: 1,
+        concentration: topGroupFrequency / frequency,
+        sampleRefs: [],
+      },
+    };
+  }
+
+  function liveShapedClusters(): MinedCluster[] {
+    return [
+      nameCluster(["Bash", "Bash"], 6628, 407),
+      nameCluster(["Bash", "Bash", "Bash"], 4117, 353),
+      nameCluster(["Bash", "Bash", "Bash", "Bash"], 2772, 291),
+      nameCluster(["session_exec", "session_exec"], 4427, 299),
+      nameCluster(["Bash", "Bash", "Bash", "Bash", "Bash"], 1966, 231),
+      nameCluster(["session_exec", "session_exec", "session_exec"], 2293, 249),
+      nameCluster(["Bash", "Bash", "Bash", "Bash", "Bash", "Bash"], 1447, 190),
+      nameCluster(["Bash", "Read"], 2057, 347),
+      nameCluster(["Read", "Read"], 1773, 315),
+      nameCluster(["session_exec", "session_exec", "session_exec", "session_exec"], 1335, 197),
+    ].sort((a, b) => b.score - a.score);
+  }
+
+  /** Pre-seeds a fake ledger as if every one of the ten clusters above was
+   * ALREADY `proposed` (a real BLOCKED task filed) prior to this run — the
+   * live state this task must respect. */
+  function fakeLedgerWithLiveProposedRows(clusters: MinedCluster[]) {
+    const proposedSignatures = new Set(clusters.map((c) => c.signature));
+    const maximalCollapseCalls: Array<{ signature: string; supersededBy: string }> = [];
+    const lowDistinctivenessCalls: Array<{ signature: string; concentration: number }> = [];
+    const proposedCalls: string[] = [];
+
+    return {
+      proposedSignatures,
+      maximalCollapseCalls,
+      lowDistinctivenessCalls,
+      proposedCalls,
+      ledgerService: {
+        reconcileVerdicts: async () => ({ accepted: 0, rejected: 0 }),
+        // Every one of the ten signatures already has a `proposed` row
+        // pending triage — the ledger's own first dedupe stage would
+        // refuse to re-propose it. This run's clusters never even reach
+        // this check (v2's collapse/refinement stages exclude them all
+        // first), so this is here to prove that too: if it WERE consulted
+        // for one of the ten, it must refuse.
+        shouldPropose: async (c: MinedCluster) =>
+          proposedSignatures.has(c.signature)
+            ? { propose: false, reason: "cluster already proposed and pending triage" }
+            : { propose: true },
+        recordSuppressedByBudget: async () => {},
+        recordSuppressedByMaximalCollapse: async (c: MinedCluster, supersededBy: string) => {
+          maximalCollapseCalls.push({ signature: c.signature, supersededBy });
+        },
+        recordSuppressedByLowDistinctiveness: async (c: MinedCluster, concentration: number) => {
+          lowDistinctivenessCalls.push({ signature: c.signature, concentration });
+        },
+        recordSuperseded: async () => {},
+        recordProposed: async (c: MinedCluster) => {
+          proposedCalls.push(c.signature);
+        },
+      },
+    };
+  }
+
+  test("collapses the ten live-shaped clusters to zero new proposals; every one lands suppressed", async () => {
+    const clusters = liveShapedClusters();
+    const fake = fakeLedgerWithLiveProposedRows(clusters);
+
+    const counters = await toilMinerTick(
+      {
+        db: makeRunsDb() as never,
+        taskService: fakeTaskService() as never,
+        cognitionProvider: NOOP_COGNITION_PROVIDER as never,
+        taskSimilarityService: NOOP_SIMILARITY_SERVICE as never,
+        ledgerService: fake.ledgerService,
+        mineClustersFn: async () => ({ clusters, turnsScanned: 60628 }),
+        analyzeClustersFn: async () => new Map(),
+      },
+      {}
+    );
+
+    // Must NOT re-propose any of the ten phenomena as-is this run.
+    expect(fake.proposedCalls).toHaveLength(0);
+    expect(counters.proposalsGenerated).toBe(0);
+    expect(counters.clustersSentToLlm).toBe(0);
+
+    // SC1: the six non-maximal family members (Bash x3/x4/x5/x6,
+    // session_exec x3/x4) are suppressed as non-maximal-subsequence.
+    expect(fake.maximalCollapseCalls).toHaveLength(6);
+    expect(counters.suppressedByMaximalCollapse).toBe(6);
+    const bash2Sig = "Bash-Bash-sig";
+    const sessionExec2Sig = "session_exec-session_exec-sig";
+    for (const call of fake.maximalCollapseCalls) {
+      expect([bash2Sig, sessionExec2Sig]).toContain(call.supersededBy);
+    }
+
+    // SC2: the four surviving maximal clusters (Bash x2, session_exec x2,
+    // Bash->Read, Read->Read) all carry diverse fingerprints in this
+    // fixture — none reaches the concentration threshold — so all four
+    // are excluded as low-distinctiveness. None reaches the LLM stage.
+    expect(fake.lowDistinctivenessCalls).toHaveLength(4);
+    expect(counters.suppressedByLowDistinctiveness).toBe(4);
+    const lowDistinctivenessSignatures = fake.lowDistinctivenessCalls
+      .map((c) => c.signature)
+      .sort();
+    expect(lowDistinctivenessSignatures).toEqual(
+      [bash2Sig, sessionExec2Sig, "Bash-Read-sig", "Read-Read-sig"].sort()
+    );
+
+    // Every one of the ten clusters was accounted for (6 + 4 = 10) — none
+    // silently dropped.
+    expect(fake.maximalCollapseCalls.length + fake.lowDistinctivenessCalls.length).toBe(10);
+  });
+
+  test("a concentrated fingerprint sub-pattern on the surviving maximal cluster reaches the LLM as a REFINED cluster", async () => {
+    // Same shape as above, but the Bash x2 survivor has a genuinely
+    // concentrated fingerprint pattern this time (e.g. "git status" then
+    // "git diff" repeated) — it should be REFINED and reach the LLM,
+    // while the rest of the family and the OTHER three maximal clusters
+    // are still suppressed as before.
+    const clusters = liveShapedClusters().map((c) =>
+      c.toolSequence.join(",") === "Bash,Bash"
+        ? {
+            ...c,
+            fingerprintProfile: {
+              sequence: ["fp:git-status", "fp:git-diff"],
+              frequency: Math.ceil(c.frequency * 0.3),
+              sessionCount: Math.ceil(c.sessionCount * 0.3),
+              concentration: 0.3,
+              sampleRefs: [
+                {
+                  sessionId: "s1",
+                  turnIndex: 0,
+                  argFingerprints: ["fp:git-status", "fp:git-diff"],
+                },
+              ],
+            },
+          }
+        : c
+    );
+    const fake = fakeLedgerWithLiveProposedRows(clusters);
+    const refinedSignature = clusters
+      .find((c) => c.toolSequence.join(",") === "Bash,Bash")
+      ?.fingerprintProfile?.sequence.join(",");
+    expect(refinedSignature).toBeDefined();
+
+    const analyzeOutcomes = new Map<string, ClusterAnalysisOutcome>();
+    const counters = await toilMinerTick(
+      {
+        db: makeRunsDb() as never,
+        taskService: fakeTaskService() as never,
+        cognitionProvider: NOOP_COGNITION_PROVIDER as never,
+        taskSimilarityService: NOOP_SIMILARITY_SERVICE as never,
+        ledgerService: fake.ledgerService,
+        mineClustersFn: async () => ({ clusters, turnsScanned: 60628 }),
+        analyzeClustersFn: async (_provider: unknown, candidates: readonly MinedCluster[]) => {
+          for (const c of candidates) {
+            analyzeOutcomes.set(c.signature, {
+              proposedPrimitive: "x",
+              existingToolCoverage: "y",
+              alreadyCovered: false,
+            });
+          }
+          return analyzeOutcomes;
+        },
+      },
+      {}
+    );
+
+    expect(counters.clustersSentToLlm).toBe(1);
+    expect(counters.proposalsGenerated).toBe(1);
+    // The refined cluster's signature must differ from the generic Bash x2
+    // signature — it never collides with (or clobbers) the parent's row.
+    expect(fake.proposedCalls).toHaveLength(1);
+    expect(fake.proposedCalls[0]).not.toBe("Bash-Bash-sig");
+    // The other three maximal survivors are still excluded as generic.
+    expect(fake.lowDistinctivenessCalls).toHaveLength(3);
+  });
+});
