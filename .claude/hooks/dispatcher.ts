@@ -467,31 +467,47 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  * `attentionCost.denialMessageSizeChars` annotations rather than picked round
  * (`decision-defaults.mdc §Thresholds` — observed cadence, not round numbers).
  *
- * Measured across the 22 `UserPromptSubmit` registrations (21 annotated):
+ * Measured across the 22 `UserPromptSubmit` registrations (all 22 annotated):
  *
  *   - Always-on injectors, which fire EVERY turn and whose absence would make
  *     the agent assert stale facts: inject-current-time 90 + inject-git-state
- *     200 + inject-prod-state 250 + inject-dispatch-watchdog 450 +
- *     memory-search 280 = **1270**.
- *   - The five largest conditional detectors: substrate-bypass 1000 +
- *     constructed-identifier-batch 600 + operator-deferral 600 +
- *     causal-premise 550 + pre-narration 500 = **3250**.
+ *     300 + inject-prod-state 250 + inject-dispatch-watchdog 1800 +
+ *     memory-search 550 = **2990**.
+ *   - The five largest conditional detectors: substrate-bypass 1600 +
+ *     pre-narration 1100 + code-mechanism-assertion 600 +
+ *     ask-routing-deferral 600 + constructed-identifier-batch 600 = **4500**.
  *
- * 1270 + 3250 = 4520 chars of fragment TEXT. The budget bounds the emitted
+ * 2990 + 4500 = 7490 chars of fragment TEXT. The budget bounds the emitted
  * BLOCK, which also carries the `\n\n` separators between fragments: 10
- * fragments means 9 separators at 2 chars = 18. So 4520 + 18 = **4538**.
+ * fragments means 9 separators at 2 chars = 18. So 7490 + 18 = **7508**.
  *
- * (That separator term is not pedantry — the first draft of this constant was
- * 4520 and the "measured turn is not truncated" test below failed by exactly
- * one dropped fragment. The test is what caught it.)
+ * (That separator term is not pedantry — the first draft of this constant
+ * omitted it and the "measured turn is not truncated" test below failed by
+ * exactly one dropped fragment. The test is what caught it.)
+ *
+ * **Why this grew from 4538 (mt#3479).** The original derivation used the same
+ * method against `attentionCost` annotations that had never been checked
+ * against any guard's real output. 14 of 26 understated it — dispatch-watchdog
+ * declared 450 against a measured 1668 — so the budget was ~40% too small and
+ * bound on ORDINARY turns, silently dropping reminders: the exact opposite of
+ * the intent stated below. mt#3479 measured every guard via its canary,
+ * corrected the annotations, and re-derived from the corrected set;
+ * `guard-feedback-shape.test.ts` now fails if any guard's output exceeds its
+ * annotation, so this input cannot silently drift again.
  *
  * A turn where everything always-on fires AND the five heaviest detectors all
  * fire at once therefore still fits. The budget does not bind on any realistic
- * turn; it binds on the pathological tail, where the annotated all-21 total is
- * 8970. That is the intent: bound unbounded growth as detectors graduate,
+ * turn; it binds on the pathological tail, where the annotated all-22 total is
+ * 12890. That is the intent: bound unbounded growth as detectors graduate,
  * without truncating ordinary turns.
+ *
+ * This number should come DOWN as guard text is trimmed to the authoring
+ * standard (`.minsky/rules/guard-feedback-authoring.mdc`) — it is sized by what
+ * the corpus currently emits, not by what it ought to emit. The three heaviest
+ * (dispatch-watchdog 1800, substrate-bypass 1600, pre-narration 1100) are
+ * mt#3479's named follow-up.
  */
-export const MERGED_CONTEXT_BUDGET_CHARS = 4538;
+export const MERGED_CONTEXT_BUDGET_CHARS = 7508;
 
 /** Separator between merged fragments — preserved from the pre-mt#3394 join. */
 const FRAGMENT_SEPARATOR = "\n\n";

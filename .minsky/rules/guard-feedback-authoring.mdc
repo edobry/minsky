@@ -1,0 +1,96 @@
+---
+name: guard-feedback-authoring
+description: How to write the feedback text a guard injects or denies with. Loads when editing a guard under .minsky/hooks/.
+globs:
+  - '.minsky/hooks/**'
+alwaysApply: false
+tags:
+  - minsky
+  - hooks
+  - style
+---
+
+# Guard Feedback Authoring
+
+Guard feedback has **two channels with different readers**. Writing one in the other's register
+is the recurring defect.
+
+| Channel | Field | Reader | Job |
+| --- | --- | --- | --- |
+| **Advisory** | `additionalContext` | the agent, mid-turn | get the next action right |
+| **Deny** | `outcome.deny.reason` | the operator, deciding whether to override | justify the block, name the remedy |
+
+## The advisory shape
+
+Four parts, nothing else:
+
+1. **Guard-id header** — `[guard-name] <what happened, one clause>`.
+2. **Quoted evidence** — the matched phrase(s), verbatim, one per line. The highest-value part:
+   it tells the agent which text tripped the guard, so it can recognize a false positive instead
+   of complying blindly.
+3. **Imperative directive** — what to do now, one sentence.
+4. **Legitimate-halt branch** — the conditions under which NOT doing it is correct, and what to
+   say instead. Without this the guard pressures the agent into acting when stopping was right.
+
+```
+[turn-end-untaken-action] You named a next action and ended the turn without taking it.
+
+  - ill-action: "I'll implement it"
+
+Take it now in this continuation, then report the result. If it genuinely cannot proceed — you
+are blocked on a principal decision, a red check, or an external condition you have already
+armed a watcher for — name which in one line and end.
+```
+
+## Keep out of advisory text
+
+Each of these is real information that belongs somewhere else. None of it changes what the
+agent does next, and all of it is paid for on every fire — in the agent's context, and (on
+`Stop`) in the principal's scroll, where Claude Code renders the injection visibly.
+
+- **Incident provenance** — `mt#NNNN`, `R2`/`R3` round labels, memory ids, "originating
+  incident". The agent cannot look these up from inside the injection. Put them in the guard's
+  doc comment, where a maintainer reads them.
+- **The guard's own policy** — "fires at most once per phrase per turn", "this is calibration
+  phase, it does not block". Meta-information about the mechanism, not about the work.
+- **Override advertisement** — `Override: set MINSKY_ACK_FOO=1`. The agent is the wrong reader:
+  it is being asked to do more work, and this offers it the exit. Overrides are catalogued in
+  `CLAUDE.md §Hook Files` for the operator, who is the actual audience.
+- **Restating the rule's rationale** — cite the rule by name and move on.
+
+**Deny messages are exempt from the last one.** An operator reading a block needs the override
+string — there it is the actionable remedy. `check-guessed-session-path`'s deny message names
+`MINSKY_SKIP_SESSION_PATH_CHECK=1` and is correct to.
+
+## The size ceiling is enforced
+
+Every guard declares `attentionCost.denialMessageSizeChars` in `.minsky/hooks/registry.ts`.
+That number is a **ceiling checked against real output**, not a description:
+`guard-feedback-shape.test.ts` runs each guard's canary and fails if the rendered text exceeds
+it.
+
+When your text grows past the ceiling, **trim the text** — raising the annotation is the
+escape hatch, not the fix. `dispatcher.ts`'s `MERGED_CONTEXT_BUDGET_CHARS` is derived from
+these annotations, so raising one widens the merged injection budget for every turn.
+
+Why it is enforced rather than advisory (mt#3479): nothing had ever compared the annotations
+to reality and 14 of 26 understated it — `inject-dispatch-watchdog` declared 450 against a
+measured 1668. The merged budget inherited the understatement, so it bound on ordinary turns
+and silently dropped lower-priority reminders, which is the precise opposite of its documented
+intent.
+
+## Adding a guard
+
+- Declare a `canary` (mt#2889) — the shape test can only measure guards it can trigger, and a
+  guard with no canary is invisible to it.
+- Declare `attentionCost` sized to what the guard actually emits. Measure it; do not estimate.
+- Add the guard to the expected-producers list in `guard-feedback-shape.test.ts` if it emits
+  feedback. That list is a coverage receipt (mem#534) — it fails loudly when a guard stops
+  emitting, which a count-only assertion cannot distinguish from a guard being added.
+
+## Cross-references
+
+`.minsky/hooks/registry.ts` (`attentionCost`, `canary`) · `.minsky/hooks/dispatcher.ts`
+(`MERGED_CONTEXT_BUDGET_CHARS`) · `.minsky/hooks/guard-feedback-shape.test.ts` (the check) ·
+`hook-files.mdc` (gate index) · `hook-observers.mdc` (observer index) · mt#3479 (this rule) ·
+mt#3394 (the merged budget this feeds).

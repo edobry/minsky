@@ -27,6 +27,7 @@ import {
   type CalibrationWriteDeps,
   type ContextFragment,
 } from "./dispatcher";
+import { GUARD_REGISTRY } from "./registry";
 import type { GuardRegistration } from "./registry";
 import type { ToolHookInput, HookOutput, HostCapInfo } from "./types";
 import type { TranscriptLine } from "./transcript";
@@ -1401,20 +1402,50 @@ describe("composeAdditionalContext (mt#3394)", () => {
   });
 
   test("the default budget accommodates the measured all-injectors-plus-five-detectors turn", () => {
-    // Derived in the MERGED_CONTEXT_BUDGET_CHARS doc comment: 1270 chars of
-    // always-on injectors + 3250 chars of the five largest detectors = 4520.
-    // That turn must NOT be truncated, or the budget binds on real traffic.
+    // The turn the budget is SIZED for — everything always-on plus the five
+    // heaviest conditional detectors — must NOT be truncated, or the budget
+    // binds on real traffic.
+    //
+    // Derived from the registry's own annotations rather than hardcoded
+    // (mt#3479). The previous version of this test restated the sizes as
+    // literals, so when mt#3479 corrected 14 annotations the test kept
+    // asserting a turn that no longer resembled production — the same
+    // copy-drift the annotations themselves had already suffered. Reading the
+    // registry means changing an annotation automatically changes what this
+    // asserts, and `guard-feedback-shape.test.ts` separately keeps the
+    // annotations honest against each guard's real rendered output.
+    const annotated = GUARD_REGISTRY.filter(
+      (r) => r.event === "UserPromptSubmit" && r.attentionCost !== undefined
+    );
+    const size = (name: string) =>
+      annotated.find((r) => r.name === name)?.attentionCost?.denialMessageSizeChars ?? 0;
+
+    const alwaysOnNames = [
+      "inject-current-time",
+      "inject-git-state",
+      "inject-prod-state",
+      "inject-dispatch-watchdog",
+      "memory-search",
+    ];
+    // Every always-on injector must still be present in the registry; a typo or
+    // a rename here would silently shrink the modelled turn to a passing one.
+    for (const name of alwaysOnNames) expect(size(name)).toBeGreaterThan(0);
+
+    const topFiveConditional = annotated
+      .filter((r) => !alwaysOnNames.includes(r.name))
+      .sort(
+        (a, b) =>
+          (b.attentionCost?.denialMessageSizeChars ?? 0) -
+          (a.attentionCost?.denialMessageSizeChars ?? 0)
+      )
+      .slice(0, 5);
+    expect(topFiveConditional).toHaveLength(5);
+
     const fragments = [
-      frag("inject-current-time", 10, "x".repeat(90)),
-      frag("inject-git-state", 10, "x".repeat(200)),
-      frag("inject-prod-state", 10, "x".repeat(250)),
-      frag("inject-dispatch-watchdog", 0, "x".repeat(450)),
-      frag("memory-search", 0, "x".repeat(280)),
-      frag("substrate-bypass-detector", 0, "x".repeat(1000)),
-      frag("constructed-identifier-batch-detector", 0, "x".repeat(600)),
-      frag("operator-deferral-detector", 0, "x".repeat(600)),
-      frag("causal-premise-detector", 0, "x".repeat(550)),
-      frag("pre-narration-detector", 0, "x".repeat(500)),
+      ...alwaysOnNames.map((name) => frag(name, 10, "x".repeat(size(name)))),
+      ...topFiveConditional.map((r) =>
+        frag(r.name, 0, "x".repeat(r.attentionCost?.denialMessageSizeChars ?? 0))
+      ),
     ];
     const out = composeAdditionalContext(fragments, MERGED_CONTEXT_BUDGET_CHARS);
     expect(out).not.toContain("omitted");

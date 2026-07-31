@@ -98,6 +98,20 @@ export interface CanaryResult {
   passed: boolean | undefined;
   /** Populated when the guard module threw, or when resolving/invoking it failed. */
   error?: string;
+  /**
+   * The outcome the guard's `run()` actually produced, so a caller can inspect
+   * the RENDERED feedback text — not just whether it matched `expects` (mt#3479).
+   * `guard-feedback-shape.test.ts` reads `additionalContext` / `deny.reason` off
+   * this to enforce the size ceiling and the authoring standard against the real
+   * output, rather than against a hand-copied sample that can drift from it.
+   *
+   * OPTIONAL by necessity, not convenience: `runAllStandaloneCanaries` builds a
+   * `CanaryResult` from a standalone guard's pure boolean `check()`, which has no
+   * `GuardOutcome` to expose at all, and the no-canary / threw paths have none
+   * either. A required field would break all three plus every result literal in
+   * `canary-runner.test.ts`.
+   */
+  outcome?: GuardRunResult;
 }
 
 /**
@@ -196,6 +210,7 @@ export async function runGuardCanary(
       source: "registry",
       expects: canary.expects,
       passed: evaluateCanaryOutcome(outcome, canary.expects),
+      outcome,
     };
   } catch (err) {
     return {

@@ -271,7 +271,25 @@ export interface GuardRegistration {
    * fill in.
    */
   attentionCost?: {
-    /** Approx. character length of the guard's typical denial/warning message body. */
+    /**
+     * Character-length CEILING for the guard's rendered denial/warning body —
+     * enforced, not descriptive (mt#3479). `guard-feedback-shape.test.ts` runs
+     * each guard's canary and fails if the real output exceeds this number, so a
+     * guard whose text grows past its declared cost is caught at test time.
+     *
+     * Until mt#3479 nothing compared these to reality and 14 of 26 had drifted
+     * below actual output — `inject-dispatch-watchdog` declared 450 against a
+     * measured 1668. That mattered beyond bookkeeping: `dispatcher.ts`'s
+     * `MERGED_CONTEXT_BUDGET_CHARS` is DERIVED from these numbers, so the
+     * understatement made the merged budget too small and it silently dropped
+     * reminders on ordinary turns. Raising a value here widens that budget —
+     * treat an increase as a real cost, and prefer trimming the text.
+     *
+     * For a guard whose output scales with its input (dispatch-watchdog per
+     * in-flight dispatch, guard-health per unhealthy guard, memory-search per
+     * retrieved record) this is a ratchet against drift measured from ONE canary
+     * sample, not a worst-case bound.
+     */
     denialMessageSizeChars: number;
     /** Number of distinct remediation options the guard's message presents (e.g. "override X, or do Y, or do Z" = 3). */
     optionCount: number;
@@ -399,7 +417,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // mt#2597: measured against buildDenialReason()'s fixed message body
     // (excluding the dynamic per-missing-path list) — ~398 chars; one
     // remediation option (the MINSKY_SKIP_SESSION_PATH_CHECK override).
-    attentionCost: { denialMessageSizeChars: 398, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 650, optionCount: 1 },
     // mt#2889: a Bash command referencing an absolute sessions/<id>/ path
     // that has never existed on disk — findMissingInToolInput's exists()
     // check (real fs.existsSync, no synthetic override needed) always
@@ -464,7 +482,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // mt#3394: same class as inject-current-time — branch/ahead-behind/dirty
     // state is the ground truth the turn's git claims are written against.
     contextPriority: 10,
-    attentionCost: { denialMessageSizeChars: 200, optionCount: 0 },
+    attentionCost: { denialMessageSizeChars: 300, optionCount: 0 },
     canary: {
       input: {}, // cwd populated dynamically by setup below
       expects: "warn",
@@ -519,7 +537,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-dispatch-watchdog").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 450, optionCount: 3 },
+    attentionCost: { denialMessageSizeChars: 1800, optionCount: 3 },
     canary: {
       input: {},
       expects: "warn",
@@ -557,7 +575,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./memory-search").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 280, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 550, optionCount: 1 },
     // mt#3004 (closes the mt#2889 KNOWN GAP): the live `minsky memory search`
     // subprocess is not hermetically canary-able, so the guard exposes a
     // fixture-file stub seam (CANARY_STUB_ENV) that replaces ONLY the
@@ -613,7 +631,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./skill-staleness-detector").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 350, optionCount: 2 },
+    attentionCost: { denialMessageSizeChars: 450, optionCount: 2 },
     canary: {
       input: {}, // cwd/session_id populated dynamically by setup below
       expects: "warn",
@@ -651,7 +669,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./mcp-daemon-staleness-detector").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 550, optionCount: 1 },
     // mt#3004 (closes the mt#2889 KNOWN GAP): the "scratch git-repo fixture"
     // this gap deferred now follows the inject-git-state canary's precedent —
     // a two-commit repo whose second commit touches src/, plus a daemon state
@@ -742,7 +760,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 15000,
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 1000, optionCount: 4 },
+    attentionCost: { denialMessageSizeChars: 1600, optionCount: 4 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -767,7 +785,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "retrospective-trigger",
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -792,7 +810,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "pre-narration",
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 1100, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -856,7 +874,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // mt#2483 calibration-review sweep disposed the residual FP rate).
     // Canary below still asserts calibration (the calibration-log write),
     // not warn — it does not assert the absence of additionalContext.
-    attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -881,7 +899,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "ask-routing-deferral",
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -1023,7 +1041,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./guard-health-escalation-detector").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 300, optionCount: 0 },
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 0 },
     canary: {
       input: {},
       expects: "warn",
@@ -1359,7 +1377,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // the dedup key is derived from that message — NOT from the transcript,
     // whose absent-case default would suppress the phrase session-wide.
     needsTranscript: false,
-    attentionCost: { denialMessageSizeChars: 700, optionCount: 2 },
+    attentionCost: { denialMessageSizeChars: 450, optionCount: 2 },
     canary: {
       input: {
         session_id: "mt3179-untaken-action-canary",
@@ -1393,7 +1411,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./calibration-review-cadence-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 300, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 450, optionCount: 1 },
     canary: {
       input: {}, // cwd populated dynamically by setup below
       expects: "warn",
