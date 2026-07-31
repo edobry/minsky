@@ -250,6 +250,20 @@ Routine progress compresses at the standing register everywhere else. Reporting 
 decoupled from action authority: raising or lowering the register never changes what an agent may
 do — merge gates, asks, and authorization boundaries are unaffected.
 
+**Transport binding, not just reporting (mt#3436).** Severity is not only a reporting-altitude
+concern — when a fired trigger's remediation is **operator-only** (the agent cannot resolve it;
+only the principal can act), the trigger ALSO escalates the ask's TRANSPORT: create or re-route
+the ask with `forceImmediate: true` AND send one `mcp__minsky__principal_notify` page pointing at
+it. An ask left on default routing (e.g. `serviceStrategy: deadline-bound`, `transport: inbox`) is
+not an escalation — it is scroll the principal has to go find. The ask carries the decision;
+`principal_notify` carries the attention — treating the ask alone as "having escalated" is the gap
+this closes. **Dedupe carve-out:** skip the page when the principal is already actively responding
+in the same conversation — the page exists for the walked-away case, not as a redundant ping
+mid-exchange. Originating incident: mt#3433 / mem#779 — a correctly diagnosed, correctly filed,
+correctly severity-reported incident still cost ~4h of avoidable downtime because the ask never
+left default routing and no page was sent. Full incident + the ask/notify split:
+`docs/rules-rationale/communication-contract.md §Severity transport binding`.
+
 ### Executive scheduled sampling
 
 Every 5th turn-end report renders one register lower (standard); every task-closeout report
@@ -294,7 +308,8 @@ Worked example + full `## Scope` deferred-work rationale: `docs/rules-rationale/
 `decision-defaults.mdc` · `subagent-routing.mdc §Escalation to Opus` (sets the register on the
 consuming side) · `mt#1034` (attention-allocation subsystem) · `engineering-writing` skill
 (artifact-surface AI-voice checklist; mt#2899 + mt#3287 are the two surfaces of one register
-discipline). Full cross-reference index:
+discipline) · `mt#3436` (severity transport binding — `forceImmediate` + `principal_notify`).
+Full cross-reference index:
 `docs/rules-rationale/communication-contract.md §Cross-references`.
 
 # Compact Instructions
