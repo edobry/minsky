@@ -184,7 +184,13 @@ describe("SessionFilm — the ribbon follows the playhead (mt#3466)", () => {
       expect(screen.getByTestId(`session-film-row-${FAR_ROW}`)).toBeDefined();
     });
 
-    fireEvent.keyDown(window, { key: "ArrowDown" });
+    // Dispatched from document.body, not window (PR #2486 R1): keydown bubbles,
+    // so this still reaches SessionFilm's window-level listener, while matching
+    // how a real keypress arrives (targeted at the focused element) and not
+    // depending on the test file and the component seeing the same `window`
+    // object. It also exercises the handler's INPUT/TEXTAREA target check
+    // against a realistic target instead of bypassing it.
+    fireEvent.keyDown(document.body, { key: "ArrowDown" });
 
     await waitFor(() => {
       const next = screen.getByTestId(`session-film-row-${FAR_ROW + 1}`);

@@ -544,6 +544,14 @@ export function SessionFilmRibbon({
     [scrollTop, viewportHeightPx, batchRows.length, expandedRowExtra]
   );
 
+  // Latest total scroll height, carried into the follow effect below WITHOUT
+  // making it a dependency — see that effect's docblock for why depending on
+  // `range.totalHeightPx` directly was wrong. Assigned during render rather
+  // than in an effect so the value is already current when the follow effect
+  // runs on the same commit.
+  const totalHeightRef = useRef(range.totalHeightPx);
+  totalHeightRef.current = range.totalHeightPx;
+
   /**
    * Follow the playhead when it moves for a reason OTHER than scrolling
    * (mt#3466).
@@ -569,6 +577,15 @@ export function SessionFilmRibbon({
    * `expandedRowExtra`. Re-running on those would yank the ribbon back to the
    * playhead on a window resize or a row expansion — both things the operator
    * does while reading somewhere else.
+   *
+   * Which is why the total height comes through a REF rather than the `range`
+   * object (PR #2486 R1). `computeVisibleRowRange` returns
+   * `totalHeightPx = rowCount * rowHeightPx + viewportHeightPx + extraTotal`,
+   * so depending on `range.totalHeightPx` re-tracked both excluded values
+   * through the back door and reintroduced exactly the snap-back this docblock
+   * claims to avoid — the comment was describing an intent the dependency list
+   * did not implement. The ref carries the current value into the effect
+   * without making it a trigger.
    */
   useEffect(() => {
     const el = containerRef.current;
@@ -586,19 +603,19 @@ export function SessionFilmRibbon({
       playheadRowIndex,
       ROW_HEIGHT_PX,
       viewport,
-      range.totalHeightPx,
+      totalHeightRef.current,
       expandedRowExtra
     );
     // Keep the virtualizer's own window in step with the scroll we just made:
     // assigning `scrollTop` programmatically does not always deliver a scroll
     // event before the next paint, and `range` is computed from this state.
     setScrollTop(el.scrollTop);
-    // `viewportHeightPx` and `expandedRowExtra` are read above but deliberately
-    // untracked — see the docblock: re-running on them would yank the ribbon
-    // back to the playhead on a resize or a row expansion. (No eslint-disable
-    // here: this config does not register react-hooks/exhaustive-deps, so
-    // referencing it is itself a lint error.)
-  }, [playheadRowIndex, batchRows.length, range.totalHeightPx]);
+    // `viewportHeightPx`, `expandedRowExtra`, and the total height are read
+    // above but deliberately untracked — see the docblock: re-running on them
+    // would yank the ribbon back to the playhead on a resize or a row
+    // expansion. (No eslint-disable here: this config does not register
+    // react-hooks/exhaustive-deps, so referencing it is itself a lint error.)
+  }, [playheadRowIndex, batchRows.length]);
 
   const chapterByRow = useMemo(() => {
     const m = new Map<number, ChapterMarker>();

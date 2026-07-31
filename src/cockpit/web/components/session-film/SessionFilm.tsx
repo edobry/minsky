@@ -31,6 +31,7 @@ import { SessionFilmRibbon } from "./SessionFilmRibbon";
 import { SessionFilmStage } from "./SessionFilmStage";
 import { SessionFilmMinimap } from "./SessionFilmMinimap";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
+import { isTextEntryTarget } from "../../lib/keyboard";
 import {
   fetchSessionFilmEvents,
   sessionFilmEventsQueryKey,
@@ -194,15 +195,15 @@ export function SessionFilm({
   );
 
   // Keyboard stepping — one batch row per arrow press (spec SC 6).
+  //
+  // Focus guard comes from `lib/keyboard.ts` (adopted while landing mt#3466):
+  // that module was created to unify mt#3464's and mt#3469's duplicate copies
+  // and states that a new shortcut should import it rather than write a third.
+  // This handler WAS a third copy, and a narrower one — it missed `SELECT`
+  // (where typeahead silently changes a value) and contenteditable hosts.
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      const target = e.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA")
-      ) {
-        return;
-      }
+      if (isTextEntryTarget(e.target)) return;
       if (e.key === "ArrowDown" || e.key === "ArrowRight") {
         e.preventDefault();
         setPlayheadRowIndex((i) => Math.min(batchRows.length - 1, i + 1));
