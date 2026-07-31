@@ -42,7 +42,7 @@
 
 import { readFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { readInput, writeOutput, findRepoRoot } from "./types";
+import { readInput, writeOutput, deriveHookRepoRoot } from "./types";
 import type { ToolHookInput } from "./types";
 
 import {
@@ -275,11 +275,19 @@ if (import.meta.main) {
     filePath: params.filePath,
   };
 
-  // Resolve the actual repo root by walking up from cwd (mt#2710): the
-  // parent agent's working directory is routinely a repo SUBDIRECTORY, and a
-  // bare `resolve(input.cwd)` scatters the calibration log + dismissals file
-  // into a stray subdirectory `.minsky/` instead of the real repo root.
-  const repoRoot = findRepoRoot(input.cwd);
+  // Resolve the repo root from the hook installation's own location, NOT from
+  // `input.cwd` (mt#3393). This root feeds three things that must name the
+  // same files on every invocation: the policy corpus the coverage decision
+  // reads, the calibration log, and the dismissals list. `input.cwd` names
+  // none of them reliably — a dispatched subagent's cwd is a session
+  // workspace, and once that workspace is cleaned up there is no `.git` above
+  // it at all, so `findRepoRoot`'s missing-repo fallback hands back the empty
+  // directory as if it were a repo. The corpus then loads empty and every
+  // action reads `uncovered`. See `deriveHookRepoRoot` in ./types for the full
+  // incident. (mt#2710's `findRepoRoot` adoption fixed the narrower
+  // cwd-is-a-subdirectory case; it cannot fix this one, because a session
+  // workspace IS a repo root.)
+  const repoRoot = deriveHookRepoRoot();
 
   // Skip detector's own infra paths to avoid recursion / self-blocks.
   if (

@@ -22,7 +22,7 @@ import {
 import { DefaultAIConfigurationService, type AnyConfigService } from "./config-service";
 import { DefaultModelCacheService } from "./model-cache";
 import { createModelCacheServiceWithFetchers } from "./service-factory";
-import { resolveLanguageModel } from "./provider-model-factory";
+import { resolveLanguageModel, withCallerTemperatureOnly } from "./provider-model-factory";
 import {
   getPrimaryModels,
   getFallbackModels,
@@ -52,16 +52,37 @@ export class DefaultAICompletionService implements AICompletionService {
   }
 
   /**
+   * Resolve the model for a request, stripping `temperature` when the caller
+   * did not ask for one.
+   *
+   * mt#2733 stopped this service from FABRICATING a temperature, but the AI SDK
+   * re-inserts `temperature: 0` downstream of our call arguments, so omission
+   * alone never reached the provider (mt#2735). `withCallerTemperatureOnly`
+   * removes it at the only layer that runs late enough, and takes the caller's
+   * original intent so an EXPLICIT value — including an explicit `0` — still
+   * reaches the model unchanged.
+   */
+  private async resolveModelForRequest(request: {
+    provider?: string;
+    model?: string;
+    temperature?: number;
+  }): Promise<LanguageModel> {
+    const model = await resolveLanguageModel(
+      this.configService,
+      this.providerModels,
+      request.provider,
+      request.model
+    );
+
+    return withCallerTemperatureOnly(model, request.temperature);
+  }
+
+  /**
    * Generate a complete response from AI provider
    */
   async complete(request: AICompletionRequest): Promise<AICompletionResponse> {
     try {
-      const model = await resolveLanguageModel(
-        this.configService,
-        this.providerModels,
-        request.provider,
-        request.model
-      );
+      const model = await this.resolveModelForRequest(request);
       const startTime = Date.now();
 
       log.debug("Starting AI completion", {
@@ -144,12 +165,7 @@ export class DefaultAICompletionService implements AICompletionService {
    */
   async *stream(request: AICompletionRequest): AsyncIterable<AICompletionResponse> {
     try {
-      const model = await resolveLanguageModel(
-        this.configService,
-        this.providerModels,
-        request.provider,
-        request.model
-      );
+      const model = await this.resolveModelForRequest(request);
 
       log.debug("Starting AI streaming completion", {
         provider: request.provider,
@@ -219,12 +235,7 @@ export class DefaultAICompletionService implements AICompletionService {
    */
   async generateObject(request: AIObjectGenerationRequest): Promise<unknown> {
     try {
-      const model = await resolveLanguageModel(
-        this.configService,
-        this.providerModels,
-        request.provider,
-        request.model
-      );
+      const model = await this.resolveModelForRequest(request);
 
       log.debug("Starting AI object generation", {
         provider: request.provider,
