@@ -33,11 +33,15 @@
  *   direct-construction consumer of SessionService.start this mirrors
  */
 
+import { randomUUID } from "crypto";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
+import type { AttachRefusalReason } from "@minsky/domain/conversation-run-state/attach-admissibility";
+import type { ConversationId } from "@minsky/domain/ids";
 import { killIfIdentityMatches, type ExecFileFn } from "./process-identity";
 import {
   CLAUDE_BINARY,
+  DEFAULT_PERMISSION_MODE,
   drivenSessionRegistry,
   resumeDrivenSession,
   buildReconnectingDrivenSessionRecord,
@@ -706,4 +710,195 @@ export async function orchestrateDrivenSessionResume(
 
   if (!lockOutcome.acquired) return { outcome: "locked" };
   return { outcome: "resumed", record: lockOutcome.result };
+}
+
+/** Discriminated outcome of {@link orchestrateDrivenSessionAttach} (mt#3095). */
+export type DrivenSessionAttachOutcome =
+  | { outcome: "attached"; record: DrivenSessionRecord }
+  | { outcome: "locked" }
+  | { outcome: "refused"; reason: AttachRefusalReason; message: string; presence: string }
+  | { outcome: "no-transcript" };
+
+/** Test seam for {@link orchestrateDrivenSessionAttach}. */
+export interface OrchestrateDrivenSessionAttachDeps {
+  getDb?: () => Promise<PostgresJsDatabase | null>;
+  withResumeLock?: typeof import("@minsky/domain/transcripts/driven-session-registry-store").withDrivenSessionResumeLock;
+  registry?: DrivenSessionRegistry;
+  spawnFn?: SpawnFn;
+  command?: string;
+  /** Resolve the conversation's on-disk location. Overridden in tests to avoid touching `~/.claude`. */
+  locateConversation?: (
+    conversationId: string
+  ) => Promise<{ jsonlPath: string; cwd: string | undefined } | null>;
+  /** Read the conversation's current presence. Overridden in tests. */
+  readPresence?: (
+    db: PostgresJsDatabase,
+    conversationId: string
+  ) => Promise<import("@minsky/domain/conversation-run-state/presence").ConversationPresence>;
+  /** Mint the actuator's local id. Overridden in tests for a deterministic id. */
+  newLocalId?: () => string;
+}
+
+/**
+ * Attach an input actuator to a conversation Minsky did NOT spawn (mt#3095) —
+ * the Phase 2 capability: an operator's terminal-started `claude` becomes
+ * drivable from the cockpit.
+ *
+ * ## This is deliberately {@link orchestrateDrivenSessionResume} with two substitutions
+ *
+ * Resume and attach are the same operation on different inputs — "put an
+ * actuator on this conversation id in this cwd". So this reuses that path's
+ * machinery verbatim (the cross-process lock, `resumeDrivenSession`, and the
+ * same three observers, so an attached conversation records driven_spawn links,
+ * cost rows, and its own `driven_sessions` row exactly like a spawned one). The
+ * two differences:
+ *
+ * 1. **Where `{cwd, harnessSessionId}` comes from.** Resume reads a persisted
+ *    `driven_sessions` row; a foreign conversation has none, so this reads the
+ *    on-disk transcript — the same `~/.claude/projects/**` tree the observe rung
+ *    already tails.
+ * 2. **The presence gate.** Resume owns its record and knows no other actuator
+ *    holds it. Attach cannot assume that, so it refuses unless
+ *    {@link attachAdmissibility} admits. See that module for why refusing on
+ *    absent telemetry is the safe direction.
+ *
+ * ## Two writer classes, two mechanisms
+ *
+ * The advisory lock (mt#3038) and the presence gate guard DIFFERENT writers and
+ * neither subsumes the other. The lock is Minsky-internal: it stops two cockpit
+ * actuators racing. It cannot see a `claude` the operator started in a terminal,
+ * because that process never takes it. The presence gate covers exactly that
+ * blind spot, using hook telemetry the terminal process emits without knowing
+ * anyone is watching. Both are required; dropping either reopens a fork path.
+ *
+ * The gate is checked BEFORE the lock deliberately: a refusal is the common
+ * case for a live conversation, and it costs one read rather than a lock
+ * acquisition. The ordering is safe because the lock still guards the
+ * Minsky-internal race independently — a second cockpit attach that slips past
+ * the same presence read still loses the lock.
+ *
+ * @see packages/domain/src/conversation-run-state/attach-admissibility.ts
+ * @see mt#3095 — this function
+ */
+export async function orchestrateDrivenSessionAttach(
+  conversationId: string,
+  deps: OrchestrateDrivenSessionAttachDeps = {}
+): Promise<DrivenSessionAttachOutcome> {
+  const db = await (deps.getDb ?? getContextInspectorDb)();
+  // No DB means no presence telemetry, and no telemetry is a REFUSAL, not a
+  // pass — the same direction attachAdmissibility takes for `UNKNOWN`. Failing
+  // open here would make a transient DB outage silently license the fork this
+  // whole path exists to prevent.
+  if (!db) {
+    const { attachAdmissibility } = await import(
+      "@minsky/domain/conversation-run-state/attach-admissibility"
+    );
+    const verdict = attachAdmissibility("UNKNOWN");
+    if (verdict.admit) throw new Error("unreachable — UNKNOWN never admits");
+    return {
+      outcome: "refused",
+      reason: verdict.reason,
+      message: verdict.message,
+      presence: "UNKNOWN",
+    };
+  }
+
+  const locate = deps.locateConversation ?? defaultLocateConversation;
+  const located = await locate(conversationId);
+  if (!located) return { outcome: "no-transcript" };
+  if (!located.cwd) {
+    // A transcript with no recoverable cwd cannot be resumed — `claude --resume`
+    // has nowhere to run. Reported as no-transcript rather than refused: this is
+    // "cannot attach at all", not "not right now".
+    log.warn(
+      `[driven-session] attach: transcript for ${conversationId} has no recoverable cwd (${located.jsonlPath})`
+    );
+    return { outcome: "no-transcript" };
+  }
+
+  const readPresence = deps.readPresence ?? defaultReadPresence;
+  const presence = await readPresence(db, conversationId);
+  const { attachAdmissibility } = await import(
+    "@minsky/domain/conversation-run-state/attach-admissibility"
+  );
+  const verdict = attachAdmissibility(presence);
+  if (!verdict.admit) {
+    log.info(
+      `[driven-session] attach refused for ${conversationId}: presence=${presence} reason=${verdict.reason}`
+    );
+    return { outcome: "refused", reason: verdict.reason, message: verdict.message, presence };
+  }
+
+  const withResumeLock =
+    deps.withResumeLock ??
+    (await import("@minsky/domain/transcripts/driven-session-registry-store"))
+      .withDrivenSessionResumeLock;
+  const registry = deps.registry ?? drivenSessionRegistry;
+  const cwd = located.cwd;
+
+  // Keyed on the CONVERSATION id, matching the resume path — that is what makes
+  // the two mutually exclusive rather than each locking its own namespace.
+  const lockOutcome = await withResumeLock(db, conversationId, async () => {
+    const { record } = resumeDrivenSession({
+      previous: {
+        // A fresh actuator id. The conversation id is the durable key; the
+        // localId is this process's handle on it, and an attached conversation
+        // has never had one. Passing `harnessSessionId` up front (unlike a
+        // spawn, which learns it at `init`) is what puts the record into the
+        // registry's `byHarnessId` map immediately — so `registry.get(<uuid>)`
+        // resolves it with no id-space change anywhere else (mt#3095 SC2).
+        localId: (deps.newLocalId ?? randomUUID)(),
+        cwd,
+        permissionMode: DEFAULT_PERMISSION_MODE,
+        harnessSessionId: conversationId,
+        // A foreign conversation carries no Minsky task/workspace binding. Left
+        // null rather than guessed — a wrong binding would mis-attribute cost
+        // rows and driven_spawn links to a task that never ran this work.
+        taskId: null,
+        minskySessionId: null,
+        startedAt: new Date().toISOString(),
+        actuatorGeneration: 0,
+        model: null,
+      },
+      onHarnessSessionLinked: createDrivenInitLinkObserver(),
+      onResultSummary: createDrivenResultObserver(),
+      onStateChange: createDrivenSessionPersistObserver(),
+      registry,
+      spawnFn: deps.spawnFn,
+      command: deps.command,
+    });
+    return record;
+  });
+
+  if (!lockOutcome.acquired) return { outcome: "locked" };
+  return { outcome: "attached", record: lockOutcome.result };
+}
+
+/** Production conversation locator — the observe rung's own transcript source. */
+async function defaultLocateConversation(
+  conversationId: string
+): Promise<{ jsonlPath: string; cwd: string | undefined } | null> {
+  const { ClaudeCodeTranscriptSource } = await import(
+    "@minsky/domain/transcripts/claude-code-transcript-source"
+  );
+  const source = new ClaudeCodeTranscriptSource();
+  // Re-mint at the boundary, per `packages/domain/src/ids.ts`'s "wire format:
+  // plain string; re-mint on inbound parse" contract and the same cast
+  // `routes/conversations.ts:165` uses on its inbound id.
+  const session = await source.locateSession(conversationId as ConversationId);
+  if (!session) return null;
+  return { jsonlPath: session.jsonlPath, cwd: session.cwd };
+}
+
+/** Production presence reader — mt#3201's derivation over the hook-fed run-state row. */
+async function defaultReadPresence(
+  db: PostgresJsDatabase,
+  conversationId: string
+): Promise<import("@minsky/domain/conversation-run-state/presence").ConversationPresence> {
+  const [{ getConversationRunState }, { derivePresence }] = await Promise.all([
+    import("@minsky/domain/conversation-run-state/read"),
+    import("@minsky/domain/conversation-run-state/presence"),
+  ]);
+  const row = await getConversationRunState(db, conversationId);
+  return derivePresence(row, new Date()).presence;
 }

@@ -189,8 +189,25 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
    * same file. mt#3288 made the path a parameter and fixed the caller.
    */
   private async locateSessionFile(agentSessionId: AgentSessionId): Promise<string | null> {
+    return (await this.locateSession(agentSessionId))?.jsonlPath ?? null;
+  }
+
+  /**
+   * Public sibling of {@link locateSessionFile} that returns the whole
+   * {@link DiscoveredSession} rather than only its path (mt#3095).
+   *
+   * Attaching an actuator to a conversation Minsky did not spawn needs the
+   * `cwd` as much as the path — `claude --resume` must run in the directory the
+   * conversation belongs to. Discovery already resolves `cwd` for every session
+   * it yields (see `yieldTranscripts`, which calls `recoverCwd`), so this
+   * exposes information already computed instead of adding a second reader.
+   *
+   * Same linear-scan cost as `locateSessionFile`, and the same caveat: callers
+   * that already hold a path should use it rather than scanning to re-derive one.
+   */
+  async locateSession(agentSessionId: AgentSessionId): Promise<DiscoveredSession | null> {
     for await (const session of this.discoverSessions()) {
-      if (session.agentSessionId === agentSessionId) return session.jsonlPath;
+      if (session.agentSessionId === agentSessionId) return session;
     }
     return null;
   }

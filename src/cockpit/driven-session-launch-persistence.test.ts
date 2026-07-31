@@ -24,6 +24,8 @@ import {
   createDrivenSessionPersistObserver,
   loadPersistedDrivenSessions,
   orchestrateDrivenSessionResume,
+  orchestrateDrivenSessionAttach,
+  type OrchestrateDrivenSessionAttachDeps,
 } from "./driven-session-launch";
 import { DrivenSessionRegistry, startDrivenSession, type ProcessLike } from "./driven-session-host";
 import type { DrivenSessionRow } from "@minsky/domain/storage/schemas/driven-sessions-schema";
@@ -582,6 +584,165 @@ describe("deleted workspace cwd (mt#3397)", () => {
 
     expect(outcome.outcome).toBe("resumed");
     expect(spawns).toHaveLength(1);
+  });
+});
+
+/**
+ * mt#3095 — attach: putting an actuator on a conversation Minsky did NOT spawn.
+ *
+ * The behaviour under test is mostly a REFUSAL policy, and its failure mode is
+ * silent (a wrong admit forks a transcript with no error), so the refusal cases
+ * are covered at least as heavily as the success case. `locateConversation` and
+ * `readPresence` are injected throughout — no test touches `~/.claude` or a real
+ * database, and none spawns the real `claude` binary.
+ */
+describe("orchestrateDrivenSessionAttach (mt#3095)", () => {
+  const CONVERSATION = "conv-abc-123";
+  const LOCATED = { jsonlPath: "/tmp/fake/conv-abc-123.jsonl", cwd: "/tmp/fake-cwd" };
+
+  // Annotated so the seam signatures are contextually typed from the real
+  // interface rather than inferred from these literals — an un-annotated fake
+  // can drift from the production signature and still pass at runtime, which is
+  // exactly what bun test would not have caught here.
+  const admitDeps = (): OrchestrateDrivenSessionAttachDeps => ({
+    getDb: async () => FAKE_DB,
+    locateConversation: async () => LOCATED,
+    readPresence: async () => "IDLE",
+    withResumeLock: async (_db, _conversationId, fn) => ({ acquired: true, result: await fn() }),
+    registry: new DrivenSessionRegistry(),
+    spawnFn: () => new FakeClaudeProcess(),
+    newLocalId: () => "actuator-1",
+  });
+
+  test("attaches an idle conversation and registers it under BOTH ids", async () => {
+    const registry = new DrivenSessionRegistry();
+    const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      registry,
+    });
+
+    expect(outcome.outcome).toBe("attached");
+    if (outcome.outcome !== "attached") throw new Error("unreachable");
+    expect(outcome.record.harnessSessionId).toBe(CONVERSATION);
+    expect(outcome.record.cwd).toBe(LOCATED.cwd);
+    // SC2: the whole point of passing harnessSessionId up front — the record is
+    // addressable by CONVERSATION id with no id-space change anywhere else.
+    expect(registry.get(CONVERSATION)).toBe(outcome.record);
+    // ...and still by its actuator id, because that is the registry's PK.
+    expect(registry.get("actuator-1")).toBe(outcome.record);
+  });
+
+  test("an attached foreign conversation carries no task/workspace binding", async () => {
+    const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, admitDeps());
+    if (outcome.outcome !== "attached") throw new Error("expected attached");
+    // Guessing a binding would mis-attribute this conversation's cost rows and
+    // driven_spawn links to a task that never ran the work.
+    expect(outcome.record.taskId).toBeNull();
+    expect(outcome.record.minskySessionId).toBeNull();
+  });
+
+  test("ENDED also attaches — an observed SessionEnd means nothing holds the file", async () => {
+    const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      readPresence: async () => "ENDED" as const,
+    });
+    expect(outcome.outcome).toBe("attached");
+  });
+
+  test.each([
+    ["LIVE", "live-writer"],
+    ["NEEDS_INPUT", "awaiting-human"],
+    ["STALLED", "possibly-wedged"],
+    ["UNKNOWN", "no-telemetry"],
+  ] as const)("refuses a %s conversation with reason %s", async (presence, reason) => {
+    const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      readPresence: async () => presence,
+    });
+    expect(outcome.outcome).toBe("refused");
+    if (outcome.outcome !== "refused") throw new Error("unreachable");
+    expect(outcome.reason).toBe(reason);
+    expect(outcome.presence).toBe(presence);
+    expect(outcome.message.length).toBeGreaterThan(0);
+  });
+
+  test("a refusal never spawns a process", async () => {
+    let spawned = 0;
+    await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      readPresence: async () => "LIVE" as const,
+      spawnFn: () => {
+        spawned += 1;
+        return new FakeClaudeProcess();
+      },
+    });
+    expect(spawned).toBe(0);
+  });
+
+  test("a refusal never takes the resume lock — the gate precedes it", async () => {
+    let lockTaken = 0;
+    await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      readPresence: async () => "LIVE" as const,
+      withResumeLock: async (_db, _c, fn) => {
+        lockTaken += 1;
+        return { acquired: true, result: await fn() };
+      },
+    });
+    expect(lockTaken).toBe(0);
+  });
+
+  // The DB is where presence telemetry lives, so losing it means losing the
+  // ability to tell whether anything is writing. Failing OPEN here would let a
+  // transient outage license exactly the fork this path exists to prevent.
+  test("no database refuses as no-telemetry rather than attaching", async () => {
+    const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      getDb: async () => null,
+    });
+    expect(outcome.outcome).toBe("refused");
+    if (outcome.outcome !== "refused") throw new Error("unreachable");
+    expect(outcome.reason).toBe("no-telemetry");
+  });
+
+  test("returns no-transcript when the conversation is not on disk", async () => {
+    const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      locateConversation: async () => null,
+    });
+    expect(outcome).toEqual({ outcome: "no-transcript" });
+  });
+
+  test("returns no-transcript when the transcript has no recoverable cwd", async () => {
+    // `claude --resume` has nowhere to run without a cwd — this is "cannot
+    // attach at all", distinct from the "not right now" refusals above.
+    const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      locateConversation: async () => ({ jsonlPath: LOCATED.jsonlPath, cwd: undefined }),
+    });
+    expect(outcome).toEqual({ outcome: "no-transcript" });
+  });
+
+  test("returns locked when another cockpit actuator holds the conversation", async () => {
+    const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      withResumeLock: async () => ({ acquired: false }),
+    });
+    expect(outcome).toEqual({ outcome: "locked" });
+  });
+
+  test("the lock is keyed on the CONVERSATION id, not the actuator id", async () => {
+    // Keying on the actuator id would give each attach its own namespace and
+    // never exclude anything — the lock would be decorative.
+    const keys: string[] = [];
+    await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      withResumeLock: async (_db, conversationId, fn) => {
+        keys.push(conversationId);
+        return { acquired: true, result: await fn() };
+      },
+    });
+    expect(keys).toEqual([CONVERSATION]);
   });
 });
 
