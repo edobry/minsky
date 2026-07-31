@@ -46,16 +46,21 @@ export function NewConversationButton({
         }}
         className={cn(
           "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium transition-colors",
-          "bg-primary text-primary-foreground hover:bg-primary/90",
+          // Bordered rather than a solid primary fill: a saturated create
+          // button reads as the loudest thing in the rail and out-shouts the
+          // Attention digest directly below it — inverting the hierarchy
+          // mt#2370 pins that digest at the top to establish. The Plus carries
+          // the primary hue; the surface stays quiet.
+          "border border-border/60 bg-muted/30 text-foreground hover:bg-muted/60",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           "disabled:pointer-events-none disabled:opacity-50"
         )}
       >
-        <Plus aria-hidden className="h-4 w-4 flex-shrink-0" />
+        <Plus aria-hidden className="h-4 w-4 flex-shrink-0 text-primary" />
         <span className="truncate">{isPending ? "Starting…" : NEW_CONVERSATION_LABEL}</span>
         <kbd
           aria-hidden
-          className="ml-auto rounded border border-primary-foreground/30 px-1.5 py-0.5 font-mono text-[10px] text-primary-foreground/80"
+          className="ml-auto rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
         >
           {NEW_CONVERSATION_HINT}
         </kbd>
