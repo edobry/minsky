@@ -20,11 +20,22 @@
  * An in-memory mock of `fs` would not catch the production behavior of
  * readdirSync/statSync path filtering. The custom/no-real-fs-in-tests rule
  * is disabled file-wide for this reason.
+ *
+ * XDG_STATE_HOME note (mt#3415): beforeEach mutates process.env.XDG_STATE_HOME
+ * — process-global state — and afterEach restores it. That is safe under
+ * bunfig's `randomize = true` because randomization reorders files and tests
+ * but never interleaves them: `bun test` (1.2.21, the version pinned here) has
+ * no native parallel/shard flag and executes test files strictly one after
+ * another inside a single process, so no other file can be mid-execution while
+ * the override is live. Measured: two files whose bodies each await 400ms ran
+ * end-to-start with zero overlap. Cross-process runs are unaffected — each has
+ * its own environment. The flake this file used to have was a shared
+ * filesystem PATH, not the env override.
  */
 /* eslint-disable custom/no-real-fs-in-tests */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { identifyFilesystemOrphanDirs } from "./session-cleanup";
@@ -68,9 +79,13 @@ describe("identifyFilesystemOrphanDirs (mt#1941 — orphan detection)", () => {
   let originalXdgStateHome: string | undefined;
 
   beforeEach(() => {
-    // Each test gets a fresh temp directory. Use a fixed-prefix path to satisfy
-    // the no-race-condition concern: tests run sequentially in bun test.
-    tmpBase = join(tmpdir(), "minsky-test-orphan-detect");
+    // Unique per test AND per process. identifyFilesystemOrphanDirs enumerates
+    // the real sessions dir, so any directory that happens to sit under this
+    // path is indistinguishable from a fixture. A fixed literal path used to
+    // collide across concurrent `bun test` processes — the pre-push gate's
+    // full-suite run alongside a direct run of this file, or the parallel shard
+    // runner — with each process counting the other's fixture dirs (mt#3415).
+    tmpBase = mkdtempSync(join(tmpdir(), "minsky-test-orphan-detect-"));
     sessionsDir = join(tmpBase, "minsky", "sessions");
     mkdirSync(sessionsDir, { recursive: true });
 

@@ -1439,3 +1439,137 @@ export function startConversationTitleSweeper(options?: ConversationTitleSweepOp
     },
   });
 }
+
+// ── Conversation summary sweeper (mt#3441) ───────────────────────────────────
+
+/**
+ * Same 10-minute cadence as titling, for the same reason: a conversation with no
+ * summary still renders and is still searchable by title, so this drains the
+ * backlog over hours rather than in one burst. Paired with
+ * `DEFAULT_SUMMARY_BATCH_SIZE`, a tick costs at most 25 completions + 25
+ * embedding calls.
+ */
+const CONVERSATION_SUMMARY_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+
+/** Injectable seam so tests can drive a tick without a DB, an AI provider, or embeddings. */
+export interface ConversationSummarySweepDeps {
+  /** Run one bounded summarization batch. Returns per-run counters. */
+  runSummarizing: () => Promise<{
+    transcriptsScanned: number;
+    transcriptsSkipped: number;
+    transcriptsProcessed: number;
+    transcriptsErrored: number;
+    embeddingCallsMade: number;
+  }>;
+}
+
+export interface ConversationSummarySweepOptions {
+  /** Cadence override in milliseconds. */
+  intervalMs?: number;
+  /** Injected deps for testing; when absent the real DB + AI + embedding path is built. */
+  deps?: ConversationSummarySweepDeps;
+}
+
+/**
+ * Build the real summarizing runner. Mirrors {@link buildRealTitleSweepDeps},
+ * plus an embedding service — a summary costs a completion AND an embedding,
+ * which titling does not.
+ *
+ * Returns null when the provider is not SQL-capable.
+ */
+async function buildRealSummarySweepDeps(): Promise<ConversationSummarySweepDeps | null> {
+  const { getSharedPersistenceService } = await import("./shared-persistence");
+  const svc = await getSharedPersistenceService();
+  const provider = svc.getProvider();
+
+  if (
+    !("getDatabaseConnection" in provider) ||
+    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
+  ) {
+    return null;
+  }
+
+  const sqlProvider = provider as {
+    getDatabaseConnection: () => Promise<
+      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+    >;
+  };
+  const db = await sqlProvider.getDatabaseConnection();
+  if (!db) return null;
+
+  return {
+    runSummarizing: async () => {
+      const { getConfiguration } = await import("@minsky/domain/configuration");
+      const { DefaultAICompletionService } = await import("@minsky/domain/ai/completion-service");
+      const { DirectCognitionProvider } = await import("@minsky/domain/cognition/providers/direct");
+      const { createEmbeddingServiceFromConfig } = await import(
+        "@minsky/domain/ai/embedding-service-factory"
+      );
+      const { SummaryPipeline } = await import("@minsky/domain/transcripts/summary-pipeline");
+
+      const configService = {
+        loadConfiguration: () => Promise.resolve({ resolved: getConfiguration() }),
+      };
+      const cognitionProvider = new DirectCognitionProvider(
+        new DefaultAICompletionService(configService)
+      );
+      const embeddingService = await createEmbeddingServiceFromConfig();
+
+      // No batchSize: the pipeline's bounded default is exactly what a sweeper
+      // wants, and inheriting it is the point of making it the default (mt#3441).
+      return new SummaryPipeline(db, cognitionProvider, embeddingService).run();
+    },
+  };
+}
+
+/**
+ * Start the conversation-summary sweeper — the invocation path for mt#3441.
+ *
+ * `SummaryPipeline` shipped without one: its only caller was the manual
+ * `transcripts index-embeddings` command, so summaries existed only where an
+ * operator happened to run it — 11 rows out of 2,108 (0.5%), against 34% for
+ * titles, which have had a sweeper since mt#3321. That gap is why the index
+ * could not answer "which conversation was the one about X".
+ *
+ * Degrades quietly and retries, matching the title sweeper: a non-SQL provider,
+ * a DB outage, an AI failure, or an unavailable embedding backend logs and waits
+ * for the next tick. Rows stay NULL and are retried — no partial or placeholder
+ * summary is ever written. The embedding dependency makes this more than
+ * theoretical: the embeddings backend has been observed quota-exhausted, and a
+ * tick during an outage must cost one failed batch, not a poisoned column.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startConversationSummarySweeper(
+  options?: ConversationSummarySweepOptions
+): () => void {
+  return createIntervalSweeper({
+    name: "conversation summary",
+    intervalMs: options?.intervalMs ?? CONVERSATION_SUMMARY_SWEEP_INTERVAL_MS,
+    tick: async () => {
+      try {
+        const deps = options?.deps ?? (await buildRealSummarySweepDeps());
+        if (!deps) {
+          log.debug("cockpit: conversation summary sweep skipped (no SQL persistence)");
+          return;
+        }
+        const result = await deps.runSummarizing();
+        // `transcriptsErrored > 0` is the signal that summarizing is failing
+        // while the sweeper itself looks healthy — the shape that let the
+        // original no-caller gap sit unnoticed.
+        if (result.transcriptsScanned > 0 || result.transcriptsErrored > 0) {
+          log.info("cockpit: conversation summary sweep complete", {
+            scanned: result.transcriptsScanned,
+            processed: result.transcriptsProcessed,
+            skipped: result.transcriptsSkipped,
+            errored: result.transcriptsErrored,
+            embeddingCalls: result.embeddingCallsMade,
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: conversation summary sweep failed", { message });
+      }
+    },
+  });
+}
