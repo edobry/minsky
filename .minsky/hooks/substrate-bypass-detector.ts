@@ -711,7 +711,12 @@ const REMEDIATION_BY_SURFACE: Record<string, string> = {
     "Encode the instruction in the substrate that will enforce it, not in prose the operator has to remember.",
 };
 
-function buildReminder(surfaces: MatchedSurface[]): string {
+// Exported for tests (PR #2499 R1): the unmapped-surface fallback cannot be
+// reached through `run()`, because every surface `run()` can produce is one the
+// detector itself names. Testing it through a re-implementation of the same
+// expression would assert the test's own copy of the logic, not this one — so
+// the builder is exercised directly instead.
+export function buildReminder(surfaces: MatchedSurface[]): string {
   const surfaceLines = surfaces
     .map(
       (s) =>

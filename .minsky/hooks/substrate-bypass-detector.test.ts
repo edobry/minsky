@@ -13,6 +13,7 @@ import {
   elideMarkdownContexts,
   OVERRIDE_ENV_VAR,
   run,
+  buildReminder,
 } from "./substrate-bypass-detector";
 import { parseTranscript, extractLastAssistantTurn } from "./transcript";
 import type { ClaudeHookInput } from "./types";
@@ -1169,19 +1170,36 @@ describe("run() (dispatcher-compatible)", () => {
     });
 
     test("an unmapped surface still yields an actionable directive, not an empty list", () => {
-      // Simulated by rendering a surface key absent from REMEDIATION_BY_SURFACE
-      // through the same code path the real builder uses.
-      const remediationFor = (surfaces: string[]) => {
-        const map: Record<string, string> = { "verbal-commitment": "MAPPED LINE" };
-        const generic = "GENERIC LINE";
-        return [...new Set(surfaces.map((s) => map[s] ?? generic))]
-          .map((line) => `- ${line}`)
-          .join("\n");
-      };
-      expect(remediationFor(["a-brand-new-surface"])).toBe("- GENERIC LINE");
-      expect(remediationFor(["a-brand-new-surface"])).not.toBe("");
-      // A known surface still gets its specific line, not the fallback.
-      expect(remediationFor(["verbal-commitment"])).toBe("- MAPPED LINE");
+      // Drives the REAL builder with a surface key that has no
+      // REMEDIATION_BY_SURFACE entry — unreachable through run(), since every
+      // surface run() emits is one the detector names. Asserting against a
+      // re-implementation of the fallback expression would only test the
+      // test's own copy, which is why buildReminder is exported.
+      const text = buildReminder([
+        {
+          surface: "a-brand-new-surface",
+          matchedPhrase: "some phrase",
+          canonicalSubstrate: "mcp__minsky__some_tool",
+        },
+      ]);
+
+      // The action list must not be empty — the pre-fix behavior rendered the
+      // "Required next action:" heading followed by a blank line.
+      const actionBlock = text.split("**Required next action:**")[1] ?? "";
+      expect(actionBlock.trim().length).toBeGreaterThan(0);
+      expect(actionBlock).toContain("- Call the canonical substrate named above");
+
+      // And a known surface still gets its SPECIFIC line, not the fallback —
+      // otherwise the fix could have degraded every surface to the generic one.
+      const known = buildReminder([
+        {
+          surface: "verbal-commitment",
+          matchedPhrase: "I'll save",
+          canonicalSubstrate: "mcp__minsky__memory_create",
+        },
+      ]);
+      expect(known).toContain("describing what you would save or file is not doing it");
+      expect(known).not.toContain("Call the canonical substrate named above");
     });
 
     test("a two-surface fire carries BOTH matched remediations", () => {
