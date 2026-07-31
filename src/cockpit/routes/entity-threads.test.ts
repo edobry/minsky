@@ -14,7 +14,12 @@ import {
   ENTITY_THREAD_SUPPORTED_TYPES,
   formatSupportedEntityTypes,
 } from "@minsky/shared/entity-thread-types";
-import { mountEntityThreadRoutes, parseEntityType, parseMessageBody } from "./entity-threads";
+import {
+  mountEntityThreadRoutes,
+  parseEntityType,
+  parseMessageBody,
+  supportsOriginSeeding,
+} from "./entity-threads";
 
 describe("parseEntityType", () => {
   test("accepts the ask type", () => {
@@ -67,6 +72,28 @@ describe("parseEntityType", () => {
     expect((parseEntityType(undefined) as { error: string }).error).toContain("required");
     expect((parseEntityType("") as { error: string }).error).toContain("required");
     expect(typeof parseEntityType(42)).toBe("object");
+  });
+});
+
+describe("supportsOriginSeeding (mt#3367, PR #2493 R1 BLOCKING)", () => {
+  test("asks support origin seeding", () => {
+    expect(supportsOriginSeeding("ask")).toBe(true);
+  });
+
+  test("tasks do NOT — so the route must omit originSeeded rather than report false", () => {
+    // Reporting `false` for a task renders "the originating conversation isn't
+    // reachable", which asserts a failed lookup that never ran. That is the same
+    // species of unfounded claim this task exists to remove, aimed at the
+    // principal instead of the agent.
+    expect(supportsOriginSeeding("task")).toBe(false);
+  });
+
+  test("origin support is a SUBSET of thread support, not the same set", () => {
+    // A kind can have a thread without having an origin — exactly the task case.
+    // If these two ever coincide by accident, the distinction above is lost.
+    const originCapable = ENTITY_THREAD_SUPPORTED_TYPES.filter(supportsOriginSeeding);
+    expect(originCapable.length).toBeGreaterThan(0);
+    expect(originCapable.length).toBeLessThan(ENTITY_THREAD_SUPPORTED_TYPES.length);
   });
 });
 

@@ -157,9 +157,9 @@ export function buildEntityThreadSeedPrompt(seed: EntitySeedContext): string {
   lines.push(
     "",
     "The principal is looking at this in the cockpit and wants to understand it.",
-    "Investigate before answering — you have Minsky MCP tools; read the parent task,",
-    "related memories, and whatever else bears on it rather than restating the text",
-    "above, which the principal has already read and found unclear.",
+    "Investigate before answering — you have Minsky MCP tools. Follow the references listed",
+    "above, read related memories, and pull in whatever else bears on it, rather than",
+    "restating the text above, which the principal has already read and found unclear.",
     "",
     "Do NOT take action on this entity. Do not resolve, close, edit, or respond to it.",
     "Explain it. Any action is the principal's own, taken through the cockpit's own",
@@ -231,7 +231,16 @@ export function askToEntitySeed(ask: AskSeedInput): EntitySeedContext {
     // reading instructions for, not another labelled fact to skim. Keeping it a
     // distinct field is also what lets the route report `originSeeded` to the
     // panel without pattern-matching a ref label.
-    ...(ask.originConversationId ? { originConversationId: ask.originConversationId } : {}),
+    //
+    // A blank id is treated as ABSENT, deliberately (PR #2493 R1 non-blocking
+    // asked whether this is a false negative — it is not). An empty or
+    // whitespace-only conversation id cannot be read by any tool; carrying it
+    // would tell the agent to go read "" and tell the principal the thread is
+    // origin-grounded. Both claims would be false. `.trim()` so a whitespace id
+    // is caught too, not just `""`.
+    ...(ask.originConversationId?.trim()
+      ? { originConversationId: ask.originConversationId.trim() }
+      : {}),
   };
 }
 

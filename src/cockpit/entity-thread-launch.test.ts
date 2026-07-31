@@ -224,7 +224,10 @@ describe("buildEntityThreadSeedPrompt", () => {
     // the driven-session mechanism was chosen over a completion call to avoid.
     const prompt = buildEntityThreadSeedPrompt(seed);
     expect(prompt).toContain(INVESTIGATE_INSTRUCTION);
-    expect(prompt).toMatch(/rather than restating/);
+    // `\s+` not a literal space: the prompt is hand-wrapped, so the phrase can
+    // straddle a line break. Matching a literal space made this assertion
+    // sensitive to rewrapping rather than to the instruction it checks for.
+    expect(prompt).toMatch(/rather than\s+restating/);
   });
 
   test("forbids acting on the entity", () => {
@@ -254,6 +257,25 @@ describe("buildEntityThreadSeedPrompt", () => {
       askToEntitySeed({ id: ASK_ID, question: "q", originConversationId: null })
         .originConversationId
     ).toBeUndefined();
+  });
+
+  test("treats a blank origin id as ABSENT, not as an origin (PR #2493 R1)", () => {
+    // An empty or whitespace-only id cannot be read by any tool. Carrying it
+    // would tell the agent to read "" and tell the principal the thread is
+    // origin-grounded — both false.
+    for (const blank of ["", "   ", "\n\t"]) {
+      expect(
+        askToEntitySeed({ id: ASK_ID, question: "q", originConversationId: blank })
+          .originConversationId
+      ).toBeUndefined();
+    }
+  });
+
+  test("trims a padded origin id rather than passing whitespace through", () => {
+    expect(
+      askToEntitySeed({ id: ASK_ID, question: "q", originConversationId: "  conv-abc  " })
+        .originConversationId
+    ).toBe("conv-abc");
   });
 
   test("omits the references block when there are none", () => {

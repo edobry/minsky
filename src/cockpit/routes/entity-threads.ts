@@ -112,6 +112,23 @@ const _supportedTypesArePersistable: readonly EntityThreadEntityType[] =
   ENTITY_THREAD_SUPPORTED_TYPES;
 void _supportedTypesArePersistable;
 
+/**
+ * Entity kinds for which an originating conversation can be resolved at all
+ * (mt#3367).
+ *
+ * Only asks today: the lookup keys off `asks.parent_session_id`, and no other
+ * entity kind carries an equivalent. A task's "origin" is a different notion
+ * with different semantics — the original spec deliberately left it out of
+ * scope rather than guessing at one.
+ *
+ * Exported so the reporting decision is directly testable, and separate from
+ * `ENTITY_THREAD_SUPPORTED_TYPES` on purpose: a kind can have a thread without
+ * having an origin (that is exactly the task case).
+ */
+export function supportsOriginSeeding(entityType: EntityThreadSupportedType): boolean {
+  return entityType === "ask";
+}
+
 export interface EntityThreadRoutesOptions {
   /** Override the database handle (tests). */
   dbOverride?: PostgresJsDatabase | null;
@@ -210,7 +227,16 @@ export function mountEntityThreadRoutes(
         // mt#3367: whether the agent can reach the conversation that filed this
         // entity. Surfaced so the principal knows which grounding an answer has
         // — reachability is only ~46%, so "seeded" is not the safe assumption.
-        originSeeded: seed.originConversationId !== undefined,
+        //
+        // OMITTED entirely for an entity kind that has no origin-seeding at all
+        // (PR #2493 R1 BLOCKING). Reporting `false` for a task would render "the
+        // originating conversation isn't reachable", which asserts a failed
+        // lookup that never ran — the exact species of unfounded claim this task
+        // exists to remove, just pointed at the principal instead of the agent.
+        // Absent means UNKNOWN and the panel says nothing.
+        ...(supportsOriginSeeding(entityType)
+          ? { originSeeded: seed.originConversationId !== undefined }
+          : {}),
       });
     } catch (err) {
       log.error(`GET entity-thread failed for ${entityType}/${entityId}`, {
