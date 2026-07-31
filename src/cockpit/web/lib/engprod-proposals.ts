@@ -75,7 +75,14 @@ export interface EngprodProposalsResponse {
 export async function fetchEngprodProposals(): Promise<EngprodProposalsResponse> {
   const res = await fetch("/api/engprod/proposals");
   if (!res.ok) {
-    throw new Error(`GET /api/engprod/proposals failed: ${res.status}`);
+    // Surface the server's actual error detail (e.g. "EngProd ledger
+    // unavailable — SQL persistence provider not ready") rather than just
+    // the status code — a bare "GET ... failed: 503" gives an operator no
+    // way to tell a transient outage from a real bug (reviewer finding, PR
+    // #2507 R1). Matches postDecision's existing error-propagation shape
+    // below.
+    const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(payload?.error ?? `GET /api/engprod/proposals failed: ${res.status}`);
   }
   return (await res.json()) as EngprodProposalsResponse;
 }

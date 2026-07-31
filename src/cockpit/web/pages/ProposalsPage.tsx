@@ -321,6 +321,7 @@ function ProposalRow({
                 variant="default"
                 className="h-6 px-2 text-xs"
                 disabled={pending}
+                aria-label={`Accept ${proposal.taskId}`}
                 onClick={() => actions.acceptMutation.mutate(proposal.taskId)}
               >
                 Accept
@@ -330,6 +331,7 @@ function ProposalRow({
                 variant="destructive"
                 className="h-6 px-2 text-xs"
                 disabled={pending}
+                aria-label={`Reject ${proposal.taskId}`}
                 onClick={() =>
                   onRequestReject({ taskId: proposal.taskId, title: proposal.title })
                 }

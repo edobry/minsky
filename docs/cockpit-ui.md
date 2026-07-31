@@ -183,7 +183,66 @@ subscription at $0 marginal cost. These numbers are the API-RATE EQUIVALENT
 the stream's own `result` events report — consumption/rate observability and
 re-application readiness, not a live dollar bill. See memory `2d6cdbaf`.
 
+## Proposals (`/proposals`, mt#3331)
+
+The operator-facing half of the EngProd toil-miner's curation gate (RFC Notion
+`3ac937f0-3cb4-816e-8af7-e5380f10a24b`, Phase 1). The miner mines recurring
+tool-call patterns from agent transcripts and files a BLOCKED
+`engprod-proposal` task per surviving cluster; this surface is where an
+operator reviews and disposes of those proposals.
+
+Proposals are grouped by the mining run that produced them, each with its
+evidence block (tool sequence, occurrence frequency, distinct sessions,
+chain length) and rank within the run (by mined score, descending). Every
+run — even one that filed zero proposals — shows its own counters (turns
+scanned, clusters found, clusters sent to the LLM stage, suppressed
+breakdown, LLM errors), so an operator can tell a healthy quiet run ("nothing
+found this run") apart from one that errored.
+
+- **Accept** unblocks the task (`BLOCKED -> TODO`) into the normal task
+  lifecycle and records `accepted` in the ledger.
+- **Reject** requires a free-text reason, closes the task (`BLOCKED ->
+CLOSED`), and records `rejected` + the reason in the ledger — the ledger's
+  re-surface threshold reads this verdict to decide whether the same
+  recurring pattern is allowed to be re-proposed later (only once its
+  observed frequency at least doubles).
+
+Both actions write the task's status and the ledger's verdict in a single
+database transaction — the ledger is the miner's only persistent memory of
+past decisions, so a task update that lands without its matching ledger
+write would let a rejected cluster silently reappear on the next mining run.
+
+A proposal whose evidence predates every recorded mining run (an
+interrupted/untracked tick — no `engprod_miner_runs` row survived) renders
+under a distinct "No matching run record" heading rather than being
+attributed to the wrong run.
+
 ## Operator endpoints
+
+### `GET /api/engprod/proposals`
+
+Read-only (no auth beyond the standard loopback/token gate — see
+`docs/architecture/cockpit.md`'s auth posture). Returns
+`{ runs: EngprodRunSummary[], proposals: EngprodProposalRow[] }`: every
+`engprod-proposal`-tagged task (any status — an already-actioned proposal
+still renders, showing its final disposition) plus the most recent mining
+runs. Grouping-by-run and ranking are derived client-side
+(`src/cockpit/web/lib/engprod-proposals.ts`).
+
+### `POST /api/engprod/proposals/:taskId/accept`
+
+Mutation (bearer/cookie auth, same as every other cockpit mutation
+endpoint). No body. `404` if the task doesn't exist, `400` if it isn't
+tagged `engprod-proposal`, `409` if it isn't currently `BLOCKED` (already
+actioned), `500` if no matching ledger row exists (a hard failure — the task
+write is rolled back rather than left to diverge from the ledger). On
+success: `{ ok: true, taskId, status: "TODO" }`.
+
+### `POST /api/engprod/proposals/:taskId/reject`
+
+Mutation, same auth and guard sequence as accept. Body: `{ "reason":
+"<non-empty free text>" }` — `400` if `reason` is missing, non-string, or
+empty/whitespace-only. On success: `{ ok: true, taskId, status: "CLOSED" }`.
 
 ### `POST /api/driven-session`
 

@@ -181,7 +181,7 @@ describe("ProposalsPage", () => {
       expect(screen.getByText("mt#3446")).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept mt#3446" }));
 
     await waitFor(() => {
       expect(calls.some((c) => c.method === "POST" && c.url.includes("/accept"))).toBe(true);
@@ -199,12 +199,14 @@ describe("ProposalsPage", () => {
       expect(screen.getByText("mt#3446")).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject mt#3446" }));
 
     // Once the dialog opens, Radix Dialog marks the rest of the page
-    // aria-hidden (focus-trap/inert behavior) — so the ROW's own "Reject"
-    // button (still in the DOM, just now inaccessible) drops out of the
-    // accessibility tree, and only the dialog's confirm button matches.
+    // aria-hidden (focus-trap/inert behavior) — so the ROW's own
+    // "Reject mt#3446" button (still in the DOM, just now inaccessible)
+    // drops out of the accessibility tree. The dialog's own confirm button
+    // has no aria-label override (its accessible name is its plain "Reject"
+    // text), so it's the only "Reject"-named match once the dialog is open.
     const textarea = await screen.findByPlaceholderText(/Why is this proposal being rejected/);
     const dialogConfirm = screen.getByRole("button", { name: "Reject" });
     expect(dialogConfirm.hasAttribute("disabled")).toBe(true);

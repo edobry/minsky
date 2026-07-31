@@ -60,7 +60,7 @@
  * silently touching the wrong store.
  */
 import type express from "express";
-import { eq, desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { log } from "@minsky/shared/logger";
 import { getServerTaskService, getServerEngprodDb } from "../db-providers";
 import { ENGPROD_PROPOSAL_TAG } from "@minsky/domain/engprod/types";
@@ -333,6 +333,16 @@ async function handleDecision(
         .set({ status: newStatus as (typeof tasksTable.$inferSelect)["status"], updatedAt: now })
         .where(eq(tasksTable.id, taskId));
 
+      // Constrained by BOTH the cluster signature AND the filedTaskId (the
+      // same key `checkProposalGuard`/the ledger lookup above resolved this
+      // row through) — not clusterSignature alone. Belt-and-suspenders: today
+      // clusterSignature is the ledger's primary key, so a signature-only
+      // WHERE cannot address a second row — but anchoring to the SAME key
+      // the guard used makes the task-scoped intent explicit in the query
+      // itself, so a future schema change (e.g. a non-unique signature, or a
+      // second ledger row keyed differently) can't silently widen this
+      // UPDATE's blast radius without also changing this WHERE clause
+      // (reviewer finding, PR #2507 R1).
       await tx
         .update(engprodProposalLedgerTable)
         .set({
@@ -340,7 +350,12 @@ async function handleDecision(
           rejectionReason: decision === "reject" ? (reason ?? null) : null,
           updatedAt: now,
         })
-        .where(eq(engprodProposalLedgerTable.clusterSignature, ledgerRow.clusterSignature));
+        .where(
+          and(
+            eq(engprodProposalLedgerTable.clusterSignature, ledgerRow.clusterSignature),
+            eq(engprodProposalLedgerTable.filedTaskId, taskId)
+          )
+        );
 
       return { kind: "ok", newStatus };
     });
