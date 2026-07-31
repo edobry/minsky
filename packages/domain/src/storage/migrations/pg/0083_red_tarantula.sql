@@ -1,0 +1,1 @@
+ALTER TYPE "public"."subagent_invocation_outcome" ADD VALUE 'pending';

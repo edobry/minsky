@@ -196,7 +196,12 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
           agentType: result.agentType ?? type,
           suggestedModel: result.suggestedModel ?? null,
           startedAt: new Date(),
-          outcome: "crashed-no-output",
+          // mt#1770: dispatch-time placeholder, not a classification. This is the
+          // seed site that actually FIRES — `session_generate_prompt` is the real
+          // dispatch path, while `tasks_dispatch` is effectively unused (mt#2292).
+          // Seeding `crashed-no-output` here is what put a false crash verdict on
+          // rows that were merely never closed.
+          outcome: "pending",
         });
       } catch (err) {
         log.warn(`[session.generate_prompt] Failed to write pending invocation row: ${err}`);

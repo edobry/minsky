@@ -18,7 +18,8 @@ directly with the SQL patterns below.
 ## Outcome taxonomy
 
 Each row in `subagent_invocations` carries an `outcome` column classifying how
-the dispatch ended. Six classes are recognised:
+the dispatch ended. **Six TERMINAL classes**, plus one non-terminal placeholder
+(`pending`, class 7 below) that means no outcome has been observed yet:
 
 1. **`completed-with-pr`** — The subagent completed its task, committed all
    changes, and created a pull request. The dispatch landed cleanly. This is
@@ -50,6 +51,21 @@ the dispatch ended. Six classes are recognised:
    or quota exhaustion. No work was attempted. Repeated occurrences indicate
    a structural capacity problem (throughput exceeds quota, or quota has not
    been raised after a workload increase).
+
+7. **`pending`** (mt#1770) — **NOT a classification.** The dispatch-time placeholder,
+   written when the row is created and overwritten by the SubagentStop classifier.
+   It means *no outcome has been observed yet*, which is different from every class
+   above. A row still `pending` long after its `started_at` means the row was never
+   CLOSED — a writer problem (mt#2292), not a subagent that crashed.
+
+   **Do not read `pending` as a failure**, and do not count it toward any escalation
+   threshold. Before mt#1770 the seed value was `crashed-no-output`, which read as a
+   real observation to every consumer: measured 2026-07-31, 6 of 19 dispatches in a
+   48h window carried that verdict while their tasks had actually shipped with commits
+   and a merge, and `tasks_dispatch-recover` was spending its 2-attempt auto-resume
+   bound on the phantoms (mt#2718 burned both). Only the classifier may write a
+   terminal class; the `TerminalSubagentInvocationOutcome` type enforces that
+   `pending` cannot be returned from classification.
 
 ## Escalation rule
 

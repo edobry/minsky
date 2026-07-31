@@ -582,6 +582,13 @@
       "when": 1785467713544,
       "tag": "0082_superb_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1785531758245,
+      "tag": "0083_red_tarantula",
+      "breakpoints": true
     }
   ]
 }

@@ -2,8 +2,8 @@
  * Subagent invocations schema shape and enum tests — mt#1735
  *
  * Verifies that the Drizzle table definition has the expected column names,
- * that the outcome enum has exactly the 6 specified values, and that the SQL
- * migration file contains the required DDL.
+ * that the outcome enum has exactly the 7 specified values (6 terminal classes plus the
+ * mt#1770 `pending` placeholder), and that the SQL migration file contains the required DDL.
  *
  * These are pure unit tests — no live DB required.
  */
@@ -11,7 +11,7 @@
 /* eslint-disable custom/no-real-fs-in-tests -- reading shipped migration SQL IS the point of drift checks */
 
 import { describe, test, expect } from "bun:test";
-import { readFileSync } from "fs";
+import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import {
   subagentInvocationsTable,
@@ -26,11 +26,12 @@ const MIGRATIONS_DIR = join(import.meta.dir, "../migrations/pg");
 // ---------------------------------------------------------------------------
 
 describe("SubagentInvocationOutcome enum", () => {
-  test("SUBAGENT_INVOCATION_OUTCOME_VALUES has exactly 6 values", () => {
-    expect(SUBAGENT_INVOCATION_OUTCOME_VALUES).toHaveLength(6);
+  test("SUBAGENT_INVOCATION_OUTCOME_VALUES has exactly 7 values", () => {
+    // 6 terminal classes (mt#1005) + the dispatch-time `pending` placeholder (mt#1770).
+    expect(SUBAGENT_INVOCATION_OUTCOME_VALUES).toHaveLength(7);
   });
 
-  test("SUBAGENT_INVOCATION_OUTCOME_VALUES contains exactly the 6 specified outcome values", () => {
+  test("SUBAGENT_INVOCATION_OUTCOME_VALUES contains exactly the 7 specified outcome values", () => {
     const expected = [
       "completed-with-pr",
       "committed-no-pr",
@@ -38,9 +39,16 @@ describe("SubagentInvocationOutcome enum", () => {
       "partial-uncommitted-no-handoff",
       "crashed-no-output",
       "rate-limited",
+      "pending",
     ] as string[];
     const actual: string[] = [...SUBAGENT_INVOCATION_OUTCOME_VALUES].sort();
     expect(actual).toEqual(expected.sort());
+  });
+
+  test("`pending` is present — the dispatch-time placeholder (mt#1770)", () => {
+    // Guards the specific member rather than only the count: a future edit that swaps one
+    // value for another keeps the length at 7 and would otherwise pass silently.
+    expect([...SUBAGENT_INVOCATION_OUTCOME_VALUES]).toContain("pending");
   });
 
   test("pgEnum enumValues matches SUBAGENT_INVOCATION_OUTCOME_VALUES", () => {
@@ -216,10 +224,46 @@ describe("0033_subagent_invocations.sql migration sanity", () => {
     expect(sql).toContain("duplicate_object");
   });
 
-  test("migration enum contains all 6 outcome values", () => {
+  test("migration enum contains the 6 ORIGINAL outcome values", () => {
+    // Scoped to the values 0033 actually created. `pending` is deliberately absent here —
+    // Postgres cannot add an enum member retroactively to an already-applied migration, so
+    // mt#1770 added it in its own migration (asserted separately below). Asserting the full
+    // current value list against 0033 would fail every time the enum is extended, which is
+    // what it did when `pending` landed.
+    const ORIGINAL_VALUES = [
+      "completed-with-pr",
+      "committed-no-pr",
+      "partial-committed-handoff-written",
+      "partial-uncommitted-no-handoff",
+      "crashed-no-output",
+      "rate-limited",
+    ];
     const sql = readFileSync(migrationPath).toString();
-    for (const value of SUBAGENT_INVOCATION_OUTCOME_VALUES) {
+    for (const value of ORIGINAL_VALUES) {
       expect(sql).toContain(`'${value}'`);
+    }
+  });
+
+  test("every enum value is created by SOME migration for THIS enum (mt#1770)", () => {
+    // The real invariant the 0033-scoped test was reaching for: no value can exist in the TS
+    // enum without a migration that adds it to the Postgres type, or a fresh database would
+    // reject the insert at runtime while every unit test passed.
+    //
+    // Scoped to statements that NAME `subagent_invocation_outcome`. A naive repo-wide grep for
+    // the quoted value is not a check: `'pending'` also appears in 0060 as a member of the
+    // unrelated `follow_up_status` enum, so the unscoped version passed with this enum's own
+    // migration deleted — verified by deleting it. Matching a value without binding it to the
+    // declaration it belongs to is not evidence.
+    const ENUM_NAME = "subagent_invocation_outcome";
+    const relevantStatements = readdirSync(MIGRATIONS_DIR)
+      .filter((f) => f.endsWith(".sql"))
+      .flatMap((f) => readFileSync(join(MIGRATIONS_DIR, f)).toString().split(";"))
+      .filter((stmt) => stmt.includes(ENUM_NAME))
+      .join("\n");
+
+    expect(relevantStatements.length).toBeGreaterThan(0);
+    for (const value of SUBAGENT_INVOCATION_OUTCOME_VALUES) {
+      expect(relevantStatements).toContain(`'${value}'`);
     }
   });
 
