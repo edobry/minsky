@@ -179,7 +179,9 @@ export function registerTranscriptIndexEmbeddingsCommand(
       const { PerTurnEmbeddingPipeline } = await import(
         "@minsky/domain/transcripts/per-turn-embedding-pipeline"
       );
-      const { SummaryPipeline } = await import("@minsky/domain/transcripts/summary-pipeline");
+      const { SummaryPipeline, SUMMARY_BATCH_UNBOUNDED } = await import(
+        "@minsky/domain/transcripts/summary-pipeline"
+      );
 
       const perTurnPipeline = new PerTurnEmbeddingPipeline(
         db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
@@ -189,7 +191,11 @@ export function registerTranscriptIndexEmbeddingsCommand(
         db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
         cognitionProvider,
         embeddingService,
-        { force }
+        // Explicit full pass (mt#3441). SummaryPipeline is bounded by default so
+        // the summary sweeper inherits a safe shape; this operator-invoked
+        // backfill deliberately opts back out, preserving the behavior this
+        // command has always had.
+        { force, batchSize: SUMMARY_BATCH_UNBOUNDED }
       );
 
       // turn-writer: extraction reconciliation (ADR-019). Extraction is a
