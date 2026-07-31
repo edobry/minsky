@@ -59,11 +59,12 @@ greedy fill against a budget in the [5708, 5853)-char range) is documented in mt
 model fit against observed output, not a read of the harness, so treat the exact figure as an
 estimate and the discipline as the point.
 
-Check it before committing:
+The `claude-skills` compile target enforces this: every compile reports the listing total
+and names any over-cap description. Check it directly while working on descriptions:
 
 ```bash
-bun scripts/skill-listing-budget.ts          # report: per-description lengths + listing total
-bun scripts/skill-listing-budget.ts --check  # non-zero exit when over cap or over total
+bun run skills:budget         # report: per-description lengths + listing total
+bun run skills:budget:check   # non-zero exit when over cap or over total
 ```
 
 **Vendored skills are exempt from the cap, not from the cost.** Their description is set
