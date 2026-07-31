@@ -95,6 +95,13 @@ export async function toilMinerOpsTick(container: AppContainerInterface): Promis
       llmCap: envInt("TOIL_MINER_LLM_CAP", 10),
       budgetCap: envInt("TOIL_MINER_BUDGET_CAP", 5),
       similarityThreshold: envFloat("TOIL_MINER_SIMILARITY_THRESHOLD", 0.2),
+      // mt#3429 SC2: fraction of a name-cluster's occurrences a single
+      // arg_fingerprint sequence must cover to be proposed as a refined
+      // cluster instead of excluded as low-distinctiveness noise.
+      fingerprintConcentrationThreshold: envFloat(
+        "TOIL_MINER_FINGERPRINT_CONCENTRATION_THRESHOLD",
+        0.2
+      ),
     }
   );
 }

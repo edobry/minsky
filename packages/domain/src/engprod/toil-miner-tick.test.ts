@@ -82,6 +82,8 @@ function fakeLedgerService(
     reconcileVerdicts: async () => ({ accepted: 0, rejected: 0 }),
     shouldPropose: overrides.shouldPropose ?? (async () => ({ propose: true })),
     recordSuppressedByBudget: async () => {},
+    recordSuppressedByMaximalCollapse: async () => {},
+    recordSuppressedByLowDistinctiveness: async () => {},
     recordSuperseded: async () => {},
     recordProposed: async () => {},
   };

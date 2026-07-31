@@ -188,6 +188,39 @@ export class ProposalLedgerService {
   }
 
   /**
+   * mt#3429 SC1: record a cluster suppressed by maximal-sequence collapsing
+   * — its tool sequence is a contiguous run of a higher-ranked, currently
+   * surviving cluster (`supersededBySignature`), so it is the SAME
+   * phenomenon at a coarser/finer grain, not a distinct one. Additive
+   * `suppressedReason` value; no schema change (the column is free-text).
+   */
+  async recordSuppressedByMaximalCollapse(
+    cluster: MinedCluster,
+    supersededBySignature: string
+  ): Promise<void> {
+    await this.upsert(cluster, "suppressed", {
+      suppressedReason: "non-maximal-subsequence",
+      rejectionReason: `contiguous subsequence of higher-ranked cluster ${supersededBySignature}`,
+    });
+  }
+
+  /**
+   * mt#3429 SC2 (AT2): record a generic name-level cluster excluded from
+   * the LLM stage for lacking a concentrated arg_fingerprint sub-pattern —
+   * every occurrence sharing only the tool-name shape, not a repeated
+   * concrete command, so the cluster carries no primitive-level signal.
+   */
+  async recordSuppressedByLowDistinctiveness(
+    cluster: MinedCluster,
+    concentration: number
+  ): Promise<void> {
+    await this.upsert(cluster, "suppressed", {
+      suppressedReason: "low-distinctiveness",
+      rejectionReason: `no arg_fingerprint sub-pattern reached the concentration threshold (top concentration ${(concentration * 100).toFixed(1)}%)`,
+    });
+  }
+
+  /**
    * Reconcile every `proposed` ledger row against its filed task's CURRENT
    * status. `getTaskStatus` is injected so callers can pass a plain
    * `taskId => status` lookup (typically `taskService.getTask(id).then(t

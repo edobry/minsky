@@ -37,26 +37,40 @@ export const DEFAULT_FINGERPRINT_CONCENTRATION_THRESHOLD = 0.2;
 
 export type RefinementOutcome =
   | { kind: "refined"; cluster: MinedCluster; concentration: number }
-  | { kind: "excluded"; concentration: number };
+  | { kind: "excluded"; concentration: number }
+  | { kind: "unrefined"; cluster: MinedCluster };
 
 /**
  * Decide whether a (maximal, name-level) cluster should be replaced by its
- * fingerprint-refined sub-cluster, or excluded from the LLM stage entirely
- * for lacking a distinctive fingerprint sub-pattern.
+ * fingerprint-refined sub-cluster, excluded from the LLM stage entirely for
+ * lacking a distinctive fingerprint sub-pattern, or passed through
+ * unchanged because no fingerprint measurement is available at all.
  *
- * A cluster with no `fingerprintProfile` at all (e.g. a hand-built test
- * fixture, or — defensively — a corpus row whose fingerprint somehow never
- * populated) is treated as `concentration: 0` and excluded, matching the
- * "no distinctive sub-pattern observed" case rather than silently
- * defaulting to "propose the generic form" (which would resurrect the v1
- * defect this task fixes).
+ * The THREE outcomes are deliberately distinct:
+ * - `excluded` — fingerprint data WAS observed and its concentration is
+ *   below the floor (the real distinctiveness-floor case, spec SC2).
+ * - `refined` — fingerprint data was observed and concentrated enough to
+ *   propose the more specific sub-cluster instead of the generic one.
+ * - `unrefined` — NO fingerprint measurement exists at all (`cluster.
+ *   fingerprintProfile` undefined). In the real production pipeline this
+ *   is unreachable — `mineClusters` always populates a profile from the
+ *   projection's NOT NULL `arg_fingerprint` column whenever a cluster has
+ *   any occurrences — so this branch exists only for hand-built
+ *   `MinedCluster` fixtures (tests, or a future caller) that never
+ *   populated it. Treating "no measurement" the same as "measured and
+ *   found generic" would silently exclude EVERYTHING the moment fingerprint
+ *   instrumentation is absent for any reason — a data-quality bug
+ *   indistinguishable from a real gap. Fail open (pass through) instead.
  */
 export function refineCluster(
   cluster: MinedCluster,
   threshold: number = DEFAULT_FINGERPRINT_CONCENTRATION_THRESHOLD
 ): RefinementOutcome {
   const profile = cluster.fingerprintProfile;
-  if (!profile || cluster.frequency <= 0) {
+  if (!profile) {
+    return { kind: "unrefined", cluster };
+  }
+  if (cluster.frequency <= 0) {
     return { kind: "excluded", concentration: 0 };
   }
 

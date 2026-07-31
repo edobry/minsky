@@ -46,7 +46,16 @@ export const engprodProposalLedgerTable = pgTable("engprod_proposal_ledger", {
   /** Why a `rejected` or `suppressed` verdict was recorded. Null otherwise. */
   rejectionReason: text("rejection_reason"),
 
-  /** budget-cap | dedupe-ledger | dedupe-similarity — set only when suppressed. */
+  /**
+   * budget-cap | dedupe-similarity | non-maximal-subsequence |
+   * low-distinctiveness — set only when suppressed. The last two are
+   * additive mt#3429 values: `non-maximal-subsequence` (SC1) marks a
+   * cluster whose tool sequence is a contiguous run of a higher-ranked,
+   * still-surviving cluster; `low-distinctiveness` (SC2) marks a generic
+   * name-level cluster excluded from the LLM stage for lacking a
+   * concentrated arg_fingerprint sub-pattern. Both are plain text, like
+   * every value here — no migration needed to add them.
+   */
   suppressedReason: text("suppressed_reason"),
 
   /** Normalized tool-name sequence, e.g. ["Read", "Edit", "Bash"]. */

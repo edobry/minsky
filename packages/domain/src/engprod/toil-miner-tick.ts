@@ -1,19 +1,31 @@
 /**
- * EngProd toil miner — orchestration (mt#3330).
+ * EngProd toil miner — orchestration (mt#3330; v2 quality pass mt#3429).
  *
  * One call = one mining run. Order of operations:
  *
  * 1. Reconcile prior `proposed` ledger rows against their filed tasks'
  *    current status ("acceptance = unblocking").
- * 2. Stage 1 (deterministic): mine clusters from the projection table,
- *    rank, and cap to the top `llmCap` (default 10) after collapsing
- *    contiguous-subsequence redundancy.
- * 3. Ledger dedupe (first dedupe stage) — filters the top clusters BEFORE
+ * 2. Stage 1 (deterministic): mine clusters from the projection table
+ *    (each carrying a `fingerprintProfile`, mt#3429 SC2).
+ * 3. Maximal-sequence collapsing (mt#3429 SC1): suppress any cluster whose
+ *    tool sequence is a contiguous run of a higher-ranked, still-surviving
+ *    cluster — recorded in the ledger (`non-maximal-subsequence`), never
+ *    silently dropped. Runs on the FULL population, before any cap.
+ * 4. Fingerprint refinement (mt#3429 SC2): substitute each surviving
+ *    cluster with its fingerprint-refined sub-cluster when concentration
+ *    crosses the configurable threshold (default ~20%); otherwise exclude
+ *    it from the LLM stage entirely (`low-distinctiveness`) — a generic
+ *    cluster never reaches the LLM unrefined.
+ * 5. Rank and cap to the top `llmCap` (default 10) after collapsing any
+ *    remaining contiguous-subsequence redundancy (`selectTopClusters`).
+ * 6. Ledger dedupe (first dedupe stage) — filters the top clusters BEFORE
  *    the LLM stage runs at all.
- * 4. Stage 2 (LLM, AI-as-API): analyze each surviving cluster.
- * 5. Budget cap (default 5) + task-similarity dedupe (second dedupe stage)
+ * 7. Stage 2 (LLM, AI-as-API): analyze each surviving cluster, using
+ *    representative tool-name + fingerprint samples in the prompt
+ *    (mt#3429 SC3 — never raw arguments).
+ * 8. Budget cap (default 5) + task-similarity dedupe (second dedupe stage)
  *    decide which survivors actually get filed as BLOCKED proposal tasks.
- * 6. Persist per-run counters + history (self-observability, and the
+ * 9. Persist per-run counters + history (self-observability, and the
  *    durable state needed for "two consecutive zero-cluster runs" —
  *    an in-memory counter would not survive an ops-service restart).
  *
@@ -35,7 +47,16 @@ import type { TaskSimilarityService } from "../tasks/task-similarity-service";
 import type { CognitionProvider } from "../cognition/types";
 import { engprodMinerRunsTable } from "../storage/schemas/engprod-proposal-ledger-schema";
 
-import { mineClusters, selectTopClusters, type MineClustersOptions } from "./sequence-mining";
+import {
+  mineClusters,
+  selectTopClusters,
+  collapseToMaximalClusters,
+  type MineClustersOptions,
+} from "./sequence-mining";
+import {
+  refineCluster,
+  DEFAULT_FINGERPRINT_CONCENTRATION_THRESHOLD,
+} from "./fingerprint-refinement";
 import { analyzeClusters } from "./cluster-analysis";
 import { ProposalLedgerService } from "./ledger-service";
 import { fileProposal } from "./proposal-filing-service";
@@ -67,6 +88,8 @@ export interface ToilMinerTickDeps {
     | "reconcileVerdicts"
     | "shouldPropose"
     | "recordSuppressedByBudget"
+    | "recordSuppressedByMaximalCollapse"
+    | "recordSuppressedByLowDistinctiveness"
     | "recordSuperseded"
     | "recordProposed"
   >;
@@ -79,6 +102,8 @@ export interface ToilMinerTickOptions extends MineClustersOptions {
   llmCap?: number;
   budgetCap?: number;
   similarityThreshold?: number;
+  /** mt#3429 SC2: min fraction of a cluster's occurrences a single arg_fingerprint sequence must cover to be proposed as a refined cluster (default ~20%, spec). */
+  fingerprintConcentrationThreshold?: number;
 }
 
 export async function toilMinerTick(
@@ -127,8 +152,87 @@ export async function toilMinerTick(
   counters.turnsScanned = turnsScanned;
   counters.clustersFound = clusters.length;
 
+  // mt#3429 SC1: maximal-sequence collapsing — one phenomenon, one
+  // candidate. Runs on the FULL mined population (before any cap), so a
+  // nested family (e.g. Bash x2..x6) never crowds the llmCap with N
+  // overlapping views of the same underlying pattern. Every suppressed
+  // member is recorded in the ledger (never a silent drop) with a
+  // distinct suppressedReason, referencing the surviving cluster.
+  const { maximal, suppressed: maximalSuppressed } = collapseToMaximalClusters(clusters);
+  for (const { cluster, supersededBy } of maximalSuppressed) {
+    counters.suppressedByMaximalCollapse++;
+    try {
+      await ledgerService.recordSuppressedByMaximalCollapse(cluster, supersededBy.signature);
+    } catch (err) {
+      log.error("engprod_toil_miner.ledger_write_failed", {
+        event: "engprod_toil_miner.ledger_write_failed",
+        runId,
+        phase: "maximal_collapse",
+        signature: cluster.signature,
+        error: getLoggableErrorSummary(err),
+      });
+    }
+    log.info("engprod_toil_miner.suppressed_by_maximal_collapse", {
+      event: "engprod_toil_miner.suppressed_by_maximal_collapse",
+      runId,
+      signature: cluster.signature,
+      supersededBy: supersededBy.signature,
+    });
+  }
+
+  // mt#3429 SC2: fingerprint refinement. For each surviving (maximal)
+  // cluster, either substitute it with its fingerprint-refined sub-cluster
+  // (when a concrete command sequence is concentrated enough to be the
+  // real signal) or exclude it from the LLM stage entirely (when the
+  // occurrences are just tool-name noise with no distinctive sub-pattern —
+  // the "distinctiveness floor"). A generic cluster NEVER reaches the LLM
+  // unrefined.
+  const fingerprintThreshold =
+    options.fingerprintConcentrationThreshold ?? DEFAULT_FINGERPRINT_CONCENTRATION_THRESHOLD;
+  const refinedClusters: MinedCluster[] = [];
+  for (const cluster of maximal) {
+    const outcome = refineCluster(cluster, fingerprintThreshold);
+    if (outcome.kind === "refined") {
+      refinedClusters.push(outcome.cluster);
+      log.info("engprod_toil_miner.refined_by_fingerprint", {
+        event: "engprod_toil_miner.refined_by_fingerprint",
+        runId,
+        genericSignature: cluster.signature,
+        refinedSignature: outcome.cluster.signature,
+        concentration: outcome.concentration,
+      });
+      continue;
+    }
+    if (outcome.kind === "unrefined") {
+      // No fingerprint measurement available at all — unreachable in the
+      // real pipeline (mineClusters always populates a profile); pass the
+      // cluster through unchanged rather than treating absence of data the
+      // same as a measured low-distinctiveness verdict.
+      refinedClusters.push(outcome.cluster);
+      continue;
+    }
+    counters.suppressedByLowDistinctiveness++;
+    try {
+      await ledgerService.recordSuppressedByLowDistinctiveness(cluster, outcome.concentration);
+    } catch (err) {
+      log.error("engprod_toil_miner.ledger_write_failed", {
+        event: "engprod_toil_miner.ledger_write_failed",
+        runId,
+        phase: "low_distinctiveness",
+        signature: cluster.signature,
+        error: getLoggableErrorSummary(err),
+      });
+    }
+    log.info("engprod_toil_miner.suppressed_by_low_distinctiveness", {
+      event: "engprod_toil_miner.suppressed_by_low_distinctiveness",
+      runId,
+      signature: cluster.signature,
+      concentration: outcome.concentration,
+    });
+  }
+
   const llmCap = options.llmCap ?? DEFAULT_LLM_CAP;
-  const topClusters = selectTopClusters(clusters, llmCap);
+  const topClusters = selectTopClusters(refinedClusters, llmCap);
 
   // First dedupe stage: ledger (exact signature) — BEFORE the LLM stage.
   const llmCandidates: MinedCluster[] = [];

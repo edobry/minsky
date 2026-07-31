@@ -43,15 +43,53 @@ const SYSTEM_PROMPT = [
   "already does this; otherwise false.",
 ].join("\n");
 
+/**
+ * Render a cluster's representative samples — tool names + arg_fingerprint
+ * values only, NEVER raw arguments (mt#3429 SC3). Samples are resolved
+ * directly from `cluster.sampleRefs`, which `mineClusters` already
+ * populates with the concrete per-position fingerprints observed at each
+ * occurrence, straight from the projection rows the mining pass reads —
+ * there is no second query and no path to raw argument payloads here.
+ */
+function buildSampleLines(cluster: MinedCluster): string[] {
+  const withFingerprints = cluster.sampleRefs.filter(
+    (ref) => (ref.argFingerprints?.length ?? 0) > 0
+  );
+  if (withFingerprints.length === 0) return [];
+
+  const lines = [
+    "",
+    "Representative samples (tool name + argument fingerprint per call — never raw arguments):",
+  ];
+  for (const ref of withFingerprints) {
+    const pairs = cluster.toolSequence.map(
+      (tool, i) => `${tool}(fp:${ref.argFingerprints?.[i] ?? "?"})`
+    );
+    lines.push(`  - ${pairs.join(" -> ")}`);
+  }
+  return lines;
+}
+
 function buildUserPrompt(cluster: MinedCluster): string {
-  return [
+  const lines = [
     `Recurring tool-call sequence: ${cluster.toolSequence.join(" -> ")}`,
     `Observed ${cluster.frequency} times across ${cluster.sessionCount} distinct sessions.`,
     `Chain length: ${cluster.chainLength}.`,
+  ];
+
+  if (cluster.argFingerprintSequence) {
+    lines.push(
+      `This is a FINGERPRINT-REFINED cluster: these occurrences share the IDENTICAL argument fingerprint sequence [${cluster.argFingerprintSequence.join(", ")}] — this is the SAME command/input repeated, not merely the same tool.`
+    );
+  }
+
+  lines.push(...buildSampleLines(cluster));
+  lines.push(
     "",
     "1. What primitive would collapse this sequence into one call?",
-    "2. Does an existing Minsky tool already cover this need?",
-  ].join("\n");
+    "2. Does an existing Minsky tool already cover this need?"
+  );
+  return lines.join("\n");
 }
 
 function buildTask(cluster: MinedCluster): CognitionTask<ClusterAnalysis> {
