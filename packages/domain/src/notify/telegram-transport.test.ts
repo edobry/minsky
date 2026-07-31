@@ -131,6 +131,112 @@ describe("sendTelegramMessage", () => {
   });
 });
 
+/**
+ * Formatted sends (mt#3465).
+ *
+ * The invariant these protect is the one the plain-text default was built on:
+ * a delivery failure is worse than unstyled text. Adding a parse mode must not
+ * trade that away, so a 400 has to degrade to a delivered plain message rather
+ * than to silence.
+ */
+describe("sendTelegramMessage — parse mode", () => {
+  function capture(): { bodies: Record<string, unknown>[]; fetchFn: FetchFn } {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchFn: FetchFn = async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return jsonResponse({ ok: true, result: { message_id: 7 } });
+    };
+    return { bodies, fetchFn };
+  }
+
+  test("omits parse_mode by default, preserving the alert-path contract", async () => {
+    const { bodies, fetchFn } = capture();
+    await sendTelegramMessage({ token: TOKEN, chatId: CHAT, text: "alert", fetchFn });
+    expect("parse_mode" in (bodies[0] ?? {})).toBe(false);
+  });
+
+  test("sends parse_mode when the caller opts in", async () => {
+    const { bodies, fetchFn } = capture();
+    await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>hi</b>",
+      parseMode: "HTML",
+      fetchFn,
+    });
+    expect(bodies[0]?.["parse_mode"]).toBe("HTML");
+    expect(bodies[0]?.["text"]).toBe("<b>hi</b>");
+  });
+
+  test("retries as plain text when Telegram rejects the markup with 400", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchFn: FetchFn = async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      bodies.push(body);
+      if (body["parse_mode"] !== undefined) {
+        return jsonResponse({ ok: false, description: "can't parse entities" }, 400);
+      }
+      return jsonResponse({ ok: true, result: { message_id: 9 } });
+    };
+
+    const result = await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>broken",
+      parseMode: "HTML",
+      plainFallback: "**broken",
+      fetchFn,
+    });
+
+    // Delivered, not lost — the whole point.
+    expect(result).toEqual({ ok: true, messageId: 9 });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]?.["text"]).toBe("**broken");
+    expect("parse_mode" in (bodies[1] ?? {})).toBe(false);
+  });
+
+  test("does NOT retry on a non-400 failure", async () => {
+    // 429/5xx are about the chat or the service; resending unstyled would not
+    // help and would double the load on an already-failing endpoint.
+    let calls = 0;
+    const fetchFn: FetchFn = async () => {
+      calls += 1;
+      return jsonResponse({ ok: false, description: "Too Many Requests" }, 429);
+    };
+
+    const result = await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>hi</b>",
+      parseMode: "HTML",
+      plainFallback: "hi",
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(calls).toBe(1);
+  });
+
+  test("does not retry when the caller supplied no fallback", async () => {
+    let calls = 0;
+    const fetchFn: FetchFn = async () => {
+      calls += 1;
+      return jsonResponse({ ok: false, description: "can't parse entities" }, 400);
+    };
+
+    const result = await sendTelegramMessage({
+      token: TOKEN,
+      chatId: CHAT,
+      text: "<b>hi",
+      parseMode: "HTML",
+      fetchFn,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(calls).toBe(1);
+  });
+});
+
 describe("sendTelegramTypingAction", () => {
   test("reports success on a 2xx", async () => {
     const ok = await sendTelegramTypingAction({

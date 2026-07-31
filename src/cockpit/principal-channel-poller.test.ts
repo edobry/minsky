@@ -544,6 +544,100 @@ describe("runPollCycle — media", () => {
   });
 });
 
+/**
+ * Reply formatting through the poll cycle (mt#3465).
+ *
+ * The principal reported reading literal `**bold**` on their phone, twice. The
+ * unit tests for the converter prove the CONVERSION; these prove the poller
+ * actually applies it on the path a real reply takes.
+ */
+describe("runPollCycle — reply formatting", () => {
+  /** Capture the sendMessage payloads rather than just their text. */
+  function harnessCapturingSends(reply: string): {
+    h: Harness;
+    sends: Record<string, unknown>[];
+  } {
+    const sends: Record<string, unknown>[] = [];
+    const h = harness(updateBody([{ updateId: 40, text: "go" }]), {
+      actuator: { converse: async () => reply },
+    });
+    const inner = h.baseFetch;
+    h.deps.fetchFn = async (url, init) => {
+      if (String(url).includes(SEND_MESSAGE)) {
+        sends.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }));
+      }
+      return inner(url, init);
+    };
+    return { h, sends };
+  }
+
+  test("sends the reply as Telegram HTML, not as literal Markdown", async () => {
+    const { h, sends } = harnessCapturingSends("**bold** and `code`");
+    await runPollCycle(h.deps);
+
+    expect(sends[0]?.["parse_mode"]).toBe("HTML");
+    expect(sends[0]?.["text"]).toBe("<b>bold</b> and <code>code</code>");
+  });
+
+  test("a rejected markup send still delivers the reply, unstyled", async () => {
+    // The invariant the plain-text default was built on: a delivery failure is
+    // worse than unstyled text. Simulate Telegram refusing the markup and
+    // assert the principal still receives the answer.
+    const sends: Record<string, unknown>[] = [];
+    const h = harness(updateBody([{ updateId: 41, text: "go" }]), {
+      actuator: { converse: async () => "**bold**" },
+    });
+    const inner = h.baseFetch;
+    h.deps.fetchFn = async (url, init) => {
+      if (String(url).includes(SEND_MESSAGE)) {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        sends.push(body);
+        if (body["parse_mode"] !== undefined) {
+          return new Response(JSON.stringify({ ok: false, description: "can't parse entities" }), {
+            status: 400,
+          });
+        }
+        return new Response(JSON.stringify({ ok: true, result: { message_id: 2 } }));
+      }
+      return inner(url, init);
+    };
+
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome.handled).toBe(1);
+    expect(sends).toHaveLength(2);
+    expect(sends[1]?.["text"]).toBe("**bold**");
+    expect("parse_mode" in (sends[1] ?? {})).toBe(false);
+  });
+
+  test("escapes agent output that contains angle brackets", async () => {
+    const { h, sends } = harnessCapturingSends("returns Promise<string> when a<b");
+    await runPollCycle(h.deps);
+
+    expect(sends[0]?.["text"]).toBe("returns Promise&lt;string&gt; when a&lt;b");
+  });
+
+  test("leaves snake_case identifiers intact end-to-end", async () => {
+    const { h, sends } = harnessCapturingSends("set parse_mode on send_message");
+    await runPollCycle(h.deps);
+
+    expect(sends[0]?.["text"]).toBe("set parse_mode on send_message");
+  });
+
+  test("falls back to unstyled when the rendered form exceeds Telegram's ceiling", async () => {
+    // Tag overhead can push a reply inside the markdown budget past the 4096
+    // wire limit; sending it formatted would be an outright rejection.
+    const heavy = Array.from({ length: 400 }, (_, i) => `**b${i}**`).join(" ");
+    const { h, sends } = harnessCapturingSends(heavy);
+    await runPollCycle(h.deps);
+
+    expect(sends).toHaveLength(1);
+    expect("parse_mode" in (sends[0] ?? {})).toBe(false);
+    expect(String(sends[0]?.["text"])).toContain("**b0**");
+  });
+});
+
 describe("truncateReply", () => {
   test("leaves a short reply alone", () => {
     expect(truncateReply("short", 100)).toBe("short");

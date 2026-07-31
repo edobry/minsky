@@ -99,6 +99,29 @@ export interface SendMessageOptions {
   text: string;
   /** Thread the outbound message as a reply to an earlier one. */
   replyToMessageId?: number;
+  /**
+   * Render `text` with Telegram's HTML parser (mt#3465).
+   *
+   * Opt-in, and the default stays plain: the two alert callers (the reviewer's
+   * circuit-breaker sink, `notifyPrincipal`) send operator-authored strings
+   * that are not Markdown, and mt#2364's contract is that an alert must never
+   * fail to deliver because of formatting. Only the conversational reply path
+   * opts in.
+   *
+   * `text` must already be valid Telegram HTML — see
+   * `markdownToTelegramHtml`. Pair it with {@link plainFallback}.
+   */
+  parseMode?: "HTML";
+  /**
+   * The un-marked-up text to resend if the formatted attempt is rejected.
+   *
+   * Telegram answers malformed markup with a 400 and delivers NOTHING, which
+   * on this channel means the principal silently gets no answer. Supplying the
+   * original text turns that into a delivery that is merely unstyled —
+   * preserving the "a delivery failure is worse than unstyled text" invariant
+   * the plain-text default was built on, rather than trading it away.
+   */
+  plainFallback?: string;
   fetchFn?: FetchFn;
 }
 
@@ -109,13 +132,55 @@ export type TelegramSendResult =
 /**
  * Send a message to a chat.
  *
- * Plain text with no `parse_mode`: agent output routinely contains SHAs,
- * underscores, and error strings that Markdown/HTML parse modes reject or
- * mangle, and a delivery failure on an alert channel is worse than unstyled
- * text.
+ * **Plain text by DEFAULT** — unchanged from the original contract: agent
+ * output routinely contains SHAs, underscores, and error strings that a parse
+ * mode can reject, and a delivery failure on an alert channel is worse than
+ * unstyled text.
+ *
+ * A caller that wants formatting opts in with `parseMode` (mt#3465). When it
+ * does, a 400 from Telegram — its answer to markup it cannot parse — is
+ * retried once as plain text using {@link SendMessageOptions.plainFallback},
+ * so the invariant above still holds for the formatted path: the worst case is
+ * an unstyled message, never a missing one.
  */
 export async function sendTelegramMessage(opts: SendMessageOptions): Promise<TelegramSendResult> {
-  const { token, chatId, text, replyToMessageId, fetchFn = fetch } = opts;
+  const { token, chatId, text, replyToMessageId, parseMode, plainFallback, fetchFn = fetch } = opts;
+
+  const attempt = await postSendMessage({
+    token,
+    chatId,
+    text,
+    replyToMessageId,
+    parseMode,
+    fetchFn,
+  });
+
+  // Only a 400 means "I could not parse that" — a 403/429/5xx is about the
+  // chat or the service, and resending unstyled would not help.
+  const shouldRetryPlain =
+    !attempt.ok && attempt.status === 400 && parseMode !== undefined && plainFallback !== undefined;
+  if (!shouldRetryPlain) return attempt;
+
+  return postSendMessage({
+    token,
+    chatId,
+    text: plainFallback,
+    replyToMessageId,
+    parseMode: undefined,
+    fetchFn,
+  });
+}
+
+/** One `sendMessage` round-trip. Shared by the formatted attempt and its retry. */
+async function postSendMessage(opts: {
+  token: string;
+  chatId: string;
+  text: string;
+  replyToMessageId: number | undefined;
+  parseMode: "HTML" | undefined;
+  fetchFn: FetchFn;
+}): Promise<TelegramSendResult> {
+  const { token, chatId, text, replyToMessageId, parseMode, fetchFn } = opts;
   const url = `${TELEGRAM_API_BASE}/bot${token}/sendMessage`;
 
   let response: Response;
@@ -127,6 +192,7 @@ export async function sendTelegramMessage(opts: SendMessageOptions): Promise<Tel
         chat_id: chatId,
         text,
         disable_web_page_preview: true,
+        ...(parseMode === undefined ? {} : { parse_mode: parseMode }),
         ...(replyToMessageId === undefined ? {} : { reply_to_message_id: replyToMessageId }),
       }),
     });

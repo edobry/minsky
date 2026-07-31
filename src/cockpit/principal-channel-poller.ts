@@ -47,6 +47,7 @@ import {
   type FetchFn,
   type InboundTelegramMessage,
 } from "@minsky/domain/notify/telegram-transport";
+import { markdownToTelegramHtml } from "@minsky/domain/notify/markdown-to-telegram-html";
 import {
   buildInboundEventPayload,
   inboundEventToken,
@@ -68,6 +69,15 @@ const ERROR_BACKOFF_MS = 30_000;
 
 /** Cap on a single outbound reply. Telegram hard-rejects above 4096. */
 const MAX_REPLY_CHARS = 3500;
+
+/**
+ * Telegram's own hard ceiling for a single message (mt#3465).
+ *
+ * {@link MAX_REPLY_CHARS} bounds the MARKDOWN; this bounds what actually goes
+ * on the wire after tags and entities inflate it. The two are different limits
+ * and both have to hold.
+ */
+const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
 
 /**
  * What the router's decision is carried out against.
@@ -454,10 +464,30 @@ async function sendReply(
   reply: string
 ): Promise<number | undefined> {
   const text = reply.trim().length > 0 ? reply.trim() : "(no output)";
+
+  // Truncate the MARKDOWN, then convert (mt#3465). Doing it in this order
+  // means the length budget applies to what the principal actually reads
+  // rather than to tag overhead, and the converter — which always emits
+  // balanced tags — never sees a string cut through the middle of one.
+  const plain = truncateReply(text);
+  const html = markdownToTelegramHtml(plain);
+
+  // Tags and entities inflate the payload, so a markdown body inside the
+  // budget can still exceed Telegram's own 4096 ceiling. Send the unstyled
+  // text rather than a message Telegram will reject outright.
+  const formatted = html.length <= TELEGRAM_MAX_MESSAGE_CHARS;
+  if (!formatted) {
+    log.info("[principal-channel] reply too long once rendered; sending unstyled", {
+      plainChars: plain.length,
+      htmlChars: html.length,
+    });
+  }
+
   const result = await sendTelegramMessage({
     token: deps.token,
     chatId: deps.chatId,
-    text: truncateReply(text),
+    text: formatted ? html : plain,
+    ...(formatted ? { parseMode: "HTML" as const, plainFallback: plain } : {}),
     replyToMessageId: message.messageId,
     ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
   });
