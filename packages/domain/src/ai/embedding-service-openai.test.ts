@@ -1,7 +1,9 @@
 import { describe, it, expect, afterEach } from "bun:test";
-import { OpenAIEmbeddingService, isRetryableAIError } from "./embedding-service-openai";
+import { OpenAIEmbeddingService } from "./embedding-service-openai";
+import { isRetryableAIError, isRequestTimeoutError } from "./request-resilience";
 import { RateLimitError } from "./enhanced-error-types";
 import { IntelligentRetryService } from "./intelligent-retry-service";
+import { EmbeddingsHealthTracker } from "./embeddings-health-tracker";
 
 // mt#2980: injected in place of the module's shared retry service for tests
 // that actually exercise the retry loop, following the
@@ -321,5 +323,201 @@ describe("isRetryableAIError", () => {
     expect(isRetryableAIError("some string")).toBe(false);
     expect(isRetryableAIError(null)).toBe(false);
     expect(isRetryableAIError(undefined)).toBe(false);
+  });
+
+  // mt#3444: an `AbortSignal.timeout` rejection is a `TimeoutError` whose
+  // message is "The operation timed out." — matching NONE of the tokens above
+  // (`ETIMEDOUT` does not match "timed out"). Before this classification, adding
+  // a request timeout would have converted an unbounded hang into a
+  // NON-retryable single-shot failure.
+  it("returns true for a request-timeout rejection (classified by name, not message)", () => {
+    const err = new DOMException("The operation timed out.", "TimeoutError");
+    expect(isRequestTimeoutError(err)).toBe(true);
+    expect(isRetryableAIError(err)).toBe(true);
+    // Guard the reason this needs name-based classification: the message alone
+    // does not match the retryable-token regex.
+    expect(
+      /429|rate.limit|502|Bad Gateway|503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(
+        err.message
+      )
+    ).toBe(false);
+  });
+
+  it("does NOT treat a caller-initiated abort as retryable", () => {
+    // A deliberate `controller.abort()` produces AbortError — retrying a
+    // cancellation the caller asked for would be wrong.
+    const err = new DOMException("This operation was aborted", "AbortError");
+    expect(isRequestTimeoutError(err)).toBe(false);
+    expect(isRetryableAIError(err)).toBe(false);
+  });
+});
+
+/**
+ * mt#3444 — the request timeout, exercised against a REAL stalled server.
+ *
+ * These deliberately do NOT mock `fetch`: the defect was that the real
+ * `fetch` never self-times-out, so a mocked rejection would prove nothing about
+ * whether the fix works. Each test stands up a local server that accepts the
+ * connection and never responds — the exact production failure shape.
+ */
+describe("OpenAIEmbeddingService request timeout (mt#3444)", () => {
+  const TIMEOUT_MS = 150; // tiny bound so the suite stays fast
+  let stalled: ReturnType<typeof Bun.serve> | null = null;
+
+  function startStalledServer() {
+    stalled = Bun.serve({
+      port: 0,
+      fetch() {
+        // Accept, then never respond.
+        return new Promise<Response>(() => {});
+      },
+    });
+    return `http://127.0.0.1:${stalled.port}/v1`;
+  }
+
+  afterEach(() => {
+    stalled?.stop(true);
+    stalled = null;
+  });
+
+  it("AT1: a stalled single request rejects within the bound instead of hanging", async () => {
+    const url = startStalledServer();
+    const svc = new OpenAIEmbeddingService(
+      TEST_API_KEY,
+      url,
+      TEST_MODEL,
+      new IntelligentRetryService({ maxRetries: 0, baseDelay: 1, maxDelay: 1, jitterMaxMs: 0 }),
+      TIMEOUT_MS
+    );
+
+    const started = performance.now();
+    let err: unknown = null;
+    try {
+      await svc.generateEmbedding("probe");
+    } catch (e) {
+      err = e;
+    }
+    const elapsed = performance.now() - started;
+
+    expect(err).toBeTruthy();
+    expect(isRequestTimeoutError(err)).toBe(true);
+    // Bounded: well under the 1800s hang this replaces, and comfortably above
+    // the configured bound. Generous upper bound to stay non-flaky under load.
+    expect(elapsed).toBeLessThan(5000);
+    expect(elapsed).toBeGreaterThanOrEqual(TIMEOUT_MS - 50);
+  });
+
+  it("AT3: a stalled BATCH request rejects within the bound too", async () => {
+    const url = startStalledServer();
+    const svc = new OpenAIEmbeddingService(
+      TEST_API_KEY,
+      url,
+      TEST_MODEL,
+      new IntelligentRetryService({ maxRetries: 0, baseDelay: 1, maxDelay: 1, jitterMaxMs: 0 }),
+      TIMEOUT_MS
+    );
+
+    let err: unknown = null;
+    try {
+      await svc.generateEmbeddings(["a", "b", "c"]);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeTruthy();
+    expect(isRequestTimeoutError(err)).toBe(true);
+  });
+
+  it("AT2: the timeout is retried by the retry service (not a single-shot failure)", async () => {
+    const url = startStalledServer();
+    let attempts = 0;
+    const countingRetry = new IntelligentRetryService({
+      maxRetries: 2,
+      baseDelay: 1,
+      maxDelay: 5,
+      jitterMaxMs: 0,
+    });
+    const realExecute = countingRetry.execute.bind(countingRetry);
+    countingRetry.execute = ((fn: () => Promise<unknown>, ...rest: unknown[]) =>
+      realExecute(
+        async () => {
+          attempts++;
+          return fn();
+        },
+        ...(rest as [])
+      )) as typeof countingRetry.execute;
+
+    const svc = new OpenAIEmbeddingService(
+      TEST_API_KEY,
+      url,
+      TEST_MODEL,
+      countingRetry,
+      TIMEOUT_MS
+    );
+
+    try {
+      await svc.generateEmbedding("probe");
+    } catch {
+      // expected
+    }
+
+    // The whole point: a non-settling promise could never reach attempt 2.
+    expect(attempts).toBeGreaterThan(1);
+  });
+
+  it("AT5: a stall is recorded as errorCode 'timeout', not the catch-all 'unknown'", async () => {
+    const url = startStalledServer();
+    EmbeddingsHealthTracker.resetForTest();
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    const recorded: Array<{ provider: string; errorCode: string }> = [];
+    const realRecordError = tracker.recordError.bind(tracker);
+    tracker.recordError = async (provider: string, errorCode: string, message: string) => {
+      recorded.push({ provider, errorCode });
+      return realRecordError(provider, errorCode, message);
+    };
+
+    const svc = new OpenAIEmbeddingService(
+      TEST_API_KEY,
+      url,
+      TEST_MODEL,
+      new IntelligentRetryService({ maxRetries: 0, baseDelay: 1, maxDelay: 1, jitterMaxMs: 0 }),
+      TIMEOUT_MS
+    );
+
+    try {
+      await svc.generateEmbedding("probe");
+    } catch {
+      // expected
+    } finally {
+      tracker.recordError = realRecordError;
+      EmbeddingsHealthTracker.resetForTest();
+    }
+
+    // The operator-visible half: a stall must be distinguishable from an error
+    // the API returned. Before this change it fell through to "unknown".
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.errorCode).toBe("timeout");
+    expect(recorded[0]?.provider).toBe("openai");
+  });
+
+  it("AT4: a normal (fast) request is unaffected by the bound", async () => {
+    const ok = Bun.serve({
+      port: 0,
+      fetch() {
+        return Response.json({ data: [{ embedding: [0.1, 0.2, 0.3] }] });
+      },
+    });
+    try {
+      const svc = new OpenAIEmbeddingService(
+        TEST_API_KEY,
+        `http://127.0.0.1:${ok.port}/v1`,
+        TEST_MODEL,
+        FAST_RETRY,
+        TIMEOUT_MS
+      );
+      const vec = await svc.generateEmbedding("probe");
+      expect(vec).toEqual([0.1, 0.2, 0.3]);
+    } finally {
+      ok.stop(true);
+    }
   });
 });
