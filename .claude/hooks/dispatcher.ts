@@ -444,6 +444,154 @@ export interface RunDispatcherOptions {
   nowMsFn?: () => number;
 }
 
+// ---------------------------------------------------------------------------
+// Merged-context composition (mt#3394)
+// ---------------------------------------------------------------------------
+
+/** One guard's `additionalContext` contribution, tagged for ordering. */
+export interface ContextFragment {
+  guardName: string;
+  priority: number;
+  text: string;
+}
+
+/**
+ * Priority used for a guard that declares no `contextPriority`. Every fragment
+ * sitting at this value keeps registry order relative to its peers, so an
+ * unannotated registry produces exactly the block it produced before mt#3394.
+ */
+export const DEFAULT_CONTEXT_PRIORITY = 0;
+
+/**
+ * Char budget for the MERGED block, derived from the registry's own
+ * `attentionCost.denialMessageSizeChars` annotations rather than picked round
+ * (`decision-defaults.mdc §Thresholds` — observed cadence, not round numbers).
+ *
+ * Measured across the 22 `UserPromptSubmit` registrations (all 22 annotated):
+ *
+ *   - Always-on injectors, which fire EVERY turn and whose absence would make
+ *     the agent assert stale facts: inject-current-time 90 + inject-git-state
+ *     300 + inject-prod-state 250 + inject-dispatch-watchdog 1800 +
+ *     memory-search 550 = **2990**.
+ *   - The five largest conditional detectors: substrate-bypass 1600 +
+ *     pre-narration 1100 + code-mechanism-assertion 600 +
+ *     ask-routing-deferral 600 + constructed-identifier-batch 600 = **4500**.
+ *
+ * 2990 + 4500 = 7490 chars of fragment TEXT. The budget bounds the emitted
+ * BLOCK, which also carries the `\n\n` separators between fragments: 10
+ * fragments means 9 separators at 2 chars = 18. So 7490 + 18 = **7508**.
+ *
+ * (That separator term is not pedantry — the first draft of this constant
+ * omitted it and the "measured turn is not truncated" test below failed by
+ * exactly one dropped fragment. The test is what caught it.)
+ *
+ * **Why this grew from 4538 (mt#3479).** The original derivation used the same
+ * method against `attentionCost` annotations that had never been checked
+ * against any guard's real output. 14 of 26 understated it — dispatch-watchdog
+ * declared 450 against a measured 1668 — so the budget was ~40% too small and
+ * bound on ORDINARY turns, silently dropping reminders: the exact opposite of
+ * the intent stated below. mt#3479 measured every guard via its canary,
+ * corrected the annotations, and re-derived from the corrected set;
+ * `guard-feedback-shape.test.ts` now fails if any guard's output exceeds its
+ * annotation, so this input cannot silently drift again.
+ *
+ * A turn where everything always-on fires AND the five heaviest detectors all
+ * fire at once therefore still fits. The budget does not bind on any realistic
+ * turn; it binds on the pathological tail, where the annotated all-22 total is
+ * 12890. That is the intent: bound unbounded growth as detectors graduate,
+ * without truncating ordinary turns.
+ *
+ * This number should come DOWN as guard text is trimmed to the authoring
+ * standard (`.minsky/rules/guard-feedback-authoring.mdc`) — it is sized by what
+ * the corpus currently emits, not by what it ought to emit. The three heaviest
+ * (dispatch-watchdog 1800, substrate-bypass 1600, pre-narration 1100) are
+ * tracked at mt#3485, which lowers this constant as it trims them.
+ */
+export const MERGED_CONTEXT_BUDGET_CHARS = 7508;
+
+/** Separator between merged fragments — preserved from the pre-mt#3394 join. */
+const FRAGMENT_SEPARATOR = "\n\n";
+
+/**
+ * Merge guard fragments into the single `additionalContext` string.
+ *
+ * Ordering: priority DESC, registry order within equal priority. `Array.sort`
+ * is specified stable (ES2019), so equal-priority fragments cannot be
+ * reshuffled — that is what keeps the unannotated case byte-identical to the
+ * previous `fragments.join("\n\n")`.
+ *
+ * Budget: the rendered block — INCLUDING the omission notice — stays within
+ * `budgetChars`, with exactly one documented exception: when the budget cannot
+ * fit even the single highest-priority fragment plus its notice, the block
+ * overshoots rather than truncating. Truncating the most important reminder to
+ * satisfy a budget would invert the whole point. Anything dropped is named in
+ * the trailing notice, so a reader never silently receives a partial block.
+ * Both the in-budget case and the floor-overshoot case are pinned by tests.
+ *
+ * Pure — no I/O, no clock — so the dispatcher's merge policy is unit-testable
+ * without standing up a registry or a transcript.
+ *
+ * Returns `undefined` when there is nothing to emit, which the caller treats
+ * as "write no additionalContext key at all".
+ */
+export function composeAdditionalContext(
+  fragments: ContextFragment[],
+  budgetChars: number = MERGED_CONTEXT_BUDGET_CHARS
+): string | undefined {
+  if (fragments.length === 0) return undefined;
+
+  // Index-decorated sort rather than relying on `Array.prototype.sort` being
+  // stable (PR #2476 R1). ES2019 does specify stability and Bun honours it, but
+  // the ordering guarantee this function advertises should not be inherited
+  // from an engine promise a reader has to go look up — the explicit index
+  // tiebreak makes equal-priority-keeps-registry-order true by construction.
+  const ordered = fragments
+    .map((fragment, index) => ({ fragment, index }))
+    .sort((a, b) => b.fragment.priority - a.fragment.priority || a.index - b.index)
+    .map((entry) => entry.fragment);
+
+  // Admit a PREFIX of the priority-ordered list, shrinking until the rendered
+  // block fits. Iteration is required rather than a running char total: the
+  // omission notice names each dropped guard, so its own length depends on how
+  // many were dropped, and a block that computed the body against the budget
+  // then appended the notice on top could exceed the very cap it claims to
+  // enforce (PR #2476 R1 — the notice was unbudgeted).
+  //
+  // A prefix (rather than a greedy best-fit) is also the semantics the field
+  // advertises: never skip a higher-priority fragment in order to squeeze in a
+  // lower-priority one that happens to be smaller.
+  let admittedCount = ordered.length;
+  let rendered = renderMergedBlock(ordered, admittedCount, budgetChars);
+  while (admittedCount > 1 && rendered.length > budgetChars) {
+    admittedCount -= 1;
+    rendered = renderMergedBlock(ordered, admittedCount, budgetChars);
+  }
+  return rendered;
+}
+
+/**
+ * Render the first `admittedCount` fragments as the merged block, appending the
+ * omission notice when anything was left out.
+ *
+ * The floor is one fragment: the highest-priority fragment is always emitted
+ * intact, even when it alone exceeds the budget. Truncating the most important
+ * reminder to satisfy a budget would invert the point of having priorities, so
+ * in that case the block deliberately overshoots and the notice says so.
+ */
+function renderMergedBlock(
+  ordered: ContextFragment[],
+  admittedCount: number,
+  budgetChars: number
+): string {
+  const admitted = ordered.slice(0, admittedCount);
+  const dropped = ordered.slice(admittedCount);
+  const body = admitted.map((f) => f.text).join(FRAGMENT_SEPARATOR);
+  if (dropped.length === 0) return body;
+
+  const names = dropped.map((f) => f.guardName).join(", ");
+  return `${body}${FRAGMENT_SEPARATOR}[dispatcher] ${dropped.length} lower-priority reminder(s) omitted to stay within the ${budgetChars}-char context budget: ${names}. Each still wrote its own calibration record.`;
+}
+
 /**
  * Core dispatcher loop (D1). Reads stdin ONCE, resolves shared context ONCE
  * (D6), filters the registry to guards matching `event` + `tool_name`, and
@@ -457,8 +605,9 @@ export interface RunDispatcherOptions {
  *      disable the rest (fail-open per guard).
  *   3. `denyCapable` guards short-circuit the loop on the first `deny` (D1's
  *      first-deny-wins ordering — now an explicit registry-order property).
- *   4. `additionalContext` fragments from every guard are concatenated
- *      (registry order, one paragraph per guard) into a single consolidated
+ *   4. `additionalContext` fragments from every guard are merged by
+ *      `composeAdditionalContext` (priority order, then registry order within
+ *      a priority, bounded by a char budget) into a single consolidated
  *      `HookOutput`, written only if at least one guard contributed content
  *      — a matched-but-silent guard produces no stdout, matching today's
  *      "write nothing on allow" convention.
@@ -495,7 +644,7 @@ export async function runDispatcher(
   const ctx = resolveContext(event, input, { hookFilename: options.hookFilename });
 
   const knownGuardNames = registrations.map((r) => r.name);
-  const contextFragments: string[] = [];
+  const contextFragments: ContextFragment[] = [];
   let sessionTitle: string | undefined;
   for (const reg of matched) {
     const evalStartMs = nowMs();
@@ -590,17 +739,22 @@ export async function runDispatcher(
       });
       return;
     }
-    if (outcome.additionalContext) contextFragments.push(outcome.additionalContext);
+    if (outcome.additionalContext) {
+      contextFragments.push({
+        guardName: reg.name,
+        priority: reg.contextPriority ?? DEFAULT_CONTEXT_PRIORITY,
+        text: outcome.additionalContext,
+      });
+    }
     if (outcome.sessionTitle !== undefined) sessionTitle = outcome.sessionTitle;
   }
 
-  if (contextFragments.length > 0 || sessionTitle !== undefined) {
+  const additionalContext = composeAdditionalContext(contextFragments);
+  if (additionalContext !== undefined || sessionTitle !== undefined) {
     writeOutputFn({
       hookSpecificOutput: {
         hookEventName: event,
-        ...(contextFragments.length > 0
-          ? { additionalContext: contextFragments.join("\n\n") }
-          : {}),
+        ...(additionalContext !== undefined ? { additionalContext } : {}),
         ...(sessionTitle !== undefined ? { sessionTitle } : {}),
       },
     });

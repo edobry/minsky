@@ -1,8 +1,9 @@
 /**
  * SessionFilm tests (mt#3184 AT 3, re-pointed by mt#3461).
  *
- * These moved here from `pages/SessionFilmPage.test.tsx` when the film body was
- * extracted from the page. The `?t=` deep-link and clamping cases are the
+ * These moved here from the former `pages/SessionFilmPage.test.tsx` when the
+ * film body was extracted from the page (that page and its test have since been
+ * deleted outright — mt#3468). The `?t=` deep-link and clamping cases are the
  * ORIGINAL mt#3184 assertions, unchanged except for the route they arrive on —
  * that continuity is the point: the fold, the playhead, and the ribbon behave
  * the same after the re-hosting.
@@ -11,7 +12,7 @@
  *   src/cockpit/web/components/session-film/SessionFilm.test.tsx
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { SessionFilm, parsePlayheadParam } from "./SessionFilm";
@@ -29,8 +30,8 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-function fixtureEvents() {
-  return Array.from({ length: 10 }, (_, i) => ({
+function fixtureEvents(count = 10) {
+  return Array.from({ length: count }, (_, i) => ({
     schemaVersion: "v0",
     tStart: new Date(2026, 6, 24, 0, 0, i).toISOString(),
     actor: { kind: "agent", agentSessionId: "a1" },
@@ -43,7 +44,7 @@ function fixtureEvents() {
   }));
 }
 
-function mockEvents({ status = 200 }: { status?: number } = {}) {
+function mockEvents({ status = 200, count = 10 }: { status?: number; count?: number } = {}) {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = new URL(String(input), "http://localhost");
     if (url.pathname === "/api/cockpit/session-film/events") {
@@ -54,13 +55,26 @@ function mockEvents({ status = 200 }: { status?: number } = {}) {
         });
       }
       return new Response(
-        JSON.stringify({ events: fixtureEvents(), ingestedAt: "2026-07-20T00:00:00.000Z" }),
+        JSON.stringify({ events: fixtureEvents(count), ingestedAt: "2026-07-20T00:00:00.000Z" }),
         { status: 200, headers: { "content-type": "application/json" } }
       );
     }
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
 }
+
+/**
+ * Rows beyond the initially-rendered virtualization window.
+ *
+ * At `ROW_HEIGHT_PX` 32 and the ribbon's happy-dom fallback viewport of 400px,
+ * `computeVisibleRowRange` mounts roughly 13 rows plus 6 overscan either side —
+ * about 25. A 120-row fixture targeting row 80 is therefore far outside the
+ * window at `scrollTop` 0, which is the whole point: the 10-row fixture used by
+ * the other deep-link tests never virtualizes, so those assertions pass whether
+ * or not the ribbon ever scrolls (mt#3466).
+ */
+const VIRTUALIZING_ROW_COUNT = 120;
+const FAR_ROW = 80;
 
 function renderFilm(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -141,6 +155,71 @@ describe("SessionFilm — ?t= deep link (mt#3184 AT 3, mt#3461 SC 4)", () => {
       const row9 = screen.getByTestId("session-film-row-9");
       expect(row9.getAttribute("aria-current")).toBe("true");
     });
+  });
+});
+
+describe("SessionFilm — the ribbon follows the playhead (mt#3466)", () => {
+  test("a ?t= far outside the initial window scrolls that row into the ribbon", async () => {
+    // The defect: `scrollTop` was driven only BY scrolling, never toward the
+    // playhead. A deep link moved the fold and the stage while the ribbon stayed
+    // at the top, so on a virtualizing film the playhead row was not merely
+    // un-highlighted — it was never mounted, and nothing on screen was current.
+    mockEvents({ count: VIRTUALIZING_ROW_COUNT });
+    renderFilm(`${FILM_PATH}?t=${FAR_ROW}`);
+
+    await waitFor(() => {
+      const row = screen.getByTestId(`session-film-row-${FAR_ROW}`);
+      expect(row.getAttribute("aria-current")).toBe("true");
+    });
+  });
+
+  test("arrowing past the bottom of the window brings the new playhead row along", async () => {
+    // Same root cause, second entry point: keyboard stepping moves the playhead
+    // in SessionFilm without touching the ribbon's scroll, so without the follow
+    // effect the playhead walks off-screen one press at a time.
+    mockEvents({ count: VIRTUALIZING_ROW_COUNT });
+    renderFilm(`${FILM_PATH}?t=${FAR_ROW}`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`session-film-row-${FAR_ROW}`)).toBeDefined();
+    });
+
+    // Dispatched from document.body, not window (PR #2486 R1): keydown bubbles,
+    // so this still reaches SessionFilm's window-level listener, while matching
+    // how a real keypress arrives (targeted at the focused element) and not
+    // depending on the test file and the component seeing the same `window`
+    // object. It also exercises the handler's INPUT/TEXTAREA target check
+    // against a realistic target instead of bypassing it.
+    fireEvent.keyDown(document.body, { key: "ArrowDown" });
+
+    await waitFor(() => {
+      const next = screen.getByTestId(`session-film-row-${FAR_ROW + 1}`);
+      expect(next.getAttribute("aria-current")).toBe("true");
+    });
+  });
+
+  test("a hand scroll is left alone — the playhead follows the scroll, not the reverse", async () => {
+    // The regression a naive always-scroll effect would introduce: snapping the
+    // ribbon back to the playhead on every render would make it impossible to
+    // scroll anywhere. The guard makes the effect a no-op right after a user
+    // scroll, because the playhead it just produced already matches scrollTop.
+    mockEvents({ count: VIRTUALIZING_ROW_COUNT });
+    renderFilm(FILM_PATH);
+
+    const ribbon = await screen.findByTestId("session-film-ribbon");
+    await waitFor(() => {
+      expect(screen.getByTestId("session-film-row-0")).toBeDefined();
+    });
+
+    const target = 40 * 32; // 40 rows down, at ROW_HEIGHT_PX
+    ribbon.scrollTop = target;
+    fireEvent.scroll(ribbon);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-film-row-40")).toBeDefined();
+    });
+    // Still where the user put it — not yanked back toward row 0.
+    expect(ribbon.scrollTop).toBe(target);
   });
 });
 

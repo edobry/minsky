@@ -304,7 +304,6 @@ export function buildReminder(matches: DeferralMatch[]): string {
     lines.push("");
   }
 
-  lines.push(`Override: set ${OVERRIDE_ENV_VAR}=1 if this is genuinely not a deferral case.`);
   return lines.join("\n");
 }
 

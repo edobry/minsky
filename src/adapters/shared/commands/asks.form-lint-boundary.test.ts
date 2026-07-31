@@ -29,15 +29,34 @@ const KIND_AUTHORIZATION_APPROVE = "authorization.approve" as const;
 
 const CHECK_INTERNAL_TOOL_ID = "internal-tool-id" as const;
 const CHECK_MISSING_FORCE_IMMEDIATE = "missing-force-immediate" as const;
+const CHECK_MISSING_DECISION_OPTIONS = "missing-decision-options" as const;
 
 const WELL_FORMED_QUESTION =
   "Pick the replacement mechanism for boot-time auto-migrate. Two options below.";
 
+/** A decision-shaped ask needs these to pass mt#3477's presence check. */
+const WELL_FORMED_OPTIONS = [
+  { label: "GitHub Actions migrate-on-merge" },
+  { label: "Railway pre-deploy command" },
+];
+
 describe("validateFormLintNotViolated (mt#3326)", () => {
-  test("well-formed question and no options -> does not throw", () => {
+  test("well-formed question and well-formed options -> does not throw", () => {
     expect(() =>
       validateFormLintNotViolated({
         kind: KIND_DIRECTION_DECIDE,
+        question: WELL_FORMED_QUESTION,
+        options: WELL_FORMED_OPTIONS,
+      })
+    ).not.toThrow();
+  });
+
+  test("well-formed question and no options -> does not throw for a kind that renders its own buttons", () => {
+    // authorization.approve is answerable without options (the surface
+    // renders Approve/Deny), so mt#3477's check does not apply to it.
+    expect(() =>
+      validateFormLintNotViolated({
+        kind: KIND_AUTHORIZATION_APPROVE,
         question: WELL_FORMED_QUESTION,
       })
     ).not.toThrow();
@@ -177,5 +196,56 @@ describe("validateFormLintNotViolated (mt#3326)", () => {
       expect(message).toContain("1 form-lint violation");
       expect(message).not.toContain(CHECK_MISSING_FORCE_IMMEDIATE);
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // missing-decision-options (mt#3477) — blocking from the start, unlike the
+  // mt#3436 check above. It is the one check admitted straight to this
+  // boundary: it has no false-positive class (an optionless direction.decide
+  // renders zero buttons by construction), and the family's own escalation
+  // threshold (mem#760) was already met.
+  // -------------------------------------------------------------------------
+
+  test("direction.decide with absent options -> throws ValidationError naming the check", () => {
+    try {
+      validateFormLintNotViolated({
+        kind: KIND_DIRECTION_DECIDE,
+        question: WELL_FORMED_QUESTION,
+      });
+      throw new Error("expected validateFormLintNotViolated to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ValidationError);
+      const message = (err as Error).message;
+      expect(message).toContain(CHECK_MISSING_DECISION_OPTIONS);
+      expect(message).toContain("options array");
+    }
+  });
+
+  test("direction.decide with an EMPTY options array -> also throws", () => {
+    expect(() =>
+      validateFormLintNotViolated({
+        kind: KIND_DIRECTION_DECIDE,
+        question: WELL_FORMED_QUESTION,
+        options: [],
+      })
+    ).toThrow(ValidationError);
+  });
+
+  test("acknowledgeFormWarnings: true lets an optionless direction.decide through", () => {
+    expect(() =>
+      validateFormLintNotViolated({
+        kind: KIND_DIRECTION_DECIDE,
+        question: WELL_FORMED_QUESTION,
+        acknowledgeFormWarnings: true,
+      })
+    ).not.toThrow();
+  });
+
+  test("filterBlockingFormLintMatches KEEPS missing-decision-options", () => {
+    const kept = filterBlockingFormLintMatches([
+      { check: CHECK_MISSING_DECISION_OPTIONS, message: "m" },
+      { check: CHECK_MISSING_FORCE_IMMEDIATE, message: "m2" },
+    ]);
+    expect(kept.map((m) => m.check)).toEqual([CHECK_MISSING_DECISION_OPTIONS]);
   });
 });

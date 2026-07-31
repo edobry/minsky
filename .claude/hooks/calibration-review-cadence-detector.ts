@@ -257,7 +257,6 @@ export function formatCadenceWarning(due: ReviewDueLog[]): string {
       "positives and record a flip/tune/keep disposition before this drifts " +
       "further out of review."
   );
-  lines.push(`Override: ${OVERRIDE_ENV_VAR}=1 suppresses this warning.`);
   return lines.join("\n");
 }
 

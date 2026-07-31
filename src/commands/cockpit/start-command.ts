@@ -11,6 +11,7 @@ import {
   startStaleAskCloseSweeper,
   startProdStateRefreshSweeper,
   startConversationTitleSweeper,
+  startConversationSummarySweeper,
   startTopologySweeper,
   startTranscriptSweepBackstop,
   startDispatchWatchdogSweeper,
@@ -403,6 +404,11 @@ export function createStartCommand(): Command {
       // what it's ABOUT instead of the first 60 characters of the opening
       // prompt (which is unusable when that prompt is garbled).
       const stopConversationTitleSweeper = startConversationTitleSweeper();
+      // Conversation-summary generation (mt#3441): the same treatment for
+      // `agent_transcripts.summary`, which had NO automatic caller at all —
+      // 11 of 2,108 rows carried one, so the index could not answer "which
+      // conversation was the one about X" for 99.5% of its contents.
+      const stopConversationSummarySweeper = startConversationSummarySweeper();
       // Schema readiness (mt#3297): populate the /api/health `schema` block at
       // boot, independently of any sweep. The transcript sweep also refreshes
       // it every tick, but relying on that alone would leave `current: null`
@@ -455,6 +461,7 @@ export function createStartCommand(): Command {
         stopTranscriptWatcher();
         stopTranscriptSweep();
         stopConversationTitleSweeper();
+        stopConversationSummarySweeper();
         stopDispatchWatchdogSweeper();
         stopDeploySmokeSweeper();
         stopFollowUpSweeper();

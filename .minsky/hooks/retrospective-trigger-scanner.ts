@@ -612,8 +612,7 @@ function buildReminder(matches: TriggerMatch[]): string {
 
   lines.push(
     "The retrospective skill's Step 0.5 triage determines whether a full retrospective " +
-      "is warranted -- do NOT make that determination in user-facing output. " +
-      "Override: set MINSKY_ACK_RETROSPECTIVE_TRIGGER=1 if this is genuinely not a retrospective case."
+      "is warranted -- do NOT make that determination in user-facing output."
   );
 
   return lines.join("\n");

@@ -632,6 +632,29 @@ export interface DrivenSessionRecord {
   readonly costHistory: DrivenSessionCostSummary[];
   /** Live WS subscribers (registered by ./driven-session-ws.ts on connect). */
   readonly subscribers: Set<DrivenSessionSubscriber>;
+  /**
+   * True when this record's `eventLog` can never contain the conversation's
+   * PRIOR history, so a connecting client must be sent the on-disk transcript
+   * instead (mt#3453).
+   *
+   * Set for every record built by {@link resumeDrivenSession} — which covers
+   * both origins that need it: a conversation ATTACHED from disk (mt#3095,
+   * never observed in this process) and one REHYDRATED after a daemon restart
+   * (mt#3038, whose log died with the previous process). A fresh
+   * {@link startDrivenSession} spawn leaves it false: it starts the
+   * conversation, so there is no prior history to replay.
+   *
+   * This is a property of the record's ORIGIN, deliberately not a check on
+   * `eventLog.length`. The first implementation gated replay on an empty log
+   * and live-verification found it silently never fired: the actuator starts
+   * emitting frames immediately, so by the time any client connects the log is
+   * already non-empty and the "needs history" condition has evaporated. Origin
+   * does not change with timing.
+   *
+   * NOT cleared after a replay — every connecting client needs the history, not
+   * just the first.
+   */
+  readonly needsHistoryReplay: boolean;
 }
 
 export class DrivenSessionRegistry {
@@ -942,6 +965,8 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     actuatorGeneration: 0,
     proc,
     eventLog: [],
+    // A fresh spawn STARTS the conversation — there is no prior history.
+    needsHistoryReplay: false,
     costHistory: [],
     subscribers: new Set(),
   };
@@ -1219,6 +1244,9 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
     actuatorGeneration: previous.actuatorGeneration + 1,
     proc,
     eventLog: [],
+    // Attached-from-disk or resumed: prior history is on disk, never in this
+    // record's log (mt#3453).
+    needsHistoryReplay: true,
     costHistory: [],
     subscribers: new Set(),
   };
@@ -1311,9 +1339,50 @@ export function buildReconnectingDrivenSessionRecord(
     actuatorGeneration: input.actuatorGeneration,
     proc: createDeadProcessPlaceholder(),
     eventLog: [],
+    // Rehydrated at boot: its predecessor's log died with that process (mt#3453).
+    needsHistoryReplay: true,
     costHistory: [],
     subscribers: new Set(),
   };
+}
+
+/**
+ * One image to attach to a driven-session turn (mt#3235).
+ *
+ * Base64 rather than a path or URL: the child process is given the bytes
+ * inline, so nothing depends on it being able to reach a file the host fetched
+ * from a third party with a short-lived credential.
+ */
+export interface DrivenInputImage {
+  base64: string;
+  /** An image mime type the Messages API accepts — e.g. `image/png`. */
+  mediaType: string;
+}
+
+/**
+ * Assemble the content-block array for one input turn (mt#3235).
+ *
+ * Text is omitted when blank rather than sent as an empty block: the Messages
+ * API rejects an empty text block, so a caption-less image would otherwise fail
+ * the whole turn. An empty result means there is genuinely nothing to send, and
+ * the caller reports that as a failed delivery rather than writing a
+ * content-less message the child cannot answer.
+ */
+function buildInputContent(
+  text: string,
+  images: DrivenInputImage[]
+): Array<Record<string, unknown>> {
+  const content: Array<Record<string, unknown>> = [];
+  if (text.trim().length > 0) {
+    content.push({ type: "text", text });
+  }
+  for (const image of images) {
+    content.push({
+      type: "image",
+      source: { type: "base64", media_type: image.mediaType, data: image.base64 },
+    });
+  }
+  return content;
 }
 
 /**
@@ -1365,18 +1434,29 @@ export function buildReconnectingDrivenSessionRecord(
  *     phantom operator turn is rendered for a message that was never
  *     delivered. (Callers already branch on the return: the principal-channel
  *     actuator surfaces the failure to the sender.)
+ *   - **Content-less input now returns `false` instead of being written**
+ *     (mt#3235, flagged in PR #2483 R1). Previously blank text was written as
+ *     `[{type:"text", text:""}]`; the Messages API rejects an empty text block,
+ *     so that turn failed at the child rather than here. The websocket path
+ *     (`driven-session-ws.ts`) can reach this with an empty `text` field or an
+ *     empty raw frame, so the change is observable: `POST` to an entity thread
+ *     now reports `delivered: false` for a blank message. That is the honest
+ *     answer — it was never going to be delivered — but it IS a change, not an
+ *     invariant that always held.
  */
 export function sendDrivenSessionInput(
   record: DrivenSessionRecord,
   text: string,
-  opts: { echo?: boolean } = {}
+  opts: { echo?: boolean; images?: DrivenInputImage[] } = {}
 ): boolean {
   if (!hasLiveActuator(record)) return false;
+  const content = buildInputContent(text, opts.images ?? []);
+  if (content.length === 0) return false;
   const line = JSON.stringify({
     type: "user",
     message: {
       role: "user",
-      content: [{ type: "text", text }],
+      content,
     },
   });
   try {

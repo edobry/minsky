@@ -509,6 +509,50 @@ describe("sendDrivenSessionInput", () => {
     expect(readStdinWrites(proc)).toBe("");
   });
 
+  // mt#3235 (PR #2483 R1): an observable behaviour change, pinned so it stays a
+  // decision. Blank text used to be written as an empty text block, which the
+  // Messages API rejects — the turn failed at the child instead of here. The
+  // websocket path can reach this with an empty `text` field.
+  test("content-less input is refused rather than written as an empty text block", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+
+    expect(sendDrivenSessionInput(record, "   ")).toBe(false);
+    expect(readStdinWrites(proc)).toBe("");
+  });
+
+  test("attaches images as Messages API image blocks alongside the text", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+
+    const ok = sendDrivenSessionInput(record, "what is wrong here?", {
+      images: [{ base64: "AQID", mediaType: "image/png" }],
+    });
+    expect(ok).toBe(true);
+
+    const parsed = JSON.parse(readStdinWrites(proc).trim());
+    expect(parsed.message.content).toEqual([
+      { type: "text", text: "what is wrong here?" },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "AQID" } },
+    ]);
+  });
+
+  test("an image with no text sends the image alone, not an empty text block", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+
+    expect(
+      sendDrivenSessionInput(record, "", { images: [{ base64: "AQID", mediaType: "image/png" }] })
+    ).toBe(true);
+
+    const parsed = JSON.parse(readStdinWrites(proc).trim());
+    expect(parsed.message.content).toHaveLength(1);
+    expect(parsed.message.content[0].type).toBe("image");
+  });
+
   // mt#3372 — the child never echoes stdin back, so the operator's own turn
   // only reaches the view if the host appends it to the event log itself.
   test("appends exactly one operator-input event to the replayable log", () => {

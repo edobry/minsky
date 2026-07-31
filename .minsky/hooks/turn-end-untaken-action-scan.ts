@@ -134,7 +134,7 @@ export function detectUntakenAction(finalMessage: string): UntakenActionMatch[] 
 
 function buildReminder(matches: UntakenActionMatch[]): string {
   const lines: string[] = [
-    "[turn-end-untaken-action] This turn ends by naming a next action without taking it.",
+    "[turn-end-untaken-action] You named a next action and ended the turn without taking it.",
     "",
   ];
   for (const m of matches) {
@@ -142,12 +142,9 @@ function buildReminder(matches: UntakenActionMatch[]): string {
   }
   lines.push(
     "",
-    "If that action is executable NOW, execute it in this continuation instead of ending the turn — " +
-      "then report what happened. Announcing an action and stopping is the mt#3179 failure (R2 asked " +
-      "permission, R3 announced intent; both left the work untaken). If the action genuinely cannot " +
-      "proceed — you are blocked on a principal decision, a red check, or an external condition you " +
-      "have already armed a watcher for — say which in one line and end the turn. This fires at most " +
-      `once per phrase per turn. Override: set ${OVERRIDE_ENV_VAR}=1.`
+    "Take it now in this continuation, then report the result. If it genuinely cannot " +
+      "proceed — you are blocked on a principal decision, a red check, or an external " +
+      "condition you have already armed a watcher for — name which in one line and end."
   );
   return lines.join("\n");
 }

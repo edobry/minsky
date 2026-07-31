@@ -338,9 +338,8 @@ function buildReminder(matches: ClaimMatch[]): string {
     "OR in durable artifacts before the tool result is in hand. If the outcome did",
     "occur in an earlier turn, cite the tool result you are relying on.",
     "",
-    "This is an informational signal (calibration phase) — it does not block the",
-    "turn. If the claim was legitimate (the tool ran in an earlier turn, or the",
-    "phrase was a quote/example), set `MINSKY_ACK_PRE_NARRATION=1` to suppress.",
+    "If the claim was legitimate — the tool ran in an earlier turn, or the phrase",
+    "was a quote or an example — no action is needed.",
   ].join("\n");
 }
 

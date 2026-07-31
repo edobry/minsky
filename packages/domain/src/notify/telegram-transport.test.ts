@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   classifyGetUpdatesFailure,
+  fetchTelegramFile,
   getTelegramUpdates,
   highestUpdateIdOf,
   parseInboundUpdates,
@@ -181,6 +182,8 @@ describe("parseInboundUpdates", () => {
         date: 1700000000,
         replyToMessageId: 4,
         replyToText: undefined,
+        attachments: [],
+        unsupportedMedia: undefined,
       },
     ]);
   });
@@ -384,5 +387,309 @@ describe("classifyGetUpdatesFailure", () => {
 
   test("falls back to the status for anything else", () => {
     expect(classifyGetUpdatesFailure(500)).toContain("500");
+  });
+});
+
+/**
+ * Media ingest (mt#3235).
+ *
+ * The originating defect: `parseInboundUpdates` read only `message.text`, so a
+ * photo — whose text lives in `caption` — produced no message at all. The poll
+ * cursor still advanced past it, so the update was unrecoverable and the
+ * principal got silence. These cases pin each shape that used to vanish.
+ */
+describe("parseInboundUpdates — media", () => {
+  function photoUpdate(extra: Record<string, unknown> = {}): unknown {
+    return {
+      ok: true,
+      result: [
+        {
+          update_id: 20,
+          message: {
+            message_id: 9,
+            chat: { id: Number(CHAT), type: "private" },
+            from: { id: 777 },
+            photo: [
+              { file_id: "small-id", file_size: 1024 },
+              { file_id: "large-id", file_size: 90000 },
+            ],
+            ...extra,
+          },
+        },
+      ],
+    };
+  }
+
+  test("a photo with no caption is a message, not a dropped update", () => {
+    const [message] = parseInboundUpdates(photoUpdate());
+    expect(message).toBeDefined();
+    expect(message?.text).toBe("");
+    expect(message?.attachments).toEqual([
+      { fileId: "large-id", mediaType: "image/jpeg", fileName: undefined },
+    ]);
+  });
+
+  test("picks the largest photo variant, not the first", () => {
+    const [message] = parseInboundUpdates(photoUpdate());
+    expect(message?.attachments[0]?.fileId).toBe("large-id");
+  });
+
+  test("a photo's caption becomes the message text", () => {
+    const [message] = parseInboundUpdates(photoUpdate({ caption: "why does this render wrong?" }));
+    expect(message?.text).toBe("why does this render wrong?");
+    expect(message?.attachments).toHaveLength(1);
+  });
+
+  test("an image sent as a document is ingested with its own media type", () => {
+    const [message] = parseInboundUpdates({
+      ok: true,
+      result: [
+        {
+          update_id: 21,
+          message: {
+            message_id: 10,
+            chat: { id: Number(CHAT), type: "private" },
+            document: { file_id: "doc-id", file_name: "shot.png", mime_type: "image/png" },
+          },
+        },
+      ],
+    });
+    expect(message?.attachments).toEqual([
+      { fileId: "doc-id", mediaType: "image/png", fileName: "shot.png" },
+    ]);
+    expect(message?.unsupportedMedia).toBeUndefined();
+  });
+
+  test("a non-image document is surfaced as unsupported rather than ingested", () => {
+    const [message] = parseInboundUpdates({
+      ok: true,
+      result: [
+        {
+          update_id: 22,
+          message: {
+            message_id: 11,
+            chat: { id: Number(CHAT), type: "private" },
+            document: { file_id: "pdf-id", file_name: "spec.pdf", mime_type: "application/pdf" },
+          },
+        },
+      ],
+    });
+    expect(message?.attachments).toEqual([]);
+    expect(message?.unsupportedMedia).toContain("spec.pdf");
+  });
+
+  test("a voice note becomes a message so the channel can say it cannot read it", () => {
+    const [message] = parseInboundUpdates({
+      ok: true,
+      result: [
+        {
+          update_id: 23,
+          message: {
+            message_id: 12,
+            chat: { id: Number(CHAT), type: "private" },
+            voice: { file_id: "voice-id", duration: 3 },
+          },
+        },
+      ],
+    });
+    expect(message).toBeDefined();
+    expect(message?.unsupportedMedia).toBe("a voice message");
+    expect(message?.attachments).toEqual([]);
+  });
+
+  test("regression: a text-only message still parses with no media", () => {
+    const [message] = parseInboundUpdates({
+      ok: true,
+      result: [
+        {
+          update_id: 24,
+          message: {
+            message_id: 13,
+            chat: { id: Number(CHAT), type: "private" },
+            text: "still plain text",
+          },
+        },
+      ],
+    });
+    expect(message?.text).toBe("still plain text");
+    expect(message?.attachments).toEqual([]);
+    expect(message?.unsupportedMedia).toBeUndefined();
+  });
+
+  test("regression: an update carrying nothing actionable is still skipped", () => {
+    expect(
+      parseInboundUpdates({
+        ok: true,
+        result: [
+          {
+            update_id: 25,
+            message: { message_id: 14, chat: { id: Number(CHAT), type: "private" } },
+          },
+        ],
+      })
+    ).toEqual([]);
+  });
+
+  test("regression: an empty update array parses to nothing", () => {
+    expect(parseInboundUpdates({ ok: true, result: [] })).toEqual([]);
+  });
+});
+
+describe("fetchTelegramFile", () => {
+  const REF = { fileId: "large-id", mediaType: "image/png" as const, fileName: undefined };
+
+  test("resolves the file path then downloads the bytes as base64", async () => {
+    const urls: string[] = [];
+    const result = await fetchTelegramFile({
+      token: TOKEN,
+      ref: REF,
+      fetchFn: async (url) => {
+        urls.push(String(url));
+        if (String(url).includes("getFile")) {
+          return jsonResponse({ ok: true, result: { file_path: "photos/a.jpg", file_size: 3 } });
+        }
+        return new Response(new Uint8Array([1, 2, 3]));
+      },
+    });
+
+    // "AQID" is base64 for the bytes 0x01 0x02 0x03 — spelled out rather than
+    // recomputed, so the test pins the encoding instead of restating it.
+    expect(result).toEqual({ ok: true, base64: "AQID", mediaType: "image/png" });
+    // The bytes live on a different path than the API methods — a single-call
+    // implementation would silently fetch JSON metadata instead of an image.
+    expect(urls[1]).toContain("/file/bot");
+    expect(urls[1]).toContain("photos/a.jpg");
+  });
+
+  test("reports a getFile failure without leaking the token", async () => {
+    const result = await fetchTelegramFile({
+      token: TOKEN,
+      ref: REF,
+      fetchFn: async () => jsonResponse({ ok: false, description: "file is too big" }, 400),
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.detail).toContain("400");
+      expect(result.detail).not.toContain(TOKEN);
+    }
+  });
+
+  test("refuses a file over the size limit before downloading it", async () => {
+    let downloadAttempted = false;
+    const result = await fetchTelegramFile({
+      token: TOKEN,
+      ref: REF,
+      maxEncodedBytes: 10,
+      fetchFn: async (url) => {
+        if (String(url).includes("getFile")) {
+          return jsonResponse({ ok: true, result: { file_path: "photos/big.jpg", file_size: 99 } });
+        }
+        downloadAttempted = true;
+        return new Response(new Uint8Array(99));
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(downloadAttempted).toBe(false);
+  });
+
+  test("still refuses an oversized body when Telegram omitted file_size", async () => {
+    const result = await fetchTelegramFile({
+      token: TOKEN,
+      ref: REF,
+      maxEncodedBytes: 10,
+      fetchFn: async (url) =>
+        String(url).includes("getFile")
+          ? jsonResponse({ ok: true, result: { file_path: "photos/big.jpg" } })
+          : new Response(new Uint8Array(99)),
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.detail).toContain("over the");
+  });
+
+  // PR #2483 R1: the API's ceiling is on the BASE64 payload, which is 4/3 the
+  // raw size. A limit enforced on raw bytes admits files ~33% over the real
+  // ceiling, which then fail downstream instead of here.
+  test("the limit is measured on the encoded payload, not the raw bytes", async () => {
+    // 74 raw bytes clears the derived raw guard (floor(99/4*3) = 74) but
+    // encodes to 100 bytes, over the 99-byte encoded ceiling.
+    const result = await fetchTelegramFile({
+      token: TOKEN,
+      ref: REF,
+      maxEncodedBytes: 99,
+      fetchFn: async (url) =>
+        String(url).includes("getFile")
+          ? jsonResponse({ ok: true, result: { file_path: "photos/edge.jpg" } })
+          : new Response(new Uint8Array(74)),
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.detail).toContain("base64-encoded");
+  });
+
+  test("the DEFAULT budget refuses a file whose encoded form would exceed 5 MB", async () => {
+    // 4 MB raw encodes to ~5.33 MB — under a naive 5 MB raw cap, over the real
+    // encoded ceiling. This is the case the previous implementation let through.
+    const fourMegabytes = 4 * 1024 * 1024;
+    const result = await fetchTelegramFile({
+      token: TOKEN,
+      ref: REF,
+      fetchFn: async (url) =>
+        String(url).includes("getFile")
+          ? jsonResponse({
+              ok: true,
+              result: { file_path: "photos/4mb.jpg", file_size: fourMegabytes },
+            })
+          : new Response(new Uint8Array(fourMegabytes)),
+    });
+
+    expect(result.ok).toBe(false);
+  });
+
+  // PR #2483 R2: encoding is chunked because `String.fromCharCode(...bytes)`
+  // spreads each byte as an argument. A realistic screenshot is ~1 MB, well
+  // past any single-call argument ceiling, so this exercises the chunk seam
+  // rather than trusting it — a stack overflow here would crash the daemon.
+  test("encodes a megabyte-scale image correctly, not just a 3-byte one", async () => {
+    const size = 1_000_000;
+    const bytes = new Uint8Array(size);
+    for (let i = 0; i < size; i += 1) bytes[i] = i % 256;
+
+    const result = await fetchTelegramFile({
+      token: TOKEN,
+      ref: REF,
+      fetchFn: async (url) =>
+        String(url).includes("getFile")
+          ? jsonResponse({ ok: true, result: { file_path: "photos/big.png" } })
+          : new Response(bytes),
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Decode back and compare, so the assertion pins the CONTENT rather than
+      // merely that some string came out.
+      const decoded = Uint8Array.from(atob(result.base64), (c) => c.charCodeAt(0));
+      expect(decoded.length).toBe(size);
+      expect(decoded[0]).toBe(0);
+      expect(decoded[size - 1]).toBe((size - 1) % 256);
+      // A boundary interior to a chunk seam (0x2000 = 8192).
+      expect(decoded[8192]).toBe(8192 % 256);
+    }
+  });
+
+  test("a comfortably-sized image still succeeds under the default budget", async () => {
+    // Guards against over-correcting the limit into rejecting normal photos.
+    const result = await fetchTelegramFile({
+      token: TOKEN,
+      ref: REF,
+      fetchFn: async (url) =>
+        String(url).includes("getFile")
+          ? jsonResponse({ ok: true, result: { file_path: "photos/ok.jpg", file_size: 900_000 } })
+          : new Response(new Uint8Array(900_000)),
+    });
+
+    expect(result.ok).toBe(true);
   });
 });

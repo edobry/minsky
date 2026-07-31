@@ -223,6 +223,27 @@ export interface GuardRegistration {
   /** Whether this guard participates in first-deny-wins short-circuiting (D1). */
   denyCapable: boolean;
   /**
+   * Ordering weight for this guard's `additionalContext` fragment within the
+   * dispatcher's MERGED output block (mt#3394). Higher survives first.
+   *
+   * This orders the OUTPUT only — it does NOT reorder evaluation. Guards are
+   * still evaluated in registry order, because first-deny-wins
+   * short-circuiting depends on that order and must not shift.
+   *
+   * Omit for the common case. Fragments at equal priority keep registry order,
+   * so an unannotated registry emits exactly the block it emits today. Populate
+   * it only where dropping a fragment would cost something specific, and say
+   * what in a comment at the registration.
+   *
+   * Applies to `additionalContext` ONLY (PR #2476 R1). It has no effect on
+   * `sessionTitle`, which is a scalar the dispatcher last-write-wins rather
+   * than a merged list — there is nothing to order or budget there, so a
+   * priority on a title-emitting guard is inert by design, not by oversight.
+   *
+   * @see composeAdditionalContext in dispatcher.ts — where this is applied.
+   */
+  contextPriority?: number;
+  /**
    * Whether the dispatcher should resolve+parse transcripts before invoking
    * this guard (D6). Guards that don't read transcripts should omit this —
    * the dispatcher still resolves `hostCapSec`/`budgets` unconditionally for
@@ -246,7 +267,25 @@ export interface GuardRegistration {
    * fill in.
    */
   attentionCost?: {
-    /** Approx. character length of the guard's typical denial/warning message body. */
+    /**
+     * Character-length CEILING for the guard's rendered denial/warning body —
+     * enforced, not descriptive (mt#3479). `guard-feedback-shape.test.ts` runs
+     * each guard's canary and fails if the real output exceeds this number, so a
+     * guard whose text grows past its declared cost is caught at test time.
+     *
+     * Until mt#3479 nothing compared these to reality and 14 of 26 had drifted
+     * below actual output — `inject-dispatch-watchdog` declared 450 against a
+     * measured 1668. That mattered beyond bookkeeping: `dispatcher.ts`'s
+     * `MERGED_CONTEXT_BUDGET_CHARS` is DERIVED from these numbers, so the
+     * understatement made the merged budget too small and it silently dropped
+     * reminders on ordinary turns. Raising a value here widens that budget —
+     * treat an increase as a real cost, and prefer trimming the text.
+     *
+     * For a guard whose output scales with its input (dispatch-watchdog per
+     * in-flight dispatch, guard-health per unhealthy guard, memory-search per
+     * retrieved record) this is a ratchet against drift measured from ONE canary
+     * sample, not a worst-case bound.
+     */
     denialMessageSizeChars: number;
     /** Number of distinct remediation options the guard's message presents (e.g. "override X, or do Y, or do Z" = 3). */
     optionCount: number;
@@ -374,7 +413,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // mt#2597: measured against buildDenialReason()'s fixed message body
     // (excluding the dynamic per-missing-path list) — ~398 chars; one
     // remediation option (the MINSKY_SKIP_SESSION_PATH_CHECK override).
-    attentionCost: { denialMessageSizeChars: 398, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 650, optionCount: 1 },
     // mt#2889: a Bash command referencing an absolute sessions/<id>/ path
     // that has never existed on disk — findMissingInToolInput's exists()
     // check (real fs.existsSync, no synthetic override needed) always
@@ -421,6 +460,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-current-time").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
+    // mt#3394: state injectors outrank advisory reminders in the merged block.
+    // Dropping this one does not cost a nudge, it costs a FACT — the agent then
+    // dates its own claims from a stale in-context timestamp. Cheap to keep
+    // (90 chars) and everything else in the turn is written against it.
+    contextPriority: 10,
     attentionCost: { denialMessageSizeChars: 90, optionCount: 0 },
     // mt#2889: fires unconditionally on every UserPromptSubmit — the simplest liveness canary in the registry.
     canary: { input: {}, expects: "warn" },
@@ -431,7 +475,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-git-state").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 200, optionCount: 0 },
+    // mt#3394: same class as inject-current-time — branch/ahead-behind/dirty
+    // state is the ground truth the turn's git claims are written against.
+    contextPriority: 10,
+    attentionCost: { denialMessageSizeChars: 300, optionCount: 0 },
     canary: {
       input: {}, // cwd populated dynamically by setup below
       expects: "warn",
@@ -470,6 +517,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-prod-state").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
+    // mt#3394: the highest-cost state injector to lose. Its own text tells the
+    // agent to "treat this as ground truth for prod-state claims this turn (do
+    // not assert a different prod state from memory)" — so if it is dropped,
+    // the fallback is exactly the memory-sourced assertion it exists to prevent.
+    contextPriority: 10,
     attentionCost: { denialMessageSizeChars: 250, optionCount: 0 },
     // mt#2889: no cache file present in the canary runner's isolated
     // MINSKY_STATE_DIR -> deterministic UNKNOWN branch fires additionalContext.
@@ -481,7 +533,12 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-dispatch-watchdog").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 450, optionCount: 3 },
+    // mt#3479: raised 450 -> 1800 to match measurement, NOT because the guard
+    // needs the room. It renders one block per in-flight dispatch, so its size
+    // scales with fleet activity and the canary's 1668 is a sample, not a bound.
+    // The largest single contributor to the merged budget; first target of the
+    // deep-trim follow-up, mt#3485.
+    attentionCost: { denialMessageSizeChars: 1800, optionCount: 3 },
     canary: {
       input: {},
       expects: "warn",
@@ -519,7 +576,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./memory-search").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 280, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 550, optionCount: 1 },
     // mt#3004 (closes the mt#2889 KNOWN GAP): the live `minsky memory search`
     // subprocess is not hermetically canary-able, so the guard exposes a
     // fixture-file stub seam (CANARY_STUB_ENV) that replaces ONLY the
@@ -575,7 +632,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./skill-staleness-detector").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 350, optionCount: 2 },
+    attentionCost: { denialMessageSizeChars: 450, optionCount: 2 },
     canary: {
       input: {}, // cwd/session_id populated dynamically by setup below
       expects: "warn",
@@ -613,7 +670,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./mcp-daemon-staleness-detector").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 550, optionCount: 1 },
     // mt#3004 (closes the mt#2889 KNOWN GAP): the "scratch git-repo fixture"
     // this gap deferred now follows the inject-git-state canary's precedent —
     // a two-commit repo whose second commit touches src/, plus a daemon state
@@ -704,7 +761,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 15000,
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 1000, optionCount: 4 },
+    // mt#3479: raised 1000 -> 1600 to match measurement. Fixed-template text
+    // covering four distinct bypass surfaces, each with its own remediation —
+    // genuinely long, but long by accretion rather than necessity. Deep-trim
+    // follow-up target, mt#3485.
+    attentionCost: { denialMessageSizeChars: 1600, optionCount: 4 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -729,7 +790,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "retrospective-trigger",
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -754,7 +815,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "pre-narration",
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
+    // mt#3479: raised 500 -> 1100 to match measurement. Enumerates the claim
+    // taxonomy inline on every fire; the enumeration is the trim target, not the
+    // matched-claim evidence. Deep-trim follow-up target, mt#3485.
+    attentionCost: { denialMessageSizeChars: 1100, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -818,7 +882,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // mt#2483 calibration-review sweep disposed the residual FP rate).
     // Canary below still asserts calibration (the calibration-log write),
     // not warn — it does not assert the absence of additionalContext.
-    attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -843,7 +907,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "ask-routing-deferral",
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -985,7 +1049,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./guard-health-escalation-detector").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 300, optionCount: 0 },
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 0 },
     canary: {
       input: {},
       expects: "warn",
@@ -1321,7 +1385,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // the dedup key is derived from that message — NOT from the transcript,
     // whose absent-case default would suppress the phrase session-wide.
     needsTranscript: false,
-    attentionCost: { denialMessageSizeChars: 700, optionCount: 2 },
+    attentionCost: { denialMessageSizeChars: 450, optionCount: 2 },
     canary: {
       input: {
         session_id: "mt3179-untaken-action-canary",
@@ -1355,7 +1419,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./calibration-review-cadence-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
     denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 300, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 450, optionCount: 1 },
     canary: {
       input: {}, // cwd populated dynamically by setup below
       expects: "warn",

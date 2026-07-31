@@ -78,7 +78,7 @@ import {
   createDrivenSessionPersistObserver,
   orchestrateDrivenSessionResume,
 } from "./driven-session-launch";
-import type { ChannelActuator } from "./principal-channel-poller";
+import type { ChannelActuator, ChannelImage } from "./principal-channel-poller";
 
 /**
  * The channel's standing conversation always occupies THIS row (mt#3243).
@@ -360,12 +360,17 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
   };
 
   return {
-    async converse(text: string, replyToText?: string): Promise<string> {
+    async converse(text: string, replyToText?: string, images?: ChannelImage[]): Promise<string> {
       const record = await ensureRecordOnce();
       // Subscribe BEFORE writing: a fast turn could otherwise emit its result
       // between the write and the subscribe, and the reply would be lost.
       const turn = awaitTurnResult(record, turnTimeoutMs);
-      if (!sendDrivenSessionInput(record, composeTurnInput(text, replyToText))) {
+      const sent = sendDrivenSessionInput(record, composeTurnInput(text, replyToText), {
+        // Shapes match structurally; the seam type is deliberately the host's
+        // (mt#3235), so no mapping is needed here.
+        ...(images && images.length > 0 ? { images } : {}),
+      });
+      if (!sent) {
         turn.cancel();
         throw new Error("the channel conversation is not accepting input");
       }

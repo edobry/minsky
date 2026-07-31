@@ -86,7 +86,9 @@ describe("run (mt#3179)", () => {
     const outcome = run(inputWith(R3_FINAL_MESSAGE), ctx, storeDir);
     expect(outcome).not.toBeNull();
     expect(outcome?.deny).toBeUndefined();
-    expect(outcome?.additionalContext).toContain("naming a next action without taking it");
+    expect(outcome?.additionalContext).toContain(
+      "named a next action and ended the turn without taking it"
+    );
   });
 
   test("dedups: the same phrase does not fire twice for one turn", () => {

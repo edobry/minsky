@@ -67,9 +67,7 @@ function buildTurnEndReminder(matches: TriggerMatch[]): string {
   lines.push(
     "",
     "Address this BEFORE ending the turn: invoke `/retrospective` now — its Step 0.5 triage owns whether a full retrospective is warranted. " +
-      "If this is genuinely not a retrospective case (e.g. the phrase is not about your own work), say so in one line and end the turn — " +
-      "this reminder fires at most once per phrase and will not repeat. " +
-      `Override: set ${OVERRIDE_ENV_VAR}=1.`
+      "If this is genuinely not a retrospective case (e.g. the phrase is not about your own work), say so in one line and end the turn."
   );
   return lines.join("\n");
 }

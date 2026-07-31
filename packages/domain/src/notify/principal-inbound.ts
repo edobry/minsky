@@ -31,7 +31,7 @@
  */
 
 import { safeTruncate } from "@minsky/shared/safe-truncate";
-import type { InboundTelegramMessage } from "./telegram-transport";
+import type { InboundAttachmentRef, InboundTelegramMessage } from "./telegram-transport";
 
 /**
  * Cap on message text stored in the append-only event log.
@@ -67,6 +67,15 @@ export type InboundRoute =
   | { kind: "interrupt" }
   /** Abandon the current channel conversation and start a fresh one. */
   | { kind: "reset" }
+  /**
+   * The message carried only media this channel cannot read (mt#3235).
+   *
+   * A distinct branch rather than a rejection or a channel-agent turn: it is
+   * neither unauthorized nor empty, and answering it costs a fixed sentence
+   * instead of a whole agent turn spent discovering there is nothing to act on.
+   * What it must NOT be is silent — that was the defect.
+   */
+  | { kind: "unsupported-media"; label: string }
   /** The default: hand the text to the standing channel conversation. */
   | {
       kind: "channel-agent";
@@ -78,6 +87,14 @@ export type InboundRoute =
        * without depending on the conversation remembering the earlier turn.
        */
       replyToText: string | undefined;
+      /** Image references to resolve to bytes and forward (mt#3235). */
+      attachments: InboundAttachmentRef[];
+      /**
+       * Set when the SAME message also carried media that cannot be read — a
+       * captioned voice note, a photo plus a video. The caption is still worth
+       * an agent turn; the unreadable part still has to be mentioned.
+       */
+      unsupportedMedia: string | undefined;
     };
 
 /** `/answer <ask-ref> <text>` — the ref is a uuid, a short id, or a prefix. */
@@ -108,7 +125,12 @@ export function routeInboundMessage(
   }
 
   const text = message.text.trim();
-  if (text.length === 0) {
+  if (text.length === 0 && message.attachments.length === 0) {
+    // Media with no caption that this version cannot read. Not empty, not
+    // unauthorized — owed an answer (mt#3235).
+    if (message.unsupportedMedia !== undefined) {
+      return { kind: "unsupported-media", label: message.unsupportedMedia };
+    }
     return { kind: "rejected", reason: "empty-text" };
   }
 
@@ -128,6 +150,8 @@ export function routeInboundMessage(
     text,
     replyToMessageId: message.replyToMessageId,
     replyToText: message.replyToText,
+    attachments: message.attachments,
+    unsupportedMedia: message.unsupportedMedia,
   };
 }
 
@@ -171,6 +195,14 @@ export interface PrincipalMessageEventPayload {
   sentAt?: number;
   /** Why carrying the message out failed. Only on `principal.message_failed`. */
   failureDetail?: string;
+  /**
+   * How many images the message carried (mt#3235). Recorded because a
+   * caption-only audit row would otherwise read identically to a plain text
+   * message, hiding the fact that an image was part of the turn.
+   */
+  attachmentCount?: number;
+  /** The label for media that arrived but was not read (mt#3235). */
+  unsupportedMedia?: string;
 }
 
 /** Build the idempotency token for an update id. */
@@ -208,5 +240,9 @@ export function buildInboundEventPayload(
     ...base,
     text,
     ...(text.length < message.text.length ? { textTruncated: true } : {}),
+    ...(message.attachments.length > 0 ? { attachmentCount: message.attachments.length } : {}),
+    ...(message.unsupportedMedia === undefined
+      ? {}
+      : { unsupportedMedia: message.unsupportedMedia }),
   };
 }

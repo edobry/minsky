@@ -1,12 +1,17 @@
 /**
  * SessionFilm — the film body for ONE conversation (mt#3461).
  *
- * Extracted from `SessionFilmPage` when the film was folded into
- * `/conversation/:id` as a Film tab. The page used to own two things: picking a
- * conversation, and rendering that conversation's film. Only the second is
- * still needed — the conversation now comes from the route, so the picker and
- * its `?session=` param are gone (see `pages/SessionFilmPage.tsx`, now a
- * redirect shim).
+ * Extracted from the former `SessionFilmPage` when the film was folded into
+ * `/conversation/:id` as a Film tab (mt#3461). That page owned two things:
+ * picking a conversation, and rendering that conversation's film. Only the
+ * second is still needed — the conversation comes from the route now, so the
+ * picker and its `?session=` param are gone, and the page itself was deleted
+ * along with the `/session-film` route (mt#3468).
+ *
+ * `/conversation/:id/film` is the ONLY path to a film. It is deliberately not
+ * offered on `/agents/:id` — a film replays a conversation, and reaching one
+ * through a workspace would mean "the film of whichever conversation is
+ * currently selected," which names no specific thing (mt#3468).
  *
  * What deliberately did NOT change: the fold, the keyframes, the camera, the
  * scroll-as-scrub coupling, and the `?t=` playhead addressing are the same code
@@ -26,6 +31,7 @@ import { SessionFilmRibbon } from "./SessionFilmRibbon";
 import { SessionFilmStage } from "./SessionFilmStage";
 import { SessionFilmMinimap } from "./SessionFilmMinimap";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
+import { isTextEntryTarget } from "../../lib/keyboard";
 import {
   fetchSessionFilmEvents,
   sessionFilmEventsQueryKey,
@@ -99,12 +105,16 @@ export function SessionFilm({
     []
   );
 
-  // Re-key every piece of playhead state when the route swings to a different
+  // Re-key every piece of playhead state when the prop names a different
   // conversation. On the standalone page `handleSelectSession` did this; here
-  // the conversation arrives as a prop, so the reset has to key off the prop.
-  // Without it, switching conversations on `/agents/:id/film` (the
-  // multi-conversation switcher) would carry the previous film's playhead and
-  // selection into the new one.
+  // the conversation arrives as a prop, so the reset keys off the prop.
+  //
+  // `RunDetail` also passes `key={activeConversationId}`, which remounts this
+  // component outright and makes the effect redundant THERE. It stays because
+  // the component must be correct on its own terms: a caller that renders
+  // <SessionFilm> without a key and swaps the prop would otherwise carry the
+  // previous film's playhead and selection into the new one. Correctness that
+  // depends on every caller remembering a `key` is not correctness.
   useEffect(() => {
     setPlayheadRowIndex(0);
     setSelectedRowIndex(null);
@@ -185,15 +195,15 @@ export function SessionFilm({
   );
 
   // Keyboard stepping — one batch row per arrow press (spec SC 6).
+  //
+  // Focus guard comes from `lib/keyboard.ts` (adopted while landing mt#3466):
+  // that module was created to unify mt#3464's and mt#3469's duplicate copies
+  // and states that a new shortcut should import it rather than write a third.
+  // This handler WAS a third copy, and a narrower one — it missed `SELECT`
+  // (where typeahead silently changes a value) and contenteditable hosts.
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      const target = e.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA")
-      ) {
-        return;
-      }
+      if (isTextEntryTarget(e.target)) return;
       if (e.key === "ArrowDown" || e.key === "ArrowRight") {
         e.preventDefault();
         setPlayheadRowIndex((i) => Math.min(batchRows.length - 1, i + 1));

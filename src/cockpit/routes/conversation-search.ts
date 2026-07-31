@@ -3,8 +3,9 @@
  *
  *   GET /api/conversations/search — find a past conversation by content
  *   (FTS default, semantic optional) and/or a `from`/`to` time window,
- *   returning the conversation id and a ready `claude --resume <id>` hint
- *   for each matched turn.
+ *   returning the conversation id and a ready, directory-pinned
+ *   `cd <cwd> && claude --resume <id>` hint for each matched turn (mt#3440 —
+ *   the bare form fails from any other directory).
  *
  * Thin pass-through over the existing transcripts substrate
  * (`TranscriptFtsService` / `TranscriptSimilarityService`) — no new
