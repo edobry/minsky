@@ -10,7 +10,7 @@
 import { describe, test, expect, spyOn, afterEach, beforeEach } from "bun:test";
 // eslint-disable-next-line custom/no-real-fs-in-tests -- the mt#3393 default-resolution test below must read the REAL tree; injecting a mock fs there would only re-assert the injected tests
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   emitHookFiredOnDeny,
   writeOutput,
@@ -513,10 +513,15 @@ describe("normalizeToolResult heals previously-dead hooks end-to-end (mt#3308 AT
 });
 
 describe("deriveHookRepoRoot (mt#3393)", () => {
-  const MAIN_WORKSPACE = "/Users/dev/Projects/minsky";
-  const HOOK_DIR = `${MAIN_WORKSPACE}/.claude/hooks`;
-  const SESSION_CLONE = "/Users/dev/.local/state/minsky/sessions/aaaa-1111";
-  const CLEANED_SESSION = "/Users/dev/.local/state/minsky/sessions/bbbb-2222";
+  // Built with `resolve`/`join` rather than POSIX string literals: findRepoRoot
+  // normalizes through `resolve()`, so a hardcoded "/Users/..." expectation
+  // would not match the normalized value on a platform with different path
+  // semantics.
+  const MAIN_WORKSPACE = resolve(join("/", "dev-home", "Projects", "minsky"));
+  const HOOK_DIR = join(MAIN_WORKSPACE, ".claude", "hooks");
+  const SESSIONS_ROOT = resolve(join("/", "dev-home", ".local", "state", "minsky", "sessions"));
+  const SESSION_CLONE = join(SESSIONS_ROOT, "aaaa-1111");
+  const CLEANED_SESSION = join(SESSIONS_ROOT, "bbbb-2222");
 
   /**
    * Two directories carry a real `.git` DIRECTORY: the main workspace and a
@@ -525,10 +530,10 @@ describe("deriveHookRepoRoot (mt#3393)", () => {
    * left in after cleanup, which is where 11 of the 22 stray calibration logs
    * landed.
    */
-  const REPO_ROOTS = new Set([MAIN_WORKSPACE, SESSION_CLONE]);
+  const GIT_ENTRIES = new Set([MAIN_WORKSPACE, SESSION_CLONE].map((r) => join(r, ".git")));
 
   const fakeFs: MergeDetectFs = {
-    existsSync: (p) => REPO_ROOTS.has(p.replace(/\/\.git$/, "")) && p.endsWith("/.git"),
+    existsSync: (p) => GIT_ENTRIES.has(p),
     readFileSync: () => "",
     statSync: () => ({ isDirectory: () => true, isFile: () => false }),
   };
@@ -540,7 +545,7 @@ describe("deriveHookRepoRoot (mt#3393)", () => {
   test("a session clone as cwd does not move the resolved root", () => {
     // This is the contrast the fix turns on: findRepoRoot(cwd) answers with
     // the session clone, deriveHookRepoRoot answers with the main workspace.
-    expect(findRepoRoot(`${SESSION_CLONE}/src`, fakeFs)).toBe(SESSION_CLONE);
+    expect(findRepoRoot(join(SESSION_CLONE, "src"), fakeFs)).toBe(SESSION_CLONE);
     expect(deriveHookRepoRoot(HOOK_DIR, fakeFs)).toBe(MAIN_WORKSPACE);
   });
 

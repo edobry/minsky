@@ -35,7 +35,7 @@ import { existsSync, readFileSync, writeFileSync, copyFileSync, readdirSync } fr
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const { findRepoRoot } = await import("../.minsky/hooks/types");
+const { deriveHookRepoRoot } = await import("../.minsky/hooks/types");
 
 const LOG_FILENAME = "policy-coverage-calibration.jsonl";
 
@@ -118,7 +118,12 @@ function parseArgs(argv: string[]): { execute: boolean; limit?: number } {
 
 async function main(): Promise<void> {
   const { execute, limit } = parseArgs(process.argv.slice(2));
-  const repoRoot = findRepoRoot(process.cwd());
+  // Same discipline the fix itself enforces: resolve the repo from the
+  // installation, not from wherever the operator's shell happens to be. Run
+  // from a session workspace, a `process.cwd()` derivation would consolidate
+  // the stray records INTO that session's log — reproducing the very defect
+  // this script exists to clean up.
+  const repoRoot = deriveHookRepoRoot();
   const mainLog = join(repoRoot, ".minsky", LOG_FILENAME);
   const sessionsRoot = deriveSessionWorkspaceRoot();
 

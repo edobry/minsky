@@ -268,5 +268,13 @@ describe("corpus root is independent of the invoking cwd (mt#3393)", () => {
 
     // Pre-fix this read "log-only: would block" — the empty-corpus verdict.
     expect(stdout).toContain("Action covered by policy");
+
+    // The other half of the same defect: the root that fed the corpus also
+    // fed the log path, so pre-fix this invocation created a stray
+    // `.minsky/policy-coverage-calibration.jsonl` under the temp cwd. Assert
+    // its absence explicitly — the verdict assertion above would still pass
+    // if only the corpus half were fixed.
+    expect(existsSync(join(tempRoot, ".minsky", "policy-coverage-calibration.jsonl"))).toBe(false);
+    expect(existsSync(join(tempRoot, ".minsky"))).toBe(false);
   });
 });

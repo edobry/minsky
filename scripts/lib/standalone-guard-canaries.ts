@@ -184,6 +184,10 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
       );
 
       // Half 1: the action filter recognizes a preference-encoding write.
+      // The path below is a synthetic STRING, never read from disk — the
+      // filter only inspects the path's shape (extension) and the content
+      // string. It intentionally names no real file, so it cannot go stale if
+      // the tree is reorganized.
       const filtered = applyActionFilter({
         toolName: "Write",
         filePath: "packages/domain/src/canary-sample.ts",
