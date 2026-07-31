@@ -220,22 +220,40 @@ calibration-sweep.ts` gained `calibrationRecordToFireLogEntry` /
 fetch`, an actual `git merge` on the blocked+clean-tree auto-merge path
   (mt#2815), and a CAS-marker write on allow). Five guards remain
   uninstrumented, each with a documented reason:
+
   - `parallel-work-guard.ts` — its `tasks_create` duplicate-child path
     (`runTasksCreateGuardInner`) resolves its decision via an internal
     `switch` with no return value bubbled to the call site; attributing a
     fire-log decision would need restructuring that function's void return
     into a decision-returning one — a larger structural change than the
     additive instrumentation this task's scope allows.
-  - `policy-coverage-detector.ts` — already has its own purpose-built
-    calibration log (now surfaced via the adapter above); a canary would be
-    structurally brittle (depends on live corpus content) and the guard has
-    8 early-exit branches.
+  - `policy-coverage-detector.ts` — NO LONGER A GAP as of mt#3393; a
+    `policy-coverage` canary now ships in `STANDALONE_GUARD_CANARIES`. The
+    original exclusion reasoned that a canary "would be structurally brittle
+    (depends on live corpus content)"; that holds only if the canary loads the
+    live corpus. Injecting a synthetic two-entry `PolicyCorpus` straight into
+    `decideCoverage` — one entry that speaks to the action, one that does not,
+    asserting both directions — exercises the real decision function with no
+    dependence on what `CLAUDE.md` happens to say today. The 8 early-exit
+    branches are in the hook ENTRYPOINT, which the canary deliberately does
+    not cover; the entrypoint's own wiring is pinned by a spawn-based test in
+    `policy-coverage-detector.test.ts` instead.
+
+    Why it mattered: with no canary AND (per mt#3393) no live receipt either —
+    its records were resolving to a cwd-derived root and landing outside the
+    repo — this detector had NEITHER half of the two-part coverage story. When
+    the coverage-receipt gate below flagged it, nothing on either axis could
+    distinguish a broken detector from a dormant one, and the resulting
+    investigation opened on the wrong hypothesis (assumed-dead) for a
+    mechanism that had in fact fired that morning.
+
   - `block-github-mcp-pr-writes.ts` — near-identical in shape/signal to the
     already-instrumented `block-git-gh-cli`; low marginal value.
   - `loop-preflight-pr-merge-check.ts` — narrow trigger (`Skill:"loop"`
     only); no injectable seam without a refactor.
   - `check-prompt-watermark.ts` — narrow trigger (`Agent` dispatches only);
     low fire frequency.
+
 - **Phase-1 GATE verification** — see the next section; formally re-run
   against the real log post-landing.
 
