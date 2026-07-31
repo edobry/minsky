@@ -27,9 +27,11 @@ import {
   type SpawnFn,
 } from "./driven-session-host";
 import { RESOLVE_PROPOSAL_FENCE } from "@minsky/shared/resolve-proposal";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { entityThreadLocalId } from "@minsky/domain/transcripts/entity-thread-store";
 import {
   askToEntitySeed,
+  resolveOriginConversationId,
   buildEntityThreadSeedPrompt,
   createEntityThreadReplyRecorder,
   extractAssistantTextFromEvent,
@@ -86,6 +88,59 @@ describe("askToEntitySeed", () => {
 
   test("omits the refs key entirely when the ask carries none", () => {
     expect(askToEntitySeed({ id: ASK_ID, question: "q" }).refs).toBeUndefined();
+  });
+});
+
+describe("resolveOriginConversationId (mt#3367)", () => {
+  /** Minimal `db.execute` stand-in — the resolver only needs that one method. */
+  function fakeDb(behavior: (query: unknown) => unknown): PostgresJsDatabase {
+    return { execute: async (q: unknown) => behavior(q) } as unknown as PostgresJsDatabase;
+  }
+
+  test("returns the linked conversation id", async () => {
+    const db = fakeDb(() => [{ agent_session_id: "conv-1" }]);
+    expect(await resolveOriginConversationId(db, "ws-1")).toBe("conv-1");
+  });
+
+  test("returns null when no link row matches", async () => {
+    // The MAJORITY case — measured reachability is 46.2%. Not an error path.
+    const db = fakeDb(() => []);
+    expect(await resolveOriginConversationId(db, "ws-1")).toBeNull();
+  });
+
+  test("returns null for a null or absent parentSessionId WITHOUT querying", async () => {
+    let queried = false;
+    const db = fakeDb(() => {
+      queried = true;
+      return [];
+    });
+    expect(await resolveOriginConversationId(db, null)).toBeNull();
+    expect(await resolveOriginConversationId(db, undefined)).toBeNull();
+    expect(await resolveOriginConversationId(db, "")).toBeNull();
+    expect(queried).toBe(false);
+  });
+
+  test("degrades to null when the lookup throws, rather than propagating", async () => {
+    // A thread that works without origin context beats one that 500s because a
+    // best-effort enrichment lookup failed.
+    const db = fakeDb(() => {
+      throw new Error("connection reset");
+    });
+    expect(await resolveOriginConversationId(db, "ws-1")).toBeNull();
+  });
+
+  test("gates on confidence = 1 in the query it issues", async () => {
+    // The gate is the whole point (mt#3367): a sub-1.0 link can name the WRONG
+    // conversation, and answering "why did you ask me this?" from it would be
+    // confidently wrong. Asserted against the emitted SQL because the filter
+    // lives in the query, not in post-filtering.
+    let captured = "";
+    const db = fakeDb((q) => {
+      captured = JSON.stringify(q);
+      return [];
+    });
+    await resolveOriginConversationId(db, "ws-1");
+    expect(captured).toContain("confidence");
   });
 });
 
@@ -169,7 +224,10 @@ describe("buildEntityThreadSeedPrompt", () => {
     // the driven-session mechanism was chosen over a completion call to avoid.
     const prompt = buildEntityThreadSeedPrompt(seed);
     expect(prompt).toContain(INVESTIGATE_INSTRUCTION);
-    expect(prompt).toMatch(/rather than restating/);
+    // `\s+` not a literal space: the prompt is hand-wrapped, so the phrase can
+    // straddle a line break. Matching a literal space made this assertion
+    // sensitive to rewrapping rather than to the instruction it checks for.
+    expect(prompt).toMatch(/rather than\s+restating/);
   });
 
   test("forbids acting on the entity", () => {
@@ -178,6 +236,46 @@ describe("buildEntityThreadSeedPrompt", () => {
     const prompt = buildEntityThreadSeedPrompt(seed);
     expect(prompt).toContain(ACTION_PROHIBITION);
     expect(prompt).toMatch(/resolve, close, edit, or respond/);
+  });
+
+  test("carries the origin as a distinct field, NOT as another ref (mt#3367)", () => {
+    // Kept out of `refs` on purpose: the origin is a tool TARGET the prompt
+    // gives reading instructions for, and keeping it distinct is what lets the
+    // route report `originSeeded` without pattern-matching a ref label.
+    const withOrigin = askToEntitySeed({
+      id: ASK_ID,
+      question: "q",
+      originConversationId: "conv-abc",
+    });
+    expect(withOrigin.originConversationId).toBe("conv-abc");
+    expect(JSON.stringify(withOrigin.refs ?? [])).not.toContain("conv-abc");
+  });
+
+  test("leaves originConversationId undefined when unreachable (mt#3367)", () => {
+    expect(askToEntitySeed({ id: ASK_ID, question: "q" }).originConversationId).toBeUndefined();
+    expect(
+      askToEntitySeed({ id: ASK_ID, question: "q", originConversationId: null })
+        .originConversationId
+    ).toBeUndefined();
+  });
+
+  test("treats a blank origin id as ABSENT, not as an origin (PR #2493 R1)", () => {
+    // An empty or whitespace-only id cannot be read by any tool. Carrying it
+    // would tell the agent to read "" and tell the principal the thread is
+    // origin-grounded — both false.
+    for (const blank of ["", "   ", "\n\t"]) {
+      expect(
+        askToEntitySeed({ id: ASK_ID, question: "q", originConversationId: blank })
+          .originConversationId
+      ).toBeUndefined();
+    }
+  });
+
+  test("trims a padded origin id rather than passing whitespace through", () => {
+    expect(
+      askToEntitySeed({ id: ASK_ID, question: "q", originConversationId: "  conv-abc  " })
+        .originConversationId
+    ).toBe("conv-abc");
   });
 
   test("omits the references block when there are none", () => {
@@ -200,6 +298,27 @@ describe("buildEntityThreadSeedPrompt", () => {
     expect(prompt).toContain("Proposing is not acting");
     // The proposal contract must not have loosened the existing prohibition.
     expect(prompt).toContain(ACTION_PROHIBITION);
+  });
+
+  test("names the origin conversation and how to read it, when reachable (mt#3367)", () => {
+    const prompt = buildEntityThreadSeedPrompt({
+      ...seed,
+      originConversationId: "conv-abc",
+    });
+    expect(prompt).toContain("conv-abc");
+    expect(prompt).toContain("transcripts_get");
+    // Selective reading, not a reflexive full pull — the tool's own options.
+    expect(prompt).toContain("turnRange");
+  });
+
+  test("STATES that the origin is unavailable rather than omitting it (mt#3367)", () => {
+    // Silence would read to the agent as "no originating conversation exists",
+    // and it would answer WHY-questions from the entity text without telling
+    // the principal its grounding was thinner than it could have been. This is
+    // the majority case (reachability ~46%), so it has to be first-class.
+    const prompt = buildEntityThreadSeedPrompt(seed);
+    expect(prompt).toMatch(/could NOT be resolved/);
+    expect(prompt).not.toContain("transcripts_get");
   });
 
   test("instructs the agent to DECLINE on a malformed or ungroundable ask", () => {
