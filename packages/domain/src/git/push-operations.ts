@@ -319,13 +319,33 @@ export async function verifyRemoteRefAdvanced(
 
 /**
  * Default bound for the push call itself inside `pushWithConfirmation`
- * (mt#3177). Matches `DEFAULT_PUSH_PHASE_TIMEOUT_MS` in
- * `session-commands.ts` (mt#3049) — the two constants are independently
- * configurable (different callers, different override params) but share the
- * same rationale: a push that genuinely needs longer than 2 minutes on a
- * healthy network is itself diagnostic-worthy.
+ * (mt#3177), raised from 2 to 10 minutes by mt#3480.
+ *
+ * The original 2 minutes rested on "a push that needs longer than 2 minutes on
+ * a healthy network is itself diagnostic-worthy." That premise is FALSE in this
+ * repo, and measurably so: `.husky/pre-push` (mt#2716) runs the full local test
+ * suite on every push — deliberately, as the tier that replaced a slow
+ * pre-commit gate. Measured 2026-07-31 from a session workspace:
+ *
+ *   Ran 10865 tests across 770 files. [209.71s]     <- main suite
+ *   + ~19 further suites                             <- ~15s
+ *
+ * So a HEALTHY push here costs ~4 minutes before a single byte moves. The bound
+ * was structurally shorter than the gate it had to wait for, which made every
+ * session push a coin flip and PR creation fail outright (mt#3367 was blocked
+ * for an hour by exactly this).
+ *
+ * 10 minutes is chosen to clear the measured cost with headroom for a loaded
+ * machine, and matches the commit-phase default's order of magnitude. The cost
+ * of the larger bound is that a GENUINELY stuck push now blocks longer — which
+ * is why mt#3480 also added `elapsedMs`/`pushTimeoutMs`/`timedOutDuring` to the
+ * result: a slow push is now distinguishable from a stuck one without re-running
+ * it. The mt#3177 remote-ref check still runs on timeout regardless.
+ *
+ * `MINSKY_SKIP_PREPUSH_TESTS=1` (the hook's own documented escape hatch) makes
+ * pushes fast again when the caller has already run the suite.
  */
-export const DEFAULT_PUSH_CONFIRM_TIMEOUT_MS = 2 * 60 * 1000;
+export const DEFAULT_PUSH_CONFIRM_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
  * Result of `pushWithConfirmation` — a superset of `PushResult` (all
