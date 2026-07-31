@@ -18,8 +18,10 @@ import {
   UNKNOWN_UTILIZATION_LABEL,
   type CachedModelLimitSource,
 } from "./generate-analysis";
+import { displayAnalysisResults } from "./generate-display";
+import { displayContextVisualization } from "./generate-visualization";
 import { getFallbackModels, getPrimaryModels } from "@minsky/domain/ai/model-catalog";
-import type { GenerateResult } from "./generate-types";
+import type { AnalysisResult, GenerateResult } from "./generate-types";
 
 /** Limits as returned by the live Anthropic listing, measured in mt#3379. */
 const LIVE_ANTHROPIC_CONTEXT_WINDOW = 1_000_000;
@@ -140,9 +142,66 @@ describe("context-window display formatting", () => {
   });
 
   test("renders known values", () => {
-    expect(formatContextWindowSize(LIVE_ANTHROPIC_CONTEXT_WINDOW)).toBe("1,000,000 tokens");
+    // Asserted structurally rather than against a literal "1,000,000": the
+    // separator toLocaleString emits is locale-dependent and CI need not run
+    // under en-US.
+    const rendered = formatContextWindowSize(LIVE_ANTHROPIC_CONTEXT_WINDOW);
+    expect(rendered).toBe(`${LIVE_ANTHROPIC_CONTEXT_WINDOW.toLocaleString()} tokens`);
+    expect(rendered.replace(/\D/g, "")).toBe("1000000");
+
     expect(formatContextWindowUtilization(5)).toBe("5.0%");
     expect(formatContextWindowUtilization(5, { compact: true })).toBe("5.0%");
+  });
+
+  // The comparison table pads this cell to 12 characters; a longer value would
+  // silently break the column alignment.
+  test("compact utilization fits the comparison table's 12-character column", () => {
+    const COMPARISON_COLUMN_WIDTH = 12;
+
+    expect(formatContextWindowUtilization(null, { compact: true }).length).toBeLessThanOrEqual(
+      COMPARISON_COLUMN_WIDTH
+    );
+    expect(formatContextWindowUtilization(100, { compact: true }).length).toBeLessThanOrEqual(
+      COMPARISON_COLUMN_WIDTH
+    );
+  });
+});
+
+describe("display paths tolerate an unknown context window", () => {
+  // Before mt#3390 these three call sites formatted with .toLocaleString() /
+  // .toFixed() directly, so a null window would have thrown at render time.
+  // This is the regression class the nullability change introduced.
+  const unknownAnalysis: AnalysisResult = {
+    metadata: {
+      model: "claude-opus-6",
+      tokenizer: { name: "tiktoken", encoding: "cl100k_base", description: "OpenAI tokenizer" },
+      interface: "cli",
+      contextWindowSize: null,
+      analysisTimestamp: new Date(0).toISOString(),
+      generationTime: 1,
+    },
+    summary: {
+      totalTokens: 50_000,
+      totalComponents: 1,
+      averageTokensPerComponent: 50_000,
+      largestComponent: "environment",
+      contextWindowUtilization: null,
+    },
+    componentBreakdown: [
+      { component: "environment", tokens: 50_000, percentage: "100.0", content_length: 10 },
+    ],
+    optimizations: [],
+    fullResult: resultWithTokens(50_000),
+  };
+
+  test("the analysis display renders without throwing", () => {
+    expect(() => displayAnalysisResults(unknownAnalysis, {})).not.toThrow();
+  });
+
+  test("the visualization display renders without throwing", () => {
+    expect(() =>
+      displayContextVisualization(unknownAnalysis, { chartType: "bar", maxWidth: "80" })
+    ).not.toThrow();
   });
 });
 

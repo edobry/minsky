@@ -26,6 +26,17 @@ export interface CachedModelLimitSource {
   getAllCachedModels(): Promise<Record<string, { id: string; contextWindow: number }[]>>;
 }
 
+/**
+ * Compile-time proof that the real cache service satisfies the narrow read
+ * interface above. The default-parameter site already enforces this, but naming
+ * the contract makes the coupling explicit: if `getAllCachedModels` changes
+ * shape, the build fails here rather than the mismatch reaching runtime.
+ */
+type AssertTrue<T extends true> = T;
+export type CacheServiceSatisfiesLimitSource = AssertTrue<
+  DefaultModelCacheService extends CachedModelLimitSource ? true : false
+>;
+
 /** Rendered wherever a model's context window could not be resolved. */
 export const UNKNOWN_CONTEXT_WINDOW_LABEL = "unknown (model not in the local model cache)";
 
@@ -81,7 +92,10 @@ export async function getModelContextWindow(
   } catch (error) {
     // An unreadable cache means the window is unknown, not that analysis
     // failed — the rest of the report is still worth producing.
-    log.debug("Model cache unreadable; reporting context window as unknown", { model, error });
+    log.debug("Model cache unreadable; reporting context window as unknown", {
+      model,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 
