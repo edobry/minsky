@@ -41,12 +41,17 @@ import {
   sendDrivenSessionInput,
   drivenSessionRegistry,
   DEFAULT_PERMISSION_MODE,
+  type DrivenSessionCostSummary,
   type DrivenSessionEvent,
   type DrivenSessionRecord,
   type DrivenSessionRegistry,
   type DrivenSessionSubscriber,
   type SpawnFn,
 } from "./driven-session-host";
+import {
+  createDrivenResultObserver,
+  createDrivenSessionPersistObserver,
+} from "./driven-session-launch";
 import {
   appendEntityThreadTurn,
   entityThreadLocalId,
@@ -178,6 +183,14 @@ export interface StartEntityThreadSessionOptions {
   registry?: DrivenSessionRegistry;
   /** Test seam — fake binary path. */
   command?: string;
+  /**
+   * Override the durable-persistence observer (mt#3402). Production omits it
+   * and gets `createDrivenSessionPersistObserver`; tests inject a capture so
+   * they can assert the row WOULD be written without touching Postgres.
+   */
+  onStateChange?: (record: DrivenSessionRecord) => void;
+  /** Override the per-turn cost observer (mt#3402). Same seam convention. */
+  onResultSummary?: (record: DrivenSessionRecord, summary: DrivenSessionCostSummary) => void;
 }
 
 export interface EntityThreadSession {
@@ -221,6 +234,19 @@ export function startEntityThreadSession(
     localId,
     cwd: opts.cwd ?? process.cwd(),
     permissionMode: DEFAULT_PERMISSION_MODE,
+    // mt#3402: the SAME observer set ./routes/driven-sessions.ts wires for
+    // every driven session. Omitting these is why no `driven_sessions` row was
+    // ever written for a thread — and therefore why the deterministic
+    // `localId`'s whole purpose (one row per entity, surviving a daemon
+    // restart) silently never held. This callsite was originally written from
+    // `startDrivenSession`'s SIGNATURE rather than from its existing caller.
+    //
+    // `createDrivenInitLinkObserver` is deliberately NOT wired: it early-returns
+    // unless the record carries BOTH a harnessSessionId and a minskySessionId,
+    // and a thread is bound to an entity, not to a workspace session. Wiring it
+    // would add a permanent no-op, not a link.
+    onStateChange: opts.onStateChange ?? createDrivenSessionPersistObserver(),
+    onResultSummary: opts.onResultSummary ?? createDrivenResultObserver(),
     ...(opts.spawnFn ? { spawnFn: opts.spawnFn } : {}),
     ...(opts.registry ? { registry: opts.registry } : {}),
     ...(opts.command ? { command: opts.command } : {}),
