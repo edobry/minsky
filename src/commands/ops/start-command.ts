@@ -47,6 +47,7 @@ import {
   checkCallsitesInSnapshot,
   type SnapshotFetchResult,
 } from "./adoption-sweeper-callsite-check";
+import { toilMinerOpsTick } from "./toil-miner-tick";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -921,6 +922,21 @@ export function createOpsStartCommand(externalContainer?: AppContainerInterface)
         "ADOPTION_SWEEPER",
         86_400_000, // 24 hours
         adoptionSweeperTick
+      );
+
+      // EngProd toil miner (mt#3330): mines recurring tool-call subsequences
+      // from the projection table and files evidence-backed BLOCKED
+      // proposal tasks via a deterministic-then-LLM curation gate. 5-day
+      // default cadence, disabled by default — production enablement is an
+      // explicit operator step after deploy (see mt#3330 PR body's Deploy
+      // verification section).
+      registerLoop(
+        loops,
+        initializedContainer,
+        "toil-miner",
+        "TOIL_MINER",
+        432_000_000, // 5 days
+        toilMinerOpsTick
       );
 
       // Start the HTTP health server.
