@@ -111,6 +111,35 @@ export const OPERATOR_INSTRUCTION_PATTERNS: RegExp[] = [
   // operator follow-up / one-time manual step framing
   /\boperator\s+follow-?up:?\s*(edit|add|configure|run|restart|rebuild|reinstall|register|manually)\b/i,
   /\bone-?time\s+(config|setup|edit|registration|reinstall|rebuild|manual)\b[^.\n]{0,20}\b(required|needed|step)\b/i,
+  // mt#3442: the INVERTED order — outcome clause first, imperative verb after.
+  // Every rebuild/reinstall pattern above reads verb-then-outcome, so
+  // "rebuild ... to see the fix" fires while "to see the fix, rebuild ..." —
+  // the plain imperative an agent actually writes — matched nothing. Verified
+  // live: the closing line of the mt#3397 conversation ("To actually see the
+  // fix, rebuild and restart your cockpit") hit 0 of 9 patterns with 0
+  // suppressors present.
+  //
+  // The `[,;]` before the verb is load-bearing, not decoration: it demands a
+  // clause break, which is what separates an INSTRUCTION ("to see the fix,
+  // rebuild X") from a DESCRIPTION ("check the logs to see whether the daemon
+  // restarted"). Without it the second sentence matches too. `(?:\w+\s+){0,2}`
+  // absorbs an adverb — "to actually see", "to finally pick up".
+  //
+  // PR #2463 R1: the outcome alternation is kept in sync with the forward-order
+  // pattern above, `take effect` and `the fix` included. A narrower list here
+  // would reintroduce this task's own defect one direction over — "For the fix
+  // to take effect, restart the daemon." is an ordinary phrasing that the
+  // forward pattern would have caught and this one would have missed.
+  /\bto\s+(?:\w+\s+){0,2}(?:see|get|activate|apply|pick\s+up|take\s+effect|the\s+fix)\b[^.\n]{0,50}[,;]\s*(?:rebuild|re-?build|reinstall|re-?install|restart)\b/i,
+  // mt#3442: "after your next <command>, <refresh verb>" where the command sits
+  // between the two. The R2 pattern above requires the verb IMMEDIATELY after
+  // "your next", so a command span breaks it — "After your next `bun run
+  // cockpit:build` + hard-refresh, the card will read Embeddings." matched
+  // nothing here, even though operator-deferral-detector.test.ts pins that exact
+  // string as one THIS array owns. It was falling through both detectors.
+  // Anchored on "after (your) next" rather than a bare "after" so descriptive
+  // prose ("after the next restart the daemon will pick it up") stays out.
+  /\bafter\s+(?:your\s+)?next\s+[^.\n]{0,60}\b(?:hard-?refresh|reload|rebuild|re-?build|reinstall|restart)\b/i,
 ];
 
 /**

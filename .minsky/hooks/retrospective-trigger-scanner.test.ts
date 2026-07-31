@@ -141,6 +141,104 @@ describe("R4 decline-to-retrospective patterns", () => {
 });
 
 // ---------------------------------------------------------------------------
+// mt#3291 — disposition-precision narrowing, keyed to the 2026-07-28 review
+// window. All eight fires in that window were genuine self-correction language
+// (phrase-match precision ~100%), but only two described a PROCESS failure
+// (disposition precision ~25%). These fixtures are the actual excerpts from
+// `.minsky/retrospective-trigger-calibration.jsonl`, so the split is pinned
+// against real recorded text rather than invented phrasing.
+// ---------------------------------------------------------------------------
+
+describe("mt#3291 — factual self-correction does NOT fire", () => {
+  // The four "I was wrong about" FPs. Each corrects a fact about the WORLD —
+  // a shell's launch mode, whether work was lost, what a set of commits held,
+  // why pushes failed — not the agent's own reasoning.
+  const cases = [
+    "So you are in iTerm CLI (not a GUI/Dock launch — I was wrong about that).",
+    "Definitive: your work was never gone — I was wrong about that.",
+    "Interim, with one correction I shouldn't sit on: I was wrong about one thing.",
+    "The more important find: I was wrong about the push failures. They weren't timeouts.",
+  ];
+
+  for (const phrase of cases) {
+    test(`does not fire: "${phrase.slice(0, 56)}…"`, () => {
+      expect(detectTriggerPhrases(phrase)).toHaveLength(0);
+    });
+  }
+});
+
+describe("mt#3291 — process-failure self-correction still fires", () => {
+  // The two real positives from the same window, plus the process-shaped
+  // "wrong about" the narrowed pattern deliberately retains.
+  const cases: Array<[string, string]> = [
+    [
+      "conflated proxy evidence (07-21T20:54)",
+      "role-permission probes were thorough and effortful, so I conflated expensive proxy evidence with verified the acceptance surface",
+    ],
+    [
+      "conflated without reading (07-22T19:04)",
+      "The two share the word routing and I conflated them without reading the service",
+    ],
+    ["wrong about the approach", "I was wrong about the approach here"],
+    ["wrong about the architecture", "I was wrong about the architecture"],
+  ];
+
+  for (const [label, phrase] of cases) {
+    test(`fires: ${label}`, () => {
+      const matches = detectTriggerPhrases(phrase);
+      expect(matches.length).toBeGreaterThanOrEqual(1);
+      expect(matches.some((m) => m.family === "R1")).toBe(true);
+    });
+  }
+});
+
+describe("mt#3291 — R4 fires on a declared skip, not a reasoned recommendation", () => {
+  test("does not fire on a justified recommendation to skip", () => {
+    // The 07-22T18:26 fire: an agent correctly concluding a retro was not
+    // warranted and saying why. A live "invoke /retrospective" reminder here
+    // penalizes the reasoning R4 exists to elicit.
+    const text =
+      "My recommendation: skip the full retrospective — the structural fix exists and both occurrences were benign";
+    expect(detectTriggerPhrases(text)).toHaveLength(0);
+  });
+
+  test("does not fire on a reasoned first-person recommendation either", () => {
+    const text = "I recommend we skip the full retrospective because the guard already covers it";
+    expect(detectTriggerPhrases(text)).toHaveLength(0);
+  });
+
+  // PR #2461 R1: the first draft covered too few declaring shapes. Every
+  // phrasing below is the same bare decline; each is pinned so a future
+  // narrowing cannot silently drop one.
+  const declaredSkips = [
+    "I'll just skip the retrospective this time",
+    "I'll skip a retrospective",
+    "I will skip the full retrospective",
+    "I'm going to skip the retrospective",
+    "I am going to skip a retrospective",
+    "I'm skipping the retrospective",
+    "I am skipping a proper retrospective",
+    "I skip the retrospective",
+  ];
+
+  for (const text of declaredSkips) {
+    test(`still fires on a bare declared skip: "${text}"`, () => {
+      const matches = detectTriggerPhrases(text);
+      expect(matches.some((m) => m.family === "R4")).toBe(true);
+    });
+  }
+
+  test("still fires on conclusory declines with no first-person subject", () => {
+    for (const text of [
+      "There is no need for a full retrospective here",
+      "This doesn't warrant a full retrospective",
+    ]) {
+      expect(detectTriggerPhrases(text).some((m) => m.family === "R4")).toBe(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Negative matches — should NOT trigger
 // ---------------------------------------------------------------------------
 

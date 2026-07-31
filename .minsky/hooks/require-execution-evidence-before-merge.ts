@@ -45,6 +45,8 @@ import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
 import { computeFenceInternalLines, collectHeadingSections } from "./markdown-sections";
 import { runScCoverageCalibration, SC_COVERAGE_CALIBRATION_LOG } from "./success-criteria-coverage";
+import { runTestFirstCalibration, TEST_FIRST_CALIBRATION_LOG } from "./test-first-evidence";
+import { isTestFile } from "./pr-file-predicates";
 import { classifyOverride } from "./fire-log";
 import {
   deriveRepoFromGit as deriveRepoFromGitImpl,
@@ -104,20 +106,13 @@ export interface ExecutionEvidenceCheckResult {
 // Test file detection
 // ---------------------------------------------------------------------------
 
-/**
- * Pattern for test files we care about. Matches:
- *   - *.test.ts
- *   - *.integration.test.ts
- *   - *.spec.ts
- */
-const TEST_FILE_PATTERN = /\.(test|integration\.test|spec)\.ts$/;
-
-/**
- * Returns true when a filename matches a test-file pattern.
- */
-export function isTestFile(filename: string): boolean {
-  return TEST_FILE_PATTERN.test(filename);
-}
+// `isTestFile` moved to the dependency-free `./pr-file-predicates` (mt#3244, PR #2462 R1)
+// so `test-first-evidence.ts` can consume it without importing this module — this file
+// imports THAT one to run its calibration, so the reverse import would be a cycle.
+// Re-exported here so existing callers and tests are unaffected by the move. Imported
+// AND re-exported (not a bare `export ... from`) because this file calls it internally —
+// a re-export alone creates no local binding.
+export { isTestFile };
 
 /**
  * Pattern for operational scripts (mt#2776). A newly-added `scripts/*.ts` is a
@@ -1070,6 +1065,26 @@ if (import.meta.main) {
     if (scCoverage.warning) {
       allWarnings.push(scCoverage.warning);
     }
+  }
+
+  // mt#3244: THIRD additive calibration surface, driven from the same spec fetch. Unlike the
+  // two above it also reads the PR's FILE LIST and TITLE, because its trigger is the shape of
+  // the change (a bugfix modifying an existing test), not a section of the spec. Log-only:
+  // never influences `result.blocked`.
+  const testFirst = runTestFirstCalibration(
+    task,
+    context.prNumber,
+    prFiles,
+    prTitle,
+    prBody,
+    extractExecutionEvidenceText(prBody),
+    specFetch.ok && typeof specFetch.content === "string" ? specFetch.content : null
+  );
+  if (testFirst.calibrationRecord) {
+    appendCalibrationRecord(testFirst.calibrationRecord, repoRootDir, TEST_FIRST_CALIBRATION_LOG);
+  }
+  if (testFirst.warning) {
+    allWarnings.push(testFirst.warning);
   }
   // mt#3084: MINSKY_SKIP_AT_COVERAGE is a documented escape hatch
   // (`isAtCoverageSkipped`, consulted inside `runAtCoverageCalibration`) —
