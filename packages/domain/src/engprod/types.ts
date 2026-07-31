@@ -16,6 +16,27 @@
 /** Tag stamped on every task this miner files. Never routable via `tasks_available`/`tasks_route` while BLOCKED. */
 export const ENGPROD_PROPOSAL_TAG = "engprod-proposal";
 
+/**
+ * The dominant `arg_fingerprint` sequence within a name-level cluster's
+ * occurrences (mt#3429 SC2). `arg_fingerprint` is a stable hash of the
+ * normalized tool-call input (never the raw arguments) — when a large
+ * share of a cluster's occurrences share the IDENTICAL fingerprint
+ * sequence, that's a much stronger toil signal ("the same command repeated
+ * N times") than the bare tool-name pattern alone.
+ */
+export interface FingerprintProfile {
+  /** The most common arg_fingerprint sequence among this cluster's occurrences. */
+  sequence: string[];
+  /** Occurrences sharing that exact fingerprint sequence. */
+  frequency: number;
+  /** Distinct sessions among those occurrences. */
+  sessionCount: number;
+  /** frequency / cluster.frequency — the concentration ratio (mt#3429 SC2). */
+  concentration: number;
+  /** Sample (sessionId, turnIndex) refs specific to the fingerprint-matching occurrences. */
+  sampleRefs: Array<{ sessionId: string; turnIndex: number }>;
+}
+
 /** A mined recurring tool-call subsequence, before ranking/capping. */
 export interface MinedCluster {
   /** Stable hash of the normalized tool-name sequence. Ledger key. */
@@ -30,8 +51,28 @@ export interface MinedCluster {
   chainLength: number;
   /** Ranking score: frequency * sessionCount * chainLength (spec SC1). */
   score: number;
-  /** A few (sessionId, turnIndex) sample refs for the evidence block. */
-  sampleRefs: Array<{ sessionId: string; turnIndex: number }>;
+  /**
+   * A few (sessionId, turnIndex) sample refs for the evidence block, each
+   * optionally carrying the concrete per-position `arg_fingerprint` values
+   * observed at that occurrence (mt#3429 SC3) — captured directly during
+   * mining from the same projection rows the n-gram scan already reads,
+   * never a second query and never raw argument payloads.
+   */
+  sampleRefs: Array<{ sessionId: string; turnIndex: number; argFingerprints?: string[] }>;
+  /**
+   * The dominant arg_fingerprint sub-pattern within this cluster's
+   * occurrences (mt#3429 SC2), when any fingerprint data was observed.
+   * Undefined only for clusters that never carried fingerprint data (e.g.
+   * hand-built test fixtures that omit it).
+   */
+  fingerprintProfile?: FingerprintProfile;
+  /**
+   * Present when this cluster IS a fingerprint-refined sub-cluster (mt#3429
+   * SC2) rather than a generic name-level cluster — i.e. it was produced by
+   * `refineCluster` substituting the generic cluster with a more specific
+   * one keyed on both tool names AND this fingerprint sequence.
+   */
+  argFingerprintSequence?: string[];
 }
 
 /** LLM stage-2 output for one cluster. */
@@ -53,7 +94,7 @@ export function isClusterAnalysisError(
   return typeof (outcome as { error?: unknown }).error === "string";
 }
 
-/** Per-run self-observability counters (spec SC6). */
+/** Per-run self-observability counters (spec SC6; mt#3429 adds the two maximal/distinctiveness fields). */
 export interface ToilMinerRunCounters {
   turnsScanned: number;
   clustersFound: number;
@@ -62,6 +103,10 @@ export interface ToilMinerRunCounters {
   suppressedByDedupe: number;
   suppressedByBudget: number;
   llmErrors: number;
+  /** mt#3429 SC1: clusters suppressed because a higher-ranked cluster's tool sequence already covers them. */
+  suppressedByMaximalCollapse: number;
+  /** mt#3429 SC2 (AT2): generic clusters excluded from the LLM stage for lacking a concentrated arg_fingerprint sub-pattern. */
+  suppressedByLowDistinctiveness: number;
 }
 
 export function emptyRunCounters(): ToilMinerRunCounters {
@@ -73,5 +118,7 @@ export function emptyRunCounters(): ToilMinerRunCounters {
     suppressedByDedupe: 0,
     suppressedByBudget: 0,
     llmErrors: 0,
+    suppressedByMaximalCollapse: 0,
+    suppressedByLowDistinctiveness: 0,
   };
 }

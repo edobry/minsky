@@ -35,9 +35,25 @@
  * defaults): TOIL_MINER_WINDOW_DAYS, TOIL_MINER_MIN_FREQUENCY,
  * TOIL_MINER_MIN_SESSIONS, TOIL_MINER_MIN_CHAIN_LENGTH,
  * TOIL_MINER_MAX_CHAIN_LENGTH, TOIL_MINER_LLM_CAP, TOIL_MINER_BUDGET_CAP,
- * TOIL_MINER_SIMILARITY_THRESHOLD.
+ * TOIL_MINER_SIMILARITY_THRESHOLD,
+ * TOIL_MINER_FINGERPRINT_CONCENTRATION_THRESHOLD.
+ *
+ * Logging (mt#3429): this script forces `MINSKY_LOG_MODE=STRUCTURED`
+ * before touching the logger, unless the operator already set it
+ * explicitly. Without this, the default logger mode (auto -> HUMAN when
+ * run interactively) suppresses the `engprod_toil_miner.*` info-level
+ * structured events this script's own completion message points readers
+ * at ("see logs above") — the prior version of this script printed that
+ * message while those events were silently dropped. Set
+ * `MINSKY_LOG_MODE=HUMAN` explicitly to opt back into human-readable logs.
  */
 import "reflect-metadata";
+import { reinitializeDefaultLoggerFromEnv } from "@minsky/shared/logger";
+
+if (!process.env.MINSKY_LOG_MODE) {
+  process.env.MINSKY_LOG_MODE = "STRUCTURED";
+}
+reinitializeDefaultLoggerFromEnv();
 
 async function main(): Promise<void> {
   const { initializeConfiguration, CustomConfigFactory } = await import(

@@ -46,7 +46,16 @@ export const engprodProposalLedgerTable = pgTable("engprod_proposal_ledger", {
   /** Why a `rejected` or `suppressed` verdict was recorded. Null otherwise. */
   rejectionReason: text("rejection_reason"),
 
-  /** budget-cap | dedupe-ledger | dedupe-similarity — set only when suppressed. */
+  /**
+   * budget-cap | dedupe-similarity | non-maximal-subsequence |
+   * low-distinctiveness — set only when suppressed. The last two are
+   * additive mt#3429 values: `non-maximal-subsequence` (SC1) marks a
+   * cluster whose tool sequence is a contiguous run of a higher-ranked,
+   * still-surviving cluster; `low-distinctiveness` (SC2) marks a generic
+   * name-level cluster excluded from the LLM stage for lacking a
+   * concentrated arg_fingerprint sub-pattern. Both are plain text, like
+   * every value here — no migration needed to add them.
+   */
   suppressedReason: text("suppressed_reason"),
 
   /** Normalized tool-name sequence, e.g. ["Read", "Edit", "Bash"]. */
@@ -106,6 +115,12 @@ export const engprodMinerRunsTable = pgTable("engprod_miner_runs", {
   proposalsGenerated: integer("proposals_generated").notNull(),
   suppressedByDedupe: integer("suppressed_by_dedupe").notNull(),
   suppressedByBudget: integer("suppressed_by_budget").notNull(),
+
+  /** mt#3429 SC1: clusters suppressed because a higher-ranked cluster's tool sequence already covers them. */
+  suppressedByMaximalCollapse: integer("suppressed_by_maximal_collapse").notNull().default(0),
+
+  /** mt#3429 SC2: generic clusters excluded from the LLM stage for lacking a concentrated arg_fingerprint sub-pattern. */
+  suppressedByLowDistinctiveness: integer("suppressed_by_low_distinctiveness").notNull().default(0),
 
   /** Number of stage-2 (LLM) calls that errored this run. >0 triggers a loop error. */
   llmErrors: integer("llm_errors").notNull().default(0),
