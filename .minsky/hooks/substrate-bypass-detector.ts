@@ -124,7 +124,13 @@ export const OPERATOR_INSTRUCTION_PATTERNS: RegExp[] = [
   // rebuild X") from a DESCRIPTION ("check the logs to see whether the daemon
   // restarted"). Without it the second sentence matches too. `(?:\w+\s+){0,2}`
   // absorbs an adverb — "to actually see", "to finally pick up".
-  /\bto\s+(?:\w+\s+){0,2}(?:see|get|activate|apply|pick\s+up)\b[^.\n]{0,50}[,;]\s*(?:rebuild|re-?build|reinstall|re-?install|restart)\b/i,
+  //
+  // PR #2463 R1: the outcome alternation is kept in sync with the forward-order
+  // pattern above, `take effect` and `the fix` included. A narrower list here
+  // would reintroduce this task's own defect one direction over — "For the fix
+  // to take effect, restart the daemon." is an ordinary phrasing that the
+  // forward pattern would have caught and this one would have missed.
+  /\bto\s+(?:\w+\s+){0,2}(?:see|get|activate|apply|pick\s+up|take\s+effect|the\s+fix)\b[^.\n]{0,50}[,;]\s*(?:rebuild|re-?build|reinstall|re-?install|restart)\b/i,
   // mt#3442: "after your next <command>, <refresh verb>" where the command sits
   // between the two. The R2 pattern above requires the verb IMMEDIATELY after
   // "your next", so a command span breaks it — "After your next `bun run

@@ -970,6 +970,27 @@ describe("detectOperatorInstructionAfterMerge — surface forms (mt#3442)", () =
     ).toBe(true);
   });
 
+  // PR #2463 R1 — the inverted pattern's outcome list must stay in sync with
+  // the forward-order pattern's, or this task's own defect reappears one
+  // direction over.
+  test("fires on the inverted order with the take-effect / the-fix outcomes", () => {
+    expect(
+      detectOperatorInstructionAfterMerge([
+        makeAssistantLine("For the fix to take effect, restart the daemon."),
+      ]).matched
+    ).toBe(true);
+  });
+
+  // PR #2463 R1 — negative control for the boundary block below: a near-miss of
+  // the owned phrasings that is descriptive, not instructional.
+  test("does NOT fire on a near-miss of the owned phrasings that only describes a rebuild", () => {
+    expect(
+      detectOperatorInstructionAfterMerge([
+        makeAssistantLine("The card will read Embeddings after the rebuild finishes."),
+      ]).matched
+    ).toBe(false);
+  });
+
   // AT2 — the same sentence in the order the original patterns expected. Pins
   // that the fix ADDS coverage rather than relocating it.
   test("still fires on the FORWARD order (no regression)", () => {
