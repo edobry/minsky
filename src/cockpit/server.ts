@@ -23,6 +23,12 @@
  *                               tail SSE stream, no workspace bridge (mt#2749)
  *   GET /api/asks             — list pending operator-routed asks (mt#1916)
  *   POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
+ *   GET /api/engprod/proposals — EngProd toil-miner proposal digest: filed
+ *                               proposal tasks + recent miner runs (mt#3331)
+ *   POST /api/engprod/proposals/:taskId/accept — accept a proposal (unblock +
+ *                               ledger verdict=accepted, atomically, mt#3331)
+ *   POST /api/engprod/proposals/:taskId/reject — reject a proposal (close +
+ *                               ledger verdict=rejected+reason, atomically, mt#3331)
  *   POST /api/driven-session  — spawn a driven session (genuine `claude`
  *                               child, local daemon only, mt#2750)
  *   POST /api/driven-session/:id/stop — graceful stop of a driven session
@@ -72,6 +78,7 @@ import { mountProjectRoutes, type ProjectRoutesOptions } from "./routes/projects
 import { mountEventsRoutes } from "./routes/events";
 import { mountActivityRoutes } from "./routes/activity";
 import { mountAskRoutes } from "./routes/asks";
+import { mountEngprodProposalRoutes } from "./routes/engprod-proposals";
 import { mountCredentialRoutes } from "./routes/credentials";
 import { mountContextInspectorRoutes } from "./routes/context-inspector";
 import { mountSessionFilmRoutes } from "./routes/session-film";
@@ -333,6 +340,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountEventsRoutes(app, { sseBrokerOverride });
   mountActivityRoutes(app);
   mountAskRoutes(app, { askRepoOverride });
+  mountEngprodProposalRoutes(app); // mt#3331 — EngProd toil-miner proposal digest
   mountCredentialRoutes(app, { credModuleOverride });
   mountContextInspectorRoutes(app);
   mountSessionFilmRoutes(app); // mt#3184 — GET /api/cockpit/session-film/{events,sessions}

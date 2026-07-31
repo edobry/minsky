@@ -23,7 +23,7 @@
  */
 
 import { injectable } from "tsyringe";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, inArray } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import {
@@ -435,5 +435,35 @@ export class ProposalLedgerService {
       .from(engprodProposalLedgerTable)
       .orderBy(desc(engprodProposalLedgerTable.updatedAt))
       .limit(limit);
+  }
+
+  /**
+   * Bulk read: ledger rows for a batch of filed task ids (mt#3331 cockpit
+   * proposal digest). Used to join the EVIDENCE block (tool sequence,
+   * frequency, sessions, chain length, rank score) onto each `engprod-proposal`
+   * task the digest lists.
+   *
+   * Deliberately NOT used to derive accepted/rejected/pending disposition —
+   * the digest reads the TASK's own current status for that (mirroring
+   * `decideReconciliation` above exactly), not this row's `verdict` column.
+   * Reason: `recordSuppressedBatch`'s bulk upsert (mt#3432) sets `verdict:
+   * EXCLUDED.verdict` unconditionally on conflict, with no check of the
+   * PRIOR verdict — so a cluster signature that was previously `proposed`
+   * (or even `accepted`/`rejected`) and later recurs in a subsequent run's
+   * maximal-collapse/low-distinctiveness suppression sweep has its verdict
+   * silently overwritten to `suppressed`, while `filedTaskId` is preserved.
+   * Observed live 2026-07-31: mt#3419-3428 (the v1 run's ten filed
+   * proposals) all carry `verdict: "suppressed"` today even though their
+   * tasks are still BLOCKED awaiting triage — the v2 run's suppression
+   * sweep (run `a7315e91`) overwrote them ~5h after filing. This is a
+   * distinct bug in the ledger's own write path, out of scope for the
+   * cockpit digest task that surfaced it (mt#3331) — tracked separately.
+   */
+  async getByFiledTaskIds(taskIds: readonly string[]): Promise<ProposalLedgerRow[]> {
+    if (taskIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(engprodProposalLedgerTable)
+      .where(inArray(engprodProposalLedgerTable.filedTaskId, [...taskIds]));
   }
 }
