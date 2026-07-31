@@ -935,6 +935,122 @@ function makeCtx(transcriptPath: string): DispatchContext {
   };
 }
 
+// ---------------------------------------------------------------------------
+// mt#3442 — surface-form coverage for the activation-instruction family.
+//
+// The patterns were authored from the phrasings the originating incidents
+// happened to produce, all of which read verb-then-outcome. The imperative an
+// agent actually writes often inverts that, and matched nothing.
+// ---------------------------------------------------------------------------
+
+describe("detectOperatorInstructionAfterMerge — surface forms (mt#3442)", () => {
+  // AT1 — verbatim from the mt#3397 conversation's closing turn. Before this
+  // fix: 0 of 9 patterns matched, with no suppressor present.
+  test("fires on the INVERTED order: outcome clause first, imperative verb after", () => {
+    const turnLines = [
+      makeAssistantLine(
+        "To actually see the fix, rebuild and restart your cockpit — merged and deployed, but the tray runs a local build."
+      ),
+    ];
+    const result = detectOperatorInstructionAfterMerge(turnLines);
+    expect(result.matched).toBe(true);
+    expect(result.reason).toBe("operator-instruction-after-merge");
+  });
+
+  test("fires on the inverted order with restart, and with reinstall", () => {
+    expect(
+      detectOperatorInstructionAfterMerge([
+        makeAssistantLine("To pick up the fix, restart the daemon."),
+      ]).matched
+    ).toBe(true);
+    expect(
+      detectOperatorInstructionAfterMerge([
+        makeAssistantLine("To see the change, reinstall the tray."),
+      ]).matched
+    ).toBe(true);
+  });
+
+  // AT2 — the same sentence in the order the original patterns expected. Pins
+  // that the fix ADDS coverage rather than relocating it.
+  test("still fires on the FORWARD order (no regression)", () => {
+    expect(
+      detectOperatorInstructionAfterMerge([
+        makeAssistantLine("Rebuild and restart your cockpit to see the fix."),
+      ]).matched
+    ).toBe(true);
+  });
+
+  // AT3 — mem#635's originating phrasing, which pattern 2 already owned.
+  test("still fires on the mt#2942 originating phrasing (no regression)", () => {
+    expect(
+      detectOperatorInstructionAfterMerge([
+        makeAssistantLine("pull main and run cockpit-tray/scripts/install-local.sh to get the fix"),
+      ]).matched
+    ).toBe(true);
+  });
+
+  // AT8 — the three strings operator-deferral-detector.test.ts pins as "mt#2303
+  // owns it". That test only asserts operator-deferral stays silent; it never
+  // checked that THIS array actually fires. The command-span case did not, so it
+  // was falling through both detectors.
+  test("fires on every string the cross-detector boundary assigns to this array", () => {
+    const ownedByThisArray = [
+      "After your next `bun run cockpit:build` + hard-refresh, the card will read Embeddings.",
+      "Hard-refresh your browser to see the change.",
+      "Rebuild to pick up the fix.",
+    ];
+    for (const phrase of ownedByThisArray) {
+      expect(detectOperatorInstructionAfterMerge([makeAssistantLine(phrase)]).matched).toBe(true);
+    }
+  });
+
+  // AT4 — the agent performed the action; telling the user to look is not the
+  // anti-pattern.
+  test("does NOT fire when the agent did the rebuild itself", () => {
+    expect(
+      detectOperatorInstructionAfterMerge([
+        makeAssistantLine("I rebuilt the tray and restarted it for you — the fix is live."),
+      ]).matched
+    ).toBe(false);
+  });
+
+  // AT5 — descriptive prose about a rebuild that happened, with no instruction.
+  test("does NOT fire on descriptive prose about an automatic rebuild", () => {
+    const notInstructions = [
+      "the tray rebuilt the web bundle automatically on merge",
+      "CI rebuilds the bundle on every merge to main",
+      "after the next restart the daemon will pick it up",
+    ];
+    for (const phrase of notInstructions) {
+      expect(detectOperatorInstructionAfterMerge([makeAssistantLine(phrase)]).matched).toBe(false);
+    }
+  });
+
+  // The clause-break requirement is what keeps the inverted pattern from
+  // swallowing ordinary "to see whether X happened" prose.
+  test("does NOT fire on a to-see clause with no imperative break before the verb", () => {
+    expect(
+      detectOperatorInstructionAfterMerge([
+        makeAssistantLine("Check the logs to see whether the daemon restarted."),
+      ]).matched
+    ).toBe(false);
+  });
+
+  // AT7 — the other side of the cross-detector boundary. These belong to
+  // operator-deferral-detector; a match here would double-count one incident in
+  // two calibration logs and corrupt both false-positive rates.
+  test("does NOT fire on capability-deferral prose owned by operator-deferral-detector", () => {
+    const ownedByTheOtherDetector = [
+      "Deferred to operator: requires Railway access.",
+      "The remaining step requires GitHub org-admin access.",
+      "That's outside agent context, so the user must run it.",
+    ];
+    for (const phrase of ownedByTheOtherDetector) {
+      expect(detectOperatorInstructionAfterMerge([makeAssistantLine(phrase)]).matched).toBe(false);
+    }
+  });
+});
+
 describe("run() (dispatcher-compatible)", () => {
   test("verbal-commitment match -> additionalContext, no calibration (this guard has none)", () => {
     const transcriptPath = writeTranscript([
