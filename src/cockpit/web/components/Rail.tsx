@@ -201,6 +201,100 @@ async function fetchRunningCommit(): Promise<string | null> {
   return typeof data.commit === "string" && data.commit !== "unknown" ? data.commit : null;
 }
 
+/**
+ * The bundle's build commit, or `"unknown"` where the build-time define does not
+ * exist (mt#3241, PR #2475 R1).
+ *
+ * `__BUILD_COMMIT__` is a vite `define` — a compile-time TEXT SUBSTITUTION, not a
+ * runtime global. Outside a vite build (a `bun test` render, SSR, Storybook) the
+ * identifier is undeclared and simply evaluating it throws a `ReferenceError`,
+ * confirmed by measurement. `typeof` is the one operator that does NOT throw on
+ * an undeclared identifier, so the guard has to be shaped exactly this way — an
+ * `?? "unknown"` or a truthiness check would still evaluate the identifier and
+ * still throw.
+ */
+export function readBundleCommit(): string {
+  return typeof __BUILD_COMMIT__ === "string" && __BUILD_COMMIT__.length > 0
+    ? __BUILD_COMMIT__
+    : "unknown";
+}
+
+/** What the footer should render for the build identity. `null` = render nothing. */
+export interface BuildIdentityDisplay {
+  /** The visible text. */
+  text: string;
+  /** The `title` attribute — where the layer names actually get spelled out. */
+  title: string;
+  /** True when daemon and bundle disagree; the footer styles this case louder. */
+  diverged: boolean;
+}
+
+/**
+ * Describe the two build identities for the footer (mt#3241).
+ *
+ * The cockpit has TWO independently-versioned layers, and the badge used to
+ * report one of them under the unqualified label "Running commit":
+ *
+ *  - **daemon** — the server process, from `/api/health`. Its value is captured
+ *    once, at the first health call, and frozen for the process lifetime
+ *    (`getGitCommit` in `src/cockpit/routes/health.ts`). That is ACCURATE: the
+ *    process is running the code it loaded at start.
+ *  - **bundle** — the JS the reader is actually looking at, compiled in at build
+ *    time (`__BUILD_COMMIT__`). The tray's watcher (mt#2297) rebuilds it WITHOUT
+ *    restarting the daemon, so it can be many commits newer.
+ *
+ * Reporting only the daemon sha invited reading it as "what am I looking at",
+ * which cost a diagnostic round on 2026-07-29 (an agent concluded the operator's
+ * window was serving a stale bundle; it was not). So: one sha when the layers
+ * agree, BOTH when they diverge, and the layer names always in the tooltip.
+ *
+ * Pure so the three states are testable without a DOM or a live server.
+ */
+export function describeBuildIdentity(
+  daemonCommit: string | null,
+  bundleCommit: string
+): BuildIdentityDisplay | null {
+  const bundle = bundleCommit && bundleCommit !== "unknown" ? bundleCommit : null;
+
+  if (!daemonCommit && !bundle) return null;
+
+  if (!bundle) {
+    // Build had no git (Docker, non-git checkout). Report the daemon alone, but
+    // still name its layer — the ambiguity this task fixes is the unlabelled sha,
+    // and it is no less ambiguous when the other half is unavailable.
+    return {
+      text: daemonCommit as string,
+      title: `Server process built from ${daemonCommit}. Bundle build commit unavailable.`,
+      diverged: false,
+    };
+  }
+
+  if (!daemonCommit) {
+    return {
+      text: bundle,
+      title: `UI bundle built from ${bundle}. Server process commit unavailable.`,
+      diverged: false,
+    };
+  }
+
+  if (daemonCommit === bundle) {
+    return {
+      text: bundle,
+      title: `UI bundle and server process both built from ${bundle}.`,
+      diverged: false,
+    };
+  }
+
+  return {
+    text: `ui ${bundle} · svc ${daemonCommit}`,
+    title:
+      `UI bundle built from ${bundle}; server process built from ${daemonCommit}. ` +
+      `These are versioned independently — the bundle is rebuilt without restarting the server, ` +
+      `so the server lags until it restarts.`,
+    diverged: true,
+  };
+}
+
 /** Header row: wordmark + ⌘K hint. Desktop `<aside>` only — the mobile top
  * bar renders its own compact wordmark + hamburger trigger instead. */
 function RailHeader() {
@@ -281,11 +375,33 @@ function RailFooter({ pathname, onNavigate }: { pathname: string; onNavigate?: (
       ) : commitQuery.isError ? (
         <ErrorState message="commit unknown" ambient className="text-[10px]" />
       ) : (
-        commitQuery.data && (
-          <span className="font-mono text-[10px] text-muted-foreground/50" title="Running commit">
-            {commitQuery.data}
-          </span>
-        )
+        (() => {
+          // The daemon commit may be null (server reported "unknown") while the
+          // bundle's is still known, so this is NOT gated on commitQuery.data —
+          // doing so would drop the half that answers "what am I looking at".
+          const identity = describeBuildIdentity(commitQuery.data ?? null, readBundleCommit());
+          if (!identity) return null;
+          return (
+            <span
+              data-testid="rail-build-identity"
+              className={cn(
+                "font-mono text-[10px]",
+                // Diverged is not an error — it is the normal state between a
+                // bundle rebuild and the next daemon restart — so it reads a step
+                // stronger than the agreed case, not alarming.
+                identity.diverged ? "text-muted-foreground/80" : "text-muted-foreground/50"
+              )}
+              title={identity.title}
+              // The visible text abbreviates to fit a 10px footer, so the full
+              // sentence is carried here as well as in `title` — a tooltip is
+              // unreachable by touch and by assistive tech, which would leave the
+              // abbreviations as the only available meaning (PR #2475 R1).
+              aria-label={identity.title}
+            >
+              {identity.text}
+            </span>
+          );
+        })()
       )}
     </div>
   );
