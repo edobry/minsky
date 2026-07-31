@@ -1,0 +1,296 @@
+import { describe, expect, it } from "bun:test";
+
+import { checkExecutionEvidence, type PrFile } from "./require-execution-evidence-before-merge";
+import {
+  checkTestFirstEvidence,
+  findModifiedTestFiles,
+  hasNegativeControlEvidence,
+  isBugfixShapedTitle,
+  isNegativeControlDeferred,
+  isTestFirstSkipped,
+  runTestFirstCalibration,
+  specDescribesDefect,
+  TEST_FIRST_SKIP_ENV_VAR,
+} from "./test-first-evidence";
+
+// ---------------------------------------------------------------------------
+// Shared fixtures — hoisted to named constants per the sibling suite's
+// convention (and to satisfy custom/no-magic-string-duplication).
+//
+// PR #2329 (mt#3234) and PR #2330 (mt#3238) are the two real bugfix PRs the
+// mt#3244 spec replays; their file lists and titles are the ones recorded in the
+// spec's 2026-07-30 diagnosis section.
+// ---------------------------------------------------------------------------
+
+/** PR #2329's modified test file — the artifact the blocking floor ignores. */
+const ACTUATOR_TEST_TS = "src/cockpit/principal-channel-actuator.test.ts";
+/** PR #2330's modified test file. */
+const POLLER_TEST_TS = "src/cockpit/principal-channel-poller.test.ts";
+/** Generic source-file fixture. */
+const FOO_TS = "src/domain/foo.ts";
+/** Generic test-file fixture. */
+const FOO_TEST_TS = "src/domain/foo.test.ts";
+/** The evidence-block marker the gate scans for. */
+const EVIDENCE_MARKER = "Execution evidence:";
+
+const PR_2329_FILES: PrFile[] = [
+  { filename: ACTUATOR_TEST_TS, status: "modified" },
+  { filename: "src/cockpit/principal-channel-actuator.ts", status: "modified" },
+  { filename: "src/cockpit/principal-channel-poller.ts", status: "modified" },
+];
+
+const PR_2329_TITLE = "fix(mt#3234): never-init child swallowed messages";
+
+/** PR #2329's real body shape: an evidence block recording only a passing run. */
+const PR_2329_BODY = [
+  "## Summary",
+  "",
+  "Fixes the never-init child that swallowed messages.",
+  "",
+  EVIDENCE_MARKER,
+  "",
+  "```",
+  `$ bun test ${ACTUATOR_TEST_TS}`,
+  " 12 pass",
+  " 0 fail",
+  "```",
+].join("\n");
+
+const NON_BUGFIX_TITLE = "feat(mt#3244): add a test-first evidence surface";
+
+describe("findModifiedTestFiles (hole 2 — the set findNewTestFiles excludes)", () => {
+  it("returns test files whose status is `modified`", () => {
+    expect(findModifiedTestFiles(PR_2329_FILES)).toEqual([ACTUATOR_TEST_TS]);
+  });
+
+  it("ignores non-test files and added test files", () => {
+    const files: PrFile[] = [
+      { filename: FOO_TS, status: "modified" },
+      { filename: "src/domain/new.test.ts", status: "added" },
+    ];
+    expect(findModifiedTestFiles(files)).toEqual([]);
+  });
+});
+
+describe("isBugfixShapedTitle", () => {
+  it("recognizes a `fix(` conventional-commit type", () => {
+    expect(isBugfixShapedTitle(PR_2329_TITLE)).toBe(true);
+  });
+
+  it("does not treat a feat title as bugfix-shaped", () => {
+    expect(isBugfixShapedTitle(NON_BUGFIX_TITLE)).toBe(false);
+  });
+
+  it("does not fire on the word `fix` appearing mid-title", () => {
+    expect(isBugfixShapedTitle("feat(mt#1): add a fix-it button")).toBe(false);
+  });
+});
+
+describe("specDescribesDefect", () => {
+  it("recognizes a defect-shaped spec summary", () => {
+    expect(specDescribesDefect("## Summary\n\nThe poller drops every message.")).toBe(true);
+  });
+
+  it("stays conservative on a feature-shaped spec", () => {
+    expect(specDescribesDefect("## Summary\n\nAdd a new widget to the cockpit home page.")).toBe(
+      false
+    );
+  });
+});
+
+describe("hasNegativeControlEvidence (hole 3 — the failing-first record)", () => {
+  it("accepts a `Negative control:` label line with content", () => {
+    const text = [
+      "Negative control:",
+      "",
+      "$ bun test foo.test.ts  # fix reverted",
+      " 1 fail",
+    ].join("\n");
+    expect(hasNegativeControlEvidence(text)).toBe(true);
+  });
+
+  it("accepts a `## Negative control` heading with content", () => {
+    expect(hasNegativeControlEvidence("## Negative control\n\n 1 fail (pre-fix)")).toBe(true);
+  });
+
+  it("accepts a `Failing-first:` label", () => {
+    expect(hasNegativeControlEvidence("Failing-first: 1 fail before the fix")).toBe(true);
+  });
+
+  it("rejects a marker with no content after it", () => {
+    expect(hasNegativeControlEvidence("Negative control:\n")).toBe(false);
+  });
+
+  it("rejects an evidence block that only records passing runs", () => {
+    expect(hasNegativeControlEvidence("$ bun test foo.test.ts\n 12 pass\n 0 fail")).toBe(false);
+  });
+
+  it("rejects a negated mention", () => {
+    expect(hasNegativeControlEvidence("No negative control: not applicable here")).toBe(false);
+  });
+});
+
+describe("isNegativeControlDeferred", () => {
+  it("recognizes the numbered deferral marker", () => {
+    expect(isNegativeControlDeferred("[negative-control-deferred: mt#3999]")).toBe(true);
+  });
+
+  it("requires a task id, not bare prose", () => {
+    expect(isNegativeControlDeferred("negative control deferred, will do later")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AT1 + AT5 — the widening demands evidence where the blocking floor demanded
+// nothing, WITHOUT altering the blocking floor itself.
+// ---------------------------------------------------------------------------
+
+describe("AT1/AT5: PR #2329 replay (modified-only bugfix)", () => {
+  it("AT5: checkExecutionEvidence still returns blocked:false — regression floor unchanged", () => {
+    const result = checkExecutionEvidence(PR_2329_FILES, PR_2329_TITLE, PR_2329_BODY);
+    expect(result.blocked).toBe(false);
+    expect(result.newTestFiles).toEqual([]);
+    expect(result.newScripts).toEqual([]);
+  });
+
+  it("AT1: the new surface now requires evidence for the same PR", () => {
+    const result = checkTestFirstEvidence(PR_2329_FILES, PR_2329_TITLE, PR_2329_BODY);
+    expect(result.bugfixShaped).toBe(true);
+    expect(result.modifiedTestFiles).toEqual([ACTUATOR_TEST_TS]);
+    expect(result.requiresNegativeControl).toBe(true);
+    expect(result.negativeControlPresent).toBe(false);
+    expect(result.flagged).toBe(true);
+  });
+
+  it("AT4: the pure core carries no blocking verdict at all", () => {
+    const result = checkTestFirstEvidence(PR_2329_FILES, PR_2329_TITLE, PR_2329_BODY);
+    expect("blocked" in result).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AT2 — PR #2330: evidence block records only passing runs.
+// ---------------------------------------------------------------------------
+
+describe("AT2: PR #2330 replay (passing runs only)", () => {
+  it("flags a bugfix whose evidence block has no failing-first record", () => {
+    const files: PrFile[] = [
+      { filename: POLLER_TEST_TS, status: "modified" },
+      { filename: "src/cockpit/principal-channel-poller.ts", status: "modified" },
+    ];
+    const body = [
+      EVIDENCE_MARKER,
+      "",
+      "```",
+      `$ bun test ${POLLER_TEST_TS}`,
+      " 8 pass",
+      "```",
+    ].join("\n");
+    const result = checkTestFirstEvidence(files, "fix(mt#3238): readiness gate deadlock", body);
+    expect(result.flagged).toBe(true);
+    expect(result.reason).toContain("negative control");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AT3 — THE NEGATIVE CONTROL ON THE DETECTOR ITSELF.
+//
+// Per the mt#3244 spec, this test must be observed FAILING before the detector
+// is written. A detector that cannot distinguish a compliant PR from a
+// non-compliant one is exactly the non-discriminating probe mem#704 names.
+// ---------------------------------------------------------------------------
+
+describe("AT3: negative control — a compliant bugfix is NOT flagged", () => {
+  it("does not flag a bugfix whose evidence block records a failing-first run", () => {
+    const files: PrFile[] = [
+      { filename: FOO_TEST_TS, status: "modified" },
+      { filename: FOO_TS, status: "modified" },
+    ];
+    const body = [
+      EVIDENCE_MARKER,
+      "",
+      "Negative control (fix reverted, test run against the un-fixed tree):",
+      "",
+      "```",
+      `$ git stash && bun test ${FOO_TEST_TS}`,
+      " 0 pass",
+      " 1 fail",
+      "```",
+      "",
+      "After the fix:",
+      "",
+      "```",
+      `$ bun test ${FOO_TEST_TS}`,
+      " 1 pass",
+      " 0 fail",
+      "```",
+    ].join("\n");
+    const result = checkTestFirstEvidence(files, "fix(mt#1234): correct the off-by-one", body);
+    expect(result.requiresNegativeControl).toBe(true);
+    expect(result.negativeControlPresent).toBe(true);
+    expect(result.flagged).toBe(false);
+  });
+
+  it("does not flag a bugfix carrying an explicit deferral marker", () => {
+    const files: PrFile[] = [{ filename: FOO_TEST_TS, status: "modified" }];
+    const body = `${EVIDENCE_MARKER}\n\n 1 pass\n\n[negative-control-deferred: mt#3999]`;
+    const result = checkTestFirstEvidence(files, "fix(mt#1234): something", body);
+    expect(result.flagged).toBe(false);
+    expect(result.deferralMarker).toBe("mt#3999");
+  });
+
+  it("does not flag a non-bugfix PR that modifies a test file", () => {
+    const files: PrFile[] = [{ filename: FOO_TEST_TS, status: "modified" }];
+    const result = checkTestFirstEvidence(files, NON_BUGFIX_TITLE, `${EVIDENCE_MARKER}\n\n ok`);
+    expect(result.bugfixShaped).toBe(false);
+    expect(result.requiresNegativeControl).toBe(false);
+    expect(result.flagged).toBe(false);
+  });
+
+  it("does not flag a bugfix that modifies no test file", () => {
+    const files: PrFile[] = [{ filename: FOO_TS, status: "modified" }];
+    const result = checkTestFirstEvidence(files, PR_2329_TITLE, `${EVIDENCE_MARKER}\n\n ok`);
+    expect(result.requiresNegativeControl).toBe(false);
+    expect(result.flagged).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AT4 — calibration surface is log-only.
+// ---------------------------------------------------------------------------
+
+describe("AT4: calibration surface never denies", () => {
+  it("produces a warn-shaped result with a calibration record when flagged", () => {
+    const run = runTestFirstCalibration(
+      "mt#3234",
+      2329,
+      PR_2329_FILES,
+      PR_2329_TITLE,
+      PR_2329_BODY,
+      null
+    );
+    expect(run.ranCheck).toBe(true);
+    expect(run.warning).toContain("CALIBRATION");
+    expect(run.calibrationRecord).not.toBeNull();
+    expect(run.calibrationRecord?.decision).toBe("warn");
+  });
+
+  it("emits no warning for a compliant PR", () => {
+    const body = `${EVIDENCE_MARKER}\n\nNegative control:\n\n 1 fail (pre-fix)\n`;
+    const run = runTestFirstCalibration(
+      "mt#1234",
+      1,
+      [{ filename: FOO_TEST_TS, status: "modified" }],
+      "fix(mt#1234): x",
+      body,
+      null
+    );
+    expect(run.warning).toBeNull();
+    expect(run.calibrationRecord).toBeNull();
+  });
+
+  it("honors the documented override env var", () => {
+    expect(isTestFirstSkipped({ [TEST_FIRST_SKIP_ENV_VAR]: "1" })).toBe(true);
+    expect(isTestFirstSkipped({})).toBe(false);
+  });
+});

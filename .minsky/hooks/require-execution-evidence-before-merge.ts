@@ -45,6 +45,7 @@ import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
 import { computeFenceInternalLines, collectHeadingSections } from "./markdown-sections";
 import { runScCoverageCalibration, SC_COVERAGE_CALIBRATION_LOG } from "./success-criteria-coverage";
+import { runTestFirstCalibration, TEST_FIRST_CALIBRATION_LOG } from "./test-first-evidence";
 import { classifyOverride } from "./fire-log";
 import {
   deriveRepoFromGit as deriveRepoFromGitImpl,
@@ -1070,6 +1071,25 @@ if (import.meta.main) {
     if (scCoverage.warning) {
       allWarnings.push(scCoverage.warning);
     }
+  }
+
+  // mt#3244: THIRD additive calibration surface, driven from the same spec fetch. Unlike the
+  // two above it also reads the PR's FILE LIST and TITLE, because its trigger is the shape of
+  // the change (a bugfix modifying an existing test), not a section of the spec. Log-only:
+  // never influences `result.blocked`.
+  const testFirst = runTestFirstCalibration(
+    task,
+    context.prNumber,
+    prFiles,
+    prTitle,
+    prBody,
+    specFetch.ok && typeof specFetch.content === "string" ? specFetch.content : null
+  );
+  if (testFirst.calibrationRecord) {
+    appendCalibrationRecord(testFirst.calibrationRecord, repoRootDir, TEST_FIRST_CALIBRATION_LOG);
+  }
+  if (testFirst.warning) {
+    allWarnings.push(testFirst.warning);
   }
   // mt#3084: MINSKY_SKIP_AT_COVERAGE is a documented escape hatch
   // (`isAtCoverageSkipped`, consulted inside `runAtCoverageCalibration`) —
