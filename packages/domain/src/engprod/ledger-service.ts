@@ -221,6 +221,91 @@ export class ProposalLedgerService {
   }
 
   /**
+   * Bulk upsert for the "suppressed" verdict (mt#3432 perf fix).
+   *
+   * `collapseToMaximalClusters` runs on the FULL mined population (mt#3429
+   * SC1) — against the live corpus this is ~11k+ suppressed clusters per
+   * run, each of which mt#3429 required to be recorded (never a silent
+   * drop). The original per-cluster `await recordSuppressedByMaximalCollapse(...)`
+   * / `recordSuppressedByLowDistinctiveness(...)` loop issued one
+   * sequential network round-trip PER cluster to Postgres; measured
+   * against the live corpus (mt#3432), that round-trip averages ~166ms,
+   * so ~11,220 sequential writes alone project to ~31 minutes — this,
+   * not the O(n^2) collapse CPU cost (measured at <100ms even at 12.7k
+   * clusters against the live corpus), is the actual mt#3432 hang.
+   *
+   * This method collapses the whole batch into ONE (or a few, chunked)
+   * multi-row `INSERT ... ON CONFLICT DO UPDATE` statements — the same
+   * bulk-upsert shape already established for the projection table in
+   * `tool-call-projection-pipeline.ts` (`EXCLUDED.<column>` in the SET
+   * clause) — turning ~11k round-trips into a small, fixed number.
+   *
+   * Chunked at `CHUNK_SIZE` rows per statement to keep any single
+   * statement's parameter count and payload size bounded; a chunk
+   * failure is caught by the caller (mirrors every other ledger-write
+   * call site's fail-open discipline — a lost audit-trail row must never
+   * crash the run).
+   */
+  async recordSuppressedBatch(
+    entries: readonly {
+      cluster: MinedCluster;
+      suppressedReason: string;
+      rejectionReason: string;
+    }[]
+  ): Promise<void> {
+    if (entries.length === 0) return;
+    const CHUNK_SIZE = 500;
+    const now = new Date();
+
+    for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
+      const chunk = entries.slice(i, i + CHUNK_SIZE);
+      const values = chunk.map(({ cluster, suppressedReason, rejectionReason }) => ({
+        clusterSignature: cluster.signature,
+        verdict: "suppressed" as const,
+        rejectionReason,
+        suppressedReason,
+        toolSequence: cluster.toolSequence,
+        evidenceFrequency: cluster.frequency,
+        evidenceSessions: cluster.sessionCount,
+        evidenceChainLength: cluster.chainLength,
+        evidenceSnapshot: {
+          sampleRefs: cluster.sampleRefs,
+          score: cluster.score,
+          capturedAt: now.toISOString(),
+        },
+        filedTaskId: null,
+        everProposed: false,
+        createdAt: now,
+        updatedAt: now,
+      }));
+
+      await this.db
+        .insert(engprodProposalLedgerTable)
+        .values(values)
+        .onConflictDoUpdate({
+          target: engprodProposalLedgerTable.clusterSignature,
+          set: {
+            verdict: sql`EXCLUDED.verdict`,
+            rejectionReason: sql`EXCLUDED.rejection_reason`,
+            suppressedReason: sql`EXCLUDED.suppressed_reason`,
+            toolSequence: sql`EXCLUDED.tool_sequence`,
+            evidenceFrequency: sql`EXCLUDED.evidence_frequency`,
+            evidenceSessions: sql`EXCLUDED.evidence_sessions`,
+            evidenceChainLength: sql`EXCLUDED.evidence_chain_length`,
+            evidenceSnapshot: sql`EXCLUDED.evidence_snapshot`,
+            // Same discipline as the single-row `upsert` above: never
+            // clobber a prior filedTaskId / everProposed=true when this
+            // batch's verdict is always "suppressed" — reference the
+            // TARGET table's own current value rather than EXCLUDED's.
+            filedTaskId: sql`${engprodProposalLedgerTable.filedTaskId}`,
+            everProposed: sql`${engprodProposalLedgerTable.everProposed}`,
+            updatedAt: sql`EXCLUDED.updated_at`,
+          },
+        });
+    }
+  }
+
+  /**
    * Reconcile every `proposed` ledger row against its filed task's CURRENT
    * status. `getTaskStatus` is injected so callers can pass a plain
    * `taskId => status` lookup (typically `taskService.getTask(id).then(t
