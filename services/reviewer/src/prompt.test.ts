@@ -87,6 +87,31 @@ describe("buildCriticConstitution", () => {
     expect(buildCriticConstitution(false)).toContain("NEEDS VERIFICATION");
   });
 
+  test("asserted-assumption failure modes appear in both variants (mt#3492)", () => {
+    // mt#3469 / PR #2478 R1: a guard was justified by a comment asserting the
+    // guarded case could not arise. The claim was false for the guard's actual
+    // scope, and the effect's pre-existing job was silently suppressed. The
+    // reviewer caught it with no directive telling it to look; these bullets
+    // make that a check rather than a lucky catch.
+    //
+    // Asserted on BOTH variants because the failure mode is visible in the diff
+    // alone — it needs no file-reading tools, so a no-tools review must carry it
+    // too. Distinct from the pre-existing "Undocumented assumptions" bullet,
+    // which fires when the assumption is ABSENT; this pair fires when it is
+    // present and wrong.
+    for (const toolsAvailable of [true, false]) {
+      const prompt = buildCriticConstitution(toolsAvailable);
+      expect(prompt).toContain("Asserted assumptions used as justification");
+      expect(prompt).toContain("untested reachability claim");
+      expect(prompt).toContain(
+        "A guard added to pre-existing code endangers what that code already did"
+      );
+      expect(prompt).toContain("PRIOR responsibilities the guard now skips");
+      // The pre-existing inverse must survive alongside it.
+      expect(prompt).toContain("Undocumented assumptions");
+    }
+  });
+
   test("normal scope (default) is byte-identical to pre-mt#1188 prompt (no extra section)", () => {
     // The normal-scope path must not inject any extra sections — preserves
     // backwards compatibility for callers that don't pass a scope.
