@@ -37,10 +37,30 @@
  */
 import type express from "express";
 import { getSweepLivenessSnapshot } from "../sweepers";
+import { getTranscriptCoverage } from "../transcript-coverage";
 
-/** Mount `GET /api/sweeps` on `app`. */
+/**
+ * Mount `GET /api/sweeps` on `app`.
+ *
+ * Payload: `{ sweeps, transcriptCoverage }`.
+ *
+ * `transcriptCoverage` (mt#3441) answers the question the liveness registry
+ * cannot: a sweep can be alive and producing NOTHING. `SummaryPipeline` had no
+ * automatic caller and sat at 0.5% coverage indefinitely with no surface saying
+ * so. Reporting liveness and output together makes that shape visible in one
+ * read. `null` when persistence is not SQL-capable or the query fails — "not
+ * measured", deliberately distinct from "measured as zero".
+ *
+ * NOTE: this adds one cheap aggregate DB query to a handler whose doc comment
+ * above describes the registry read as I/O-free. That is still true of the
+ * `sweeps` half; the coverage half is a single `count(*)` over
+ * `agent_transcripts` and degrades to null rather than failing the route.
+ */
 export function mountSweepRoutes(app: express.Express): void {
-  app.get("/api/sweeps", (_req, res) => {
-    res.json({ sweeps: getSweepLivenessSnapshot() });
+  app.get("/api/sweeps", async (_req, res) => {
+    res.json({
+      sweeps: getSweepLivenessSnapshot(),
+      transcriptCoverage: await getTranscriptCoverage(),
+    });
   });
 }
