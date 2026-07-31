@@ -1177,6 +1177,16 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 NON-BLOCKING hooks: detectors, injection, reminders, trackers, SessionEnd ingest — no
 decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture/hooks/<name>.md`.
 
+**All observers on one event share ONE injected block.** The dispatcher merges every guard's
+`additionalContext` into a single `hookSpecificOutput` — you do not get N separate injections
+(mt#3394 was filed on the opposite assumption and its planning pass falsified it). Order is by
+the registration's optional `contextPriority` (higher first; equal keeps registry order), and the
+block is capped at `MERGED_CONTEXT_BUDGET_CHARS` (4538, derived from the registry's own
+`attentionCost` annotations). Over budget, the lowest-priority fragments are dropped and NAMED in
+a trailing notice — never silently — and a dropped fragment still writes its calibration record,
+so measurement is unaffected. Separate events still mean separate blocks: a `Stop` observer and a
+`UserPromptSubmit` observer firing on the same turn produce two.
+
 - **Skill/agent/rule staleness** — stale skill/agent/rule baseline. `MINSKY_SKIP_SKILL_STALENESS`.
 - **Drive-PR-to-convergence** — reminds wait-for-review. none.
 - **Drive-READY-to-implementation** — READY-handoff sibling of the above (mt#3373): on `tasks_status_set` → READY, injects "invoke `/implement-task` now; the principal is not the next actor", the three legitimate halts, and the forbidden turn-closers. Fires ONLY on a real transition INTO READY (a no-op re-set is silent) and skips `state-ops` kind, whose `/plan-task` Step 4 branch walks READY → IN-PROGRESS in main-agent context instead; the kind read is a `minsky tasks get` CLI call that fails open toward firing. `MINSKY_SKIP_READY_CHAIN_WALK`.
