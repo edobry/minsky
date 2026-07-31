@@ -677,6 +677,11 @@ async function runReviewBody(
     priorReviews: priorReviewsMarkdown || undefined,
     reviewThreads: reviewThreads.length > 0 ? reviewThreads : undefined,
     authorCommitsSinceLastReview: commitsSinceLastReviewMarkdown || undefined,
+    // mt#3471: tell the model when the diff is only the delta. Without this the
+    // Critic Constitution's "claimed in the description but absent from the
+    // diff" rules would read a file's legitimate absence (changed in an earlier
+    // commit) as evidence, turning the narrowing itself into BLOCKING findings.
+    incrementalScope: incrementalDiffApplied,
   };
 
   const userPrompt = buildReviewPrompt({
