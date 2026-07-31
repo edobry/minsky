@@ -648,6 +648,37 @@ describe("fetchTelegramFile", () => {
     expect(result.ok).toBe(false);
   });
 
+  // PR #2483 R2: encoding is chunked because `String.fromCharCode(...bytes)`
+  // spreads each byte as an argument. A realistic screenshot is ~1 MB, well
+  // past any single-call argument ceiling, so this exercises the chunk seam
+  // rather than trusting it — a stack overflow here would crash the daemon.
+  test("encodes a megabyte-scale image correctly, not just a 3-byte one", async () => {
+    const size = 1_000_000;
+    const bytes = new Uint8Array(size);
+    for (let i = 0; i < size; i += 1) bytes[i] = i % 256;
+
+    const result = await fetchTelegramFile({
+      token: TOKEN,
+      ref: REF,
+      fetchFn: async (url) =>
+        String(url).includes("getFile")
+          ? jsonResponse({ ok: true, result: { file_path: "photos/big.png" } })
+          : new Response(bytes),
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Decode back and compare, so the assertion pins the CONTENT rather than
+      // merely that some string came out.
+      const decoded = Uint8Array.from(atob(result.base64), (c) => c.charCodeAt(0));
+      expect(decoded.length).toBe(size);
+      expect(decoded[0]).toBe(0);
+      expect(decoded[size - 1]).toBe((size - 1) % 256);
+      // A boundary interior to a chunk seam (0x2000 = 8192).
+      expect(decoded[8192]).toBe(8192 % 256);
+    }
+  });
+
   test("a comfortably-sized image still succeeds under the default budget", async () => {
     // Guards against over-correcting the limit into rejecting normal photos.
     const result = await fetchTelegramFile({

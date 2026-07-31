@@ -553,16 +553,25 @@ function oversizeDetail(actualRawBytes: number, limitRawBytes: number): string {
 /**
  * Base64-encode binary bytes.
  *
- * `btoa` over a binary string rather than `Buffer`: this module is domain code
- * with no other Node dependency, and the project's `Buffer` typing carries only
- * the `string | any[]` overloads, so the array round-trip a `Buffer` call would
- * need allocates millions of JS numbers for a multi-megabyte image.
+ * **Why not `Buffer` (PR #2483 R2).** `Buffer.from(uint8).toString("base64")`
+ * is the obvious implementation and does not typecheck in this repo: the
+ * `Buffer` type in scope declares only `string | any[]` overloads, and
+ * importing it explicitly from `node:buffer` resolves to the same shim, so the
+ * call fails with TS2345 either way. Passing an array instead would allocate
+ * millions of JS numbers for a multi-megabyte image.
  *
- * Chunked because `String.fromCharCode(...bytes)` spreads every byte as an
- * argument — a 5 MB image would blow the call-stack limit.
+ * **`btoa` is present on both runtimes** — verified 2026-07-31 on this machine:
+ * `typeof btoa === "function"` under Bun (what the cockpit daemon actually
+ * runs) and under Node v23.4.0, where it has been a global since v16. It is
+ * not a browser-only API.
+ *
+ * Chunked because `String.fromCharCode(...bytes)` spreads each byte as its own
+ * argument. 8192 keeps every call an order of magnitude below the engine's
+ * argument ceiling while still doing the work in few enough passes to be
+ * irrelevant at this module's 5 MB limit.
  */
 function toBase64(bytes: Uint8Array): string {
-  const CHUNK_SIZE = 0x8000;
+  const CHUNK_SIZE = 0x2000;
   let binary = "";
   for (let offset = 0; offset < bytes.length; offset += CHUNK_SIZE) {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + CHUNK_SIZE));
