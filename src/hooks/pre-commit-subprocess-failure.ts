@@ -117,7 +117,7 @@ export function describeSubprocessFailure(
     return (
       `${step} timed out after ${seconds}s — the subprocess was killed, not a failure in ` +
       `your changes. Re-run the commit; if it recurs, the budget is set in ` +
-      `src/hooks/pre-commit.ts. (underlying: ${underlying})`
+      `src/hooks/pre-commit-subprocess-failure.ts. (underlying: ${underlying})`
     );
   }
 

@@ -219,7 +219,21 @@ export interface HookResult {
 }
 
 export class PreCommitHook {
-  constructor(private projectRoot: string = process.cwd()) {}
+  /**
+   * @param exec Test seam for the subprocess-running steps (mt#3406, PR #2480
+   * R1). The reviewer asked for the timeout relabelling to be asserted through
+   * the STEPS rather than the helper alone, which needs a way to make a step's
+   * child process fail on demand. Module-mocking `child_process` was tried and
+   * rejected: it only takes effect if this module has not been imported yet, so
+   * the tests passed alone and failed in a suite run — order-dependent, which
+   * is worse than no test. An injected default matches the seam convention used
+   * across the repo (`spawnFn`, `execFileFn`, `getDb`) and cannot be defeated
+   * by import order. Production constructs the hook with no argument.
+   */
+  constructor(
+    private projectRoot: string = process.cwd(),
+    private exec: typeof execAsync = execAsync
+  ) {}
 
   /**
    * Fire-log wrapper (mt#2597, evaluation-loop Phase 1) — thin per-instance
@@ -605,7 +619,7 @@ export class PreCommitHook {
       let stdout = "";
       let stderr = "";
       try {
-        const result = await execAsync(lintJsonCommand, {
+        const result = await this.exec(lintJsonCommand, {
           cwd: this.projectRoot,
           // History: 30s (original) -> 120s (mt#1859, 2026-06-13, sized for a
           // full-repo sweep then measuring ~29s) -> 60s here. mt#3404 removed
@@ -1749,7 +1763,7 @@ export class PreCommitHook {
 
     for (const target of targets) {
       try {
-        await execAsync(target.command, {
+        await this.exec(target.command, {
           cwd: this.projectRoot,
           timeout: TYPECHECK_TIMEOUT_MS,
         });
@@ -1774,7 +1788,13 @@ export class PreCommitHook {
           timeoutMs: TYPECHECK_TIMEOUT_MS,
         });
         log.cli(`❌ ${label} Commit blocked.`);
-        log.cli(output);
+        // PR #2480 R1 (non-blocking): when the child produced no diagnostics,
+        // `output` falls back to `err.message`, which the label already quotes
+        // as its `(underlying: …)` clause — printing it again just repeats the
+        // same sentence under a heading that implies new information.
+        if (!label.includes(output)) {
+          log.cli(output);
+        }
         return {
           success: false,
           message: label,
@@ -1876,7 +1896,7 @@ export class PreCommitHook {
     log.cli("🎨 Running code formatter...");
 
     try {
-      await execAsync("bunx lint-staged", {
+      await this.exec("bunx lint-staged", {
         cwd: this.projectRoot,
         // Grounded in a measurement, not a round number (`decision-defaults.mdc
         // §Thresholds`): a 4-file stage set measured 42.7s cold, already past

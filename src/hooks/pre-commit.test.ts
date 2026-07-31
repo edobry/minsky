@@ -358,7 +358,7 @@ describe("describeSubprocessFailure (mt#3406 — timeout vs failure)", () => {
       timeoutMs: FORMATTER_TIMEOUT_MS,
     });
     expect(message).toContain("Re-run");
-    expect(message).toContain("src/hooks/pre-commit.ts");
+    expect(message).toContain("src/hooks/pre-commit-subprocess-failure.ts");
     expect(message).toContain("not a failure in your changes");
   });
 
