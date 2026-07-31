@@ -500,11 +500,13 @@ const FRAGMENT_SEPARATOR = "\n\n";
  * reshuffled — that is what keeps the unannotated case byte-identical to the
  * previous `fragments.join("\n\n")`.
  *
- * Budget: fragments are admitted highest-priority-first while they fit. The
- * FIRST (highest-priority) fragment is always admitted even if it alone
- * exceeds the budget — truncating the most important reminder to satisfy a
- * budget would invert the whole point. Anything dropped is named in a trailing
- * notice, so a reader never silently receives a partial block.
+ * Budget: the rendered block — INCLUDING the omission notice — stays within
+ * `budgetChars`, with exactly one documented exception: when the budget cannot
+ * fit even the single highest-priority fragment plus its notice, the block
+ * overshoots rather than truncating. Truncating the most important reminder to
+ * satisfy a budget would invert the whole point. Anything dropped is named in
+ * the trailing notice, so a reader never silently receives a partial block.
+ * Both the in-budget case and the floor-overshoot case are pinned by tests.
  *
  * Pure — no I/O, no clock — so the dispatcher's merge policy is unit-testable
  * without standing up a registry or a transcript.
@@ -518,24 +520,51 @@ export function composeAdditionalContext(
 ): string | undefined {
   if (fragments.length === 0) return undefined;
 
-  const ordered = [...fragments].sort((a, b) => b.priority - a.priority);
+  // Index-decorated sort rather than relying on `Array.prototype.sort` being
+  // stable (PR #2476 R1). ES2019 does specify stability and Bun honours it, but
+  // the ordering guarantee this function advertises should not be inherited
+  // from an engine promise a reader has to go look up — the explicit index
+  // tiebreak makes equal-priority-keeps-registry-order true by construction.
+  const ordered = fragments
+    .map((fragment, index) => ({ fragment, index }))
+    .sort((a, b) => b.fragment.priority - a.fragment.priority || a.index - b.index)
+    .map((entry) => entry.fragment);
 
-  const admitted: ContextFragment[] = [];
-  const dropped: ContextFragment[] = [];
-  let usedChars = 0;
-
-  for (const fragment of ordered) {
-    const cost = fragment.text.length + (admitted.length > 0 ? FRAGMENT_SEPARATOR.length : 0);
-    // The highest-priority fragment is admitted unconditionally; every other
-    // fragment must fit what remains.
-    if (admitted.length === 0 || usedChars + cost <= budgetChars) {
-      admitted.push(fragment);
-      usedChars += cost;
-    } else {
-      dropped.push(fragment);
-    }
+  // Admit a PREFIX of the priority-ordered list, shrinking until the rendered
+  // block fits. Iteration is required rather than a running char total: the
+  // omission notice names each dropped guard, so its own length depends on how
+  // many were dropped, and a block that computed the body against the budget
+  // then appended the notice on top could exceed the very cap it claims to
+  // enforce (PR #2476 R1 — the notice was unbudgeted).
+  //
+  // A prefix (rather than a greedy best-fit) is also the semantics the field
+  // advertises: never skip a higher-priority fragment in order to squeeze in a
+  // lower-priority one that happens to be smaller.
+  let admittedCount = ordered.length;
+  let rendered = renderMergedBlock(ordered, admittedCount, budgetChars);
+  while (admittedCount > 1 && rendered.length > budgetChars) {
+    admittedCount -= 1;
+    rendered = renderMergedBlock(ordered, admittedCount, budgetChars);
   }
+  return rendered;
+}
 
+/**
+ * Render the first `admittedCount` fragments as the merged block, appending the
+ * omission notice when anything was left out.
+ *
+ * The floor is one fragment: the highest-priority fragment is always emitted
+ * intact, even when it alone exceeds the budget. Truncating the most important
+ * reminder to satisfy a budget would invert the point of having priorities, so
+ * in that case the block deliberately overshoots and the notice says so.
+ */
+function renderMergedBlock(
+  ordered: ContextFragment[],
+  admittedCount: number,
+  budgetChars: number
+): string {
+  const admitted = ordered.slice(0, admittedCount);
+  const dropped = ordered.slice(admittedCount);
   const body = admitted.map((f) => f.text).join(FRAGMENT_SEPARATOR);
   if (dropped.length === 0) return body;
 

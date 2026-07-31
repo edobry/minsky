@@ -1352,6 +1352,48 @@ describe("composeAdditionalContext (mt#3394)", () => {
     expect(out).toContain("small");
   });
 
+  // PR #2476 R1 (BLOCKING): the notice was appended AFTER the body was fitted
+  // to the budget, so the emitted block could exceed the cap it advertises.
+  test("the rendered block including its omission notice stays within budget", () => {
+    const budget = 400;
+    const fragments = [
+      frag("keeper", 10, "K".repeat(120)),
+      frag("dropped-one", 0, "A".repeat(120)),
+      frag("dropped-two", 0, "B".repeat(120)),
+      frag("dropped-three", 0, "C".repeat(120)),
+    ];
+    const out = composeAdditionalContext(fragments, budget) ?? "";
+    expect(out).toContain("omitted");
+    expect(out).toContain("K".repeat(120));
+    // The whole string — notice included — must respect the budget. Before the
+    // R1 fix the body alone was fitted and the notice appended on top, so this
+    // came out over.
+    expect(out.length).toBeLessThanOrEqual(budget);
+  });
+
+  test("floor case: a budget too small for one fragment PLUS its notice overshoots, not truncates", () => {
+    // The single documented exception to the cap. With admittedCount already at
+    // its floor of 1 there is nothing left to drop, so the block overshoots
+    // rather than mutilating the highest-priority reminder. Pinned so the
+    // exception stays deliberate and visible instead of being rediscovered.
+    const out =
+      composeAdditionalContext(
+        [frag("keeper", 10, "K".repeat(120)), frag("dropped", 0, "D".repeat(120))],
+        200
+      ) ?? "";
+    expect(out).toContain("K".repeat(120));
+    expect(out).toContain("omitted");
+    expect(out.length).toBeGreaterThan(200);
+  });
+
+  test("a lone over-budget fragment overshoots deliberately rather than being truncated", () => {
+    // The one documented exception to the cap: with nothing left to drop, the
+    // highest-priority fragment is emitted intact.
+    const huge = "H".repeat(500);
+    const out = composeAdditionalContext([frag("huge", 10, huge)], 50) ?? "";
+    expect(out).toBe(huge);
+  });
+
   test("under budget: no notice is appended", () => {
     const out = composeAdditionalContext([frag("a", 0, "A"), frag("b", 0, "B")], 1000);
     expect(out).toBe("A\n\nB");
@@ -1432,6 +1474,44 @@ describe("runDispatcher merged-context behavior (mt#3394)", () => {
     expect(logged.length).toBe(1);
     expect(logged[0]?.name).toBe("quiet-low");
     expect(logged[0]?.record?.detail).toBe("still measured");
+  });
+
+  // PR #2476 R1 (BLOCKING, raised as a possible semantic change): the emit
+  // condition moved from `contextFragments.length > 0` to
+  // `additionalContext !== undefined`. Those are equivalent — the composer
+  // returns undefined ONLY for an empty fragment list, and a falsy
+  // additionalContext never enters the list in the first place — but
+  // "equivalent by reasoning" is not a test, so here is the test.
+  test("no guard contributes context -> the additionalContext key is omitted entirely", async () => {
+    const written: HookOutput[] = [];
+    const registrations: GuardRegistration[] = [
+      {
+        name: "silent-guard",
+        event: "PreToolUse",
+        matcher: "Bash",
+        // Returns an outcome, but with no additionalContext — the "matched but
+        // silent" case that must still produce no stdout.
+        module: () => Promise.resolve({ run: () => ({}) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+      {
+        name: "empty-string-guard",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: (o) => written.push(o),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    expect(written.length).toBe(0);
   });
 
   test("registry contextPriority is what orders the emitted block", async () => {

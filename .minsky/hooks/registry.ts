@@ -230,10 +230,15 @@ export interface GuardRegistration {
    * still evaluated in registry order, because first-deny-wins
    * short-circuiting depends on that order and must not shift.
    *
-   * Omit for the common case. Fragments at equal priority keep registry order
-   * (the sort is stable), so an unannotated registry emits exactly the block
-   * it emits today. Populate it only where dropping a fragment would cost
-   * something specific, and say what in a comment at the registration.
+   * Omit for the common case. Fragments at equal priority keep registry order,
+   * so an unannotated registry emits exactly the block it emits today. Populate
+   * it only where dropping a fragment would cost something specific, and say
+   * what in a comment at the registration.
+   *
+   * Applies to `additionalContext` ONLY (PR #2476 R1). It has no effect on
+   * `sessionTitle`, which is a scalar the dispatcher last-write-wins rather
+   * than a merged list — there is nothing to order or budget there, so a
+   * priority on a title-emitting guard is inert by design, not by oversight.
    *
    * @see composeAdditionalContext in dispatcher.ts — where this is applied.
    */
