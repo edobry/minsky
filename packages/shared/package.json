@@ -23,6 +23,7 @@
     "./cold-start-profile": "./src/cold-start-profile.ts",
     "./ask-approval": "./src/ask-approval.ts",
     "./ask-closure": "./src/ask-closure.ts",
-    "./ask-option-label": "./src/ask-option-label.ts"
+    "./ask-option-label": "./src/ask-option-label.ts",
+    "./resolve-proposal": "./src/resolve-proposal.ts"
   }
 }

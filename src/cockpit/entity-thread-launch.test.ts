@@ -26,6 +26,7 @@ import {
   type ProcessLike,
   type SpawnFn,
 } from "./driven-session-host";
+import { RESOLVE_PROPOSAL_FENCE } from "@minsky/shared/resolve-proposal";
 import {
   askToEntitySeed,
   buildEntityThreadSeedPrompt,
@@ -86,6 +87,9 @@ describe("askToEntitySeed", () => {
   });
 });
 
+/** The action prohibition several tests assert survives unchanged. */
+const ACTION_PROHIBITION = "Do NOT take action on this entity";
+
 describe("buildEntityThreadSeedPrompt", () => {
   const seed: EntitySeedContext = {
     entityType: "ask",
@@ -119,13 +123,48 @@ describe("buildEntityThreadSeedPrompt", () => {
     // The agent has live MCP tools; discussing an ask must never resolve it as
     // a side effect. Resolution is operator-confirmed and owned by mt#3368.
     const prompt = buildEntityThreadSeedPrompt(seed);
-    expect(prompt).toContain("Do NOT take action on this entity");
+    expect(prompt).toContain(ACTION_PROHIBITION);
     expect(prompt).toMatch(/resolve, close, edit, or respond/);
   });
 
   test("omits the references block when there are none", () => {
     const bare = buildEntityThreadSeedPrompt({ ...seed, refs: [] as EntitySeedContext["refs"] });
     expect(bare).not.toContain("References it carries");
+  });
+
+  test("teaches the proposal marker using the SHARED fence constant (mt#3368)", () => {
+    // The fence is a cross-process contract: this prompt is written by the
+    // daemon and parsed in the browser. Asserting against the shared constant
+    // rather than a literal is what makes a rename a compile/test failure
+    // instead of proposals silently ceasing to appear.
+    const prompt = buildEntityThreadSeedPrompt(seed);
+    expect(prompt).toContain(`\`\`\`${RESOLVE_PROPOSAL_FENCE}`);
+    expect(prompt).toContain("optionLetter");
+  });
+
+  test("frames proposing as distinct from acting, and keeps the action ban", () => {
+    const prompt = buildEntityThreadSeedPrompt(seed);
+    expect(prompt).toContain("Proposing is not acting");
+    // The proposal contract must not have loosened the existing prohibition.
+    expect(prompt).toContain(ACTION_PROHIBITION);
+  });
+
+  test("instructs the agent to DECLINE on a malformed or ungroundable ask", () => {
+    // SC5. This is prompt-level, not enforced — the panel's own range check is
+    // the enforced half (see resolveProposalOption).
+    const prompt = buildEntityThreadSeedPrompt(seed);
+    expect(prompt).toMatch(/DECLINE to propose/);
+    expect(prompt).toMatch(/Never propose an option the ask does not list/);
+  });
+
+  test("a NON-ask entity gets no proposal contract", () => {
+    // mt#3366 widens the mount to tasks, changesets, and memories. None of them
+    // have options to resolve, so teaching them the marker would invite a
+    // proposal no surface can render.
+    const taskSeed: EntitySeedContext = { ...seed, entityType: "task", entityId: "mt#1" };
+    const prompt = buildEntityThreadSeedPrompt(taskSeed);
+    expect(prompt).not.toContain(RESOLVE_PROPOSAL_FENCE);
+    expect(prompt).toContain(ACTION_PROHIBITION);
   });
 });
 

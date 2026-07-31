@@ -19,7 +19,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { readFileSync } from "node:fs";
@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { AskPage } from "./AskPage";
 import { TabsProvider } from "../lib/tabs";
 import type { AskItem } from "../widgets/AskDetail";
+import { RESOLVE_PROPOSAL_FENCE } from "../lib/resolve-proposal";
 
 function createTestQueryClient(): QueryClient {
   return new QueryClient({
@@ -312,5 +313,41 @@ describe("AskPage import-chain browser safety (mt#3239)", () => {
   test("regression guard: the pre-mt#3239 Node import path DOES crash without `process` (proves the check above has teeth)", async () => {
     const { exitCode } = await importsWithoutProcess("@minsky/domain/ask/close-as-resolved");
     expect(exitCode).not.toBe(0);
+  });
+});
+
+describe("AskPage thread resolve proposal wiring (mt#3368)", () => {
+  // These are SOURCE-level guards, deliberately weaker than a render test.
+  //
+  // The behavioral version — render the page with a thread turn, click confirm,
+  // assert the POSTed body equals what the card displayed — cannot run today:
+  // rendering AskPage with ANY thread block blanks the tree in this harness
+  // (reproduced with marker-free prose, so it is not this feature). Tracked as
+  // mt#3452, which owns upgrading these to the real thing.
+  //
+  // The mt#3239 guards above set the precedent for reading this file's own
+  // source when the runtime check is out of reach.
+  const source = readFileSync(
+    fileURLToPath(new URL("./AskPage.tsx", import.meta.url)),
+    "utf8"
+  );
+
+  test("the confirm passes the SAME surface constant the card renders", () => {
+    // The card promises "this is what will be recorded" and composes its
+    // preview with RESOLVE_PROPOSAL_SURFACE. If the mutation sent a different
+    // `resolvedIn`, the operator would confirm a payload that is not the one
+    // written. This exact divergence existed mid-implementation: the card said
+    // "thread" while the mutation hardcoded "inbox".
+    expect(source).toContain("resolvedIn: RESOLVE_PROPOSAL_SURFACE");
+    // And the mutation must actually honor a caller-supplied surface rather
+    // than pinning "inbox" for every caller.
+    expect(source).toContain("composeResolvePayload(target, optionLetter, resolvedIn)");
+  });
+
+  test("the proposal slot is withheld from a terminal ask", () => {
+    // A resolved ask has nothing left to confirm; offering the control there
+    // invites a second write to a closed record.
+    expect(source).toMatch(/terminal\s*\n?\s*\?\s*\{\}/);
+    expect(source).toContain("proposalSlot:");
   });
 });

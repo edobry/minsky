@@ -17,7 +17,9 @@ import {
   deriveComposerState,
   derivePollInterval,
   isThreadStranded,
+  type EntityThreadPanelProps,
 } from "./EntityThreadPanel";
+import { RESOLVE_PROPOSAL_FENCE } from "../lib/resolve-proposal";
 
 const originalFetch = global.fetch;
 
@@ -58,14 +60,14 @@ function stubFetch(thread: unknown, opts: { threadOk?: boolean; status?: number 
   }) as unknown as typeof fetch;
 }
 
-function renderPanel() {
+function renderPanel(props: Partial<EntityThreadPanelProps> = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <MemoryRouter>
       <QueryClientProvider client={client}>
-        <EntityThreadPanel entityType="ask" entityId={ENTITY_ID} />
+        <EntityThreadPanel entityType="ask" entityId={ENTITY_ID} {...props} />
       </QueryClientProvider>
     </MemoryRouter>
   );
@@ -311,5 +313,58 @@ describe("EntityThreadPanel", () => {
       expect(screen.getByLabelText(/Ask a question about this ask/i)).toBeDefined();
     });
     expect(screen.queryByLabelText(/driven session/i)).toBeNull();
+  });
+});
+
+describe("EntityThreadPanel — proposal slot (mt#3368)", () => {
+  const proposalReply = block({
+    id: "t#2",
+    type: "assistant-text",
+    rawJsonlType: "assistant",
+    content:
+      "You should hold off.\n\n```" +
+      RESOLVE_PROPOSAL_FENCE +
+      '\n{"optionLetter": "B", "rationale": "the branch is stale"}\n```',
+  });
+
+  function stubThread(blocks: SessionContextSnapshotBlock[]): void {
+    stubFetch({ localId: THREAD_LOCAL_ID, entityType: "ask", entityId: ENTITY_ID, blocks });
+  }
+
+  test("hands the agent's proposal to the slot", async () => {
+    stubThread([block({ id: "t#1" }), proposalReply]);
+    renderPanel({
+      proposalSlot: (proposal) => (
+        <p data-testid="slot">
+          proposed {proposal.optionLetter}: {proposal.rationale}
+        </p>
+      ),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("slot").textContent).toBe("proposed B: the branch is stale");
+    });
+  });
+
+  test("does not invoke the slot when the agent made no proposal", async () => {
+    stubThread([block({ id: "t#1" }), block({ id: "t#2", type: "assistant-text", content: "no." })]);
+    renderPanel({ proposalSlot: () => <p data-testid="slot">should not render</p> });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Ask a question about this ask/i)).toBeDefined();
+    });
+    expect(screen.queryByTestId("slot")).toBeNull();
+  });
+
+  test("a proposal renders as plain prose when no slot is supplied", async () => {
+    // The mt#3366 entity kinds mount this panel without a slot. A marker must
+    // not produce a control there, and must not crash the render either.
+    stubThread([proposalReply]);
+    renderPanel();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Ask a question about this ask/i)).toBeDefined();
+    });
+    expect(screen.queryByTestId("slot")).toBeNull();
   });
 });

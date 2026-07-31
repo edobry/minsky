@@ -35,6 +35,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
+import { RESOLVE_PROPOSAL_FENCE } from "@minsky/shared/resolve-proposal";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import {
   startDrivenSession,
@@ -127,9 +128,31 @@ export function buildEntityThreadSeedPrompt(seed: EntitySeedContext): string {
     "Do NOT take action on this entity. Do not resolve, close, edit, or respond to it.",
     "Explain it. Any action is the principal's own, taken through the cockpit's own",
     "controls.",
-    "",
-    "Wait for the principal's question."
+    ""
   );
+
+  if (seed.entityType === "ask") {
+    lines.push(
+      "If — and only if — the discussion reaches a clear answer to this ask, you may PROPOSE",
+      "one. Proposing is not acting: it renders as a pre-filled control that commits nothing",
+      "until the principal clicks confirm. Emit a fenced block exactly like this, in addition",
+      "to your normal prose:",
+      "",
+      `\`\`\`${RESOLVE_PROPOSAL_FENCE}`,
+      '{"optionLetter": "B", "rationale": "one sentence on why"}',
+      "```",
+      "",
+      "`optionLetter` is a single letter naming one of the ask's own options.",
+      "",
+      "If the ask is malformed, ambiguous, or you cannot ground an answer in what you read,",
+      "DECLINE to propose — say so plainly and emit no block. A plausible-looking proposal you",
+      "cannot support is worse than none: it invites a confirming click on reasoning that does",
+      "not exist. Never propose an option the ask does not list.",
+      ""
+    );
+  }
+
+  lines.push("Wait for the principal's question.");
 
   return lines.join("\n");
 }
