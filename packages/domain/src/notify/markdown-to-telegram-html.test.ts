@@ -137,6 +137,45 @@ describe("markdownToTelegramHtml — blocks", () => {
   });
 });
 
+/**
+ * The spec's acceptance tests, written literally rather than assumed covered
+ * by adjacent cases.
+ */
+describe("markdownToTelegramHtml — acceptance", () => {
+  test("AT1: a mixed reply round-trips with SHAs, refs and paths byte-identical", () => {
+    const sha = "9f797d8df1c2b3a45e6f7089abcdef0123456789";
+    const source = [
+      "**Done** — see mt#3243 and `src/cockpit/principal_channel_poller.ts`.",
+      "",
+      "```sh",
+      `git show ${sha}`,
+      "```",
+    ].join("\n");
+
+    const html = markdownToTelegramHtml(source);
+
+    // The literal content classes must survive untouched.
+    expect(html).toContain(sha);
+    expect(html).toContain("mt#3243");
+    expect(html).toContain("principal_channel_poller.ts");
+    // ...and the formatting must actually have been applied.
+    expect(html).toContain("<b>Done</b>");
+    expect(html).toContain(`<pre><code class="language-sh">`);
+  });
+
+  test("AT3: truncating mid-emphasis still yields parseable output", () => {
+    // The design truncates the MARKDOWN and then converts, so a cut through a
+    // `**` pair can never produce a half-open tag. Prove it at the seam.
+    const full = `${"word ".repeat(40)}**bold text that gets cut here**`;
+    for (let cut = full.length - 20; cut < full.length; cut += 1) {
+      const html = markdownToTelegramHtml(full.slice(0, cut));
+      const open = html.match(/<b>/g)?.length ?? 0;
+      const close = html.match(/<\/b>/g)?.length ?? 0;
+      expect(`cut${cut}:${open}`).toBe(`cut${cut}:${close}`);
+    }
+  });
+});
+
 describe("markdownToTelegramHtml — robustness", () => {
   test("leaves an unmatched marker as literal text rather than emitting a stray tag", () => {
     // A truncated reply can end mid-emphasis; an unbalanced tag is a 400.
