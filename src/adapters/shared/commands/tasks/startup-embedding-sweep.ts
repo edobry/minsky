@@ -56,6 +56,15 @@ const STARTUP_SWEEP_CONCURRENCY = 2;
  */
 export interface StartupSweepDeps {
   getConfiguration?: () => { embeddings?: { autoIndex?: boolean } };
+  /**
+   * Mirrors the same field on `AutoIndexDeps`. Needed to test the sweep's own
+   * bookkeeping — quota short-circuiting and the residual count — without a
+   * live embedding provider.
+   */
+  createTaskSimilarityService?: (
+    provider: BasePersistenceProvider,
+    taskService: TaskServiceInterface
+  ) => Promise<{ indexTask: (id: string) => Promise<boolean> }>;
 }
 
 export async function triggerStartupEmbeddingSweep(
@@ -103,7 +112,9 @@ export async function triggerStartupEmbeddingSweep(
   log.debug(`Startup sweep: ${missing.length} tasks need embedding indexing`);
 
   // Index them with low concurrency
-  const { createTaskSimilarityService } = await import("./similarity-commands");
+  const createTaskSimilarityService =
+    deps?.createTaskSimilarityService ??
+    (await import("./similarity-commands")).createTaskSimilarityService;
   const service = await createTaskSimilarityService(persistenceProvider, taskService);
 
   let indexed = 0;
@@ -113,6 +124,11 @@ export async function triggerStartupEmbeddingSweep(
 
   async function worker() {
     while (true) {
+      // PR #2473 R1: `break` only exits THIS worker's loop, so a quota
+      // exhaustion detected by one worker left the others pulling more tasks
+      // and issuing calls already known to fail — while the log said
+      // "stopping". The flag is shared, so read it here: every worker stops.
+      if (quotaExhausted) break;
       const idx = i++;
       if (idx >= missing.length) break;
       const row = missing[idx];
@@ -124,7 +140,9 @@ export async function triggerStartupEmbeddingSweep(
         const msg = err instanceof Error ? err.message : String(err);
         if (/insufficient_quota/i.test(msg)) {
           quotaExhausted = true;
-          log.warn("Startup sweep: OpenAI quota exhausted (insufficient_quota) — stopping");
+          log.warn(
+            "Startup sweep: OpenAI quota exhausted (insufficient_quota) — stopping all workers"
+          );
           break;
         }
         failed++;
@@ -139,10 +157,37 @@ export async function triggerStartupEmbeddingSweep(
   const workers = Array.from({ length: STARTUP_SWEEP_CONCURRENCY }, () => worker());
   await Promise.all(workers);
 
-  // A sweep that ends with tasks still missing is the state this whole layer
-  // exists to prevent, so it reports at warn — including the hit-the-limit case,
-  // where `missing.length` equalling the limit means there may be more beyond it.
-  const stillMissing = missing.length - indexed;
+  // PR #2473 R1: MEASURE the residual, don't infer it. This was
+  // `missing.length - indexed`, which is wrong whenever `indexTask` returns
+  // false without failing — it returns false for an up-to-date skip, so a task
+  // indexed concurrently between the query above and the call would be counted
+  // as still missing. Re-running the same query answers the question directly
+  // and also covers the never-attempted tasks left behind by a quota stop.
+  // One extra query, once, at boot.
+  let stillMissing: number;
+  try {
+    const remaining = await (sql as import("postgres").Sql).unsafe(
+      `SELECT count(*)::int AS n FROM tasks t LEFT JOIN tasks_embeddings te` +
+        ` ON t.id = te.task_id WHERE te.task_id IS NULL`
+    );
+    // Guard the driver's row shape rather than asserting it — the count is what
+    // the whole warn/quiet decision below turns on, so a surprising shape must
+    // fall through to the estimate rather than silently become 0.
+    const row: unknown = Array.isArray(remaining) ? remaining[0] : undefined;
+    const n =
+      typeof row === "object" && row !== null ? (row as Record<string, unknown>)["n"] : undefined;
+    if (typeof n !== "number" || !Number.isFinite(n)) {
+      throw new Error(`residual count query returned an unexpected shape: ${JSON.stringify(row)}`);
+    }
+    stillMissing = n;
+  } catch (err) {
+    // The residual check failing must not swallow the sweep's own result, so
+    // fall back to the arithmetic and say which number this is.
+    stillMissing = Math.max(0, missing.length - indexed);
+    log.warn("Startup sweep: could not re-measure residual missing count; reporting an estimate", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
   if (failed > 0 || quotaExhausted || stillMissing > 0) {
     log.warn(
       `Startup embedding sweep finished with gaps: indexed ${indexed}, failed ${failed}, ` +

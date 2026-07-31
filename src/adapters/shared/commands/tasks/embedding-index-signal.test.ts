@@ -123,14 +123,29 @@ describe("mt#3370 — autoIndexTaskEmbedding reports a failed index", () => {
 // Recovery layer
 // ---------------------------------------------------------------------------
 
-/** Minimal persistence-provider stand-in shaped for the sweep's two guards. */
-function provider(opts: { sql?: boolean; rawRows?: Array<{ id: string }> | null }) {
+/**
+ * Minimal persistence-provider stand-in shaped for the sweep's two guards.
+ *
+ * `unsafe` serves two different queries: the initial missing-task list, then
+ * (PR #2473 R1) the residual re-measurement. `residual` controls the second.
+ */
+function provider(opts: {
+  sql?: boolean;
+  rawRows?: Array<{ id: string }> | null;
+  residual?: number;
+}) {
   const base: Record<string, unknown> = {
     capabilities: { sql: opts.sql ?? true },
   };
   if (opts.rawRows !== null) {
+    let call = 0;
     base["getRawSqlConnection"] = async () => ({
-      unsafe: async () => opts.rawRows ?? [],
+      unsafe: async () => {
+        call += 1;
+        // First call: the missing-task list. Second: the residual count.
+        if (call === 1) return opts.rawRows ?? [];
+        return [{ n: opts.residual ?? 0 }];
+      },
     });
   }
   return base as never;
@@ -166,5 +181,100 @@ describe("mt#3370 — the startup sweep reports when it cannot run", () => {
       getConfiguration: () => ({ embeddings: { autoIndex: false } }),
     });
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR #2473 R1 — the sweep's own bookkeeping
+// ---------------------------------------------------------------------------
+
+/** A task-service stand-in whose indexTask behavior the test controls. */
+function svcThatThrows(msg: string) {
+  return {
+    createTaskSimilarityService: async () => ({
+      indexTask: async () => {
+        throw new Error(msg);
+      },
+    }),
+  };
+}
+
+describe("PR #2473 R1 — quota exhaustion stops every worker, not just one", () => {
+  test("a quota error stops the sweep rather than letting siblings keep calling", async () => {
+    const warn = captureWarn();
+    let calls = 0;
+    const rows = Array.from({ length: 20 }, (_, n) => ({ id: `mt#${n}` }));
+
+    // ONLY the first call reports quota exhaustion; every later call would
+    // succeed. This is what makes the test discriminating: if each call threw
+    // quota, both workers would break on their OWN error and the test would
+    // pass with or without the shared-flag read — proving nothing. With just
+    // one quota error, the sibling worker has no error of its own to stop it,
+    // so it drains all 20 unless it reads the flag.
+    await triggerStartupEmbeddingSweep(
+      provider({ rawRows: rows, residual: 19 }),
+      {} as never,
+      {
+        ...sweepDeps,
+        createTaskSimilarityService: async () => ({
+          indexTask: async () => {
+            calls += 1;
+            if (calls === 1) {
+              throw new Error("insufficient_quota: you exceeded your current quota");
+            }
+            return true;
+          },
+        }),
+      } as never
+    );
+
+    // Concurrency is 2, so the sibling may already have one call in flight.
+    // Without the fix this reaches 20.
+    expect(calls).toBeLessThanOrEqual(2);
+    const messages = warn.mock.calls.map((c) => String(c[0]));
+    expect(messages.some((m) => m.includes("quota exhausted"))).toBe(true);
+    expect(messages.some((m) => m.includes("stopped early on OpenAI quota exhaustion"))).toBe(true);
+  });
+});
+
+describe("PR #2473 R1 — the residual count is measured, not inferred", () => {
+  test("reports the re-measured residual, not initial-minus-indexed", async () => {
+    const warn = captureWarn();
+    const rows = [{ id: "mt#1" }, { id: "mt#2" }];
+
+    // Both indexTask calls return FALSE (an up-to-date skip), so `indexed`
+    // stays 0 and the old arithmetic would have claimed "still missing 2".
+    // The re-measurement says 0, which is the truth.
+    await triggerStartupEmbeddingSweep(
+      provider({ rawRows: rows, residual: 0 }),
+      {} as never,
+      {
+        ...sweepDeps,
+        createTaskSimilarityService: async () => ({ indexTask: async () => false }),
+      } as never
+    );
+
+    // Residual 0 and no failures => nothing to warn about at all.
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  test("a real residual is reported, and reports the measured number", async () => {
+    const warn = captureWarn();
+    const rows = [{ id: "mt#1" }];
+    await triggerStartupEmbeddingSweep(
+      provider({ rawRows: rows, residual: 7 }),
+      {} as never,
+      {
+        ...sweepDeps,
+        ...svcThatThrows("network unreachable"),
+      } as never
+    );
+
+    const summary = warn.mock.calls
+      .map((c) => String(c[0]))
+      .find((m) => m.includes("still missing"));
+    expect(summary).toBeDefined();
+    // 7 is the measured residual; initial(1) - indexed(0) would have said 1.
+    expect(summary).toContain("still missing 7");
   });
 });
