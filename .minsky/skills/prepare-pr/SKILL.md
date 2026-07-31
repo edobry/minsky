@@ -89,6 +89,8 @@ This step fires unconditionally as part of every /prepare-pr invocation — it i
 
 **Does this PR add any new test files?** Scan the diff for files matching `*.{test,spec}.{ts,mts,cts}`, `*.integration.test.{ts,mts,cts}` that are newly created (not just modified).
 
+**Does this PR MODIFY an existing test file, and is it a bugfix?** (mt#3244) If the title carries a `fix(` type — or the bound task's spec describes a defect — the evidence block should also record a **negative control**: the changed test run against the un-fixed tree, observed FAILING. A test written after the fix passes whether or not the fix works, so a passing run alone says nothing about it. Accepted forms inside the evidence block: a `Negative control:` / `Failing-first:` label line (colon required), or a heading naming either; `[negative-control-deferred: mt#NNNN]` if it truly cannot run pre-merge. Log-only today — it warns, it does not block.
+
 > Note: the repo currently uses only `.ts` extensions for tests. If `.mts`/`.cts` variants are adopted, also update the merge-time hook (mt#1459) in lockstep.
 
 **Background:** Tests and probes are behavior-detecting artifacts whose correctness cannot be verified by code-shape alone. A test file that exists but was never run before merge may have wrong assertions, import errors, or setup that silently skips all cases. This is a recurring failure mode — see memory entry `feedback_behavior_detecting_artifacts_need_execution_evidence`. The merge-time hook (mt#1459) enforces the `[unverified-tests]` escape hatch at merge; this step is the earlier, lower-cost enforcement at PR-open time.

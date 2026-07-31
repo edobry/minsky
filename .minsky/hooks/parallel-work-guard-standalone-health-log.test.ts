@@ -21,6 +21,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runStandaloneDuplicateGuardInner } from "./parallel-work-guard-standalone";
+import { STANDALONE_DUP_PROBE_TIMEOUT_MS } from "./standalone-dup-probe";
 import { readGuardHealthEvents } from "./guard-health";
 import type { ToolHookInput } from "./types";
 
@@ -112,12 +113,23 @@ describe("runStandaloneDuplicateGuardInner -> guard-health log (mt#3072 AT1)", (
 // visible AT the create (SC2).
 // ---------------------------------------------------------------------------
 
-/** Run `fn` with stdout captured, so `writeOutput`'s JSON can be asserted on. */
+/**
+ * Run `fn` with stdout captured, so `writeOutput`'s JSON can be asserted on.
+ *
+ * The shim accepts `write`'s FULL signature — `(chunk, encoding?, cb?)` — rather
+ * than just `(chunk)` (mt#3439). A single-argument shim silently drops a trailing
+ * completion callback, so a caller that passes one waits on a callback that never
+ * fires: the failure is a hang or a swallowed write, neither of which points at
+ * this helper. `encoding` is deliberately ignored (every write under test is a
+ * string), but the callback is always invoked.
+ */
 async function captureStdout(fn: () => Promise<void>): Promise<string> {
   const chunks: string[] = [];
   const original = process.stdout.write.bind(process.stdout);
-  process.stdout.write = ((chunk: unknown) => {
+  process.stdout.write = ((chunk: unknown, encodingOrCb?: unknown, maybeCb?: unknown): boolean => {
     chunks.push(String(chunk));
+    const cb = typeof encodingOrCb === "function" ? encodingOrCb : maybeCb;
+    if (typeof cb === "function") (cb as (err?: Error | null) => void)(null);
     return true;
   }) as typeof process.stdout.write;
   try {
@@ -142,10 +154,49 @@ async function withScratchStateDir(label: string, fn: () => Promise<void>): Prom
   }
 }
 
+/**
+ * The deadline fragment both the fixture and its assertions are built from
+ * (mt#3439). Derived from `STANDALONE_DUP_PROBE_TIMEOUT_MS` rather than written
+ * as a literal: that constant is expected to be re-grounded again as the probe's
+ * latency profile changes (mt#3358 already moved it 8000 -> 20000). A literal
+ * would leave the production reason string moving while these assertions stayed
+ * behind, failing spuriously and pointing at the test instead of at anything real.
+ */
+const DEADLINE_FRAGMENT = `${STANDALONE_DUP_PROBE_TIMEOUT_MS}ms deadline`;
+
 const TIMED_OUT_PROBE = {
-  failed: "in-process probe exceeded the 20000ms deadline",
+  failed: `in-process probe exceeded the ${DEADLINE_FRAGMENT}`,
   causeClass: "infra" as const,
 };
+
+describe("captureStdout shim (mt#3439)", () => {
+  test("invokes a trailing completion callback instead of dropping it", async () => {
+    let fired = false;
+    const out = await captureStdout(async () => {
+      process.stdout.write("payload", () => {
+        fired = true;
+      });
+    });
+
+    // A single-argument shim would swallow the callback: the write still lands,
+    // so the only symptom is a caller waiting forever on a callback that never
+    // fires — which looks like a hang anywhere but here.
+    expect(fired).toBe(true);
+    expect(out).toBe("payload");
+  });
+
+  test("invokes the callback when an encoding is passed between chunk and callback", async () => {
+    let fired = false;
+    const out = await captureStdout(async () => {
+      process.stdout.write("encoded", "utf8", () => {
+        fired = true;
+      });
+    });
+
+    expect(fired).toBe(true);
+    expect(out).toBe("encoded");
+  });
+});
 
 describe("standalone-duplicate guard — fail-open visibility (mt#3358)", () => {
   test("SC3: the check-skip event names WHICH create went unchecked", async () => {
@@ -188,7 +239,7 @@ describe("standalone-duplicate guard — fail-open visibility (mt#3358)", () => 
       // caller in the same turn as the create.
       expect(out).toContain("additionalContext");
       expect(out).toContain("SKIPPED");
-      expect(out).toContain("20000ms deadline");
+      expect(out).toContain(DEADLINE_FRAGMENT);
     });
   });
 
