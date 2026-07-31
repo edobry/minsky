@@ -106,15 +106,29 @@ describe("resolveConversationAddress", () => {
 });
 
 describe("actuatorMayStillLink", () => {
-  test("a running or spawned actuator may still produce a conversation", () => {
-    expect(actuatorMayStillLink(actuator({ status: "running" }))).toBe(true);
+  /**
+   * Every value of `DrivenSessionStatus` (`src/cockpit/driven-session-host.ts`),
+   * asserted exhaustively rather than by sample.
+   *
+   * The first version of this suite tested `exited` and `crashed` only, and the
+   * implementation was a denylist of those two — so `unrecoverable`, which the
+   * server's own `isTerminalStatus` has named terminal since mt#3038 R1 delta
+   * #2, was treated as still-linkable and shipped. PR #2502 R1 caught it. A
+   * sample-based test over a closed enum is how that gets missed twice.
+   */
+  test("a non-terminal actuator may still produce a conversation", () => {
     expect(actuatorMayStillLink(actuator({ status: "spawned" }))).toBe(true);
+    expect(actuatorMayStillLink(actuator({ status: "running" }))).toBe(true);
+    // Non-terminal on purpose: a reconnecting actuator can redial and emit init.
+    expect(actuatorMayStillLink(actuator({ status: "reconnecting" }))).toBe(true);
   });
 
-  test("a terminal actuator that never linked never will", () => {
+  test("a terminal actuator that never linked never will — ALL THREE terminal statuses", () => {
     // Rendering "starting…" forever for one of these would be exactly the
-    // falsely-confident state this umbrella exists to remove.
+    // falsely-confident state this umbrella exists to remove — and it would
+    // leave the registry poll running against a record that can never change.
     expect(actuatorMayStillLink(actuator({ status: "exited" }))).toBe(false);
     expect(actuatorMayStillLink(actuator({ status: "crashed" }))).toBe(false);
+    expect(actuatorMayStillLink(actuator({ status: "unrecoverable" }))).toBe(false);
   });
 });

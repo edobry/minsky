@@ -234,6 +234,21 @@ describe("AT5 — a conversation reached before its init frame", () => {
     expect(starting.textContent).toContain("ended before it produced a transcript");
   });
 
+  test("...including `unrecoverable`, the terminal status the first cut missed", async () => {
+    // PR #2502 R1. `unrecoverable` has been terminal since mt#3038 R1 delta #2,
+    // but the predicate was a denylist of `exited`/`crashed`, so a run that can
+    // never link rendered "Starting…" indefinitely and kept the registry poll
+    // alive behind it.
+    stubFetches({
+      actuators: [{ sessionId: LOCAL_ID, harnessSessionId: null, status: "unrecoverable" }],
+    });
+    renderAt(LOCAL_ID);
+
+    const starting = await screen.findByTestId("conversation-starting");
+    expect(starting.textContent).toContain("ended before it produced a transcript");
+    expect(starting.textContent).not.toContain("has not produced a transcript yet");
+  });
+
   test("once linked, the same local-id URL serves the conversation", async () => {
     stubFetches({
       actuators: [

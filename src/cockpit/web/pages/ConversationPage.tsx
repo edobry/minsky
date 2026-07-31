@@ -221,16 +221,27 @@ export function ConversationPage() {
   // `!id` guard, so `id` has narrowed to `string` and the fallback is total.
   const resolved = address?.kind === "conversation" ? address.conversationId : id;
 
+  // Every element of the chrome names the same entity: the CONVERSATION this
+  // route resolved to (PR #2502 R1). The heading, its fallback, the id sub-line
+  // and the presence readout previously split between the resolved id and the
+  // URL address, so a local-id arrival could show one id while reporting
+  // presence for another with nothing relating them.
+  //
+  // The ADDRESS is deliberately not the sub-line: it is already in the URL bar,
+  // and the id worth exposing for copy/reference on an entity page is the
+  // entity's own. `RunDetail`'s `id`/`key` below stay the address — those build
+  // tab paths and remount identity, which must follow what the operator typed.
+  //
   // Falls back to the bare id only while the query is in flight or when the
   // conversation is genuinely unresolvable (404) — the server's own tier-4
   // fallback covers every resolvable conversation, so this is not the routine
   // path it used to be.
-  const label = overviewQuery.data?.label ?? id;
+  const label = overviewQuery.data?.label ?? resolved;
 
   // Never render the id twice (mt#3343). The mono sub-line exists to expose the
   // raw id for copy/reference ALONGSIDE a human name; when the heading IS the
   // raw id, repeating it verbatim underneath adds nothing and reads as a bug.
-  const showIdSubline = label !== id;
+  const showIdSubline = label !== resolved;
 
   return (
     <div className={wrapperClass}>
@@ -246,8 +257,8 @@ export function ConversationPage() {
               {label}
             </h1>
             {showIdSubline && (
-              <span className="font-mono text-xs text-muted-foreground" title={id}>
-                {id}
+              <span className="font-mono text-xs text-muted-foreground" title={resolved}>
+                {resolved}
               </span>
             )}
             <ConversationPresenceChip conversationId={resolved} />

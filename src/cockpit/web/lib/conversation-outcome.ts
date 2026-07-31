@@ -145,7 +145,17 @@ function classifyErrorText(text: string): ConversationOutcome | null {
 // ---------------------------------------------------------------------------
 
 /**
- * The actuator-channel statuses that are TERMINAL conditions.
+ * The actuator statuses that are TERMINAL — the browser-side mirror of
+ * `isTerminalStatus` in `src/cockpit/driven-session-host.ts`, which this bundle
+ * cannot import (`custom/no-node-import-in-cockpit-web` bans server-side value
+ * imports here).
+ *
+ * This is the SINGLE definition of "terminal" for the cockpit bundle, not just
+ * an outcome-classification detail: `conversation-address.ts`'s
+ * `actuatorMayStillLink` delegates to it rather than keeping its own list. It
+ * held a private denylist of `exited`/`crashed` once, which silently
+ * mis-answered for `unrecoverable`; PR #2502 R1 caught it. One definition is
+ * what keeps that from recurring per consumer.
  *
  * `useDrivenSession`'s `DrivenSessionStatus` also carries `connecting`,
  * `reconnecting` and `live` — those are TRANSPORT lifecycle, not outcomes, and

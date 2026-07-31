@@ -33,6 +33,7 @@
  * @see mt#3132 — `## The id-space question` and `## Implementation-entry findings`
  * @see src/cockpit/driven-session-host.ts — `registry.get()`, `linkHarnessId`
  */
+import { isTerminalActuatorStatus } from "./conversation-outcome";
 
 /**
  * One row of `GET /api/driven-session`'s registry snapshot — the subset this
@@ -97,10 +98,23 @@ export function resolveConversationAddress(
  * Whether a starting actuator can still be expected to produce a conversation.
  *
  * A record that reached a terminal status without ever linking a harness id
- * never will — the child exited before emitting its `init` frame. Rendering
+ * never will — the child died before emitting its `init` frame. Rendering
  * "starting…" forever in that case would be the falsely-confident state this
- * whole umbrella exists to remove.
+ * whole umbrella exists to remove, and it would also keep the registry poll
+ * running against a record that can never change (see `useConversationAddress`).
+ *
+ * Delegates to `isTerminalActuatorStatus` rather than enumerating here. That
+ * predicate is the browser-side mirror of `isTerminalStatus` in
+ * `src/cockpit/driven-session-host.ts` (server-side code this bundle must not
+ * import, per `custom/no-node-import-in-cockpit-web`) — so there is ONE
+ * definition of "terminal" in this bundle, not one per consumer.
+ *
+ * This first shipped as a local denylist of `exited`/`crashed`, which silently
+ * mis-answered for `unrecoverable` — terminal since mt#3038 R1 delta #2, and
+ * already named correctly by the predicate now used. PR #2502 R1 caught it. The
+ * general shape: over a closed enum that GROWS, test membership of the set you
+ * mean, never exclusion from the set you don't.
  */
 export function actuatorMayStillLink(actuator: ActuatorSummary): boolean {
-  return actuator.status !== "exited" && actuator.status !== "crashed";
+  return !isTerminalActuatorStatus(actuator.status);
 }

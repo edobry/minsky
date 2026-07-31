@@ -23,6 +23,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import {
+  actuatorMayStillLink,
   resolveConversationAddress,
   type ActuatorSummary,
   type ConversationAddress,
@@ -33,14 +34,19 @@ interface DrivenSessionListPayload {
 }
 
 /**
- * How often to re-read the registry while an actuator is still starting.
+ * How often to re-read the registry while an actuator is still starting AND can
+ * still link.
  *
- * Polling is scoped to exactly that state. A starting actuator links its
- * conversation on the harness `init` frame, which arrives on its own schedule,
- * so the starting view has to be able to advance with no operator action —
- * but once an id has resolved to a conversation, nothing about the answer can
- * change, and leaving a background poll running on every open conversation tab
- * would be a standing cost paid for a transient case.
+ * Polling is scoped to exactly that state, on both halves of the condition:
+ *
+ *  - Once an id resolves to a conversation, nothing about the answer can
+ *    change, so a background poll on every open conversation tab would be a
+ *    standing cost paid for a transient case.
+ *  - Once the actuator is TERMINAL without ever having linked, it can never
+ *    link — polling it is a loop that cannot terminate on its own. This is the
+ *    half PR #2502 R1 caught: gating on the `actuator-starting` kind alone
+ *    polls a dead record forever, because a dead-and-unlinked record stays in
+ *    that kind permanently.
  */
 const STARTING_REFETCH_MS = 3_000;
 
@@ -77,9 +83,11 @@ export function useConversationAddress(id: string | undefined): ConversationAddr
     refetchInterval: (q) => {
       const data = q.state.data;
       if (!id || !data) return false;
-      return resolveConversationAddress(id, data).kind === "actuator-starting"
-        ? STARTING_REFETCH_MS
-        : false;
+      const address = resolveConversationAddress(id, data);
+      if (address.kind !== "actuator-starting") return false;
+      // A terminal-but-unlinked actuator never links, so re-reading it can
+      // never change the answer.
+      return actuatorMayStillLink(address.actuator) ? STARTING_REFETCH_MS : false;
     },
   });
 
