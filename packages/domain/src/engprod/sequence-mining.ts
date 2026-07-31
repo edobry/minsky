@@ -30,7 +30,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentToolCallProjectionTable } from "../storage/schemas/agent-tool-call-projection-schema";
 import { log } from "@minsky/shared/logger";
 import { getLoggableErrorSummary } from "../errors/index";
-import type { MinedCluster } from "./types";
+import type { MinedCluster, FingerprintProfile } from "./types";
 
 export interface MineClustersOptions {
   /** Trailing window, in days. Default 14 (spec default). */
@@ -74,16 +74,87 @@ export function computeClusterSignature(toolSequence: readonly string[]): string
   return createHash("sha256").update(normalized).digest("hex").slice(0, 24);
 }
 
+/**
+ * Stable signature for a fingerprint-REFINED cluster (mt#3429 SC2) — keyed
+ * on both the tool-name sequence AND the concrete arg_fingerprint sequence,
+ * so a refined cluster never collides with its generic parent's signature
+ * (which would otherwise clobber the parent's ledger row on upsert).
+ */
+export function computeRefinedClusterSignature(
+  toolSequence: readonly string[],
+  fingerprintSequence: readonly string[]
+): string {
+  const normalized = `${toolSequence.join("→")}::fp::${fingerprintSequence.join("→")}`;
+  return createHash("sha256").update(normalized).digest("hex").slice(0, 24);
+}
+
+/**
+ * Reduce a window's per-fingerprint-sequence sub-aggregates (mt#3429 SC2)
+ * to the single dominant `FingerprintProfile` a refinement decision needs.
+ * Ties (equal counts) break on the fingerprint key itself for determinism
+ * across runs — never on Map iteration order, which is insertion-order but
+ * not otherwise meaningful here.
+ */
+function computeFingerprintProfile(
+  groups: ReadonlyMap<
+    string,
+    {
+      count: number;
+      sessions: Set<string>;
+      sampleRefs: Array<{ sessionId: string; turnIndex: number }>;
+    }
+  >,
+  clusterFrequency: number
+): FingerprintProfile | undefined {
+  if (groups.size === 0 || clusterFrequency === 0) return undefined;
+  let topKey: string | undefined;
+  let topGroup:
+    | {
+        count: number;
+        sessions: Set<string>;
+        sampleRefs: Array<{ sessionId: string; turnIndex: number }>;
+      }
+    | undefined;
+  for (const [key, group] of groups) {
+    if (
+      !topGroup ||
+      group.count > topGroup.count ||
+      (group.count === topGroup.count && topKey !== undefined && key < topKey)
+    ) {
+      topKey = key;
+      topGroup = group;
+    }
+  }
+  if (!topKey || !topGroup) return undefined;
+  return {
+    sequence: topKey.split("→"),
+    frequency: topGroup.count,
+    sessionCount: topGroup.sessions.size,
+    concentration: topGroup.count / clusterFrequency,
+    sampleRefs: topGroup.sampleRefs,
+  };
+}
+
 interface StreamEntry {
   toolName: string;
   turnIndex: number;
+  argFingerprint: string;
+}
+
+/** Per-fingerprint-sequence sub-aggregate within a name-level cluster (mt#3429 SC2). */
+interface FingerprintAggregate {
+  count: number;
+  sessions: Set<string>;
+  sampleRefs: Array<{ sessionId: string; turnIndex: number }>;
 }
 
 interface ClusterAggregate {
   toolSequence: string[];
   frequency: number;
   sessions: Set<string>;
-  sampleRefs: Array<{ sessionId: string; turnIndex: number }>;
+  sampleRefs: Array<{ sessionId: string; turnIndex: number; argFingerprints?: string[] }>;
+  /** Keyed by the joined arg_fingerprint sequence for this window's occurrences. */
+  fingerprintGroups: Map<string, FingerprintAggregate>;
 }
 
 /**
@@ -102,7 +173,13 @@ export async function mineClusters(
   const opts = { ...DEFAULTS, ...options };
   const since = new Date(Date.now() - opts.windowDays * 24 * 60 * 60 * 1000);
 
-  let rows: Array<{ agentSessionId: string; turnIndex: number; ordinal: number; toolName: string }>;
+  let rows: Array<{
+    agentSessionId: string;
+    turnIndex: number;
+    ordinal: number;
+    toolName: string;
+    argFingerprint: string;
+  }>;
   try {
     rows = await db
       .select({
@@ -110,6 +187,7 @@ export async function mineClusters(
         turnIndex: agentToolCallProjectionTable.turnIndex,
         ordinal: agentToolCallProjectionTable.ordinal,
         toolName: agentToolCallProjectionTable.toolName,
+        argFingerprint: agentToolCallProjectionTable.argFingerprint,
       })
       .from(agentToolCallProjectionTable)
       .where(gte(agentToolCallProjectionTable.timestamp, since))
@@ -141,7 +219,11 @@ export async function mineClusters(
       stream = [];
       streams.set(row.agentSessionId, stream);
     }
-    stream.push({ toolName: row.toolName, turnIndex: row.turnIndex });
+    stream.push({
+      toolName: row.toolName,
+      turnIndex: row.turnIndex,
+      argFingerprint: row.argFingerprint,
+    });
   }
 
   // Contiguous n-grams, order-sensitive, lengths [minChainLength, maxChainLength].
@@ -151,17 +233,42 @@ export async function mineClusters(
       for (let start = 0; start + len <= stream.length; start++) {
         const windowSlice = stream.slice(start, start + len);
         const toolSequence = windowSlice.map((w) => w.toolName);
+        const argFingerprints = windowSlice.map((w) => w.argFingerprint);
         const key = toolSequence.join("→");
         let entry = agg.get(key);
         if (!entry) {
-          entry = { toolSequence, frequency: 0, sessions: new Set(), sampleRefs: [] };
+          entry = {
+            toolSequence,
+            frequency: 0,
+            sessions: new Set(),
+            sampleRefs: [],
+            fingerprintGroups: new Map(),
+          };
           agg.set(key, entry);
         }
         entry.frequency++;
         entry.sessions.add(sessionId);
         if (entry.sampleRefs.length < opts.maxSampleRefs) {
           const first = windowSlice[0];
-          if (first) entry.sampleRefs.push({ sessionId, turnIndex: first.turnIndex });
+          if (first)
+            entry.sampleRefs.push({ sessionId, turnIndex: first.turnIndex, argFingerprints });
+        }
+
+        // mt#3429 SC2: sub-cluster the SAME window by its concrete
+        // arg_fingerprint sequence, so a later refinement pass can tell
+        // "the same command repeated" apart from "the same tool, different
+        // commands, coincidentally the same tool-name shape."
+        const fingerprintKey = argFingerprints.join("→");
+        let fpGroup = entry.fingerprintGroups.get(fingerprintKey);
+        if (!fpGroup) {
+          fpGroup = { count: 0, sessions: new Set(), sampleRefs: [] };
+          entry.fingerprintGroups.set(fingerprintKey, fpGroup);
+        }
+        fpGroup.count++;
+        fpGroup.sessions.add(sessionId);
+        if (fpGroup.sampleRefs.length < opts.maxSampleRefs) {
+          const first = windowSlice[0];
+          if (first) fpGroup.sampleRefs.push({ sessionId, turnIndex: first.turnIndex });
         }
       }
     }
@@ -180,6 +287,7 @@ export async function mineClusters(
       chainLength,
       score: entry.frequency * entry.sessions.size * chainLength,
       sampleRefs: entry.sampleRefs,
+      fingerprintProfile: computeFingerprintProfile(entry.fingerprintGroups, entry.frequency),
     });
   }
 
@@ -221,4 +329,81 @@ export function selectTopClusters(clusters: readonly MinedCluster[], cap: number
     selected.push(candidate);
   }
   return selected;
+}
+
+/** True when either sequence occurs as a contiguous run inside the other. */
+function isNestedEitherDirection(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length === b.length) {
+    return a.length > 0 && a.every((v, i) => v === b[i]);
+  }
+  const [shorter, longer] = a.length < b.length ? [a, b] : [b, a];
+  return isContiguousSubsequence(shorter, longer);
+}
+
+export interface MaximalCollapseSuppression {
+  cluster: MinedCluster;
+  /** The higher-ranked (kept) cluster whose tool sequence already covers this one. */
+  supersededBy: MinedCluster;
+}
+
+export interface MaximalCollapseResult {
+  /** Clusters that survived collapsing — one per family of nested/overlapping sequences. */
+  maximal: MinedCluster[];
+  /** Every other cluster, paired with the surviving cluster that subsumes it. */
+  suppressed: MaximalCollapseSuppression[];
+}
+
+/**
+ * Maximal-sequence collapsing (mt#3429 SC1).
+ *
+ * v1's `selectTopClusters` only ever checks whether a CANDIDATE is a
+ * contiguous subsequence of an ALREADY-SELECTED (necessarily earlier, i.e.
+ * higher-scored) cluster. That direction alone misses the production
+ * shape this task fixes: a homogeneous repeat of the same tool (e.g. a
+ * burst of consecutive `Bash` calls) generates a NESTED family of n-grams
+ * — [Bash,Bash], [Bash,Bash,Bash], ... — whose n-gram-counted frequency is
+ * naturally anti-monotonic in chain length (a 2-window fits inside every
+ * longer run too, so it's always counted at least as often). The SHORTER
+ * member of the family therefore almost always scores HIGHEST and is
+ * selected first; every LONGER member is then compared only against
+ * "is the longer one a subsequence of the shorter, already-selected one?"
+ * — which is never true (a longer sequence cannot fit inside a shorter
+ * one), so nothing gets suppressed and the whole family survives as N
+ * separate proposals (the v1 production run's Bash x2..x6 five-way split,
+ * mt#3419/3420/3421/3423/3425).
+ *
+ * The fix: check containment in EITHER direction. Two clusters where one's
+ * sequence is a contiguous run of the other's represent the SAME
+ * phenomenon observed at a different grain; walking the (pre-sorted,
+ * score-descending) candidate list and keeping only the first member of
+ * each such family — regardless of whether that first-kept member happens
+ * to be the shorter or the longer sequence — collapses the whole family to
+ * the single highest-ranked ("higher-ranked proposed cluster" per spec
+ * SC1) representative. Every other member is suppressed and returned
+ * alongside the surviving cluster it was superseded by, so the caller can
+ * record a distinct, audit-trail-bearing ledger row for each (never a
+ * silent drop, per spec SC1 / work-completion's invocation-path
+ * discipline).
+ *
+ * `clusters` is expected pre-sorted by score descending (as `mineClusters`
+ * returns it) — this function does not re-sort.
+ */
+export function collapseToMaximalClusters(
+  clusters: readonly MinedCluster[]
+): MaximalCollapseResult {
+  const maximal: MinedCluster[] = [];
+  const suppressed: MaximalCollapseSuppression[] = [];
+
+  for (const candidate of clusters) {
+    const supersededBy = maximal.find((kept) =>
+      isNestedEitherDirection(candidate.toolSequence, kept.toolSequence)
+    );
+    if (supersededBy) {
+      suppressed.push({ cluster: candidate, supersededBy });
+    } else {
+      maximal.push(candidate);
+    }
+  }
+
+  return { maximal, suppressed };
 }
