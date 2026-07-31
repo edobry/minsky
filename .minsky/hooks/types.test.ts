@@ -8,6 +8,9 @@
  * back into the caller regardless of spawn success/failure.
  */
 import { describe, test, expect, spyOn, afterEach, beforeEach } from "bun:test";
+// eslint-disable-next-line custom/no-real-fs-in-tests -- the mt#3393 default-resolution test below must read the REAL tree; injecting a mock fs there would only re-assert the injected tests
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
   emitHookFiredOnDeny,
   writeOutput,
@@ -17,7 +20,10 @@ import {
   __resetGitBinaryCacheForTests,
   HOOK_MINSKY_CLI_PG_CONNECT_TIMEOUT_SEC,
   normalizeToolResult,
+  findRepoRoot,
+  deriveHookRepoRoot,
 } from "./types";
+import type { MergeDetectFs } from "./types";
 import { decideReminder } from "./drive-pr-to-convergence";
 import { isDoneTransition } from "./bridge-memory-retirement";
 
@@ -503,5 +509,61 @@ describe("normalizeToolResult heals previously-dead hooks end-to-end (mt#3308 AT
 
     normalizeToolResult(payload);
     expect(isDoneTransition(payload as never)).toBe(true);
+  });
+});
+
+describe("deriveHookRepoRoot (mt#3393)", () => {
+  // Built with `resolve`/`join` rather than POSIX string literals: findRepoRoot
+  // normalizes through `resolve()`, so a hardcoded "/Users/..." expectation
+  // would not match the normalized value on a platform with different path
+  // semantics.
+  const MAIN_WORKSPACE = resolve(join("/", "dev-home", "Projects", "minsky"));
+  const HOOK_DIR = join(MAIN_WORKSPACE, ".claude", "hooks");
+  const SESSIONS_ROOT = resolve(join("/", "dev-home", ".local", "state", "minsky", "sessions"));
+  const SESSION_CLONE = join(SESSIONS_ROOT, "aaaa-1111");
+  const CLEANED_SESSION = join(SESSIONS_ROOT, "bbbb-2222");
+
+  /**
+   * Two directories carry a real `.git` DIRECTORY: the main workspace and a
+   * live session clone. `CLEANED_SESSION` deliberately carries none, and has
+   * no `.git` anywhere above it either — the state a session workspace is
+   * left in after cleanup, which is where 11 of the 22 stray calibration logs
+   * landed.
+   */
+  const GIT_ENTRIES = new Set([MAIN_WORKSPACE, SESSION_CLONE].map((r) => join(r, ".git")));
+
+  const fakeFs: MergeDetectFs = {
+    existsSync: (p) => GIT_ENTRIES.has(p),
+    readFileSync: () => "",
+    statSync: () => ({ isDirectory: () => true, isFile: () => false }),
+  };
+
+  test("resolves the hook installation's own repo regardless of the invoking cwd", () => {
+    expect(deriveHookRepoRoot(HOOK_DIR, fakeFs)).toBe(MAIN_WORKSPACE);
+  });
+
+  test("a session clone as cwd does not move the resolved root", () => {
+    // This is the contrast the fix turns on: findRepoRoot(cwd) answers with
+    // the session clone, deriveHookRepoRoot answers with the main workspace.
+    expect(findRepoRoot(join(SESSION_CLONE, "src"), fakeFs)).toBe(SESSION_CLONE);
+    expect(deriveHookRepoRoot(HOOK_DIR, fakeFs)).toBe(MAIN_WORKSPACE);
+  });
+
+  test("a cleaned-up session path as cwd does not yield a bogus root", () => {
+    // findRepoRoot's missing-repo fallback returns the start directory itself,
+    // so the caller would treat an empty leftover directory as a repo root —
+    // which is what fed an EMPTY policy corpus to the coverage decision and
+    // made every action there record `uncovered`.
+    expect(findRepoRoot(CLEANED_SESSION, fakeFs)).toBe(CLEANED_SESSION);
+    expect(deriveHookRepoRoot(HOOK_DIR, fakeFs)).toBe(MAIN_WORKSPACE);
+  });
+
+  test("the real hook installation resolves to a repo containing .minsky/hooks", () => {
+    // Guards the production default (no injected startDir/fs): whichever tree
+    // this test runs from, the resolved root must be the checkout that owns
+    // the hook sources — not a parent directory or the filesystem root.
+    const root = deriveHookRepoRoot();
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- reading the real tree IS the assertion: the three tests above inject startDir, so none of them would catch the default changing to process.cwd()
+    expect(existsSync(join(root, ".minsky", "hooks", "types.ts"))).toBe(true);
   });
 });
