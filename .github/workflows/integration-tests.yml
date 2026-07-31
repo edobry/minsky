@@ -311,6 +311,22 @@ jobs:
             tests/integration/transcript-metadata-fill-if-null.integration.test.ts \
             tests/integration/transcript-attachment-parent-row.integration.test.ts
 
+      - name: Run the transcript-attachment ingest verification script
+        # mt#3482 / PR #2503 R1: the §7a artifact drives the REAL transcript
+        # source + ingest service end to end, which neither suite above does —
+        # the unit fake cannot enforce an FK and the integration test exercises
+        # the constraint without going through `ingestSession`. It needs exactly
+        # the Postgres this job already stands up, so running it here is what
+        # keeps it from bit-rotting into an unrun check.
+        env:
+          # Reuse the job-level value rather than composing a second connection
+          # string. A second credential-bearing URL literal trips the gitleaks
+          # pre-commit scan even with the same format() indirection the
+          # job-level declaration uses, because that scan reads only the staged
+          # diff and so never sees the older line's precedent.
+          VERIFY_POSTGRES_URL: ${{ env.INTEGRATION_POSTGRES_URL }}
+        run: bun scripts/verify-transcript-attachment-ingest.ts
+
   docker-suite:
     name: Integration (Docker/testcontainer — manual only)
     # NOTE: `inputs.run_docker_suite == true` (boolean comparison) is correct

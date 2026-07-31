@@ -217,9 +217,16 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
             // and surfaces as a spurious ingest error.
             const first = values[0] as Record<string, unknown> | undefined;
             writeOrder.push(first && "attachmentType" in first ? "attachments" : "turns");
+            // Deliberately NOT a thenable, unlike the single-object path below
+            // (PR #2503 R1). Every array-valued writer in production ends its
+            // chain with a terminal method — attachments with
+            // `onConflictDoNothing`, turns and tool-call projections with
+            // `onConflictDoUpdate` — so nothing ever awaits this builder
+            // directly. Omitting `then` keeps it an unambiguous builder rather
+            // than an object that is simultaneously awaitable and chainable,
+            // and makes a future direct `await` fail loudly here instead of
+            // silently resolving without recording the write.
             return {
-              then: <T>(resolve: (v: void) => T, reject?: (e: unknown) => unknown) =>
-                Promise.resolve().then(resolve, reject),
               onConflictDoNothing: (): Promise<void> => Promise.resolve(),
               onConflictDoUpdate: (_opts: unknown): Promise<void> => Promise.resolve(),
             };
@@ -1289,6 +1296,12 @@ describe("AgentTranscriptIngestService", () => {
       (db as Record<string, unknown>).insert = (_table: unknown) => ({
         values: (values: Partial<FakeRow> & { agentSessionId: string }) => {
           const realChain = origInsert(_table).values(values);
+          // Only the TRANSCRIPT upsert is being intercepted; every other write
+          // (attachments, turns, the failure record) passes straight through,
+          // mirroring the guard the sibling override above already uses. The
+          // array-valued chain has no `then` by design (PR #2503 R1), so
+          // re-wrapping it unconditionally would throw here.
+          if (!("transcript" in values)) return realChain;
           return {
             then: realChain.then.bind(realChain),
             onConflictDoUpdate: (opts: unknown): Promise<void> => {
@@ -1331,6 +1344,10 @@ describe("AgentTranscriptIngestService", () => {
       (db as Record<string, unknown>).insert = (_table: unknown) => ({
         values: (values: Partial<FakeRow> & { agentSessionId: string }) => {
           const realChain = origInsert(_table).values(values);
+          // Same guard as the sibling overrides: pass non-transcript writes
+          // straight through. The array-valued chain (attachments, turns) has
+          // no `then` by design (PR #2503 R1), so re-wrapping it would throw.
+          if (!("transcript" in values)) return realChain;
           const isSessionBTranscriptUpsert =
             values.agentSessionId === SESSION_B && "transcript" in values;
           return {
