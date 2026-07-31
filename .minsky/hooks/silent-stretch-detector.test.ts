@@ -429,7 +429,11 @@ function noDedupeDeps(): RunDeps {
 }
 
 describe("run() (dispatcher-compatible)", () => {
-  test("20-tool-call silent turn -> calibration record, NO additionalContext (INJECTION_ENABLED=false)", () => {
+  // mt#3399 graduated this detector to injection. The assertions below are the
+  // acceptance tests for that flip: a crossing turn must produce BOTH a
+  // calibration record (so measurement continues) and an additionalContext
+  // reminder naming the observed numbers (so the reminder is actionable).
+  test("20-tool-call silent turn -> calibration record AND additionalContext (INJECTION_ENABLED=true)", () => {
     const transcriptLines = [
       userPromptLine(0),
       ...toolCallChain(1, 20, STRETCH_SPACING),
@@ -439,10 +443,19 @@ describe("run() (dispatcher-compatible)", () => {
     expect(outcome?.calibration).toBeDefined();
     expect(outcome?.calibration?.toolCallCount).toBe(20);
     expect(outcome?.calibration?.session_id).toBe("test-session");
-    expect(outcome?.additionalContext).toBeUndefined();
-    expect(INJECTION_ENABLED).toBe(false);
+    expect(INJECTION_ENABLED).toBe(true);
+    // The reminder must be non-empty and must carry the OBSERVED numbers, not
+    // a generic "you went quiet" — spec success criterion 2.
+    expect(outcome?.additionalContext).toBeTruthy();
+    expect(outcome?.additionalContext).toContain("20");
+    expect(outcome?.additionalContext).toContain("silent-stretch-detector");
   });
 
+  // The "graduation does not nag on every turn" property is already covered by
+  // the pre-existing short-chain test immediately below: `run()` returns null
+  // for a non-crossing turn, and a null outcome carries neither a calibration
+  // record nor an additionalContext. A separate mt#3399 test asserting the same
+  // thing over the same fixture was removed as redundant (PR #2457 R1).
   test("5-call short chain -> null (silent allow)", () => {
     const transcriptLines = [
       userPromptLine(0),

@@ -54,6 +54,18 @@ export interface EntityThreadResponse {
   entityType: EntityThreadPanelEntityType;
   entityId: string;
   blocks: SessionContextSnapshotBlock[];
+  /**
+   * Whether an agent is actually able to answer right now (mt#3402).
+   *
+   * Optional, and `undefined` means UNKNOWN — not `false`. A daemon predating
+   * this field simply doesn't report liveness, and collapsing that into "dead"
+   * would assert the very thing this task exists to stop asserting without
+   * evidence, just in the other direction: the panel would announce "the agent
+   * stopped before answering" about an agent that is mid-turn, and reopen the
+   * composer so a second question interleaves into a live child. Consumers
+   * must branch on `live === false`, never on falsiness (PR #2460 R1 BLOCKING).
+   */
+  live?: boolean;
 }
 
 export interface EntityThreadSendResponse {
@@ -103,11 +115,46 @@ export async function postEntityThreadMessage(
  */
 export function deriveComposerState(
   blocks: SessionContextSnapshotBlock[],
-  sendPending: boolean
+  sendPending: boolean,
+  agentLive: boolean | undefined
 ): "awaiting-input" | "streaming" {
   if (sendPending) return "streaming";
+  // `agentLive` is what distinguishes "the agent has the turn" from "the agent
+  // is gone" (mt#3402). Both look identical in the block list — an operator
+  // turn with nothing after it — so deriving from blocks ALONE told the
+  // operator a reply was coming from a process that had exited. The composer's
+  // streaming placeholder also promises "your message will queue" (mt#3375),
+  // which is only true when there is a live child to queue against.
+  //
+  // Only a DEFINITE `false` reopens the composer. `undefined` means the daemon
+  // never reported liveness, which is not evidence of death — falling back to
+  // the block-derived reading keeps the pre-mt#3402 behavior rather than
+  // inventing a verdict from a signal that never arrived.
+  if (agentLive === false) return "awaiting-input";
   const last = blocks[blocks.length - 1];
   return last?.type === "user-prompt" ? "streaming" : "awaiting-input";
+}
+
+/**
+ * Has this thread stranded — an operator turn left unanswered by an agent that
+ * is no longer running? (mt#3402)
+ *
+ * Distinct from "not live": a thread whose last turn is the AGENT's is simply
+ * idle between questions, which is the normal resting state and needs no
+ * notice. Only an unanswered operator turn represents a reply that will never
+ * arrive unless the operator re-sends.
+ *
+ * Requires a DEFINITE `agentLive === false`. An unknown liveness (`undefined`,
+ * from a daemon that doesn't report the field) is not grounds to tell the
+ * operator their agent died.
+ */
+export function isThreadStranded(
+  blocks: SessionContextSnapshotBlock[],
+  sendPending: boolean,
+  agentLive: boolean | undefined
+): boolean {
+  if (sendPending || agentLive !== false) return false;
+  return blocks[blocks.length - 1]?.type === "user-prompt";
 }
 
 /**
@@ -181,7 +228,11 @@ export function EntityThreadPanel({ entityType, entityId, className }: EntityThr
   }
 
   const hasTurns = (blocks?.length ?? 0) > 0;
-  const composerState = deriveComposerState(blocks ?? [], sendMutation.isPending);
+  // NOT `?? false` — `undefined` is passed through as "unknown" so the
+  // helpers can distinguish it from a reported-dead agent (PR #2460 R1).
+  const agentLive = query.data?.live;
+  const composerState = deriveComposerState(blocks ?? [], sendMutation.isPending, agentLive);
+  const stranded = isThreadStranded(blocks ?? [], sendMutation.isPending, agentLive);
 
   return (
     <section className={className} aria-label="Discussion">
@@ -194,6 +245,12 @@ export function EntityThreadPanel({ entityType, entityId, className }: EntityThr
           No discussion yet. Ask a question about this {entityType} and an agent will look into it.
         </p>
       )}
+
+      {stranded ? (
+        <p className="text-sm text-muted-foreground mt-2">
+          The agent stopped before answering — send again to ask.
+        </p>
+      ) : null}
 
       {sendMutation.isError ? (
         <ErrorState

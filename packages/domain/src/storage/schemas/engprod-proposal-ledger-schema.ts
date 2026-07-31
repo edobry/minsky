@@ -127,6 +127,17 @@ export const engprodMinerRunsTable = pgTable("engprod_miner_runs", {
 
   /** Whether this run ended in an error state (llmErrors > 0, or a hard mining failure). */
   errored: boolean("errored").notNull().default(false),
+
+  /**
+   * Stage-timing counters (mt#3432 SC3), milliseconds. Added so a silent
+   * hang (a stage taking minutes instead of milliseconds — the mt#3432
+   * originating incident) is visible in the run record itself, not only
+   * discoverable by killing a stuck process and profiling externally.
+   */
+  miningMs: integer("mining_ms").notNull().default(0),
+  collapseMs: integer("collapse_ms").notNull().default(0),
+  refinementMs: integer("refinement_ms").notNull().default(0),
+  llmMs: integer("llm_ms").notNull().default(0),
 });
 
 export type EngprodMinerRunRow = typeof engprodMinerRunsTable.$inferSelect;

@@ -49,7 +49,28 @@ import {
   type EntityThreadSession,
 } from "../entity-thread-launch";
 import { createCachedSqlDbGetter, getServerAskRepository } from "../db-providers";
-import { sendDrivenSessionInput } from "../driven-session-host";
+import {
+  drivenSessionRegistry,
+  hasLiveActuator,
+  sendDrivenSessionInput,
+} from "../driven-session-host";
+
+/**
+ * Is an agent actually able to answer on this thread right now? (mt#3402)
+ *
+ * Derived from the registry, NOT from the thread's contents. Before this, the
+ * panel inferred "the assistant is responding" from "the last turn is the
+ * operator's" — which is also what a crashed, exited, or never-started agent
+ * looks like, so a stranded thread claimed a reply was coming indefinitely.
+ *
+ * `hasLiveActuator` (not merely "a record exists") is the right predicate: a
+ * record loaded by boot reconciliation sits in `reconnecting` with no process
+ * behind it, and that cannot answer either.
+ */
+function isThreadAgentLive(localId: string, registry = drivenSessionRegistry): boolean {
+  const record = registry.get(localId);
+  return record !== undefined && hasLiveActuator(record);
+}
 
 /**
  * Lazy-cached SQL handle. `cacheNegative: false` — a failed probe is retried on
@@ -147,7 +168,8 @@ export function mountEntityThreadRoutes(
       const existing = await findEntityThread(db, entityType, entityId);
       const localId = existing?.localId ?? entityThreadLocalId(entityType, entityId);
       const blocks = existing ? await listEntityThreadBlocks(db, localId) : [];
-      res.json({ localId, entityType, entityId, blocks });
+      // mt#3402: the panel cannot tell "thinking" from "dead" without this.
+      res.json({ localId, entityType, entityId, blocks, live: isThreadAgentLive(localId) });
     } catch (err) {
       log.error(`GET entity-thread failed for ${entityType}/${entityId}`, {
         error: err instanceof Error ? err.message : String(err),

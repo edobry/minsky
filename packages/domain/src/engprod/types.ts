@@ -107,6 +107,19 @@ export interface ToilMinerRunCounters {
   suppressedByMaximalCollapse: number;
   /** mt#3429 SC2 (AT2): generic clusters excluded from the LLM stage for lacking a concentrated arg_fingerprint sub-pattern. */
   suppressedByLowDistinctiveness: number;
+  /**
+   * Stage-timing counters (mt#3432 SC3), milliseconds, wall-clock
+   * `performance.now()` deltas around each pipeline stage. Added so a
+   * silent hang (a stage taking minutes instead of milliseconds) is
+   * visible in the persisted run record and structured logs rather than
+   * only observable by killing a stuck process — the mt#3432 originating
+   * incident (a 25min+ v2 run with zero output and no run row) had no
+   * way to tell WHICH stage was slow short of external profiling.
+   */
+  miningMs: number;
+  collapseMs: number;
+  refinementMs: number;
+  llmMs: number;
 }
 
 export function emptyRunCounters(): ToilMinerRunCounters {
@@ -120,5 +133,9 @@ export function emptyRunCounters(): ToilMinerRunCounters {
     llmErrors: 0,
     suppressedByMaximalCollapse: 0,
     suppressedByLowDistinctiveness: 0,
+    miningMs: 0,
+    collapseMs: 0,
+    refinementMs: 0,
+    llmMs: 0,
   };
 }
