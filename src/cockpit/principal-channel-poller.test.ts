@@ -410,6 +410,140 @@ describe("runPollCycle — failure handling", () => {
   });
 });
 
+/**
+ * Media handling end-to-end through the poll cycle (mt#3235).
+ *
+ * The defect these cover: an image produced no message at all, so the cursor
+ * advanced past it and the principal got silence. Every case here asserts the
+ * channel SAYS something — the silence is what made the bug expensive.
+ */
+describe("runPollCycle — media", () => {
+  function mediaBody(message: Record<string, unknown>): unknown {
+    return {
+      ok: true,
+      result: [
+        {
+          update_id: 30,
+          message: {
+            message_id: 30,
+            date: 1700000000,
+            chat: { id: CHAT, type: "private" },
+            from: { id: 777 },
+            ...message,
+          },
+        },
+      ],
+    };
+  }
+
+  const PHOTO = { photo: [{ file_id: "big", file_size: 5000 }] };
+
+  /** Wrap the harness fetch so getFile and the file download resolve. */
+  function withFileFetch(h: Harness, opts: { failFetch?: boolean } = {}): void {
+    const inner = h.baseFetch;
+    h.deps.fetchFn = async (url, init) => {
+      const target = String(url);
+      if (target.includes("getFile")) {
+        if (opts.failFetch) return new Response("gone", { status: 404 });
+        return new Response(JSON.stringify({ ok: true, result: { file_path: "p/a.jpg" } }));
+      }
+      if (target.includes("/file/bot")) return new Response(new Uint8Array([1, 2, 3]));
+      return inner(url, init);
+    };
+  }
+
+  test("forwards a captioned photo's bytes to the channel agent", async () => {
+    let seenImages: unknown;
+    const h = harness(mediaBody({ ...PHOTO, caption: "why is this blank?" }), {
+      actuator: {
+        converse: async (text, _replyToText, images) => {
+          seenImages = images;
+          return `saw: ${text}`;
+        },
+      },
+    });
+    withFileFetch(h);
+
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome.handled).toBe(1);
+    expect(seenImages).toEqual([{ base64: "AQID", mediaType: "image/jpeg" }]);
+    expect(h.sentTexts).toEqual(["saw: why is this blank?"]);
+  });
+
+  test("a caption-less photo is still delivered, with empty text", async () => {
+    let seenImages: unknown;
+    const h = harness(mediaBody(PHOTO), {
+      actuator: {
+        converse: async (_text, _replyToText, images) => {
+          seenImages = images;
+          return "looked at it";
+        },
+      },
+    });
+    withFileFetch(h);
+
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome.handled).toBe(1);
+    expect(seenImages).toHaveLength(1);
+  });
+
+  test("a failed download degrades to a note instead of failing the turn", async () => {
+    // The caption is usually the substance. Answering "I couldn't load your
+    // image" beats answering nothing — and the agent must be TOLD, or it will
+    // answer a question about a screenshot it never received.
+    let seenText = "";
+    const h = harness(mediaBody({ ...PHOTO, caption: "look at this" }), {
+      actuator: {
+        converse: async (text) => {
+          seenText = text;
+          return "ok";
+        },
+      },
+    });
+    withFileFetch(h, { failFetch: true });
+
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome.handled).toBe(1);
+    expect(seenText).toContain("look at this");
+    expect(seenText).toContain("channel note");
+    expect(seenText).toContain("could not be loaded");
+  });
+
+  test("a voice note is answered without spending an agent turn", async () => {
+    const h = harness(mediaBody({ voice: { file_id: "v1", duration: 4 } }));
+
+    const outcome = await runPollCycle(h.deps);
+
+    expect(outcome.handled).toBe(1);
+    expect(h.actuatorCalls).toEqual([]);
+    expect(h.sentTexts[0]).toContain("a voice message");
+    expect(h.sentTexts[0]).toContain("can't read that yet");
+  });
+
+  test("the unreadable-media reply is still recorded in the audit log", async () => {
+    const h = harness(mediaBody({ voice: { file_id: "v1", duration: 4 } }));
+
+    await runPollCycle(h.deps);
+
+    expect(h.recorded).toHaveLength(1);
+    expect(h.recorded[0]?.payload.route).toBe("unsupported-media");
+  });
+
+  test("regression: the cursor still advances past a media update", async () => {
+    // The original failure mode was unrecoverable precisely because the cursor
+    // advanced while the message vanished. It must still advance — the message
+    // must simply no longer vanish.
+    const h = harness(mediaBody({ voice: { file_id: "v1", duration: 4 } }));
+
+    await runPollCycle(h.deps);
+
+    expect(h.cursorWrites).toEqual([30]);
+  });
+});
+
 describe("truncateReply", () => {
   test("leaves a short reply alone", () => {
     expect(truncateReply("short", 100)).toBe("short");

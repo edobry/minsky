@@ -40,6 +40,7 @@
 
 import { log } from "@minsky/shared/logger";
 import {
+  fetchTelegramFile,
   getTelegramUpdates,
   sendTelegramMessage,
   sendTelegramTypingAction,
@@ -76,6 +77,18 @@ const MAX_REPLY_CHARS = 3500;
  * a future actuator (steering an arbitrary live conversation, once mt#3095's
  * conversation-keyed identity lands) drops in.
  */
+/**
+ * One resolved image, ready to attach to a turn (mt#3235).
+ *
+ * Declared here rather than imported from the driven-session host so the
+ * actuator seam stays free of the host's types — a future actuator that is not
+ * backed by a `claude` child still speaks this interface.
+ */
+export interface ChannelImage {
+  base64: string;
+  mediaType: string;
+}
+
 export interface ChannelActuator {
   /**
    * Hand text to the standing channel conversation; resolve with its reply.
@@ -85,7 +98,7 @@ export interface ChannelActuator {
    * replies — and because the reply target is context for the turn, not a
    * routing decision, so the poller stays out of how it is presented.
    */
-  converse(text: string, replyToText?: string): Promise<string>;
+  converse(text: string, replyToText?: string, images?: ChannelImage[]): Promise<string>;
   /** Interrupt the current turn. Must not queue behind it. */
   interrupt(): Promise<string>;
   /** Abandon the current conversation; the next message starts fresh. */
@@ -313,11 +326,16 @@ async function handleRoute(
     });
   }
 
+  // Resolve attachments to bytes BEFORE the turn (mt#3235). Two network calls
+  // per image, so it happens once here rather than inside the actuator, which
+  // is the seam every test stubs.
+  const { images, notes } = await resolveAttachments(deps, route);
+
   const startedAtMs = Date.now();
   let reply: string;
   let succeeded = true;
   try {
-    reply = await runActuator(deps.actuator, route);
+    reply = await runActuator(deps.actuator, route, images, notes);
   } catch (err: unknown) {
     succeeded = false;
     const detail = err instanceof Error ? err.message : String(err);
@@ -347,7 +365,9 @@ async function handleRoute(
 
 function runActuator(
   actuator: ChannelActuator,
-  route: Exclude<InboundRoute, { kind: "rejected" }>
+  route: Exclude<InboundRoute, { kind: "rejected" }>,
+  images: ChannelImage[],
+  notes: string[]
 ): Promise<string> {
   switch (route.kind) {
     case "ask-response":
@@ -356,9 +376,69 @@ function runActuator(
       return actuator.interrupt();
     case "reset":
       return actuator.reset();
+    case "unsupported-media":
+      // Answered here, with no agent turn: there is nothing for an agent to
+      // act on, and the whole point is that the principal hears back at all
+      // (mt#3235). Naming what arrived is what makes the answer useful.
+      return Promise.resolve(
+        `I got ${route.label}, but I can't read that yet — text, photos, and image files only. ` +
+          `Send it as a caption or describe it and I'll pick it up from there.`
+      );
     case "channel-agent":
-      return actuator.converse(route.text, route.replyToText);
+      return actuator.converse(withChannelNotes(route.text, notes), route.replyToText, images);
   }
+}
+
+/**
+ * Append channel-level notes to the text the agent sees.
+ *
+ * These are facts about the DELIVERY, not the principal's words — an image that
+ * could not be fetched, a voice note attached alongside a caption. Bracketed
+ * and labelled so the agent can tell them apart from what was actually typed,
+ * and included at all so the agent does not answer a message about a screenshot
+ * while unaware the screenshot never arrived.
+ */
+function withChannelNotes(text: string, notes: string[]): string {
+  if (notes.length === 0) return text;
+  const rendered = `[channel note: ${notes.join("; ")}]`;
+  return text.trim().length === 0 ? rendered : `${text}\n\n${rendered}`;
+}
+
+/**
+ * Fetch the bytes for a route's attachments (mt#3235).
+ *
+ * A fetch failure degrades to a NOTE rather than failing the turn: the caption
+ * is usually the substance, and answering "I couldn't load the image you sent"
+ * beats answering nothing. Telegram's `file_path` is short-lived, so a delayed
+ * poll cycle hitting a 404 here is an expected condition, not an anomaly.
+ */
+async function resolveAttachments(
+  deps: PollCycleDeps,
+  route: Exclude<InboundRoute, { kind: "rejected" }>
+): Promise<{ images: ChannelImage[]; notes: string[] }> {
+  if (route.kind !== "channel-agent") return { images: [], notes: [] };
+
+  const notes: string[] = [];
+  if (route.unsupportedMedia !== undefined) {
+    notes.push(`the principal also sent ${route.unsupportedMedia}, which cannot be read`);
+  }
+
+  const images: ChannelImage[] = [];
+  for (const ref of route.attachments) {
+    const fetched = await fetchTelegramFile({
+      token: deps.token,
+      ref,
+      ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+    });
+    if (fetched.ok) {
+      images.push({ base64: fetched.base64, mediaType: fetched.mediaType });
+      continue;
+    }
+    log.warn("[principal-channel] could not fetch an attachment", { detail: fetched.detail });
+    notes.push(`an attached image could not be loaded (${fetched.detail})`);
+  }
+
+  return { images, notes };
 }
 
 /**

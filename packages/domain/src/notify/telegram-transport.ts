@@ -37,6 +37,16 @@ const TELEGRAM_API_BASE = "https://api.telegram.org";
 const MAX_ERROR_BODY = 500;
 
 /**
+ * Largest attachment this channel will download and forward (mt#3235).
+ *
+ * 5 MB is the Messages API's own per-image ceiling for a base64 source, so a
+ * larger file cannot be forwarded regardless of what Telegram is willing to
+ * serve (its `getFile` limit is 20 MB). Refusing at this boundary turns an
+ * opaque downstream API error into a message the principal can act on.
+ */
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
+/**
  * Injectable fetch so tests never touch the network.
  *
  * The call signature only, not `typeof fetch`: the global carries runtime-
@@ -184,6 +194,54 @@ export interface InboundTelegramMessage {
    * with neither, or when the principal did not reply at all.
    */
   replyToText: string | undefined;
+  /**
+   * Ingestible media the principal attached (mt#3235).
+   *
+   * File REFERENCES, not bytes: parsing is pure, and resolving a `file_id` to
+   * bytes takes two network calls. The poller resolves these before handing the
+   * message to the actuator.
+   */
+  attachments: InboundAttachmentRef[];
+  /**
+   * A human label for media this version recognizes but cannot ingest — a voice
+   * note, a video, a sticker (mt#3235).
+   *
+   * Present so the channel can SAY it received something it cannot read.
+   * Silence was the original defect: the principal sent two images and got
+   * nothing back, with no signal anything had arrived.
+   */
+  unsupportedMedia: string | undefined;
+}
+
+/**
+ * A reference to one attached file, before its bytes are fetched.
+ *
+ * `mediaType` is constrained to what the Messages API accepts as an image
+ * source; a document with any other mime type is classified as unsupported
+ * media instead, because forwarding a PDF as if it were a PNG produces an API
+ * error rather than a useful turn.
+ */
+export interface InboundAttachmentRef {
+  fileId: string;
+  mediaType: SupportedImageMediaType;
+  /** Telegram supplies this for documents; photos are unnamed. */
+  fileName: string | undefined;
+}
+
+/** Image media types the Messages API accepts as a base64 image source. */
+export const SUPPORTED_IMAGE_MEDIA_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+] as const;
+
+export type SupportedImageMediaType = (typeof SUPPORTED_IMAGE_MEDIA_TYPES)[number];
+
+function asSupportedImageMediaType(value: unknown): SupportedImageMediaType | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.toLowerCase();
+  return SUPPORTED_IMAGE_MEDIA_TYPES.find((candidate) => candidate === normalized);
 }
 
 export interface GetUpdatesOptions {
@@ -302,8 +360,20 @@ export function parseInboundUpdates(body: unknown): InboundTelegramMessage[] {
     const chatId = chat?.["id"];
     if (chatId === undefined) continue;
 
-    const text = message["text"];
-    if (typeof text !== "string" || text.trim().length === 0) continue;
+    // `caption` is where a photo or document carries its text — reading only
+    // `text` is what silently dropped every image the principal sent (mt#3235).
+    const rawText = message["text"] ?? message["caption"];
+    const text = typeof rawText === "string" ? rawText : "";
+    const attachments = extractAttachments(message);
+    const unsupportedMedia = describeUnsupportedMedia(message);
+
+    // Skip only a message carrying NOTHING this channel can act on. A message
+    // with no text but an image is now a message; so is one whose only content
+    // is a voice note, because the channel owes the principal an answer saying
+    // it cannot read it.
+    if (text.trim().length === 0 && attachments.length === 0 && unsupportedMedia === undefined) {
+      continue;
+    }
 
     const from = asRecord(message["from"]);
     const replyTo = asRecord(message["reply_to_message"]);
@@ -321,6 +391,8 @@ export function parseInboundUpdates(body: unknown): InboundTelegramMessage[] {
       date: typeof message["date"] === "number" ? message["date"] : undefined,
       replyToMessageId: typeof replyToMessageId === "number" ? replyToMessageId : undefined,
       replyToText: typeof replyToTextRaw === "string" ? replyToTextRaw : undefined,
+      attachments,
+      unsupportedMedia,
     });
   }
   return results;
@@ -345,8 +417,203 @@ export function highestUpdateIdOf(body: unknown): number | undefined {
 }
 
 // ---------------------------------------------------------------------------
+// Attachment fetch
+// ---------------------------------------------------------------------------
+
+export type TelegramFileResult =
+  | { ok: true; base64: string; mediaType: SupportedImageMediaType }
+  | { ok: false; detail: string };
+
+/**
+ * Resolve one attachment reference to base64 bytes (mt#3235).
+ *
+ * Two calls, because Telegram splits them: `getFile` trades a `file_id` for a
+ * short-lived `file_path`, and the bytes live at a DIFFERENT origin path
+ * (`/file/bot<token>/<file_path>`) than the API methods. Both embed the token
+ * in the URL, so both error paths redact.
+ *
+ * @see core.telegram.org/bots/api#getfile
+ */
+export async function fetchTelegramFile(opts: {
+  token: string;
+  ref: InboundAttachmentRef;
+  fetchFn?: FetchFn;
+  /** Refuse a file larger than this, before downloading it. */
+  maxBytes?: number;
+}): Promise<TelegramFileResult> {
+  const { token, ref, fetchFn = fetch, maxBytes = MAX_ATTACHMENT_BYTES } = opts;
+
+  let metaResponse: Response;
+  try {
+    metaResponse = await fetchFn(`${TELEGRAM_API_BASE}/bot${token}/getFile`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ file_id: ref.fileId }),
+    });
+  } catch (err: unknown) {
+    return { ok: false, detail: redactSecret(token, `network error: ${errorText(err)}`) };
+  }
+  if (!metaResponse.ok) {
+    return {
+      ok: false,
+      detail: redactSecret(
+        token,
+        `getFile failed (HTTP ${metaResponse.status})${await bodySnippet(metaResponse)}`
+      ),
+    };
+  }
+
+  const meta = asRecord(asRecord(await readJson(metaResponse))?.["result"]);
+  const filePath = meta?.["file_path"];
+  if (meta === null || typeof filePath !== "string" || filePath.length === 0) {
+    return { ok: false, detail: "getFile returned no file_path" };
+  }
+  const declaredSize = meta["file_size"];
+  if (typeof declaredSize === "number" && declaredSize > maxBytes) {
+    return { ok: false, detail: `file is ${declaredSize} bytes, over the ${maxBytes} limit` };
+  }
+
+  let fileResponse: Response;
+  try {
+    fileResponse = await fetchFn(`${TELEGRAM_API_BASE}/file/bot${token}/${filePath}`, {
+      method: "GET",
+    });
+  } catch (err: unknown) {
+    return { ok: false, detail: redactSecret(token, `network error: ${errorText(err)}`) };
+  }
+  if (!fileResponse.ok) {
+    return {
+      ok: false,
+      detail: redactSecret(token, `file download failed (HTTP ${fileResponse.status})`),
+    };
+  }
+
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await fileResponse.arrayBuffer();
+  } catch (err: unknown) {
+    return { ok: false, detail: redactSecret(token, `could not read body: ${errorText(err)}`) };
+  }
+  // Checked again after download: `file_size` is advisory and absent often
+  // enough that trusting it alone would let an unbounded body through.
+  if (bytes.byteLength > maxBytes) {
+    return { ok: false, detail: `file is ${bytes.byteLength} bytes, over the ${maxBytes} limit` };
+  }
+
+  return {
+    ok: true,
+    base64: toBase64(new Uint8Array(bytes)),
+    mediaType: ref.mediaType,
+  };
+}
+
+/**
+ * Base64-encode binary bytes.
+ *
+ * `btoa` over a binary string rather than `Buffer`: this module is domain code
+ * with no other Node dependency, and the project's `Buffer` typing carries only
+ * the `string | any[]` overloads, so the array round-trip a `Buffer` call would
+ * need allocates millions of JS numbers for a multi-megabyte image.
+ *
+ * Chunked because `String.fromCharCode(...bytes)` spreads every byte as an
+ * argument — a 5 MB image would blow the call-stack limit.
+ */
+function toBase64(bytes: Uint8Array): string {
+  const CHUNK_SIZE = 0x8000;
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += CHUNK_SIZE) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + CHUNK_SIZE));
+  }
+  return btoa(binary);
+}
+
+// ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+/**
+ * Pull ingestible image references out of a message.
+ *
+ * Photos: Telegram sends an ASCENDING array of size variants of one image, so
+ * the last entry is the largest. Picking it by `file_size` rather than trusting
+ * the ordering costs nothing and does not depend on an undocumented invariant.
+ * Telegram re-encodes every `photo` to JPEG.
+ *
+ * Documents: this is the "send an uncompressed screenshot" path, which is the
+ * shape a principal actually uses to show a UI defect, so it matters more than
+ * its position in the spec suggests. Only image mime types are taken; anything
+ * else falls through to {@link describeUnsupportedMedia}.
+ */
+function extractAttachments(message: Record<string, unknown>): InboundAttachmentRef[] {
+  const refs: InboundAttachmentRef[] = [];
+
+  const photo = message["photo"];
+  if (Array.isArray(photo)) {
+    let largest: Record<string, unknown> | undefined;
+    let largestSize = -1;
+    for (const entry of photo) {
+      const variant = asRecord(entry);
+      if (!variant || typeof variant["file_id"] !== "string") continue;
+      const size = typeof variant["file_size"] === "number" ? variant["file_size"] : 0;
+      if (size >= largestSize) {
+        largest = variant;
+        largestSize = size;
+      }
+    }
+    if (largest && typeof largest["file_id"] === "string") {
+      refs.push({ fileId: largest["file_id"], mediaType: "image/jpeg", fileName: undefined });
+    }
+  }
+
+  const document = asRecord(message["document"]);
+  const documentFileId = document?.["file_id"];
+  const documentMediaType = asSupportedImageMediaType(document?.["mime_type"]);
+  if (typeof documentFileId === "string" && documentMediaType !== undefined) {
+    refs.push({
+      fileId: documentFileId,
+      mediaType: documentMediaType,
+      fileName: typeof document?.["file_name"] === "string" ? document["file_name"] : undefined,
+    });
+  }
+
+  return refs;
+}
+
+/**
+ * Name the media this version cannot ingest, for the acknowledgement reply.
+ *
+ * Returns a label rather than a boolean because the reply says WHAT arrived —
+ * "I can't read voice notes yet" is actionable; "I can't read that" is not.
+ * A document with an unsupported mime type lands here by design: it is real
+ * content the principal sent that this channel is not going to read.
+ */
+function describeUnsupportedMedia(message: Record<string, unknown>): string | undefined {
+  const labels: Array<[string, string]> = [
+    ["voice", "a voice message"],
+    ["audio", "an audio file"],
+    ["video", "a video"],
+    ["video_note", "a video note"],
+    ["animation", "an animation"],
+    ["sticker", "a sticker"],
+    ["location", "a location"],
+    ["contact", "a contact"],
+    ["poll", "a poll"],
+  ];
+  for (const [field, label] of labels) {
+    if (asRecord(message[field]) !== null) return label;
+  }
+
+  // A document whose mime type is not an image the Messages API accepts —
+  // recognized, deliberately not ingested.
+  const document = asRecord(message["document"]);
+  if (document && asSupportedImageMediaType(document["mime_type"]) === undefined) {
+    const name = typeof document["file_name"] === "string" ? document["file_name"] : undefined;
+    const mime = typeof document["mime_type"] === "string" ? document["mime_type"] : "unknown type";
+    return name === undefined ? `a file (${mime})` : `the file ${name} (${mime})`;
+  }
+
+  return undefined;
+}
 
 function updateArrayOf(body: unknown): Array<Record<string, unknown>> {
   const record = asRecord(body);

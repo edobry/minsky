@@ -28,6 +28,8 @@ function message(overrides: Partial<InboundTelegramMessage> = {}): InboundTelegr
     date: 1700000000,
     replyToMessageId: undefined,
     replyToText: undefined,
+    attachments: [],
+    unsupportedMedia: undefined,
     ...overrides,
   };
 }
@@ -122,6 +124,9 @@ describe("routeInboundMessage — default", () => {
       kind: "channel-agent",
       text: "how is the soak test?",
       replyToMessageId: undefined,
+      replyToText: undefined,
+      attachments: [],
+      unsupportedMedia: undefined,
     });
   });
 
@@ -192,5 +197,60 @@ describe("audit payload", () => {
     const msg = message({ date: undefined });
     const payload = buildInboundEventPayload(msg, routeInboundMessage(msg, AUTH));
     expect("sentAt" in payload).toBe(false);
+  });
+
+  test("records that an image was part of the turn (mt#3235)", () => {
+    // Without this the audit row for a captioned photo is indistinguishable
+    // from a plain text message, hiding the image from the record entirely.
+    const msg = message({
+      text: "look at this",
+      attachments: [{ fileId: "f1", mediaType: "image/jpeg", fileName: undefined }],
+    });
+    const payload = buildInboundEventPayload(msg, routeInboundMessage(msg, AUTH));
+    expect(payload.attachmentCount).toBe(1);
+  });
+});
+
+describe("routeInboundMessage — media (mt#3235)", () => {
+  const IMAGE = { fileId: "f1", mediaType: "image/jpeg" as const, fileName: undefined };
+
+  test("a caption-less photo reaches the channel agent instead of being rejected", () => {
+    const route = routeInboundMessage(message({ text: "", attachments: [IMAGE] }), AUTH);
+    expect(route.kind).toBe("channel-agent");
+    if (route.kind === "channel-agent") {
+      expect(route.attachments).toEqual([IMAGE]);
+      expect(route.text).toBe("");
+    }
+  });
+
+  test("media that cannot be read gets its own route, not a silent rejection", () => {
+    const route = routeInboundMessage(
+      message({ text: "", unsupportedMedia: "a voice message" }),
+      AUTH
+    );
+    expect(route).toEqual({ kind: "unsupported-media", label: "a voice message" });
+  });
+
+  test("a caption alongside unreadable media still goes to the agent, carrying the label", () => {
+    const route = routeInboundMessage(
+      message({ text: "what do you think?", attachments: [IMAGE], unsupportedMedia: "a video" }),
+      AUTH
+    );
+    expect(route.kind).toBe("channel-agent");
+    if (route.kind === "channel-agent") expect(route.unsupportedMedia).toBe("a video");
+  });
+
+  test("an unauthorized chat is still rejected before media is considered", () => {
+    // Authorization runs first, so an attacker cannot reach the media path.
+    const route = routeInboundMessage(
+      message({ chatId: "999", text: "", unsupportedMedia: "a voice message" }),
+      AUTH
+    );
+    expect(route).toEqual({ kind: "rejected", reason: CHAT_NOT_ALLOWED });
+  });
+
+  test("regression: a genuinely empty message is still rejected", () => {
+    const route = routeInboundMessage(message({ text: "   " }), AUTH);
+    expect(route).toEqual({ kind: "rejected", reason: "empty-text" });
   });
 });
