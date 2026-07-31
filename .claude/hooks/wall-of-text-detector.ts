@@ -784,8 +784,6 @@ function buildInjectionReminder(m: WallOfTextMeasurement): string {
     "The Tier-1 turn-report contract (communication-contract.mdc): what happened /",
     "what you need to know / what's next, each 1-3 sentences, ~200 words total,",
     "plain-language lead, detail behind pointers.",
-    "",
-    `Override: ${OVERRIDE_ENV_VAR}=1.`,
   ].join("\n");
 }
 

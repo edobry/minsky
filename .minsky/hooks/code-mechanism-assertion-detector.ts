@@ -797,7 +797,6 @@ function buildInjectionReminder(
     );
   }
 
-  base.push("", "Family: 3772c77d / b0b294ab. Override: MINSKY_ACK_CODE_MECHANISM_ASSERTION=1.");
   return base.join("\n");
 }
 

@@ -710,9 +710,6 @@ function buildReminder(surfaces: MatchedSurface[]): string {
     '  execution path explicitly. If none exist, say so: "there is no mechanism."',
     '  Passive framing ("it\'ll happen naturally", "over time") is not a mechanism.',
     "  Originating incident: mt#2056 closeout, 2026-05-23.",
-    "",
-    "**Override:** Set `MINSKY_ACK_SUBSTRATE_BYPASS=1` in your environment to",
-    "suppress this warning. The override emits an audit line to stdout.",
   ].join("\n");
 }
 

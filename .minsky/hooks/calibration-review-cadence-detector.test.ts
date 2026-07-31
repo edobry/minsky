@@ -343,7 +343,11 @@ describe("formatCadenceWarning", () => {
     expect(msg).toContain(RETROSPECTIVE_TRIGGER);
     expect(msg).toContain("unreviewed for >=");
     expect(msg).toContain("/calibration-review");
-    expect(msg).toContain("MINSKY_SKIP_CALIBRATION_CADENCE");
+    // The override env var is deliberately NOT named here (mt#3479): advisory
+    // text is read by the agent, and the override is the operator's escape
+    // hatch, catalogued in `CLAUDE.md §Hook Files`. Asserted as an absence so a
+    // re-added advertisement fails here as well as in guard-feedback-shape.
+    expect(msg).not.toContain("MINSKY_SKIP_CALIBRATION_CADENCE");
   });
 
   test("names the never-reviewed reason (mt#2896)", () => {

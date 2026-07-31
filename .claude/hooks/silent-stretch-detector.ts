@@ -626,8 +626,6 @@ function buildInjectionReminder(measurement: SilentStretchMeasurement): string {
     "",
     "Emit a one-line heartbeat (current activity + health signal) at least every 10",
     "minutes or 15 tool calls during research/build chains.",
-    "",
-    `Override: ${OVERRIDE_ENV_VAR}=1.`,
   ].join("\n");
 }
 
