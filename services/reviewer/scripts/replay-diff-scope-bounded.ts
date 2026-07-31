@@ -54,37 +54,6 @@ import { resolveGitHubTokenOrSkip, getAuthSource } from "./harness-auth";
 const githubToken = resolveGitHubTokenOrSkip();
 
 // ---------------------------------------------------------------------------
-// Known limitation (mt#1875 R2)
-// ---------------------------------------------------------------------------
-
-/**
- * SCOPE_WARNING — KNOWN LIMITATION of this replay harness (mt#1875 R2).
- *
- * The harness computes a per-round priorTimestamp from the immediately preceding
- * bot review's submittedAt, but `extractFixCommitDiff` does NOT filter the diff
- * string by that timestamp — it just parses whatever diff is passed in. Since
- * the full PR diff is what gets passed, the resulting lineRange is identical
- * for every round. The replay shows whether findings fall inside the PR-wide
- * scope, NOT whether per-round narrowing changes outcomes across rounds.
- *
- * The same placeholder exists in the production runReview path (review-worker.ts
- * lines 933-937, "placeholder — real per-commit filtering is future work").
- *
- * Real per-commit-since-priorTimestamp filtering is tracked as mt#1882.
- * When mt#1882 ships, this warning can be removed and the harness will reflect
- * actual per-round narrowing.
- *
- * Operators reading the JSON report should treat per-round downgrade signals
- * as a lower bound (worst case: full-PR scope). Real per-round narrowing will
- * be at least as aggressive as what this harness shows.
- */
-const SCOPE_WARNING =
-  "KNOWN LIMITATION (mt#1875 R2): per-round scopes are derived from the FULL PR diff, " +
-  "not from commits-since-prior-review-timestamp. The lineRange is identical across rounds. " +
-  "Real per-commit-since-priorTimestamp filtering is tracked as mt#1882. Treat per-round " +
-  "downgrade signals as a lower bound (real narrowing will be at least as aggressive).";
-
-// ---------------------------------------------------------------------------
 // Argument parsing
 // ---------------------------------------------------------------------------
 
@@ -192,6 +161,44 @@ async function fetchPrDiff(
   }
 }
 
+/**
+ * Fetch the diff of the commits between two SHAs (mt#3471).
+ *
+ * The replay analog of production's `fetchIncrementalDiffSince`: for a round at
+ * R>=2, `baseSha` is the PRECEDING bot review's `commit_id` and `headSha` is
+ * that round's own `commit_id`, so the scope is exactly what the round would
+ * have been shown under the incremental path.
+ *
+ * Returns `undefined` when the range is unresolvable (a force-push between
+ * rounds makes the base unreachable) — callers then fall back to the full PR
+ * diff, mirroring production, and the per-round result records which happened.
+ */
+async function fetchDiffBetween(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  baseSha: string,
+  headSha: string
+): Promise<string | undefined> {
+  if (!baseSha || !headSha || baseSha === headSha) return undefined;
+  try {
+    const response = await octokit.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
+      owner,
+      repo,
+      basehead: `${baseSha}...${headSha}`,
+      headers: { accept: "application/vnd.github.v3.diff" },
+    });
+    const diff = typeof response.data === "string" ? response.data : "";
+    return diff.trim() ? diff : undefined;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `Warning: failed to compare ${baseSha.slice(0, 8)}...${headSha.slice(0, 8)}: ${message}`
+    );
+    return undefined;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Per-round result types
 // ---------------------------------------------------------------------------
@@ -216,6 +223,16 @@ interface RoundReplayResult {
   isPriorRoundPresent: boolean;
   /** Number of files in the fix-commit diff scope. */
   filesInScope: number;
+  /**
+   * mt#3471: how this round's scope was resolved.
+   *   "incremental" — commits between the preceding review and this one;
+   *   "full_pr_fallback" — the range was unresolvable (force-push), so the
+   *      full PR diff stood in, exactly as production falls back;
+   *   "none" — R1, no prior review to scope against.
+   */
+  scopeSource: "incremental" | "full_pr_fallback" | "none";
+  /** Line count of the diff this round's scope was derived from. */
+  scopeDiffLines: number;
   /** Per-finding analysis for this round. */
   findingResults: FindingReplayResult[];
   /** Number of BLOCKINGs that would have been downgraded. */
@@ -232,7 +249,6 @@ interface ReplayReport {
   dbRowCount: number;
   githubBotReviewCount: number;
   diffLinesExtracted: number;
-  scopeWarning: string;
   roundResults: RoundReplayResult[];
   summary: {
     totalRounds: number;
@@ -302,17 +318,37 @@ async function replayPr(owner: string, repo: string, prNumber: number): Promise<
     const priorReviewBodies = botReviews.slice(0, botReviewArrayIdx).map((r) => r.body);
     const isPriorRoundPresent = priorReviewBodies.length > 0;
 
-    // Per-round fix-commit scope: use the timestamp of the immediately preceding
-    // bot review when R≥2. For R1 (no prior reviews), use an empty lineRange
-    // (conservative: all findings preserved) matching the production behavior.
+    // Per-round fix-commit scope (mt#3471): fetch the diff of the commits
+    // between the immediately preceding bot review and this round's own review,
+    // so each round's scope is the delta it would actually have been shown. For
+    // R1 (no prior reviews) the lineRange stays empty — conservative, all
+    // findings preserved, matching production. When the range is unresolvable
+    // (a force-push rewrote history between rounds) the full PR diff stands in,
+    // which is production's documented fallback.
     let roundFixCommitLineRange: ReturnType<typeof extractFixCommitDiff>["lineRange"] = new Map();
+    let scopeSource: RoundReplayResult["scopeSource"] = "none";
+    let scopeDiffLines = 0;
     if (isPriorRoundPresent) {
       // The preceding review is at botReviewArrayIdx - 1.
       const precedingReview = botReviews[botReviewArrayIdx - 1];
+      const currentReview = botReviews[botReviewArrayIdx];
+      const incrementalDiff =
+        precedingReview !== undefined && currentReview !== undefined
+          ? await fetchDiffBetween(
+              octokit,
+              owner,
+              repo,
+              precedingReview.commitId,
+              currentReview.commitId
+            )
+          : undefined;
+      const scopeDiff = incrementalDiff ?? prDiff;
+      scopeSource = incrementalDiff !== undefined ? "incremental" : "full_pr_fallback";
+      scopeDiffLines = scopeDiff.split("\n").length;
       const priorTimestamp =
-        precedingReview !== undefined ? precedingReview.submittedAt : new Date(0).toISOString(); // fallback: epoch (conservative)
+        precedingReview !== undefined ? precedingReview.submittedAt : new Date(0).toISOString();
       try {
-        const fixCommitResult = extractFixCommitDiff(prDiff, priorTimestamp);
+        const fixCommitResult = extractFixCommitDiff(scopeDiff, priorTimestamp);
         roundFixCommitLineRange = fixCommitResult.lineRange;
       } catch {
         // Defensive: malformed diff — leave lineRange empty (conservative).
@@ -369,6 +405,8 @@ async function replayPr(owner: string, repo: string, prNumber: number): Promise<
       priorReviewBodyCount: priorReviewBodies.length,
       isPriorRoundPresent,
       filesInScope,
+      scopeSource,
+      scopeDiffLines,
       findingResults,
       wouldHaveDowngradedCount,
       downgradeApplied,
@@ -388,7 +426,6 @@ async function replayPr(owner: string, repo: string, prNumber: number): Promise<
     dbRowCount: dbRows.length,
     githubBotReviewCount: botReviews.length,
     diffLinesExtracted: prDiff.split("\n").length,
-    scopeWarning: SCOPE_WARNING,
     roundResults,
     summary: {
       totalRounds,
@@ -428,8 +465,22 @@ async function main(): Promise<void> {
     console.error(`Rounds where downgrade would fire: ${report.summary.roundsWithDowngrade}`);
     console.error(`Total findings that would be downgraded: ${report.summary.totalDowngrades}`);
     console.error("");
-    console.error("=== WARNING ===");
-    console.error(SCOPE_WARNING);
+    // mt#3471: per-round scopes are now real commits-since-prior-review ranges.
+    // Report how many resolved vs fell back, so an operator can tell a genuine
+    // per-round result from one standing in on the full PR diff.
+    const incrementalRounds = report.roundResults.filter(
+      (r) => r.scopeSource === "incremental"
+    ).length;
+    const fallbackRounds = report.roundResults.filter(
+      (r) => r.scopeSource === "full_pr_fallback"
+    ).length;
+    console.error(`Rounds scoped to commits-since-prior-review: ${incrementalRounds}`);
+    console.error(`Rounds that fell back to the full PR diff: ${fallbackRounds}`);
+    if (fallbackRounds > 0) {
+      console.error(
+        "  (a fallback round's scope is PR-wide — treat its downgrade signal as a lower bound)"
+      );
+    }
 
     process.exit(0);
   } catch (err: unknown) {

@@ -87,6 +87,31 @@ describe("buildCriticConstitution", () => {
     expect(buildCriticConstitution(false)).toContain("NEEDS VERIFICATION");
   });
 
+  test("asserted-assumption failure modes appear in both variants (mt#3492)", () => {
+    // mt#3469 / PR #2478 R1: a guard was justified by a comment asserting the
+    // guarded case could not arise. The claim was false for the guard's actual
+    // scope, and the effect's pre-existing job was silently suppressed. The
+    // reviewer caught it with no directive telling it to look; these bullets
+    // make that a check rather than a lucky catch.
+    //
+    // Asserted on BOTH variants because the failure mode is visible in the diff
+    // alone — it needs no file-reading tools, so a no-tools review must carry it
+    // too. Distinct from the pre-existing "Undocumented assumptions" bullet,
+    // which fires when the assumption is ABSENT; this pair fires when it is
+    // present and wrong.
+    for (const toolsAvailable of [true, false]) {
+      const prompt = buildCriticConstitution(toolsAvailable);
+      expect(prompt).toContain("Asserted assumptions used as justification");
+      expect(prompt).toContain("untested reachability claim");
+      expect(prompt).toContain(
+        "A guard added to pre-existing code endangers what that code already did"
+      );
+      expect(prompt).toContain("PRIOR responsibilities the guard now skips");
+      // The pre-existing inverse must survive alongside it.
+      expect(prompt).toContain("Undocumented assumptions");
+    }
+  });
+
   test("normal scope (default) is byte-identical to pre-mt#1188 prompt (no extra section)", () => {
     // The normal-scope path must not inject any extra sections — preserves
     // backwards compatibility for callers that don't pass a scope.
@@ -483,6 +508,61 @@ describe("extractOutOfRepoReferences", () => {
 
   test("returns empty array for empty input", () => {
     expect(extractOutOfRepoReferences("", "PR description")).toEqual([]);
+  });
+});
+
+describe("buildReviewPrompt incremental-scope notice (mt#3471)", () => {
+  const baseInput: ReviewPromptInput = {
+    prNumber: 999,
+    prTitle: "Test PR",
+    prBody: "",
+    taskSpec: null,
+    diff: SAMPLE_DIFF,
+    authorshipTier: 3,
+    branchName: "task/test",
+    baseBranch: "main",
+  };
+
+  test("omits the notice by default, so a full-diff review reads exactly as before", () => {
+    const prompt = buildReviewPrompt(baseInput);
+
+    expect(prompt).not.toContain("NOT the full PR");
+    expect(prompt).toContain("## Diff");
+  });
+
+  test("omits the notice when incrementalScope is explicitly false", () => {
+    const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: false });
+
+    expect(prompt).not.toContain("NOT the full PR");
+  });
+
+  test("announces the narrowed scope when incrementalScope is true", () => {
+    const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: true });
+
+    expect(prompt).toContain("NOT the full PR");
+    expect(prompt).toContain("commits pushed since your most recent review");
+  });
+
+  test("cancels the absence-is-evidence rules that a narrowed diff would otherwise trip", () => {
+    // The load-bearing half. Without this, the Critic Constitution's
+    // diff-vs-description exception reads a file changed in an EARLIER commit
+    // as "claimed but not in the diff" and may raise it as BLOCKING.
+    const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: true });
+
+    expect(prompt).toContain("absence from this diff is NOT evidence");
+    expect(prompt).toContain("diff-vs-description exception");
+    expect(prompt).toContain("never BLOCKING");
+  });
+
+  test("keeps the notice outside the untrusted-content fence", () => {
+    // It is our instruction ABOUT the PR content, not PR content — the model
+    // must not treat it as author-controlled data it is allowed to ignore.
+    const prompt = buildReviewPrompt({ ...baseInput, incrementalScope: true });
+
+    const noticeIdx = prompt.indexOf("NOT the full PR");
+    const fenceIdx = prompt.indexOf(UNTRUSTED_CONTENT_OPEN, prompt.indexOf("## Diff"));
+    expect(noticeIdx).toBeGreaterThan(0);
+    expect(fenceIdx).toBeGreaterThan(noticeIdx);
   });
 });
 
