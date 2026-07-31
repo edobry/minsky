@@ -192,12 +192,30 @@ export type RunTab = "overview" | "conversation" | "context" | "film";
 export type RunKeySpace = "workspace" | "conversation";
 
 /**
- * The tab strip's order, and the single source of truth for which suffixes
- * `tabFromPathname` accepts. "film" is last deliberately: it is the widest and
- * least-often-wanted view of a run (mt#3461), so it sits after the three text
- * surfaces rather than between them.
+ * The tab strip's order per keyspace, and the single source of truth for which
+ * suffixes `tabFromPathname` accepts.
+ *
+ * The film is CONVERSATION-ONLY (mt#3468). mt#3461 registered it under both
+ * keyspaces on the reasoning that every other tab is registered under both and
+ * `activeConversationId` resolves in both — but consistency with an existing
+ * duplication is not a justification. A film is a replay of a CONVERSATION;
+ * addressing it through a workspace means "the film of whichever conversation
+ * this workspace currently has selected," an indirection whose referent is
+ * ambiguous and which no surface needs. A workspace reaches a film the honest
+ * way: through the conversation it links to.
+ *
+ * "film" is last in the conversation set deliberately — it is the widest and
+ * least-often-wanted view, so it sits after the three text surfaces.
  */
-export const RUN_TABS: readonly RunTab[] = ["overview", "conversation", "context", "film"];
+export const RUN_TABS_BY_KEYSPACE: Record<RunKeySpace, readonly RunTab[]> = {
+  workspace: ["overview", "conversation", "context"],
+  conversation: ["overview", "conversation", "context", "film"],
+};
+
+/** The tabs offered for `keySpace`, in strip order. */
+export function runTabsFor(keySpace: RunKeySpace): readonly RunTab[] {
+  return RUN_TABS_BY_KEYSPACE[keySpace];
+}
 
 // Exported for direct unit testing (RunDetail.tabs.test.ts) — pure, no
 // React/router dependency, so a full component render isn't needed to pin
@@ -215,9 +233,11 @@ export function defaultTabFor(keySpace: RunKeySpace): RunTab {
 
 export function tabFromPathname(pathname: string, base: string, keySpace: RunKeySpace): RunTab {
   const suffix = pathname === base ? "" : pathname.slice(base.length).replace(/^\//, "");
-  // "film" resolves identically in both keyspaces (mt#3461) — unlike the other
-  // three, it is never the default, so it needs no per-keyspace special case.
-  if (suffix === "film") return "film";
+  // "film" resolves ONLY in the conversation keyspace (mt#3468). A stale
+  // /agents/:id/film falls through to the workspace default below rather than
+  // resolving to a tab the strip no longer offers — which would render a film
+  // with no way to navigate away from it.
+  if (suffix === "film") return keySpace === "conversation" ? "film" : "overview";
   if (keySpace === "workspace") {
     if (suffix === "conversation") return "conversation";
     if (suffix === "context") return "context";
@@ -517,7 +537,7 @@ export function RunDetail({
         {chrome}
         <Tabs value={tab} onValueChange={handleTabChange}>
           <TabsList className="h-8 gap-0.5 bg-transparent p-0 border-0">
-            {RUN_TABS.map((t) => (
+            {runTabsFor(keySpace).map((t) => (
               <TabsTrigger
                 key={t}
                 value={t}
@@ -640,21 +660,16 @@ export function RunDetail({
         Measured against the running cockpit rather than derived — see this
         task's live-verification note.
 
-        Width is handled by the page wrapper dropping `max-w-4xl` on this tab
-        (see `ConversationPage`/`WorkspaceDetailPage`): a prose column would
-        squeeze the stage back below what mt#3226 SC 1 and mt#3258 SC 4 twice
-        widened it to.
+        Width is handled by `ConversationPage` dropping `max-w-4xl` on this tab:
+        a prose column would squeeze the stage back below what mt#3226 SC 1 and
+        mt#3258 SC 4 twice widened it to. Only that page needs the branch — the
+        film is conversation-only (mt#3468).
       */}
-      {tab === "film" &&
-        (keySpace === "workspace" && workspaceQuery.isPending ? (
-          <LoadingState message="Loading the film…" />
-        ) : activeConversationId ? (
-          <div className="flex h-[calc(100vh-13rem)] min-h-[28rem] flex-col">
-            <SessionFilm key={activeConversationId} conversationId={activeConversationId} />
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">No conversation to replay yet.</p>
-        ))}
+      {tab === "film" && activeConversationId && (
+        <div className="flex h-[calc(100vh-13rem)] min-h-[28rem] flex-col">
+          <SessionFilm key={activeConversationId} conversationId={activeConversationId} />
+        </div>
+      )}
     </div>
   );
 }
