@@ -19,6 +19,15 @@
  * member. Each action renders its keyboard shortcut, per the teach-the-
  * shortcut pattern: the palette is how an operator discovers the chord, and
  * the chord is how they stop needing the palette.
+ *
+ * REQUIRES `<NewConversationProvider>` as an ancestor (PR #2477 R1). `Layout`
+ * mounts it around the whole shell, so every production render is covered;
+ * mounting this component outside that tree THROWS rather than degrading.
+ * That is deliberate — a missing provider is a wiring bug, and the quiet
+ * alternative (each surface falling back to its own mutation instance) is the
+ * double-fire-and-silent-failure pair the provider exists to prevent. A test
+ * that renders the palette standalone must wrap it; see
+ * `widgets/command-palette.test.tsx`.
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";

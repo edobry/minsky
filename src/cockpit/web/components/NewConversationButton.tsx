@@ -25,12 +25,7 @@ import {
   NEW_CONVERSATION_LABEL,
 } from "../lib/new-conversation";
 
-export function NewConversationButton({
-  /** Present only in the mobile drawer — closes it once a launch starts. */
-  onNavigate,
-}: {
-  onNavigate?: () => void;
-}) {
+export function NewConversationButton() {
   const { start, isPending, isError, error } = useNewConversation();
 
   return (
@@ -40,10 +35,16 @@ export function NewConversationButton({
         title={NEW_CONVERSATION_DESCRIPTION}
         aria-keyshortcuts="Meta+Shift+O"
         disabled={isPending}
-        onClick={() => {
-          start();
-          onNavigate?.();
-        }}
+        // Deliberately does NOT close the mobile drawer here (PR #2477 R1).
+        // The alert below is the only surface a launch failure has, and in the
+        // drawer it is the only MOUNTED one — the desktop rail is `hidden`
+        // below `md`, so its copy renders into a display:none subtree. Closing
+        // on click therefore made a failed launch invisible on mobile, which
+        // is exactly the silent failure this component exists to prevent.
+        // Nothing is lost on the success path: `Rail` already closes the
+        // drawer on every pathname change, and a successful launch navigates
+        // to /driven/:id.
+        onClick={start}
         className={cn(
           "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium transition-colors",
           // Bordered rather than a solid primary fill: a saturated create

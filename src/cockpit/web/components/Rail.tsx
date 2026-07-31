@@ -384,8 +384,12 @@ export function Rail() {
             {/* Project selector (mt#2418) — mirrors the desktop insertion
                 above so the drawer and the persistent rail never drift. */}
             <ProjectSelector />
-            {/* Create action (mt#3464) — mirrors the desktop insertion. */}
-            <NewConversationButton onNavigate={() => setMobileNavOpen(false)} />
+            {/* Create action (mt#3464) — mirrors the desktop insertion. Takes
+                no `onNavigate`, unlike the nav links below: closing the drawer
+                on click would unmount the only visible error surface a failed
+                launch has (PR #2477 R1). The pathname effect above closes the
+                drawer when a successful launch navigates. */}
+            <NewConversationButton />
             <RailNav pathname={pathname} onNavigate={() => setMobileNavOpen(false)} />
             <RailFooter pathname={pathname} onNavigate={() => setMobileNavOpen(false)} />
           </DialogPrimitive.Content>
