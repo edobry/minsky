@@ -13,19 +13,30 @@ import express from "express";
 import { mountEntityThreadRoutes, parseEntityType, parseMessageBody } from "./entity-threads";
 
 describe("parseEntityType", () => {
-  test("accepts the ask type this task ships", () => {
+  test("accepts the ask type", () => {
     expect(parseEntityType("ask")).toBe("ask");
+  });
+
+  test("accepts the task type (mt#3366)", () => {
+    // Flipped from a rejection assertion when mt#3366 added `taskToEntitySeed`.
+    // A type is accepted ONLY once it has an adapter — otherwise every request
+    // for it 404s, which reads as "your id is wrong" rather than "not built".
+    expect(parseEntityType("task")).toBe("task");
   });
 
   test("refuses an entity type with no seed adapter yet, and names what IS supported", () => {
     // Silently accepting these would seed an agent with an empty body — an
-    // agent confidently discussing nothing. mt#3366 adds the adapters and
-    // widens this. The error names the supported set so a caller isn't left
-    // guessing whether the type, the id, or the feature is the problem.
-    const result = parseEntityType("task");
-    expect(typeof result).toBe("object");
-    expect((result as { error: string }).error).toContain("task");
-    expect((result as { error: string }).error).toContain("ask");
+    // agent confidently discussing nothing. Changeset and memory are NOT merely
+    // unbuilt: mt#3366 deliberately declined to mount them. The error names the
+    // supported set so a caller isn't left guessing whether the type, the id,
+    // or the feature is the problem.
+    for (const unsupported of ["changeset", "memory", "session"]) {
+      const result = parseEntityType(unsupported);
+      expect(typeof result).toBe("object");
+      expect((result as { error: string }).error).toContain(unsupported);
+      expect((result as { error: string }).error).toContain("ask");
+      expect((result as { error: string }).error).toContain("task");
+    }
   });
 
   test("refuses an unknown type", () => {

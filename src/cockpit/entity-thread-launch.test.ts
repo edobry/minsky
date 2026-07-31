@@ -27,12 +27,14 @@ import {
   type SpawnFn,
 } from "./driven-session-host";
 import { RESOLVE_PROPOSAL_FENCE } from "@minsky/shared/resolve-proposal";
+import { entityThreadLocalId } from "@minsky/domain/transcripts/entity-thread-store";
 import {
   askToEntitySeed,
   buildEntityThreadSeedPrompt,
   createEntityThreadReplyRecorder,
   extractAssistantTextFromEvent,
   startEntityThreadSession,
+  taskToEntitySeed,
   type EntitySeedContext,
 } from "./entity-thread-launch";
 
@@ -87,8 +89,59 @@ describe("askToEntitySeed", () => {
   });
 });
 
+describe("taskToEntitySeed (mt#3366)", () => {
+  test("carries the spec body and the task's own refs", () => {
+    const seed = taskToEntitySeed({
+      id: "mt#1234",
+      title: "Do the thing",
+      status: "READY",
+      kind: "implementation",
+      parentTaskId: "mt#1000",
+      spec: "## Summary\n\nDo the thing properly.",
+      tags: ["cockpit", "ui"],
+    });
+
+    expect(seed.entityType).toBe("task");
+    expect(seed.entityId).toBe("mt#1234");
+    expect(seed.title).toBe("Do the thing");
+    expect(seed.body).toContain("Do the thing properly");
+    expect(seed.refs).toEqual([
+      { label: "status", value: "READY" },
+      { label: "task kind", value: "implementation" },
+      { label: "parent task", value: "mt#1000" },
+      { label: "tags", value: "cockpit, ui" },
+    ]);
+  });
+
+  test("names an absent spec instead of seeding an empty body", () => {
+    // A task with no spec still EXISTS, so the route cannot 404 it. Seeding an
+    // empty body would produce an agent confidently discussing nothing; naming
+    // the gap lets it tell the principal the spec is empty.
+    const seed = taskToEntitySeed({ id: "mt#1", title: "Bare", spec: "   " });
+    expect(seed.body).toContain("no spec body");
+    expect(seed.body.trim().length).toBeGreaterThan(0);
+  });
+
+  test("falls back to the id when the title is missing or blank", () => {
+    expect(taskToEntitySeed({ id: "mt#7" }).title).toBe("mt#7");
+    expect(taskToEntitySeed({ id: "mt#7", title: "  " }).title).toBe("mt#7");
+  });
+
+  test("omits refs entirely when the task carries none", () => {
+    expect(taskToEntitySeed({ id: "mt#7", spec: "body" }).refs).toBeUndefined();
+    expect(taskToEntitySeed({ id: "mt#7", spec: "body", tags: [] }).refs).toBeUndefined();
+  });
+
+  test("a task thread's key cannot collide with an ask thread's", () => {
+    // Both id-spaces are opaque strings; only the entity TYPE separates them.
+    expect(entityThreadLocalId("task", "X")).not.toBe(entityThreadLocalId("ask", "X"));
+  });
+});
+
 /** The action prohibition several tests assert survives unchanged. */
 const ACTION_PROHIBITION = "Do NOT take action on this entity";
+/** The investigate-don't-paraphrase instruction several tests assert survives. */
+const INVESTIGATE_INSTRUCTION = "Investigate before answering";
 
 describe("buildEntityThreadSeedPrompt", () => {
   const seed: EntitySeedContext = {
@@ -115,7 +168,7 @@ describe("buildEntityThreadSeedPrompt", () => {
     // principal already read and found unclear — the exact degenerate behavior
     // the driven-session mechanism was chosen over a completion call to avoid.
     const prompt = buildEntityThreadSeedPrompt(seed);
-    expect(prompt).toContain("Investigate before answering");
+    expect(prompt).toContain(INVESTIGATE_INSTRUCTION);
     expect(prompt).toMatch(/rather than restating/);
   });
 
@@ -158,13 +211,18 @@ describe("buildEntityThreadSeedPrompt", () => {
   });
 
   test("a NON-ask entity gets no proposal contract", () => {
-    // mt#3366 widens the mount to tasks, changesets, and memories. None of them
-    // have options to resolve, so teaching them the marker would invite a
-    // proposal no surface can render.
-    const taskSeed: EntitySeedContext = { ...seed, entityType: "task", entityId: "mt#1" };
-    const prompt = buildEntityThreadSeedPrompt(taskSeed);
+    // mt#3366 mounted the task route. A task has no options to resolve, so
+    // teaching it the marker would invite a proposal no surface can render.
+    // Built from the REAL adapter rather than a hand-edited ask seed, so this
+    // asserts what the task route will actually send (mt#3366 AT).
+    const prompt = buildEntityThreadSeedPrompt(
+      taskToEntitySeed({ id: "mt#1", title: "A task", spec: "## Summary\n\nDo it." })
+    );
     expect(prompt).not.toContain(RESOLVE_PROPOSAL_FENCE);
     expect(prompt).toContain(ACTION_PROHIBITION);
+    // The generic scoping still applies — a task thread is still told to
+    // investigate rather than paraphrase.
+    expect(prompt).toContain(INVESTIGATE_INSTRUCTION);
   });
 });
 
@@ -395,7 +453,7 @@ describe("seed prompt attribution", () => {
       .filter((e) => e.payload["type"] === DRIVEN_OPERATOR_INPUT_EVENT_TYPE)
       .map((e) => String(e.payload["text"] ?? ""))
       .join("\n");
-    expect(operatorText).not.toContain("Investigate before answering");
+    expect(operatorText).not.toContain(INVESTIGATE_INSTRUCTION);
     expect(operatorText).not.toContain("Approve the thing?");
   });
 

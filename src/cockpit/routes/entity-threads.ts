@@ -16,11 +16,17 @@
  *
  * ## Scope boundary (mt#3364 vs its siblings)
  *
- * This module ships the ask mount only. Other entity types are REFUSED with an
- * explicit 400 rather than silently accepted, because each kind needs its own
- * seed adapter (see `askToEntitySeed`) and a thread seeded with an empty body
- * would produce an agent confidently discussing nothing. mt#3366 adds the
- * task / changeset / memory adapters and widens this check.
+ * This module ships the ask and task mounts (mt#3364, widened by mt#3366).
+ * Other entity types are REFUSED with an explicit 400 rather than silently
+ * accepted, because each kind needs its own seed adapter (see `askToEntitySeed`
+ * / `taskToEntitySeed`) and a thread seeded with an empty body would produce an
+ * agent confidently discussing nothing.
+ *
+ * Changeset and memory are deliberately NOT mounted — not merely unbuilt. A
+ * changeset already has a review surface carrying more context than a thread
+ * would, and no one has been able to state the question a memory thread
+ * answers. See mt#3366's scope note. Adding either later is one adapter plus
+ * one entry in `SUPPORTED_ENTITY_TYPES`.
  *
  * The reply STREAM to the browser is not here either — that is the panel's
  * concern (mt#3365), which consumes the existing per-session driven WebSocket.
@@ -46,9 +52,14 @@ import {
   askToEntitySeed,
   createEntityThreadReplyRecorder,
   startEntityThreadSession,
+  taskToEntitySeed,
   type EntityThreadSession,
 } from "../entity-thread-launch";
-import { createCachedSqlDbGetter, getServerAskRepository } from "../db-providers";
+import {
+  createCachedSqlDbGetter,
+  getServerAskRepository,
+  getServerTaskService,
+} from "../db-providers";
 import {
   drivenSessionRegistry,
   hasLiveActuator,
@@ -79,8 +90,14 @@ function isThreadAgentLive(localId: string, registry = drivenSessionRegistry): b
  */
 const getEntityThreadDb = createCachedSqlDbGetter({ cacheNegative: false });
 
-/** Entity kinds this module can seed today. See the docblock's scope boundary. */
-const SUPPORTED_ENTITY_TYPES = new Set<EntityThreadEntityType>(["ask"]);
+/**
+ * Entity kinds this module can seed today. See the docblock's scope boundary.
+ *
+ * A type belongs here ONLY once `buildSeedForEntity` has an adapter for it —
+ * accepting a type with no adapter would 404 every request for it, which reads
+ * to a caller as "your id is wrong" rather than "this is not built yet".
+ */
+const SUPPORTED_ENTITY_TYPES = new Set<EntityThreadEntityType>(["ask", "task"]);
 
 export interface EntityThreadRoutesOptions {
   /** Override the database handle (tests). */
@@ -264,6 +281,37 @@ async function buildSeedForEntity(
   entityType: EntityThreadEntityType,
   entityId: string
 ): Promise<ReturnType<typeof askToEntitySeed> | null> {
+  if (entityType === "task") {
+    const taskService = await getServerTaskService();
+    if (!taskService) return null;
+    const task = await taskService.getTask(entityId);
+    if (!task) return null;
+    // `getTask` does not populate `spec` on every backend, so fetch the body
+    // separately and tolerate its absence — a task with no readable spec is
+    // still a real task, and `taskToEntitySeed` names the gap rather than
+    // seeding an empty body.
+    let spec: string | null = task.spec ?? null;
+    if (!spec) {
+      try {
+        spec = (await taskService.getTaskSpecContent(entityId)).content;
+      } catch (err) {
+        // Not fatal: log it rather than swallowing, then seed without the body.
+        log.warn(`entity-thread: no spec content for task ${entityId}`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return taskToEntitySeed({
+      id: task.id,
+      title: task.title ?? null,
+      status: task.status ?? null,
+      kind: task.kind ?? null,
+      parentTaskId: task.parentTaskId ?? null,
+      spec,
+      tags: task.tags ?? null,
+    });
+  }
+
   if (entityType === "ask") {
     const repo = await getServerAskRepository();
     if (!repo) return null;

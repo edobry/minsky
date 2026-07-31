@@ -43,8 +43,14 @@ import { LoadingState } from "../components/LoadingState";
 /** How often to poll for the agent's reply. */
 const POLL_INTERVAL_MS = 3_000;
 
-/** Entity kinds the thread endpoints accept today (mt#3366 widens this). */
-export type EntityThreadPanelEntityType = "ask";
+/**
+ * Entity kinds the thread endpoints accept today (mt#3364; widened by mt#3366).
+ *
+ * Kept in step with `SUPPORTED_ENTITY_TYPES` in
+ * `src/cockpit/routes/entity-threads.ts` — the server rejects anything else with
+ * a 400, so a wider type here would only produce mounts that fail at runtime.
+ */
+export type EntityThreadPanelEntityType = "ask" | "task";
 
 export interface EntityThreadResponse {
   localId: string;
