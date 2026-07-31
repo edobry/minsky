@@ -81,9 +81,7 @@ const VitalsPage = lazy(() =>
 );
 // Session film (mt#3184, watchable-world Phase 1) — route name is a working
 // label; naming is principal-reserved per the RFC.
-const SessionFilmRedirect = lazy(() =>
-  import("./pages/SessionFilmPage").then((m) => ({ default: m.SessionFilmRedirect }))
-);
+
 
 /**
  * Legacy `/session/:id` deep-link redirect (mt#2769).
@@ -382,17 +380,7 @@ export function App() {
               </ErrorBoundary>
             }
           />
-          {/* Film tab (mt#3461) — the workspace keyspace's copy; renders the
-              film for whichever conversation the multi-conversation switcher
-              has active. */}
-          <Route
-            path="/agents/:id/film"
-            element={
-              <ErrorBoundary id="session-detail-page">
-                <WorkspaceDetailPage />
-              </ErrorBoundary>
-            }
-          />
+
           {/* Retired standalone Context page (mt#2768): folded into the
               run-detail Context tab. Redirect for bookmark continuity. */}
           <Route path="/context" element={<Navigate to="/agents" replace />} />
@@ -461,8 +449,14 @@ export function App() {
             }
           />
           {/* Film tab (mt#3461): the session film is a lens on a conversation,
-              reached by drilling into the entity — not a top-level page. The
-              retired /session-film route redirects here. */}
+              reached by drilling into the entity — not a top-level page.
+
+              This is the ONLY path to a film (mt#3468). The former
+              /session-film page and the /agents/:id/film workspace route were
+              both deleted, not redirected: a film replays a conversation, so a
+              workspace-keyed address would name no specific one, and a
+              permanent redirect is a second address kept alive forever for a
+              one-time convenience. Old /session-film links do not resolve. */}
           <Route
             path="/conversation/:id/film"
             element={
@@ -587,18 +581,6 @@ export function App() {
             element={
               <ErrorBoundary id="vitals-page">
                 <VitalsPage />
-              </ErrorBoundary>
-            }
-          />
-          {/* Retired standalone session film (mt#3184 -> mt#3461): the film is
-              now the conversation's Film tab. Kept as a redirect because
-              `/session-film?session=<id>&t=<n>` links are already out in
-              ingested transcripts and PR bodies. */}
-          <Route
-            path="/session-film"
-            element={
-              <ErrorBoundary id="session-film-page">
-                <SessionFilmRedirect />
               </ErrorBoundary>
             }
           />

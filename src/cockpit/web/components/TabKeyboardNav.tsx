@@ -30,30 +30,7 @@
  */
 import { useEffect } from "react";
 import { useTabs } from "../lib/tabs";
-
-/**
- * True when the event's target is a text-entry surface, where a shortcut must
- * yield to typing.
- *
- * A deliberate SUPERSET of the guard in `pages/SessionFilmPage.tsx:201-205`,
- * which tests `INPUT`/`TEXTAREA` only — this adds `SELECT` (typeahead selects a
- * matching option, so a swallowed keystroke changes a value) and
- * `isContentEditable` (which covers a rich-text host and, because it is
- * inherited, any node nested inside one). Not "mirrors": the two will not stay
- * identical, and the source of truth for THIS binding set is here.
- *
- * Exported for the seam unification described in mt#3469's spec: mt#3464 is
- * concurrently landing the cockpit's other non-⌘K shortcut with a guard of its
- * own, and whichever of the two merges second hoists one of these into a shared
- * module and deletes the other. Until then, deliberately duplicated rather than
- * hoisted, so the two PRs cannot collide on a new shared file.
- */
-export function isTextEntryTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  const tag = target.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
-}
+import { isTextEntryTarget } from "../lib/keyboard";
 
 export function TabKeyboardNav() {
   const { activateRelativeTab, commitTabCycle } = useTabs();
