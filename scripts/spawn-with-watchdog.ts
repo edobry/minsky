@@ -134,7 +134,11 @@ export async function spawnWithWatchdog(
   options: WatchdogSpawnOptions
 ): Promise<WatchdogSpawnResult> {
   const graceMs = options.graceMs ?? DEFAULT_GRACE_MS;
-  const startedAt = Date.now();
+  // Monotonic clock: `Date.now()` can jump backwards or forwards (NTP step, DST
+  // on some platforms, a manual clock change), which would misreport elapsed
+  // time in the very diagnostic an operator reads to decide whether a run was
+  // genuinely slow or genuinely hung. `performance.now()` cannot jump.
+  const startedAt = performance.now();
 
   const proc = Bun.spawn(cmd, {
     env: options.env ? { ...process.env, ...options.env } : process.env,
@@ -191,7 +195,7 @@ export async function spawnWithWatchdog(
     stderr,
     timedOut,
     requiredSigkill,
-    elapsedMs: Date.now() - startedAt,
+    elapsedMs: Math.round(performance.now() - startedAt),
   };
 }
 
