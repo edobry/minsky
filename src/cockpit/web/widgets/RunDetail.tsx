@@ -45,6 +45,7 @@ import { MetaItem } from "../components/MetaItem";
 import { ConversationView } from "./ConversationView";
 import { ContextBlockView } from "./ContextBlockView";
 import { ConversationOverviewPanel } from "./ConversationOverviewPanel";
+import { SessionFilm } from "../components/session-film/SessionFilm";
 import { livenessDotClass } from "../lib/liveness-colors";
 import type { WorkspaceId, ConversationId } from "@minsky/domain/ids";
 import {
@@ -187,8 +188,16 @@ export async function fetchConversationOverview(
 // Tab <-> URL mapping
 // ---------------------------------------------------------------------------
 
-export type RunTab = "overview" | "conversation" | "context";
+export type RunTab = "overview" | "conversation" | "context" | "film";
 export type RunKeySpace = "workspace" | "conversation";
+
+/**
+ * The tab strip's order, and the single source of truth for which suffixes
+ * `tabFromPathname` accepts. "film" is last deliberately: it is the widest and
+ * least-often-wanted view of a run (mt#3461), so it sits after the three text
+ * surfaces rather than between them.
+ */
+export const RUN_TABS: readonly RunTab[] = ["overview", "conversation", "context", "film"];
 
 // Exported for direct unit testing (RunDetail.tabs.test.ts) — pure, no
 // React/router dependency, so a full component render isn't needed to pin
@@ -206,6 +215,9 @@ export function defaultTabFor(keySpace: RunKeySpace): RunTab {
 
 export function tabFromPathname(pathname: string, base: string, keySpace: RunKeySpace): RunTab {
   const suffix = pathname === base ? "" : pathname.slice(base.length).replace(/^\//, "");
+  // "film" resolves identically in both keyspaces (mt#3461) — unlike the other
+  // three, it is never the default, so it needs no per-keyspace special case.
+  if (suffix === "film") return "film";
   if (keySpace === "workspace") {
     if (suffix === "conversation") return "conversation";
     if (suffix === "context") return "context";
@@ -505,7 +517,7 @@ export function RunDetail({
         {chrome}
         <Tabs value={tab} onValueChange={handleTabChange}>
           <TabsList className="h-8 gap-0.5 bg-transparent p-0 border-0">
-            {(["overview", "conversation", "context"] as const).map((t) => (
+            {RUN_TABS.map((t) => (
               <TabsTrigger
                 key={t}
                 value={t}
@@ -612,6 +624,36 @@ export function RunDetail({
           <ContextBlockView agentSessionId={activeConversationId as ConversationId} />
         ) : (
           <p className="text-sm text-muted-foreground">No conversation to inspect yet.</p>
+        ))}
+
+      {/*
+        Film tab (mt#3461). Unlike the three text tabs, the film needs a BOUNDED
+        HEIGHT to lay out at all: `SessionFilm` is a flex column whose ribbon and
+        stage both fill their parent, so with no height it collapses to zero —
+        the same trap `src/cockpit/CLAUDE.md` documents for react-flow, and one
+        that unit tests cannot catch (happy-dom reports every rect as 0).
+
+        The height subtracts the chrome ABOVE the film from the viewport: the
+        3.5rem sticky AppHeader, the page wrapper's `p-4`, and the pinned
+        run-detail chrome (label + presence + tab strip). The `min-h` floor keeps
+        it usable on a short window instead of collapsing toward nothing.
+        Measured against the running cockpit rather than derived — see this
+        task's live-verification note.
+
+        Width is handled by the page wrapper dropping `max-w-4xl` on this tab
+        (see `ConversationPage`/`WorkspaceDetailPage`): a prose column would
+        squeeze the stage back below what mt#3226 SC 1 and mt#3258 SC 4 twice
+        widened it to.
+      */}
+      {tab === "film" &&
+        (keySpace === "workspace" && workspaceQuery.isPending ? (
+          <LoadingState message="Loading the film…" />
+        ) : activeConversationId ? (
+          <div className="flex h-[calc(100vh-13rem)] min-h-[28rem] flex-col">
+            <SessionFilm key={activeConversationId} conversationId={activeConversationId} />
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No conversation to replay yet.</p>
         ))}
     </div>
   );

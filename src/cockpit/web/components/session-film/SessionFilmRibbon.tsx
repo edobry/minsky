@@ -176,9 +176,11 @@ export interface SessionFilmRibbonProps {
   /**
    * Asserts the film subject's session was verified re-scrubbed, for the
    * content endpoint's scrub gate (mt#3262 SC 5) — mirrors the `events`
-   * fetch's own `verifiedRescrubbed` query param, which the HOST page owns
-   * (`SessionFilmPage.tsx`'s own re-scrub-confirmation UI) and does not yet
-   * thread down to this component. Defaults to `false`: a pre-cutoff
+   * fetch's own `verifiedRescrubbed` query param, which the host owns and does
+   * not thread down to this component. NOTE (mt#3461): no re-scrub-confirmation
+   * UI has ever existed — the host has always pinned this false, so the
+   * override this prop models is currently unreachable from either side.
+   * mt#3268 owns the scrub-gate posture question. Defaults to `false`: a pre-cutoff
    * session's expanded-row content will 422 (rendered as "Content
    * unavailable", never a crash — spec AT 4) even when the host already
    * asserted the override for the events fetch. Threading it through is a
@@ -592,7 +594,7 @@ export function SessionFilmRibbon({
       // passed — the mt#3226 SC1 "fixed-width narrow rail" design intent was
       // silently defeated by this component's own base classes. `w-full` is
       // the sane standalone default (a caller with no width override still
-      // fills its container); the ONE real caller (SessionFilmPage.tsx)
+      // fills its container); the ONE real caller (SessionFilm.tsx)
       // overrides it with `w-64 shrink-0`, and tailwind-merge correctly
       // dedupes width-vs-width (unlike flex-vs-width, which it can't model).
       className={cn("relative w-full min-h-0 overflow-y-auto font-mono text-xs", className)}
