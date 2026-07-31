@@ -21,6 +21,7 @@ import {
 } from "./block-git-gh-cli";
 import reviewerAgent from "../agents/reviewer/agent";
 import auditorAgent from "../agents/auditor/agent";
+import fixtureAgent from "../agents/fixture/agent";
 
 // ---------------------------------------------------------------------------
 // Helpers: injectable runGit implementations for carve-out tests
@@ -106,12 +107,40 @@ describe("read-only git redirects are reachable by the restricted agents", () =>
   // and this guard denies exactly those. If a denial names a tool the agent's
   // grant omits, the agent has no legal path to PR history at all — which is
   // the defect this task exists to close.
-  const AGENT_GRANTS: ReadonlyArray<{ name: string; tools: readonly string[] }> = [
-    { name: "reviewer", tools: reviewerAgent.tools ?? [] },
-    { name: "auditor", tools: auditorAgent.tools ?? [] },
-  ];
+  // mt#3401: DISCOVERED, not hardcoded. Only agents that declare a restricted
+  // `tools` grant can be dead-ended — an agent that omits `tools` inherits the
+  // full set and can always reach the redirect. Adding a new restricted agent
+  // therefore adds it to this list automatically; it does not silently escape
+  // the check the way a hardcoded pair would.
+  //
+  // `fixture` is deliberately excluded: it declares `["Read", "Bash"]` and holds
+  // NO MCP tool at all, so every redirect is unreachable for it by construction.
+  // It is a compile-pipeline test artifact ("Not for production use", its whole
+  // prompt is a two-line stub) that never runs a git command, so widening its
+  // grant would add real tools to a fake agent to satisfy a test. Exempted by
+  // name, with this reason, rather than by loosening the invariant.
+  const EXEMPT_AGENTS = new Set(["fixture"]);
 
-  const READ_ONLY_GIT_COMMANDS = ["git log", "git diff", "git status"] as const;
+  const AGENT_GRANTS: ReadonlyArray<{ name: string; tools: readonly string[] }> = (
+    [
+      { name: "reviewer", tools: reviewerAgent.tools },
+      { name: "auditor", tools: auditorAgent.tools },
+      { name: "fixture", tools: fixtureAgent.tools },
+    ] as ReadonlyArray<{ name: string; tools: readonly string[] | undefined }>
+  )
+    .filter((a) => Array.isArray(a.tools) && a.tools.length > 0 && !EXEMPT_AGENTS.has(a.name))
+    .map((a) => ({ name: a.name, tools: a.tools as readonly string[] }));
+
+  it("the discovered restricted-agent set is non-empty (the check can actually fail)", () => {
+    // Guards against the filter silently emptying the list — a zero-length set
+    // would make every assertion below vacuously pass.
+    expect(AGENT_GRANTS.length).toBeGreaterThan(0);
+  });
+
+  // Every read-only git command the denial table covers. `git blame` is here
+  // because mt#3381 fixed log/diff/status and missed it — which is precisely
+  // the drift this generalized list exists to prevent.
+  const READ_ONLY_GIT_COMMANDS = ["git log", "git diff", "git status", "git blame"] as const;
 
   for (const { name, tools } of AGENT_GRANTS) {
     for (const command of READ_ONLY_GIT_COMMANDS) {
@@ -139,6 +168,93 @@ describe("read-only git redirects are reachable by the restricted agents", () =>
       expect(tools).not.toContain("mcp__minsky__session_write_file");
       expect(tools).not.toContain("mcp__minsky__session_edit_file");
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // Rule-level invariant (mt#3401) — agent-independent
+  // -------------------------------------------------------------------------
+
+  // The per-agent assertions above only cover agents that exist TODAY. This one
+  // constrains the denial table itself, so a new rule that redirects a
+  // read-only command solely to a mutation tool fails immediately — before any
+  // restricted agent happens to hit it. That is the `git status` bug mt#3381
+  // found by accident (it named ONLY `session_exec`), stated as a rule.
+  //
+  // Read-only MCP replacements, listed explicitly rather than pattern-matched:
+  // "read-only" is a semantic property of each tool, not something derivable
+  // from its name, so it is enumerated and reviewable.
+  const READ_ONLY_MCP_TOOLS = new Set([
+    "mcp__minsky__git_log",
+    "mcp__minsky__git_diff",
+    "mcp__minsky__git_status",
+    "mcp__minsky__git_blame",
+    "mcp__minsky__session_diff",
+    "mcp__github__list_pull_requests",
+    "mcp__github__pull_request_read",
+  ]);
+
+  const READ_ONLY_COMMANDS = [
+    "git log",
+    "git diff",
+    "git status",
+    "git blame",
+    "gh pr list",
+    "gh pr view",
+  ] as const;
+
+  for (const command of READ_ONLY_COMMANDS) {
+    it(`the denial for \`${command}\` offers at least one READ-ONLY replacement`, () => {
+      const [parsed] = parseCommands(command);
+      if (!parsed) throw new Error(`parseCommands produced nothing for \`${command}\``);
+      const reason = checkDenial(parsed, "bash");
+      expect(reason).toBeTruthy();
+
+      const named = [...(reason as string).matchAll(/mcp__[a-z0-9_]+/g)].map((m) => m[0]);
+      const readOnly = named.filter((tool) => READ_ONLY_MCP_TOOLS.has(tool));
+
+      // A read-only command whose only escape is a mutation tool dead-ends
+      // every read-only caller, whether or not such a caller exists yet.
+      expect(readOnly.length).toBeGreaterThan(0);
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // TOTAL rule-table enumeration (mt#3401 SC5)
+  // -------------------------------------------------------------------------
+
+  // The assertions above cover the read-only commands by name. This one walks
+  // the ENTIRE denial table, so a newly added rule cannot silently bypass the
+  // check by simply not being on any hand-written list.
+  //
+  // Every rule must either name a concrete `mcp__*` replacement, or be one of
+  // the documented cases where no single tool is the answer. That allowlist is
+  // matched on a distinctive substring of the reason and is deliberately small
+  // — a new no-tool reason has to be added here consciously, which is the
+  // review checkpoint.
+  const REASONS_WITH_NO_SINGLE_TOOL_ALTERNATIVE = [
+    // Branch checkout/management: the answer is a workflow (session state ops),
+    // not one callable tool.
+    "Branch checkout is handled by session state ops",
+    "Branch management is handled by session state ops",
+    // A constraint on HOW an allowed call must be shaped, not a redirect.
+    "must use `-f merge_method=merge`",
+  ];
+
+  it("every rule in the denial table names an mcp__ tool or a documented no-tool case", () => {
+    const allRules = [...gitDenials, ...ghDenials];
+
+    // Guard: if the tables were ever emptied or renamed, this test would pass
+    // vacuously while asserting nothing about the real guard.
+    expect(allRules.length).toBeGreaterThan(20);
+
+    const uncovered = allRules
+      .map((rule) => rule.reason)
+      .filter((reason) => !/mcp__[a-z0-9_]+/.test(reason))
+      .filter(
+        (reason) => !REASONS_WITH_NO_SINGLE_TOOL_ALTERNATIVE.some((known) => reason.includes(known))
+      );
+
+    expect(uncovered).toEqual([]);
   });
 });
 
