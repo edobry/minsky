@@ -242,7 +242,7 @@ export interface SessionFilmConfig {
      * How long scrolling must be idle before camera-follow resumes (mt#3247
      * SC2c): scroll advances the playhead, which can jump the touched set
      * discontinuously frame-to-frame — treated like a user pan/zoom (pauses
-     * the camera) but transient, not permanent. `SessionFilmPage` derives
+     * the camera) but transient, not permanent. `SessionFilm` derives
      * the "is scrolling" signal from the ribbon's own scroll callback and
      * debounces it by this duration before clearing the pause.
      */

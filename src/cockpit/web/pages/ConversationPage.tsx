@@ -53,9 +53,12 @@ import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   RunDetail,
+  basePathFor,
   fetchConversationOverview,
+  tabFromPathname,
   type ConversationOverviewPayload,
 } from "../widgets/RunDetail";
+import { cn } from "../lib/utils";
 import {
   ConversationPresenceChip,
   ConversationActivityLine,
@@ -99,8 +102,20 @@ export function ConversationPage() {
   // raw id, repeating it verbatim underneath adds nothing and reads as a bug.
   const showIdSubline = label !== id;
 
+  // The film tab drops the prose column (mt#3461). Every other tab reads as
+  // text and wants `max-w-4xl`; the film's stage is the affect-bearing surface
+  // that mt#3226 SC 1 and mt#3258 SC 4 twice widened, and a 4xl column would
+  // squeeze it back below what those rounds fixed. The `p-4` stays either way —
+  // `RunDetail`'s sticky chrome bleeds over it with negative margins.
+  const isFilmTab = tabFromPathname(pathname, basePathFor("conversation", id), "conversation") === "film";
+
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 p-4">
+    <div
+      className={cn(
+        "mx-auto flex w-full flex-col gap-3 p-4",
+        isFilmTab ? "max-w-none" : "max-w-4xl"
+      )}
+    >
       <RunDetail
         key={id}
         id={id}
