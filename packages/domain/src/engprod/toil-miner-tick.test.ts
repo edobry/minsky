@@ -493,4 +493,86 @@ describe("toilMinerTick — v2 quality pass against a live-ledger-shaped fixture
     // The other three maximal survivors are still excluded as generic.
     expect(fake.lowDistinctivenessCalls).toHaveLength(3);
   });
+
+  test(
+    "re-sorts refined clusters by their RECOMPUTED (smaller) score before capping — " +
+      "a low-value refined cluster must not crowd out a higher-scoring generic one (R2 review finding)",
+    async () => {
+      // A refines to a MUCH smaller score than its generic form (only 2 of
+      // its 100 occurrences share a fingerprint). B and C are unrefined and
+      // score higher than A's refined form. With llmCap=2 and NO re-sort,
+      // the pre-substitution order (A, B, C by original score) would keep
+      // [A_refined, B] and drop C — the wrong two. Re-sorted, it must keep
+      // the two highest ACTUAL scores: [B, C].
+      const a: MinedCluster = {
+        signature: "a-generic",
+        toolSequence: ["Bash", "Bash"],
+        frequency: 100,
+        sessionCount: 50,
+        chainLength: 2,
+        score: 100 * 50 * 2, // 10,000 — highest BEFORE refinement
+        sampleRefs: [],
+        fingerprintProfile: {
+          sequence: ["fp:x", "fp:y"],
+          frequency: 2,
+          sessionCount: 2,
+          concentration: 0.02, // below default 0.2, so this WOULD normally exclude...
+          sampleRefs: [],
+        },
+      };
+      // ...override to force a "refined" outcome with a tiny recomputed score
+      // by using a custom low threshold, isolating this test to the
+      // re-sort concern rather than the distinctiveness-floor concern.
+      const b: MinedCluster = {
+        signature: "b-unrefined",
+        toolSequence: ["session_exec", "session_exec"],
+        frequency: 80,
+        sessionCount: 40,
+        chainLength: 2,
+        score: 80 * 40 * 2, // 6,400
+        sampleRefs: [],
+      };
+      const c: MinedCluster = {
+        signature: "c-unrefined",
+        toolSequence: ["Read", "Edit"],
+        frequency: 70,
+        sessionCount: 30,
+        chainLength: 2,
+        score: 70 * 30 * 2, // 4,200
+        sampleRefs: [],
+      };
+      const clusters = [a, b, c]; // already in original-score-descending order
+
+      const seenByLlm: string[] = [];
+      const counters = await toilMinerTick(
+        {
+          db: makeRunsDb() as never,
+          taskService: fakeTaskService() as never,
+          cognitionProvider: NOOP_COGNITION_PROVIDER as never,
+          taskSimilarityService: NOOP_SIMILARITY_SERVICE as never,
+          ledgerService: fakeLedgerService(),
+          mineClustersFn: async () => ({ clusters, turnsScanned: 10 }),
+          analyzeClustersFn: async (_p: unknown, candidates: readonly MinedCluster[]) => {
+            const outcomes = new Map();
+            for (const cand of candidates) {
+              seenByLlm.push(cand.signature);
+              outcomes.set(cand.signature, {
+                proposedPrimitive: "x",
+                existingToolCoverage: "y",
+                alreadyCovered: false,
+              });
+            }
+            return outcomes;
+          },
+        },
+        { llmCap: 2, fingerprintConcentrationThreshold: 0.01 } // low threshold forces "a" to refine, not exclude
+      );
+
+      expect(counters.clustersSentToLlm).toBe(2);
+      // b (6,400) and c (4,200) — the two ACTUAL top scores — must both
+      // reach the LLM; a's refined form (score 2*2*2=8, far below both)
+      // must NOT crowd either of them out.
+      expect(seenByLlm.sort()).toEqual(["b-unrefined", "c-unrefined"]);
+    }
+  );
 });

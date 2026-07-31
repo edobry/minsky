@@ -231,6 +231,13 @@ export async function toilMinerTick(
     });
   }
 
+  // A refined cluster's score is RECOMPUTED from its (smaller) fingerprint-
+  // matched frequency/sessionCount (`refineCluster`), so `refinedClusters`
+  // is no longer guaranteed score-descending after substitution even
+  // though `maximal` was. `selectTopClusters` requires pre-sorted input
+  // (mt#3429 R2 review finding) — re-sort before capping.
+  refinedClusters.sort((a, b) => b.score - a.score);
+
   const llmCap = options.llmCap ?? DEFAULT_LLM_CAP;
   const topClusters = selectTopClusters(refinedClusters, llmCap);
 
