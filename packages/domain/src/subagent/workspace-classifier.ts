@@ -23,7 +23,7 @@
 
 import { existsSync } from "fs";
 import { join } from "path";
-import type { SubagentInvocationOutcome } from "../storage/schemas/subagent-invocations-schema";
+import type { TerminalSubagentInvocationOutcome } from "../storage/schemas/subagent-invocations-schema";
 import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
@@ -31,8 +31,14 @@ import { log } from "@minsky/shared/logger";
 // ---------------------------------------------------------------------------
 
 export interface WorkspaceClassification {
-  /** One of the 6 outcome classes from the mt#1005 spec. */
-  outcome: SubagentInvocationOutcome;
+  /**
+   * One of the 6 TERMINAL outcome classes from the mt#1005 spec.
+   *
+   * Deliberately excludes `pending` (mt#1770): that is the dispatcher's placeholder for
+   * "no outcome observed yet," and this classifier only runs once an outcome HAS been
+   * observed. The narrowed type makes that a compile error rather than a convention.
+   */
+  outcome: TerminalSubagentInvocationOutcome;
   /** URL of the open/recent PR for the task, if found. */
   prUrl?: string;
   /** SHA of the last commit in the workspace, if any. */
