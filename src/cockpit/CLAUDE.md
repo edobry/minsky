@@ -195,6 +195,34 @@ polls `/api/*` forever), wait for a known `data-testid`, save a PNG, then Read i
 playwright's browser binary is missing, install the version pinned to the bun-cached
 `playwright-core`: `bunx playwright@<ver> install chromium`.
 
+**Asserting layout geometry — a verify script, not a component test.** The guidance above is about
+LOOKING at a rendered cockpit. ASSERTING on its box model is a separate job with a separate tool.
+The component suite runs under happy-dom, which has **no layout engine**: `clientHeight`,
+`scrollHeight`, and `getBoundingClientRect()` all read 0 there (measured mt#3338), so a
+"this container scrolls" assertion cannot be written in it — only a class-name surrogate, which
+pins the CSS shape that produced correct geometry and cannot catch a regression that leaves those
+classes intact while breaking the layout (a new wrapper element, a changed breakpoint, an ancestor
+that starts clipping). That is exactly the defect class mt#3335 was.
+
+For those, add a `scripts/verify-*.ts` that drives the SAME shared dev chromium over CDP —
+`scripts/verify-cockpit-shell-scroll.ts` (mt#3338) and `scripts/verify-conversation-live-tail.ts`
+(mt#3376/mt#3445) are the worked examples, and `scripts/README.md` §Running the browser-driving
+scripts carries their shared prerequisites. This EXTENDS the chrome-devtools/CDP posture above
+rather than departing from it: same browser, same attachment, `Runtime.evaluate` instead of a
+screenshot. Playwright remains the fallback for neither of these jobs.
+
+Which to reach for:
+
+| Question | Tool |
+| --- | --- |
+| Does this render / behave / call the right handler? | component test (`bun run test:components`) |
+| Does this have the right box model — does it scroll, overflow, fit? | `scripts/verify-*.ts` over CDP |
+| What does this look like right now? | chrome-devtools-mcp on the shared canary |
+
+These verify scripts are local/operator-run, not CI jobs — CI has neither a cockpit daemon nor a
+dev chromium. Each exits 0 with a `SKIP:` line when its prerequisites are absent, so running one
+unattended is safe.
+
 **react-flow height trap:** the `<ReactFlow>` container needs an EXPLICIT
 height. Under the cockpit shell (sticky `h-14` AppHeader + `min-h-screen`
 Layout root), a `h-full` page collapses to `height:0` — a blank canvas that

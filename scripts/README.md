@@ -78,16 +78,24 @@ to one task; the task ID in the name or header is the primary cross-reference.
 | `smoke-wrong-id-space.ts`                | cockpit wrong-id-space fail-loud surface (mt#2525 / mt#2420)                                  |
 | `live-verify-presence-write.ts`          | `writeTaskClaim` per-call repo fallback path (mt#2567)                                        |
 | `test-provenance-e2e.ts`                 | `AuthorshipJudge` against a real Claude Code JSONL transcript via the Anthropic API (mt#1081) |
+| `verify-cockpit-shell-scroll.ts`         | cockpit shell scroll/geometry invariants in a real browser (mt#3335 / mt#3338)                |
 | `verify-conversation-live-tail.ts`       | conversation live-tail scroll behavior in a real browser (mt#3376 / mt#3445)                  |
 | `verify-conversation-renderer.ts`        | conversation-element parser against a real session snapshot (mt#2374)                         |
 | `verify-mt1510-identity-routing.ts`      | `identity` parameter on `session_pr_review_submit` (mt#1510)                                  |
 | `verify-mt1721-detectors-mcp.ts`         | `registerDetectorsTools` MCP surface (mt#1721)                                                |
 
-### Running `verify-conversation-live-tail.ts`
+### Running the browser-driving scripts
 
-The only script here that drives a real browser, so its prerequisites are worth stating
-(everything below is checked at startup — the script exits 0 with a `SKIP:` line rather than
-failing when a precondition is absent):
+`verify-cockpit-shell-scroll.ts` and `verify-conversation-live-tail.ts` are the scripts here that
+drive a real browser, so their shared prerequisites are worth stating (everything below is checked
+at startup — each script exits 0 with a `SKIP:` line rather than failing when a precondition is
+absent).
+
+They exist because the component suite runs under happy-dom, which has **no layout engine**: every
+`clientHeight` / `scrollHeight` / `getBoundingClientRect()` reads 0 there, so no geometry assertion
+can be written in it. Reach for one of these when the thing you need to prove is a real box-model
+property; reach for a component test for anything else. For LOOKING at a rendered cockpit (rather
+than asserting on it), use chrome-devtools-mcp per `src/cockpit/CLAUDE.md` §Operator dev loop.
 
 1. **A running cockpit, started WITHOUT `--no-dev-chromium`** — that flag disables exactly the
    dev chromium the script attaches to:
@@ -106,7 +114,13 @@ failing when a precondition is absent):
    `curl -s localhost:9222/json/version`.
 
 3. **A cockpit auth token at `~/.local/state/minsky/cockpit-token`** — written by the cockpit
-   daemon on first start; no manual step. The script reads it for the driven-session API calls.
+   daemon on first start; no manual step. Needed only by `verify-conversation-live-tail.ts`, which
+   reads it for the driven-session API calls; `verify-cockpit-shell-scroll.ts` makes no authed
+   request and does not require it.
+
+Note that `verify-cockpit-shell-scroll.ts` reads the cockpit's identity from **`/api/health`**, not
+`/health` — the latter falls through to the SPA's `index.html` and answers 200 with HTML, which
+would satisfy a bare reachability check and then fail to parse as JSON.
 
 Overrides: `MINSKY_COCKPIT_URL` (default `http://127.0.0.1:3737`) and `MINSKY_CDP_URL` (default
 `http://127.0.0.1:9222`).
