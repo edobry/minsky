@@ -57,6 +57,12 @@
 import { readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { toBunTestPath } from "./run-related-tests";
+import {
+  spawnWithWatchdog,
+  resolveWatchdogBudgetMs,
+  formatWatchdogTimeout,
+  WATCHDOG_BUDGETS_MS,
+} from "./spawn-with-watchdog";
 
 export const ROOTS = [
   "./src",
@@ -168,7 +174,12 @@ if (import.meta.main) {
   }
 
   const extraArgs = process.argv.slice(2);
-  const proc = Bun.spawnSync(
+  // mt#3156: `--timeout=15000` is bun's PER-TEST timer and never fires when a
+  // test blocks the event loop synchronously. This wall-clock watchdog bounds
+  // the WHOLE run, and escalates SIGTERM -> SIGKILL so a child that ignores the
+  // first signal is still reaped rather than orphaned at 100% CPU.
+  const budgetMs = resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.MAIN);
+  const result = await spawnWithWatchdog(
     [
       "bun",
       "test",
@@ -178,7 +189,10 @@ if (import.meta.main) {
       ...extraArgs,
       ...toBunTestArgs(files),
     ],
-    { stdio: ["ignore", "inherit", "inherit"] }
+    { budgetMs, inheritStdio: true }
   );
-  process.exit(proc.exitCode ?? 1);
+  if (result.timedOut) {
+    console.error(`\n::error::${formatWatchdogTimeout("run-tests-main.ts", budgetMs, result)}`);
+  }
+  process.exit(result.exitCode);
 }

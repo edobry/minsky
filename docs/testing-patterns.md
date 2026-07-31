@@ -498,3 +498,84 @@ runner logs the shard count and per-shard timing on every invocation.
 - `scripts/run-tests-sharded-prototype.ts` — the merged prototype (mt#2981) this production
   runner hardens; its own file docstring explains why it stays as a historical reference
   rather than being extended in place.
+
+## mt#3156: test-runner wall-clock watchdog (`MINSKY_TEST_WATCHDOG_MS`)
+
+### What it does
+
+Every `bun test` child spawned by the runner chain now runs under a wall-clock budget. On
+expiry the runner sends `SIGTERM`, waits a grace period, then escalates to `SIGKILL`, and the
+run **fails closed** — a timed-out run always exits non-zero and can never be counted as a pass.
+
+Implementation: `scripts/spawn-with-watchdog.ts`. Wired into `run-tests-gated.ts`,
+`run-tests-main.ts`, and `run-tests-mcp-isolated.ts`. `run-tests-main-sharded.ts` already spawns
+with `killSignal: "SIGKILL"` and needs nothing.
+
+### Why it exists
+
+`--timeout=15000` is bun's **per-test** timer. A test that blocks the event loop synchronously
+never lets that timer fire, so the whole run hangs with no upper bound. Three occurrences
+(2026-07-24, 2026-07-30 x2) left `bun test` processes spinning at 100% CPU indefinitely — the
+worst pair ran 2h20m each, and in the third occurrence four such processes were burning ~400% of
+a 16-core host at once. Killing them dropped the load average from 85 to 7.3.
+
+### Why the budget is not just `Bun.spawnSync({ timeout })`
+
+Because that option does not enforce. Measured — two children identical except for a no-op
+`SIGTERM` handler, both under `timeout: 2000, killSignal: "SIGTERM"`:
+
+```
+no SIGTERM handler: elapsed=2005ms   exitCode=null  signal=SIGTERM   success=false
+ignores SIGTERM:    elapsed=25011ms  exitCode=0     signal=undefined success=true
+```
+
+A child that ignores `SIGTERM` runs past its budget to completion and is reported as
+`exitCode: 0, success: true` — a hung run that reads as a PASS, which is worse than a visible
+hang. `child_process.exec` has the identical defect. `spawnSync` also blocks the JS thread, so
+no in-process timer can fire to send the second signal; hence async `Bun.spawn` with an explicit
+two-stage kill.
+
+### Default budgets
+
+| Runner                                    | Budget | Observed normal runtime |
+| ----------------------------------------- | ------ | ----------------------- |
+| `run-tests-gated.ts` -> one runner script | 20 min | — (outermost)           |
+| `run-tests-main.ts` -> `bun test`         | 15 min | ~103s (mt#3122)         |
+| `run-tests-mcp-isolated.ts` -> one file   | 5 min  | seconds                 |
+
+Budgets are ordered **outer > inner** deliberately. The inner watchdog must fire first so the
+actual `bun test` leaf is killed by its own runner; if the outer fired first it would kill the
+middle process and orphan the leaf — the `PPID 1` orphans that motivated this work. The ordering
+is asserted by a test, not just by this table.
+
+### Overriding the budget
+
+```bash
+MINSKY_TEST_WATCHDOG_MS=1800000 bun scripts/run-tests-gated.ts   # 30 min
+```
+
+Applies to whichever runner reads it. Non-numeric, zero, and negative values are **ignored** in
+favor of the default — an unbounded run is the bug this exists to prevent, so the override
+cannot be used to disable the watchdog.
+
+### What a timeout looks like
+
+```
+::error::run-tests-main.ts exceeded its 900s wall-clock watchdog (ran 901s) and was terminated
+with SIGKILL after ignoring SIGTERM. This is a HANG, not a test failure — see mt#3156.
+Raise the budget with MINSKY_TEST_WATCHDOG_MS=<ms> if the run is legitimately slow.
+```
+
+Read it as a **hang**, not a failing assertion: no test reported failure, the run was stopped
+because it exceeded its budget. `SIGKILL after ignoring SIGTERM` additionally means the child
+did not respond to a polite termination request. If the run was legitimately slow (a cold cache,
+a heavily loaded host), raise the budget; if it was not, you have found a hang worth
+investigating — see mt#3156 for the reproduction history.
+
+### Known limitation
+
+The watchdog kills its **direct child**, not a process group: `process.kill(-pid, ...)` requires
+the child to lead its own group, and Bun's spawned children inherit the parent's group, so a
+group kill would signal the runner's own group. The leaf-first budget ordering above covers the
+observed chain instead. A grandchild spawned by something other than these runners is not
+covered.

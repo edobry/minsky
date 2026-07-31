@@ -15,20 +15,6 @@ tags:
 - Max 400 lines per file (warn), 1500 (error)
 - Custom ESLint rules (`eslint-rules/`) enforce architectural patterns + deploy-boundary safety.
   Full detail, path-scoped: `eslint-custom-rules.mdc`.
-  - `custom/no-unregistered-minsky-env-var` (mt#1788) — in `src/`/`.claude/hooks/` (scoped; see
-    rule), every `process.env.MINSKY_*` read must be registered in
-    `environmentMappings`/`HOOK_ONLY_ENV_VARS`.
-  - `custom/no-hand-rolled-command-params` (mt#2779) — command execute handlers derive param
-    types from `InferParams<typeof <map>>`, never hand-rolled `*Params`.
-  - `custom/no-entity-id-param-drift` (mt#2780) — command params maps must declare the family's
-    canonical entity-id name, not the alias alone.
-  - `custom/require-hook-domain-bootstrap` (mt#3046; widened mt#3178) — `.minsky/hooks/**` and
-    `scripts/**` files reaching persistence must bootstrap first: hooks import
-    `ensureHookDomainBootstrap`; scripts may instead use a static `import "reflect-metadata"`.
-  - `custom/no-direct-service-construction` (mt#911; DI-fallback-shape check added mt#2642) —
-    bans `<identifier> ?? create<PascalCase>(...)` / `<identifier>?.<prop> ?? new
-    <PascalCase>(...)` (ADR-026) across `src/` and `packages/domain/src/`, plus the original
-    named-list check in the adapter layer.
   - `custom/no-silent-catch` (mt#3299) — every `catch` block must rethrow, log, or carry an
     `// intentional-swallow: <reason>` comment. Registered `off` (not yet active): this repo's
     zero-tolerance ESLint warning gate (mt#1097, no override) makes `warn` unshippable with 1462

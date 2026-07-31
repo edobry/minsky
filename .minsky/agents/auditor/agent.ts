@@ -11,6 +11,15 @@ export default defineAgent({
     "Glob",
     "Grep",
     "Bash",
+    // mt#3381: same rationale as the reviewer agent — this agent runs read-only
+    // git commands via Bash to verify an implementation against a spec, and
+    // `block-git-gh-cli` denies them while naming replacements it does not hold.
+    // Read-only only; no mutation tool is added.
+    "mcp__minsky__git_log",
+    "mcp__minsky__git_diff",
+    "mcp__minsky__git_status",
+    // mt#3401: see the reviewer agent — same missed read-only command.
+    "mcp__minsky__git_blame",
     "mcp__minsky__tasks_get",
     "mcp__minsky__tasks_spec_get",
     "mcp__github__get_file_contents",
