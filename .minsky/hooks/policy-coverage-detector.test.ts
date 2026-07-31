@@ -230,3 +230,51 @@ describe("appendCalibrationRecordIfLoggable (mt#2670 exception-only logging)", (
     expect(JSON.parse(lines[2] ?? "")).toMatchObject({ outcome: OUTCOME_UNCOVERED_BLOCKED });
   });
 });
+
+describe("corpus root is independent of the invoking cwd (mt#3393)", () => {
+  /**
+   * The regression this pins is not "the log went to the wrong file" — it is
+   * that the SAME root fed `loadPolicyCorpus`, so a cwd with no repo above it
+   * loaded an EMPTY corpus and every action came back `uncovered`. That
+   * silently biased the calibration data the log-only -> block graduation
+   * reads. Observed pre-fix: 13 of 13 records under cleaned-up session paths
+   * were `uncovered`, against `covered` in the real-clone logs.
+   *
+   * Spawning the hook (rather than importing a helper) is deliberate: the
+   * defect lived in the entrypoint's own wiring, so only the entrypoint can
+   * demonstrate it. `tempRoot` is a bare mkdtemp directory with no `.git`
+   * anywhere above it — the cleaned-up-session shape.
+   */
+  it("returns a covered verdict when cwd is a directory with no repo above it", async () => {
+    const hookPath = join(import.meta.dir, "policy-coverage-detector.ts");
+    const payload = JSON.stringify({
+      tool_name: "Write",
+      tool_input: {
+        file_path: join(tempRoot, "sample.ts"),
+        content: 'export const message = "Hello there, this is a user facing message string";',
+      },
+      cwd: tempRoot,
+      session_id: "mt3393-corpus-root-test",
+    });
+
+    const proc = Bun.spawn(["bun", hookPath], {
+      cwd: tempRoot,
+      stdin: new TextEncoder().encode(payload),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
+
+    // Pre-fix this read "log-only: would block" — the empty-corpus verdict.
+    expect(stdout).toContain("Action covered by policy");
+
+    // The other half of the same defect: the root that fed the corpus also
+    // fed the log path, so pre-fix this invocation created a stray
+    // `.minsky/policy-coverage-calibration.jsonl` under the temp cwd. Assert
+    // its absence explicitly — the verdict assertion above would still pass
+    // if only the corpus half were fixed.
+    expect(existsSync(join(tempRoot, ".minsky", "policy-coverage-calibration.jsonl"))).toBe(false);
+    expect(existsSync(join(tempRoot, ".minsky"))).toBe(false);
+  });
+});
