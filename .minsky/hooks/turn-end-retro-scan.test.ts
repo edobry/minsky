@@ -24,6 +24,12 @@ import {
 import type { DispatchContext } from "./registry";
 import type { TranscriptLine } from "./transcript";
 
+// mt#3408: these suites exercise the DETERMINISTIC Rung-1 behaviour of `run()`.
+// Rung 2 is switched off here so no test reaches for a live embedding provider;
+// nomination has its own coverage with injected deps (see the Rung-2 describe
+// block below and packages/domain/src/detectors/embedding-nomination.test.ts).
+process.env.MINSKY_DISABLE_RUNG2_NOMINATION = "1";
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -84,12 +90,12 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("run() — firing and suppression", () => {
-  test("unaddressed R1 phrase in the final turn -> advisory + calibration (channel stop)", () => {
+  test("unaddressed R1 phrase in the final turn -> advisory + calibration (channel stop)", async () => {
     const lines = [
       userPrompt("deploy the service", "u-open"),
       assistantText(`Deploying now. ${DEPLOY_MISTAKE} Continuing.`),
     ];
-    const outcome = run(STOP_INPUT, makeCtx(lines), storeDir);
+    const outcome = await run(STOP_INPUT, makeCtx(lines), storeDir);
     expect(outcome).not.toBeNull();
     expect(outcome?.additionalContext).toContain("turn-end-retro-scan");
     expect(outcome?.additionalContext).toContain("R1");
@@ -102,53 +108,53 @@ describe("run() — firing and suppression", () => {
   // corpus gap is a two-surface gap — and the corpus fix must be provably a
   // two-surface fix. This pins the reversed-order R3 commitment (the 2026-07-23
   // admission) firing through the Stop path, not just the prompt-time one.
-  test("reversed-order R3 commitment fires through the Stop path (mt#3098)", () => {
+  test("reversed-order R3 commitment fires through the Stop path (mt#3098)", async () => {
     const lines = [
       userPrompt("give me a handoff", "u-3098"),
       assistantText("I'll invoke it rather than improvise going forward."),
     ];
-    const outcome = run(STOP_INPUT, makeCtx(lines), storeDir);
+    const outcome = await run(STOP_INPUT, makeCtx(lines), storeDir);
     expect(outcome).not.toBeNull();
     expect(outcome?.additionalContext).toContain("R3");
     expect(outcome?.calibration?.channel).toBe("stop");
   });
 
-  test("same-turn /retrospective invocation -> silent", () => {
+  test("same-turn /retrospective invocation -> silent", async () => {
     const lines = [
       userPrompt("deploy the service"),
       assistantText(DEPLOY_MISTAKE),
       retroSkillInvocation(),
     ];
-    expect(run(STOP_INPUT, makeCtx(lines), storeDir)).toBeNull();
+    expect(await run(STOP_INPUT, makeCtx(lines), storeDir)).toBeNull();
   });
 
-  test("no trigger phrase -> silent", () => {
+  test("no trigger phrase -> silent", async () => {
     const lines = [userPrompt("deploy"), assistantText("Deployed cleanly, all checks green.")];
-    expect(run(STOP_INPUT, makeCtx(lines), storeDir)).toBeNull();
+    expect(await run(STOP_INPUT, makeCtx(lines), storeDir)).toBeNull();
   });
 
-  test("quoted phrase (backticks) is elided -> silent", () => {
+  test("quoted phrase (backticks) is elided -> silent", async () => {
     const lines = [
       userPrompt("explain the detector"),
       assistantText("The pattern `I made a mistake` is one of the R1 triggers."),
     ];
-    expect(run(STOP_INPUT, makeCtx(lines), storeDir)).toBeNull();
+    expect(await run(STOP_INPUT, makeCtx(lines), storeDir)).toBeNull();
   });
 
-  test("last_assistant_message is scanned even when the transcript lags (empty turn)", () => {
+  test("last_assistant_message is scanned even when the transcript lags (empty turn)", async () => {
     const input: StopHookInput = {
       ...STOP_INPUT,
       last_assistant_message: "I made a mistake in the migration ordering.",
     };
-    const outcome = run(input, makeCtx([userPrompt("migrate")]), storeDir);
+    const outcome = await run(input, makeCtx([userPrompt("migrate")]), storeDir);
     expect(outcome).not.toBeNull();
     expect(outcome?.additionalContext).toContain("R1");
   });
 
-  test("override env var -> audit line only, no advisory", () => {
+  test("override env var -> audit line only, no advisory", async () => {
     process.env[OVERRIDE_ENV_VAR] = "1";
     const lines = [userPrompt("x"), assistantText("I made a mistake here.")];
-    const outcome = run(STOP_INPUT, makeCtx(lines), storeDir);
+    const outcome = await run(STOP_INPUT, makeCtx(lines), storeDir);
     expect(outcome?.additionalContext).toBeUndefined();
     expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
   });
@@ -159,9 +165,9 @@ describe("run() — firing and suppression", () => {
 // ---------------------------------------------------------------------------
 
 describe("run() — dedup", () => {
-  test("second Stop invocation for the same turn -> silent (no continuation ping-pong)", () => {
+  test("second Stop invocation for the same turn -> silent (no continuation ping-pong)", async () => {
     const lines = [userPrompt("deploy", "u-open"), assistantText(DEPLOY_MISTAKE)];
-    const first = run(STOP_INPUT, makeCtx(lines), storeDir);
+    const first = await run(STOP_INPUT, makeCtx(lines), storeDir);
     expect(first?.additionalContext).toBeDefined();
 
     // The continuation appended more assistant text; the flagged phrase must
@@ -172,13 +178,17 @@ describe("run() — dedup", () => {
         "Acknowledged — judged not retro-worthy because the phrase describes upstream code."
       ),
     ];
-    const second = run({ ...STOP_INPUT, stop_hook_active: true }, makeCtx(continued), storeDir);
+    const second = await run(
+      { ...STOP_INPUT, stop_hook_active: true },
+      makeCtx(continued),
+      storeDir
+    );
     expect(second).toBeNull();
   });
 
-  test("a NEW phrase (different family) appearing in the continuation still fires once", () => {
+  test("a NEW phrase (different family) appearing in the continuation still fires once", async () => {
     const lines = [userPrompt("deploy", "u-open"), assistantText(DEPLOY_MISTAKE)];
-    run(STOP_INPUT, makeCtx(lines), storeDir);
+    await run(STOP_INPUT, makeCtx(lines), storeDir);
     // NOTE: detectTriggerPhrases yields at most ONE match per family (first
     // pattern wins), so a second R1 phrase in the same turn is implicitly
     // masked by the flagged first one — the fresh signal here must be a
@@ -187,17 +197,23 @@ describe("run() — dedup", () => {
       ...lines,
       assistantText("Going forward I'll double-check the config target."),
     ];
-    const second = run({ ...STOP_INPUT, stop_hook_active: true }, makeCtx(continued), storeDir);
+    const second = await run(
+      { ...STOP_INPUT, stop_hook_active: true },
+      makeCtx(continued),
+      storeDir
+    );
     expect(second).not.toBeNull();
     expect(second?.additionalContext).toContain("R3");
     // And a THIRD invocation is silent again.
-    expect(run({ ...STOP_INPUT, stop_hook_active: true }, makeCtx(continued), storeDir)).toBeNull();
+    expect(
+      await run({ ...STOP_INPUT, stop_hook_active: true }, makeCtx(continued), storeDir)
+    ).toBeNull();
   });
 
-  test("store roundtrip: the flag the guard writes is keyed to the opening prompt", () => {
+  test("store roundtrip: the flag the guard writes is keyed to the opening prompt", async () => {
     const opening = userPrompt("deploy", "u-open");
     const lines = [opening, assistantText(DEPLOY_MISTAKE)];
-    run(STOP_INPUT, makeCtx(lines), storeDir);
+    await run(STOP_INPUT, makeCtx(lines), storeDir);
     const flagged = readFlagged(STOP_INPUT.session_id, storeDir);
     expect(flagged.has(flagKey(turnKeyFor(opening), "R1", "I made a mistake"))).toBe(true);
   });
@@ -208,7 +224,7 @@ describe("run() — dedup", () => {
 // ---------------------------------------------------------------------------
 
 describe("turn-end-scan-store", () => {
-  test("read of an absent store fails open to empty; write/read/clear roundtrip", () => {
+  test("read of an absent store fails open to empty; write/read/clear roundtrip", async () => {
     expect(readFlagged("nope", storeDir).size).toBe(0);
     writeFlagged("s1", new Set(["a|R1|x"]), storeDir);
     expect(readFlagged("s1", storeDir).has("a|R1|x")).toBe(true);
@@ -216,7 +232,7 @@ describe("turn-end-scan-store", () => {
     expect(readFlagged("s1", storeDir).size).toBe(0);
   });
 
-  test("turnKeyFor prefers uuid, falls back to timestamp, then session-start", () => {
+  test("turnKeyFor prefers uuid, falls back to timestamp, then session-start", async () => {
     expect(turnKeyFor({ uuid: "u", timestamp: "t" } as TranscriptLine)).toBe("u");
     expect(turnKeyFor({ timestamp: "t" } as TranscriptLine)).toBe("t");
     expect(turnKeyFor(undefined)).toBe("session-start");
