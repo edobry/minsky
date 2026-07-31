@@ -15,8 +15,9 @@ decisions. Gates + compile workflow: `hook-files`. Narration: `docs/architecture
 `additionalContext` into a single `hookSpecificOutput` — you do not get N separate injections
 (mt#3394 was filed on the opposite assumption and its planning pass falsified it). Order is by
 the registration's optional `contextPriority` (higher first; equal keeps registry order), and the
-block is capped at `MERGED_CONTEXT_BUDGET_CHARS` (4538, derived from the registry's own
-`attentionCost` annotations). Over budget, the lowest-priority fragments are dropped and NAMED in
+block is capped at `MERGED_CONTEXT_BUDGET_CHARS` (`.minsky/hooks/dispatcher.ts`), derived from the
+registry's own `attentionCost` annotations — read the constant rather than a figure quoted here,
+which goes stale every time the corpus is trimmed (it did within a day of mt#3479's re-derivation). Over budget, the lowest-priority fragments are dropped and NAMED in
 a trailing notice — never silently — and a dropped fragment still writes its calibration record,
 so measurement is unaffected. Separate events still mean separate blocks: a `Stop` observer and a
 `UserPromptSubmit` observer firing on the same turn produce two.

@@ -313,6 +313,18 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 // Reminder builder
 // ---------------------------------------------------------------------------
 
+/**
+ * Advisory-text provenance, kept here rather than in the injection per
+ * `.minsky/rules/guard-feedback-authoring.mdc` (mt#3485): the detector is
+ * mt#2197 and the anti-pattern it targets is memory `30f5d164` — narrating a
+ * result (PR created, review approved, merged, build clean, HTTP 200) before
+ * the result is in hand.
+ *
+ * The claim taxonomy that used to be enumerated inline lives in
+ * `CLAIM_PATTERNS` above, which is both the authority and the source of the
+ * matched-claim evidence lines — restating it in the injection told the agent
+ * nothing the evidence lines did not already say more precisely.
+ */
 function buildReminder(matches: ClaimMatch[]): string {
   const lines = matches
     .map(
@@ -322,24 +334,18 @@ function buildReminder(matches: ClaimMatch[]): string {
     .join("\n");
 
   return [
-    "**Possible pre-narrated / fabricated tool outcome (mt#2197 / pre-narration-detector.ts)**",
-    "",
-    "The previous assistant turn asserted a concrete tool outcome, but no matching",
-    "tool call for that outcome appears in the same turn. This is the anti-pattern",
-    "in memory 30f5d164: narrating a result (PR created, review approved, merged,",
-    "build clean, HTTP 200) before the result is in hand.",
+    "[pre-narration-detector] The previous turn asserted a tool outcome with no",
+    "matching tool call in the same turn.",
     "",
     "**Matched claims:**",
     lines,
     "",
-    "**Required next action:** before restating any of these outcomes, run the",
-    "minting tool and READ its real result this turn. Never state an outcome",
-    "(created / approved / merged / built clean / tests pass / HTTP status) in chat",
-    "OR in durable artifacts before the tool result is in hand. If the outcome did",
-    "occur in an earlier turn, cite the tool result you are relying on.",
+    "Run the minting tool and READ its real result this turn before restating the",
+    "outcome — in chat or in a durable artifact. If it did occur in an earlier turn,",
+    "cite the tool result you are relying on.",
     "",
-    "If the claim was legitimate — the tool ran in an earlier turn, or the phrase",
-    "was a quote or an example — no action is needed.",
+    "If the claim was legitimate — the tool ran earlier, or the phrase was a quote",
+    "or an example — no action is needed.",
   ].join("\n");
 }
 

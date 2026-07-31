@@ -1420,16 +1420,28 @@ describe("composeAdditionalContext (mt#3394)", () => {
     const size = (name: string) =>
       annotated.find((r) => r.name === name)?.attentionCost?.denialMessageSizeChars ?? 0;
 
+    // mt#3485 moved `inject-dispatch-watchdog` OUT of this list. It is
+    // registered always-on and runs every turn, but `formatDispatchWatchdogState`
+    // returns null for both a missing cache and an empty flag set, so it
+    // contributes NO chars on an ordinary turn — counting it here modelled a
+    // per-turn floor ~1800 chars heavier than any real turn. It is now modelled
+    // where it belongs, as the largest conditional detector, which the
+    // top-five selection below picks up automatically.
     const alwaysOnNames = [
       "inject-current-time",
       "inject-git-state",
       "inject-prod-state",
-      "inject-dispatch-watchdog",
       "memory-search",
     ];
     // Every always-on injector must still be present in the registry; a typo or
     // a rename here would silently shrink the modelled turn to a passing one.
     for (const name of alwaysOnNames) expect(size(name)).toBeGreaterThan(0);
+
+    // Pin the reclassification itself: the watchdog must be modelled as a
+    // conditional detector, not silently dropped from the turn altogether.
+    // Without this, deleting it from `alwaysOnNames` and forgetting it exists
+    // would also pass.
+    expect(size("inject-dispatch-watchdog")).toBeGreaterThan(0);
 
     const topFiveConditional = annotated
       .filter((r) => !alwaysOnNames.includes(r.name))

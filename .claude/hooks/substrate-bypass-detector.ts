@@ -679,6 +679,33 @@ interface MatchedSurface {
   canonicalSubstrate: string;
 }
 
+/**
+ * One imperative line per bypass surface, rendered ONLY for surfaces that
+ * actually matched (mt#3485).
+ *
+ * The evidence line already names the concrete `canonicalSubstrate` to call, so
+ * these lines carry the part evidence cannot: that describing the action is not
+ * performing it.
+ *
+ * Provenance, kept here rather than in the injection per
+ * `.minsky/rules/guard-feedback-authoring.mdc`: the pattern is tracked in memory
+ * `f6607043-be47-43e6-baec-47dbe40221c4` and corpus rule `decision-defaults.mdc
+ * §Build vs buy`; the passive-outcome-as-mechanism surface originates in the
+ * mt#2056 closeout (2026-05-23), and the detector itself in mt#2020.
+ */
+const REMEDIATION_BY_SURFACE: Record<string, string> = {
+  "verbal-commitment":
+    "Call the named substrate now with the intended content — describing what you would save or file is not doing it.",
+  "skill-bypass":
+    "Invoke the named skill via the `Skill` tool — inline headers are not a substitute for the skill's discipline.",
+  "db-substrate-bypass":
+    "Read the named DB tables through the MCP tool surface — do NOT read JSONL files directly.",
+  "passive-outcome-as-mechanism":
+    'Name the actor, the trigger, and the execution path. If none exist, say "there is no mechanism" — passive framing is not one.',
+  "operator-instruction-after-merge":
+    "Encode the instruction in the substrate that will enforce it, not in prose the operator has to remember.",
+};
+
 function buildReminder(surfaces: MatchedSurface[]): string {
   const surfaceLines = surfaces
     .map(
@@ -687,32 +714,28 @@ function buildReminder(surfaces: MatchedSurface[]): string {
     )
     .join("\n");
 
+  // Only the MATCHED surfaces' remediation renders (mt#3485). Emitting all
+  // five bullets on every fire cost 768 of the builder's 1518 measured chars on
+  // a single-surface fire — instructions for surfaces the turn never tripped,
+  // which is exactly what the authoring standard's quoted-evidence part
+  // replaces. Deduped because two surfaces can match on the same turn.
+  const remediation = [...new Set(surfaces.map((s) => REMEDIATION_BY_SURFACE[s.surface]))]
+    .filter((line): line is string => typeof line === "string")
+    .map((line) => `- ${line}`)
+    .join("\n");
+
   return [
-    "**Substrate-bypass detected (mt#2020 / substrate-bypass-detector.ts)**",
-    "",
-    "The previous assistant turn made a verbal commitment or used inline structure",
-    "that bypasses a canonical Minsky substrate tool. This is the anti-pattern",
-    "tracked in memory f6607043-be47-43e6-baec-47dbe40221c4 and corpus rule",
-    "`decision-defaults.mdc §Build vs buy`.",
+    "[substrate-bypass-detector] The previous turn committed to a substrate action",
+    "verbally, or used inline structure, instead of calling the canonical tool.",
     "",
     "**Matched surfaces:**",
     surfaceLines,
     "",
-    "**Required next action (call the bypassed canonical substrate NOW):**",
-    "- For verbal memory commitments: call `mcp__minsky__memory_create` or",
-    "  `mcp__minsky__memory_update` with the intended content — do NOT just",
-    "  describe the memory you said you'd save.",
-    "- For verbal task-filing commitments: call `mcp__minsky__tasks_create`",
-    "  — do NOT just describe the task you said you'd file.",
-    "- For inline retrospective structure: invoke the `/retrospective` skill",
-    '  via the `Skill` tool with `skill: "retrospective"` — inline headers',
-    "  are not a substitute for the durable structural-fix discipline.",
-    "- For DB-substrate bypass: use the `agent_transcripts` / `agent_transcript_turns`",
-    "  DB tables via the MCP tool surface — do NOT read JSONL files directly.",
-    "- For passive-outcome-as-mechanism: state the actor, the trigger, and the",
-    '  execution path explicitly. If none exist, say so: "there is no mechanism."',
-    '  Passive framing ("it\'ll happen naturally", "over time") is not a mechanism.',
-    "  Originating incident: mt#2056 closeout, 2026-05-23.",
+    "**Required next action:**",
+    remediation,
+    "",
+    "If the phrase was a quote, an example, or a report of a call you already made",
+    "this turn, no action is needed.",
   ].join("\n");
 }
 

@@ -343,7 +343,13 @@ describe("pre-narration-detector E2E", () => {
     );
     const { exitCode, stdout } = await invokeHook(makeHookInput(p));
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("pre-narrated");
+    // Updated expectation (mt#3485): the reminder's first line is now the
+    // standard's guard-id header, `[pre-narration-detector] ...`, replacing the
+    // old "**Possible pre-narrated / fabricated tool outcome (mt#2197 ...)**"
+    // banner whose provenance moved to buildReminder's doc comment. Asserting
+    // the guard-id header keeps this test's intent — "the guard emitted its
+    // reminder" — pinned to the part of the shape that is now mandated.
+    expect(stdout).toContain("[pre-narration-detector]");
   });
 
   test("multi-round turn: 'PR created' claim + minting tool split by a tool_result → not flagged", async () => {
@@ -414,7 +420,8 @@ describe("run() (dispatcher-compatible)", () => {
       "utf8"
     );
     const outcome = run(makeHookInput(p), makeCtx(p));
-    expect(outcome?.additionalContext).toContain("pre-narrated");
+    // mt#3485: guard-id header replaces the old "pre-narrated" banner phrase.
+    expect(outcome?.additionalContext).toContain("[pre-narration-detector]");
     expect(outcome?.calibration).toBeDefined();
   });
 

@@ -537,12 +537,14 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-dispatch-watchdog").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
-    // mt#3479: raised 450 -> 1800 to match measurement, NOT because the guard
-    // needs the room. It renders one block per in-flight dispatch, so its size
-    // scales with fleet activity and the canary's 1668 is a sample, not a bound.
-    // The largest single contributor to the merged budget; first target of the
-    // deep-trim follow-up, mt#3485.
-    attentionCost: { denialMessageSizeChars: 1800, optionCount: 3 },
+    // mt#3485: 1800 -> 1450, and unlike every other annotation in this file
+    // this one is a genuine WORST-CASE BOUND rather than a canary sample. The
+    // banner now caps enumerated dispatches at MAX_ENUMERATED_FLAGS (5, with a
+    // "+N more" elision), so its size no longer scales without limit: measured
+    // 855 at one flag and 1362 at twelve, the latter being the ceiling for any
+    // flag count. Declared above that ceiling because this guard's annotation
+    // is the one the merged budget can least afford to understate.
+    attentionCost: { denialMessageSizeChars: 1450, optionCount: 3 },
     canary: {
       input: {},
       expects: "warn",
@@ -765,11 +767,15 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 15000,
     denyCapable: false,
     needsTranscript: true,
-    // mt#3479: raised 1000 -> 1600 to match measurement. Fixed-template text
-    // covering four distinct bypass surfaces, each with its own remediation —
-    // genuinely long, but long by accretion rather than necessity. Deep-trim
-    // follow-up target, mt#3485.
-    attentionCost: { denialMessageSizeChars: 1600, optionCount: 4 },
+    // mt#3485: 1600 -> 650 (measured 563 + headroom). The accretion the mt#3479
+    // note named is now located and removed: the builder used to emit ALL five
+    // remediation bullets on every fire, so 768 of its 1518 chars were
+    // instructions for surfaces the turn never tripped. It now renders only the
+    // matched surfaces' remediation, and the rationale + incident narration
+    // moved to REMEDIATION_BY_SURFACE's doc comment. Canary-sample convention,
+    // per this file's other annotations: a multi-surface fire renders more
+    // (measured 1254 at three surfaces) and is bounded by the merged budget.
+    attentionCost: { denialMessageSizeChars: 650, optionCount: 4 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -819,10 +825,13 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "pre-narration",
     denyCapable: false,
     needsTranscript: true,
-    // mt#3479: raised 500 -> 1100 to match measurement. Enumerates the claim
-    // taxonomy inline on every fire; the enumeration is the trim target, not the
-    // matched-claim evidence. Deep-trim follow-up target, mt#3485.
-    attentionCost: { denialMessageSizeChars: 1100, optionCount: 1 },
+    // mt#3485: 1100 -> 650 (measured 581 + headroom). The mt#3479 note here
+    // named the inline claim taxonomy as the trim target; measurement falsified
+    // that — the two enumerations were ~128 of 1029 chars (12%). The length was
+    // in the rationale paragraph and its restatement inside the directive, both
+    // of which the authoring standard keeps out of advisory text; they now live
+    // in buildReminder's doc comment. The matched-claim evidence is untouched.
+    attentionCost: { denialMessageSizeChars: 650, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [

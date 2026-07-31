@@ -178,7 +178,35 @@ export function formatAge(ms: number): string {
 }
 
 /**
+ * Cap on how many flagged dispatches the banner enumerates before eliding the
+ * rest as "+N more" (mt#3485).
+ *
+ * Grounded in observed cadence rather than a round number
+ * (`decision-defaults.mdc §Thresholds`): the largest simultaneous flag set this
+ * watchdog has produced is FOUR (mt#3193, four IN-REVIEW dispatches flagged in
+ * one run), and the largest dispatch fleet on record is the mt#2607 burndown's
+ * ~14 dispatches, of which 5 ended without a usable completion report. A cap of
+ * 5 therefore covers the worst observed simultaneous-flag event with headroom
+ * and bounds the worst observed fleet-wide case, while capping this guard's
+ * contribution to the merged injection budget — which is the point, since the
+ * banner's per-dispatch term is the only part of it that scales with input.
+ */
+const MAX_ENUMERATED_FLAGS = 5;
+
+/**
  * Format the dispatch-watchdog snapshot into the additionalContext payload.
+ *
+ * Advisory-text provenance (kept here, not in the injection, per
+ * `.minsky/rules/guard-feedback-authoring.mdc`): the recover/escalate branch
+ * semantics come from `tasks.dispatch-recover` (mt#2831), which captures
+ * session state (git-diff presence, commits-ahead-of-base, handoff.md),
+ * classifies per the subagent-outcome taxonomy, and enforces the 2-attempt
+ * bound server-side. `escalate` means that bound is reached — no further AUTO
+ * resume — NOT that the dispatch is dead; mt#3204 established that
+ * `dirtyFileCount` / `gitStatus` / `workspaceMtimeAgoMs` are the discriminating
+ * signals there, because push/PR/review activity goes quiet while an agent
+ * edits files it has not committed yet.
+ *
  * Three shapes:
  *   - null cache (no snapshot yet) → silent (no known-flaggable state; the
  *     producer may just not have ticked yet — this is NOT the same failure
@@ -206,32 +234,32 @@ export function formatDispatchWatchdogState(
     // stays diagnosable — e.g. distinguishing "nothing since dispatch start"
     // from "a commit landed but it's still stale" from "presence activity
     // was seen but it's still stale."
-    return (
-      `  - ${f.taskId} (${f.taskStatus}, agentType=${f.agentType}, session=${sidStr}): silent for ` +
-      `${age} (last activity ${f.lastActivityAt}, source=${f.activitySource})`
-    );
+    // `lastActivityAt` is deliberately NOT rendered (mt#3485): the header
+    // already carries `checkedAt` and this line carries the silent-for age, so
+    // the absolute timestamp is derivable from the two — and at ~40 chars on
+    // the one part of this banner that scales per dispatch, it was the most
+    // expensive derivable field in the whole injection.
+    return `  - ${f.taskId} (${f.taskStatus} ${f.agentType}, session=${sidStr}): silent ${age}, source=${f.activitySource}`;
   });
 
+  const shown = lines.slice(0, MAX_ENUMERATED_FLAGS);
+  if (lines.length > MAX_ENUMERATED_FLAGS) {
+    shown.push(
+      `  ... +${lines.length - MAX_ENUMERATED_FLAGS} more (${MAX_ENUMERATED_FLAGS} of ${lines.length} shown)`
+    );
+  }
+
   return (
-    `DISPATCH WATCHDOG: ${record.flags.length} in-flight subagent dispatch(es) appear stalled ` +
-    `(no commit / PR event / subagent_invocations activity past the stale window, last checked ` +
-    `${record.checkedAt}):\n${lines.join("\n")}\n` +
-    "Do NOT hand-roll a probe-then-decide sequence. Call the tasks.dispatch-recover MCP tool " +
-    "(mt#2831) with the flagged taskId — it captures session state (git-diff presence, " +
-    "commits-ahead-of-base, handoff.md), classifies the outcome per the subagent-outcome " +
-    "taxonomy, and enforces the 2-attempt bound server-side. Branch on its `status` field: " +
-    '`"healthy"` -> a false-positive flag, no action needed; `"recover"` -> redispatch the ' +
-    "returned `continuationPrompt` VERBATIM via the Agent tool into the SAME session (do not " +
-    'edit it, do not start a new session); `"escalate"` -> the 2-attempt bound is reached, ' +
-    "so no further AUTO-resume happens — but escalate is NOT a finding that the dispatch is " +
-    "dead. Before characterizing it to the operator, read the `escalation.probe` on the " +
-    "result: `dirtyFileCount` / `gitStatus` and `workspaceMtimeAgoMs` are the DISCRIMINATING " +
-    "signals (mt#3204). Push, PR and review activity go quiet while an agent edits files it " +
-    "has not committed yet, so they CANNOT tell 'working locally' from 'dead' — never report " +
-    "a dispatch as stuck on the strength of those alone, and relay the tool's hedge rather " +
-    "than flattening it into a confident claim; " +
-    '`"not-in-flight"` / `"no-dispatch"` -> nothing to recover. See the /orchestrate skill\'s ' +
-    '"Dispatch watchdog and resume protocol" section for the full walkthrough.'
+    `DISPATCH WATCHDOG: ${record.flags.length} in-flight subagent dispatch(es) silent past the ` +
+    `stale window (checked ${record.checkedAt}):\n${shown.join("\n")}\n` +
+    "Call the tasks.dispatch-recover MCP tool with each flagged taskId — do not hand-roll a " +
+    "probe-then-decide sequence — and branch on its `status`: `recover` -> redispatch the " +
+    "returned `continuationPrompt` VERBATIM via the Agent tool into the SAME session; " +
+    "`escalate` -> read `escalation.probe` first, because `dirtyFileCount` / `gitStatus` / " +
+    "`workspaceMtimeAgoMs` discriminate 'working locally' from 'dead' and push/PR/review " +
+    "quiet does not. If it returns `healthy` or `not-in-flight`, the flag was a false " +
+    "positive and no action is needed. Full protocol: the /orchestrate skill's \"Dispatch " +
+    'watchdog and resume protocol".'
   );
 }
 

@@ -1121,6 +1121,48 @@ describe("run() (dispatcher-compatible)", () => {
       delete process.env[OVERRIDE_ENV_VAR];
     }
   });
+
+  // mt#3485: the reminder used to emit remediation for ALL five bypass
+  // surfaces on every fire — 768 of its 1518 measured chars were instructions
+  // for surfaces the turn never tripped. These two tests are the pair: one
+  // asserts the matched surface's remediation is present, the other that the
+  // unmatched surfaces' remediation is absent. Without the second, rendering
+  // every bullet again would still pass.
+  describe("mt#3485: only the MATCHED surfaces' remediation renders", () => {
+    test("a single-surface fire carries that surface's remediation and no other's", () => {
+      const transcriptPath = writeTranscript([
+        makeUserLine(),
+        makeAssistantLine("I'd update memory X to reflect this new finding."),
+        makeUserLine(),
+      ]);
+      const text = run(makeHookInput(transcriptPath), makeCtx(transcriptPath))?.additionalContext;
+      expect(text).toContain("verbal-commitment");
+      expect(text).toContain("describing what you would save or file is not doing it");
+      // The other surfaces' remediation must NOT appear.
+      expect(text).not.toContain("Invoke the named skill");
+      expect(text).not.toContain("do NOT read JSONL files directly");
+      expect(text).not.toContain("there is no mechanism");
+    });
+
+    test("a two-surface fire carries BOTH matched remediations", () => {
+      const transcriptPath = writeTranscript([
+        makeUserLine(),
+        makeAssistantLine(
+          [
+            "I'd update memory X to reflect this.",
+            "",
+            "It'll happen naturally over time as a side effect.",
+          ].join("\n")
+        ),
+        makeUserLine(),
+      ]);
+      const text = run(makeHookInput(transcriptPath), makeCtx(transcriptPath))?.additionalContext;
+      expect(text).toContain("describing what you would save or file is not doing it");
+      expect(text).toContain("there is no mechanism");
+      // Still nothing for the surfaces that did not match.
+      expect(text).not.toContain("do NOT read JSONL files directly");
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
