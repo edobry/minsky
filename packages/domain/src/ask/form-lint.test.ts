@@ -478,21 +478,33 @@ describe("form-lint option-label checks (mt#3253)", () => {
     expect(checks).not.toContain(CHECK_LONG_OPTION_LABEL);
   });
 
-  test("an empty options array fires neither check", () => {
-    expect(computeFormWarnings({ kind: DECIDE, question: CLEAN_QUESTION, options: [] })).toEqual(
-      []
-    );
+  // These two tests assert the LABEL checks' omission convention, which
+  // mt#3477 explicitly preserves. They assert the absence of the two label
+  // checks rather than an empty warning set, because mt#3477's
+  // missing-decision-options DOES fire on this input — a different check
+  // asking a different question (see FormLintInput.options' doc comment).
+  test("an empty options array fires neither LABEL check", () => {
+    const checks = computeFormLintMatches({
+      kind: DECIDE,
+      question: CLEAN_QUESTION,
+      options: [],
+    }).map((m) => m.check);
+    expect(checks).not.toContain(CHECK_LONG_OPTION_LABEL);
+    expect(checks).not.toContain(CHECK_LETTER_PREFIXED);
   });
 
-  test("omitting options entirely behaves exactly as before (v1 back-compat)", () => {
+  test("omitting options entirely leaves the LABEL checks silent, as in v1", () => {
     const withoutField = computeFormLintMatches({ kind: DECIDE, question: CLEAN_QUESTION });
     const withUndefined = computeFormLintMatches({
       kind: DECIDE,
       question: CLEAN_QUESTION,
       options: undefined,
     });
-    expect(withoutField).toEqual([]);
-    expect(withUndefined).toEqual([]);
+    // Omission and an explicit undefined stay indistinguishable.
+    expect(withoutField.map((m) => m.check)).toEqual(withUndefined.map((m) => m.check));
+    for (const check of withoutField.map((m) => m.check)) {
+      expect([CHECK_LONG_OPTION_LABEL, CHECK_LETTER_PREFIXED]).not.toContain(check);
+    }
   });
 
   test("option checks compose with the v1 question checks rather than replacing them", () => {
@@ -506,5 +518,157 @@ describe("form-lint option-label checks (mt#3253)", () => {
     expect(checks).toEqual(
       [CHECK_INTERNAL_TOOL_ID, CHECK_LETTER_PREFIXED, CHECK_LONG_OPTION_LABEL].sort()
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// missing-decision-options check (mt#3477)
+//
+// The gap this closes: the two checks above read option LABELS and are
+// deliberately silent when `options` is absent, so nothing asserted option
+// PRESENCE. A `direction.decide` with its choices written as prose and no
+// options array passed all six prior checks and rendered in the cockpit with
+// no response buttons at all.
+// ---------------------------------------------------------------------------
+
+const CHECK_MISSING_DECISION_OPTIONS = "missing-decision-options" as const;
+
+/** The kinds that must NOT fire this check, with the reason each is excluded. */
+const NON_FIRING_KINDS: ReadonlyArray<readonly [AskKind, string]> = [
+  [AUTHORIZATION_APPROVE, "the surface renders built-in Approve/Deny without options"],
+  ["quality.review", "the surface renders built-in Approve/Request-changes without options"],
+  ["capability.escalate", "resolves by supplying a bigger model's output, not a selection"],
+  ["information.retrieve", "resolves by supplying a fact, not a selection"],
+  [STUCK_UNBLOCK, "resolves by supplying an unblock, not a selection"],
+  ["coordination.notify", "fire-and-forget; expects no response at all"],
+];
+
+describe("computeFormLintMatches — missing-decision-options check (mt#3477)", () => {
+  test("fires for direction.decide when options is absent", () => {
+    const matches = computeFormLintMatches({ kind: DIRECTION_DECIDE, question: CLEAN_QUESTION });
+    expect(matches.some((m) => m.check === CHECK_MISSING_DECISION_OPTIONS)).toBe(true);
+  });
+
+  test("fires for direction.decide when options is an empty array", () => {
+    const matches = computeFormLintMatches({
+      kind: DIRECTION_DECIDE,
+      question: CLEAN_QUESTION,
+      options: [],
+    });
+    expect(matches.some((m) => m.check === CHECK_MISSING_DECISION_OPTIONS)).toBe(true);
+  });
+
+  test("absent and empty produce the identical match set — neither renders a button", () => {
+    const absent = computeFormLintMatches({ kind: DIRECTION_DECIDE, question: CLEAN_QUESTION });
+    const empty = computeFormLintMatches({
+      kind: DIRECTION_DECIDE,
+      question: CLEAN_QUESTION,
+      options: [],
+    });
+    expect(absent.map((m) => m.check)).toEqual(empty.map((m) => m.check));
+  });
+
+  test("does not fire for direction.decide with one option", () => {
+    const matches = computeFormLintMatches({
+      kind: DIRECTION_DECIDE,
+      question: CLEAN_QUESTION,
+      options: [{ label: "Keep the current mechanism" }],
+    });
+    expect(matches.some((m) => m.check === CHECK_MISSING_DECISION_OPTIONS)).toBe(false);
+  });
+
+  test("a well-formed direction.decide with options produces zero warnings", () => {
+    expect(
+      computeFormWarnings({
+        kind: DIRECTION_DECIDE,
+        question: CLEAN_QUESTION,
+        options: [
+          { label: "GitHub Actions migrate-on-merge" },
+          { label: "Railway pre-deploy command" },
+        ],
+      })
+    ).toEqual([]);
+  });
+
+  for (const [kind, reason] of NON_FIRING_KINDS) {
+    test(`does not fire for ${kind} with no options — ${reason}`, () => {
+      const matches = computeFormLintMatches({ kind, question: CLEAN_QUESTION });
+      expect(matches.some((m) => m.check === CHECK_MISSING_DECISION_OPTIONS)).toBe(false);
+    });
+  }
+
+  test("the two LABEL checks stay silent on an options-absent input (unchanged by mt#3477)", () => {
+    const checks = computeFormLintMatches({
+      kind: DIRECTION_DECIDE,
+      question: CLEAN_QUESTION,
+    }).map((m) => m.check);
+    expect(checks).not.toContain(CHECK_LONG_OPTION_LABEL);
+    expect(checks).not.toContain(CHECK_LETTER_PREFIXED);
+    expect(checks).toEqual([CHECK_MISSING_DECISION_OPTIONS]);
+  });
+
+  test("the message names the fix (an options array), not just the defect", () => {
+    const match = computeFormLintMatches({
+      kind: DIRECTION_DECIDE,
+      question: CLEAN_QUESTION,
+    }).find((m) => m.check === CHECK_MISSING_DECISION_OPTIONS);
+    expect(match?.message).toContain("options array");
+  });
+
+  test("composes with the v1 question checks rather than replacing them", () => {
+    const checks = computeFormLintMatches({
+      kind: DIRECTION_DECIDE,
+      question: "Run mcp__minsky__setup_github-app to proceed.",
+    })
+      .map((m) => m.check)
+      .sort();
+    expect(checks).toEqual([CHECK_INTERNAL_TOOL_ID, CHECK_MISSING_DECISION_OPTIONS].sort());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Replay: ask#6589 (mt#3477 originating incident)
+//
+// The REPAIRED question is verbatim from `asks_get ask#6589` at
+// implementation time (the in-place `asks_edit` on 2026-07-31T19:23:38Z per
+// its metadata.editHistory). The PRE-REPAIR body is a reconstruction — as
+// with the 6807fb14 fixtures above, editHistory records only touched field
+// names, so the literal prior text is not retrievable from the Ask record.
+// The reconstruction satisfies the property the incident turns on: the three
+// choices written as [a]/[b]/[c] prose inside the question, with no options
+// array.
+// ---------------------------------------------------------------------------
+
+describe("ask#6589 replay (mt#3477 originating incident)", () => {
+  const PRE_REPAIR_QUESTION = [
+    "Pick how mt#3132 sequences against driven sessions.",
+    "",
+    "[a] Alias now, read-only until mt#3325.",
+    "[b] Unify the read side, keep /driven live (recommended).",
+    "[c] Do mt#3095 + mt#3325 first, then unify once.",
+  ].join("\n");
+
+  const REPAIRED_OPTIONS = [
+    { label: "Alias now, read-only until mt#3325" },
+    { label: "Unify the read side, keep /driven live" },
+    { label: "Do mt#3095 + mt#3325 first, then unify once" },
+  ];
+
+  test("the PRE-REPAIR shape fires missing-decision-options", () => {
+    const matches = computeFormLintMatches({
+      kind: DIRECTION_DECIDE,
+      question: PRE_REPAIR_QUESTION,
+    });
+    expect(matches.map((m) => m.check)).toEqual([CHECK_MISSING_DECISION_OPTIONS]);
+  });
+
+  test("the REPAIRED shape — same choices, moved into options — passes clean", () => {
+    expect(
+      computeFormWarnings({
+        kind: DIRECTION_DECIDE,
+        question: "Pick how mt#3132 sequences against driven sessions.",
+        options: REPAIRED_OPTIONS,
+      })
+    ).toEqual([]);
   });
 });
