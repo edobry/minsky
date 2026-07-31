@@ -18,8 +18,13 @@ import {
   subagentInvocationOutcomeEnum,
   SUBAGENT_INVOCATION_OUTCOME_VALUES,
 } from "./subagent-invocations-schema";
+import type { TerminalSubagentInvocationOutcome } from "./subagent-invocations-schema";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "../migrations/pg");
+/** The Postgres enum type name, as written in the migrations. */
+const ENUM_TYPE_NAME = "subagent_invocation_outcome";
+/** A representative TERMINAL outcome, used where the value itself is not what's under test. */
+const A_TERMINAL_OUTCOME = "crashed-no-output";
 
 // ---------------------------------------------------------------------------
 // Outcome enum
@@ -37,12 +42,38 @@ describe("SubagentInvocationOutcome enum", () => {
       "committed-no-pr",
       "partial-committed-handoff-written",
       "partial-uncommitted-no-handoff",
-      "crashed-no-output",
+      A_TERMINAL_OUTCOME,
       "rate-limited",
       "pending",
     ] as string[];
     const actual: string[] = [...SUBAGENT_INVOCATION_OUTCOME_VALUES].sort();
     expect(actual).toEqual(expected.sort());
+  });
+
+  test("`pending` is excluded from TerminalSubagentInvocationOutcome (mt#1770)", () => {
+    // The classifier's return type. A compile-time constraint needs a compile-time assertion:
+    // if `pending` ever became assignable, this stops compiling. Paired with a runtime
+    // assertion so the test still exercises executable behavior (placeholder-test policy).
+    const terminal: TerminalSubagentInvocationOutcome = A_TERMINAL_OUTCOME;
+    // @ts-expect-error — `pending` must NOT be assignable to the terminal (classifier) type.
+    const notTerminal: TerminalSubagentInvocationOutcome = "pending";
+    expect(terminal).toBe(A_TERMINAL_OUTCOME);
+    expect(notTerminal).toBe("pending");
+  });
+
+  test("`pending` cannot reach an escalation threshold — the doc claim, pinned (PR #2501 R1)", () => {
+    // `subagent-dispatch-cadence.mdc` class 7 says pending must not count toward any escalation
+    // threshold. The tracker enforces that structurally: its threshold queries filter on
+    // SPECIFIC terminal outcomes rather than "not completed", so pending is excluded by
+    // construction. This asserts the doc claim against the source rather than trusting prose.
+    const trackerSrc = readFileSync(
+      join(import.meta.dir, "../../../../../src/mcp/subagent-dispatch-tracker.ts")
+    ).toString();
+    const outcomeFilters = [
+      ...trackerSrc.matchAll(/eq\(\s*subagentInvocationsTable\.outcome,\s*"([^"]+)"/g),
+    ].map((m) => m[1]);
+    expect(outcomeFilters.length).toBeGreaterThan(0);
+    expect(outcomeFilters).not.toContain("pending");
   });
 
   test("`pending` is present — the dispatch-time placeholder (mt#1770)", () => {
@@ -249,22 +280,58 @@ describe("0033_subagent_invocations.sql migration sanity", () => {
     // enum without a migration that adds it to the Postgres type, or a fresh database would
     // reject the insert at runtime while every unit test passed.
     //
-    // Scoped to statements that NAME `subagent_invocation_outcome`. A naive repo-wide grep for
-    // the quoted value is not a check: `'pending'` also appears in 0060 as a member of the
-    // unrelated `follow_up_status` enum, so the unscoped version passed with this enum's own
-    // migration deleted — verified by deleting it. Matching a value without binding it to the
-    // declaration it belongs to is not evidence.
-    const ENUM_NAME = "subagent_invocation_outcome";
-    const relevantStatements = readdirSync(MIGRATIONS_DIR)
+    // Two rounds of tightening, both driven by a false pass:
+    //
+    // 1. A repo-wide grep for the quoted value is not a check — `'pending'` also appears in 0060
+    //    as a member of the unrelated `follow_up_status` enum, so that version passed with THIS
+    //    enum's own migration deleted (verified by deleting it).
+    // 2. Scoping to statements that merely NAME the enum is still too loose (PR #2501 R1): it
+    //    proves the value appears somewhere near the name, not that any statement ADDS it. The
+    //    CREATE TABLE in 0033 names the enum as a column type, so an unrelated quoted literal
+    //    sharing a future value's spelling would satisfy it.
+    //
+    // The real invariant: every value is introduced either by the base `CREATE TYPE ... AS ENUM`
+    // or by an `ALTER TYPE ... ADD VALUE`. Anything else means a fresh database would reject the
+    // insert at runtime while every unit test passed.
+    const statements = readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith(".sql"))
       .flatMap((f) => readFileSync(join(MIGRATIONS_DIR, f)).toString().split(";"))
-      .filter((stmt) => stmt.includes(ENUM_NAME))
-      .join("\n");
+      // Comment lines cannot introduce a value; drop them so a value merely MENTIONED in a
+      // backout note or rationale never counts as its declaration.
+      .map((stmt) =>
+        stmt
+          .split("\n")
+          .filter((line) => !line.trim().startsWith("--"))
+          .join("\n")
+      )
+      .filter((stmt) => stmt.includes(ENUM_TYPE_NAME));
 
-    expect(relevantStatements.length).toBeGreaterThan(0);
+    const baseCreate = statements.filter((s) => /CREATE\s+TYPE/i.test(s));
+    const addValues = statements.filter((s) => /ALTER\s+TYPE/i.test(s) && /ADD\s+VALUE/i.test(s));
+    expect(baseCreate.length).toBeGreaterThan(0);
+
     for (const value of SUBAGENT_INVOCATION_OUTCOME_VALUES) {
-      expect(relevantStatements).toContain(`'${value}'`);
+      const introducedByCreate = baseCreate.some((s) => s.includes(`'${value}'`));
+      const introducedByAlter = addValues.some((s) => s.includes(`'${value}'`));
+      // Reported per-value so a failure names WHICH member has no migration.
+      expect({ value, introduced: introducedByCreate || introducedByAlter }).toEqual({
+        value,
+        introduced: true,
+      });
     }
+  });
+
+  test("`pending` specifically is introduced by an ALTER TYPE ... ADD VALUE (mt#1770)", () => {
+    // Sharper than the loop above for the member this task adds: it must arrive via ADD VALUE,
+    // not by being retrofitted into the base CREATE TYPE — editing an already-applied migration
+    // would leave every existing database without the value while tests passed.
+    const addValueStatements = readdirSync(MIGRATIONS_DIR)
+      .filter((f) => f.endsWith(".sql"))
+      .flatMap((f) => readFileSync(join(MIGRATIONS_DIR, f)).toString().split(";"))
+      .filter(
+        (s) => s.includes(ENUM_TYPE_NAME) && /ALTER\s+TYPE/i.test(s) && /ADD\s+VALUE/i.test(s)
+      );
+    expect(addValueStatements.some((s) => s.includes("'pending'"))).toBe(true);
   });
 
   test("migration creates index on task_id", () => {

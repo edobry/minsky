@@ -1,1 +1,18 @@
-ALTER TYPE "public"."subagent_invocation_outcome" ADD VALUE 'pending';
+--- Add the `pending` dispatch-time placeholder to subagent_invocation_outcome — mt#1770.
+---
+--- Rows were previously seeded `crashed-no-output` at dispatch as a "pessimistic default",
+--- which reads as an OBSERVATION to every consumer: a row that was merely never closed became
+--- indistinguishable from a subagent that genuinely produced nothing.
+---
+--- Backout:
+---   -- PG enums don't support DROP VALUE; would need to recreate the type.
+---   -- In practice, an unused enum value is harmless.
+---   (Same constraint and disposition as 0042_embeddings_provider_degraded_event.sql.)
+---
+--- `IF NOT EXISTS` mirrors 0042: makes re-application after a partial failure safe. Drizzle
+--- generates the bare form; the guard is added by hand, as it was there.
+---
+--- No data UPDATE here by design: Postgres cannot use a newly-added enum value in the same
+--- transaction that adds it, so backfilling the historical orphan rows is a separate step
+--- (mt#3173).
+ALTER TYPE "public"."subagent_invocation_outcome" ADD VALUE IF NOT EXISTS 'pending';
