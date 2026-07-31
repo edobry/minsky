@@ -29,6 +29,7 @@ import {
   countWords,
   FORM_LINT_WORD_BUDGET,
   type FormLintInput,
+  OPTIONS_REQUIRED_CHECK_KINDS,
 } from "./form-lint";
 import type { AskKind } from "./types";
 
@@ -533,14 +534,22 @@ describe("form-lint option-label checks (mt#3253)", () => {
 
 const CHECK_MISSING_DECISION_OPTIONS = "missing-decision-options" as const;
 
-/** The kinds that must NOT fire this check, with the reason each is excluded. */
-const NON_FIRING_KINDS: ReadonlyArray<readonly [AskKind, string]> = [
-  [AUTHORIZATION_APPROVE, "the surface renders built-in Approve/Deny without options"],
-  ["quality.review", "the surface renders built-in Approve/Request-changes without options"],
-  ["capability.escalate", "resolves by supplying a bigger model's output, not a selection"],
-  ["information.retrieve", "resolves by supplying a fact, not a selection"],
-  [STUCK_UNBLOCK, "resolves by supplying an unblock, not a selection"],
-  ["coordination.notify", "fire-and-forget; expects no response at all"],
+/**
+ * Every AskKind that must NOT fire this check — i.e. the full seven minus the
+ * contents of `OPTIONS_REQUIRED_CHECK_KINDS`.
+ *
+ * Deliberately carries no per-kind rationale. WHY each kind is excluded is
+ * recorded once, on `OPTIONS_REQUIRED_CHECK_KINDS` in `./form-lint`; copying
+ * it here would give that reasoning a second home that can silently drift
+ * from the first (PR #2491 R1). These tests assert behavior only.
+ */
+const NON_FIRING_KINDS: readonly AskKind[] = [
+  AUTHORIZATION_APPROVE,
+  "quality.review",
+  "capability.escalate",
+  "information.retrieve",
+  STUCK_UNBLOCK,
+  "coordination.notify",
 ];
 
 describe("computeFormLintMatches — missing-decision-options check (mt#3477)", () => {
@@ -590,12 +599,22 @@ describe("computeFormLintMatches — missing-decision-options check (mt#3477)", 
     ).toEqual([]);
   });
 
-  for (const [kind, reason] of NON_FIRING_KINDS) {
-    test(`does not fire for ${kind} with no options — ${reason}`, () => {
+  for (const kind of NON_FIRING_KINDS) {
+    test(`does not fire for ${kind} with no options`, () => {
       const matches = computeFormLintMatches({ kind, question: CLEAN_QUESTION });
       expect(matches.some((m) => m.check === CHECK_MISSING_DECISION_OPTIONS)).toBe(false);
     });
   }
+
+  test("the non-firing set covers every kind this check does not list", () => {
+    // Behavioral completeness: the six kinds above plus whatever
+    // OPTIONS_REQUIRED_CHECK_KINDS contains must be the whole taxonomy, so a
+    // kind can never be silently unclassified by this suite.
+    expect(NON_FIRING_KINDS.length + OPTIONS_REQUIRED_CHECK_KINDS.length).toBe(7);
+    for (const kind of NON_FIRING_KINDS) {
+      expect(OPTIONS_REQUIRED_CHECK_KINDS).not.toContain(kind);
+    }
+  });
 
   test("the two LABEL checks stay silent on an options-absent input (unchanged by mt#3477)", () => {
     const checks = computeFormLintMatches({
