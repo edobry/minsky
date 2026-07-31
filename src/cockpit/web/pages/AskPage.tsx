@@ -51,6 +51,10 @@ import { CopyId } from "../components/CopyId";
 import { useState } from "react";
 import { useTabs } from "../lib/tabs";
 import { EntityThreadPanel } from "../widgets/EntityThreadPanel";
+import {
+  ResolveProposalCard,
+  RESOLVE_PROPOSAL_SURFACE,
+} from "../components/ResolveProposalCard";
 
 /** Human phrasing for a terminal state. Terminal-vs-open classification itself
  * comes from the domain state machine's `isTerminal` (the single source of
@@ -94,10 +98,22 @@ export function AskPage() {
   }
 
   const resolveMutation = useMutation({
-    mutationFn: async ({ target, optionLetter }: { target: AskItem; optionLetter: string }) => {
+    mutationFn: async ({
+      target,
+      optionLetter,
+      resolvedIn = "inbox",
+    }: {
+      target: AskItem;
+      optionLetter: string;
+      /** Which surface the operator acted from. Defaults to the detail page's
+       * own option buttons; the mt#3368 thread confirm passes its own value so
+       * attention accounting can tell the two apart — and, more importantly, so
+       * the payload the proposal card SHOWS is the payload actually sent. */
+      resolvedIn?: string;
+    }) => {
       // Shared payload composition (mt#2882 R3) — one contract definition in
       // AskDetail serves both the inline inbox actions and this detail page.
-      await resolveAsk(target.id, composeResolvePayload(target, optionLetter, "inbox"));
+      await resolveAsk(target.id, composeResolvePayload(target, optionLetter, resolvedIn));
     },
     onMutate: () => setResolving(true),
     onSettled: settle,
@@ -196,7 +212,40 @@ export function AskPage() {
       {/* mt#3365 — the discussion thread renders for BOTH open and terminal
           asks: "what was this asking me?" is a question the principal is at
           least as likely to have about one already closed. */}
-      {ask ? <EntityThreadPanel entityType="ask" entityId={ask.id} className="mt-6" /> : null}
+      {ask ? (
+        <EntityThreadPanel
+          entityType="ask"
+          entityId={ask.id}
+          className="mt-6"
+          // mt#3368 — the confirm step. Supplied ONLY for a non-terminal ask:
+          // an already-resolved ask has nothing left to confirm, and offering
+          // the control there would invite a second write to a closed record.
+          // Confirm routes into `resolveMutation`, the SAME path AskDetail's
+          // own option buttons use, so there is exactly one resolve path and
+          // `composeResolvePayload` remains its only payload source.
+          {...(terminal
+            ? {}
+            : {
+                proposalSlot: (proposal) => (
+                  <ResolveProposalCard
+                    ask={ask}
+                    proposal={proposal}
+                    disabled={resolving}
+                    onConfirm={(optionLetter) =>
+                      resolveMutation.mutate({
+                        target: ask,
+                        optionLetter,
+                        // Must match what ResolveProposalCard rendered — the card
+                        // promises "this is what will be recorded", so a
+                        // different `resolvedIn` here would make that a lie.
+                        resolvedIn: RESOLVE_PROPOSAL_SURFACE,
+                      })
+                    }
+                  />
+                ),
+              })}
+        />
+      ) : null}
     </div>
   );
 }

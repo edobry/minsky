@@ -30,10 +30,11 @@
  * @see src/cockpit/routes/entity-threads.ts — the endpoints it calls
  * @see packages/domain/src/transcripts/entity-thread-store.ts — the projection it renders
  */
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
+import { findLatestResolveProposal, type ResolveProposal } from "../lib/resolve-proposal";
 import { ConversationView } from "./ConversationView";
 import { DrivenSessionComposer } from "../components/DrivenSessionComposer";
 import { ErrorState } from "../components/ErrorState";
@@ -174,9 +175,25 @@ export interface EntityThreadPanelProps {
   entityType: EntityThreadPanelEntityType;
   entityId: string;
   className?: string;
+  /**
+   * Render the agent's most recent resolve proposal, when it made one (mt#3368).
+   *
+   * A render-prop rather than built-in resolve handling: this panel is generic
+   * over entity kinds (mt#3366 widens the mount to tasks, changesets, and
+   * memories), and what a "proposal" commits to is entirely entity-specific.
+   * The panel's job is to FIND the proposal in its own blocks; deciding what it
+   * means and whether the entity can currently accept it belongs to the page
+   * that owns the entity. Omitted → proposals render as ordinary prose.
+   */
+  proposalSlot?: (proposal: ResolveProposal) => ReactNode;
 }
 
-export function EntityThreadPanel({ entityType, entityId, className }: EntityThreadPanelProps) {
+export function EntityThreadPanel({
+  entityType,
+  entityId,
+  className,
+  proposalSlot,
+}: EntityThreadPanelProps) {
   const queryClient = useQueryClient();
   const queryKey = ["entity-thread", entityType, entityId];
 
@@ -233,6 +250,9 @@ export function EntityThreadPanel({ entityType, entityId, className }: EntityThr
   const agentLive = query.data?.live;
   const composerState = deriveComposerState(blocks ?? [], sendMutation.isPending, agentLive);
   const stranded = isThreadStranded(blocks ?? [], sendMutation.isPending, agentLive);
+  // Only looked up when a consumer supplied a slot — an entity kind with no
+  // resolve semantics should not pay to scan its blocks for proposals.
+  const proposal = proposalSlot ? findLatestResolveProposal(blocks ?? []) : null;
 
   return (
     <section className={className} aria-label="Discussion">
@@ -251,6 +271,8 @@ export function EntityThreadPanel({ entityType, entityId, className }: EntityThr
           The agent stopped before answering — send again to ask.
         </p>
       ) : null}
+
+      {proposal && proposalSlot ? proposalSlot(proposal) : null}
 
       {sendMutation.isError ? (
         <ErrorState
