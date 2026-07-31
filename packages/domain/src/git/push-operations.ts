@@ -413,10 +413,18 @@ export interface PushWithConfirmationResult extends PushResult {
    * "elapsed 120000ms, bound 120000ms", the first question would have been "how
    * much longer does it need?" instead of "what is broken?".
    *
-   * On the timeout path this is the BOUND, not the push's true duration — the
-   * call is abandoned at that point and its real cost is unobservable from
-   * here. `pushTimeoutMs` is reported alongside so a reader can tell a push
-   * that finished just under the wire from one that was cut off at it.
+   * This is wall time for the WHOLE call, always — including, on the timeout
+   * path, the remote-ref verification that runs after the push is abandoned.
+   * So a timed-out result's `elapsedMs` is `pushTimeoutMs` PLUS the verify
+   * time, not the bound alone (PR #2506 R1 non-blocking corrected an earlier
+   * version of this comment that claimed otherwise).
+   *
+   * What it is NOT, on that path, is the push's true duration: the call is
+   * abandoned at the bound and the underlying push may still be running, so
+   * its real cost is unobservable from here. `pushTimeoutMs` is reported
+   * alongside precisely so a reader can separate the two — a push that
+   * finished just under the wire shows `elapsedMs < pushTimeoutMs`, one that
+   * was cut off shows `elapsedMs >= pushTimeoutMs`.
    */
   elapsedMs?: number;
   /** The bound that applied, so `elapsedMs` can be read against it (mt#3480). */
