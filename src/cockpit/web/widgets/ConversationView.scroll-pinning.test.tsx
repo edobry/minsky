@@ -64,7 +64,11 @@ function stubScrollport(scrollTop: number): HTMLElement {
   const port = document.scrollingElement as HTMLElement;
   Object.defineProperty(port, "scrollHeight", { value: 2000, configurable: true });
   Object.defineProperty(port, "clientHeight", { value: 400, configurable: true });
-  Object.defineProperty(port, "scrollTop", { value: scrollTop, writable: true, configurable: true });
+  Object.defineProperty(port, "scrollTop", {
+    value: scrollTop,
+    writable: true,
+    configurable: true,
+  });
   fireEvent.scroll(port);
   return port;
 }
@@ -135,6 +139,94 @@ describe("ConversationView live tail — scroll pinning (mt#3376)", () => {
 
     Object.defineProperty(port, "scrollTop", { value: 1600, writable: true, configurable: true });
     fireEvent.scroll(port);
+
+    expect(screen.queryByTestId("jump-to-newest")).toBeNull();
+  });
+});
+
+/**
+ * Stub the scrollport BEFORE the first render, so the growth baseline is
+ * measured against real geometry.
+ *
+ * The suite above stubs after mounting, which is fine when the trigger is a
+ * turn count — but these cases turn on a height DELTA, and a baseline taken at
+ * happy-dom's zero height would make the very first stubbed measurement look
+ * like growth no matter which direction the thread actually moved.
+ */
+function stubScrollportBeforeRender(scrollTop: number, scrollHeight = 2000): HTMLElement {
+  const port = document.scrollingElement as HTMLElement;
+  Object.defineProperty(port, "scrollHeight", { value: scrollHeight, configurable: true });
+  Object.defineProperty(port, "clientHeight", { value: 400, configurable: true });
+  Object.defineProperty(port, "scrollTop", {
+    value: scrollTop,
+    writable: true,
+    configurable: true,
+  });
+  return port;
+}
+
+function setScrollHeight(port: HTMLElement, value: number): void {
+  Object.defineProperty(port, "scrollHeight", { value, configurable: true });
+}
+
+describe("ConversationView live tail — growth within one streaming turn (mt#3445)", () => {
+  /**
+   * The shape the accumulator actually produces mid-turn: the SAME block id
+   * carrying more content, folded in via `upsertBlock`, so the array length
+   * never moves. Keying the affordance on that length is the defect.
+   */
+  const streamingTurn = (text: string) => [block(0, "first"), block(1, text)];
+
+  test("scrolled up: growth inside the turn already rendered surfaces the control", () => {
+    const port = stubScrollportBeforeRender(0); // parked at the top, reading back
+    const { rerender } = renderDriven(streamingTurn("partial"));
+    fireEvent.scroll(port);
+    scrollIntoView.mockClear();
+    expect(screen.queryByTestId("jump-to-newest")).toBeNull();
+
+    setScrollHeight(port, 2400);
+    rerenderDriven(rerender, streamingTurn("partial, and then a great deal more of it"));
+
+    expect(screen.getByTestId("jump-to-newest")).toBeDefined();
+    // mt#3376's guarantee is not traded away to get the affordance.
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  test("pinned to the bottom: the same growth follows the tail and shows no control", () => {
+    const port = stubScrollportBeforeRender(1600); // 2000 - 400 == the bottom
+    const { rerender } = renderDriven(streamingTurn("partial"));
+    fireEvent.scroll(port);
+    scrollIntoView.mockClear();
+
+    setScrollHeight(port, 2400);
+    rerenderDriven(rerender, streamingTurn("partial, and then a great deal more of it"));
+
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(screen.queryByTestId("jump-to-newest")).toBeNull();
+  });
+
+  test("a thread that gets SHORTER does not surface the control", () => {
+    const port = stubScrollportBeforeRender(0);
+    const { rerender } = renderDriven(streamingTurn("partial"));
+    fireEvent.scroll(port);
+
+    setScrollHeight(port, 1800);
+    rerenderDriven(rerender, streamingTurn("partial"));
+
+    expect(screen.queryByTestId("jump-to-newest")).toBeNull();
+  });
+
+  test("growth with no content arrival does not surface the control", () => {
+    // Expanding a tool block grows the thread by hundreds of pixels without
+    // anything streaming in. Same array identity, taller thread, no affordance
+    // — otherwise the reader's own click reports itself as "new messages".
+    const port = stubScrollportBeforeRender(0);
+    const unchanged = streamingTurn("partial");
+    const { rerender } = renderDriven(unchanged);
+    fireEvent.scroll(port);
+
+    setScrollHeight(port, 2400);
+    rerenderDriven(rerender, unchanged);
 
     expect(screen.queryByTestId("jump-to-newest")).toBeNull();
   });

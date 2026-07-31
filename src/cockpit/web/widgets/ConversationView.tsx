@@ -37,7 +37,15 @@
  * @see packages/domain/src/transcripts/conversation-elements.ts — the shared parser
  * @see mt#2370 — the session-tab frame this will eventually render into
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, useCallback } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  useCallback,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
@@ -78,7 +86,7 @@ import {
   type InjectedSpan,
 } from "../lib/injected-content";
 import { formatLocalTime, turnSeparator, type TurnSeparator } from "../lib/conversation-timeline";
-import { findScrollParent, isPinnedToBottom } from "../lib/scroll-pinning";
+import { findScrollParent, hasGrown, isPinnedToBottom } from "../lib/scroll-pinning";
 import { classifyTurnOrigin } from "../lib/turn-origin";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -1054,6 +1062,16 @@ function ConversationThread({
   // must not consume the one-shot; PR #1667 R1). Expanding "Show older" later
   // must not yank the scroll position, hence the one-shot flag.
   const endRef = useRef<HTMLDivElement | null>(null);
+  // The sentinel as STATE as well as a ref, because everything that measures
+  // this thread hangs off it and a ref alone cannot wake an effect when it
+  // arrives (mt#3445). A live session mounts EMPTY — the early return above
+  // renders no sentinel — so a mount-time effect reading `endRef.current` binds
+  // to nothing and never rebinds once the first turn lands.
+  const [endNode, setEndNode] = useState<HTMLDivElement | null>(null);
+  const attachEnd = useCallback((node: HTMLDivElement | null) => {
+    endRef.current = node;
+    setEndNode(node);
+  }, []);
   useLayoutEffect(() => {
     if (didInitialScrollRef.current) return;
     if (preparedTurns.length === 0) return;
@@ -1063,25 +1081,32 @@ function ConversationThread({
     }
   }, [preparedTurns.length, hiddenCount]);
 
-  // Live-tail auto-scroll: when new turns arrive from the SSE stream (mt#2232),
-  // scroll to the bottom so the operator sees them — but ONLY when the operator
-  // is already at the bottom (mt#3376). Scrolling unconditionally yanked the
-  // view out from under anyone reading back through an active session, once per
-  // arriving tool call or message. Keyed on extraBlocks.length so it fires once
-  // per new live turn, not on every render.
+  // Live-tail auto-scroll: when live content arrives (the SSE stream, mt#2232,
+  // or a driven session's WS frames), scroll to the bottom so the operator sees
+  // it — but ONLY when the operator is already at the bottom (mt#3376).
+  // Scrolling unconditionally yanked the view out from under anyone reading
+  // back through an active session, once per arriving tool call or message.
   const extraBlocksLen = extraBlocks?.length ?? 0;
   const pinnedRef = useRef(true);
   const [hasNewBelow, setHasNewBelow] = useState(false);
 
-  // Bumped whenever the thread's own box changes size — the signal that layout,
-  // not content, may have created or removed a scrollport. `ResizeObserver`
-  // catches in-page causes (a tool block expanding, a sibling panel opening)
-  // that a window-resize listener alone would miss; the window listener is the
-  // fallback where `ResizeObserver` is unavailable (older test DOMs).
-  const [layoutTick, setLayoutTick] = useState(0);
+  // Forces a re-render whenever the thread's own box changes size — the signal
+  // that layout, not content, may have created or removed a scrollport.
+  // `ResizeObserver` catches in-page causes (a tool block expanding, a sibling
+  // panel opening) that a window-resize listener alone would miss; the window
+  // listener is the fallback where `ResizeObserver` is unavailable (older test
+  // DOMs).
+  //
+  // The COUNT is deliberately never read (PR #2469 R2). What this state exists
+  // for is the render it schedules: the resolution effect below re-runs on every
+  // render, so scheduling one is the whole mechanism, and there is nothing for a
+  // dependency array to compare. Do not delete it as unused — a window resize
+  // that gives the thread a scrollport, or takes one away, changes no other
+  // state, so without this the view would keep measuring a stale scrollport.
+  const [, setLayoutTick] = useState(0);
   useEffect(() => {
     const bump = () => setLayoutTick((t) => t + 1);
-    const target = endRef.current?.parentElement;
+    const target = endNode?.parentElement;
     if (typeof ResizeObserver === "function" && target) {
       const observer = new ResizeObserver(bump);
       observer.observe(target);
@@ -1090,12 +1115,29 @@ function ConversationThread({
     if (typeof window === "undefined") return;
     window.addEventListener("resize", bump);
     return () => window.removeEventListener("resize", bump);
-  }, []);
+    // Keyed on the sentinel NODE, not `[]`: it does not exist on the first
+    // commit of a live session, and a `[]` effect would observe nothing for the
+    // rest of the session (mt#3445).
+  }, [endNode]);
+
+  // The resolved scrollport, as STATE so that everything depending on it —
+  // the scroll listener below, the measurement effect further down — moves
+  // together the moment the resolution changes (mt#3445).
+  //
+  // It is state rather than a ref because the resolution genuinely changes
+  // mid-session and nothing else announces it: `findScrollParent` only accepts
+  // an ancestor that ALREADY overflows, and a live thread spends its first
+  // seconds too short to overflow anything, so the first answer is always the
+  // document fallback. Keying the listener on a ref left it bound to an element
+  // that does not scroll — the reader's scrolling was then never heard, and
+  // whether it ever corrected depended on a ResizeObserver bump landing at the
+  // right moment (observed: it often did not, for a whole session).
+  const scrollportRef = useRef<Element | null>(null);
+  const [scrollport, setScrollport] = useState<Element | null>(null);
 
   // Keep `pinnedRef` current from the scrollport itself. Sampling at append
   // time would be too late — the append is what moves the scroll.
   useEffect(() => {
-    const scrollport = findScrollParent(endRef.current);
     if (!scrollport) return;
     const onScroll = () => {
       const pinned = isPinnedToBottom(scrollport);
@@ -1107,28 +1149,85 @@ function ConversationThread({
     onScroll();
     scrollport.addEventListener("scroll", onScroll, { passive: true });
     return () => scrollport.removeEventListener("scroll", onScroll);
-    // Re-resolve on turn-count changes AND on layout changes (`layoutTick`):
-    // whether an element scrolls is a LAYOUT fact, not a content-count fact.
-    // Expanding a tool block, opening a sibling panel, or resizing the window
-    // can all give a previously-unscrollable container a scrollport — or take
-    // one away — with the turn count unchanged (PR #2459 R1, non-blocking).
-  }, [preparedTurns.length, layoutTick]);
+    // Just the resolved element. Whether an element scrolls is a LAYOUT fact,
+    // not a content-count fact (PR #2459 R1, non-blocking) — and the resolution
+    // effect below already re-runs on every render, so a re-resolution reaches
+    // this listener by changing the thing it is keyed on, rather than by this
+    // effect guessing which inputs might have moved it.
+  }, [scrollport]);
 
-  const scrollToNewest = useCallback(() => {
+  const scrollToEnd = useCallback(() => {
     endRef.current?.scrollIntoView({ block: "end" });
     pinnedRef.current = true;
-    setHasNewBelow(false);
   }, []);
 
+  const scrollToNewest = useCallback(() => {
+    scrollToEnd();
+    setHasNewBelow(false);
+  }, [scrollToEnd]);
+
+  // The last state the arrival check ran against. `extraBlocks` is replaced
+  // wholesale by every accumulator fold (`upsertBlock` returns a new array in
+  // both its append and its in-place-replace branch), so its IDENTITY is an
+  // exact, O(1) "live content arrived" signal — where its LENGTH is not, since
+  // a streaming turn folds every delta into one block id.
+  const prevExtraBlocksRef = useRef(extraBlocks);
+  const prevExtraBlocksLenRef = useRef(extraBlocksLen);
+  const prevHeightRef = useRef<number | null>(null);
+
+  // Decide what to do about content that arrived (mt#3445). Runs on every
+  // render rather than on a turn count, because the case that matters most —
+  // a single assistant turn streaming for a minute — never changes the count.
+  //
+  // Two independent signals, both required:
+  //   - identity: did live content actually arrive, or did the thread just
+  //     reflow? Expanding a tool block grows the thread by hundreds of pixels
+  //     and is not "new messages below".
+  //   - height: did that arrival land BELOW the reader? A count bump answers
+  //     this for a new turn; only a measurement answers it for in-place growth.
+  //
+  // The measurement is one `scrollHeight` read in a layout effect — the same
+  // layout the frame is about to perform anyway, and cheaper than the
+  // `scrollIntoView` this effect already ran per turn before mt#3445.
   useLayoutEffect(() => {
-    if (extraBlocksLen === 0) return;
+    const contentArrived = extraBlocks !== prevExtraBlocksRef.current;
+    const countGrew = extraBlocksLen > prevExtraBlocksLenRef.current;
+    prevExtraBlocksRef.current = extraBlocks;
+    prevExtraBlocksLenRef.current = extraBlocksLen;
+
+    // Re-resolve unless the cached element is ACTUALLY scrolling. The cache is
+    // an optimization, and a resolution that landed on the document fallback is
+    // exactly the one that must not stick: it reports a constant height, so no
+    // growth is ever measurable against it and no scroll of the reader's is
+    // ever heard. Correcting it must not depend on a ResizeObserver bump
+    // arriving at the right moment — that was observed failing for a whole
+    // session, leaving the affordance silent while the thread doubled in height.
+    const cached = scrollportRef.current;
+    const resolved =
+      cached && cached.scrollHeight > cached.clientHeight
+        ? cached
+        : findScrollParent(endRef.current);
+    if (resolved !== cached) {
+      scrollportRef.current = resolved;
+      // Wakes the scroll listener above onto the element that actually scrolls.
+      setScrollport(resolved);
+    }
+    if (!resolved) return;
+
+    const height = resolved.scrollHeight;
+    const previousHeight = prevHeightRef.current;
+    prevHeightRef.current = height;
+
+    if (!contentArrived) return;
+    if (!countGrew && !hasGrown(previousHeight, height)) return;
+
     if (pinnedRef.current) {
-      endRef.current?.scrollIntoView({ block: "end" });
+      scrollToEnd();
       return;
     }
     // Reading history: hold position and say something arrived instead.
     setHasNewBelow(true);
-  }, [extraBlocksLen]);
+  });
 
   if (visibleTurns.length === 0) {
     // A transcript can be ALL superseded prompts — the operator rewrote every
@@ -1220,7 +1319,7 @@ function ConversationThread({
           floats — so the strip would cover the turn it is reporting on.
           `scroll-margin-bottom` is honored by `scrollIntoView`, so this
           reserves the strip's height without shifting anything in normal flow. */}
-      <div ref={endRef} aria-hidden className="scroll-mb-8" />
+      <div ref={attachEnd} aria-hidden className="scroll-mb-8" />
     </div>
   );
 }

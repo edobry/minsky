@@ -78,9 +78,47 @@ to one task; the task ID in the name or header is the primary cross-reference.
 | `smoke-wrong-id-space.ts`                | cockpit wrong-id-space fail-loud surface (mt#2525 / mt#2420)                                  |
 | `live-verify-presence-write.ts`          | `writeTaskClaim` per-call repo fallback path (mt#2567)                                        |
 | `test-provenance-e2e.ts`                 | `AuthorshipJudge` against a real Claude Code JSONL transcript via the Anthropic API (mt#1081) |
+| `verify-conversation-live-tail.ts`       | conversation live-tail scroll behavior in a real browser (mt#3376 / mt#3445)                  |
 | `verify-conversation-renderer.ts`        | conversation-element parser against a real session snapshot (mt#2374)                         |
 | `verify-mt1510-identity-routing.ts`      | `identity` parameter on `session_pr_review_submit` (mt#1510)                                  |
 | `verify-mt1721-detectors-mcp.ts`         | `registerDetectorsTools` MCP surface (mt#1721)                                                |
+
+### Running `verify-conversation-live-tail.ts`
+
+The only script here that drives a real browser, so its prerequisites are worth stating
+(everything below is checked at startup — the script exits 0 with a `SKIP:` line rather than
+failing when a precondition is absent):
+
+1. **A running cockpit, started WITHOUT `--no-dev-chromium`** — that flag disables exactly the
+   dev chromium the script attaches to:
+
+   ```bash
+   bun run cockpit:build                      # prod bundle; Vite HMR is unreliable here
+   bun src/cli.ts cockpit start --port=3839
+   ```
+
+   To verify a change that is not yet on `main`, run both commands from the SESSION workspace and
+   point the script at that port — a cockpit started from `main` serves `main`'s build, not yours.
+
+2. **A CDP endpoint at `127.0.0.1:9222`** — the shared dev chromium the cockpit launches
+   (`src/cockpit/dev-chromium.ts`). If one is already listening from another cockpit, that one is
+   used; the script opens its own tab via `PUT /json/new` and closes it on exit. Check with
+   `curl -s localhost:9222/json/version`.
+
+3. **A cockpit auth token at `~/.local/state/minsky/cockpit-token`** — written by the cockpit
+   daemon on first start; no manual step. The script reads it for the driven-session API calls.
+
+Overrides: `MINSKY_COCKPIT_URL` (default `http://127.0.0.1:3737`) and `MINSKY_CDP_URL` (default
+`http://127.0.0.1:9222`).
+
+```bash
+MINSKY_COCKPIT_URL=http://127.0.0.1:3839 bun scripts/verify-conversation-live-tail.ts
+```
+
+The run SPAWNS a real `claude` process through the cockpit's driven-session API, sends it a prompt
+that streams as one long turn, and stops it again on exit — so it costs tokens and takes 30–60s.
+That is the point: the defect it checks for (content growing INSIDE an already-rendered turn) does
+not exist in a test DOM, which has no height to grow.
 
 ## One-shot backfills / migrations / repairs (already executed; kept for reference)
 
