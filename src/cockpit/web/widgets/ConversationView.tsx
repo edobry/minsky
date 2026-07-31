@@ -1090,12 +1090,20 @@ function ConversationThread({
   const pinnedRef = useRef(true);
   const [hasNewBelow, setHasNewBelow] = useState(false);
 
-  // Bumped whenever the thread's own box changes size — the signal that layout,
-  // not content, may have created or removed a scrollport. `ResizeObserver`
-  // catches in-page causes (a tool block expanding, a sibling panel opening)
-  // that a window-resize listener alone would miss; the window listener is the
-  // fallback where `ResizeObserver` is unavailable (older test DOMs).
-  const [layoutTick, setLayoutTick] = useState(0);
+  // Forces a re-render whenever the thread's own box changes size — the signal
+  // that layout, not content, may have created or removed a scrollport.
+  // `ResizeObserver` catches in-page causes (a tool block expanding, a sibling
+  // panel opening) that a window-resize listener alone would miss; the window
+  // listener is the fallback where `ResizeObserver` is unavailable (older test
+  // DOMs).
+  //
+  // The COUNT is deliberately never read (PR #2469 R2). What this state exists
+  // for is the render it schedules: the resolution effect below re-runs on every
+  // render, so scheduling one is the whole mechanism, and there is nothing for a
+  // dependency array to compare. Do not delete it as unused — a window resize
+  // that gives the thread a scrollport, or takes one away, changes no other
+  // state, so without this the view would keep measuring a stale scrollport.
+  const [, setLayoutTick] = useState(0);
   useEffect(() => {
     const bump = () => setLayoutTick((t) => t + 1);
     const target = endNode?.parentElement;
