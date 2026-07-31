@@ -27,6 +27,8 @@
  *     (Ctrl+Alt+N) rather than a second meaning for a reserved one.
  */
 
+import { isTextEntryTarget } from "./keyboard";
+
 /** Operator-facing label. Used verbatim on every surface. */
 export const NEW_CONVERSATION_LABEL = "New conversation";
 
@@ -42,21 +44,13 @@ export const NEW_CONVERSATION_DESCRIPTION =
   "Start an agent conversation in the daemon's repo directory, bound to no task";
 
 /**
- * True when the event target is a text-entry surface (an input, a textarea,
- * or a contenteditable region).
- *
- * The chord below already carries two modifiers, so a literal keystroke can't
- * collide with it — but the guard is not therefore decorative. It keeps the
- * shortcut from firing out from under someone mid-compose, and it is what
- * makes the chord swappable: a future bare-key binding (Linear's `C`) needs
- * exactly this check and would otherwise be unsafe to adopt.
+ * Re-exported so this module stays the single import surface for the
+ * new-conversation affordance, while the guard itself lives in `./keyboard`
+ * (mt#3469) — mt#3464 and mt#3469 each shipped an identical private copy
+ * because neither could create a shared file while the other was in flight,
+ * and the second to merge owed the merge. Behavior is unchanged.
  */
-export function isTextEntryTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  const tag = target.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
-}
+export { isTextEntryTarget };
 
 /**
  * True when the keyboard event is the new-conversation chord AND focus is not
