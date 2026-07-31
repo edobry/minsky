@@ -14,6 +14,10 @@ import {
   selectTopClusters,
   collapseToMaximalClusters,
 } from "./sequence-mining";
+import {
+  refineCluster,
+  DEFAULT_FINGERPRINT_CONCENTRATION_THRESHOLD,
+} from "./fingerprint-refinement";
 import type { MinedCluster } from "./types";
 
 interface SeedRow {
@@ -373,4 +377,65 @@ describe("collapseToMaximalClusters (mt#3429 SC1)", () => {
     expect(suppressed).toHaveLength(1);
     expect(suppressed[0]?.supersededBy.signature).toBe(longer.signature);
   });
+
+  test(
+    "mt#3432 AT1: collapses + refines a >=10k synthetic cluster population (worst-case " +
+      "shape) in bounded time — guards against a reintroduced O(n^2) blowup",
+    () => {
+      // Worst case for collapseToMaximalClusters: every cluster carries a
+      // UNIQUE tool-name vocabulary per position, so essentially none
+      // nests inside another — the `maximal` list grows close to n and
+      // every candidate is compared against nearly all prior survivors.
+      // Measured against this exact shape during mt#3432 profiling:
+      // ~1.4s for 12,704 clusters (all becoming maximal). That measured
+      // cost, and the identical live-corpus run (12,694 real clusters,
+      // collapse=49ms), together falsify mt#3432's hypothesis 1 as the
+      // actual cause of the reported 25min+ hang — see
+      // toil-miner-tick.ts's docstring for the real root cause (N
+      // sequential per-cluster ledger writes, now batched). This test
+      // still guards the O(n^2) CPU shape of collapse+refinement
+      // independently of that fix, per this task's AT1.
+      const N = 12704;
+      const clusters: MinedCluster[] = [];
+      for (let i = 0; i < N; i++) {
+        const len = 2 + (i % 5); // 2..6
+        const toolSequence = Array.from({ length: len }, (_, j) => `tok${i}_${j}`);
+        clusters.push({
+          signature: computeClusterSignature(toolSequence),
+          toolSequence,
+          frequency: N - i,
+          sessionCount: N - i,
+          chainLength: len,
+          score: (N - i) * (N - i) * len,
+          sampleRefs: [],
+          fingerprintProfile: {
+            sequence: toolSequence.map((t, j) => `fp:${t}:${j}`),
+            frequency: Math.max(1, Math.floor((N - i) * 0.1)),
+            sessionCount: Math.max(1, Math.floor((N - i) * 0.1)),
+            concentration: 0.1,
+            sampleRefs: [],
+          },
+        });
+      }
+
+      const start = performance.now();
+      const { maximal, suppressed } = collapseToMaximalClusters(clusters);
+      let refinedCount = 0;
+      let excludedCount = 0;
+      for (const c of maximal) {
+        const outcome = refineCluster(c, DEFAULT_FINGERPRINT_CONCENTRATION_THRESHOLD);
+        if (outcome.kind === "excluded") excludedCount++;
+        else refinedCount++;
+      }
+      const elapsed = performance.now() - start;
+
+      // Every candidate accounted for — collapse never silently drops one.
+      expect(maximal.length + suppressed.length).toBe(N);
+      expect(refinedCount + excludedCount).toBe(maximal.length);
+      // Generous bound (the measured worst case is ~1.4s): a real O(n^2)
+      // regression would land in tens of seconds to minutes, not here.
+      expect(elapsed).toBeLessThan(10000);
+    },
+    20000
+  );
 });

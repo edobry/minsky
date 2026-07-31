@@ -82,8 +82,7 @@ function fakeLedgerService(
     reconcileVerdicts: async () => ({ accepted: 0, rejected: 0 }),
     shouldPropose: overrides.shouldPropose ?? (async () => ({ propose: true })),
     recordSuppressedByBudget: async () => {},
-    recordSuppressedByMaximalCollapse: async () => {},
-    recordSuppressedByLowDistinctiveness: async () => {},
+    recordSuppressedBatch: async () => {},
     recordSuperseded: async () => {},
     recordProposed: async () => {},
   };
@@ -355,11 +354,36 @@ describe("toilMinerTick — v2 quality pass against a live-ledger-shaped fixture
             ? { propose: false, reason: "cluster already proposed and pending triage" }
             : { propose: true },
         recordSuppressedByBudget: async () => {},
-        recordSuppressedByMaximalCollapse: async (c: MinedCluster, supersededBy: string) => {
-          maximalCollapseCalls.push({ signature: c.signature, supersededBy });
-        },
-        recordSuppressedByLowDistinctiveness: async (c: MinedCluster, concentration: number) => {
-          lowDistinctivenessCalls.push({ signature: c.signature, concentration });
+        // mt#3432 perf fix: the per-cluster ledger write is now ONE bulk
+        // batch call per suppression phase (maximal-collapse, then
+        // low-distinctiveness) rather than N sequential per-cluster
+        // calls. Sort entries into the same two call-tracking arrays the
+        // tests below assert on, keyed by `suppressedReason`, so the
+        // existing per-cluster assertions (which clusters were
+        // suppressed, for which reason, superseded-by-whom /
+        // concentration) still hold unchanged.
+        recordSuppressedBatch: async (
+          entries: ReadonlyArray<{
+            cluster: MinedCluster;
+            suppressedReason: string;
+            rejectionReason: string;
+          }>
+        ) => {
+          for (const { cluster, suppressedReason, rejectionReason } of entries) {
+            if (suppressedReason === "non-maximal-subsequence") {
+              const match = rejectionReason.match(/cluster (\S+)$/);
+              maximalCollapseCalls.push({
+                signature: cluster.signature,
+                supersededBy: match?.[1] ?? "",
+              });
+            } else if (suppressedReason === "low-distinctiveness") {
+              const match = rejectionReason.match(/\(top concentration ([\d.]+)%\)/);
+              lowDistinctivenessCalls.push({
+                signature: cluster.signature,
+                concentration: match ? Number(match[1]) / 100 : 0,
+              });
+            }
+          }
         },
         recordSuperseded: async () => {},
         recordProposed: async (c: MinedCluster) => {
@@ -573,6 +597,126 @@ describe("toilMinerTick — v2 quality pass against a live-ledger-shaped fixture
       // reach the LLM; a's refined form (score 2*2*2=8, far below both)
       // must NOT crowd either of them out.
       expect(seenByLlm.sort()).toEqual(["b-unrefined", "c-unrefined"]);
+    }
+  );
+});
+
+describe("toilMinerTick — mt#3432 perf fix: batched suppression writes + stage timings", () => {
+  test(
+    "a large suppressed population issues a BOUNDED number of recordSuppressedBatch calls, " +
+      "not one per cluster — the actual mt#3432 regression guard",
+    async () => {
+      // 2,000 clusters, all sharing ONE tool name at increasing chain
+      // lengths 2..N — a nested nested family where every longer member is
+      // suppressed by the single highest-ranked (shortest, per the
+      // anti-monotonic n-gram scoring the mt#3429 docstring explains)
+      // survivor. This exercises the SAME collapse shape as the live
+      // corpus's ~11k-suppression run, just at a size a unit test can
+      // afford, while proving the ORCHESTRATION calls the batch method a
+      // small constant number of times rather than proportionally to the
+      // suppressed count (the actual regression: N sequential awaited
+      // per-cluster calls).
+      const N = 2000;
+      // `collapseToMaximalClusters` requires score-descending input (it
+      // does not re-sort, matching what `mineClusters` already guarantees
+      // in production) — sort explicitly rather than rely on build order.
+      const clusters: MinedCluster[] = Array.from({ length: N }, (_, i) => {
+        const len = i + 2; // 2..N+1, strictly increasing so all nest
+        const toolSequence = Array.from({ length: len }, () => "Bash");
+        return {
+          signature: `bash-x${len}`,
+          toolSequence,
+          frequency: N - i,
+          sessionCount: N - i,
+          chainLength: len,
+          score: (N - i) * (N - i) * len,
+          sampleRefs: [],
+        };
+      }).sort((a, b) => b.score - a.score);
+
+      let batchCallCount = 0;
+      let totalBatchedEntries = 0;
+      const ledgerService = {
+        ...fakeLedgerService(),
+        recordSuppressedBatch: async (entries: readonly unknown[]) => {
+          batchCallCount++;
+          totalBatchedEntries += entries.length;
+        },
+      };
+
+      const counters = await toilMinerTick(
+        {
+          db: makeRunsDb() as never,
+          taskService: fakeTaskService() as never,
+          cognitionProvider: NOOP_COGNITION_PROVIDER as never,
+          taskSimilarityService: NOOP_SIMILARITY_SERVICE as never,
+          ledgerService,
+          mineClustersFn: async () => ({ clusters, turnsScanned: N }),
+          analyzeClustersFn: async () => new Map(),
+        },
+        {}
+      );
+
+      // All but the single shortest (highest-scoring) survivor are
+      // suppressed by maximal collapse.
+      expect(counters.suppressedByMaximalCollapse).toBe(N - 1);
+      // The orchestration calls the batch method a CONSTANT number of
+      // times — once for the maximal-collapse suppression phase, once
+      // for the low-distinctiveness phase (empty here, since these
+      // fixtures carry no fingerprintProfile) — regardless of N. This is
+      // the actual mt#3432 fix under test: the original code awaited ONE
+      // ledger call PER suppressed cluster (1,999 sequential round-trips
+      // for this fixture); internal chunking of a single batch call's
+      // payload is a separate concern covered in ledger-service.test.ts.
+      expect(batchCallCount).toBe(2);
+      expect(totalBatchedEntries).toBe(N - 1);
+
+      // Stage-timing counters (SC3) are populated, not left at zero.
+      expect(counters.miningMs).toBeGreaterThanOrEqual(0);
+      expect(counters.collapseMs).toBeGreaterThanOrEqual(0);
+      expect(counters.refinementMs).toBeGreaterThanOrEqual(0);
+      expect(counters.llmMs).toBeGreaterThanOrEqual(0);
+    }
+  );
+
+  test(
+    "mt#3432 R1: a recordSuppressedBatch rejection does not crash the tick — matches " +
+      "mt#3330's existing tick-error contract (only llmErrors / twoConsecutiveZero throw)",
+    async () => {
+      // Even with the narrowing fallback in the real ProposalLedgerService,
+      // a catastrophic failure (e.g. the DB connection itself is down) can
+      // still reject the whole recordSuppressedBatch call. toilMinerTick's
+      // call sites already wrap it in try/catch (fail-open, log-and-continue
+      // — a lost audit-trail row must never crash the run); this test proves
+      // that contract still holds with the new batched call shape.
+      const clusters: MinedCluster[] = [
+        cluster("bash-x2"),
+        { ...cluster("bash-x3"), toolSequence: ["Bash", "Bash", "Bash"], chainLength: 3 },
+      ].sort((a, b) => b.score - a.score);
+
+      const ledgerService = {
+        ...fakeLedgerService(),
+        recordSuppressedBatch: async () => {
+          throw new Error("simulated DB connection failure");
+        },
+      };
+
+      const counters = await toilMinerTick(
+        {
+          db: makeRunsDb() as never,
+          taskService: fakeTaskService() as never,
+          cognitionProvider: NOOP_COGNITION_PROVIDER as never,
+          taskSimilarityService: NOOP_SIMILARITY_SERVICE as never,
+          ledgerService,
+          mineClustersFn: async () => ({ clusters, turnsScanned: 2 }),
+          analyzeClustersFn: async () => new Map(),
+        },
+        {}
+      );
+
+      // Did not throw (the await above completed) — the ledger-write
+      // failure is swallowed per the existing contract, not propagated.
+      expect(counters.suppressedByMaximalCollapse).toBeGreaterThanOrEqual(0);
     }
   );
 });

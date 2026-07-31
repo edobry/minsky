@@ -10,12 +10,17 @@
  * 3. Maximal-sequence collapsing (mt#3429 SC1): suppress any cluster whose
  *    tool sequence is a contiguous run of a higher-ranked, still-surviving
  *    cluster — recorded in the ledger (`non-maximal-subsequence`), never
- *    silently dropped. Runs on the FULL population, before any cap.
+ *    silently dropped. Runs on the FULL population, before any cap. The
+ *    ledger write for every suppressed cluster is ONE bulk batch upsert
+ *    (`ProposalLedgerService.recordSuppressedBatch`), not N sequential
+ *    awaited single-row writes (mt#3432 perf fix — see that module's
+ *    docstring for the measured root cause).
  * 4. Fingerprint refinement (mt#3429 SC2): substitute each surviving
  *    cluster with its fingerprint-refined sub-cluster when concentration
  *    crosses the configurable threshold (default ~20%); otherwise exclude
  *    it from the LLM stage entirely (`low-distinctiveness`) — a generic
- *    cluster never reaches the LLM unrefined.
+ *    cluster never reaches the LLM unrefined. Same batched-write shape as
+ *    step 3.
  * 5. Rank and cap to the top `llmCap` (default 10) after collapsing any
  *    remaining contiguous-subsequence redundancy (`selectTopClusters`).
  * 6. Ledger dedupe (first dedupe stage) — filters the top clusters BEFORE
@@ -88,8 +93,7 @@ export interface ToilMinerTickDeps {
     | "reconcileVerdicts"
     | "shouldPropose"
     | "recordSuppressedByBudget"
-    | "recordSuppressedByMaximalCollapse"
-    | "recordSuppressedByLowDistinctiveness"
+    | "recordSuppressedBatch"
     | "recordSuperseded"
     | "recordProposed"
   >;
@@ -148,7 +152,9 @@ export async function toilMinerTick(
   }
 
   // Stage 1: deterministic mining.
+  const miningStart = performance.now();
   const { clusters, turnsScanned } = await mine(deps.db, options);
+  counters.miningMs = Math.round(performance.now() - miningStart);
   counters.turnsScanned = turnsScanned;
   counters.clustersFound = clusters.length;
 
@@ -158,20 +164,19 @@ export async function toilMinerTick(
   // overlapping views of the same underlying pattern. Every suppressed
   // member is recorded in the ledger (never a silent drop) with a
   // distinct suppressedReason, referencing the surviving cluster.
+  //
+  // mt#3432 perf fix: against the live corpus, `collapseToMaximalClusters`
+  // itself is fast (measured <100ms at 12.7k clusters) — the actual hang
+  // was the ORIGINAL per-cluster `await recordSuppressedByMaximalCollapse`
+  // loop below, one sequential network round-trip per suppressed cluster
+  // (~11,220 of them, ~166ms each measured against the live DB — ~31min
+  // projected). The ledger write is now ONE bulk batch call after the
+  // loop, not N awaited calls inside it; the loop itself only does
+  // in-memory counter/log work.
+  const collapseStart = performance.now();
   const { maximal, suppressed: maximalSuppressed } = collapseToMaximalClusters(clusters);
+  counters.suppressedByMaximalCollapse = maximalSuppressed.length;
   for (const { cluster, supersededBy } of maximalSuppressed) {
-    counters.suppressedByMaximalCollapse++;
-    try {
-      await ledgerService.recordSuppressedByMaximalCollapse(cluster, supersededBy.signature);
-    } catch (err) {
-      log.error("engprod_toil_miner.ledger_write_failed", {
-        event: "engprod_toil_miner.ledger_write_failed",
-        runId,
-        phase: "maximal_collapse",
-        signature: cluster.signature,
-        error: getLoggableErrorSummary(err),
-      });
-    }
     log.info("engprod_toil_miner.suppressed_by_maximal_collapse", {
       event: "engprod_toil_miner.suppressed_by_maximal_collapse",
       runId,
@@ -179,6 +184,24 @@ export async function toilMinerTick(
       supersededBy: supersededBy.signature,
     });
   }
+  try {
+    await ledgerService.recordSuppressedBatch(
+      maximalSuppressed.map(({ cluster, supersededBy }) => ({
+        cluster,
+        suppressedReason: "non-maximal-subsequence",
+        rejectionReason: `contiguous subsequence of higher-ranked cluster ${supersededBy.signature}`,
+      }))
+    );
+  } catch (err) {
+    log.error("engprod_toil_miner.ledger_write_failed", {
+      event: "engprod_toil_miner.ledger_write_failed",
+      runId,
+      phase: "maximal_collapse",
+      count: maximalSuppressed.length,
+      error: getLoggableErrorSummary(err),
+    });
+  }
+  counters.collapseMs = Math.round(performance.now() - collapseStart);
 
   // mt#3429 SC2: fingerprint refinement. For each surviving (maximal)
   // cluster, either substitute it with its fingerprint-refined sub-cluster
@@ -187,9 +210,15 @@ export async function toilMinerTick(
   // occurrences are just tool-name noise with no distinctive sub-pattern —
   // the "distinctiveness floor"). A generic cluster NEVER reaches the LLM
   // unrefined.
+  //
+  // mt#3432 perf fix: same shape as the maximal-collapse loop above — the
+  // per-cluster ledger write is batched after the loop instead of awaited
+  // inside it.
+  const refinementStart = performance.now();
   const fingerprintThreshold =
     options.fingerprintConcentrationThreshold ?? DEFAULT_FINGERPRINT_CONCENTRATION_THRESHOLD;
   const refinedClusters: MinedCluster[] = [];
+  const lowDistinctivenessSuppressed: Array<{ cluster: MinedCluster; concentration: number }> = [];
   for (const cluster of maximal) {
     const outcome = refineCluster(cluster, fingerprintThreshold);
     if (outcome.kind === "refined") {
@@ -211,18 +240,7 @@ export async function toilMinerTick(
       refinedClusters.push(outcome.cluster);
       continue;
     }
-    counters.suppressedByLowDistinctiveness++;
-    try {
-      await ledgerService.recordSuppressedByLowDistinctiveness(cluster, outcome.concentration);
-    } catch (err) {
-      log.error("engprod_toil_miner.ledger_write_failed", {
-        event: "engprod_toil_miner.ledger_write_failed",
-        runId,
-        phase: "low_distinctiveness",
-        signature: cluster.signature,
-        error: getLoggableErrorSummary(err),
-      });
-    }
+    lowDistinctivenessSuppressed.push({ cluster, concentration: outcome.concentration });
     log.info("engprod_toil_miner.suppressed_by_low_distinctiveness", {
       event: "engprod_toil_miner.suppressed_by_low_distinctiveness",
       runId,
@@ -230,6 +248,25 @@ export async function toilMinerTick(
       concentration: outcome.concentration,
     });
   }
+  counters.suppressedByLowDistinctiveness = lowDistinctivenessSuppressed.length;
+  try {
+    await ledgerService.recordSuppressedBatch(
+      lowDistinctivenessSuppressed.map(({ cluster, concentration }) => ({
+        cluster,
+        suppressedReason: "low-distinctiveness",
+        rejectionReason: `no arg_fingerprint sub-pattern reached the concentration threshold (top concentration ${(concentration * 100).toFixed(1)}%)`,
+      }))
+    );
+  } catch (err) {
+    log.error("engprod_toil_miner.ledger_write_failed", {
+      event: "engprod_toil_miner.ledger_write_failed",
+      runId,
+      phase: "low_distinctiveness",
+      count: lowDistinctivenessSuppressed.length,
+      error: getLoggableErrorSummary(err),
+    });
+  }
+  counters.refinementMs = Math.round(performance.now() - refinementStart);
 
   // A refined cluster's score is RECOMPUTED from its (smaller) fingerprint-
   // matched frequency/sessionCount (`refineCluster`), so `refinedClusters`
@@ -260,7 +297,9 @@ export async function toilMinerTick(
   counters.clustersSentToLlm = llmCandidates.length;
 
   // Stage 2: LLM cluster analysis (AI-as-API, direct provider call).
+  const llmStart = performance.now();
   const analyses = await analyze(deps.cognitionProvider, llmCandidates);
+  counters.llmMs = Math.round(performance.now() - llmStart);
 
   const budgetCap = options.budgetCap ?? DEFAULT_BUDGET_CAP;
   let filedCount = 0;
@@ -368,6 +407,10 @@ export async function toilMinerTick(
       suppressedByLowDistinctiveness: counters.suppressedByLowDistinctiveness,
       llmErrors: counters.llmErrors,
       errored,
+      miningMs: counters.miningMs,
+      collapseMs: counters.collapseMs,
+      refinementMs: counters.refinementMs,
+      llmMs: counters.llmMs,
     });
   } catch (err) {
     log.error("engprod_toil_miner.run_history_error", {

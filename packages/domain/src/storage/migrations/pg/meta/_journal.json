@@ -575,6 +575,13 @@
       "when": 1785463899031,
       "tag": "0081_spicy_roland_deschain",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1785467713544,
+      "tag": "0082_superb_paladin",
+      "breakpoints": true
     }
   ]
 }

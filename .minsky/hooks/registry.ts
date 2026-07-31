@@ -1031,8 +1031,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "silent-stretch",
     denyCapable: false,
     needsTranscript: true,
-    // mt#2889: INJECTION_ENABLED=false — calibration-first (dormant by flag),
-    // same rationale as causal-premise-detector above.
+    // mt#3399: INJECTION_ENABLED=true — graduated from calibration-first to
+    // live injection per the ask#6536 disposition. Unlike causal-premise-detector
+    // above (still dormant by flag), this one now emits additionalContext as
+    // well as its calibration record.
     attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
@@ -1066,7 +1068,19 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
           timestamp: "2026-01-01T00:10:30Z",
         },
       ],
-      expects: "calibration",
+      // mt#3399: was "calibration". Post-graduation the stronger assertion is
+      // that the reminder is actually EMITTED — "warn" checks for a non-empty
+      // additionalContext, so the canary fails if injection silently stops,
+      // which "calibration" would not have caught (the calibration record is
+      // written on both sides of the INJECTION_ENABLED branch).
+      //
+      // `expects` is a single value, so this canary cannot also assert the
+      // calibration record still appears (PR #2457 R1). That half is covered by
+      // silent-stretch-detector.test.ts's run() test, which asserts
+      // `outcome.calibration` is defined with the right toolCallCount and
+      // session_id on the same crossing fixture — so between the two, both
+      // halves of the post-graduation contract are pinned.
+      expects: "warn",
     },
   },
   // -------------------------------------------------------------------------

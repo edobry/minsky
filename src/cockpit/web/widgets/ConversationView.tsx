@@ -37,7 +37,7 @@
  * @see packages/domain/src/transcripts/conversation-elements.ts — the shared parser
  * @see mt#2370 — the session-tab frame this will eventually render into
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
@@ -78,6 +78,7 @@ import {
   type InjectedSpan,
 } from "../lib/injected-content";
 import { formatLocalTime, turnSeparator, type TurnSeparator } from "../lib/conversation-timeline";
+import { findScrollParent, isPinnedToBottom } from "../lib/scroll-pinning";
 import { classifyTurnOrigin } from "../lib/turn-origin";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -1063,14 +1064,70 @@ function ConversationThread({
   }, [preparedTurns.length, hiddenCount]);
 
   // Live-tail auto-scroll: when new turns arrive from the SSE stream (mt#2232),
-  // scroll to the bottom so the operator sees them immediately. Only fires
-  // when extraBlocks grows — not on the initial snapshot render (which has the
-  // one-shot gate above). Keyed on extraBlocks.length so it fires once per new
-  // live turn, not on every render.
+  // scroll to the bottom so the operator sees them — but ONLY when the operator
+  // is already at the bottom (mt#3376). Scrolling unconditionally yanked the
+  // view out from under anyone reading back through an active session, once per
+  // arriving tool call or message. Keyed on extraBlocks.length so it fires once
+  // per new live turn, not on every render.
   const extraBlocksLen = extraBlocks?.length ?? 0;
+  const pinnedRef = useRef(true);
+  const [hasNewBelow, setHasNewBelow] = useState(false);
+
+  // Bumped whenever the thread's own box changes size — the signal that layout,
+  // not content, may have created or removed a scrollport. `ResizeObserver`
+  // catches in-page causes (a tool block expanding, a sibling panel opening)
+  // that a window-resize listener alone would miss; the window listener is the
+  // fallback where `ResizeObserver` is unavailable (older test DOMs).
+  const [layoutTick, setLayoutTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setLayoutTick((t) => t + 1);
+    const target = endRef.current?.parentElement;
+    if (typeof ResizeObserver === "function" && target) {
+      const observer = new ResizeObserver(bump);
+      observer.observe(target);
+      return () => observer.disconnect();
+    }
+    if (typeof window === "undefined") return;
+    window.addEventListener("resize", bump);
+    return () => window.removeEventListener("resize", bump);
+  }, []);
+
+  // Keep `pinnedRef` current from the scrollport itself. Sampling at append
+  // time would be too late — the append is what moves the scroll.
+  useEffect(() => {
+    const scrollport = findScrollParent(endRef.current);
+    if (!scrollport) return;
+    const onScroll = () => {
+      const pinned = isPinnedToBottom(scrollport);
+      pinnedRef.current = pinned;
+      // Scrolling back down by hand dismisses the affordance too — the
+      // operator has caught up, so there is nothing left to point at.
+      if (pinned) setHasNewBelow(false);
+    };
+    onScroll();
+    scrollport.addEventListener("scroll", onScroll, { passive: true });
+    return () => scrollport.removeEventListener("scroll", onScroll);
+    // Re-resolve on turn-count changes AND on layout changes (`layoutTick`):
+    // whether an element scrolls is a LAYOUT fact, not a content-count fact.
+    // Expanding a tool block, opening a sibling panel, or resizing the window
+    // can all give a previously-unscrollable container a scrollport — or take
+    // one away — with the turn count unchanged (PR #2459 R1, non-blocking).
+  }, [preparedTurns.length, layoutTick]);
+
+  const scrollToNewest = useCallback(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+    pinnedRef.current = true;
+    setHasNewBelow(false);
+  }, []);
+
   useLayoutEffect(() => {
     if (extraBlocksLen === 0) return;
-    endRef.current?.scrollIntoView({ block: "end" });
+    if (pinnedRef.current) {
+      endRef.current?.scrollIntoView({ block: "end" });
+      return;
+    }
+    // Reading history: hold position and say something arrived instead.
+    setHasNewBelow(true);
   }, [extraBlocksLen]);
 
   if (visibleTurns.length === 0) {
@@ -1142,6 +1199,20 @@ function ConversationThread({
         entityIndex,
         expandSignal,
       })}
+      {/* Return-to-newest (mt#3376). Rendered only while the operator is
+          scrolled up AND live content has arrived since — the two conditions
+          that together mean "you are missing something below". Sticky so it
+          stays reachable while they keep reading. */}
+      {hasNewBelow && (
+        <button
+          type="button"
+          onClick={scrollToNewest}
+          data-testid="jump-to-newest"
+          className="sticky bottom-2 z-10 mx-auto w-fit rounded-full border border-border bg-card px-3 py-1 text-xs text-foreground shadow-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          New messages below ↓
+        </button>
+      )}
       {/* `scroll-mb-8` is load-bearing (mt#3344), not spacing: both
           `scrollIntoView({block:"end"})` calls above align THIS sentinel's
           bottom edge to the scrollport's bottom edge, which would park the

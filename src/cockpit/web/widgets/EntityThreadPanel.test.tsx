@@ -12,7 +12,12 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
-import { EntityThreadPanel, deriveComposerState, derivePollInterval } from "./EntityThreadPanel";
+import {
+  EntityThreadPanel,
+  deriveComposerState,
+  derivePollInterval,
+  isThreadStranded,
+} from "./EntityThreadPanel";
 
 const originalFetch = global.fetch;
 
@@ -67,27 +72,76 @@ function renderPanel() {
 }
 
 describe("deriveComposerState", () => {
+  const operatorTurn = [block({ id: "t#1", type: "user-prompt" })];
+  const answered = [
+    block({ id: "t#1", type: "user-prompt" }),
+    block({ id: "t#2", type: "assistant-text", rawJsonlType: "assistant" }),
+  ];
+
   test("closes the composer while a send is in flight", () => {
-    expect(deriveComposerState([], true)).toBe("streaming");
+    expect(deriveComposerState([], true, false)).toBe("streaming");
   });
 
-  test("closes the composer while the agent owes a reply", () => {
-    // The last turn is the operator's — the agent has the turn. Letting a
-    // second question queue here would interleave two conversations.
-    const blocks = [block({ id: "t#1", type: "user-prompt" })];
-    expect(deriveComposerState(blocks, false)).toBe("streaming");
+  test("closes the composer while a LIVE agent owes a reply", () => {
+    expect(deriveComposerState(operatorTurn, false, true)).toBe("streaming");
+  });
+
+  test("does NOT claim the agent is responding when no agent is live", () => {
+    // The stranding defect (mt#3402): an unanswered operator turn looks
+    // identical whether the agent is thinking or gone. Without the liveness
+    // input this returned "streaming" forever against a dead process.
+    expect(deriveComposerState(operatorTurn, false, false)).toBe("awaiting-input");
   });
 
   test("reopens the composer once the agent has replied", () => {
-    const blocks = [
-      block({ id: "t#1", type: "user-prompt" }),
-      block({ id: "t#2", type: "assistant-text", rawJsonlType: "assistant" }),
-    ];
-    expect(deriveComposerState(blocks, false)).toBe("awaiting-input");
+    expect(deriveComposerState(answered, false, true)).toBe("awaiting-input");
   });
 
   test("an empty thread accepts input", () => {
-    expect(deriveComposerState([], false)).toBe("awaiting-input");
+    expect(deriveComposerState([], false, false)).toBe("awaiting-input");
+  });
+
+  test("UNKNOWN liveness falls back to the block-derived reading, not to dead", () => {
+    // A daemon predating the `live` field returns `undefined` (PR #2460 R1
+    // BLOCKING). Treating that as `false` would reopen the composer against an
+    // agent that may well be mid-turn, letting a second question interleave
+    // into a live child — the mt#3402 defect inverted.
+    expect(deriveComposerState(operatorTurn, false, undefined)).toBe("streaming");
+    expect(deriveComposerState(answered, false, undefined)).toBe("awaiting-input");
+  });
+});
+
+describe("isThreadStranded", () => {
+  const operatorTurn = [block({ id: "t#1", type: "user-prompt" })];
+  const answered = [
+    block({ id: "t#1", type: "user-prompt" }),
+    block({ id: "t#2", type: "assistant-text", rawJsonlType: "assistant" }),
+  ];
+
+  test("an unanswered operator turn with no live agent is stranded", () => {
+    expect(isThreadStranded(operatorTurn, false, false)).toBe(true);
+  });
+
+  test("an unanswered operator turn with a LIVE agent is not stranded — it is thinking", () => {
+    expect(isThreadStranded(operatorTurn, false, true)).toBe(false);
+  });
+
+  test("a thread resting after the agent's reply is idle, not stranded", () => {
+    // Distinguishing these matters: flagging every not-live thread would put a
+    // warning under every normal, fully-answered conversation.
+    expect(isThreadStranded(answered, false, false)).toBe(false);
+  });
+
+  test("an in-flight send is never stranded", () => {
+    expect(isThreadStranded(operatorTurn, true, false)).toBe(false);
+  });
+
+  test("an empty thread is not stranded", () => {
+    expect(isThreadStranded([], false, false)).toBe(false);
+  });
+
+  test("UNKNOWN liveness is not stranded — absence of a signal is not evidence of death", () => {
+    expect(isThreadStranded(operatorTurn, false, undefined)).toBe(false);
   });
 });
 
