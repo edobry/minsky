@@ -14,6 +14,7 @@ import { useParams } from "react-router-dom";
 import { Link } from "react-router-dom";
 import { TaskDetail } from "../widgets/TaskDetail";
 import { CopyId } from "../components/CopyId";
+import { EntityThreadPanel } from "../widgets/EntityThreadPanel";
 
 export function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -36,7 +37,19 @@ export function TaskDetailPage() {
       </nav>
 
       {taskId ? (
-        <TaskDetail taskId={taskId} />
+        <>
+          <TaskDetail taskId={taskId} />
+          {/* mt#3366 — the discussion thread, same component as the ask route.
+              No `proposalSlot` is supplied: a resolve proposal is ask-specific,
+              and the seed prompt correspondingly does not teach the marker for
+              a task, so there is nothing to render here.
+
+              Gated on `taskId` rather than on a loaded task because TaskDetail
+              is self-fetching and does not surface its result to this page. For
+              a nonexistent id the thread endpoint 404s and the panel says so —
+              honest, if alongside TaskDetail's own not-found. */}
+          <EntityThreadPanel entityType="task" entityId={taskId} className="mt-6" />
+        </>
       ) : (
         <p className="text-sm text-muted-foreground">No task ID in URL.</p>
       )}

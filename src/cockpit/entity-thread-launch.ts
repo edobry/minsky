@@ -192,6 +192,50 @@ export function askToEntitySeed(ask: AskSeedInput): EntitySeedContext {
   };
 }
 
+/** The narrow slice of a task this module needs — see `EntitySeedContext`. */
+export interface TaskSeedInput {
+  id: string;
+  title?: string | null;
+  status?: string | null;
+  kind?: string | null;
+  parentTaskId?: string | null;
+  /** The spec body. Optional on the domain `Task`, and genuinely absent sometimes. */
+  spec?: string | null;
+  tags?: string[] | null;
+}
+
+/**
+ * Adapt a task to the seed shape (mt#3366).
+ *
+ * The sibling of `askToEntitySeed`, and deliberately built the same way: narrow
+ * structural input, refs assembled from whatever the entity actually carries.
+ *
+ * The `body` fallback is the one judgment call. A task with no spec still
+ * EXISTS, so the route cannot 404 it — but seeding an empty body would produce
+ * exactly the failure `buildSeedForEntity`'s docblock warns about, an agent
+ * confidently discussing nothing. Naming the absence instead lets the agent
+ * tell the principal the spec is empty, which is the true and useful answer.
+ */
+export function taskToEntitySeed(task: TaskSeedInput): EntitySeedContext {
+  const refs: { label: string; value: string }[] = [];
+  if (task.status) refs.push({ label: "status", value: task.status });
+  if (task.kind) refs.push({ label: "task kind", value: task.kind });
+  if (task.parentTaskId) refs.push({ label: "parent task", value: task.parentTaskId });
+  if (task.tags && task.tags.length > 0) {
+    refs.push({ label: "tags", value: task.tags.join(", ") });
+  }
+
+  const spec = task.spec?.trim();
+
+  return {
+    entityType: "task",
+    entityId: task.id,
+    title: task.title?.trim() || task.id,
+    body: spec && spec.length > 0 ? spec : "(This task has no spec body recorded.)",
+    ...(refs.length > 0 ? { refs } : {}),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Spawn
 // ---------------------------------------------------------------------------
