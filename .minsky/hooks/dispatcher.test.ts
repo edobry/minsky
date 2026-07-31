@@ -20,8 +20,12 @@ import {
   logCalibrationRecord,
   resolveDispatchContext,
   runDispatcher,
+  composeAdditionalContext,
+  DEFAULT_CONTEXT_PRIORITY,
+  MERGED_CONTEXT_BUDGET_CHARS,
   HOOK_OVERRIDE_ENV_VAR,
   type CalibrationWriteDeps,
+  type ContextFragment,
 } from "./dispatcher";
 import type { GuardRegistration } from "./registry";
 import type { ToolHookInput, HookOutput, HostCapInfo } from "./types";
@@ -1286,5 +1290,180 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
       resolveDispatchContextFn: () => stubContext(),
     });
     expect(written[0]?.hookSpecificOutput?.additionalContext).toBe("ok");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3394 — merged-context priority ordering + size budget
+// ---------------------------------------------------------------------------
+
+function frag(guardName: string, priority: number, text: string): ContextFragment {
+  return { guardName, priority, text };
+}
+
+describe("composeAdditionalContext (mt#3394)", () => {
+  test("no fragments -> undefined, so the caller omits the key entirely", () => {
+    expect(composeAdditionalContext([])).toBeUndefined();
+  });
+
+  // Acceptance test 1: higher declared priority is emitted first.
+  test("orders by priority DESC regardless of arrival order", () => {
+    const out = composeAdditionalContext([
+      frag("low", 0, "LOW"),
+      frag("high", 10, "HIGH"),
+      frag("mid", 5, "MID"),
+    ]);
+    expect(out).toBe("HIGH\n\nMID\n\nLOW");
+  });
+
+  // Acceptance test 4: the single-guard case must not change at all.
+  test("a single fragment is emitted verbatim — no separator, no notice", () => {
+    expect(composeAdditionalContext([frag("only", 0, "just this")])).toBe("just this");
+  });
+
+  test("equal priorities keep arrival (registry) order — the stable-sort guarantee", () => {
+    // This is what keeps an unannotated registry byte-identical to the
+    // pre-mt#3394 `fragments.join("\n\n")`.
+    const out = composeAdditionalContext([
+      frag("a", DEFAULT_CONTEXT_PRIORITY, "A"),
+      frag("b", DEFAULT_CONTEXT_PRIORITY, "B"),
+      frag("c", DEFAULT_CONTEXT_PRIORITY, "C"),
+    ]);
+    expect(out).toBe("A\n\nB\n\nC");
+  });
+
+  // Acceptance test 2: over budget -> highest-priority intact + explicit notice.
+  test("over budget: drops lowest-priority fragments and names them in a notice", () => {
+    const out = composeAdditionalContext(
+      [frag("keeper", 10, "K".repeat(40)), frag("dropped-guard", 0, "D".repeat(40))],
+      50
+    );
+    expect(out).toContain("K".repeat(40));
+    expect(out).not.toContain("D".repeat(40));
+    expect(out).toContain("1 lower-priority reminder(s) omitted");
+    expect(out).toContain("dropped-guard");
+  });
+
+  test("the highest-priority fragment is admitted intact even if it alone exceeds the budget", () => {
+    const huge = "H".repeat(500);
+    const out = composeAdditionalContext([frag("huge", 10, huge), frag("small", 0, "s")], 50);
+    // Never truncated — a budget must not mutilate the most important reminder.
+    expect(out).toContain(huge);
+    expect(out).toContain("small");
+  });
+
+  test("under budget: no notice is appended", () => {
+    const out = composeAdditionalContext([frag("a", 0, "A"), frag("b", 0, "B")], 1000);
+    expect(out).toBe("A\n\nB");
+    expect(out).not.toContain("omitted");
+  });
+
+  test("the default budget accommodates the measured all-injectors-plus-five-detectors turn", () => {
+    // Derived in the MERGED_CONTEXT_BUDGET_CHARS doc comment: 1270 chars of
+    // always-on injectors + 3250 chars of the five largest detectors = 4520.
+    // That turn must NOT be truncated, or the budget binds on real traffic.
+    const fragments = [
+      frag("inject-current-time", 10, "x".repeat(90)),
+      frag("inject-git-state", 10, "x".repeat(200)),
+      frag("inject-prod-state", 10, "x".repeat(250)),
+      frag("inject-dispatch-watchdog", 0, "x".repeat(450)),
+      frag("memory-search", 0, "x".repeat(280)),
+      frag("substrate-bypass-detector", 0, "x".repeat(1000)),
+      frag("constructed-identifier-batch-detector", 0, "x".repeat(600)),
+      frag("operator-deferral-detector", 0, "x".repeat(600)),
+      frag("causal-premise-detector", 0, "x".repeat(550)),
+      frag("pre-narration-detector", 0, "x".repeat(500)),
+    ];
+    const out = composeAdditionalContext(fragments, MERGED_CONTEXT_BUDGET_CHARS);
+    expect(out).not.toContain("omitted");
+  });
+});
+
+describe("runDispatcher merged-context behavior (mt#3394)", () => {
+  // Acceptance test 3: a fragment dropped for budget must STILL have written
+  // its calibration record — the budget is a presentation concern only, and
+  // /calibration-review's false-positive rates depend on the record surviving.
+  test("a budget-dropped guard still logs its calibration record", async () => {
+    const written: HookOutput[] = [];
+    const logged: { name: string; record: Record<string, unknown> }[] = [];
+    const registrations: GuardRegistration[] = [
+      {
+        name: "loud-high-priority",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => ({ additionalContext: "H".repeat(MERGED_CONTEXT_BUDGET_CHARS) }),
+          }),
+        timeoutMs: 1000,
+        denyCapable: false,
+        contextPriority: 10,
+      },
+      {
+        name: "quiet-low-priority",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => ({
+              additionalContext: "L".repeat(100),
+              calibration: { timestamp: "t", session_id: "s", detail: "still measured" },
+            }),
+          }),
+        timeoutMs: 1000,
+        denyCapable: false,
+        calibrationLog: "quiet-low",
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: (o) => written.push(o),
+      logCalibrationRecordFn: (name, record) => logged.push({ name, record }),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+
+    const emitted = written[0]?.hookSpecificOutput?.additionalContext ?? "";
+    // Presentation: the low-priority fragment was dropped and named.
+    expect(emitted).not.toContain("L".repeat(100));
+    expect(emitted).toContain("quiet-low-priority");
+    // Measurement: its calibration record was written anyway.
+    expect(logged.length).toBe(1);
+    expect(logged[0]?.name).toBe("quiet-low");
+    expect(logged[0]?.record?.detail).toBe("still measured");
+  });
+
+  test("registry contextPriority is what orders the emitted block", async () => {
+    const written: HookOutput[] = [];
+    const registrations: GuardRegistration[] = [
+      {
+        name: "declared-last-but-higher",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "SECOND-DECLARED" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+        contextPriority: 99,
+      },
+      {
+        name: "declared-first-but-default",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "FIRST-DECLARED" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: (o) => written.push(o),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    expect(written[0]?.hookSpecificOutput?.additionalContext).toBe(
+      "SECOND-DECLARED\n\nFIRST-DECLARED"
+    );
   });
 });

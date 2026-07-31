@@ -440,6 +440,109 @@ export interface RunDispatcherOptions {
   nowMsFn?: () => number;
 }
 
+// ---------------------------------------------------------------------------
+// Merged-context composition (mt#3394)
+// ---------------------------------------------------------------------------
+
+/** One guard's `additionalContext` contribution, tagged for ordering. */
+export interface ContextFragment {
+  guardName: string;
+  priority: number;
+  text: string;
+}
+
+/**
+ * Priority used for a guard that declares no `contextPriority`. Every fragment
+ * sitting at this value keeps registry order relative to its peers, so an
+ * unannotated registry produces exactly the block it produced before mt#3394.
+ */
+export const DEFAULT_CONTEXT_PRIORITY = 0;
+
+/**
+ * Char budget for the MERGED block, derived from the registry's own
+ * `attentionCost.denialMessageSizeChars` annotations rather than picked round
+ * (`decision-defaults.mdc §Thresholds` — observed cadence, not round numbers).
+ *
+ * Measured across the 22 `UserPromptSubmit` registrations (21 annotated):
+ *
+ *   - Always-on injectors, which fire EVERY turn and whose absence would make
+ *     the agent assert stale facts: inject-current-time 90 + inject-git-state
+ *     200 + inject-prod-state 250 + inject-dispatch-watchdog 450 +
+ *     memory-search 280 = **1270**.
+ *   - The five largest conditional detectors: substrate-bypass 1000 +
+ *     constructed-identifier-batch 600 + operator-deferral 600 +
+ *     causal-premise 550 + pre-narration 500 = **3250**.
+ *
+ * 1270 + 3250 = 4520 chars of fragment TEXT. The budget bounds the emitted
+ * BLOCK, which also carries the `\n\n` separators between fragments: 10
+ * fragments means 9 separators at 2 chars = 18. So 4520 + 18 = **4538**.
+ *
+ * (That separator term is not pedantry — the first draft of this constant was
+ * 4520 and the "measured turn is not truncated" test below failed by exactly
+ * one dropped fragment. The test is what caught it.)
+ *
+ * A turn where everything always-on fires AND the five heaviest detectors all
+ * fire at once therefore still fits. The budget does not bind on any realistic
+ * turn; it binds on the pathological tail, where the annotated all-21 total is
+ * 8970. That is the intent: bound unbounded growth as detectors graduate,
+ * without truncating ordinary turns.
+ */
+export const MERGED_CONTEXT_BUDGET_CHARS = 4538;
+
+/** Separator between merged fragments — preserved from the pre-mt#3394 join. */
+const FRAGMENT_SEPARATOR = "\n\n";
+
+/**
+ * Merge guard fragments into the single `additionalContext` string.
+ *
+ * Ordering: priority DESC, registry order within equal priority. `Array.sort`
+ * is specified stable (ES2019), so equal-priority fragments cannot be
+ * reshuffled — that is what keeps the unannotated case byte-identical to the
+ * previous `fragments.join("\n\n")`.
+ *
+ * Budget: fragments are admitted highest-priority-first while they fit. The
+ * FIRST (highest-priority) fragment is always admitted even if it alone
+ * exceeds the budget — truncating the most important reminder to satisfy a
+ * budget would invert the whole point. Anything dropped is named in a trailing
+ * notice, so a reader never silently receives a partial block.
+ *
+ * Pure — no I/O, no clock — so the dispatcher's merge policy is unit-testable
+ * without standing up a registry or a transcript.
+ *
+ * Returns `undefined` when there is nothing to emit, which the caller treats
+ * as "write no additionalContext key at all".
+ */
+export function composeAdditionalContext(
+  fragments: ContextFragment[],
+  budgetChars: number = MERGED_CONTEXT_BUDGET_CHARS
+): string | undefined {
+  if (fragments.length === 0) return undefined;
+
+  const ordered = [...fragments].sort((a, b) => b.priority - a.priority);
+
+  const admitted: ContextFragment[] = [];
+  const dropped: ContextFragment[] = [];
+  let usedChars = 0;
+
+  for (const fragment of ordered) {
+    const cost = fragment.text.length + (admitted.length > 0 ? FRAGMENT_SEPARATOR.length : 0);
+    // The highest-priority fragment is admitted unconditionally; every other
+    // fragment must fit what remains.
+    if (admitted.length === 0 || usedChars + cost <= budgetChars) {
+      admitted.push(fragment);
+      usedChars += cost;
+    } else {
+      dropped.push(fragment);
+    }
+  }
+
+  const body = admitted.map((f) => f.text).join(FRAGMENT_SEPARATOR);
+  if (dropped.length === 0) return body;
+
+  const names = dropped.map((f) => f.guardName).join(", ");
+  return `${body}${FRAGMENT_SEPARATOR}[dispatcher] ${dropped.length} lower-priority reminder(s) omitted to stay within the ${budgetChars}-char context budget: ${names}. Each still wrote its own calibration record.`;
+}
+
 /**
  * Core dispatcher loop (D1). Reads stdin ONCE, resolves shared context ONCE
  * (D6), filters the registry to guards matching `event` + `tool_name`, and
@@ -453,8 +556,9 @@ export interface RunDispatcherOptions {
  *      disable the rest (fail-open per guard).
  *   3. `denyCapable` guards short-circuit the loop on the first `deny` (D1's
  *      first-deny-wins ordering — now an explicit registry-order property).
- *   4. `additionalContext` fragments from every guard are concatenated
- *      (registry order, one paragraph per guard) into a single consolidated
+ *   4. `additionalContext` fragments from every guard are merged by
+ *      `composeAdditionalContext` (priority order, then registry order within
+ *      a priority, bounded by a char budget) into a single consolidated
  *      `HookOutput`, written only if at least one guard contributed content
  *      — a matched-but-silent guard produces no stdout, matching today's
  *      "write nothing on allow" convention.
@@ -491,7 +595,7 @@ export async function runDispatcher(
   const ctx = resolveContext(event, input, { hookFilename: options.hookFilename });
 
   const knownGuardNames = registrations.map((r) => r.name);
-  const contextFragments: string[] = [];
+  const contextFragments: ContextFragment[] = [];
   let sessionTitle: string | undefined;
   for (const reg of matched) {
     const evalStartMs = nowMs();
@@ -586,17 +690,22 @@ export async function runDispatcher(
       });
       return;
     }
-    if (outcome.additionalContext) contextFragments.push(outcome.additionalContext);
+    if (outcome.additionalContext) {
+      contextFragments.push({
+        guardName: reg.name,
+        priority: reg.contextPriority ?? DEFAULT_CONTEXT_PRIORITY,
+        text: outcome.additionalContext,
+      });
+    }
     if (outcome.sessionTitle !== undefined) sessionTitle = outcome.sessionTitle;
   }
 
-  if (contextFragments.length > 0 || sessionTitle !== undefined) {
+  const additionalContext = composeAdditionalContext(contextFragments);
+  if (additionalContext !== undefined || sessionTitle !== undefined) {
     writeOutputFn({
       hookSpecificOutput: {
         hookEventName: event,
-        ...(contextFragments.length > 0
-          ? { additionalContext: contextFragments.join("\n\n") }
-          : {}),
+        ...(additionalContext !== undefined ? { additionalContext } : {}),
         ...(sessionTitle !== undefined ? { sessionTitle } : {}),
       },
     });

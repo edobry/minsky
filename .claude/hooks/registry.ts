@@ -227,6 +227,22 @@ export interface GuardRegistration {
   /** Whether this guard participates in first-deny-wins short-circuiting (D1). */
   denyCapable: boolean;
   /**
+   * Ordering weight for this guard's `additionalContext` fragment within the
+   * dispatcher's MERGED output block (mt#3394). Higher survives first.
+   *
+   * This orders the OUTPUT only — it does NOT reorder evaluation. Guards are
+   * still evaluated in registry order, because first-deny-wins
+   * short-circuiting depends on that order and must not shift.
+   *
+   * Omit for the common case. Fragments at equal priority keep registry order
+   * (the sort is stable), so an unannotated registry emits exactly the block
+   * it emits today. Populate it only where dropping a fragment would cost
+   * something specific, and say what in a comment at the registration.
+   *
+   * @see composeAdditionalContext in dispatcher.ts — where this is applied.
+   */
+  contextPriority?: number;
+  /**
    * Whether the dispatcher should resolve+parse transcripts before invoking
    * this guard (D6). Guards that don't read transcripts should omit this —
    * the dispatcher still resolves `hostCapSec`/`budgets` unconditionally for
@@ -425,6 +441,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-current-time").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
+    // mt#3394: state injectors outrank advisory reminders in the merged block.
+    // Dropping this one does not cost a nudge, it costs a FACT — the agent then
+    // dates its own claims from a stale in-context timestamp. Cheap to keep
+    // (90 chars) and everything else in the turn is written against it.
+    contextPriority: 10,
     attentionCost: { denialMessageSizeChars: 90, optionCount: 0 },
     // mt#2889: fires unconditionally on every UserPromptSubmit — the simplest liveness canary in the registry.
     canary: { input: {}, expects: "warn" },
@@ -435,6 +456,9 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-git-state").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
+    // mt#3394: same class as inject-current-time — branch/ahead-behind/dirty
+    // state is the ground truth the turn's git claims are written against.
+    contextPriority: 10,
     attentionCost: { denialMessageSizeChars: 200, optionCount: 0 },
     canary: {
       input: {}, // cwd populated dynamically by setup below
@@ -474,6 +498,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-prod-state").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
+    // mt#3394: the highest-cost state injector to lose. Its own text tells the
+    // agent to "treat this as ground truth for prod-state claims this turn (do
+    // not assert a different prod state from memory)" — so if it is dropped,
+    // the fallback is exactly the memory-sourced assertion it exists to prevent.
+    contextPriority: 10,
     attentionCost: { denialMessageSizeChars: 250, optionCount: 0 },
     // mt#2889: no cache file present in the canary runner's isolated
     // MINSKY_STATE_DIR -> deterministic UNKNOWN branch fires additionalContext.
