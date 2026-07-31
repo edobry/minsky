@@ -10,8 +10,8 @@ description: >-
   or non-PR spec checks against main.
 tools: >-
   Read, Glob, Grep, Bash, mcp__minsky__git_log, mcp__minsky__git_diff,
-  mcp__minsky__git_status, mcp__minsky__tasks_get, mcp__minsky__tasks_spec_get,
-  mcp__github__get_file_contents
+  mcp__minsky__git_status, mcp__minsky__git_blame, mcp__minsky__tasks_get,
+  mcp__minsky__tasks_spec_get, mcp__github__get_file_contents
 model: sonnet
 ---
 

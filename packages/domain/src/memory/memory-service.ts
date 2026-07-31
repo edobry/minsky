@@ -172,6 +172,36 @@ function rowToRecord(row: Record<string, any>): MemoryRecord {
   };
 }
 
+/**
+ * Look up one memory by either id form (`mem#N` or a full uuid) and return only
+ * the fields a ref cross-reference needs (mt#3354).
+ *
+ * Standalone rather than a `MemoryService` method because `MemoryServiceDeps`
+ * requires `vectorStorage` and `embeddingService`, neither of which a by-id read
+ * touches — `refs.status` holds a bare DB connection and has no reason to stand
+ * up the embedding stack to answer "does this memory exist". It shares
+ * `memoryIdWhere` with `MemoryService.get`, so both id forms resolve identically
+ * on both paths and cannot drift apart.
+ *
+ * Deliberately does NOT bump `last_accessed_at`/`access_count` the way
+ * `MemoryService.get` does: a bulk ref cross-reference is bookkeeping about the
+ * record, not a read OF the record, and counting it would inflate the access
+ * stats that surface memory relevance.
+ */
+export async function getMemoryRefSummary(
+  db: MemoryServiceDb,
+  id: string
+): Promise<{ id: string; type: string; name: string } | null> {
+  const where = memoryIdWhere(id);
+  // Neither a uuid nor a `mem#N` short id — a genuine miss, not a query.
+  if (!where) return null;
+  const rows = await db.select().from(memoriesTable).where(where);
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const record = rowToRecord(row);
+  return { id: record.id, type: record.type, name: record.name };
+}
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------

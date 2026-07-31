@@ -261,7 +261,15 @@ function wireDrivenSessionSocket(ws: WebSocket, record: DrivenSessionRecord): vo
   // AFTER the (possibly empty, in-process-memory-only) eventLog replay —
   // full on-disk transcript replay for an unrecoverable session is a known
   // gap, not attempted here (see the PR body).
-  if (record.status === "unrecoverable") {
+  //
+  // mt#3397 — skip the synthetic frame when the replayed log ALREADY carried
+  // one. The host emits a real `minsky_unrecoverable` event when a spawn
+  // races a workspace deletion, so for that record the two would be
+  // duplicates; a boot-loaded record's log is empty and still needs this.
+  if (
+    record.status === "unrecoverable" &&
+    !record.eventLog.some((event) => event.payload["type"] === "minsky_unrecoverable")
+  ) {
     ws.send(
       JSON.stringify({
         type: "minsky_unrecoverable",

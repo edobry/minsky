@@ -29,7 +29,35 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 import { shortenId } from "./format";
 
-export type EntityTabKind = "task" | "session" | "agent" | "ask" | "memory" | "changeset";
+/**
+ * `"driven"` (mt#3400) is a TEMPORARY member of this union. mt#3095 re-keys the
+ * drive surface from the spawn-time localId this kind addresses to the harness
+ * conversation id ("the localId demotes to an actuator implementation detail"),
+ * and mt#3130 Phase 6 then deprecates `/driven/:id` outright once the composer
+ * lands on the unified conversation route. At that point a driven tab is just a
+ * conversation tab and this member is deleted.
+ *
+ * Escalation threshold: if mt#3095 is still TODO 10 days after this ships,
+ * surface a reprioritization prompt rather than silently carrying the extra
+ * kind (`work-completion.mdc §Temporary mechanism budget`; the 10-day value is
+ * `decision-defaults.mdc §Thresholds`' lynchpin-tracking figure — mt#3095 gates
+ * mt#3130 Phase 6).
+ *
+ * On removal, do NOT reach for `migrateLegacySessionPath` as the model: that is
+ * a syntactic path rewrite with the SAME id on both sides, whereas the mt#3095
+ * re-key changes the id-space and cannot be resolved by a synchronous
+ * load-time function. Keep `/driven/:localId` resolving via a server-side
+ * redirect instead, and let any stale tab fall through the existing
+ * `markTabError` chip path.
+ */
+export type EntityTabKind =
+  | "task"
+  | "session"
+  | "agent"
+  | "ask"
+  | "memory"
+  | "changeset"
+  | "driven";
 
 export interface EntityTab {
   kind: EntityTabKind;
@@ -148,6 +176,25 @@ export function matchEntityRoute(pathname: string): EntityTab | null {
     };
   }
 
+  // mt#3400 — the drive view is the one surface the operator actively WORKS in,
+  // and it was the only entity route with no tab: launching a driven session
+  // and navigating away left it unreachable from the strip, so recovery meant
+  // routing back through the task. Note this does not fight mt#3255's
+  // preview-tab plan — that objects to drive-by VISITS pinning tabs, whereas an
+  // operator-initiated live drive is the paradigm case for a held-open tab. If
+  // mt#3255 introduces preview-vs-pinned semantics, this belongs on the PINNED
+  // side.
+  const driven = pathname.match(/^\/driven\/([^/]+)$/);
+  if (driven?.[1]) {
+    const id = decodeURIComponent(driven[1]);
+    return {
+      kind: "driven",
+      entityId: id,
+      path: `/driven/${driven[1]}`,
+      label: shortenId(id),
+    };
+  }
+
   const agent = pathname.match(/^\/agents\/([^/]+)(?:\/(?:conversation|context))?$/);
   if (agent?.[1]) {
     const id = decodeURIComponent(agent[1]);
@@ -245,7 +292,11 @@ export function isAcceptedTabKind(kind: unknown): kind is EntityTabKind {
     kind === "agent" ||
     kind === "ask" ||
     kind === "memory" ||
-    kind === "changeset"
+    kind === "changeset" ||
+    // Omitting a kind here does NOT just skip one tab — this filter runs at
+    // load, so an unlisted kind is dropped from the restored set: the tab works
+    // for the session and silently disappears on the next reload.
+    kind === "driven"
   );
 }
 

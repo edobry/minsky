@@ -114,6 +114,34 @@ describe("resolveTabLabel", () => {
     expect(r.primary).toBe("mt#42");
   });
 
+  // mt#3400 — a driven tab resolves out of the SAME fleet rows as an agent
+  // tab, because the fleet list splices driven-session rows keyed by localId.
+  test("driven tab: bound task title wins", () => {
+    const r = resolveTabLabel(
+      { kind: "driven", entityId: "a10e3905-cc67", label: "a10e3905" },
+      sources
+    );
+    expect(r.primary).toBe(TASK_TITLE_FIXTURE);
+    expect(r.enriched).toBe(true);
+  });
+
+  test("driven tab: falls to task id when no title", () => {
+    const r = resolveTabLabel(
+      { kind: "driven", entityId: "b20f4a16-dd78", label: "b20f4a16" },
+      sources
+    );
+    expect(r.primary).toBe("mt#42");
+  });
+
+  test("driven tab: an unmatched local id degrades to the short label, not a crash", () => {
+    const r = resolveTabLabel(
+      { kind: "driven", entityId: "ds-unknown", label: "ds-unkn" },
+      sources
+    );
+    expect(r.primary).toBe("ds-unkn");
+    expect(r.enriched).toBe(false);
+  });
+
   test("conversation (session-kind) tab: ladder label", () => {
     const r = resolveTabLabel(
       { kind: "session", entityId: "4b019e33-0b84", label: "4b019e33" },
@@ -147,7 +175,15 @@ describe("resolveTabLabel", () => {
   });
 
   test("empty sources: every kind degrades to fallback", () => {
-    for (const kind of ["task", "agent", "session", "ask", "memory", "changeset"] as const) {
+    for (const kind of [
+      "task",
+      "agent",
+      "session",
+      "ask",
+      "memory",
+      "changeset",
+      "driven",
+    ] as const) {
       const r = resolveTabLabel({ kind, entityId: "x-1", label: "x-1" }, EMPTY_LABEL_SOURCES);
       expect(r.primary).toBe("x-1");
       expect(r.enriched).toBe(false);

@@ -21,6 +21,9 @@ export default defineAgent({
     "mcp__minsky__git_log",
     "mcp__minsky__git_diff",
     "mcp__minsky__git_status",
+    // mt#3401: `git blame` is the fourth read-only git command the guard denies;
+    // mt#3401's generalized reachability test caught that mt#3381 missed it.
+    "mcp__minsky__git_blame",
     "mcp__minsky__session_pr_review_context",
     "mcp__minsky__session_pr_review_submit",
     "mcp__minsky__tasks_spec_get",
