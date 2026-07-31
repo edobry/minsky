@@ -7,9 +7,17 @@
  * a headless skip-permissions agent, so tests never do it.
  */
 
-import { describe, expect, test } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- mt#3397: the host preflights its spawn cwd against the REAL filesystem, so these launches need a real directory as their cwd — there is no fs to inject through the code path under test. A per-run mkdtemp dir keeps the "fixed mock path" race the rule guards against from applying. */
+import { describe, expect, test, afterAll } from "bun:test";
 import { EventEmitter } from "events";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { PassThrough } from "stream";
+
+// mt#3397 — the host preflights the spawn cwd, so these spawns need a cwd that
+// actually exists or they'd take the missing-cwd branch instead.
+const TEST_CWD = mkdtempSync(join(tmpdir(), "entity-thread-launch-"));
 
 import {
   DrivenSessionRegistry,
@@ -318,7 +326,7 @@ describe("seed prompt attribution", () => {
     const registry = new DrivenSessionRegistry();
     const session = startEntityThreadSession({
       seed: seed(),
-      cwd: "/tmp/x",
+      cwd: TEST_CWD,
       spawnFn: fakeSpawn(),
       registry,
     });
@@ -339,7 +347,7 @@ describe("seed prompt attribution", () => {
     const registry = new DrivenSessionRegistry();
     const session = startEntityThreadSession({
       seed: seed(),
-      cwd: "/tmp/x",
+      cwd: TEST_CWD,
       spawnFn: fakeSpawn(),
       registry,
     });
@@ -359,7 +367,7 @@ describe("seed prompt attribution", () => {
     const registry = new DrivenSessionRegistry();
     const session = startEntityThreadSession({
       seed: seed(),
-      cwd: "/tmp/x",
+      cwd: TEST_CWD,
       spawnFn: fakeSpawn(),
       registry,
     });
@@ -372,4 +380,10 @@ describe("seed prompt attribution", () => {
     expect(operatorFrames).toHaveLength(1);
     expect(operatorFrames[0]?.payload["text"]).toBe("what is this asking me?");
   });
+});
+
+// PR #2452 R1 (non-blocking): remove the per-run temp dir so repeated runs do
+// not accumulate orphaned directories under the system temp root.
+afterAll(() => {
+  rmSync(TEST_CWD, { recursive: true, force: true });
 });

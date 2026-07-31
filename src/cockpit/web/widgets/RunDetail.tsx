@@ -159,7 +159,9 @@ export interface ConversationOverviewPayload {
  * request (TanStack Query dedupes identical keys under one QueryClient).
  * Mirrors `MemoryPage.tsx`'s displayId-fetch pattern (mt#2966).
  */
-export async function fetchWorkspaceDetail(sessionId: WorkspaceId): Promise<WorkspaceDetailPayload> {
+export async function fetchWorkspaceDetail(
+  sessionId: WorkspaceId
+): Promise<WorkspaceDetailPayload> {
   const encoded = encodeURIComponent(sessionId);
   const res = await fetch(`/api/agents/${encoded}`);
   if (!res.ok) {
@@ -302,7 +304,9 @@ function WorkspaceOverviewBody({ fields }: { fields: WorkspaceOverviewFields }) 
         </h3>
         {commits.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            {session.lastCommitMessage ? `Last: ${session.lastCommitMessage}` : "No session commits yet"}
+            {session.lastCommitMessage
+              ? `Last: ${session.lastCommitMessage}`
+              : "No session commits yet"}
           </p>
         ) : (
           <ul className="flex flex-col gap-1">
@@ -452,11 +456,18 @@ export function RunDetail({
   const conversationCandidates: ConversationCandidate[] =
     keySpace === "workspace"
       ? (workspaceQuery.data?.conversations ?? [])
-      : [{ agentSessionId: id, startedAt: conversationOverviewQuery.data?.conversationMeta.startedAt ?? null }];
+      : [
+          {
+            agentSessionId: id,
+            startedAt: conversationOverviewQuery.data?.conversationMeta.startedAt ?? null,
+          },
+        ];
 
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const activeConversationId: string | null =
-    keySpace === "conversation" ? id : (selectedConversationId ?? conversationCandidates[0]?.agentSessionId ?? null);
+    keySpace === "conversation"
+      ? id
+      : (selectedConversationId ?? conversationCandidates[0]?.agentSessionId ?? null);
 
   function handleTabChange(value: string) {
     navigate(pathForTab(base, keySpace, value as RunTab));
@@ -468,7 +479,16 @@ export function RunDetail({
   // the driven-session view without a new minsky:// URI type (spec SC5;
   // ADR-022 pins the URI type set).
   const driven = keySpace === "workspace" ? (workspaceQuery.data?.driven ?? null) : null;
-  const drivenActive = driven != null && (driven.status === "running" || driven.status === "spawned");
+  // `drivenActive` answers "is it working RIGHT NOW" — it drives the amber
+  // pulse — which is deliberately NARROWER than the task page's *returnable*
+  // predicate in `routes/tasks.ts` (`!isTerminalStatus`, which also admits
+  // `reconnecting`). The two answer different questions and should not be
+  // unified: a reconnecting session IS worth returning to (attaching resumes
+  // it) but is not producing output, so pulsing amber for it would overstate
+  // liveness. Flagged as an apparent inconsistency in PR #2448 R1; recorded
+  // here so it reads as a choice rather than an oversight.
+  const drivenActive =
+    driven != null && (driven.status === "running" || driven.status === "spawned");
 
   return (
     <div className="flex flex-col gap-4">
@@ -498,26 +518,34 @@ export function RunDetail({
             ))}
           </TabsList>
         </Tabs>
-      </div>
 
-      {driven && (
-        <Link
-          to={`/driven/${encodeURIComponent(driven.sessionId)}`}
-          className={`flex items-center gap-2 rounded border px-3 py-2 text-sm transition-colors ${
-            drivenActive
-              ? "border-amber-500/40 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20"
-              : "border-border bg-muted/40 text-muted-foreground hover:bg-accent/40"
-          }`}
-          aria-label={`Open driven session (${driven.status})`}
-        >
-          {drivenActive && (
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-          )}
-          {drivenActive
-            ? "Driven session live — open the drive view to interact"
-            : `Driven session ${driven.status} — open the drive view`}
-        </Link>
-      )}
+        {/* mt#3400 — the driven banner lives INSIDE the pinned chrome. It used
+            to sit just below it, which meant that on the Conversation tab it
+            scrolled out of view immediately (the transcript auto-scrolls to its
+            live edge), so the only route back to the interactive drive view
+            vanished exactly where an operator reading the conversation would
+            look for it. mt#3344 pinned the chrome but left this outside it.
+            `mb-2` rather than padding on the container: the no-banner case must
+            keep the chrome's existing geometry unchanged. */}
+        {driven && (
+          <Link
+            to={`/driven/${encodeURIComponent(driven.sessionId)}`}
+            className={`mb-2 flex items-center gap-2 rounded border px-3 py-2 text-sm transition-colors ${
+              drivenActive
+                ? "border-amber-500/40 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20"
+                : "border-border bg-muted/40 text-muted-foreground hover:bg-accent/40"
+            }`}
+            aria-label={`Open driven session (${driven.status})`}
+          >
+            {drivenActive && (
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+            )}
+            {drivenActive
+              ? "Driven session live — open the drive view to interact"
+              : `Driven session ${driven.status} — open the drive view`}
+          </Link>
+        )}
+      </div>
 
       {tab === "overview" && (
         <OverviewTab

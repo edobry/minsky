@@ -228,10 +228,16 @@ uuid-keyed records` below) to fetch the full structured payload written in step 
 2. **Re-derive statuses live — don't trust the pasted table or the memory snapshot's status
    field.** Both may be stale (superseded by work that happened after the handoff was written)
    or, for pasted prose, corrupted by paste/terminal-wrap. Call `mcp__minsky__refs_status` with
-   the full list of task ids / PR numbers / ask ids from the memory payload — one call
+   the full list of refs from the memory payload — task ids, PR numbers, and asks / memories /
+   workspaces by either their `ask#N` / `mem#N` / `ws#N` short id or their uuid. One call
    re-validates the whole queue against live state (task status, PR merge state, ask response
    state) in a single round trip — or `mcp__minsky__tasks_status_get` per task id if only task
-   statuses are needed.
+   statuses are needed. Pass every ref to this one call; do NOT hand-route asks or memories to
+   `asks_get` / `memory_get` around it. Handoffs used to do exactly that, because before mt#3354
+   the short-id forms came back `found: false` — a silent misread, not a missing record. That is
+   fixed; the workaround is now just an extra round trip that can drift out of sync with the rest
+   of the queue.
+
 3. **Proceed from the live-verified queue**, not from the memory payload's status snapshot or
    any pasted-prose summary.
 

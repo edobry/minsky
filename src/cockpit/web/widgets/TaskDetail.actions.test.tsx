@@ -50,6 +50,38 @@ describe("TaskActions (mt#2986)", () => {
     expect(link.getAttribute("href")).toBe("/agents/abc-123");
   });
 
+  // mt#3400 — the one-hop return to a live driven session.
+  test("drive action → link to the driven-session view", () => {
+    renderActions([{ kind: "drive", drivenSessionId: "ds-abc123" }]);
+    const link = screen.getByRole("link", { name: /Return to the live drive view/ });
+    expect(link.getAttribute("href")).toBe("/driven/ds-abc123");
+  });
+
+  // PR #2448 R1 — the two adjacent controls must not both read "…session".
+  test("the drive label is distinguishable from the workspace 'Open session' label", () => {
+    renderActions([
+      { kind: "drive", drivenSessionId: "ds-abc123" },
+      { kind: "resume", sessionId: "ws-999" },
+    ]);
+    expect(screen.getByText("Return to drive view")).toBeDefined();
+    expect(screen.getByText("Open session")).toBeDefined();
+  });
+
+  test("drive without a driven session id renders nothing (never a dead control)", () => {
+    const { container } = renderActions([{ kind: "drive" }]);
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  test("a live drive action LEADS the workspace link when both are present", () => {
+    renderActions([
+      { kind: "drive", drivenSessionId: "ds-abc123" },
+      { kind: "resume", sessionId: "ws-999" },
+    ]);
+    const links = screen.getAllByRole("link");
+    expect(links[0]?.getAttribute("href")).toBe("/driven/ds-abc123");
+    expect(links[1]?.getAttribute("href")).toBe("/agents/ws-999");
+  });
+
   test("view-pr action → link to the changeset page", () => {
     renderActions([{ kind: "view-pr", prNumber: 2090 }]);
     const link = screen.getByRole("link", { name: /View PR #2090/ });

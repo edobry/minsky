@@ -19,6 +19,9 @@ import {
   type DrivenAccumulatorState,
 } from "./driven-session-accumulator";
 
+/** The host's fourth terminal frame (mt#3038 R1 delta #2). */
+const UNRECOVERABLE_EVENT_TYPE = "minsky_unrecoverable";
+
 function fold(
   state: DrivenAccumulatorState,
   ...events: Record<string, unknown>[]
@@ -365,7 +368,7 @@ describe("foldDrivenSessionEvent — session lifecycle", () => {
   test("minsky_unrecoverable sets runStatus unrecoverable with the reason as errorMessage", () => {
     let state = createInitialDrivenAccumulatorState();
     state = foldDrivenSessionEvent(state, {
-      type: "minsky_unrecoverable",
+      type: UNRECOVERABLE_EVENT_TYPE,
       reason: "deleted cwd",
     });
     expect(state.runStatus).toBe("unrecoverable");
@@ -373,9 +376,28 @@ describe("foldDrivenSessionEvent — session lifecycle", () => {
     expect(state.interactionState).toBe("exited");
   });
 
+  // mt#3397 acceptance test 5 — the originating incident rendered the crash
+  // card reading "Failed to start claude: ENOENT", which sent the operator to
+  // look at their PATH for what was actually a deleted workspace. The same
+  // situation must now arrive as the read-only unrecoverable state, carrying a
+  // message that names the DIRECTORY.
+  test("a deleted-workspace session renders unrecoverable naming the path — never the crash card", () => {
+    let state = createInitialDrivenAccumulatorState();
+    state = foldDrivenSessionEvent(state, {
+      type: UNRECOVERABLE_EVENT_TYPE,
+      reason:
+        "deleted cwd — the workspace directory /home/u/.local/state/minsky/sessions/a56fb32f " +
+        "no longer exists, so this conversation cannot be resumed in place (its transcript is unaffected)",
+    });
+    expect(state.runStatus).toBe("unrecoverable");
+    expect(state.runStatus).not.toBe("crashed");
+    expect(state.errorMessage).toContain("sessions/a56fb32f");
+    expect(state.errorMessage).not.toContain("Failed to start claude");
+  });
+
   test("minsky_unrecoverable falls back to a default message when reason is missing", () => {
     let state = createInitialDrivenAccumulatorState();
-    state = foldDrivenSessionEvent(state, { type: "minsky_unrecoverable" });
+    state = foldDrivenSessionEvent(state, { type: UNRECOVERABLE_EVENT_TYPE });
     expect(state.runStatus).toBe("unrecoverable");
     expect(state.errorMessage).toBe("Session unrecoverable");
   });
