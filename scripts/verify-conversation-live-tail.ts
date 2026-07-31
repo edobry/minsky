@@ -23,13 +23,37 @@
  *   bun scripts/verify-conversation-live-tail.ts
  *   MINSKY_COCKPIT_URL=http://127.0.0.1:3839 bun scripts/verify-conversation-live-tail.ts
  *
- * Requires a running cockpit whose dev chromium is listening on the CDP port
- * (started WITHOUT `--no-dev-chromium`). Exits 0 with a SKIP when either is
- * absent, so it is safe to run unattended; exits non-zero only on a real
- * behavioral failure.
+ * Prerequisites (each is CHECKED at startup — a missing one exits 0 with a
+ * `SKIP:` line rather than failing, so this is safe to run unattended):
  *
- * Spawns a real `claude` process via the cockpit's driven-session API and stops
- * it again in the `finally` block.
+ *   1. A running cockpit, started WITHOUT `--no-dev-chromium` (that flag
+ *      disables exactly the browser this attaches to):
+ *
+ *        bun run cockpit:build                    # prod bundle; HMR is unreliable here
+ *        bun src/cli.ts cockpit start --port=3839
+ *
+ *      To verify a change that is not yet on `main`, run both from the SESSION
+ *      workspace and point `MINSKY_COCKPIT_URL` at that port — a cockpit
+ *      started from `main` serves `main`'s build, not yours.
+ *
+ *   2. A CDP endpoint at `127.0.0.1:9222` — the shared dev chromium the cockpit
+ *      launches (`src/cockpit/dev-chromium.ts`). An instance already listening
+ *      from another cockpit is reused; this opens its own tab and closes it on
+ *      exit. Check with `curl -s localhost:9222/json/version`.
+ *
+ *   3. A cockpit auth token at `~/.local/state/minsky/cockpit-token`, written by
+ *      the cockpit daemon on first start. No manual step.
+ *
+ * Overrides: `MINSKY_COCKPIT_URL` (default `http://127.0.0.1:3737`),
+ * `MINSKY_CDP_URL` (default `http://127.0.0.1:9222`).
+ *
+ * Cost: SPAWNS a real `claude` process via the cockpit's driven-session API,
+ * prompts it for a response long enough to stream as one turn, and stops it
+ * again on exit. 30-60s and some tokens. That is inherent — the defect it
+ * checks for does not exist in a test DOM, which has no height to grow.
+ *
+ * Exits non-zero only on a real behavioral failure. See also
+ * `scripts/README.md` (§Running verify-conversation-live-tail.ts).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -38,6 +62,20 @@ import { homedir } from "node:os";
 const COCKPIT = process.env["MINSKY_COCKPIT_URL"] ?? "http://127.0.0.1:3737";
 const CDP = process.env["MINSKY_CDP_URL"] ?? "http://127.0.0.1:9222";
 const TOKEN_PATH = join(homedir(), ".local/state/minsky/cockpit-token");
+/**
+ * How much the thread must overflow its scrollport before parking the reader at
+ * the top counts as "scrolled up".
+ *
+ * Not arbitrary: `PINNED_THRESHOLD_PX` is 48, so with less than that much
+ * overflow a reader at scrollTop=0 is STILL pinned by definition — there is
+ * nothing meaningful to have scrolled up through — and the view correctly
+ * follows the tail instead of offering to return to it. Parking as soon as the
+ * thread merely overflows made this check pass or fail on whether streaming
+ * happened to cross 48px in the sampling gap. 150 is three times the threshold,
+ * about three seconds of streaming.
+ */
+const MIN_OVERFLOW_PX = 150;
+
 /** Long enough to stream for a while as ONE turn — the case being verified. */
 const PROMPT =
   "Write a numbered list of 40 one-line facts about text rendering. " +
@@ -97,15 +135,27 @@ function cdp(
 ): Promise<CdpResult> {
   const id = ++msgId;
   return new Promise((resolve, reject) => {
-    const onMsg = (ev: MessageEvent) => {
+    // Clear the deadline on every exit path, and latch so a late timer cannot
+    // reject a promise that already settled: this runs one CDP call per second
+    // for minutes over a single socket, so an uncleared 30s timer per call
+    // would pile up and start firing spurious rejections mid-run.
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      ws.removeEventListener("message", onMsg);
+      reject(new Error(`CDP ${method} timed out`));
+    }, 30_000);
+    function onMsg(ev: MessageEvent) {
       const m = JSON.parse(String(ev.data));
-      if (m.id !== id) return;
+      if (m.id !== id || settled) return;
+      settled = true;
+      clearTimeout(timer);
       ws.removeEventListener("message", onMsg);
       m.error ? reject(new Error(JSON.stringify(m.error))) : resolve(m.result);
-    };
+    }
     ws.addEventListener("message", onMsg);
     ws.send(JSON.stringify({ id, method, params }));
-    setTimeout(() => reject(new Error(`CDP ${method} timed out`)), 30_000);
   });
 }
 
@@ -168,14 +218,49 @@ if (!session.sessionId) {
 }
 console.log(`spawned ${session.sessionId}`);
 
+/**
+ * Everything that must be torn down, registered as it is acquired.
+ *
+ * The driven session is a REAL `claude` process, so leaking one is not a tidy
+ * -up nicety — the most likely failure (the CDP socket never opening) happens
+ * AFTER the spawn, which is exactly when a try/finally placed further down
+ * would not yet be covering it.
+ */
+const teardown: Array<() => Promise<unknown>> = [
+  () =>
+    fetch(`${COCKPIT}/api/driven-session/${session.sessionId}/stop`, {
+      method: "POST",
+      headers: authHeaders,
+    }),
+];
+async function teardownAll(): Promise<void> {
+  for (const step of teardown.reverse()) await step().catch(() => {});
+}
+
 const url = `${COCKPIT}/driven/${session.sessionId}?compose=${encodeURIComponent(PROMPT)}`;
-const newRes = await fetch(`${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" });
-const target = (await newRes.json()) as { id: string; webSocketDebuggerUrl: string };
-const ws = new WebSocket(target.webSocketDebuggerUrl);
-await new Promise<void>((res, rej) => {
-  ws.addEventListener("open", () => res());
-  ws.addEventListener("error", () => rej(new Error("CDP socket failed")));
-});
+let ws: WebSocket;
+try {
+  const newRes = await fetch(`${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" });
+  const target = (await newRes.json()) as { id: string; webSocketDebuggerUrl: string };
+  teardown.push(() => fetch(`${CDP}/json/close/${target.id}`));
+  ws = new WebSocket(target.webSocketDebuggerUrl);
+  teardown.push(async () => ws.close());
+  await new Promise<void>((res, rej) => {
+    const timer = setTimeout(() => rej(new Error("CDP socket did not open within 15s")), 15_000);
+    ws.addEventListener("open", () => {
+      clearTimeout(timer);
+      res();
+    });
+    ws.addEventListener("error", () => {
+      clearTimeout(timer);
+      rej(new Error("CDP socket failed"));
+    });
+  });
+} catch (err) {
+  await teardownAll();
+  console.error(`FAIL: could not attach to the browser: ${String(err)}`);
+  process.exit(1);
+}
 
 const failures: string[] = [];
 const results: Record<string, unknown> = { cockpit: COCKPIT, sessionId: session.sessionId };
@@ -188,23 +273,30 @@ try {
     mobile: false,
   });
 
-  // Wait until the thread genuinely overflows its container.
+  // Wait until the thread overflows its container by enough that parking at the
+  // top is genuinely "scrolled up" — see MIN_OVERFLOW_PX.
   let state: ThreadState | null = null;
   for (let i = 0; i < 120; i++) {
     state = await readState(ws);
-    if (state.scrollable && state.turns >= 2) break;
+    if (state.scrollHeight - state.clientHeight > MIN_OVERFLOW_PX && state.turns >= 2) break;
     await sleep(1000);
   }
-  if (!state?.scrollable) {
-    console.error(`FAIL: never became scrollable: ${JSON.stringify(state)}`);
-    process.exit(1);
+  const overflow = state ? state.scrollHeight - state.clientHeight : 0;
+  results["overflowAtPark"] = overflow;
+  if (overflow <= MIN_OVERFLOW_PX) {
+    // Recorded, not `process.exit` — exiting here would skip the teardown
+    // below and leave a real `claude` process running.
+    failures.push(
+      `the thread never overflowed by more than ${MIN_OVERFLOW_PX}px, so "scrolled up" was ` +
+        `never a distinct state from "pinned": ${JSON.stringify(state)}`
+    );
   }
-  results["scrollportResolved"] = state.usedDocumentFallback ? "document-fallback" : "container";
+  results["scrollportResolved"] = state?.usedDocumentFallback ? "document-fallback" : "container";
   console.log(
-    `\nscrollport resolved: ${state.usedDocumentFallback ? "document fallback" : "CONTAINER"}`
+    `\nscrollport resolved: ${state?.usedDocumentFallback ? "document fallback" : "CONTAINER"}`
   );
   console.log(`geometry: ${JSON.stringify(state)}`);
-  if (state.usedDocumentFallback) {
+  if (state?.usedDocumentFallback) {
     failures.push("resolved the document fallback — the container path was not exercised");
   }
 
@@ -255,31 +347,14 @@ try {
     if (jumped.scrollTop <= parked.scrollTop) {
       failures.push("the control did not scroll back toward the newest content");
     }
-    // KNOWN OPEN — mt#3455, reported rather than failed.
-    //
-    // Staying dismissed requires the reader to be measurable as pinned, and on
-    // this page they cannot be: the view scrolls to the SENTINEL while
-    // `isPinnedToBottom` measures the SCROLLPORT, and ~86px of chrome sits
-    // between the two. So the control comes back on the next delta. That is
-    // mt#3376's anchor, deliberately out of scope for mt#3445 (which owns WHEN
-    // the control appears), and mt#3455 owns the fix — at which point this
-    // becomes a hard assertion again.
-    const staleDismiss = jumped.jumpVisible;
-    results["clickDismissKnownOpen"] = staleDismiss;
-    if (staleDismiss) {
-      console.log(
-        "KNOWN OPEN (mt#3455): the control re-appeared after being clicked — pinned-ness is " +
-          "measured against the scrollport while the scroll targets the sentinel."
-      );
-    }
+    // A hard assertion, and a load-bearing one: the control coming back while
+    // the same turn keeps streaming was the visible symptom of the scrollport
+    // being resolved to an element that does not scroll (mt#3445). If this
+    // starts failing again, suspect the resolution, not the affordance.
+    if (jumped.jumpVisible) failures.push("the control did not stay dismissed after being clicked");
   }
 } finally {
-  ws.close();
-  await fetch(`${CDP}/json/close/${target.id}`).catch(() => {});
-  await fetch(`${COCKPIT}/api/driven-session/${session.sessionId}/stop`, {
-    method: "POST",
-    headers: authHeaders,
-  }).catch(() => {});
+  await teardownAll();
 }
 
 results["failures"] = failures;

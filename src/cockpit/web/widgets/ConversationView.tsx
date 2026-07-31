@@ -1112,17 +1112,24 @@ function ConversationThread({
     // rest of the session (mt#3445).
   }, [endNode]);
 
-  // The resolved scrollport, cached for the measurement effect below so it does
-  // not re-walk the ancestor chain on every streaming delta. Written here
-  // because this effect already re-resolves on exactly the changes that can
-  // move the scrollport (content count and layout).
+  // The resolved scrollport, as STATE so that everything depending on it —
+  // the scroll listener below, the measurement effect further down — moves
+  // together the moment the resolution changes (mt#3445).
+  //
+  // It is state rather than a ref because the resolution genuinely changes
+  // mid-session and nothing else announces it: `findScrollParent` only accepts
+  // an ancestor that ALREADY overflows, and a live thread spends its first
+  // seconds too short to overflow anything, so the first answer is always the
+  // document fallback. Keying the listener on a ref left it bound to an element
+  // that does not scroll — the reader's scrolling was then never heard, and
+  // whether it ever corrected depended on a ResizeObserver bump landing at the
+  // right moment (observed: it often did not, for a whole session).
   const scrollportRef = useRef<Element | null>(null);
+  const [scrollport, setScrollport] = useState<Element | null>(null);
 
   // Keep `pinnedRef` current from the scrollport itself. Sampling at append
   // time would be too late — the append is what moves the scroll.
   useEffect(() => {
-    const scrollport = findScrollParent(endRef.current);
-    scrollportRef.current = scrollport;
     if (!scrollport) return;
     const onScroll = () => {
       const pinned = isPinnedToBottom(scrollport);
@@ -1134,17 +1141,12 @@ function ConversationThread({
     onScroll();
     scrollport.addEventListener("scroll", onScroll, { passive: true });
     return () => scrollport.removeEventListener("scroll", onScroll);
-    // Re-resolve on turn-count changes AND on layout changes (`layoutTick`):
-    // whether an element scrolls is a LAYOUT fact, not a content-count fact.
-    // Expanding a tool block, opening a sibling panel, or resizing the window
-    // can all give a previously-unscrollable container a scrollport — or take
-    // one away — with the turn count unchanged (PR #2459 R1, non-blocking).
-    // `endNode` is in the deps for the same reason it is in the observer's:
-    // the first resolution runs before the sentinel exists, and `findScrollParent`
-    // only accepts an ancestor that ALREADY overflows — so a live session's
-    // first resolution is always the document fallback, and something has to
-    // bring it back once the thread grows into its container (mt#3445).
-  }, [endNode, preparedTurns.length, layoutTick]);
+    // Just the resolved element. Whether an element scrolls is a LAYOUT fact,
+    // not a content-count fact (PR #2459 R1, non-blocking) — and the resolution
+    // effect below already re-runs on every render, so a re-resolution reaches
+    // this listener by changing the thing it is keyed on, rather than by this
+    // effect guessing which inputs might have moved it.
+  }, [scrollport]);
 
   const scrollToEnd = useCallback(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -1185,15 +1187,26 @@ function ConversationThread({
     prevExtraBlocksRef.current = extraBlocks;
     prevExtraBlocksLenRef.current = extraBlocksLen;
 
-    // Resolve on first use as well as from the effect above: this is a LAYOUT
-    // effect and that one is passive, so on the very first render the cache is
-    // still empty — and skipping the measurement there would leave the thread
-    // with no baseline until the second arrival.
-    const scrollport = scrollportRef.current ?? findScrollParent(endRef.current);
-    scrollportRef.current = scrollport;
-    if (!scrollport) return;
+    // Re-resolve unless the cached element is ACTUALLY scrolling. The cache is
+    // an optimization, and a resolution that landed on the document fallback is
+    // exactly the one that must not stick: it reports a constant height, so no
+    // growth is ever measurable against it and no scroll of the reader's is
+    // ever heard. Correcting it must not depend on a ResizeObserver bump
+    // arriving at the right moment — that was observed failing for a whole
+    // session, leaving the affordance silent while the thread doubled in height.
+    const cached = scrollportRef.current;
+    const resolved =
+      cached && cached.scrollHeight > cached.clientHeight
+        ? cached
+        : findScrollParent(endRef.current);
+    if (resolved !== cached) {
+      scrollportRef.current = resolved;
+      // Wakes the scroll listener above onto the element that actually scrolls.
+      setScrollport(resolved);
+    }
+    if (!resolved) return;
 
-    const height = scrollport.scrollHeight;
+    const height = resolved.scrollHeight;
     const previousHeight = prevHeightRef.current;
     prevHeightRef.current = height;
 
