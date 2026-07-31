@@ -14,6 +14,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import {
+  allDrivenBlocks,
   createInitialDrivenAccumulatorState,
   foldDrivenSessionEvent,
   type DrivenAccumulatorState,
@@ -479,5 +480,85 @@ describe("foldDrivenSessionEvent — operator input (mt#3372)", () => {
 
     state = fold(state, { type: "result", subtype: "success" });
     expect(state.interactionState).toBe("awaiting-input");
+  });
+});
+
+/**
+ * History replay (mt#3453) — the `minsky_history` frame and the ordering
+ * guarantee that makes it safe to deliver asynchronously.
+ */
+describe("minsky_history replay (mt#3453)", () => {
+  const historyBlock = (n: number) => ({
+    id: `conv:replay:${n}`,
+    type: "user-message",
+    source: "observed",
+    content: { role: "user", content: `old-${n}` },
+    timestamp: "2026-07-30T00:00:00.000Z",
+    rawJsonlType: "user",
+  });
+
+  test("seeds history blocks from the frame", () => {
+    const state = fold(createInitialDrivenAccumulatorState(), {
+      type: "minsky_history",
+      blocks: [historyBlock(0), historyBlock(1)],
+    });
+    expect(state.historyBlocks).toHaveLength(2);
+    // History is held apart from the live list, not appended into it.
+    expect(state.blocks).toHaveLength(0);
+  });
+
+  test("allDrivenBlocks renders history BEFORE live turns", () => {
+    let state = fold(createInitialDrivenAccumulatorState(), {
+      type: "minsky_history",
+      blocks: [historyBlock(0)],
+    });
+    state = fold(state, {
+      type: "assistant",
+      message: { content: [{ type: "text", text: "new" }] },
+    });
+
+    const all = allDrivenBlocks(state);
+    expect(all).toHaveLength(2);
+    expect(all[0]?.id).toBe("conv:replay:0");
+    expect(all[1]?.id).not.toContain(":replay:");
+  });
+
+  // The frame is produced by an async transcript read, so it can land AFTER the
+  // first live turns. Holding it in a separate slot is what makes the rendered
+  // order independent of arrival order — appending on arrival would splice old
+  // history into the middle of the live stream.
+  test("history arriving AFTER live turns still renders first", () => {
+    let state = fold(createInitialDrivenAccumulatorState(), {
+      type: "assistant",
+      message: { content: [{ type: "text", text: "new" }] },
+    });
+    state = fold(state, { type: "minsky_history", blocks: [historyBlock(0)] });
+
+    const all = allDrivenBlocks(state);
+    expect(all[0]?.id).toBe("conv:replay:0");
+    expect(all).toHaveLength(2);
+  });
+
+  test("a second history frame replaces rather than doubling", () => {
+    let state = fold(createInitialDrivenAccumulatorState(), {
+      type: "minsky_history",
+      blocks: [historyBlock(0), historyBlock(1)],
+    });
+    state = fold(state, { type: "minsky_history", blocks: [historyBlock(0)] });
+    expect(state.historyBlocks).toHaveLength(1);
+  });
+
+  test("a malformed history frame is ignored rather than crashing the fold", () => {
+    const base = createInitialDrivenAccumulatorState();
+    expect(fold(base, { type: "minsky_history" }).historyBlocks).toHaveLength(0);
+    expect(fold(base, { type: "minsky_history", blocks: "nope" }).historyBlocks).toHaveLength(0);
+  });
+
+  test("with no history, allDrivenBlocks returns the live list unchanged", () => {
+    const state = fold(createInitialDrivenAccumulatorState(), {
+      type: "assistant",
+      message: { content: [{ type: "text", text: "only-live" }] },
+    });
+    expect(allDrivenBlocks(state)).toBe(state.blocks);
   });
 });
