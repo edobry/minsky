@@ -191,7 +191,18 @@ export const R4_PATTERNS: RegExp[] = [
   // The other R4 members are untouched and still catch conclusory declines with
   // no first-person subject (no-need / doesn't-warrant / minor-enough-to-skip /
   // one-off / symptom-rather-than-retrospective).
-  /\bI[''’]?(?:ll|\s+will)?\s+(?:just\s+)?skip\s+(?:the\s+)?(?:full\s+)?retrospective\b/i,
+  //
+  // PR #2461 R1: the first draft enumerated too little of the declaring shape —
+  // it required `the`/`full` before `retrospective` (so "I'll skip A
+  // retrospective" slipped through) and only covered `I` / `I'll` / `I will`
+  // (so "I'm going to skip…" and "I'm skipping…" did too). Both are the SAME
+  // bare-decline this pattern exists to catch, so both are enumerated here
+  // rather than left as a narrower-than-intended silent drop. The
+  // discriminator is unchanged and is still purely grammatical: a first-person
+  // subject declaring the skip, with nothing but an auxiliary/`going to`/`just`
+  // between it and the verb. "I recommend we skip …" still cannot match,
+  // because `recommend we` is not in that set.
+  /\bI(?:[''’](?:ll|m)|\s+(?:will|am))?\s+(?:going\s+to\s+)?(?:just\s+)?skip(?:ping)?\s+(?:(?:the|a)\s+)?(?:(?:full|proper)\s+)?retrospective\b/i,
   /\bdoesn[''’]?t\s+warrant\s+a\s+(full\s+|proper\s+)?retrospective\b/i,
   /\bminor\s+enough\s+to\s+skip\b/i,
 ];

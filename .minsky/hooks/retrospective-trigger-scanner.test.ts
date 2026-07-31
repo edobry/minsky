@@ -207,10 +207,26 @@ describe("mt#3291 — R4 fires on a declared skip, not a reasoned recommendation
     expect(detectTriggerPhrases(text)).toHaveLength(0);
   });
 
-  test("still fires on a bare declared skip", () => {
-    const matches = detectTriggerPhrases("I'll just skip the retrospective this time");
-    expect(matches.some((m) => m.family === "R4")).toBe(true);
-  });
+  // PR #2461 R1: the first draft covered too few declaring shapes. Every
+  // phrasing below is the same bare decline; each is pinned so a future
+  // narrowing cannot silently drop one.
+  const declaredSkips = [
+    "I'll just skip the retrospective this time",
+    "I'll skip a retrospective",
+    "I will skip the full retrospective",
+    "I'm going to skip the retrospective",
+    "I am going to skip a retrospective",
+    "I'm skipping the retrospective",
+    "I am skipping a proper retrospective",
+    "I skip the retrospective",
+  ];
+
+  for (const text of declaredSkips) {
+    test(`still fires on a bare declared skip: "${text}"`, () => {
+      const matches = detectTriggerPhrases(text);
+      expect(matches.some((m) => m.family === "R4")).toBe(true);
+    });
+  }
 
   test("still fires on conclusory declines with no first-person subject", () => {
     for (const text of [
