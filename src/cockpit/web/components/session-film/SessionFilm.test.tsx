@@ -1,8 +1,9 @@
 /**
  * SessionFilm tests (mt#3184 AT 3, re-pointed by mt#3461).
  *
- * These moved here from `pages/SessionFilmPage.test.tsx` when the film body was
- * extracted from the page. The `?t=` deep-link and clamping cases are the
+ * These moved here from the former `pages/SessionFilmPage.test.tsx` when the
+ * film body was extracted from the page (that page and its test have since been
+ * deleted outright — mt#3468). The `?t=` deep-link and clamping cases are the
  * ORIGINAL mt#3184 assertions, unchanged except for the route they arrive on —
  * that continuity is the point: the fold, the playhead, and the ribbon behave
  * the same after the re-hosting.
