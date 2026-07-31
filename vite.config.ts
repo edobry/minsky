@@ -1,4 +1,6 @@
-// is not defined in vite's config-evaluation context, verified by measurement.
+// Bare "child_process", not "node:child_process" — see resolveBuildCommit below
+// for why this is not Bun.spawnSync. The lint rule bans only the node:-prefixed
+// specifier, so this form needs no disable directive.
 import { execSync } from "child_process";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -18,20 +20,14 @@ import react from "@vitejs/plugin-react";
  * `src/cockpit/routes/health.ts`: a Docker build or a non-git checkout must
  * degrade, never fail the build.
  *
- * **Why `execSync` and not `Bun.spawnSync`, despite `bun_over_node.mdc`.** The
- * Bun form was written first and MEASURED: `Bun` is not defined when vite
- * evaluates this config, so `Bun.spawnSync` threw, the `catch` swallowed it, and
- * every build silently baked in `"unknown"`. The build still exited 0 and lint
- * was clean — the failure was visible only by grepping the built bundle for the
- * sha. So this uses the bare-specifier `child_process` form that
- * `src/cockpit/routes/health.ts:22` already uses (the lint rule bans only the
- * `node:`-prefixed specifier, grandfathering this one for migration under
- * mt#1152), with a scoped disable rather than a silent workaround.
+ * **Why `execSync` and not `Bun.spawnSync`, despite `bun_over_node.mdc`.** `Bun`
+ * is not defined when vite evaluates this config — measured: the Bun form threw,
+ * the `catch` swallowed it, and every build silently baked in `"unknown"` while
+ * still exiting 0 with clean lint. Matches `src/cockpit/routes/health.ts:22`.
  *
  * If a future change makes `Bun` available here, switching back is fine — but
- * verify it the same way, by grepping `dist/assets/*.js` for the actual sha. A
- * green build proves nothing about this line, because the fallback is silent by
- * design.
+ * verify by grepping `dist/assets/*.js` for the actual sha. A green build proves
+ * nothing about this line, because the fallback is silent by design.
  *
  * `stdio: "pipe"` keeps `fatal: not a git repository` out of the build output.
  */

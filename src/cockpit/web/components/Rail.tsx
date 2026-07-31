@@ -193,6 +193,24 @@ async function fetchRunningCommit(): Promise<string | null> {
   return typeof data.commit === "string" && data.commit !== "unknown" ? data.commit : null;
 }
 
+/**
+ * The bundle's build commit, or `"unknown"` where the build-time define does not
+ * exist (mt#3241, PR #2475 R1).
+ *
+ * `__BUILD_COMMIT__` is a vite `define` — a compile-time TEXT SUBSTITUTION, not a
+ * runtime global. Outside a vite build (a `bun test` render, SSR, Storybook) the
+ * identifier is undeclared and simply evaluating it throws a `ReferenceError`,
+ * confirmed by measurement. `typeof` is the one operator that does NOT throw on
+ * an undeclared identifier, so the guard has to be shaped exactly this way — an
+ * `?? "unknown"` or a truthiness check would still evaluate the identifier and
+ * still throw.
+ */
+export function readBundleCommit(): string {
+  return typeof __BUILD_COMMIT__ === "string" && __BUILD_COMMIT__.length > 0
+    ? __BUILD_COMMIT__
+    : "unknown";
+}
+
 /** What the footer should render for the build identity. `null` = render nothing. */
 export interface BuildIdentityDisplay {
   /** The visible text. */
@@ -353,7 +371,7 @@ function RailFooter({ pathname, onNavigate }: { pathname: string; onNavigate?: (
           // The daemon commit may be null (server reported "unknown") while the
           // bundle's is still known, so this is NOT gated on commitQuery.data —
           // doing so would drop the half that answers "what am I looking at".
-          const identity = describeBuildIdentity(commitQuery.data ?? null, __BUILD_COMMIT__);
+          const identity = describeBuildIdentity(commitQuery.data ?? null, readBundleCommit());
           if (!identity) return null;
           return (
             <span
@@ -366,6 +384,11 @@ function RailFooter({ pathname, onNavigate }: { pathname: string; onNavigate?: (
                 identity.diverged ? "text-muted-foreground/80" : "text-muted-foreground/50"
               )}
               title={identity.title}
+              // The visible text abbreviates to fit a 10px footer, so the full
+              // sentence is carried here as well as in `title` — a tooltip is
+              // unreachable by touch and by assistive tech, which would leave the
+              // abbreviations as the only available meaning (PR #2475 R1).
+              aria-label={identity.title}
             >
               {identity.text}
             </span>

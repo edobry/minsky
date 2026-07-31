@@ -12,7 +12,7 @@
  * fully covered here; nothing about it requires a browser.
  */
 import { describe, test, expect } from "bun:test";
-import { describeBuildIdentity } from "./Rail";
+import { describeBuildIdentity, readBundleCommit } from "./Rail";
 
 describe("describeBuildIdentity", () => {
   test("bundle and daemon agree — one sha, both layers named in the tooltip", () => {
@@ -75,5 +75,41 @@ describe("describeBuildIdentity", () => {
   test("neither available — renders nothing rather than an empty or bogus badge", () => {
     expect(describeBuildIdentity(null, "unknown")).toBeNull();
     expect(describeBuildIdentity(null, "")).toBeNull();
+  });
+});
+
+describe("readBundleCommit", () => {
+  /**
+   * PR #2475 R1 caught this: the footer originally referenced `__BUILD_COMMIT__`
+   * directly. It is a vite `define` — a compile-time text substitution, not a
+   * runtime global — so in THIS environment (bun test, no vite) the identifier is
+   * undeclared and evaluating it throws.
+   *
+   * Measured before fixing: a bare `const v = __BUILD_COMMIT__` here threw
+   * `ReferenceError`. That means the pre-fix `RailFooter` would have thrown on
+   * render in any non-bundled context, and the original test file could not see
+   * it because it only exercised the pure function.
+   *
+   * The fact that these tests run at all under `bun test` is what makes them a
+   * real guard: this file IS the non-bundled context.
+   */
+  test("returns a string instead of throwing when the vite define is absent", () => {
+    // The call itself is the assertion — pre-fix, this line threw.
+    expect(() => readBundleCommit()).not.toThrow();
+    expect(typeof readBundleCommit()).toBe("string");
+  });
+
+  test("reports \"unknown\" when the define is absent, so the badge degrades", () => {
+    // No vite here, so the define cannot have been substituted. Anything other
+    // than "unknown" would mean the guard is reading something it shouldn't.
+    expect(readBundleCommit()).toBe("unknown");
+  });
+
+  test("feeds describeBuildIdentity a value it treats as unavailable", () => {
+    // End-to-end for the degraded path the footer actually takes under test:
+    // guard -> "unknown" -> daemon-only display, still labelled.
+    const identity = describeBuildIdentity("abc1234", readBundleCommit());
+    expect(identity?.text).toBe("abc1234");
+    expect(identity?.title).toContain("Bundle build commit unavailable");
   });
 });

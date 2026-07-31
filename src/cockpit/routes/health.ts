@@ -53,20 +53,12 @@ let consecutiveDegradedCount = 0;
 // touch the cockpit (mt#1428). `stdio: "pipe"` keeps the child's stderr out of
 // the parent's output either way.
 //
-// WHICH LAYER THIS NAMES (mt#3241). The memo means `git rev-parse` runs exactly
-// once per process — at the first /api/health call — and the value is frozen for
-// the process lifetime. That is deliberate and CORRECT: this process is running
-// the code it loaded at start, so a frozen sha is precisely its provenance. Do
-// NOT "fix" it by recomputing per request; that would report the WORKSPACE's
-// current HEAD, which the running process is not executing, turning an accurate
-// value into a misleading one.
-//
-// It does NOT name the web bundle. The tray's watcher (mt#2297) rebuilds
-// `src/cockpit/web/dist/` without restarting this process, so the served bundle
-// can be many commits newer. The bundle carries its own `__BUILD_COMMIT__`
-// (injected by `vite.config.ts`); `RailFooter` renders both and labels them.
-// Reporting this sha alone, unlabelled, is what cost a diagnostic round on
-// 2026-07-29 — see mt#3241.
+// Names the DAEMON, not the bundle (mt#3241). The memo freezes this at the first
+// /api/health call, which is correct: this process runs the code it loaded at
+// start. Do NOT "fix" it to recompute per request — that reports the workspace's
+// HEAD, which this process is not executing. The web bundle is versioned
+// separately (rebuilt by mt#2297's watcher without a restart) and carries its own
+// `__BUILD_COMMIT__`; `RailFooter` renders and labels both.
 let gitCommit: string | undefined;
 function getGitCommit(): string {
   if (gitCommit === undefined) {
