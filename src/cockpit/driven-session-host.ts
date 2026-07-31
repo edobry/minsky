@@ -1347,6 +1347,45 @@ export function buildReconnectingDrivenSessionRecord(
 }
 
 /**
+ * One image to attach to a driven-session turn (mt#3235).
+ *
+ * Base64 rather than a path or URL: the child process is given the bytes
+ * inline, so nothing depends on it being able to reach a file the host fetched
+ * from a third party with a short-lived credential.
+ */
+export interface DrivenInputImage {
+  base64: string;
+  /** An image mime type the Messages API accepts — e.g. `image/png`. */
+  mediaType: string;
+}
+
+/**
+ * Assemble the content-block array for one input turn (mt#3235).
+ *
+ * Text is omitted when blank rather than sent as an empty block: the Messages
+ * API rejects an empty text block, so a caption-less image would otherwise fail
+ * the whole turn. An empty result means there is genuinely nothing to send, and
+ * the caller reports that as a failed delivery rather than writing a
+ * content-less message the child cannot answer.
+ */
+function buildInputContent(
+  text: string,
+  images: DrivenInputImage[]
+): Array<Record<string, unknown>> {
+  const content: Array<Record<string, unknown>> = [];
+  if (text.trim().length > 0) {
+    content.push({ type: "text", text });
+  }
+  for (const image of images) {
+    content.push({
+      type: "image",
+      source: { type: "base64", media_type: image.mediaType, data: image.base64 },
+    });
+  }
+  return content;
+}
+
+/**
  * Forward operator input to the child as a stream-json user message. Best
  * effort — the exact input-message shape is a documented-thin part of the
  * upstream schema (mt#2750 spec Context: "each input line is a complete JSON
@@ -1395,18 +1434,29 @@ export function buildReconnectingDrivenSessionRecord(
  *     phantom operator turn is rendered for a message that was never
  *     delivered. (Callers already branch on the return: the principal-channel
  *     actuator surfaces the failure to the sender.)
+ *   - **Content-less input now returns `false` instead of being written**
+ *     (mt#3235, flagged in PR #2483 R1). Previously blank text was written as
+ *     `[{type:"text", text:""}]`; the Messages API rejects an empty text block,
+ *     so that turn failed at the child rather than here. The websocket path
+ *     (`driven-session-ws.ts`) can reach this with an empty `text` field or an
+ *     empty raw frame, so the change is observable: `POST` to an entity thread
+ *     now reports `delivered: false` for a blank message. That is the honest
+ *     answer — it was never going to be delivered — but it IS a change, not an
+ *     invariant that always held.
  */
 export function sendDrivenSessionInput(
   record: DrivenSessionRecord,
   text: string,
-  opts: { echo?: boolean } = {}
+  opts: { echo?: boolean; images?: DrivenInputImage[] } = {}
 ): boolean {
   if (!hasLiveActuator(record)) return false;
+  const content = buildInputContent(text, opts.images ?? []);
+  if (content.length === 0) return false;
   const line = JSON.stringify({
     type: "user",
     message: {
       role: "user",
-      content: [{ type: "text", text }],
+      content,
     },
   });
   try {
