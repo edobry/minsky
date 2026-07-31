@@ -37,33 +37,51 @@ export function getDefaultModel(provider: string): string {
 }
 
 /**
- * Wrap a model so that no `temperature` reaches the provider at all.
+ * Return a model that sends exactly the caller's temperature — and nothing when
+ * the caller specified none.
  *
  * AI SDK v4 substitutes `temperature: 0` for an omitted temperature inside its
- * own `prepareCallSettings`, which runs AFTER our call arguments are built — so
+ * own `prepareCallSettings`, which runs AFTER our call arguments are built, so
  * omitting the key at the `generateText` / `streamText` / `generateObject` call
  * site (mt#2733) cannot prevent it. `@ai-sdk/anthropic` then assigns that `0`
- * to `baseArgs.temperature` unconditionally, and `JSON.stringify` preserves a
- * `0` where it would drop an `undefined` — so it reaches the wire. Current
- * Claude models reject the mere PRESENCE of the field ("`temperature` is
- * deprecated for this model"), because adaptive thinking controls its own
- * sampling.
+ * unconditionally, and `JSON.stringify` preserves a `0` where it would drop an
+ * `undefined`, so it reaches the wire. Current Claude models reject the field's
+ * mere presence, because adaptive thinking controls their sampling.
  *
  * `transformParams` is the only hook that runs after that defaulting and before
- * the provider builds its request, and it covers both `doGenerate` and
- * `doStream`.
+ * the provider builds its request; it covers both `doGenerate` and `doStream`.
  *
- * Deliberately NOT `defaultSettingsMiddleware`: that helper's own
- * implementation carries a `// special case for temperature 0` branch which
- * re-defaults a nullish-or-zero temperature, reinstating exactly what this
- * removes.
+ * **`callerTemperature` is a required argument on purpose.** By the time the
+ * middleware runs, an injected `0` and a caller's explicit `0` are
+ * indistinguishable — `prepareCallSettings` has already collapsed them. So the
+ * decision cannot be made inside the middleware; it must be made from the
+ * caller's original intent, here. Taking that intent as a parameter is what
+ * makes the wrapper impossible to misuse: there is no way to call this and
+ * accidentally strip a value the caller asked for.
  *
- * Goes stale when the pinned `ai` major moves — v5 drops the default outright
- * (the v4 source says so itself: `// TODO v5 remove default 0 for temperature`).
- * At that point this wrapper becomes a no-op and should be deleted rather than
- * left as unexplained indirection. Tracked by mt#3488.
+ * Applied for every provider, not just Anthropic. The injected `0` is a value
+ * no caller requested regardless of who receives it, and scoping the strip to a
+ * list of temperature-rejecting models would mean hand-maintaining exactly the
+ * kind of version-specific table that rots silently (mem#769, mt#3379, mt#3390,
+ * mt#3457 are four instances of that defect class in this codebase already).
+ *
+ * Deliberately NOT `defaultSettingsMiddleware`: that helper's own code carries a
+ * `// special case for temperature 0` branch which re-defaults a nullish-or-zero
+ * temperature, reinstating what this removes.
+ *
+ * Goes stale when the pinned `ai` major moves: v5 drops the default outright
+ * (the v4 source says so itself — `// TODO v5 remove default 0 for temperature`).
+ * This then becomes a no-op and should be deleted rather than left as
+ * unexplained indirection. Tracked by mt#3488.
  */
-export function withTemperatureOmitted(model: LanguageModel): LanguageModel {
+export function withCallerTemperatureOnly(
+  model: LanguageModel,
+  callerTemperature: number | undefined
+): LanguageModel {
+  if (callerTemperature !== undefined) {
+    return model;
+  }
+
   return wrapLanguageModel({
     model,
     middleware: {

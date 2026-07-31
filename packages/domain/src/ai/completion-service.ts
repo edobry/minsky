@@ -22,7 +22,7 @@ import {
 import { DefaultAIConfigurationService, type AnyConfigService } from "./config-service";
 import { DefaultModelCacheService } from "./model-cache";
 import { createModelCacheServiceWithFetchers } from "./service-factory";
-import { resolveLanguageModel, withTemperatureOmitted } from "./provider-model-factory";
+import { resolveLanguageModel, withCallerTemperatureOnly } from "./provider-model-factory";
 import {
   getPrimaryModels,
   getFallbackModels,
@@ -57,13 +57,10 @@ export class DefaultAICompletionService implements AICompletionService {
    *
    * mt#2733 stopped this service from FABRICATING a temperature, but the AI SDK
    * re-inserts `temperature: 0` downstream of our call arguments, so omission
-   * alone never reached the provider (mt#2735). `withTemperatureOmitted` removes
-   * it at the only layer that runs late enough.
-   *
-   * The wrap is conditional so an EXPLICIT temperature still reaches the model
-   * unchanged — including `temperature: 0`, which is a real caller choice and
-   * not the SDK's injected default. That distinction is the whole point: this
-   * strips what the SDK added, never what the caller asked for.
+   * alone never reached the provider (mt#2735). `withCallerTemperatureOnly`
+   * removes it at the only layer that runs late enough, and takes the caller's
+   * original intent so an EXPLICIT value — including an explicit `0` — still
+   * reaches the model unchanged.
    */
   private async resolveModelForRequest(request: {
     provider?: string;
@@ -77,7 +74,7 @@ export class DefaultAICompletionService implements AICompletionService {
       request.model
     );
 
-    return request.temperature === undefined ? withTemperatureOmitted(model) : model;
+    return withCallerTemperatureOnly(model, request.temperature);
   }
 
   /**
