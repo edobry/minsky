@@ -40,6 +40,13 @@
  * first makes the parser agnostic to whether the child process was
  * colorized; a no-op on already-plain output (CI, non-color terminals).
  */
+import {
+  spawnWithWatchdog,
+  resolveWatchdogBudgetMs,
+  formatWatchdogTimeout,
+  WATCHDOG_BUDGETS_MS,
+} from "./spawn-with-watchdog";
+
 function stripAnsi(text: string): string {
   // eslint-disable-next-line no-control-regex -- deliberately matching the ESC (0x1B) CSI sequences bun's colorized reporter emits
   return text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
@@ -118,23 +125,26 @@ export function evaluateBunTestSummary(
  * (for gating) while re-emitting it so the invoking hook still shows the test
  * output. AGENT=1 keeps bun's reporter in clean non-interactive mode.
  */
-function runStep(script: string): { exitCode: number; combined: string } {
-  const decoder = new TextDecoder();
-  const proc = Bun.spawnSync(["bun", script], {
-    env: { ...process.env, AGENT: "1" },
-    stdout: "pipe",
-    stderr: "pipe",
+async function runStep(script: string): Promise<{ exitCode: number; combined: string }> {
+  // mt#3156: async spawn under a wall-clock watchdog. `Bun.spawnSync` blocks the
+  // JS thread, so no timer could fire to escalate SIGTERM -> SIGKILL — and its
+  // own `timeout` option does not enforce (a SIGTERM-ignoring child runs to
+  // completion and is reported `exitCode: 0, success: true`). See
+  // scripts/spawn-with-watchdog.ts for the measurements.
+  const budgetMs = resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.GATED_STEP);
+  const result = await spawnWithWatchdog(["bun", script], {
+    budgetMs,
+    env: { AGENT: "1" },
   });
-  const out = decoder.decode(proc.stdout);
-  const err = decoder.decode(proc.stderr);
-  process.stdout.write(out);
-  if (err) process.stderr.write(err);
-  return { exitCode: proc.exitCode ?? 1, combined: `${out}\n${err}` };
+  if (result.timedOut) {
+    console.error(`\n::error::${formatWatchdogTimeout(script, budgetMs, result)}`);
+  }
+  return { exitCode: result.exitCode, combined: `${result.stdout}\n${result.stderr}` };
 }
 
 if (import.meta.main) {
   console.log("→ Main suite (scripts/run-tests-main.ts, src/mcp excluded)...");
-  const main = runStep("scripts/run-tests-main.ts");
+  const main = await runStep("scripts/run-tests-main.ts");
   const gate = evaluateBunTestSummary(main.combined, main.exitCode);
   if (!gate.ok) {
     console.error(`\nrun-tests-gated.ts: main suite FAILED (fail-closed): ${gate.reason}`);
@@ -142,7 +152,7 @@ if (import.meta.main) {
   }
 
   console.log("\n→ src/mcp (scripts/run-tests-mcp-isolated.ts, per-file isolation)...");
-  const mcp = runStep("scripts/run-tests-mcp-isolated.ts");
+  const mcp = await runStep("scripts/run-tests-mcp-isolated.ts");
   if (mcp.exitCode !== 0) {
     console.error(`\nrun-tests-gated.ts: src/mcp isolated runner FAILED (exit ${mcp.exitCode}).`);
     process.exit(1);
