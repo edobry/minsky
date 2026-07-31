@@ -1,9 +1,57 @@
+// is not defined in vite's config-evaluation context, verified by measurement.
+import { execSync } from "child_process";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+
+/**
+ * The commit this BUNDLE was built from (mt#3241).
+ *
+ * The web bundle and the cockpit daemon are versioned INDEPENDENTLY: the tray's
+ * web watcher (mt#2297) rebuilds `dist/` on change without restarting the
+ * daemon, so what a reader is looking at can be many commits newer than the
+ * process serving it. `/api/health`'s `commit` names the DAEMON's provenance and
+ * cannot answer for the bundle, so the bundle carries its own.
+ *
+ * Resolved here, at build time, because that is the only moment the answer
+ * exists — the running bundle has no access to git. Falls back to `"unknown"`
+ * when git is unavailable or the tree is not a repo, mirroring `getGitCommit` in
+ * `src/cockpit/routes/health.ts`: a Docker build or a non-git checkout must
+ * degrade, never fail the build.
+ *
+ * **Why `execSync` and not `Bun.spawnSync`, despite `bun_over_node.mdc`.** The
+ * Bun form was written first and MEASURED: `Bun` is not defined when vite
+ * evaluates this config, so `Bun.spawnSync` threw, the `catch` swallowed it, and
+ * every build silently baked in `"unknown"`. The build still exited 0 and lint
+ * was clean — the failure was visible only by grepping the built bundle for the
+ * sha. So this uses the bare-specifier `child_process` form that
+ * `src/cockpit/routes/health.ts:22` already uses (the lint rule bans only the
+ * `node:`-prefixed specifier, grandfathering this one for migration under
+ * mt#1152), with a scoped disable rather than a silent workaround.
+ *
+ * If a future change makes `Bun` available here, switching back is fine — but
+ * verify it the same way, by grepping `dist/assets/*.js` for the actual sha. A
+ * green build proves nothing about this line, because the fallback is silent by
+ * design.
+ *
+ * `stdio: "pipe"` keeps `fatal: not a git repository` out of the build output.
+ */
+function resolveBuildCommit(): string {
+  try {
+    const sha = String(
+      execSync("git rev-parse --short HEAD", { encoding: "utf-8", stdio: "pipe" })
+    ).trim();
+    return sha.length > 0 ? sha : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
 
 export default defineConfig({
   root: "src/cockpit/web",
   plugins: [react()],
+  define: {
+    __BUILD_COMMIT__: JSON.stringify(resolveBuildCommit()),
+  },
   build: {
     outDir: "dist",
     emptyOutDir: true,
