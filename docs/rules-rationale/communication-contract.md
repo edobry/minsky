@@ -172,6 +172,13 @@ excluded from `validateFormLintNotViolated`'s hard-reject boundary and only warn
 authors ignore it. It graduates to blocking only if that evidence accumulates, per the same
 calibration-first ladder the five mt#3326 checks themselves went through before they escalated.
 
+That ladder is the default, not a requirement. mt#3477 later added a SEVENTH check
+(`missing-decision-options` — a `direction.decide` created with an absent or empty `options`
+array) directly to the blocking set, without a calibration term: unlike the vocabulary-matching
+check above, it has no false-positive class to measure, because an optionless `direction.decide`
+renders zero response buttons by construction. The ladder exists to accumulate evidence about a
+HEURISTIC's precision; a check whose precision is structural has nothing to accumulate.
+
 ### Cross-references
 
 mt#3433 (originating incident) · mem#779 (incident memory + interim discipline) · mt#3436 (this

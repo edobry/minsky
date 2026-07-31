@@ -847,6 +847,15 @@ export function validateAuthorizationApproveOptions(params: {
  * this filters only at the decision points that need the blocking/advisory
  * distinction, not at the point that computes matches.
  *
+ * The exclusion list stays a DENYLIST of one, deliberately: a new check
+ * blocks unless it is added here. `missing-decision-options` (mt#3477) is not
+ * added — it blocks with the original five. Its basis is recorded in
+ * `form-lint.ts`'s module header: no false-positive class to calibrate (an
+ * optionless `direction.decide` renders zero buttons by construction), and
+ * the family's own escalation threshold (mem#760: three form-failure
+ * incidents in 30 days) was already met by ask 6807fb14 / ask#6448 /
+ * ask#6589.
+ *
  * Exported for direct testing, matching `validateFormLintNotViolated`'s
  * pattern above.
  */
@@ -875,6 +884,12 @@ export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLin
  * production; leaving the other three (`internal-tool-id`, `portal-no-link`,
  * `letter-prefixed-option-label`) advisory-only would silently reproduce the
  * same containment gap for those defect classes.
+ *
+ * As of mt#3477 there are SIX blocking checks: `missing-decision-options`
+ * joins them, rejecting a `direction.decide` created with an absent or empty
+ * `options` array. It is the one check admitted to this set without first
+ * serving a calibration-first term — see `filterBlockingFormLintMatches`
+ * above for why.
  *
  * **A sixth check is deliberately EXCLUDED from this hard-reject
  * (mt#3436).** `missing-force-immediate` (an operator-only-shaped ask whose

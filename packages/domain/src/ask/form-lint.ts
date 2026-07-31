@@ -43,11 +43,31 @@
  * See `docs/rules-rationale/communication-contract.md §Severity transport
  * binding` for the originating incident (mt#3433 / mem#779).
  *
+ * **A seventh check, blocking from the start (mt#3477).**
+ * `missing-decision-options` fires when a decision-shaped ask
+ * (`direction.decide`) is created with no options — absent array or empty
+ * array alike. It skips the calibration-first ladder the sixth check is on,
+ * for two reasons. First, it has no false-positive class to calibrate: an
+ * optionless `direction.decide` renders zero response buttons by
+ * construction (`AskDetail.tsx` derives `optionCount` from the options array
+ * and supplies a kind-based fallback only for `authorization.approve` /
+ * `quality.review`), so the defect is structural rather than a judgment call
+ * about wording — unlike `missing-force-immediate`, whose `production`
+ * keyword carries a documented elevated FP risk. Second, the escalation
+ * threshold the family set for itself has already been met: mem#760 records
+ * "a third form-failure incident in this family within 30 days means the
+ * manual discipline has failed and the ask-form-lint detector must gain a
+ * blocking leg" — ask 6807fb14 (2026-07-15), ask#6448 (2026-07-29) and
+ * ask#6589 (2026-07-31) are three inside 16 days. A genuinely
+ * free-text-shaped decide ask remains creatable via the auditable
+ * `acknowledgeFormWarnings: true` escape hatch.
+ *
  * @see mt#2798 — this task
  * @see mt#2471 — the sibling routing detector (DONE, does not cover form)
  * @see memory `3e3f29d8` — escalation-packaging family (R1–R5)
  * @see mt#3326 — makes the first five checks consequential at the asks_create boundary
  * @see mt#3436 — adds the sixth, deliberately calibration-first (advisory) check
+ * @see mt#3477 — adds the seventh (option presence), blocking from the start
  */
 
 import {
@@ -127,6 +147,35 @@ export const SEVERITY_TRANSPORT_CHECK_KINDS: readonly AskKind[] = [
   "stuck.unblock",
 ];
 
+/**
+ * The AskKinds that cannot be answered without options, and so must carry
+ * them (mt#3477).
+ *
+ * Derived from two facts, not from an intuition about which kinds "feel"
+ * decision-shaped — the criterion is: the ask resolves by SELECTING among
+ * enumerable alternatives, AND the surface offers no built-in affordance for
+ * that selection.
+ *
+ * - `direction.decide` — `types.ts`'s kind table defines it as a
+ *   "Preference-bound choice — architectural, scope-level", so its resolution
+ *   IS a selection; and `AskDetail.tsx`'s `hasOptions` is false for it without
+ *   an options array, so the surface renders `No response options —
+ *   defer/escalate or resolve via CLI.` instead of buttons. Both hold, so it
+ *   is listed.
+ * - `authorization.approve` and `quality.review` resolve by selection too, but
+ *   `AskDetail.tsx` admits both to `hasOptions` unconditionally and renders two
+ *   built-in buttons (Approve/Deny, Approve/Request-changes) when options are
+ *   absent. They are answerable without options, so they are NOT listed —
+ *   listing them would also reject the large optionless commit-authorization
+ *   ask class (mt#2944 §Context).
+ * - `capability.escalate`, `information.retrieve` and `stuck.unblock` resolve
+ *   by supplying an ARTIFACT or an ANSWER (a bigger model's output, a fact, an
+ *   unblock), not by picking from a list; `coordination.notify` is
+ *   fire-and-forget and expects no response at all. None is a selection, so
+ *   none is listed.
+ */
+export const OPTIONS_REQUIRED_CHECK_KINDS: readonly AskKind[] = ["direction.decide"];
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -146,7 +195,8 @@ export type FormLintCheck =
   | "portal-no-link"
   | "long-option-label"
   | "letter-prefixed-option-label"
-  | "missing-force-immediate";
+  | "missing-force-immediate"
+  | "missing-decision-options";
 
 /** A single fired check, with its human-readable warning message. */
 export interface FormLintMatch {
@@ -168,9 +218,23 @@ export interface FormLintInput {
   kind: AskKind;
   question: string;
   /**
-   * The ask's options, when it has any. Optional: omitting it is not "an ask
-   * with no options" but "a caller not checking options at all", and must
-   * produce exactly the v1 warnings — the two option checks stay silent.
+   * The ask's options, when it has any. Optional: for the two option-LABEL
+   * checks, omitting it is not "an ask with no options" but "a caller not
+   * checking options at all", and must produce exactly the v1 warnings — those
+   * two checks stay silent. That convention is unchanged by mt#3477.
+   *
+   * `missing-decision-options` (mt#3477) is the one check that reads absence,
+   * and it treats an absent array and an empty one identically: neither can
+   * render a button. That is sound because it asks a different question — not
+   * "are these labels well-shaped?" (unanswerable without labels) but "does an
+   * answer affordance exist at all?", which absence answers directly. It is
+   * also safe in practice: both production call sites (`asks.create`'s
+   * `validate` hook and `createAskWithFormLint`, in
+   * `src/adapters/shared/commands/asks.ts`) pass the ask's REAL options
+   * through, so an absent array here means the created Ask genuinely has none.
+   * A future caller that wants only the question checks should not reach for
+   * omission to get them — pass a decision-shaped kind's real options, or a
+   * non-decision kind.
    */
   options?: readonly FormLintOption[];
   /**
@@ -215,6 +279,8 @@ export function countWords(text: string): number {
  *   6. `kind` is `authorization.approve` or `stuck.unblock` AND `question`
  *      matches `INCIDENT_VOCABULARY_PATTERN` AND `forceImmediate` is not
  *      true -> "operator-only incident without forceImmediate" (mt#3436)
+ *   7. `kind` is in `OPTIONS_REQUIRED_CHECK_KINDS` AND `options` is absent or
+ *      empty -> "decision-shaped ask with no response options" (mt#3477)
  *
  * Checks 4 and 5 fire ONCE for the ask, not once per offending option: the fix
  * is the same edit either way, and a four-option ask would otherwise emit four
@@ -228,6 +294,7 @@ export function countWords(text: string): number {
  * consistent with the pre-mt#3326 contract. Check 6 (mt#3436) is EXCLUDED
  * from that hard-reject at the `asks.create` boundary regardless — see
  * `validateFormLintNotViolated` in `src/adapters/shared/commands/asks.ts`.
+ * Check 7 (mt#3477) is NOT excluded: it blocks alongside the original five.
  */
 export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
   const { kind, question, options, forceImmediate } = input;
@@ -292,6 +359,20 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
         "pierces the register); pass forceImmediate: true and send a principal_notify " +
         "pointing at this ask, unless the principal is already actively responding " +
         "in-conversation",
+    });
+  }
+
+  // mt#3477: a decision-shaped ask that carries nothing to decide between.
+  // Absent and empty are the same defect here — neither renders a button.
+  if (OPTIONS_REQUIRED_CHECK_KINDS.includes(kind) && (options?.length ?? 0) === 0) {
+    matches.push({
+      check: "missing-decision-options",
+      message:
+        "a decision-shaped ask with no response options — the surface renders " +
+        "no buttons, so the principal cannot answer it without dropping to the " +
+        "CLI; supply an options array with one entry per choice, rather than " +
+        "writing the choices as [a]/[b]/[c] prose in the question body " +
+        "(humility.mdc Escalation packaging, Form rule 6: options are the buttons)",
     });
   }
 
