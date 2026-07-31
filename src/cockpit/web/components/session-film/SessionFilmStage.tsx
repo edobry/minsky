@@ -96,7 +96,7 @@
  * touched set frame-to-frame — v1.2 eased toward a new fit on every such
  * change and the camera never settled. `config.camera.deadZoneMarginPx`
  * (passed through below) is what holds it still for in-margin churn; the
- * `scrollSuppressed` prop (from `SessionFilmPage`'s scroll-idle debounce)
+ * `scrollSuppressed` prop (from `SessionFilm`'s scroll-idle debounce)
  * additionally pauses auto-fit while the ribbon is actively scrolling. See
  * `PanZoomSVG.tsx`'s module doc for the mechanism.
  *
