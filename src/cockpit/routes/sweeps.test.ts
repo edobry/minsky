@@ -87,4 +87,20 @@ describe("GET /api/sweeps", () => {
       stop();
     }
   });
+
+  test("carries a transcriptCoverage block — output, not just liveness (mt#3441)", async () => {
+    const { url } = await makeHarness();
+    const res = await fetch(`${url}/api/sweeps`);
+    const body = (await res.json()) as Record<string, unknown>;
+
+    // The KEY must be present even with no SQL persistence in the harness.
+    // A sweep can be alive and producing nothing — SummaryPipeline sat at 0.5%
+    // coverage for months with a green liveness registry — so this route
+    // reports both, and the field's presence is what makes the second
+    // observable at all.
+    expect(Object.hasOwn(body, "transcriptCoverage")).toBe(true);
+    // null here means "not measured" (no SQL provider in this harness), which
+    // is deliberately distinct from a measured zero.
+    expect(body.transcriptCoverage).toBeNull();
+  });
 });
