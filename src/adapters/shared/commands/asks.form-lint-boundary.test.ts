@@ -111,4 +111,47 @@ describe("validateFormLintNotViolated (mt#3326)", () => {
     expect(() => validateFormLintNotViolated({ kind: KIND_DIRECTION_DECIDE })).not.toThrow();
     expect(() => validateFormLintNotViolated({})).not.toThrow();
   });
+
+  // -------------------------------------------------------------------------
+  // missing-force-immediate (mt#3436) — deliberately NOT part of this
+  // hard-reject boundary. Calibration-first: it warns via the calibration
+  // log (asks.ts's execute handler), never here.
+  // -------------------------------------------------------------------------
+
+  test("missing-force-immediate alone does not throw (calibration-first, not blocking)", () => {
+    expect(() =>
+      validateFormLintNotViolated({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        question: "The service is down and returning 429 errors in production.",
+        forceImmediate: false,
+      })
+    ).not.toThrow();
+  });
+
+  test("setting forceImmediate: true also does not throw (no violation at all)", () => {
+    expect(() =>
+      validateFormLintNotViolated({
+        kind: KIND_AUTHORIZATION_APPROVE,
+        question: "The service is down and returning 429 errors in production.",
+        forceImmediate: true,
+      })
+    ).not.toThrow();
+  });
+
+  test("missing-force-immediate does not count toward the blocking violation total", () => {
+    // internal-tool-id (blocking) + missing-force-immediate (advisory) both
+    // fire; only the blocking one should surface in the thrown message.
+    const question =
+      "I'll run mcp__minsky__setup_github-app — production is down and returning 429s.";
+    try {
+      validateFormLintNotViolated({ kind: KIND_AUTHORIZATION_APPROVE, question });
+      throw new Error("expected validateFormLintNotViolated to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ValidationError);
+      const message = (err as Error).message;
+      expect(message).toContain("internal-tool-id");
+      expect(message).toContain("1 form-lint violation");
+      expect(message).not.toContain("missing-force-immediate");
+    }
+  });
 });
