@@ -54,7 +54,9 @@ export const defaultConfiguration: PartialConfiguration = {
         apiKey: undefined,
         apiKeyFile: undefined,
         enabled: true,
-        model: "claude-3-5-sonnet-20241022",
+        // Retired 2025-10-28 and absent from the live listing until flipped
+        // 2026-07-31 (mt#2735). `config doctor` flags a stale value here.
+        model: "claude-sonnet-5",
         models: [],
         baseUrl: undefined,
         maxTokens: undefined,

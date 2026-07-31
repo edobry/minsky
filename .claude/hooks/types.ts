@@ -1042,3 +1042,44 @@ export function findRepoRoot(startDir: string, fs: MergeDetectFs = DEFAULT_FS): 
     dir = parent;
   }
 }
+
+/**
+ * Resolve the repo root the HOOK INSTALLATION itself lives in, by walking up
+ * from this module's own directory rather than from `input.cwd`.
+ *
+ * `findRepoRoot(input.cwd)` above answers "which repo is the invoking process
+ * standing in" — right for a target path the caller supplied, wrong for state
+ * and corpus paths that must be the same file on every invocation. `input.cwd`
+ * is the harness SHELL's directory, which for a dispatched subagent points at
+ * a session workspace, and for a session whose workspace was later cleaned up
+ * points at a path with no `.git` anywhere above it. In that second case
+ * `findRepoRoot`'s missing-repo fallback returns the start directory itself,
+ * so the caller ends up treating an empty leftover directory as a repo root.
+ *
+ * mt#3393: the policy-coverage detector resolved both its calibration log and
+ * its policy corpus that way. 22 calibration logs accumulated outside the main
+ * repo (11 under session clones, 11 under cleaned-up session paths the hook
+ * recreated a `.minsky/` in), invisible to the coverage-receipt check. Worse,
+ * the empty-root case fed an empty corpus to the coverage decision, so every
+ * action there recorded `uncovered` — 13 of 13 such records, against `covered`
+ * in the real-clone logs — silently biasing the calibration data that decides
+ * whether the detector graduates to blocking mode.
+ *
+ * `import.meta.dir` is stable across all of that: `.minsky/hooks/` and its
+ * generated `.claude/hooks/` mirror are both checked into the main workspace,
+ * and `.claude/settings.json` invokes the hook through `$CLAUDE_PROJECT_DIR`,
+ * so the executing copy always sits inside the repo whose corpus and
+ * calibration state the hook is supposed to be reading and writing. Same
+ * derivation as `require-session-for-main-workspace-edits.ts`'s
+ * `deriveMainWorkspace` (mt#2928); kept here so state-path callers need not
+ * import a guard module.
+ *
+ * `startDir`/`fs` are injectable so tests can verify the resolution without
+ * depending on where the test process happens to run.
+ */
+export function deriveHookRepoRoot(
+  startDir: string = import.meta.dir,
+  fs: MergeDetectFs = DEFAULT_FS
+): string {
+  return findRepoRoot(startDir, fs);
+}
