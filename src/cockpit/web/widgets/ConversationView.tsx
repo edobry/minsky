@@ -1062,6 +1062,16 @@ function ConversationThread({
   // must not consume the one-shot; PR #1667 R1). Expanding "Show older" later
   // must not yank the scroll position, hence the one-shot flag.
   const endRef = useRef<HTMLDivElement | null>(null);
+  // The sentinel as STATE as well as a ref, because everything that measures
+  // this thread hangs off it and a ref alone cannot wake an effect when it
+  // arrives (mt#3445). A live session mounts EMPTY — the early return above
+  // renders no sentinel — so a mount-time effect reading `endRef.current` binds
+  // to nothing and never rebinds once the first turn lands.
+  const [endNode, setEndNode] = useState<HTMLDivElement | null>(null);
+  const attachEnd = useCallback((node: HTMLDivElement | null) => {
+    endRef.current = node;
+    setEndNode(node);
+  }, []);
   useLayoutEffect(() => {
     if (didInitialScrollRef.current) return;
     if (preparedTurns.length === 0) return;
@@ -1088,7 +1098,7 @@ function ConversationThread({
   const [layoutTick, setLayoutTick] = useState(0);
   useEffect(() => {
     const bump = () => setLayoutTick((t) => t + 1);
-    const target = endRef.current?.parentElement;
+    const target = endNode?.parentElement;
     if (typeof ResizeObserver === "function" && target) {
       const observer = new ResizeObserver(bump);
       observer.observe(target);
@@ -1097,7 +1107,10 @@ function ConversationThread({
     if (typeof window === "undefined") return;
     window.addEventListener("resize", bump);
     return () => window.removeEventListener("resize", bump);
-  }, []);
+    // Keyed on the sentinel NODE, not `[]`: it does not exist on the first
+    // commit of a live session, and a `[]` effect would observe nothing for the
+    // rest of the session (mt#3445).
+  }, [endNode]);
 
   // The resolved scrollport, cached for the measurement effect below so it does
   // not re-walk the ancestor chain on every streaming delta. Written here
@@ -1126,13 +1139,22 @@ function ConversationThread({
     // Expanding a tool block, opening a sibling panel, or resizing the window
     // can all give a previously-unscrollable container a scrollport — or take
     // one away — with the turn count unchanged (PR #2459 R1, non-blocking).
-  }, [preparedTurns.length, layoutTick]);
+    // `endNode` is in the deps for the same reason it is in the observer's:
+    // the first resolution runs before the sentinel exists, and `findScrollParent`
+    // only accepts an ancestor that ALREADY overflows — so a live session's
+    // first resolution is always the document fallback, and something has to
+    // bring it back once the thread grows into its container (mt#3445).
+  }, [endNode, preparedTurns.length, layoutTick]);
 
-  const scrollToNewest = useCallback(() => {
+  const scrollToEnd = useCallback(() => {
     endRef.current?.scrollIntoView({ block: "end" });
     pinnedRef.current = true;
-    setHasNewBelow(false);
   }, []);
+
+  const scrollToNewest = useCallback(() => {
+    scrollToEnd();
+    setHasNewBelow(false);
+  }, [scrollToEnd]);
 
   // The last state the arrival check ran against. `extraBlocks` is replaced
   // wholesale by every accumulator fold (`upsertBlock` returns a new array in
@@ -1179,7 +1201,7 @@ function ConversationThread({
     if (!countGrew && !hasGrown(previousHeight, height)) return;
 
     if (pinnedRef.current) {
-      endRef.current?.scrollIntoView({ block: "end" });
+      scrollToEnd();
       return;
     }
     // Reading history: hold position and say something arrived instead.
@@ -1276,7 +1298,7 @@ function ConversationThread({
           floats — so the strip would cover the turn it is reporting on.
           `scroll-margin-bottom` is honored by `scrollIntoView`, so this
           reserves the strip's height without shifting anything in normal flow. */}
-      <div ref={endRef} aria-hidden className="scroll-mb-8" />
+      <div ref={attachEnd} aria-hidden className="scroll-mb-8" />
     </div>
   );
 }
