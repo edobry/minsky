@@ -501,7 +501,7 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  * standard (`.minsky/rules/guard-feedback-authoring.mdc`) — it is sized by what
  * the corpus currently emits, not by what it ought to emit. The three heaviest
  * (dispatch-watchdog 1800, substrate-bypass 1600, pre-narration 1100) are
- * mt#3479's named follow-up.
+ * tracked at mt#3485, which lowers this constant as it trims them.
  */
 export const MERGED_CONTEXT_BUDGET_CHARS = 7508;
 

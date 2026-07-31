@@ -537,6 +537,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-dispatch-watchdog").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
+    // mt#3479: raised 450 -> 1800 to match measurement, NOT because the guard
+    // needs the room. It renders one block per in-flight dispatch, so its size
+    // scales with fleet activity and the canary's 1668 is a sample, not a bound.
+    // The largest single contributor to the merged budget; first target of the
+    // deep-trim follow-up, mt#3485.
     attentionCost: { denialMessageSizeChars: 1800, optionCount: 3 },
     canary: {
       input: {},
@@ -760,6 +765,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 15000,
     denyCapable: false,
     needsTranscript: true,
+    // mt#3479: raised 1000 -> 1600 to match measurement. Fixed-template text
+    // covering four distinct bypass surfaces, each with its own remediation —
+    // genuinely long, but long by accretion rather than necessity. Deep-trim
+    // follow-up target, mt#3485.
     attentionCost: { denialMessageSizeChars: 1600, optionCount: 4 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
@@ -810,6 +819,9 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "pre-narration",
     denyCapable: false,
     needsTranscript: true,
+    // mt#3479: raised 500 -> 1100 to match measurement. Enumerates the claim
+    // taxonomy inline on every fire; the enumeration is the trim target, not the
+    // matched-claim evidence. Deep-trim follow-up target, mt#3485.
     attentionCost: { denialMessageSizeChars: 1100, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
