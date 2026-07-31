@@ -1,9 +1,6 @@
 import { describe, it, expect, afterEach } from "bun:test";
-import {
-  OpenAIEmbeddingService,
-  isRetryableAIError,
-  isRequestTimeoutError,
-} from "./embedding-service-openai";
+import { OpenAIEmbeddingService } from "./embedding-service-openai";
+import { isRetryableAIError, isRequestTimeoutError } from "./request-resilience";
 import { RateLimitError } from "./enhanced-error-types";
 import { IntelligentRetryService } from "./intelligent-retry-service";
 import { EmbeddingsHealthTracker } from "./embeddings-health-tracker";

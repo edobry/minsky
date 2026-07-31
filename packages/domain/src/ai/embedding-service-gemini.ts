@@ -8,7 +8,7 @@ import {
   isRetryableAIError,
   isRequestTimeoutError,
   REQUEST_TIMEOUT_MS,
-} from "./embedding-service-openai";
+} from "./request-resilience";
 
 const GEMINI_EMBEDDING_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001";
@@ -27,10 +27,18 @@ const sharedRetryService = new IntelligentRetryService({
 export class GeminiEmbeddingService implements EmbeddingService {
   private readonly apiKey: string;
   private readonly outputDimensionality: number;
+  private readonly requestTimeoutMs: number;
 
-  constructor(apiKey: string, outputDimensionality = 1536) {
+  constructor(
+    apiKey: string,
+    outputDimensionality = 1536,
+    requestTimeoutMs: number = REQUEST_TIMEOUT_MS
+  ) {
     this.apiKey = apiKey;
     this.outputDimensionality = outputDimensionality;
+    // Injectable seam, at parity with OpenAIEmbeddingService, so a test can
+    // exercise the timeout without a real 15s wait (PR #2481 review).
+    this.requestTimeoutMs = requestTimeoutMs;
   }
 
   static async fromConfig(): Promise<GeminiEmbeddingService> {
@@ -72,6 +80,10 @@ export class GeminiEmbeddingService implements EmbeddingService {
         isRetryableAIError,
         "gemini-embeddings"
       );
+      // Parity with OpenAIEmbeddingService (PR #2481 review). This service
+      // recorded errors but never recovery, so a gemini-caused degradation
+      // could never be cleared from gemini's own side.
+      EmbeddingsHealthTracker.getInstance().recordRecovery();
       return result;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -100,7 +112,7 @@ export class GeminiEmbeddingService implements EmbeddingService {
         outputDimensionality: this.outputDimensionality,
       }),
       // Same unbounded-hang defect as the OpenAI service; same bound (mt#3444).
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
 
     if (!res.ok) {
