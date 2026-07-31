@@ -43,6 +43,7 @@
 import type { ReviewerConfig } from "./config";
 import {
   createOctokit,
+  fetchIncrementalDiffSince,
   fetchPullRequestContext,
   fetchReviewThreads,
   getAppIdentity,
@@ -233,6 +234,13 @@ export interface RunReviewDeps {
    * the real fetchCommitMessagesSince call. Throw to simulate a fetch error.
    */
   commitMessageFetcher?: CommitMessageFetcherFn;
+
+  /**
+   * Test seam for the incremental diff-since-last-review fetch (mt#3471).
+   * When provided, replaces the real fetchIncrementalDiffSince call. Return
+   * undefined to simulate an unresolvable scope (force-push, truncation, 5xx).
+   */
+  incrementalDiffFetcher?: typeof fetchIncrementalDiffSince;
 
   /**
    * Drizzle DB instance for writing convergence metrics.
@@ -543,6 +551,7 @@ async function runReviewBody(
     flatFindings: priorFlatFindings,
     sanitizedBodies: priorReviewSanitizedBodies,
     latestSubmittedAt: latestPriorReviewSubmittedAt,
+    latestCommitId: latestPriorReviewCommitId,
   } = await ingestPriorReviews({
     fetcher: deps.priorReviewFetcher,
     octokit,
@@ -597,31 +606,103 @@ async function runReviewBody(
   );
   const priorReviewsPresentForPrompt = priorReviewsMarkdown.trim().length > 0;
 
-  // Extracted fix-commit diff for prompt routing and for the downgrade pass.
-  // Initialized as a shared variable so the outputToolsActive block can reuse it.
+  // The diff (and matching file list) this round actually shows the model.
+  // Defaults to the whole PR; narrowed below on a re-review round.
   let promptDiff = pr.diff;
+  let promptFileEntries = pr.fileEntries;
   let sharedFixCommitLineRange: FixCommitLineRangeMap = new Map();
 
-  if (diffScopeBoundedEnabledForPrompt && priorReviewsPresentForPrompt) {
-    // Use the full PR diff as the fix-commit scope approximation. A future
-    // enhancement can filter to commits after the prior-review timestamp via
-    // the GitHub commits API; for now, the full PR diff is a conservative
-    // safe fallback that still enables downgrading findings on files/lines
-    // not present in the PR diff at all.
-    const priorTimestamp =
-      priorReviewIngestion.iterationCount > 0
-        ? new Date(0).toISOString() // placeholder — real per-commit filtering is future work
-        : new Date(0).toISOString();
+  // mt#3471: incremental diff-since-last-review. Every round re-sends the FULL
+  // PR diff today, so a PR costs O(rounds x full diff) — and re-review rounds
+  // are ~68% of all LLM calls and ~68% of spend. Narrow the prompt to the
+  // commits pushed since the last posted review; that review's findings stay in
+  // the prompt (priorReviewsMarkdown) so the round can still verify its own
+  // prior BLOCKINGs, and the file-reading tools still resolve at HEAD, so
+  // anything outside the delta remains reachable on demand rather than resent
+  // wholesale.
+  //
+  // Deliberately a SEPARATE flag from REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED: that
+  // one also arms mt#1875's severity-downgrade pass, which changes what the
+  // reviewer BLOCKS on. This flag changes only how much context the round is
+  // given, so the cost lever can ship without the quality-affecting one.
+  const incrementalDiffEnabled = /^(true|1|yes|on)$/i.test(
+    (process.env.REVIEWER_INCREMENTAL_DIFF_ENABLED ?? "").trim()
+  );
+  let incrementalDiffApplied = false;
+
+  if (incrementalDiffEnabled && latestPriorReviewCommitId !== undefined) {
+    const incrementalDiffFetcher = deps.incrementalDiffFetcher ?? fetchIncrementalDiffSince;
+    let incremental: Awaited<ReturnType<typeof fetchIncrementalDiffSince>>;
     try {
-      const fixCommitResult = extractFixCommitDiff(pr.diff, priorTimestamp);
-      promptDiff = fixCommitResult.diff;
+      incremental = await incrementalDiffFetcher(
+        octokit,
+        owner,
+        repo,
+        latestPriorReviewCommitId,
+        pr.headSha,
+        config.githubTimeoutMs
+      );
+    } catch (err: unknown) {
+      // fetchIncrementalDiffSince swallows its own errors; this covers an
+      // injected fetcher (or a future variant) that throws instead.
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn("reviewer.incremental_diff_failed", {
+        event: "reviewer.incremental_diff_failed",
+        pr: prNumber,
+        baseSha: latestPriorReviewCommitId,
+        headSha: pr.headSha,
+        error: message,
+      });
+      incremental = undefined;
+    }
+
+    if (incremental !== undefined) {
+      promptDiff = incremental.diff;
+      promptFileEntries = incremental.fileEntries;
+      incrementalDiffApplied = true;
+      log.info("reviewer.incremental_diff_applied", {
+        event: "reviewer.incremental_diff_applied",
+        pr: prNumber,
+        baseSha: latestPriorReviewCommitId,
+        headSha: pr.headSha,
+        fullDiffChars: pr.diff.length,
+        incrementalDiffChars: incremental.diff.length,
+        fullFileCount: pr.fileEntries.length,
+        incrementalFileCount: incremental.fileEntries.length,
+      });
+    } else {
+      // Distinct event from the failure log above: this is the DESIGNED
+      // fallback (force-push made the base unreachable, comparison truncated or
+      // 5xx'd, or no new commits), not an error. AT2 asserts on this event.
+      log.info("reviewer.incremental_diff_fallback_full", {
+        event: "reviewer.incremental_diff_fallback_full",
+        pr: prNumber,
+        baseSha: latestPriorReviewCommitId,
+        headSha: pr.headSha,
+      });
+    }
+  }
+
+  if (diffScopeBoundedEnabledForPrompt && priorReviewsPresentForPrompt) {
+    // mt#1875's downgrade pass derives its scope map from the SAME diff the
+    // model was shown, so the two can never disagree about what was in scope.
+    // Before mt#3471 that diff was always the full PR diff (the module's
+    // documented placeholder); it is now the real commits-since-last-review
+    // range whenever the incremental fetch above succeeded, and still the full
+    // PR diff otherwise — preserving mt#1875's prior behavior on the fallback.
+    try {
+      const fixCommitResult = extractFixCommitDiff(
+        promptDiff,
+        latestPriorReviewSubmittedAt ?? new Date(0).toISOString()
+      );
       sharedFixCommitLineRange = fixCommitResult.lineRange;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn(
-        `[mt#1875] Fix-commit diff extraction failed for prompt routing, using full PR diff: ${message}`
+        `[mt#1875] Fix-commit line-range extraction failed, downgrade pass disabled for this round: ${message}`
       );
-      // promptDiff remains pr.diff (full diff fallback)
+      // sharedFixCommitLineRange stays empty — applyDiffScopeBoundedDowngrade
+      // treats an empty map as "preserve every finding".
     }
   }
 
@@ -712,8 +793,16 @@ async function runReviewBody(
   // Chunked review gate (mt#2120): when the diff is large, split into
   // per-file chunks and review each chunk separately to avoid 1M+ token
   // prompts that cause cascading timeouts.
+  //
+  // mt#3471: gate AND chunk on the same narrowed view (`promptDiff` /
+  // `promptFileEntries`). These were previously split — the gate read
+  // `promptDiff` while the chunker re-expanded to `pr.fileEntries`/`pr.diff`.
+  // That was harmless only because `promptDiff` always equalled `pr.diff`; once
+  // a round is genuinely narrowed, the split would decide chunking on the delta
+  // and then chunk the whole PR, re-inflating exactly the cost this removes.
   const totalDiffLines = promptDiff.split("\n").length;
-  const useChunkedReview = outputToolsActive && shouldChunkReview(pr.fileEntries, totalDiffLines);
+  const useChunkedReview =
+    outputToolsActive && shouldChunkReview(promptFileEntries, totalDiffLines);
 
   let output: ReviewOutput;
   let validation: { ok: true } | { ok: false; reason: string };
@@ -732,8 +821,8 @@ async function runReviewBody(
       basePromptInput,
       tools: toolsActive ? toolContext : undefined,
       outputToolsActive,
-      fileEntries: pr.fileEntries,
-      diff: pr.diff,
+      fileEntries: promptFileEntries,
+      diff: promptDiff,
       owner,
       repo,
       prNumber,
@@ -945,7 +1034,11 @@ async function runReviewBody(
         prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
         sha: pr.headSha,
         iterationIndex: currentIterationIndex,
-        diff_scope: "fix_commit",
+        // mt#3471: "fix_commit" only when the incremental fetch actually
+        // resolved a commits-since-last-review range. On the fallback the scope
+        // map is derived from the whole PR diff, and labelling that
+        // "fix_commit" would misreport the downgrade pass's real reach.
+        diff_scope: incrementalDiffApplied ? "fix_commit" : "full_pr",
         filesInScope: fixCommitLineRange.size,
       });
     }
