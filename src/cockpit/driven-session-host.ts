@@ -632,6 +632,29 @@ export interface DrivenSessionRecord {
   readonly costHistory: DrivenSessionCostSummary[];
   /** Live WS subscribers (registered by ./driven-session-ws.ts on connect). */
   readonly subscribers: Set<DrivenSessionSubscriber>;
+  /**
+   * True when this record's `eventLog` can never contain the conversation's
+   * PRIOR history, so a connecting client must be sent the on-disk transcript
+   * instead (mt#3453).
+   *
+   * Set for every record built by {@link resumeDrivenSession} — which covers
+   * both origins that need it: a conversation ATTACHED from disk (mt#3095,
+   * never observed in this process) and one REHYDRATED after a daemon restart
+   * (mt#3038, whose log died with the previous process). A fresh
+   * {@link startDrivenSession} spawn leaves it false: it starts the
+   * conversation, so there is no prior history to replay.
+   *
+   * This is a property of the record's ORIGIN, deliberately not a check on
+   * `eventLog.length`. The first implementation gated replay on an empty log
+   * and live-verification found it silently never fired: the actuator starts
+   * emitting frames immediately, so by the time any client connects the log is
+   * already non-empty and the "needs history" condition has evaporated. Origin
+   * does not change with timing.
+   *
+   * NOT cleared after a replay — every connecting client needs the history, not
+   * just the first.
+   */
+  readonly needsHistoryReplay: boolean;
 }
 
 export class DrivenSessionRegistry {
@@ -942,6 +965,8 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     actuatorGeneration: 0,
     proc,
     eventLog: [],
+    // A fresh spawn STARTS the conversation — there is no prior history.
+    needsHistoryReplay: false,
     costHistory: [],
     subscribers: new Set(),
   };
@@ -1219,6 +1244,9 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
     actuatorGeneration: previous.actuatorGeneration + 1,
     proc,
     eventLog: [],
+    // Attached-from-disk or resumed: prior history is on disk, never in this
+    // record's log (mt#3453).
+    needsHistoryReplay: true,
     costHistory: [],
     subscribers: new Set(),
   };
@@ -1311,6 +1339,8 @@ export function buildReconnectingDrivenSessionRecord(
     actuatorGeneration: input.actuatorGeneration,
     proc: createDeadProcessPlaceholder(),
     eventLog: [],
+    // Rehydrated at boot: its predecessor's log died with that process (mt#3453).
+    needsHistoryReplay: true,
     costHistory: [],
     subscribers: new Set(),
   };

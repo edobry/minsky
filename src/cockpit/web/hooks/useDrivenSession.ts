@@ -30,6 +30,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
 import {
+  allDrivenBlocks,
   createInitialDrivenAccumulatorState,
   foldDrivenSessionEvent,
   type DrivenAccumulatorState,
@@ -330,7 +331,9 @@ export function useDrivenSession(localId: string | null | undefined): UseDrivenS
   }, []);
 
   return {
-    blocks: accState.blocks,
+    // mt#3453 — on-disk history first, then this channel's live turns. Read via
+    // the accumulator's own reader so the ordering rule lives in one place.
+    blocks: allDrivenBlocks(accState),
     status: deriveStatus(connectionState, accState.runStatus),
     connectionState,
     interactionState: accState.interactionState,
