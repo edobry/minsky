@@ -308,24 +308,22 @@ jobs:
           RUN_INTEGRATION_TESTS: "1"
         run: |
           bun test --preload ./tests/setup.ts --timeout=60000 \
-            tests/integration/transcript-metadata-fill-if-null.integration.test.ts \
-            tests/integration/transcript-attachment-parent-row.integration.test.ts
+            tests/integration/transcript-metadata-fill-if-null.integration.test.ts
 
-      - name: Run the transcript-attachment ingest verification script
-        # mt#3482 / PR #2503 R1: the §7a artifact drives the REAL transcript
-        # source + ingest service end to end, which neither suite above does —
-        # the unit fake cannot enforce an FK and the integration test exercises
-        # the constraint without going through `ingestSession`. It needs exactly
-        # the Postgres this job already stands up, so running it here is what
-        # keeps it from bit-rotting into an unrun check.
-        env:
-          # Reuse the job-level value rather than composing a second connection
-          # string. A second credential-bearing URL literal trips the gitleaks
-          # pre-commit scan even with the same format() indirection the
-          # job-level declaration uses, because that scan reads only the staged
-          # diff and so never sees the older line's precedent.
-          VERIFY_POSTGRES_URL: ${{ env.INTEGRATION_POSTGRES_URL }}
-        run: bun scripts/verify-transcript-attachment-ingest.ts
+        # HELD OUT until mt#3509 lands (mt#3482 / PR #2503 R1):
+        #
+        #   tests/integration/transcript-attachment-parent-row.integration.test.ts
+        #   bun scripts/verify-transcript-attachment-ingest.ts
+        #
+        # Both need `agent_transcript_attachments`, and the migrate step above
+        # does not create it: on a fresh database `persistence migrate --execute`
+        # plans 83 pending, reports "Applied 34", exits 0, and leaves that table
+        # (migration 0039) absent — reproduced locally and by this very job on
+        # PR #2503. Wiring them in now would make this job red for a reason that
+        # has nothing to do with what they assert. Re-wire them as part of
+        # mt#3509 — that task's acceptance tests include the fresh-migrate check
+        # these two depend on. Until then both remain runnable locally against a
+        # database that has the table; see the mt#3482 PR body for their output.
 
   docker-suite:
     name: Integration (Docker/testcontainer — manual only)
