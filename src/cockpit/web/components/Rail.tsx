@@ -53,6 +53,7 @@ import {
   History,
   Menu,
   X,
+  Wrench,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useOpenAskCount } from "../hooks/useOpenAskCount";
@@ -86,6 +87,9 @@ const BROWSE: NavItem[] = [
   // reads the context-inspector source directly rather than via this rail.
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/asks", label: "Asks", icon: MessageCircleQuestion },
+  // mt#3331 — the EngProd toil-miner's curation-gate digest: filed proposal
+  // tasks grouped by mining run, with accept/reject wiring.
+  { to: "/proposals", label: "Proposals", icon: Wrench },
   { to: "/activity", label: "Activity", icon: Bell },
   { to: "/embeddings", label: "Embeddings", icon: Cpu },
   { to: "/memories", label: "Memories", icon: Brain },

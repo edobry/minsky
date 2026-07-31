@@ -202,6 +202,65 @@ type DecisionOutcome =
   | { kind: "ok"; newStatus: string };
 
 /**
+ * Parse the `tasks.tags` column (a JSON-serialized string[], per
+ * `task-embeddings.ts`'s schema comment) defensively — malformed content
+ * degrades to no tags rather than throwing. Pure and exported so the guard
+ * logic below is directly unit-testable (mirrors this file's sibling
+ * `tasks.ts`'s convention of extracting pure helpers for routes with no DI
+ * seam — see `tasks.test.ts`'s header comment).
+ */
+export function parseTaskTags(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Pure guard: given a task row (or none, for a missing id), decide whether
+ * an accept/reject action may proceed. Extracted from `handleDecision` so
+ * the DECISION rules (not-found / wrong-tag / already-actioned) are
+ * testable without a database — same pattern as
+ * `ledger-service.ts`'s `decideShouldPropose`/`decideReconciliation`.
+ */
+export type ProposalGuardResult =
+  | { kind: "not-found" }
+  | { kind: "not-a-proposal" }
+  | { kind: "conflict"; status: string }
+  | { kind: "ok" };
+
+export function checkProposalGuard(
+  task: { status: string | null | undefined; tags: string | null | undefined } | undefined
+): ProposalGuardResult {
+  if (!task) return { kind: "not-found" };
+  if (!parseTaskTags(task.tags).includes(ENGPROD_PROPOSAL_TAG)) {
+    return { kind: "not-a-proposal" };
+  }
+  if (task.status !== "BLOCKED") {
+    return { kind: "conflict", status: task.status ?? "unknown" };
+  }
+  return { kind: "ok" };
+}
+
+/**
+ * Pure validation for the reject action's required free-text reason (spec
+ * requirement #4). Free text is fine; empty/whitespace-only or a
+ * non-string body field is not.
+ */
+export function validateRejectionReason(
+  body: unknown
+): { ok: true; reason: string } | { ok: false } {
+  const reason = (body as { reason?: unknown } | null | undefined)?.reason;
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    return { ok: false };
+  }
+  return { ok: true, reason: reason.trim() };
+}
+
+/**
  * Shared accept/reject handler. Both actions share the identical guard
  * sequence (task exists, is tagged `engprod-proposal`, is currently
  * BLOCKED) and the identical atomicity contract (task status + ledger
@@ -228,12 +287,12 @@ async function handleDecision(
   // required at the API boundary rather than treated as optional.
   let reason: string | undefined;
   if (decision === "reject") {
-    const body = req.body as { reason?: unknown };
-    if (typeof body?.reason !== "string" || body.reason.trim().length === 0) {
+    const validated = validateRejectionReason(req.body);
+    if (!validated.ok) {
       res.status(400).json({ error: "A rejection reason is required." });
       return;
     }
-    reason = body.reason.trim();
+    reason = validated.reason;
   }
 
   try {
@@ -250,22 +309,11 @@ async function handleDecision(
     const outcome: DecisionOutcome = await db.transaction(async (tx) => {
       const taskRows = await tx.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
       const task = taskRows[0];
-      if (!task) {
-        return { kind: "not-found" };
-      }
 
-      let tags: string[] = [];
-      try {
-        tags = task.tags ? (JSON.parse(task.tags) as string[]) : [];
-      } catch {
-        tags = [];
-      }
-      if (!tags.includes(ENGPROD_PROPOSAL_TAG)) {
-        return { kind: "not-a-proposal" };
-      }
-      if (task.status !== "BLOCKED") {
-        return { kind: "conflict", status: task.status ?? "unknown" };
-      }
+      const guard = checkProposalGuard(task);
+      if (guard.kind === "not-found") return { kind: "not-found" };
+      if (guard.kind === "not-a-proposal") return { kind: "not-a-proposal" };
+      if (guard.kind === "conflict") return { kind: "conflict", status: guard.status };
 
       const ledgerRows = await tx
         .select()
@@ -282,7 +330,7 @@ async function handleDecision(
       const now = new Date();
       await tx
         .update(tasksTable)
-        .set({ status: newStatus as (typeof task)["status"], updatedAt: now })
+        .set({ status: newStatus as (typeof tasksTable.$inferSelect)["status"], updatedAt: now })
         .where(eq(tasksTable.id, taskId));
 
       await tx
