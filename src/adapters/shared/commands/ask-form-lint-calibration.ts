@@ -55,14 +55,18 @@ export interface AskFormLintCalibrationRecord {
   kind: AskKind;
   matches: Array<{ class: FormLintMatch["check"]; phrase: string }>;
   /**
-   * True when the create call bypassed the mt#3326 hard-reject via
-   * `acknowledgeFormWarnings: true`. Between mt#3326 and mt#3436, a record
-   * could only exist for an Ask whose creation persisted despite
-   * violations, making this always `true`. As of mt#3436, a record can ALSO
-   * exist because the only match present is the calibration-first
-   * `missing-force-immediate` check — which never blocks and needs no
-   * acknowledgement — so this field is `false` in that case even though the
-   * Ask fired a form-lint match. Kept explicit (rather than inferred) so the
+   * True only when the create call bypassed the mt#3326 hard-reject via
+   * `acknowledgeFormWarnings: true` for a genuine BLOCKING match. Between
+   * mt#3326 and mt#3436, a record could only exist for an Ask whose creation
+   * persisted despite violations, making this always `true`. As of mt#3436,
+   * a record can ALSO exist because the only match present is the
+   * calibration-first `missing-force-immediate` check — which never blocks
+   * and needs no acknowledgement — so this field is `false` in that case
+   * REGARDLESS of what the caller passed for `acknowledgeFormWarnings`
+   * (the write site computes this via `filterBlockingFormLintMatches` in
+   * `./asks.ts`, not by echoing the raw flag — a caller passing that flag
+   * for an unrelated reason must not make an advisory-only record read as
+   * an acknowledged bypass). Kept explicit (rather than inferred) so the
    * field self-documents in isolation and survives any future decoupling
    * of the validate-time check from this write site. Optional so pre-mt#3326
    * records in the existing JSONL log (written when every check was

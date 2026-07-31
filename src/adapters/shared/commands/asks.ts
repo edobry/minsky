@@ -893,6 +893,24 @@ export function validateAuthorizationApproveOptions(params: {
  * @throws {ValidationError} when form-lint matches exist and
  *   `acknowledgeFormWarnings` is not `true`
  */
+/**
+ * Filters form-lint matches down to the BLOCKING subset — everything except
+ * the calibration-first `missing-force-immediate` check (mt#3436). Shared by
+ * `validateFormLintNotViolated` (decides whether to hard-reject) and the
+ * `asks.create` execute handler (decides the calibration log's
+ * `acknowledged` field, see below) so the two can never drift on what counts
+ * as blocking. Excluded upstream in `computeFormLintMatches` itself would
+ * also hide the check from `formWarnings`/the calibration log entirely —
+ * this filters only at the decision points that need the blocking/advisory
+ * distinction, not at the point that computes matches.
+ *
+ * Exported for direct testing, matching `validateFormLintNotViolated`'s
+ * pattern above.
+ */
+export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLintMatch[] {
+  return matches.filter((m) => m.check !== "missing-force-immediate");
+}
+
 export function validateFormLintNotViolated(params: {
   kind?: AskKind;
   question?: string;
@@ -911,11 +929,7 @@ export function validateFormLintNotViolated(params: {
     options: params.options,
     forceImmediate: params.forceImmediate,
   });
-  // mt#3436: missing-force-immediate is deliberately calibration-first —
-  // never part of this hard-reject boundary. Excluded here rather than
-  // upstream in computeFormLintMatches so it still reaches formWarnings /
-  // the calibration log via createAskWithFormLint below.
-  const blocking = matches.filter((m) => m.check !== "missing-force-immediate");
+  const blocking = filterBlockingFormLintMatches(matches);
   if (blocking.length === 0) return;
 
   const violations = blocking.map((m) => `  - ${m.check}: ${m.message}`).join("\n");
@@ -1823,12 +1837,19 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // never blocks. Record either case on the calibration JSONL so
         // /calibration-review can see override/fire frequency for both.
         if (formLintMatches.length > 0) {
+          // mt#3436 R1: `acknowledged` must reflect a genuine hard-reject
+          // bypass, not the raw acknowledgeFormWarnings flag — a caller can
+          // pass that flag for an unrelated reason (or defensively) on a
+          // create whose ONLY match is the advisory missing-force-immediate
+          // check, which has nothing to acknowledge. Gate on whether a
+          // BLOCKING match was actually present.
+          const hasBlockingMatch = filterBlockingFormLintMatches(formLintMatches).length > 0;
           appendAskFormLintCalibrationRecord(ctx?.workspacePath ?? process.cwd(), {
             timestamp: new Date().toISOString(),
             askId: result.id,
             kind: result.kind,
             matches: formLintMatches.map((m) => ({ class: m.check, phrase: m.message })),
-            acknowledged: Boolean(params.acknowledgeFormWarnings),
+            acknowledged: hasBlockingMatch && Boolean(params.acknowledgeFormWarnings),
           });
         }
 

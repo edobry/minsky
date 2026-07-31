@@ -93,7 +93,23 @@ export const PORTAL_LINK_CHECK_KIND: AskKind = "authorization.approve";
  * incident (mt#3436) — matched case-insensitively, whole-word only, against
  * the question body. Grounded in the originating incident's actual ask text
  * (`cb89ecf1` / ask#6575: "...has been failing every review... 429 You have
- * no credits remaining..."), not a speculative list.
+ * no credits remaining..."), not a speculative list. Verbatim from the
+ * mt#3436 spec's Success Criterion 2.
+ *
+ * **Known elevated false-positive risk on `production` (PR #2472 R1).** A
+ * bare "production" fires on any routine deploy/approval ask that merely
+ * mentions the environment (e.g. "approve deploying main to production"),
+ * not just genuine incidents — confirmed by a pre-existing test in this
+ * repo that had to be reworded once this check landed
+ * (`asks.form-lint-options.test.ts`'s "an optionless ask is unaffected by
+ * the option checks"). This is accepted, not a bug: the check is
+ * deliberately calibration-first (warn-only, `.minsky/ask-form-lint-calibration.jsonl`),
+ * the exact posture that tolerates an elevated false-positive rate while
+ * real fire-rate data accumulates — the same ladder the five mt#3326 checks
+ * themselves went through before any of them proved worth blocking on. If
+ * `/calibration-review` later shows `production` dominating fires with low
+ * signal, narrow the pattern (e.g. require it alongside another vocabulary
+ * word, or drop it) then — not speculatively now.
  */
 export const INCIDENT_VOCABULARY_PATTERN =
   /\b(outage|down|credits|failing|production|incident|429)\b/i;
