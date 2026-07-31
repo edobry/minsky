@@ -236,3 +236,38 @@ describe("needsHistoryReplay gate (mt#3453)", () => {
 afterAll(() => {
   rmSync(REAL_CWD, { recursive: true, force: true });
 });
+
+/**
+ * Locator equivalence (mt#3453, PR #2482 R1).
+ *
+ * `locateConversationTranscript` was private to the attach path and is now
+ * exported so the WS replay channel resolves a conversation's transcript
+ * through the SAME lookup. Equivalence is currently by construction — one
+ * function, two callers — but nothing PINNED it, so a future change giving the
+ * attach path its own default would let the two surfaces disagree about where a
+ * conversation lives, with no test failing. These pin it.
+ */
+describe("locateConversationTranscript equivalence (mt#3453)", () => {
+  const UNKNOWN = "00000000-0000-4000-8000-000000000000";
+
+  test("returns null for a conversation with no transcript on disk", async () => {
+    const { locateConversationTranscript } = await import("./driven-session-launch");
+    expect(await locateConversationTranscript(UNKNOWN)).toBeNull();
+  });
+
+  test("the attach path's DEFAULT locator resolves the same unknown id to no-transcript", async () => {
+    const { orchestrateDrivenSessionAttach } = await import("./driven-session-launch");
+    // No `locateConversation` dep — this exercises the production default. If
+    // that default ever stops being the exported locator (or stops reading the
+    // real transcript tree), this stops reporting `no-transcript`.
+    const outcome = await orchestrateDrivenSessionAttach(UNKNOWN, {
+      getDb: async () => ({}) as never,
+      readPresence: async () => "IDLE",
+      withResumeLock: async (_db, _c, fn) => ({ acquired: true, result: await fn() }),
+      spawnFn: () => {
+        throw new Error("must not spawn — the id has no transcript");
+      },
+    });
+    expect(outcome).toEqual({ outcome: "no-transcript" });
+  });
+});
