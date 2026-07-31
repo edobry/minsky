@@ -12,17 +12,10 @@
  * Distinct from /conversation/:id (ConversationPage), which is keyed by the
  * harness agentSessionId and lands on the Conversation tab by default.
  */
-import { useParams, useLocation, Link } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import {
-  RunDetail,
-  basePathFor,
-  fetchWorkspaceDetail,
-  tabFromPathname,
-  type WorkspaceDetailPayload,
-} from "../widgets/RunDetail";
+import { RunDetail, fetchWorkspaceDetail, type WorkspaceDetailPayload } from "../widgets/RunDetail";
 import { CopyId } from "../components/CopyId";
-import { cn } from "../lib/utils";
 import type { WorkspaceId } from "@minsky/domain/ids";
 
 export function WorkspaceDetailPage() {
@@ -45,19 +38,8 @@ export function WorkspaceDetailPage() {
   });
   const shortId = detailQuery.data?.session.shortId ?? undefined;
 
-  // Film tab drops the prose column — see the matching note in
-  // `ConversationPage` for why (mt#3461).
-  const { pathname } = useLocation();
-  const isFilmTab =
-    tabFromPathname(pathname, basePathFor("workspace", sessionId), "workspace") === "film";
-
   return (
-    <div
-      className={cn(
-        "p-4 w-full flex flex-col gap-6",
-        isFilmTab ? "max-w-none" : "max-w-4xl"
-      )}
-    >
+    <div className="p-4 w-full max-w-4xl flex flex-col gap-6">
       {sessionId ? (
         <RunDetail
           key={sessionId}

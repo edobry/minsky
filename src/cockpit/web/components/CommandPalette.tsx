@@ -11,8 +11,25 @@
  *
  * PRs join as a search source (mt#2536 wired changeset linkification;
  * the /changeset/:n detail route is mt#2535).
+ *
+ * Actions (mt#3464). The palette shipped navigation-only: every item resolved
+ * to a path, so there was no way to express "do a thing" here at all. The
+ * `PaletteAction` type below is that mechanism — an item that RUNS instead of
+ * navigating — and "New conversation" is its first (and currently only)
+ * member. Each action renders its keyboard shortcut, per the teach-the-
+ * shortcut pattern: the palette is how an operator discovers the chord, and
+ * the chord is how they stop needing the palette.
+ *
+ * REQUIRES `<NewConversationProvider>` as an ancestor (PR #2477 R1). `Layout`
+ * mounts it around the whole shell, so every production render is covered;
+ * mounting this component outside that tree THROWS rather than degrading.
+ * That is deliberate — a missing provider is a wiring bug, and the quiet
+ * alternative (each surface falling back to its own mutation instance) is the
+ * double-fire-and-silent-failure pair the provider exists to prevent. A test
+ * that renders the palette standalone must wrap it; see
+ * `widgets/command-palette.test.tsx`.
  */
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -27,6 +44,12 @@ import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { entityToPath } from "../lib/entity-codec";
 import { extractConversationRows } from "../lib/conversations-source";
 import { fetchTaskIndex, TASK_INDEX_QUERY_KEY } from "../lib/entity-labels";
+import { useNewConversation } from "../hooks/useNewConversation";
+import {
+  NEW_CONVERSATION_DESCRIPTION,
+  NEW_CONVERSATION_HINT,
+  NEW_CONVERSATION_LABEL,
+} from "../lib/new-conversation";
 
 // ---------------------------------------------------------------------------
 // Entity types for the palette
@@ -75,6 +98,23 @@ interface PalettePage {
   path: string;
   label: string;
   description: string;
+}
+
+/**
+ * An item that RUNS instead of navigating (mt#3464). Deliberately NOT part of
+ * the `PaletteEntity` union below: every member of that union resolves to a
+ * path through `entityToPath`, and an action has none — folding it in would
+ * mean a `type === "action"` hole in the one function whose whole job is
+ * (type, id) → path.
+ */
+interface PaletteAction {
+  type: "action";
+  id: string;
+  label: string;
+  description: string;
+  /** Rendered shortcut hint — how the operator learns to skip the palette. */
+  hint: string;
+  run: () => void;
 }
 
 type PaletteEntity =
@@ -218,6 +258,10 @@ const TYPE_BADGE_CONFIG: Record<string, { letter: string; className: string }> =
   memory: { letter: "M", className: "bg-emerald-500/20 text-emerald-500" },
   conversation: { letter: "C", className: "bg-sky-500/20 text-sky-500" },
   page: { letter: "P", className: "bg-muted text-muted-foreground" },
+  // A command-prompt caret rather than a letter: actions are a different
+  // KIND of row, not another entity type, and every letter that reads as
+  // "action" is already taken (A = ask).
+  action: { letter: ">", className: "bg-primary text-primary-foreground" },
 };
 
 function TypeBadge({ type }: { type: string }) {
@@ -248,6 +292,7 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const navigate = useNavigate();
+  const newConversation = useNewConversation();
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   // Global Cmd+K / Ctrl+K keyboard shortcut
@@ -349,6 +394,28 @@ export function CommandPalette() {
     [navigate]
   );
 
+  // Actions run instead of navigating (mt#3464). Close the palette FIRST so
+  // the overlay is gone before the action's own effect (here: navigation to
+  // the new conversation) lands.
+  const actions = useMemo<PaletteAction[]>(
+    () => [
+      {
+        type: "action",
+        id: "new-conversation",
+        label: NEW_CONVERSATION_LABEL,
+        description: NEW_CONVERSATION_DESCRIPTION,
+        hint: NEW_CONVERSATION_HINT,
+        run: newConversation.start,
+      },
+    ],
+    [newConversation.start]
+  );
+
+  const handleAction = useCallback((action: PaletteAction) => {
+    setOpen(false);
+    action.run();
+  }, []);
+
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
       <CommandInput
@@ -363,6 +430,28 @@ export function CommandPalette() {
         ) : (
           <>
             <CommandEmpty>No results found.</CommandEmpty>
+
+            {/* Actions — run, don't navigate (mt#3464). Listed first: an
+                action is what the operator came to DO, whereas the groups
+                below are places to go. */}
+            <CommandGroup heading="Actions">
+              {actions.map((action) => (
+                <CommandItem
+                  key={action.id}
+                  value={`action ${action.label} ${action.description}`}
+                  onSelect={() => handleAction(action)}
+                >
+                  <TypeBadge type="action" />
+                  <span className="ml-2">{action.label}</span>
+                  <span className="ml-2 truncate text-xs text-muted-foreground">
+                    {action.description}
+                  </span>
+                  <kbd className="ml-auto flex-shrink-0 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                    {action.hint}
+                  </kbd>
+                </CommandItem>
+              ))}
+            </CommandGroup>
 
             {/* Pages */}
             <CommandGroup heading="Pages">
