@@ -1789,7 +1789,18 @@ export function createStartCommand(
               container.get("taskService")
             );
           })
-          .catch(() => {}); // Embedding sweep is best-effort
+          // mt#3370: de-silenced, for the same reason mt#2192 de-silenced the
+          // transcript ingest registered directly below. This was a bare
+          // `.catch(() => {})`, so the recovery layer for missing embeddings
+          // could fail entirely and produce no signal anywhere — which is why
+          // mt#2861 sat unindexed for 16 days with no explanation available.
+          // Best-effort means it must not BLOCK boot; it does not mean it must
+          // be invisible when it breaks.
+          .catch((err) => {
+            log.warn("Startup embedding sweep failed (best-effort)", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
 
         // Fire-and-forget background transcript ingest for new JSONL sessions (mt#2051)
         import("../../adapters/shared/commands/transcripts/startup-transcript-ingest")
