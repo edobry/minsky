@@ -465,8 +465,22 @@ async function main(): Promise<void> {
     console.error(`Rounds where downgrade would fire: ${report.summary.roundsWithDowngrade}`);
     console.error(`Total findings that would be downgraded: ${report.summary.totalDowngrades}`);
     console.error("");
-    console.error("=== WARNING ===");
-    console.error(SCOPE_WARNING);
+    // mt#3471: per-round scopes are now real commits-since-prior-review ranges.
+    // Report how many resolved vs fell back, so an operator can tell a genuine
+    // per-round result from one standing in on the full PR diff.
+    const incrementalRounds = report.roundResults.filter(
+      (r) => r.scopeSource === "incremental"
+    ).length;
+    const fallbackRounds = report.roundResults.filter(
+      (r) => r.scopeSource === "full_pr_fallback"
+    ).length;
+    console.error(`Rounds scoped to commits-since-prior-review: ${incrementalRounds}`);
+    console.error(`Rounds that fell back to the full PR diff: ${fallbackRounds}`);
+    if (fallbackRounds > 0) {
+      console.error(
+        "  (a fallback round's scope is PR-wide — treat its downgrade signal as a lower bound)"
+      );
+    }
 
     process.exit(0);
   } catch (err: unknown) {
