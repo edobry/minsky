@@ -23,6 +23,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -137,6 +138,69 @@ export function evictToCap(
     .sort((a, b) => (a.tab.lastActiveAt ?? 0) - (b.tab.lastActiveAt ?? 0) || a.index - b.index);
   const evicted = new Set(evictable.slice(0, tabs.length - cap).map(({ tab }) => tab.path));
   return tabs.filter((tab) => !evicted.has(tab.path));
+}
+
+/** Direction of a relative tab move. */
+export type TabCycleDirection = "next" | "prev";
+
+/**
+ * Which ordering a relative move walks (mt#3469).
+ *
+ * `"positional"` is strip order — the iTerm idiom, and the one that reads
+ * correctly WHILE a strip is visible, because the operator can see where the
+ * move is headed. `"mru"` is recency order — the VS Code ⌃Tab idiom, which
+ * needs no strip at all and therefore keeps working if the shell ever retires
+ * one (mem#742's proposed rework); only the collection it walks would change.
+ * Shipping both is nearly free: `EntityTab.lastActiveAt` already exists as
+ * mt#3252's LRU key, so the MRU order is a sort over data already stored.
+ */
+export type TabCycleMode = "positional" | "mru";
+
+/**
+ * Step one position through `orderedPaths`, wrapping at both ends.
+ *
+ * Returns null when there is nothing to move to — fewer than two entries, per
+ * the mt#3469 criterion that every binding is a no-op at zero or one open tab.
+ *
+ * When `currentPath` is absent from the list the operator is on a non-entity
+ * route (a rail/list page, which by design opens no tab), so there is no
+ * neighbour to be relative TO. Rather than dying there — a common state,
+ * reached by any rail click — the move enters the list at its near end: the
+ * first entry going "next", the last going "prev". That is the same thing
+ * wrapping does at a boundary, so it needs no separate mental model.
+ */
+export function stepInOrder(
+  orderedPaths: string[],
+  currentPath: string | null,
+  direction: TabCycleDirection
+): string | null {
+  const n = orderedPaths.length;
+  if (n < 2) return null;
+  const index = currentPath === null ? -1 : orderedPaths.indexOf(currentPath);
+  if (index < 0) return (direction === "next" ? orderedPaths[0] : orderedPaths[n - 1]) ?? null;
+  const delta = direction === "next" ? 1 : -1;
+  return orderedPaths[(index + delta + n) % n] ?? null;
+}
+
+/**
+ * Tab paths in most-recently-active order, active tab first (mt#3469).
+ *
+ * The active tab is placed at index 0 EXPLICITLY rather than trusted to sort
+ * there on its own `lastActiveAt`. Two tabs activated inside the same
+ * millisecond tie on `Date.now()`, and a tab restored from localStorage may
+ * carry `backfillTabRecency`'s synthetic ordinal instead of a real timestamp —
+ * so recency alone does not reliably put "where the operator is" at the head of
+ * the cycle. Anchoring on `activePath` makes index 0 deterministic in both
+ * cases. Remaining tabs sort by recency descending, ties broken by open order.
+ */
+export function mruOrderedPaths(tabs: EntityTab[], activePath: string | null): string[] {
+  const rest = tabs
+    .map((tab, index) => ({ tab, index }))
+    .filter(({ tab }) => tab.path !== activePath)
+    .sort((a, b) => (b.tab.lastActiveAt ?? 0) - (a.tab.lastActiveAt ?? 0) || a.index - b.index)
+    .map(({ tab }) => tab.path);
+  const active = tabs.find((tab) => tab.path === activePath);
+  return active ? [active.path, ...rest] : rest;
 }
 
 /**
@@ -277,6 +341,26 @@ interface TabsContextValue {
    * rendering that route's own error state and should stay there.
    */
   markTabError: (path: string) => void;
+  /**
+   * Activate the tab one step from the active one and return its path, or null
+   * when the move is a no-op (mt#3469).
+   *
+   * `"positional"` is stateless — each call recomputes strip order, so nothing
+   * needs releasing afterwards. `"mru"` opens a CYCLE: the recency order is
+   * captured on the first call and frozen until `commitTabCycle`, because the
+   * open-on-visit effect stamps `lastActiveAt` on every navigation and would
+   * otherwise re-sort the order between keypresses — making a second press
+   * return to where the first started. This is why VS Code holds its ⌃Tab order
+   * until the modifier is released; the caller must mirror that by calling
+   * `commitTabCycle` on keyup.
+   */
+  activateRelativeTab: (direction: TabCycleDirection, mode: TabCycleMode) => string | null;
+  /**
+   * Release a held MRU cycle: drop the frozen order and stamp the tab the cycle
+   * landed on as most-recent. Idempotent, and a no-op when no cycle is open —
+   * so it is safe to call from a bare `keyup` or a window `blur` handler.
+   */
+  commitTabCycle: () => void;
 }
 
 const TabsContext = createContext<TabsContextValue | null>(null);
@@ -401,15 +485,35 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     }
   }, [tabs]);
 
+  // Frozen order for a held MRU cycle (mt#3469); null when no cycle is open.
+  // Its non-null-ness doubles as the "suppress recency stamping" flag read by
+  // the open-on-visit effect below.
+  const cycleRef = useRef<{ paths: string[]; index: number } | null>(null);
+
   // Open-on-visit: navigating to an entity route ensures its tab exists, and
   // stamps it as the most-recently-active (the LRU key). The set is then
   // trimmed to MAX_OPEN_TABS, protecting the tab just navigated to.
   useEffect(() => {
     const match = matchEntityRoute(pathname);
     if (!match) return;
+    // A held MRU cycle walks a frozen order, so stamping each tab as the cycle
+    // passes THROUGH it would re-sort that order mid-cycle. Only the STAMP is
+    // suppressed, never tab creation: this effect is what guarantees an entity
+    // route always has a tab, and a navigation can land here mid-cycle without
+    // being part of the cycle at all — a rail click with Control still held, or
+    // any path taken after a `keyup` we never received (focus moved between the
+    // keydown and the release). Skipping wholesale would drop those tabs on the
+    // floor, and in the missed-keyup case would keep dropping them for as long
+    // as the stale flag survived. `commitTabCycle` stamps the landed tab once.
+    const cycle = cycleRef.current;
+    const inCycle = cycle?.paths.includes(match.path) ?? false;
+    // Landing outside the frozen order means this navigation is not a cycle
+    // step, so the cycle is over regardless of whether its keyup arrived.
+    if (cycle && !inCycle) cycleRef.current = null;
     const now = Date.now();
     setTabs((prev) => {
       const existing = prev.find((t) => t.path === match.path);
+      if (existing && inCycle) return prev;
       const next = existing
         ? prev.map((t) => (t.path === match.path ? { ...t, lastActiveAt: now } : t))
         : [...prev, { ...match, lastActiveAt: now }];
@@ -456,9 +560,71 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, error: true } : t)));
   }, []);
 
+  const activateRelativeTab = useCallback(
+    (direction: TabCycleDirection, mode: TabCycleMode): string | null => {
+      if (tabs.length < 2) return null;
+
+      if (mode === "positional") {
+        const target = stepInOrder(
+          tabs.map((t) => t.path),
+          activePath,
+          direction
+        );
+        if (target) navigate(target);
+        return target;
+      }
+
+      // Reuse the open cycle's frozen order if one is already running; capture
+      // a fresh one otherwise. Starting at -1 when the operator is on a
+      // non-entity route makes the first "next" land on index 0 (the most
+      // recent tab) rather than skipping past it.
+      const cycle = cycleRef.current ?? {
+        paths: mruOrderedPaths(tabs, activePath),
+        index: activePath === null ? -1 : 0,
+      };
+      const n = cycle.paths.length;
+      if (n < 2) return null;
+      const delta = direction === "next" ? 1 : -1;
+      const index = (cycle.index + delta + n + n) % n;
+      const target = cycle.paths[index] ?? null;
+      if (!target) return null;
+      cycleRef.current = { paths: cycle.paths, index };
+      navigate(target);
+      return target;
+    },
+    [tabs, activePath, navigate]
+  );
+
+  const commitTabCycle = useCallback(() => {
+    const cycle = cycleRef.current;
+    cycleRef.current = null;
+    const landed = cycle?.paths[cycle.index];
+    if (!landed) return;
+    const now = Date.now();
+    setTabs((prev) => prev.map((t) => (t.path === landed ? { ...t, lastActiveAt: now } : t)));
+  }, []);
+
   const value = useMemo(
-    () => ({ tabs, activePath, closeTab, closeAllTabs, closeOtherTabs, markTabError }),
-    [tabs, activePath, closeTab, closeAllTabs, closeOtherTabs, markTabError]
+    () => ({
+      tabs,
+      activePath,
+      closeTab,
+      closeAllTabs,
+      closeOtherTabs,
+      markTabError,
+      activateRelativeTab,
+      commitTabCycle,
+    }),
+    [
+      tabs,
+      activePath,
+      closeTab,
+      closeAllTabs,
+      closeOtherTabs,
+      markTabError,
+      activateRelativeTab,
+      commitTabCycle,
+    ]
   );
 
   return <TabsContext.Provider value={value}>{children}</TabsContext.Provider>;
